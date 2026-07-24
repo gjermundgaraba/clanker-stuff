@@ -1,0 +1,421 @@
+import { spawn } from "node:child_process";
+
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import { formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
+import {
+  auth,
+  UnauthorizedError,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { Type } from "typebox";
+import type { TSchema } from "typebox";
+
+import type { HttpServerConfig, McpConfig } from "./config.js";
+import {
+  PersistentMcpOAuthProvider,
+  startOAuthCallbackServer,
+} from "./oauth.js";
+import type { OAuthCallbackServer } from "./oauth.js";
+
+const TOOL_NAME_PREFIX = "mcp_";
+const OPEN_OBJECT_SCHEMA = Type.Object({}, { additionalProperties: true });
+
+interface ConnectedServer {
+  client: Client;
+  toolNames: string[];
+  transport: Transport;
+}
+
+interface McpLoadResult {
+  serverName: string;
+  toolCount: number;
+  toolNames: string[];
+}
+
+interface LoadServerOptions {
+  pi: ExtensionAPI;
+  serverName: string;
+  serverConfig: McpConfig["mcpServers"][string];
+  ui: Pick<ExtensionCommandContext["ui"], "notify">;
+  interactive: boolean;
+  signal?: AbortSignal;
+}
+
+type PiToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+const errorMessage = (error: unknown): string => {
+  if (!(error instanceof Error) || !error.message) {
+    return String(error);
+  }
+  if (
+    error.message.includes(
+      "Incompatible auth server: does not support dynamic client registration"
+    )
+  ) {
+    return `${error.message}. Configure oauth.clientId for this MCP server.`;
+  }
+  return error.message;
+};
+
+const activateTools = (
+  pi: ExtensionAPI,
+  toolNames: readonly string[]
+): void => {
+  const active = pi.getActiveTools();
+  const activeSet = new Set(active);
+  const toAdd = toolNames.filter((name) => !activeSet.has(name));
+  if (toAdd.length > 0) {
+    pi.setActiveTools([...active, ...toAdd]);
+  }
+};
+
+const authorizeHttpProvider = async (
+  serverName: string,
+  serverUrl: URL,
+  authProvider: OAuthClientProvider,
+  callbackServer: OAuthCallbackServer | undefined,
+  ui: Pick<ExtensionCommandContext["ui"], "notify">,
+  interactive: boolean
+): Promise<void> => {
+  const result = await auth(authProvider, { serverUrl });
+  if (result === "AUTHORIZED") {
+    return;
+  }
+  if (!interactive || !callbackServer) {
+    throw new UnauthorizedError(
+      `MCP server ${serverName} requires interactive OAuth authorization`
+    );
+  }
+
+  ui.notify(
+    `Waiting for OAuth authorization for MCP server ${serverName}...`,
+    "info"
+  );
+  const code = await callbackServer.waitForCode();
+  const finishResult = await auth(authProvider, {
+    authorizationCode: code,
+    serverUrl,
+  });
+  if (finishResult !== "AUTHORIZED") {
+    throw new UnauthorizedError("Failed to authorize MCP server");
+  }
+};
+
+const openAuthorizationUrl = (
+  url: URL,
+  ui: Pick<ExtensionCommandContext["ui"], "notify">
+): void => {
+  const href = url.toString();
+  let command: string;
+  let args: string[];
+  if (process.platform === "darwin") {
+    command = "open";
+    args = [href];
+  } else if (process.platform === "win32") {
+    command = "cmd";
+    args = ["/c", "start", "", href];
+  } else {
+    command = "xdg-open";
+    args = [href];
+  }
+
+  const child = spawn(command, args, { detached: true, stdio: "ignore" });
+  child.on("error", (error) => {
+    ui.notify(`Could not open the OAuth URL: ${error.message}`, "warning");
+  });
+  child.unref();
+};
+
+const sanitizeNameComponent = (value: string): string => {
+  let normalized = value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9_]/gu, "_")
+    .replaceAll(/_+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "");
+  if (!normalized) {
+    normalized = "unnamed";
+  }
+  return /^[0-9]/u.test(normalized) ? `_${normalized}` : normalized;
+};
+
+const toGeneratedToolName = (serverName: string, toolName: string): string =>
+  `${TOOL_NAME_PREFIX}${sanitizeNameComponent(serverName)}__${sanitizeNameComponent(toolName)}`;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const safeJson = (value: unknown): string => {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "[unserializable]";
+  }
+};
+
+const toToolParametersSchema = (inputSchema: unknown): TSchema =>
+  isRecord(inputSchema) && inputSchema.type === "object"
+    ? inputSchema
+    : OPEN_OBJECT_SCHEMA;
+
+const normalizeToolArguments = (args: unknown): Record<string, unknown> =>
+  isRecord(args) ? args : {};
+
+const mcpResultIsError = (result: unknown): boolean =>
+  isRecord(result) && result.isError === true;
+
+const mcpResultToPiContent = (
+  result: unknown
+): { content: PiToolContent[]; truncated: boolean } => {
+  const items =
+    isRecord(result) && Array.isArray(result.content)
+      ? result.content
+      : [result];
+  const text: string[] = [];
+  const images: PiToolContent[] = [];
+
+  for (const item of items) {
+    if (
+      isRecord(item) &&
+      item.type === "text" &&
+      typeof item.text === "string"
+    ) {
+      text.push(item.text);
+    } else if (
+      isRecord(item) &&
+      item.type === "image" &&
+      typeof item.data === "string" &&
+      typeof item.mimeType === "string"
+    ) {
+      images.push({ data: item.data, mimeType: item.mimeType, type: "image" });
+    } else {
+      text.push(safeJson(item));
+    }
+  }
+
+  const truncated = truncateHead(text.join("\n"));
+  const notice = truncated.truncated
+    ? `\n\n[MCP output truncated: kept ${formatSize(truncated.outputBytes)} of ${formatSize(truncated.totalBytes)}]`
+    : "";
+  const content: PiToolContent[] = [
+    { text: `${truncated.content}${notice}`, type: "text" },
+    ...images,
+  ];
+  return { content, truncated: truncated.truncated };
+};
+
+const contentToText = (result: unknown): string =>
+  mcpResultToPiContent(result)
+    .content.map((item) =>
+      item.type === "text" ? item.text : `[image:${item.mimeType}]`
+    )
+    .join("\n");
+
+const createHttpAuthProvider = (
+  serverName: string,
+  serverConfig: HttpServerConfig,
+  ui: Pick<ExtensionCommandContext["ui"], "notify">,
+  interactive: boolean
+): PersistentMcpOAuthProvider | undefined => {
+  if (!serverConfig.oauth) {
+    return undefined;
+  }
+  return new PersistentMcpOAuthProvider(
+    serverName,
+    serverConfig.oauth,
+    (url) => {
+      if (!interactive) {
+        throw new UnauthorizedError(
+          `MCP server ${serverName} requires interactive OAuth authorization`
+        );
+      }
+      openAuthorizationUrl(url, ui);
+      ui.notify(
+        `Opening browser to authorize MCP server ${serverName}: ${url.toString()}`,
+        "info"
+      );
+    }
+  );
+};
+
+const connectToServer = async (
+  serverName: string,
+  serverConfig: McpConfig["mcpServers"][string],
+  ui: Pick<ExtensionCommandContext["ui"], "notify">,
+  interactive: boolean
+): Promise<Omit<ConnectedServer, "toolNames">> => {
+  const client = new Client({ name: "pi-mcp", version: "0.1.0" });
+
+  if (serverConfig.type === "stdio") {
+    const transport = new StdioClientTransport({
+      args: serverConfig.args,
+      command: serverConfig.command,
+      env: serverConfig.env,
+      stderr: "ignore",
+    });
+    await client.connect(transport);
+    return { client, transport };
+  }
+
+  const serverUrl = new URL(serverConfig.url);
+  const authProvider = createHttpAuthProvider(
+    serverName,
+    serverConfig,
+    ui,
+    interactive
+  );
+  let callbackServer: OAuthCallbackServer | undefined;
+  try {
+    if (authProvider) {
+      if (interactive) {
+        callbackServer = await startOAuthCallbackServer(
+          authProvider.redirectUrl,
+          authProvider.expectedState
+        );
+      }
+      await authorizeHttpProvider(
+        serverName,
+        serverUrl,
+        authProvider,
+        callbackServer,
+        ui,
+        interactive
+      );
+    }
+
+    const transport = new StreamableHTTPClientTransport(serverUrl, {
+      authProvider,
+      requestInit: { headers: serverConfig.headers ?? {} },
+    });
+    await client.connect(transport);
+    return { client, transport };
+  } finally {
+    await callbackServer?.close().catch(() => {
+      // Best-effort cleanup after the authorization attempt.
+    });
+  }
+};
+
+export class McpRuntime {
+  private readonly servers = new Map<string, ConnectedServer>();
+
+  async loadServer(options: LoadServerOptions): Promise<McpLoadResult> {
+    const existing = this.servers.get(options.serverName);
+    if (existing) {
+      activateTools(options.pi, existing.toolNames);
+      return {
+        serverName: options.serverName,
+        toolCount: existing.toolNames.length,
+        toolNames: existing.toolNames,
+      };
+    }
+
+    const connection = await connectToServer(
+      options.serverName,
+      options.serverConfig,
+      options.ui,
+      options.interactive
+    );
+    try {
+      const result = await McpRuntime.registerMcpTools(
+        options.pi,
+        options.serverName,
+        connection.client,
+        options.signal
+      );
+      this.servers.set(options.serverName, {
+        ...connection,
+        toolNames: result.toolNames,
+      });
+      return result;
+    } catch (error) {
+      await connection.transport.close().catch(() => {
+        // Preserve the registration error that triggered cleanup.
+      });
+      throw error;
+    }
+  }
+
+  async closeAll(): Promise<void> {
+    const transports = [...this.servers.values()].map(
+      ({ transport }) => transport
+    );
+    this.servers.clear();
+    await Promise.allSettled(transports.map((transport) => transport.close()));
+  }
+
+  private static async registerMcpTools(
+    pi: ExtensionAPI,
+    serverName: string,
+    client: Client,
+    signal?: AbortSignal
+  ): Promise<McpLoadResult> {
+    const { tools } = await client.listTools(
+      undefined,
+      signal ? { signal } : undefined
+    );
+    const occupiedNames = new Set(pi.getAllTools().map(({ name }) => name));
+    const generatedNames = new Set<string>();
+
+    const generatedTools: ToolDefinition[] = tools.map((tool) => {
+      const generatedToolName = toGeneratedToolName(serverName, tool.name);
+      if (
+        occupiedNames.has(generatedToolName) ||
+        generatedNames.has(generatedToolName)
+      ) {
+        throw new Error(
+          `MCP tool name collision for ${serverName}/${tool.name}: ${generatedToolName}`
+        );
+      }
+      generatedNames.add(generatedToolName);
+
+      return {
+        description:
+          tool.description ?? `MCP tool ${tool.name} from server ${serverName}`,
+        async execute(_toolCallId, params, executeSignal) {
+          const result = await client.callTool(
+            { arguments: normalizeToolArguments(params), name: tool.name },
+            undefined,
+            executeSignal ? { signal: executeSignal } : undefined
+          );
+          if (mcpResultIsError(result)) {
+            throw new Error(
+              `MCP tool ${tool.name} from server ${serverName} returned an error: ${contentToText(result)}`
+            );
+          }
+          const converted = mcpResultToPiContent(result);
+          return {
+            content: converted.content,
+            details: {
+              serverName,
+              toolName: tool.name,
+              truncated: converted.truncated,
+            },
+          };
+        },
+        label: `${serverName}: ${tool.name}`,
+        name: generatedToolName,
+        parameters: toToolParametersSchema(tool.inputSchema),
+      };
+    });
+
+    for (const tool of generatedTools) {
+      pi.registerTool(tool);
+    }
+    const toolNames = generatedTools.map(({ name }) => name);
+    activateTools(pi, toolNames);
+    return { serverName, toolCount: tools.length, toolNames };
+  }
+}
+
+export { errorMessage };

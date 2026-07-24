@@ -1,0 +1,46 @@
+{
+  "name": "@clanker-extensions/stash",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/stash#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
+    "directory": "stash"
+  },
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@mariozechner/clipboard": "0.3.2"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

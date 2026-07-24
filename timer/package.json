@@ -1,0 +1,42 @@
+{
+  "name": "@clanker-extensions/timer",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Tracks agent execution time and displays a live running timer in the status bar.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/timer#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
+    "directory": "timer"
+  },
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

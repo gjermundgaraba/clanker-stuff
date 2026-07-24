@@ -1,0 +1,41 @@
+{
+  "name": "clanker-extensions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "ultracite check --type-aware",
+    "check:all": "pnpm run format && pnpm run lint && pnpm run typecheck && pnpm run check:packages && pnpm run check:tests && pnpm run test",
+    "check:packages": "node ./scripts/check-package-readiness.mjs",
+    "check:readmes": "node ./scripts/check-readmes.mjs",
+    "check:tests": "node ./scripts/check-tests.mjs",
+    "fix": "ultracite fix --type-aware",
+    "format": "oxfmt --check",
+    "format:fix": "oxfmt",
+    "lint": "ultracite check --type-aware && pnpm check:readmes",
+    "lint:fix": "ultracite fix --type-aware && pnpm check:readmes",
+    "publish:dry-run": "node ./scripts/publish-packages.mjs --dry-run",
+    "publish:packages": "node ./scripts/publish-packages.mjs",
+    "test": "pnpm run test:unit && pnpm run test:integration && pnpm run test:smoke",
+    "test:integration": "vitest run --project integration",
+    "test:smoke": "vitest run --project smoke",
+    "test:unit": "vitest run --project unit",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.81.0",
+    "@earendil-works/pi-coding-agent": "0.81.0",
+    "@earendil-works/pi-tui": "0.81.0",
+    "oxfmt": "0.59.0",
+    "oxlint": "1.74.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typebox": "1.3.6",
+    "typescript": "7.0.2",
+    "ultracite": "7.9.4",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@10.33.2"
+}

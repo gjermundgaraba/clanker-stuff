@@ -1,0 +1,44 @@
+# AGENTS
+
+This repository contains custom **pi extensions** (TypeScript-based plugins/skills for the `@earendil-works/pi-coding-agent` ecosystem).
+
+## General instructions
+
+- When creating or editing any `README.md`, read and follow `docs/readme-style.md` first.
+- Keep tests in the smallest layer that proves the behavior: unit by default, integration only for real `AgentSession` behavior, smoke only for discovery, runtime wiring and high-level verification when needed.
+- For session-persisted tool schemas such as `ask_question`, keep `parameters` strict. When the schema evolves, add `prepareArguments(args)` to migrate old persisted calls instead of adding deprecated compatibility fields to the public schema.
+- For any custom tool that mutates files, use `withFileMutationQueue()` around the full read/modify/write critical section, keyed by the resolved absolute target path, so it participates in pi's per-file mutation queue.
+
+## Commands
+
+Most work targets one extension package. Prefer package-scoped validation first, then broaden only when the change is cross-cutting or before final handoff.
+
+Use the package name from the extension's `package.json`, e.g. `@clanker-extensions/ask-question`, and the directory name, e.g. `ask-question`.
+
+### Single-extension validation
+
+- `pnpm --filter <package-name> exec vitest run --project unit` — run that extension's unit / contract / TUI tests from the package workspace.
+- `pnpm --filter <package-name> exec vitest run --project integration` — run that extension's integration tests, if any.
+- `pnpm --filter <package-name> exec vitest run --project smoke` — run that extension's smoke tests, if any.
+- `pnpm test:unit <directory>` — alternate unit-test form from the repo root; do not use `pnpm test:unit -- <directory>` because the extra `--` can prevent Vitest path filtering from behaving as intended.
+- `pnpm exec ultracite check <directory>` — lint/format-check one extension (Oxlint + Oxfmt via Ultracite).
+- `pnpm exec oxfmt <directory>` — format one extension.
+- `pnpm typecheck` — run repo TypeScript checking. This is currently repo-wide; if it fails, distinguish failures caused by the current extension from pre-existing unrelated failures.
+
+### Repo-wide validation
+
+Use these for broad or cross-cutting changes, README policy changes, shared code changes, or final confidence when practical.
+
+- `pnpm install` — install dependencies.
+- `pnpm check:all` — run format, lint, typecheck, repo-local test/boundary checks, and test in sequence.
+- `pnpm check:readmes` — validate package README.md files against the repo README policy.
+- `pnpm check:tests` — validate package test coverage presence, required higher-layer coverage, and discovery-safe relative imports.
+- `pnpm format` — check formatting with Oxfmt across the repo.
+- `pnpm format:fix` — apply Oxfmt formatting across the repo.
+- `pnpm lint` — run Ultracite check with type-aware Oxlint (Oxfmt + Oxlint; full Ultracite core+vitest presets) plus README validation across the repo.
+- `pnpm lint:fix` — run Ultracite fix with type-aware Oxlint (Oxfmt + Oxlint) then re-run README validation.
+- `pnpm check` / `pnpm fix` — Ultracite-only aliases with type-aware Oxlint (no README checks).
+- `pnpm test` — run the full Vitest suite across unit, integration, and smoke layers.
+- `pnpm test:unit` — run all `*.test.ts` unit / contract / TUI coverage.
+- `pnpm test:integration` — run all `*.integration.test.ts` real-`AgentSession` coverage.
+- `pnpm test:smoke` — run all `*.smoke.test.ts` discovery and runtime smoke coverage.

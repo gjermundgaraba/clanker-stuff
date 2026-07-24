@@ -1,0 +1,28 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Logs and local environment
+*.log
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+
+# Local AI tooling
+.agents/
+.claude/
+.codex/
+.cursor/
+.entire/
+.factory/
+.gemini/
+.github/hooks/
+.opencode/
+.pi/

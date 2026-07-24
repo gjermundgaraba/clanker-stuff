@@ -1,0 +1,47 @@
+{
+  "name": "@clanker-extensions/plannotator",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Adds Plannotator review and annotation commands to pi.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/plannotator#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
+    "directory": "plannotator"
+  },
+  "files": [
+    "cli.ts",
+    "command-runtime.ts",
+    "commands",
+    "index.ts",
+    "plannotator.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
