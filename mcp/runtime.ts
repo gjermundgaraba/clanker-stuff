@@ -9,12 +9,14 @@ import { formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import {
   auth,
   UnauthorizedError,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
+import type {
+  OAuthClientProvider,
+  Transport,
+} from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
 
@@ -85,7 +87,8 @@ const authorizeHttpProvider = async (
   authProvider: OAuthClientProvider,
   callbackServer: OAuthCallbackServer | undefined,
   ui: Pick<ExtensionCommandContext["ui"], "notify">,
-  interactive: boolean
+  interactive: boolean,
+  signal?: AbortSignal
 ): Promise<void> => {
   const result = await auth(authProvider, { serverUrl });
   if (result === "AUTHORIZED") {
@@ -101,7 +104,7 @@ const authorizeHttpProvider = async (
     `Waiting for OAuth authorization for MCP server ${serverName}...`,
     "info"
   );
-  const code = await callbackServer.waitForCode();
+  const code = await callbackServer.waitForCode(signal);
   const finishResult = await auth(authProvider, {
     authorizationCode: code,
     serverUrl,
@@ -252,7 +255,8 @@ const connectToServer = async (
   serverName: string,
   serverConfig: McpConfig["mcpServers"][string],
   ui: Pick<ExtensionCommandContext["ui"], "notify">,
-  interactive: boolean
+  interactive: boolean,
+  signal?: AbortSignal
 ): Promise<Omit<ConnectedServer, "toolNames">> => {
   const client = new Client({ name: "pi-mcp", version: "0.1.0" });
 
@@ -289,7 +293,8 @@ const connectToServer = async (
         authProvider,
         callbackServer,
         ui,
-        interactive
+        interactive,
+        signal
       );
     }
 
@@ -324,7 +329,8 @@ export class McpRuntime {
       options.serverName,
       options.serverConfig,
       options.ui,
-      options.interactive
+      options.interactive,
+      options.signal
     );
     try {
       const result = await McpRuntime.registerMcpTools(
@@ -385,7 +391,6 @@ export class McpRuntime {
         async execute(_toolCallId, params, executeSignal) {
           const result = await client.callTool(
             { arguments: normalizeToolArguments(params), name: tool.name },
-            undefined,
             executeSignal ? { signal: executeSignal } : undefined
           );
           if (mcpResultIsError(result)) {

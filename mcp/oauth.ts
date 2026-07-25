@@ -12,7 +12,11 @@ import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
   OAuthServerInfo,
-} from "@modelcontextprotocol/sdk/client/auth.js";
+  OAuthClientMetadata,
+  StoredOAuthClientInformation,
+  StoredOAuthTokens,
+  AuthorizationServerMetadata,
+} from "@modelcontextprotocol/client";
 import {
   OAuthClientInformationFullSchema,
   OAuthClientInformationSchema,
@@ -20,13 +24,7 @@ import {
   OAuthProtectedResourceMetadataSchema,
   OAuthTokensSchema,
   OpenIdProviderDiscoveryMetadataSchema,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
-import type {
-  OAuthClientInformationMixed,
-  OAuthClientMetadata,
-  OAuthTokens,
-  AuthorizationServerMetadata,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/core";
 import { z } from "zod/v4";
 
 import type { HttpOAuthAuthorizationCodeConfig } from "./config.js";
@@ -48,13 +46,21 @@ const DiscoveryStateSchema = z.object({
   resourceMetadataUrl: z.string().optional(),
 });
 
+// SEP-2352: the SDK stamps `issuer` on credentials before persisting them and
+// warns when a read comes back without it. The core wire schemas strip unknown
+// fields, so storage schemas must re-add `issuer` to round-trip the stamp.
+const issuerStampShape = { issuer: z.string().optional() };
+
 const StoredServerOAuthStateSchema = z.object({
   clientInformation: z
-    .union([OAuthClientInformationFullSchema, OAuthClientInformationSchema])
+    .union([
+      OAuthClientInformationFullSchema.extend(issuerStampShape),
+      OAuthClientInformationSchema.extend(issuerStampShape),
+    ])
     .optional(),
   codeVerifier: z.string().min(1).optional(),
   discoveryState: DiscoveryStateSchema.optional(),
-  tokens: OAuthTokensSchema.optional(),
+  tokens: OAuthTokensSchema.extend(issuerStampShape).optional(),
 });
 
 const StoredOAuthStateSchema = z.object({
@@ -131,9 +137,13 @@ export const startOAuthCallbackServer = async (
     resolveCode(code);
   });
 
+  // Real callers still observe this promise; this only prevents an unhandled rejection.
+  // oxlint-disable-next-line promise/prefer-await-to-then -- Must attach to the original promise.
+  void codePromise.catch(() => null);
+
   server.listen(Number(redirectUrl.port), redirectUrl.hostname);
-  server.once("error", rejectCode);
   await once(server, "listening");
+  server.on("error", rejectCode);
 
   return {
     close: async () => {
@@ -143,7 +153,18 @@ export const startOAuthCallbackServer = async (
       server.close();
       await once(server, "close");
     },
-    waitForCode: async () => await codePromise,
+    waitForCode: async (signal?: AbortSignal) => {
+      if (signal === undefined) {
+        return await codePromise;
+      }
+      signal.throwIfAborted();
+      return await Promise.race([
+        codePromise,
+        once(signal, "abort").then(() => {
+          throw new Error("MCP OAuth authorization was cancelled");
+        }),
+      ]);
+    },
   };
 };
 
@@ -241,7 +262,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
     return this.stateValue;
   }
 
-  async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
+  async clientInformation(): Promise<StoredOAuthClientInformation | undefined> {
     if (
       typeof this.config.clientId === "string" &&
       this.config.clientId !== ""
@@ -256,7 +277,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveClientInformation(
-    clientInformation: OAuthClientInformationMixed
+    clientInformation: StoredOAuthClientInformation
   ): Promise<void> {
     if (
       typeof this.config.clientId === "string" &&
@@ -269,14 +290,33 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
     });
   }
 
-  async tokens(): Promise<OAuthTokens | undefined> {
+  async tokens(): Promise<StoredOAuthTokens | undefined> {
     const serverState = await readServerState(this.serverName);
     return serverState?.tokens;
   }
 
-  async saveTokens(tokens: OAuthTokens): Promise<void> {
+  async saveTokens(tokens: StoredOAuthTokens): Promise<void> {
     await updateServerState(this.serverName, (state) => {
       state.tokens = tokens;
+    });
+  }
+
+  async invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier" | "discovery"
+  ): Promise<void> {
+    await updateServerState(this.serverName, (state) => {
+      if (scope === "all" || scope === "client") {
+        delete state.clientInformation;
+      }
+      if (scope === "all" || scope === "tokens") {
+        delete state.tokens;
+      }
+      if (scope === "all" || scope === "verifier") {
+        delete state.codeVerifier;
+      }
+      if (scope === "all" || scope === "discovery") {
+        delete state.discoveryState;
+      }
     });
   }
 
@@ -324,6 +364,6 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
 }
 
 export interface OAuthCallbackServer {
-  waitForCode: () => Promise<string>;
+  waitForCode: (signal?: AbortSignal) => Promise<string>;
   close: () => Promise<void>;
 }

@@ -1,9 +1,12 @@
+import { once } from "node:events";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import { auth } from "@modelcontextprotocol/client";
 import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +14,10 @@ import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import { createIdentityTheme, createMockTui } from "../../tests/harness/tui.js";
 import { McpConfigSchema } from "../config.js";
 import mcp from "../index.js";
-import { PersistentMcpOAuthProvider } from "../oauth.js";
+import {
+  PersistentMcpOAuthProvider,
+  startOAuthCallbackServer,
+} from "../oauth.js";
 
 vi.mock(import("node:os"), (async (
   importOriginal: () => Promise<typeof os>
@@ -51,24 +57,47 @@ const mcpSdkMocks = vi.hoisted(() => ({
 }));
 
 /* oxlint-disable max-classes-per-file -- SDK client/transport mocks */
-vi.mock(import("@modelcontextprotocol/sdk/client/index.js"), (() => ({
-  Client: class MockMcpClient {
-    connect = vi.fn<() => Promise<void>>(async () => {
-      await Promise.resolve();
-    });
-    listTools = vi.fn<() => Promise<{ tools: MockTool[] }>>(async () => {
-      await Promise.resolve();
-      return { tools: [...mcpSdkMocks.tools] };
-    });
-    callTool = vi.fn<() => Promise<unknown>>();
+vi.mock(import("@modelcontextprotocol/client"), (() => {
+  class UnauthorizedError extends Error {
+    override name = "UnauthorizedError";
+  }
 
-    constructor() {
-      mcpSdkMocks.clients.push(this);
-    }
-  },
-})) as never);
+  return {
+    Client: class MockMcpClient {
+      connect = vi.fn<() => Promise<void>>(async () => {
+        await Promise.resolve();
+      });
+      listTools = vi.fn<() => Promise<{ tools: MockTool[] }>>(async () => {
+        await Promise.resolve();
+        return { tools: [...mcpSdkMocks.tools] };
+      });
+      callTool = vi.fn<() => Promise<unknown>>();
 
-vi.mock(import("@modelcontextprotocol/sdk/client/stdio.js"), (() => ({
+      constructor() {
+        mcpSdkMocks.clients.push(this);
+      }
+    },
+    StreamableHTTPClientTransport: class MockHttpTransport {
+      kind = "http" as const;
+      close = vi.fn<() => Promise<void>>(async () => {
+        await Promise.resolve();
+      });
+      options: unknown;
+
+      constructor(_url: URL, options: unknown) {
+        this.options = options;
+        mcpSdkMocks.transports.push(this);
+      }
+    },
+    UnauthorizedError,
+    auth: vi.fn<() => Promise<string>>(async () => {
+      await Promise.resolve();
+      return "AUTHORIZED";
+    }),
+  };
+}) as never);
+
+vi.mock(import("@modelcontextprotocol/client/stdio"), (() => ({
   StdioClientTransport: class MockStdioTransport {
     kind = "stdio" as const;
     close = vi.fn<() => Promise<void>>(async () => {
@@ -82,34 +111,6 @@ vi.mock(import("@modelcontextprotocol/sdk/client/stdio.js"), (() => ({
   },
 })) as never);
 
-vi.mock(import("@modelcontextprotocol/sdk/client/auth.js"), (() => {
-  class UnauthorizedError extends Error {
-    override name = "UnauthorizedError";
-  }
-
-  return {
-    UnauthorizedError,
-    auth: vi.fn<() => Promise<string>>(async () => {
-      await Promise.resolve();
-      return "AUTHORIZED";
-    }),
-  };
-}) as never);
-
-vi.mock(import("@modelcontextprotocol/sdk/client/streamableHttp.js"), (() => ({
-  StreamableHTTPClientTransport: class MockHttpTransport {
-    kind = "http" as const;
-    close = vi.fn<() => Promise<void>>(async () => {
-      await Promise.resolve();
-    });
-    options: unknown;
-
-    constructor(_url: URL, options: unknown) {
-      this.options = options;
-      mcpSdkMocks.transports.push(this);
-    }
-  },
-})) as never);
 /* oxlint-enable max-classes-per-file */
 
 const envVarRef = (name: string, fallback?: string) =>
@@ -149,6 +150,10 @@ const createCustomStub = (): ExtensionCommandContext["ui"]["custom"] =>
   vi.fn<typeof runCustomStub>(
     runCustomStub
   ) as ExtensionCommandContext["ui"]["custom"];
+
+// BorderedLoader's cancellable path formats a keybinding hint via the global
+// theme singleton, which pi initializes at startup but tests do not.
+initTheme("dark");
 
 describe("mcp extension", () => {
   let homeDir: string;
@@ -816,6 +821,100 @@ describe("mcp extension", () => {
       });
     });
 
+    it("round-trips the SEP-2352 issuer stamp on stored credentials", async () => {
+      const provider = new PersistentMcpOAuthProvider(
+        "remote",
+        { scopes: "tools" },
+        vi.fn<() => void>()
+      );
+
+      // saveClientInformation then saveTokens mirrors the SDK auth flow; the
+      // second save must not strip the issuer stamp from clientInformation.
+      await provider.saveClientInformation({
+        client_id: "dynamic-client",
+        issuer: "https://auth.example.com",
+      });
+      await provider.saveTokens({
+        access_token: "access-token",
+        issuer: "https://auth.example.com",
+        token_type: "Bearer",
+      });
+
+      await expect(provider.clientInformation()).resolves.toStrictEqual({
+        client_id: "dynamic-client",
+        issuer: "https://auth.example.com",
+      });
+      await expect(provider.tokens()).resolves.toStrictEqual({
+        access_token: "access-token",
+        issuer: "https://auth.example.com",
+        token_type: "Bearer",
+      });
+    });
+
+    it("clears only tokens on the tokens scope", async () => {
+      const provider = new PersistentMcpOAuthProvider(
+        "remote",
+        { scopes: "tools" },
+        vi.fn<() => void>()
+      );
+      await provider.saveClientInformation({ client_id: "dynamic-client" });
+      await provider.saveTokens({
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        token_type: "Bearer",
+      });
+      await provider.saveCodeVerifier("verifier");
+
+      await provider.invalidateCredentials("tokens");
+
+      await expect(provider.tokens()).resolves.toBeUndefined();
+      await expect(provider.clientInformation()).resolves.toStrictEqual({
+        client_id: "dynamic-client",
+      });
+      await expect(provider.codeVerifier()).resolves.toBe("verifier");
+    });
+
+    it("clears all stored credentials on the all scope", async () => {
+      const provider = new PersistentMcpOAuthProvider(
+        "remote",
+        { scopes: "tools" },
+        vi.fn<() => void>()
+      );
+      await provider.saveClientInformation({ client_id: "dynamic-client" });
+      await provider.saveTokens({
+        access_token: "access-token",
+        token_type: "Bearer",
+      });
+      await provider.saveCodeVerifier("verifier");
+      await provider.saveDiscoveryState({
+        authorizationServerUrl: "https://auth.example.com",
+      });
+
+      await provider.invalidateCredentials("all");
+
+      await expect(provider.clientInformation()).resolves.toBeUndefined();
+      await expect(provider.tokens()).resolves.toBeUndefined();
+      await expect(provider.codeVerifier()).rejects.toThrow(
+        "No MCP OAuth code verifier saved"
+      );
+      await expect(provider.discoveryState()).resolves.toBeUndefined();
+    });
+
+    it("keeps static-config client credentials on invalidation", async () => {
+      const provider = new PersistentMcpOAuthProvider(
+        "remote",
+        { clientId: "static-client", scopes: "tools" },
+        vi.fn<() => void>()
+      );
+
+      await provider.invalidateCredentials("all");
+
+      await expect(provider.clientInformation()).resolves.toStrictEqual({
+        client_id: "static-client",
+        client_secret: undefined,
+      });
+    });
+
     it("rejects malformed persisted OAuth state", async () => {
       await mkdir(configDir, { recursive: true });
       await writeFile(
@@ -841,6 +940,42 @@ describe("mcp extension", () => {
       await expect(provider.tokens()).rejects.toThrow(
         "invalid MCP OAuth state"
       );
+    });
+  });
+
+  describe(startOAuthCallbackServer, () => {
+    it("rejects waitForCode when the abort signal fires", async () => {
+      const server = await startOAuthCallbackServer(
+        new URL("http://localhost:0/callback"),
+        "expected-state"
+      );
+      try {
+        const controller = new AbortController();
+        const wait = server.waitForCode(controller.signal);
+        controller.abort();
+        await expect(wait).rejects.toThrow(
+          "MCP OAuth authorization was cancelled"
+        );
+      } finally {
+        await server.close();
+      }
+    });
+    it("rejects cleanly when the callback port is already in use", async () => {
+      const squatter = createServer();
+      squatter.listen(0, "localhost");
+      await once(squatter, "listening");
+      const { port } = squatter.address() as { port: number };
+      try {
+        await expect(
+          startOAuthCallbackServer(
+            new URL(`http://localhost:${port}/callback`),
+            "expected-state"
+          )
+        ).rejects.toMatchObject({ code: "EADDRINUSE" });
+      } finally {
+        squatter.close();
+        await once(squatter, "close");
+      }
     });
   });
 });

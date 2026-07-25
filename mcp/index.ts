@@ -26,8 +26,7 @@ const loadServerWithSpinner = async <T>(
       const loader = new BorderedLoader(
         tui,
         theme,
-        `Loading MCP server ${serverName} tools...`,
-        { cancellable: false }
+        `Loading MCP server ${serverName} tools...`
       );
       void (async () => {
         try {
