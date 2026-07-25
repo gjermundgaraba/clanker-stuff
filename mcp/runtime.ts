@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -114,31 +112,6 @@ const authorizeHttpProvider = async (
   }
 };
 
-const openAuthorizationUrl = (
-  url: URL,
-  ui: Pick<ExtensionCommandContext["ui"], "notify">
-): void => {
-  const href = url.toString();
-  let command: string;
-  let args: string[];
-  if (process.platform === "darwin") {
-    command = "open";
-    args = [href];
-  } else if (process.platform === "win32") {
-    command = "cmd";
-    args = ["/c", "start", "", href];
-  } else {
-    command = "xdg-open";
-    args = [href];
-  }
-
-  const child = spawn(command, args, { detached: true, stdio: "ignore" });
-  child.on("error", (error) => {
-    ui.notify(`Could not open the OAuth URL: ${error.message}`, "warning");
-  });
-  child.unref();
-};
-
 const sanitizeNameComponent = (value: string): string => {
   let normalized = value
     .trim()
@@ -242,9 +215,8 @@ const createHttpAuthProvider = (
           `MCP server ${serverName} requires interactive OAuth authorization`
         );
       }
-      openAuthorizationUrl(url, ui);
       ui.notify(
-        `Opening browser to authorize MCP server ${serverName}: ${url.toString()}`,
+        `Authorize MCP server ${serverName}: ${url.toString()}`,
         "info"
       );
     }

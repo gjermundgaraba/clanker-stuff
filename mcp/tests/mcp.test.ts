@@ -1,16 +1,16 @@
 import { once } from "node:events";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import os from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { auth } from "@modelcontextprotocol/client";
 import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createExtensionHost } from "../../tests/harness/extension-host.js";
+import { createExtensionHost as createExtensionHostBase } from "../../tests/harness/extension-host.js";
 import { createIdentityTheme, createMockTui } from "../../tests/harness/tui.js";
 import { McpConfigSchema } from "../config.js";
 import mcp from "../index.js";
@@ -18,100 +18,20 @@ import {
   PersistentMcpOAuthProvider,
   startOAuthCallbackServer,
 } from "../oauth.js";
+import {
+  FIXTURE_ACCESS_TOKEN,
+  startMcpHttpFixture,
+} from "./fixtures/http-server.js";
 
-vi.mock(import("node:os"), (async (
-  importOriginal: () => Promise<typeof os>
-) => {
-  const actual = await importOriginal();
-  const homedir = vi.fn<() => string>(() => actual.tmpdir());
-  return {
-    ...actual,
-    default: { ...actual, homedir },
-    homedir,
-  };
-}) as never);
+const MCP_SERVER_FIXTURE = fileURLToPath(
+  new URL("fixtures/server.ts", import.meta.url)
+);
 
-interface MockClient {
-  callTool: ReturnType<typeof vi.fn>;
-  connect: ReturnType<typeof vi.fn>;
-  listTools: ReturnType<typeof vi.fn>;
-}
-
-interface MockTransport {
-  close: ReturnType<typeof vi.fn>;
-  kind: "http" | "stdio";
-  options?: unknown;
-  stderr?: { on: ReturnType<typeof vi.fn> };
-}
-
-interface MockTool {
-  description?: string;
-  inputSchema: unknown;
-  name: string;
-}
-
-const mcpSdkMocks = vi.hoisted(() => ({
-  clients: [] as MockClient[],
-  tools: [] as MockTool[],
-  transports: [] as MockTransport[],
-}));
-
-/* oxlint-disable max-classes-per-file -- SDK client/transport mocks */
-vi.mock(import("@modelcontextprotocol/client"), (() => {
-  class UnauthorizedError extends Error {
-    override name = "UnauthorizedError";
-  }
-
-  return {
-    Client: class MockMcpClient {
-      connect = vi.fn<() => Promise<void>>(async () => {
-        await Promise.resolve();
-      });
-      listTools = vi.fn<() => Promise<{ tools: MockTool[] }>>(async () => {
-        await Promise.resolve();
-        return { tools: [...mcpSdkMocks.tools] };
-      });
-      callTool = vi.fn<() => Promise<unknown>>();
-
-      constructor() {
-        mcpSdkMocks.clients.push(this);
-      }
-    },
-    StreamableHTTPClientTransport: class MockHttpTransport {
-      kind = "http" as const;
-      close = vi.fn<() => Promise<void>>(async () => {
-        await Promise.resolve();
-      });
-      options: unknown;
-
-      constructor(_url: URL, options: unknown) {
-        this.options = options;
-        mcpSdkMocks.transports.push(this);
-      }
-    },
-    UnauthorizedError,
-    auth: vi.fn<() => Promise<string>>(async () => {
-      await Promise.resolve();
-      return "AUTHORIZED";
-    }),
-  };
-}) as never);
-
-vi.mock(import("@modelcontextprotocol/client/stdio"), (() => ({
-  StdioClientTransport: class MockStdioTransport {
-    kind = "stdio" as const;
-    close = vi.fn<() => Promise<void>>(async () => {
-      await Promise.resolve();
-    });
-    stderr = { on: vi.fn<(...args: never[]) => void>() };
-
-    constructor() {
-      mcpSdkMocks.transports.push(this);
-    }
-  },
-})) as never);
-
-/* oxlint-enable max-classes-per-file */
+const fixtureServer = (scenario = "normal") => ({
+  args: [MCP_SERVER_FIXTURE, scenario],
+  command: process.execPath,
+  type: "stdio" as const,
+});
 
 const envVarRef = (name: string, fallback?: string) =>
   fallback === undefined ? `\${${name}}` : `\${${name}:-${fallback}}`;
@@ -162,6 +82,22 @@ describe("mcp extension", () => {
   let configPath: string;
   let localConfigPath: string;
   let previousAgentDir: string | undefined;
+  let hosts: ReturnType<typeof createExtensionHostBase>[];
+  let httpFixtures: { close: () => Promise<void> }[];
+
+  const startHttpFixture = async (oauth = false) => {
+    const fixture = await startMcpHttpFixture(oauth);
+    httpFixtures.push(fixture);
+    return fixture;
+  };
+
+  const createExtensionHost = (
+    ...args: Parameters<typeof createExtensionHostBase>
+  ) => {
+    const host = createExtensionHostBase(...args);
+    hosts.push(host);
+    return host;
+  };
 
   const writeConfig = async (value: unknown) => {
     await mkdir(configDir, { recursive: true });
@@ -175,21 +111,20 @@ describe("mcp extension", () => {
 
   beforeEach(() => {
     const suffix = `${Date.now()}-${Math.random()}`;
-    homeDir = path.join(os.tmpdir(), `pi-mcp-extension-${suffix}`);
-    projectDir = path.join(os.tmpdir(), `pi-mcp-project-${suffix}`);
-    vi.mocked(os.homedir).mockReturnValue(homeDir);
+    homeDir = path.join(tmpdir(), `pi-mcp-extension-${suffix}`);
+    projectDir = path.join(tmpdir(), `pi-mcp-project-${suffix}`);
     previousAgentDir = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = path.join(homeDir, ".pi", "agent");
     configDir = path.join(homeDir, ".pi", "agent", "extensions");
     configPath = path.join(configDir, "mcp.json");
     localConfigPath = path.join(projectDir, ".mcp.json");
-    mcpSdkMocks.clients.length = 0;
-    mcpSdkMocks.transports.length = 0;
-    mcpSdkMocks.tools.length = 0;
-    vi.mocked(auth).mockClear();
+    hosts = [];
+    httpFixtures = [];
   });
 
   afterEach(async () => {
+    await Promise.all(hosts.map((host) => host.emitSessionShutdown()));
+    await Promise.all(httpFixtures.map((fixture) => fixture.close()));
     if (previousAgentDir === undefined) {
       Reflect.deleteProperty(process.env, "PI_CODING_AGENT_DIR");
     } else {
@@ -212,7 +147,6 @@ describe("mcp extension", () => {
       await host.emitSessionStart();
 
       expect(host.getNotifications()).toStrictEqual([]);
-      expect(mcpSdkMocks.clients).toHaveLength(0);
       expect(host.getRegisteredTools().size).toBe(0);
     });
 
@@ -233,19 +167,12 @@ describe("mcp extension", () => {
       await host.runCommand("mcp", "", ctx);
 
       expect(select).toHaveBeenCalledWith("MCP server", ["github", "local"]);
-      expect(mcpSdkMocks.clients).toHaveLength(0);
       expect(host.getRegisteredTools().size).toBe(0);
     });
 
     it("loads project-local config from the command cwd", async () => {
       await writeLocalConfig({
-        mcpServers: {
-          project: { type: "http", url: "https://project.example.com" },
-        },
-      });
-      mcpSdkMocks.tools.push({
-        inputSchema: { type: "object" },
-        name: "project-search",
+        mcpServers: { project: fixtureServer() },
       });
       const select = vi.fn<() => Promise<string>>(async () => {
         await Promise.resolve();
@@ -260,26 +187,12 @@ describe("mcp extension", () => {
       await host.runCommand("mcp", "", ctx);
 
       expect(select).toHaveBeenCalledWith("MCP server", ["project"]);
-      expect(mcpSdkMocks.clients).toHaveLength(1);
-      expect(
-        host.getRegisteredTools().has("mcp_project__project_search")
-      ).toBeTruthy();
+      expect(host.getRegisteredTools().has("mcp_project__search")).toBeTruthy();
     });
 
     it("connects the selected server and registers its tools as active", async () => {
       await writeConfig({
-        mcpServers: {
-          github: { type: "http", url: "https://mcp.example.com" },
-        },
-      });
-      mcpSdkMocks.tools.push({
-        description: "Search GitHub",
-        inputSchema: {
-          properties: { query: { type: "string" } },
-          required: ["query"],
-          type: "object",
-        },
-        name: "search",
+        mcpServers: { github: fixtureServer() },
       });
       const host = createExtensionHost(mcp, { hasUI: false });
       const ctx = host.createContext({
@@ -292,42 +205,102 @@ describe("mcp extension", () => {
       });
 
       await host.runCommand("mcp", "", ctx);
+      const result = await host.runTool("mcp_github__search", {
+        query: "needle",
+      });
 
-      expect({
-        active: host.getActiveTools().includes("mcp_github__search"),
-        clients: mcpSdkMocks.clients.length,
-        connectedWith: mcpSdkMocks.clients[0].connect.mock.calls[0]?.[0],
-        listToolsCalls: mcpSdkMocks.clients[0].listTools.mock.calls.length,
-        notification: host.getNotifications(),
-        registered: host.getRegisteredTools().has("mcp_github__search"),
-        transportKind: mcpSdkMocks.transports[0]?.kind,
-        transports: mcpSdkMocks.transports.length,
-      }).toStrictEqual({
-        active: true,
-        clients: 1,
-        connectedWith: mcpSdkMocks.transports[0],
-        listToolsCalls: 1,
-        notification: [
-          {
-            message: "MCP server github was loaded with 1 tools",
-            type: undefined,
+      expect(host.getActiveTools()).toContain("mcp_github__search");
+      expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
+      expect(host.getNotifications()).toContainEqual({
+        message: "MCP server github was loaded with 1 tools",
+        type: undefined,
+      });
+      expect(result.content).toContainEqual({
+        text: "result: needle",
+        type: "text",
+      });
+    });
+
+    it("loads tools from a real streamable HTTP server", async () => {
+      const fixture = await startHttpFixture();
+      await writeConfig({
+        mcpServers: {
+          remote: { type: "http", url: fixture.url },
+        },
+      });
+      const host = createExtensionHost(mcp, { hasUI: false });
+      const ctx = host.createContext({
+        ui: {
+          select: vi.fn<() => Promise<string>>(async () => "remote"),
+        },
+      });
+
+      await host.runCommand("mcp", "", ctx);
+      const result = await host.runTool("mcp_remote__search", {
+        query: "http-needle",
+      });
+
+      expect(host.getRegisteredTools().has("mcp_remote__search")).toBeTruthy();
+      expect(result.content).toContainEqual({
+        text: "result: http-needle",
+        type: "text",
+      });
+    });
+
+    it("completes OAuth after the user follows the displayed URL", async () => {
+      const fixture = await startHttpFixture(true);
+      await writeConfig({
+        mcpServers: {
+          remote: {
+            oauth: { callbackPort: 33_420 },
+            type: "http",
+            url: fixture.url,
           },
-        ],
-        registered: true,
-        transportKind: "http",
-        transports: 1,
+        },
+      });
+      const select = vi.fn<() => Promise<string>>(async () => "remote");
+      const host = createExtensionHost(mcp, { hasUI: false });
+      const ctx = host.createContext({ ui: { select } });
+
+      const loading = host.runCommand("mcp", "", ctx);
+      const authorizationUrl = await vi.waitFor(() => {
+        const message = host
+          .getNotifications()
+          .find((notification) =>
+            notification.message.startsWith("Authorize MCP server remote: ")
+          )?.message;
+        if (message === undefined) {
+          throw new Error("OAuth authorization URL was not shown");
+        }
+        return message.split(": ", 2)[1];
+      });
+      await fetch(authorizationUrl);
+      await loading;
+
+      const result = await host.runTool("mcp_remote__search", {
+        query: "oauth-needle",
+      });
+      expect(result.content).toContainEqual({
+        text: "result: oauth-needle",
+        type: "text",
+      });
+      expect(
+        JSON.parse(
+          await readFile(path.join(configDir, "mcp-oauth.json"), "utf-8")
+        )
+      ).toMatchObject({
+        servers: {
+          remote: {
+            clientInformation: { client_id: "fixture-client-id" },
+            tokens: { access_token: FIXTURE_ACCESS_TOKEN },
+          },
+        },
       });
     });
 
     it("truncates large tool results and keeps compact details", async () => {
       await writeConfig({
-        mcpServers: {
-          github: { type: "http", url: "https://mcp.example.com" },
-        },
-      });
-      mcpSdkMocks.tools.push({
-        inputSchema: { type: "object" },
-        name: "search",
+        mcpServers: { github: fixtureServer("large") },
       });
       const host = createExtensionHost(mcp, { hasUI: false });
       const ctx = host.createContext({
@@ -336,11 +309,10 @@ describe("mcp extension", () => {
         },
       });
       await host.runCommand("mcp", "", ctx);
-      mcpSdkMocks.clients[0].callTool.mockResolvedValue({
-        content: [{ text: "result\n".repeat(20_000), type: "text" }],
-      });
 
-      const result = await host.runTool("mcp_github__search", {});
+      const result = await host.runTool("mcp_github__search", {
+        query: "anything",
+      });
 
       expect(result.content[0]).toMatchObject({
         text: expect.stringContaining("[MCP output truncated:"),
@@ -356,14 +328,8 @@ describe("mcp extension", () => {
 
     it("rejects generated tool-name collisions", async () => {
       await writeConfig({
-        mcpServers: {
-          github: { type: "http", url: "https://mcp.example.com" },
-        },
+        mcpServers: { github: fixtureServer("collision") },
       });
-      mcpSdkMocks.tools.push(
-        { inputSchema: { type: "object" }, name: "foo-bar" },
-        { inputSchema: { type: "object" }, name: "foo_bar" }
-      );
       const host = createExtensionHost(mcp, { hasUI: false });
       const ctx = host.createContext({
         ui: {
@@ -382,9 +348,7 @@ describe("mcp extension", () => {
 
     it("uses custom UI while loading a selected server when interactive", async () => {
       await writeConfig({
-        mcpServers: {
-          github: { type: "http", url: "https://mcp.example.com" },
-        },
+        mcpServers: { github: fixtureServer() },
       });
       const host = createExtensionHost(mcp);
       const custom = createCustomStub();
@@ -401,54 +365,7 @@ describe("mcp extension", () => {
       await host.runCommand("mcp", "", ctx);
 
       expect(custom).toHaveBeenCalledOnce();
-      expect(mcpSdkMocks.clients[0].listTools).toHaveBeenCalledOnce();
-    });
-
-    it("passes Claude-shaped OAuth config to HTTP transports", async () => {
-      await writeConfig({
-        mcpServers: {
-          remote: {
-            oauth: {
-              callbackPort: 33_419,
-              clientId: "client-id",
-              clientSecret: "client-secret",
-              scopes: "tools resources",
-            },
-            type: "http",
-            url: "https://mcp.example.com",
-          },
-        },
-      });
-      const host = createExtensionHost(mcp, { hasUI: false });
-      const ctx = host.createContext({
-        ui: {
-          select: vi.fn<() => Promise<string>>(async () => {
-            await Promise.resolve();
-            return "remote";
-          }),
-        },
-      });
-
-      await host.runCommand("mcp", "", ctx);
-
-      const { authProvider } = mcpSdkMocks.transports[0].options as {
-        authProvider: PersistentMcpOAuthProvider;
-      };
-
-      expect(auth).toHaveBeenCalledWith(expect.anything(), {
-        serverUrl: new URL("https://mcp.example.com"),
-      });
-      expect(mcpSdkMocks.transports[0].options).toMatchObject({
-        authProvider: expect.any(PersistentMcpOAuthProvider),
-      });
-      await expect(authProvider.clientInformation()).resolves.toStrictEqual({
-        client_id: "client-id",
-        client_secret: "client-secret",
-      });
-      expect(authProvider.clientMetadata.scope).toBe("tools resources");
-      expect(authProvider.redirectUrl.toString()).toBe(
-        "http://localhost:33419/callback"
-      );
+      expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
     });
 
     it("reports an empty MCP config without opening the selector", async () => {
@@ -471,17 +388,7 @@ describe("mcp extension", () => {
 
     it("persists loaded server state to session entries", async () => {
       await writeConfig({
-        mcpServers: {
-          github: { type: "http", url: "https://mcp.example.com" },
-        },
-      });
-      mcpSdkMocks.tools.push({
-        description: "Search GitHub",
-        inputSchema: {
-          properties: { query: { type: "string" } },
-          type: "object",
-        },
-        name: "search",
+        mcpServers: { github: fixtureServer() },
       });
       const host = createExtensionHost(mcp, { hasUI: false });
       const ctx = host.createContext({
@@ -510,17 +417,7 @@ describe("mcp extension", () => {
 
     it("auto-reconnects persisted servers on session_start", async () => {
       await writeConfig({
-        mcpServers: {
-          github: { type: "http", url: "https://mcp.example.com" },
-        },
-      });
-      mcpSdkMocks.tools.push({
-        description: "Search GitHub",
-        inputSchema: {
-          properties: { query: { type: "string" } },
-          type: "object",
-        },
-        name: "search",
+        mcpServers: { github: fixtureServer() },
       });
 
       const persistedEntry = {
@@ -543,8 +440,6 @@ describe("mcp extension", () => {
       await host.ready;
       await host.emitSessionStart();
 
-      expect(mcpSdkMocks.clients).toHaveLength(1);
-      expect(mcpSdkMocks.clients[0].listTools).toHaveBeenCalledOnce();
       expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
       expect(host.getActiveTools()).toContain("mcp_github__search");
     });
@@ -786,6 +681,28 @@ describe("mcp extension", () => {
   });
 
   describe(PersistentMcpOAuthProvider, () => {
+    it("maps Claude-shaped OAuth config to the provider", async () => {
+      const provider = new PersistentMcpOAuthProvider(
+        "remote",
+        {
+          callbackPort: 33_419,
+          clientId: "client-id",
+          clientSecret: "client-secret",
+          scopes: "tools resources",
+        },
+        vi.fn<() => void>()
+      );
+
+      await expect(provider.clientInformation()).resolves.toStrictEqual({
+        client_id: "client-id",
+        client_secret: "client-secret",
+      });
+      expect(provider.clientMetadata.scope).toBe("tools resources");
+      expect(provider.redirectUrl.toString()).toBe(
+        "http://localhost:33419/callback"
+      );
+    });
+
     it("persists dynamic client information and tokens per server", async () => {
       const provider = new PersistentMcpOAuthProvider(
         "remote",
