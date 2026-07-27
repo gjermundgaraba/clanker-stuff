@@ -6,7 +6,7 @@ packages:
   - "plannotator"
   - "stash"
   - "timer"
-  - "tools"
+  - "tool-picker"
 
 overrides:
   "@earendil-works/pi-agent-core": "0.81.0"

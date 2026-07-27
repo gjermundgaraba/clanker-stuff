@@ -1,12 +1,12 @@
 {
-  "name": "@clanker-extensions/tools",
+  "name": "@clanker-extensions/tool-picker",
   "version": "0.1.0",
   "private": false,
   "description": "Adds /tools to choose which tools are active in the current session.",
   "keywords": [
     "pi-package"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/tools#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/tool-picker#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
   },
@@ -14,7 +14,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
-    "directory": "tools"
+    "directory": "tool-picker"
   },
   "files": [
     "index.ts",

@@ -1,11 +1,11 @@
-# tools
+# tool-picker
 
 Adds /tools to choose which tools are active in the current session.
 
 ## Install
 
 ```bash
-pi install npm:@clanker-extensions/tools
+pi install npm:@clanker-extensions/tool-picker
 ```
 
 ## Usage

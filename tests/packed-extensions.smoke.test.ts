@@ -77,9 +77,9 @@ const EXTENSION_PACKAGES = [
   },
   {
     commands: ["tools"],
-    dir: "tools",
+    dir: "tool-picker",
     handlers: [],
-    name: "@clanker-extensions/tools",
+    name: "@clanker-extensions/tool-picker",
     shortcuts: [],
     tools: [],
   },
