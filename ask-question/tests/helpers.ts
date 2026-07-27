@@ -71,8 +71,14 @@ export const expectCancelledResult = (result: ToolResult): CancelledDetails => {
 export const executeTool = async (
   params: unknown,
   options: HarnessOptions = {}
-): Promise<{ result: ToolResult; abortCalls: number }> => {
+): Promise<{
+  result: ToolResult;
+  abortCalls: number;
+  blockedEvents: unknown[];
+}> => {
   const host = createAskQuestionHost();
+  const blockedEvents: unknown[] = [];
+  host.events.on("herdr:blocked", (data) => blockedEvents.push(data));
   const customUi = createCustomUiDriver<FlowResult>({
     keybindings: options.customKeybindings ?? DEFAULT_KEYBINDINGS,
     keys: options.customKeys ?? [],
@@ -94,7 +100,7 @@ export const executeTool = async (
     signal: options.signal,
   })) as ToolResult;
 
-  return { abortCalls, result };
+  return { abortCalls, blockedEvents, result };
 };
 
 export const renderFlowWithKeys = async (

@@ -13,7 +13,10 @@ import type {
   ToolInfo,
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
-import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
+import {
+  createEventBus,
+  createSyntheticSourceInfo,
+} from "@earendil-works/pi-coding-agent";
 import { vi } from "vitest";
 
 import { createIdentityTheme } from "./tui.js";
@@ -107,6 +110,7 @@ export const createExtensionHost = (
   const widgetState = new Map<string, string | undefined>();
   const statuses = new Map<string, string | undefined>();
   const terminalInputHandlers = new Set<TerminalInputHandler>();
+  const events = createEventBus();
   let leafId = options.leafId ?? null;
   let nextAppendedEntryId = 1;
   let activeTools = [
@@ -263,6 +267,7 @@ export const createExtensionHost = (
       nextAppendedEntryId += 1;
       leafId = entry.id;
     },
+    events,
     getActiveTools: () => [...activeTools],
     getAllTools: () => [...allToolInfos],
     getThinkingLevel: () => "off" as never,
@@ -499,6 +504,7 @@ export const createExtensionHost = (
     emitSessionStart,
     emitSessionTree,
     emitTurnEnd,
+    events,
     getActiveTools() {
       return [...activeTools];
     },

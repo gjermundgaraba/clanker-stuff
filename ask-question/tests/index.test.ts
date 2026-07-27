@@ -69,9 +69,14 @@ describe("ask-question tool", () => {
   });
 
   it("returns structured answers on success", async () => {
-    const { result } = await executeTool(singleQuestionParams, {
+    const { blockedEvents, result } = await executeTool(singleQuestionParams, {
       customKeys: [KEY_ENTER, KEY_TAB, KEY_ENTER],
     });
+
+    expect(blockedEvents).toStrictEqual([
+      { active: true, label: "Waiting for answers" },
+      { active: false },
+    ]);
 
     const details = expectSuccessResult(result);
     expect(details.answers).toStrictEqual([

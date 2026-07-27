@@ -20,14 +20,24 @@ export default function askQuestion(pi: ExtensionAPI) {
         throw new Error("ask_question requires interactive UI");
       }
 
-      const flow = await runAskQuestionTuiFlow(ctx, questions, signal);
+      // https://github.com/ogulcancelik/herdr/blob/v0.7.5/src/integration/assets/pi/herdr-agent-state.ts#L230-L246
+      pi.events.emit("herdr:blocked", {
+        active: true,
+        label: "Waiting for answers",
+      });
 
-      if (flow.cancelled) {
-        ctx.abort();
-        return buildCancelledToolResult(flow.reason);
+      try {
+        const flow = await runAskQuestionTuiFlow(ctx, questions, signal);
+
+        if (flow.cancelled) {
+          ctx.abort();
+          return buildCancelledToolResult(flow.reason);
+        }
+
+        return buildSuccessToolResult(questions, flow);
+      } finally {
+        pi.events.emit("herdr:blocked", { active: false });
       }
-
-      return buildSuccessToolResult(questions, flow);
     },
     executionMode: "sequential",
     label: "Ask Question",
