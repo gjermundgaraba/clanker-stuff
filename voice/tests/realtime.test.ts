@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   delegationContextEvents,
   parseTranscriptEvent,
+  rememberDelegationId,
   sessionConfig,
   VoiceSession,
   VOICE_INSTRUCTIONS,
@@ -43,6 +44,19 @@ describe("realtime session protocol", () => {
         type: "delegation.context.append",
       },
     ]);
+  });
+
+  it("accepts each delegation ID once and bounds replay memory", () => {
+    const seen = new Set<string>();
+
+    expect(rememberDelegationId(seen, "handoff-0")).toBeTruthy();
+    expect(rememberDelegationId(seen, "handoff-0")).toBeFalsy();
+    for (let index = 1; index <= 1000; index += 1) {
+      expect(rememberDelegationId(seen, `handoff-${index}`)).toBeTruthy();
+    }
+
+    expect(seen.size).toBe(1000);
+    expect(rememberDelegationId(seen, "handoff-0")).toBeTruthy();
   });
 });
 

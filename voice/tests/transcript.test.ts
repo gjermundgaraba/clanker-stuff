@@ -81,4 +81,32 @@ describe("voice transcript handling", () => {
       ])
     ).toStrictEqual([{ role: "assistant", text: "hello" }]);
   });
+
+  it("bounds unhanded transcript growth to recent context", () => {
+    const tracker = new HandoffTranscript();
+    for (let index = 0; index < 30; index += 1) {
+      tracker.complete(
+        index % 2 === 0 ? "user" : "assistant",
+        `${index}: ${"x".repeat(1000)}`
+      );
+    }
+
+    const entries = tracker.take();
+    expect(entries.reduce((total, entry) => total + entry.text.length, 0)).toBe(
+      15_060
+    );
+    expect(entries[0]?.text).toContain("15:");
+    expect(entries.at(-1)?.text).toContain("29:");
+  });
+
+  it("keeps both ends of an oversized transcript turn", () => {
+    const tracker = new HandoffTranscript();
+    tracker.complete("user", `begin-${"x".repeat(5000)}-end`);
+
+    const [entry] = tracker.take();
+    expect(entry?.text).toHaveLength(4000);
+    expect(entry?.text).toMatch(/^begin-/u);
+    expect(entry?.text).toMatch(/-end$/u);
+    expect(entry?.text).toContain("[…]");
+  });
 });

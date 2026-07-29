@@ -18,6 +18,7 @@ interface VoiceCoordinatorOptions {
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+const MAX_QUEUED_HANDOFFS = 20;
 
 export class VoiceCoordinator {
   private accepted: AcceptedHandoff | undefined;
@@ -32,6 +33,13 @@ export class VoiceCoordinator {
   }
 
   enqueue(handoff: Handoff): void {
+    if (this.queue.length >= MAX_QUEUED_HANDOFFS) {
+      this.options.complete(
+        handoff.binding,
+        "I could not queue that request because too many voice requests are already waiting."
+      );
+      return;
+    }
     this.queue.push(handoff);
     void this.pump();
   }

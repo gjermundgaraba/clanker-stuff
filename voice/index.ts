@@ -1,7 +1,9 @@
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 import { VoiceCoordinator } from "./coordinator.js";
@@ -18,6 +20,7 @@ import type { TranscriptEntry } from "./transcript.js";
 
 const STATUS_KEY = "voice";
 const CONTINUITY_ENTRY = "voice-continuity";
+const MAX_PRESENTATION_CHARS = 50_000;
 const MAX_SPEECH_CHARS = 400;
 const COORDINATOR_INSTRUCTIONS = `## Realtime voice coordination
 
@@ -29,11 +32,20 @@ Handle conversation, quick checks, and interactive decisions here. For slow or i
 
 Never claim an action completed without checking the actual result.
 
-Your terminal assistant response is automatically returned to the active voice handoff as its single [COMPLETE] message. Do not add protocol tags to your response and do not call speak_to_user for the final result.
+Your terminal assistant response is automatically returned to the active voice handoff as its single [COMPLETE] message unless present_voice_result completes the handoff first. Do not add protocol tags to your response and do not call speak_to_user for the final result.
+
+Use present_voice_result when the user needs substantial Markdown, code, links, a comparison, a plan, or other content best inspected in the pi terminal. Put the exact visual content in markdown and a concise natural-language takeaway in spokenSummary. The tool displays the Markdown without sending it to the realtime model and completes the voice handoff.
 
 speak_to_user sends a [STATUS] update for the active handoff. Use it only for a verified finding, concrete user-relevant progress, a newly identified blocker, or a decision that matters while work continues. Never use it for an acknowledgement, intent, reassurance, “checking,” “still working,” elapsed time, or repeated information. After one meaningful update, remain silent until there is another material change or the terminal response is ready.
 
+Call end_realtime_voice_call for an explicit request to end voice or a clear conversational sign-off such as “goodbye,” “talk to you later,” or “that’s all for now.” Do not end voice for a bare “stop,” a request to pause or be quiet, a request to stop only the current task, or a merely polite acknowledgement.
+
 Ending voice never ends this pi session or its ongoing work.`;
+
+interface VoicePresentationDetails {
+  delivered: boolean;
+  markdown: string;
+}
 
 type RuntimeState =
   | "stopped"
@@ -216,7 +228,7 @@ const voiceExtension = (pi: ExtensionAPI): void => {
     setState("stopped");
     if (transcriptTail.length > 0) {
       pi.sendUserMessage(formatTranscriptTail(transcriptTail), {
-        deliverAs: "steer",
+        deliverAs: "followUp",
       });
     }
   };
@@ -393,7 +405,72 @@ const voiceExtension = (pi: ExtensionAPI): void => {
 
   pi.registerTool({
     description:
-      "End the current realtime voice chat. Only call this tool if the user explicitly asks to end the voice chat. This does not stop pi or ongoing work.",
+      "Display substantial Markdown in the pi terminal and send only a concise spoken summary as the final response to the active realtime voice handoff. Use for reports, code, links, comparisons, plans, or other output that is better inspected than heard.",
+    async execute(_toolCallId, params) {
+      const markdown = params.markdown.trim();
+      const spokenSummary = params.spokenSummary
+        .replaceAll(/\s+/gu, " ")
+        .trim();
+      if (!markdown || !spokenSummary) {
+        throw new Error(
+          "Both terminal Markdown and a spoken summary are required."
+        );
+      }
+      const delivered = coordinator.finish(spokenSummary);
+      return {
+        content: [
+          {
+            text: delivered
+              ? "The terminal result was displayed and its spoken summary was sent."
+              : "No active voice conversation was available.",
+            type: "text" as const,
+          },
+        ],
+        details: { delivered, markdown },
+        terminate: delivered,
+      };
+    },
+    label: "Present voice result",
+    name: "present_voice_result",
+    parameters: Type.Object(
+      {
+        markdown: Type.String({
+          description:
+            "Exact Markdown to display in the pi terminal without sending it to the realtime voice model.",
+          maxLength: MAX_PRESENTATION_CHARS,
+          minLength: 1,
+        }),
+        spokenSummary: Type.String({
+          description:
+            "One or two concise natural-language sentences summarizing the result for speech.",
+          maxLength: MAX_SPEECH_CHARS,
+          minLength: 1,
+        }),
+      },
+      { additionalProperties: false }
+    ),
+    promptGuidelines: [
+      "During active voice chat, call present_voice_result by itself after work is complete when substantial visual output is needed; it completes the handoff, so do not add a second final response.",
+    ],
+    renderResult(result, { isPartial }, theme) {
+      if (isPartial) {
+        return new Text(theme.fg("muted", "Preparing terminal result…"), 0, 0);
+      }
+      const details = result.details as VoicePresentationDetails | undefined;
+      if (!details?.markdown) {
+        return new Text(
+          theme.fg("warning", "No terminal result was available."),
+          0,
+          0
+        );
+      }
+      return new Markdown(details.markdown, 0, 0, getMarkdownTheme());
+    },
+  });
+
+  pi.registerTool({
+    description:
+      "End the current realtime voice chat. Call when the user explicitly asks to end voice or clearly signs off with wording such as goodbye, talk to you later, or that is all for now. Do not call for a bare stop, a request to pause or be quiet, a request to stop only the current task, or a polite acknowledgement. This does not stop pi or ongoing work.",
     async execute() {
       const active = voice !== undefined;
       if (active) {
@@ -414,6 +491,9 @@ const voiceExtension = (pi: ExtensionAPI): void => {
     label: "End realtime voice call",
     name: "end_realtime_voice_call",
     parameters: Type.Object({}, { additionalProperties: false }),
+    promptGuidelines: [
+      "Use end_realtime_voice_call for explicit voice-ending requests and clear conversational sign-offs, but not for pause, silence, task-stop, or acknowledgement requests.",
+    ],
   });
 
   pi.on("session_start", (_event, ctx) => {

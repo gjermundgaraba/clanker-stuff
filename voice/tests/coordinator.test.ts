@@ -116,4 +116,37 @@ describe("voice coordinator", () => {
     expect(submit).not.toHaveBeenCalled();
     expect(completions[0]).toContain("missing auth");
   });
+
+  it("rejects a handoff when the bounded queue is full", async () => {
+    const validation = Promise.withResolvers<null>();
+    const completions: { delegationId: string; text: string }[] = [];
+    const coordinator = new VoiceCoordinator({
+      complete: (target, text) => {
+        completions.push({ delegationId: target.delegationId, text });
+        return true;
+      },
+      status: () => true,
+      submit: () => {},
+      validate: async () => {
+        await validation.promise;
+      },
+    });
+
+    for (let index = 0; index < 22; index += 1) {
+      coordinator.enqueue({
+        binding: binding(String(index)),
+        prompt: `prompt-${index}`,
+      });
+    }
+
+    expect(completions).toStrictEqual([
+      {
+        delegationId: "21",
+        text: "I could not queue that request because too many voice requests are already waiting.",
+      },
+    ]);
+    coordinator.reset();
+    validation.resolve(null);
+    await validation.promise;
+  });
 });

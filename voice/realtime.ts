@@ -20,7 +20,10 @@ const DEFAULT_RENEW_AFTER_MS = 55 * 60_000;
 const RENEW_RETRY_MS = 20_000;
 const CONTEXT_FRAME_BYTES = 500;
 const CONNECT_TIMEOUT_MS = 10_000;
+const MAX_DELEGATION_CHARS = 16_000;
 const MAX_SDP_CHARS = 1_000_000;
+const MAX_SEEN_DELEGATIONS = 1000;
+const MAX_SIDEBAND_BYTES = 1_000_000;
 
 export const VOICE_MODEL = "gpt-live-1-codex";
 export const VOICE_NAME = "maple";
@@ -538,6 +541,7 @@ class RealtimeControl {
   private callAbort: AbortController | undefined;
   private closing = false;
   private readonly options: RealtimeControlOptions;
+  private readonly seenDelegationIds = new Set<string>();
   private socket: WebSocket | undefined;
   private status: "closed" | "connecting" | "connected" | "active" | "failed" =
     "closed";
@@ -611,7 +615,7 @@ class RealtimeControl {
       this.assertCurrentCall(abort);
       const socket = new WebSocket(
         `${SIDEBAND_URL}/${encodeURIComponent(upstreamCallId)}`,
-        { headers }
+        { headers, maxPayload: MAX_SIDEBAND_BYTES }
       );
       this.socket = socket;
       await this.waitForSocket(socket);
@@ -761,7 +765,10 @@ class RealtimeControl {
     }
 
     const delegation = parseDelegation(event);
-    if (delegation === undefined) {
+    if (
+      delegation === undefined ||
+      !rememberDelegationId(this.seenDelegationIds, delegation.id)
+    ) {
       return;
     }
     this.options.onDelegation({
@@ -841,6 +848,7 @@ function parseDelegation(
     event.item.type !== "delegation" ||
     event.item.target !== "client" ||
     typeof event.item.id !== "string" ||
+    event.item.id.length === 0 ||
     !Array.isArray(event.item.content)
   ) {
     return undefined;
@@ -853,8 +861,26 @@ function parseDelegation(
     )
     .map((content) => (typeof content.text === "string" ? content.text : ""))
     .join("")
-    .trim();
+    .trim()
+    .slice(0, MAX_DELEGATION_CHARS);
   return input ? { id: event.item.id, input } : undefined;
+}
+
+export function rememberDelegationId(
+  seen: Set<string>,
+  delegationId: string
+): boolean {
+  if (seen.has(delegationId)) {
+    return false;
+  }
+  seen.add(delegationId);
+  if (seen.size > MAX_SEEN_DELEGATIONS) {
+    const oldest = seen.values().next().value;
+    if (oldest !== undefined) {
+      seen.delete(oldest);
+    }
+  }
+  return true;
 }
 
 export function sessionConfig(

@@ -9,6 +9,20 @@ export interface TranscriptEntry {
 
 const CONTINUITY_MAX_ITEMS = 10;
 const CONTINUITY_MAX_ITEM_CHARS = 1200;
+const HANDOFF_MAX_ITEMS = 20;
+const HANDOFF_MAX_ITEM_CHARS = 4000;
+const HANDOFF_MAX_TOTAL_CHARS = 16_000;
+const HANDOFF_TRUNCATION_MARKER = "\n[…]\n";
+
+const boundHandoffText = (text: string): string => {
+  if (text.length <= HANDOFF_MAX_ITEM_CHARS) {
+    return text;
+  }
+  const remaining = HANDOFF_MAX_ITEM_CHARS - HANDOFF_TRUNCATION_MARKER.length;
+  const headChars = Math.ceil(remaining / 2);
+  const tailChars = Math.floor(remaining / 2);
+  return `${text.slice(0, headChars)}${HANDOFF_TRUNCATION_MARKER}${text.slice(-tailChars)}`;
+};
 
 const escapeXml = (value: string): string =>
   value
@@ -25,26 +39,34 @@ export class HandoffTranscript {
     }
     const previous = this.entries.at(-1);
     if (previous?.role === role) {
-      previous.text += text;
+      previous.text = boundHandoffText(`${previous.text}${text}`);
+      this.trim();
       return;
     }
-    this.entries.push({ role, text });
+    this.entries.push({
+      role,
+      text: boundHandoffText(text),
+    });
+    this.trim();
   }
 
   complete(role: TranscriptRole, text: string): void {
     if (!text) {
       return;
     }
+    const bounded = boundHandoffText(text);
     const previous = this.entries.at(-1);
     if (previous?.role === role) {
-      previous.text = text;
+      previous.text = bounded;
+      this.trim();
       return;
     }
-    this.entries.push({ role, text });
+    this.entries.push({ role, text: bounded });
+    this.trim();
   }
 
   delegation(input: string): TranscriptEntry[] {
-    const normalized = input.trim();
+    const normalized = boundHandoffText(input.trim());
     if (
       normalized &&
       !this.entries.some(
@@ -60,6 +82,20 @@ export class HandoffTranscript {
     const entries = this.entries.map((entry) => ({ ...entry }));
     this.entries.length = 0;
     return entries;
+  }
+
+  private trim(): void {
+    if (this.entries.length > HANDOFF_MAX_ITEMS) {
+      this.entries.splice(0, this.entries.length - HANDOFF_MAX_ITEMS);
+    }
+    let totalChars = this.entries.reduce(
+      (total, entry) => total + entry.text.length,
+      0
+    );
+    while (this.entries.length > 1 && totalChars > HANDOFF_MAX_TOTAL_CHARS) {
+      const removed = this.entries.shift();
+      totalChars -= removed?.text.length ?? 0;
+    }
   }
 }
 
