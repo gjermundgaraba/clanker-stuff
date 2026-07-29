@@ -139,6 +139,7 @@ const voiceExtension = (pi: ExtensionAPI): void => {
   let persistedTranscript: TranscriptEntry[] = [];
   let persistedTranscriptSignature = "[]";
   let runtimeState: RuntimeState = "stopped";
+  let startupGeneration = 0;
   let voice: VoiceSession | undefined;
 
   const updateStatus = (ctx: ExtensionContext): void => {
@@ -212,6 +213,7 @@ const voiceExtension = (pi: ExtensionAPI): void => {
   const stop = (
     options: { flushTail?: boolean; persist?: boolean } = {}
   ): void => {
+    startupGeneration += 1;
     const currentVoice = voice;
     if (options.persist !== false) {
       persistContinuity(currentVoice);
@@ -248,20 +250,37 @@ const voiceExtension = (pi: ExtensionAPI): void => {
     context = ctx;
     stop();
     context = ctx;
+    const generation = startupGeneration;
     setState("starting");
 
     try {
       await validateCoordinator(ctx);
+      if (generation !== startupGeneration) {
+        return;
+      }
       let initialVoiceAuth: VoiceAuth | undefined = await resolveVoiceAuth(ctx);
+      if (generation !== startupGeneration) {
+        return;
+      }
       const nextVoice = new VoiceSession({
         initialTranscript: persistedTranscript,
         onDelegation: handleDelegation,
         onError: (message) => {
+          if (generation !== startupGeneration) {
+            return;
+          }
           media?.sendError(message);
           context?.ui.notify(`Voice: ${message}`, "error");
         },
-        onRenewDue: () => media?.requestRenewal(),
+        onRenewDue: () => {
+          if (generation === startupGeneration) {
+            media?.requestRenewal();
+          }
+        },
         onState: (state: VoiceState) => {
+          if (generation !== startupGeneration) {
+            return;
+          }
           if (state === "active") {
             setState("active");
           } else if (state === "connecting") {
@@ -299,13 +318,17 @@ const voiceExtension = (pi: ExtensionAPI): void => {
           nextVoice.endCall();
         },
         onError: (message) => {
-          context?.ui.notify(`Voice media: ${message}`, "warning");
+          if (generation === startupGeneration) {
+            context?.ui.notify(`Voice media: ${message}`, "warning");
+          }
         },
         onMediaReady: () => {
           nextVoice.mediaReady();
         },
         onMuted: (muted) => {
-          setState(muted ? "paused" : "active");
+          if (generation === startupGeneration) {
+            setState(muted ? "paused" : "active");
+          }
         },
         onOffer: (offer) => nextVoice.acceptOffer(offer),
         onRenewAbort: () => {
@@ -318,8 +341,14 @@ const voiceExtension = (pi: ExtensionAPI): void => {
       media = nextMedia;
 
       await nextMedia.start();
+      if (generation !== startupGeneration) {
+        return;
+      }
       ctx.ui.notify("Voice window opened.", "info");
     } catch (error) {
+      if (generation !== startupGeneration) {
+        return;
+      }
       stop();
       throw error;
     }
