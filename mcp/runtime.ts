@@ -8,6 +8,7 @@ import {
   auth,
   UnauthorizedError,
   Client,
+  SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import type {
@@ -30,8 +31,10 @@ const OPEN_OBJECT_SCHEMA = Type.Object({}, { additionalProperties: true });
 
 interface ConnectedServer {
   client: Client;
+  serverConfig: McpConfig["mcpServers"][string];
   toolNames: string[];
   transport: Transport;
+  ui: Pick<ExtensionCommandContext["ui"], "notify">;
 }
 
 interface McpLoadResult {
@@ -84,7 +87,6 @@ const authorizeHttpProvider = async (
   serverUrl: URL,
   authProvider: OAuthClientProvider,
   callbackServer: OAuthCallbackServer | undefined,
-  ui: Pick<ExtensionCommandContext["ui"], "notify">,
   interactive: boolean,
   signal?: AbortSignal
 ): Promise<void> => {
@@ -98,10 +100,6 @@ const authorizeHttpProvider = async (
     );
   }
 
-  ui.notify(
-    `Waiting for OAuth authorization for MCP server ${serverName}...`,
-    "info"
-  );
   const code = await callbackServer.waitForCode(signal);
   const finishResult = await auth(authProvider, {
     authorizationCode: code,
@@ -216,7 +214,7 @@ const createHttpAuthProvider = (
         );
       }
       ui.notify(
-        `Authorize MCP server ${serverName}: ${url.toString()}`,
+        `Authorize MCP server ${serverName}:\n${url.toString()}\nWaiting for OAuth authorization...`,
         "info"
       );
     }
@@ -229,7 +227,7 @@ const connectToServer = async (
   ui: Pick<ExtensionCommandContext["ui"], "notify">,
   interactive: boolean,
   signal?: AbortSignal
-): Promise<Omit<ConnectedServer, "toolNames">> => {
+): Promise<Pick<ConnectedServer, "client" | "transport">> => {
   const client = new Client({ name: "pi-mcp", version: "0.1.0" });
 
   if (serverConfig.type === "stdio") {
@@ -264,7 +262,6 @@ const connectToServer = async (
         serverUrl,
         authProvider,
         callbackServer,
-        ui,
         interactive,
         signal
       );
@@ -284,6 +281,7 @@ const connectToServer = async (
 };
 
 export class McpRuntime {
+  private readonly reconnects = new Map<string, Promise<ConnectedServer>>();
   private readonly servers = new Map<string, ConnectedServer>();
 
   async loadServer(options: LoadServerOptions): Promise<McpLoadResult> {
@@ -305,7 +303,7 @@ export class McpRuntime {
       options.signal
     );
     try {
-      const result = await McpRuntime.registerMcpTools(
+      const result = await this.registerMcpTools(
         options.pi,
         options.serverName,
         connection.client,
@@ -313,7 +311,9 @@ export class McpRuntime {
       );
       this.servers.set(options.serverName, {
         ...connection,
+        serverConfig: options.serverConfig,
         toolNames: result.toolNames,
+        ui: options.ui,
       });
       return result;
     } catch (error) {
@@ -332,7 +332,83 @@ export class McpRuntime {
     await Promise.allSettled(transports.map((transport) => transport.close()));
   }
 
-  private static async registerMcpTools(
+  private async callTool(
+    serverName: string,
+    toolName: string,
+    args: unknown,
+    signal?: AbortSignal
+  ): Promise<unknown> {
+    const connection = this.servers.get(serverName);
+    if (!connection) {
+      throw new Error(`MCP server ${serverName} is not connected`);
+    }
+
+    const request = {
+      arguments: normalizeToolArguments(args),
+      name: toolName,
+    };
+    const options = signal ? { signal } : undefined;
+    const sessionId =
+      connection.transport instanceof StreamableHTTPClientTransport
+        ? connection.transport.sessionId
+        : undefined;
+
+    try {
+      return await connection.client.callTool(request, options);
+    } catch (error) {
+      if (
+        sessionId === undefined ||
+        !SdkHttpError.isInstance(error) ||
+        error.status !== 404
+      ) {
+        throw error;
+      }
+    }
+
+    const reconnected = await this.reconnectServer(serverName, connection);
+    return await reconnected.client.callTool(request, options);
+  }
+
+  private async reconnectServer(
+    serverName: string,
+    stale: ConnectedServer
+  ): Promise<ConnectedServer> {
+    const current = this.servers.get(serverName);
+    if (!current) {
+      throw new Error(`MCP server ${serverName} is not connected`);
+    }
+    if (current !== stale) {
+      return current;
+    }
+
+    const pending = this.reconnects.get(serverName);
+    if (pending) {
+      return await pending;
+    }
+
+    const reconnect = (async () => {
+      const connection = await connectToServer(
+        serverName,
+        stale.serverConfig,
+        stale.ui,
+        false
+      );
+      const replacement = { ...stale, ...connection };
+      this.servers.set(serverName, replacement);
+      await stale.transport.close().catch(() => {
+        // The replacement connection is already active.
+      });
+      return replacement;
+    })();
+    this.reconnects.set(serverName, reconnect);
+    try {
+      return await reconnect;
+    } finally {
+      this.reconnects.delete(serverName);
+    }
+  }
+
+  private async registerMcpTools(
     pi: ExtensionAPI,
     serverName: string,
     client: Client,
@@ -344,6 +420,7 @@ export class McpRuntime {
     );
     const occupiedNames = new Set(pi.getAllTools().map(({ name }) => name));
     const generatedNames = new Set<string>();
+    const callTool = this.callTool.bind(this);
 
     const generatedTools: ToolDefinition[] = tools.map((tool) => {
       const generatedToolName = toGeneratedToolName(serverName, tool.name);
@@ -361,9 +438,11 @@ export class McpRuntime {
         description:
           tool.description ?? `MCP tool ${tool.name} from server ${serverName}`,
         async execute(_toolCallId, params, executeSignal) {
-          const result = await client.callTool(
-            { arguments: normalizeToolArguments(params), name: tool.name },
-            executeSignal ? { signal: executeSignal } : undefined
+          const result = await callTool(
+            serverName,
+            tool.name,
+            params,
+            executeSignal
           );
           if (mcpResultIsError(result)) {
             throw new Error(

@@ -85,8 +85,8 @@ describe("mcp extension", () => {
   let hosts: ReturnType<typeof createExtensionHostBase>[];
   let httpFixtures: { close: () => Promise<void> }[];
 
-  const startHttpFixture = async (oauth = false) => {
-    const fixture = await startMcpHttpFixture(oauth);
+  const startHttpFixture = async (oauth = false, expireSessionOnce = false) => {
+    const fixture = await startMcpHttpFixture(oauth, expireSessionOnce);
     httpFixtures.push(fixture);
     return fixture;
   };
@@ -247,6 +247,33 @@ describe("mcp extension", () => {
       });
     });
 
+    it("starts a new session after a session request receives HTTP 404", async () => {
+      const fixture = await startHttpFixture(false, true);
+      await writeConfig({
+        mcpServers: {
+          remote: { type: "http", url: fixture.url },
+        },
+      });
+      const host = createExtensionHost(mcp, { hasUI: false });
+      const ctx = host.createContext({
+        ui: {
+          select: vi.fn<() => Promise<string>>(async () => "remote"),
+        },
+      });
+
+      await host.runCommand("mcp", "", ctx);
+
+      const result = await host.runTool("mcp_remote__search", {
+        query: "after-reconnect",
+      });
+
+      expect(result.content).toContainEqual({
+        text: "result: after-reconnect",
+        type: "text",
+      });
+      expect(fixture.getInitializationCount()).toBe(2);
+    });
+
     it("completes OAuth after the user follows the displayed URL", async () => {
       const fixture = await startHttpFixture(true);
       await writeConfig({
@@ -264,15 +291,14 @@ describe("mcp extension", () => {
 
       const loading = host.runCommand("mcp", "", ctx);
       const authorizationUrl = await vi.waitFor(() => {
-        const message = host
-          .getNotifications()
-          .find((notification) =>
-            notification.message.startsWith("Authorize MCP server remote: ")
-          )?.message;
+        const message = host.getNotifications().at(-1)?.message;
         if (message === undefined) {
           throw new Error("OAuth authorization URL was not shown");
         }
-        return message.split(": ", 2)[1];
+        expect(message).toMatch(
+          /^Authorize MCP server remote:\nhttps?:\/\/.+\nWaiting for OAuth authorization\.\.\.$/u
+        );
+        return message.split("\n")[1];
       });
       await fetch(authorizationUrl);
       await loading;

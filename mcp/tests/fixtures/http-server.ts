@@ -1,10 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { toNodeHandler } from "@modelcontextprotocol/node";
-import { createMcpHandler } from "@modelcontextprotocol/server";
+import {
+  createMcpHandler,
+  isInitializeRequest,
+  isJSONRPCRequest,
+} from "@modelcontextprotocol/server";
 
 import { createFixtureMcpServer } from "./mcp-server.js";
 
@@ -24,9 +29,39 @@ const readJson = async (req: IncomingMessage): Promise<unknown> => {
   return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
 };
 
-export const startMcpHttpFixture = async (oauth = false) => {
+export const startMcpHttpFixture = async (
+  oauth = false,
+  expireSessionOnce = false
+) => {
   const mcpHandler = createMcpHandler(() => createFixtureMcpServer());
-  const handleMcpRequest = toNodeHandler(mcpHandler);
+  let initializationCount = 0;
+  let sessionExpired = false;
+  const handleMcpRequest = toNodeHandler({
+    async fetch(request, options) {
+      if (!expireSessionOnce) {
+        return mcpHandler.fetch(request, options);
+      }
+
+      const body =
+        request.method === "POST" ? await request.clone().json() : undefined;
+      if (
+        !sessionExpired &&
+        request.headers.has("mcp-session-id") &&
+        isJSONRPCRequest(body) &&
+        body.method === "tools/call"
+      ) {
+        sessionExpired = true;
+        return new Response(null, { status: 404 });
+      }
+
+      const response = await mcpHandler.fetch(request, options);
+      if (isInitializeRequest(body)) {
+        initializationCount += 1;
+        response.headers.set("mcp-session-id", randomUUID());
+      }
+      return response;
+    },
+  });
   let issuer = "";
 
   const handleNodeRequest = async (
@@ -136,6 +171,7 @@ export const startMcpHttpFixture = async (oauth = false) => {
       server.close();
       await once(server, "close");
     },
+    getInitializationCount: () => initializationCount,
     url: `${issuer}/mcp`,
   };
 };
