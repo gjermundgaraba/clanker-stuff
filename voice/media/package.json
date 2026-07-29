@@ -1,0 +1,6 @@
+{
+  "name": "pi-voice-media",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs"
+}

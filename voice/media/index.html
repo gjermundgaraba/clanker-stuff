@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'"
+      http-equiv="Content-Security-Policy"
+    />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Pi Voice</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        align-items: center;
+        display: flex;
+        height: 100vh;
+        justify-content: center;
+        margin: 0;
+        overflow: hidden;
+        user-select: none;
+        -webkit-app-region: drag;
+      }
+
+      .orb {
+        -webkit-app-region: no-drag;
+        background:
+          radial-gradient(circle at 35% 30%, #fff9, transparent 18%),
+          radial-gradient(circle at 45% 55%, #7dd3fc, #2563eb 48%, #172554 75%);
+        border: 0;
+        border-radius: 50%;
+        box-shadow:
+          0 0 28px #38bdf880,
+          0 0 70px #2563eb70,
+          inset 0 0 24px #ffffff35;
+        cursor: pointer;
+        height: 160px;
+        transition:
+          filter 180ms ease,
+          opacity 180ms ease,
+          transform 180ms ease;
+        width: 160px;
+      }
+
+      .orb:hover {
+        transform: scale(1.035);
+      }
+
+      .orb.paused {
+        filter: grayscale(0.72);
+        opacity: 0.68;
+      }
+
+      .orb.listening {
+        animation: breathe 2.8s ease-in-out infinite;
+      }
+
+      @keyframes breathe {
+        50% {
+          box-shadow:
+            0 0 38px #38bdf8b0,
+            0 0 90px #2563eb85,
+            inset 0 0 24px #ffffff45;
+          transform: scale(1.025);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <button class="orb paused" id="orb" type="button"></button>
+    <audio autoplay id="remote-audio"></audio>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
