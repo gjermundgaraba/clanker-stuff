@@ -23,6 +23,10 @@ describe("realtime session protocol", () => {
     expect(VOICE_INSTRUCTIONS).toContain("[COMPLETE]");
   });
 
+  it("keeps repeated requests in their unresolved handoff", () => {
+    expect(VOICE_INSTRUCTIONS).toContain("do not call `SpawnThinking` again");
+  });
+
   it("builds only delegation-bound status and completion frames", () => {
     expect(
       delegationContextEvents("handoff-1", "commentary", "Found it.")
