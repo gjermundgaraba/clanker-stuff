@@ -7,6 +7,7 @@ A collection of independently installable extensions for [pi](https://github.com
 | Extension | Description |
 | --- | --- |
 | [`@clanker-extensions/ask-question`](ask-question) | Lets pi ask multiple-choice or free-text questions before continuing. |
+| [`@clanker-extensions/codex-reverse-i-search`](codex-reverse-i-search) | Adds Codex-style Ctrl+R reverse history search to pi's prompt editor. |
 | [`@clanker-extensions/codex-skills`](codex-skills) | Injects complete SKILL.md instructions when prompts explicitly mention $skill-name. |
 | [`@clanker-extensions/footer`](footer) | Replaces the pi footer with a compact context gauge, git status, and subscription usage bars for the active provider. |
 | [`@clanker-extensions/mcp`](mcp) | Connects selected MCP servers to pi and registers their tools. |

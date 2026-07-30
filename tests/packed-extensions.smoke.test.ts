@@ -32,6 +32,14 @@ const EXTENSION_PACKAGES = [
     tools: ["ask_question"],
   },
   {
+    commands: [],
+    dir: "codex-reverse-i-search",
+    handlers: ["input", "session_shutdown", "session_start", "user_bash"],
+    name: "@clanker-extensions/codex-reverse-i-search",
+    shortcuts: ["ctrl+r"],
+    tools: [],
+  },
+  {
     commands: ["usage"],
     dir: "footer",
     handlers: [],
