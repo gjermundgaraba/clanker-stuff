@@ -1,4 +1,5 @@
 import type {
+  AutocompleteProviderFactory,
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
@@ -6,6 +7,7 @@ import type {
   InputEventResult,
   RegisteredCommand,
   RegisteredTool,
+  SlashCommandInfo,
   SessionEntry,
   SessionShutdownEvent,
   SessionStartEvent,
@@ -17,6 +19,7 @@ import {
   createEventBus,
   createSyntheticSourceInfo,
 } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import { vi } from "vitest";
 
 import { createIdentityTheme } from "./tui.js";
@@ -29,6 +32,7 @@ type ContextOverrides = Omit<Partial<ExtensionCommandContext>, "ui"> & {
 type ToolExecute = NonNullable<
   Parameters<ExtensionAPI["registerTool"]>[0]["execute"]
 >;
+type MessageRenderer = Parameters<ExtensionAPI["registerMessageRenderer"]>[1];
 interface RunToolOptions {
   ctx?: ExtensionCommandContext;
   signal?: Parameters<ToolExecute>[2];
@@ -42,6 +46,7 @@ export interface ExtensionHostOptions {
   hasUI?: boolean;
   activeTools?: string[];
   allTools?: string[];
+  commands?: SlashCommandInfo[];
   model?: ExtensionContext["model"];
 }
 
@@ -107,6 +112,8 @@ export const createExtensionHost = (
     options: Parameters<ExtensionAPI["sendUserMessage"]>[1];
   }[] = [];
   const notifications: { message: string; type?: string }[] = [];
+  const autocompleteProviderFactories: AutocompleteProviderFactory[] = [];
+  const messageRenderers = new Map<string, MessageRenderer>();
   const widgetState = new Map<string, string | undefined>();
   const statuses = new Map<string, string | undefined>();
   const terminalInputHandlers = new Set<TerminalInputHandler>();
@@ -188,6 +195,11 @@ export const createExtensionHost = (
     );
 
     const ui = {
+      addAutocompleteProvider: vi.fn<(...args: never[]) => unknown>(
+        (factory: AutocompleteProviderFactory) => {
+          autocompleteProviderFactories.push(factory);
+        }
+      ),
       custom: vi.fn<(...args: never[]) => unknown>(async () => {
         await Promise.resolve();
         throw new Error(
@@ -270,6 +282,7 @@ export const createExtensionHost = (
     events,
     getActiveTools: () => [...activeTools],
     getAllTools: () => [...allToolInfos],
+    getCommands: () => [...(options.commands ?? [])],
     getThinkingLevel: () => "off" as never,
     on(event: string, handler: EventHandler) {
       const eventHandlers = handlers.get(event) ?? [];
@@ -285,6 +298,9 @@ export const createExtensionHost = (
         name,
         sourceInfo: TEST_SOURCE_INFO,
       } as RegisteredCommand);
+    },
+    registerMessageRenderer(customType: string, renderer: MessageRenderer) {
+      messageRenderers.set(customType, renderer);
     },
     registerShortcut: vi.fn<(...args: never[]) => unknown>(
       (shortcut, shortcutOptions) => {
@@ -511,8 +527,18 @@ export const createExtensionHost = (
     getAppendedEntries() {
       return [...appendedEntries];
     },
+    getAutocompleteProvider(base: AutocompleteProvider) {
+      let current = base;
+      for (const factory of autocompleteProviderFactories) {
+        current = factory(current);
+      }
+      return current;
+    },
     getLeafId() {
       return leafId;
+    },
+    getMessageRenderer(customType: string) {
+      return messageRenderers.get(customType);
     },
     getNotifications() {
       return [...notifications];

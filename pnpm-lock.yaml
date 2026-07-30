@@ -64,6 +64,19 @@ importers:
         specifier: '*'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
+  codex-skills:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.81.0
+        version: 0.81.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.20.0)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.81.0
+        version: 0.81.0
+    devDependencies:
+      vitest:
+        specifier: '*'
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+
   footer:
     dependencies:
       '@earendil-works/pi-ai':

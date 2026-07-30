@@ -1,6 +1,7 @@
 packages:
   - "."
   - "ask-question"
+  - "codex-skills"
   - "footer"
   - "mcp"
   - "plannotator"
