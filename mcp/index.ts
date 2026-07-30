@@ -1,11 +1,21 @@
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
+  ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 
-import { loadMcpConfig } from "./config.js";
-import type { McpConfig } from "./config.js";
+import {
+  addMcpServer,
+  listMcpServers,
+  loadMcpConfig,
+  removeMcpServer,
+} from "./config.js";
+import {
+  createMcpManagerConnection,
+  MCP_MANAGER_SERVER_NAME,
+} from "./manager.js";
+import type { McpManagerBackend, McpManagerListResult } from "./manager.js";
 import { errorMessage, McpRuntime } from "./runtime.js";
 
 type LoaderResult<T> =
@@ -70,32 +80,114 @@ const loadedServerNames = (branch: readonly unknown[]): string[] => {
   return [...names];
 };
 
+const configOptions = (ctx: ExtensionContext) => ({
+  cwd: ctx.cwd,
+  projectTrusted: ctx.isProjectTrusted(),
+});
+
+const listAvailableServers = async (
+  ctx: ExtensionContext,
+  signal?: AbortSignal
+): Promise<McpManagerListResult> => {
+  signal?.throwIfAborted();
+  const manager = {
+    name: MCP_MANAGER_SERVER_NAME,
+    scope: "built-in" as const,
+  };
+  try {
+    const configured = await listMcpServers(configOptions(ctx));
+    return {
+      servers: [
+        manager,
+        ...configured.filter(({ name }) => name !== MCP_MANAGER_SERVER_NAME),
+      ],
+    };
+  } catch (error) {
+    return {
+      error: `Failed to load MCP config: ${errorMessage(error)}`,
+      servers: [manager],
+    };
+  }
+};
+
 export default function mcp(pi: ExtensionAPI) {
   const runtime = new McpRuntime();
+
+  const loadNamedServer = async (
+    ctx: ExtensionContext,
+    serverName: string,
+    options: {
+      interactive: boolean;
+      persist: boolean;
+      signal?: AbortSignal;
+    }
+  ) => {
+    let result;
+    if (serverName === MCP_MANAGER_SERVER_NAME) {
+      const backend: McpManagerBackend = {
+        add: async (name, serverConfig, scope, signal) => {
+          signal.throwIfAborted();
+          if (name === MCP_MANAGER_SERVER_NAME) {
+            throw new Error(
+              `MCP server name ${MCP_MANAGER_SERVER_NAME} is reserved`
+            );
+          }
+          await addMcpServer(name, serverConfig, scope, configOptions(ctx));
+        },
+        connect: async (name, signal) => {
+          const loaded = await loadNamedServer(ctx, name, {
+            interactive: ctx.hasUI,
+            persist: true,
+            signal,
+          });
+          return loaded.toolCount;
+        },
+        list: async (signal) => await listAvailableServers(ctx, signal),
+        remove: async (name, scope, signal) => {
+          signal.throwIfAborted();
+          await removeMcpServer(name, scope, configOptions(ctx));
+        },
+      };
+      result = await runtime.loadServer({
+        connectionFactory: (_interactive, signal) =>
+          createMcpManagerConnection(backend, signal),
+        interactive: options.interactive,
+        pi,
+        serverName,
+        signal: options.signal,
+        ui: ctx.ui,
+      });
+    } else {
+      const config = await loadMcpConfig(configOptions(ctx));
+      const serverConfig = config.mcpServers[serverName];
+      if (serverConfig === undefined) {
+        throw new Error(`MCP server ${serverName} is not configured`);
+      }
+      result = await runtime.loadServer({
+        interactive: options.interactive,
+        pi,
+        serverConfig,
+        serverName,
+        signal: options.signal,
+        ui: ctx.ui,
+      });
+    }
+
+    if (options.persist) {
+      pi.appendEntry("mcp-server-loaded", { serverName });
+    }
+    return result;
+  };
 
   pi.registerCommand("mcp", {
     description: "Load MCP server tools",
     handler: async (_args, ctx) => {
-      let config: McpConfig;
-      try {
-        config = await loadMcpConfig({
-          cwd: ctx.cwd,
-          projectTrusted: ctx.isProjectTrusted(),
-        });
-      } catch (error) {
-        ctx.ui.notify(
-          `Failed to load MCP config: ${errorMessage(error)}`,
-          "error"
-        );
-        return;
+      const available = await listAvailableServers(ctx);
+      if (available.error) {
+        ctx.ui.notify(available.error, "error");
       }
 
-      const serverNames = Object.keys(config.mcpServers);
-      if (serverNames.length === 0) {
-        ctx.ui.notify("No MCP servers configured.", "info");
-        return;
-      }
-
+      const serverNames = available.servers.map(({ name }) => name);
       const serverName = await ctx.ui.select("MCP server", serverNames);
       if (serverName === undefined || serverName === "") {
         return;
@@ -103,16 +195,12 @@ export default function mcp(pi: ExtensionAPI) {
 
       try {
         const result = await loadServerWithSpinner(ctx, serverName, (signal) =>
-          runtime.loadServer({
+          loadNamedServer(ctx, serverName, {
             interactive: true,
-            pi,
-            serverConfig: config.mcpServers[serverName],
-            serverName,
+            persist: true,
             signal,
-            ui: ctx.ui,
           })
         );
-        pi.appendEntry("mcp-server-loaded", { serverName });
         ctx.ui.notify(
           `MCP server ${serverName} was loaded with ${result.toolCount} tools`
         );
@@ -131,29 +219,12 @@ export default function mcp(pi: ExtensionAPI) {
       return;
     }
 
-    let config: McpConfig;
-    try {
-      config = await loadMcpConfig({
-        cwd: ctx.cwd,
-        projectTrusted: ctx.isProjectTrusted(),
-      });
-    } catch {
-      return;
-    }
-
     for (const serverName of names) {
-      const serverConfig = config.mcpServers[serverName];
-      if (serverConfig === undefined) {
-        continue;
-      }
       try {
         // oxlint-disable-next-line no-await-in-loop -- registrations mutate shared tool state
-        await runtime.loadServer({
+        await loadNamedServer(ctx, serverName, {
           interactive: false,
-          pi,
-          serverConfig,
-          serverName,
-          ui: ctx.ui,
+          persist: false,
         });
       } catch {
         // The explicit /mcp command remains the interactive recovery path.

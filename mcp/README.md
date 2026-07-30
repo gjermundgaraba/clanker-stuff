@@ -10,7 +10,7 @@ pi install npm:@clanker-extensions/mcp
 
 ## Usage
 
-Run `/mcp` and select a configured server to load its tools into the current session.
+Run `/mcp` to load a configured server or the built-in `mcp-manager` tools.
 
 ## Configuration
 

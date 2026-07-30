@@ -31,10 +31,10 @@ const OPEN_OBJECT_SCHEMA = Type.Object({}, { additionalProperties: true });
 
 interface ConnectedServer {
   client: Client;
-  serverConfig: McpConfig["mcpServers"][string];
+  close: () => Promise<void>;
+  connectionFactory: McpConnectionFactory;
   toolNames: string[];
   transport: Transport;
-  ui: Pick<ExtensionCommandContext["ui"], "notify">;
 }
 
 interface McpLoadResult {
@@ -44,13 +44,25 @@ interface McpLoadResult {
 }
 
 interface LoadServerOptions {
+  connectionFactory?: McpConnectionFactory;
   pi: ExtensionAPI;
   serverName: string;
-  serverConfig: McpConfig["mcpServers"][string];
+  serverConfig?: McpConfig["mcpServers"][string];
   ui: Pick<ExtensionCommandContext["ui"], "notify">;
   interactive: boolean;
   signal?: AbortSignal;
 }
+
+export interface McpClientConnection {
+  client: Client;
+  close: () => Promise<void>;
+  transport: Transport;
+}
+
+export type McpConnectionFactory = (
+  interactive: boolean,
+  signal?: AbortSignal
+) => Promise<McpClientConnection>;
 
 type PiToolContent =
   | { type: "text"; text: string }
@@ -227,7 +239,7 @@ const connectToServer = async (
   ui: Pick<ExtensionCommandContext["ui"], "notify">,
   interactive: boolean,
   signal?: AbortSignal
-): Promise<Pick<ConnectedServer, "client" | "transport">> => {
+): Promise<McpClientConnection> => {
   const client = new Client({ name: "pi-mcp", version: "0.1.0" });
 
   if (serverConfig.type === "stdio") {
@@ -237,8 +249,8 @@ const connectToServer = async (
       env: serverConfig.env,
       stderr: "ignore",
     });
-    await client.connect(transport);
-    return { client, transport };
+    await client.connect(transport, signal ? { signal } : undefined);
+    return { client, close: () => client.close(), transport };
   }
 
   const serverUrl = new URL(serverConfig.url);
@@ -271,8 +283,8 @@ const connectToServer = async (
       authProvider,
       requestInit: { headers: serverConfig.headers ?? {} },
     });
-    await client.connect(transport);
-    return { client, transport };
+    await client.connect(transport, signal ? { signal } : undefined);
+    return { client, close: () => client.close(), transport };
   } finally {
     await callbackServer?.close().catch(() => {
       // Best-effort cleanup after the authorization attempt.
@@ -295,10 +307,25 @@ export class McpRuntime {
       };
     }
 
-    const connection = await connectToServer(
-      options.serverName,
-      options.serverConfig,
-      options.ui,
+    const { connectionFactory: providedConnectionFactory, serverConfig } =
+      options;
+    const connectionFactory =
+      providedConnectionFactory ??
+      (serverConfig === undefined
+        ? undefined
+        : (interactive: boolean, signal?: AbortSignal) =>
+            connectToServer(
+              options.serverName,
+              serverConfig,
+              options.ui,
+              interactive,
+              signal
+            ));
+    if (!connectionFactory) {
+      throw new Error(`MCP server ${options.serverName} has no connection`);
+    }
+
+    const connection = await connectionFactory(
       options.interactive,
       options.signal
     );
@@ -311,13 +338,12 @@ export class McpRuntime {
       );
       this.servers.set(options.serverName, {
         ...connection,
-        serverConfig: options.serverConfig,
+        connectionFactory,
         toolNames: result.toolNames,
-        ui: options.ui,
       });
       return result;
     } catch (error) {
-      await connection.transport.close().catch(() => {
+      await connection.close().catch(() => {
         // Preserve the registration error that triggered cleanup.
       });
       throw error;
@@ -325,11 +351,11 @@ export class McpRuntime {
   }
 
   async closeAll(): Promise<void> {
-    const transports = [...this.servers.values()].map(
-      ({ transport }) => transport
+    const closeConnections = [...this.servers.values()].map(
+      ({ close }) => close
     );
     this.servers.clear();
-    await Promise.allSettled(transports.map((transport) => transport.close()));
+    await Promise.allSettled(closeConnections.map((close) => close()));
   }
 
   private async callTool(
@@ -387,15 +413,10 @@ export class McpRuntime {
     }
 
     const reconnect = (async () => {
-      const connection = await connectToServer(
-        serverName,
-        stale.serverConfig,
-        stale.ui,
-        false
-      );
+      const connection = await stale.connectionFactory(false);
       const replacement = { ...stale, ...connection };
       this.servers.set(serverName, replacement);
-      await stale.transport.close().catch(() => {
+      await stale.close().catch(() => {
         // The replacement connection is already active.
       });
       return replacement;

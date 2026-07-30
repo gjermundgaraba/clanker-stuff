@@ -1,63 +1,74 @@
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import type { Static } from "typebox";
-import { Value } from "typebox/value";
+import {
+  getAgentDir,
+  withFileMutationQueue,
+} from "@earendil-works/pi-coding-agent";
+import { z } from "zod/v4";
 
 const GLOBAL_CONFIG_FILE = "mcp.json";
 const LOCAL_CONFIG_FILE = ".mcp.json";
 
-const HttpServerConfigSchema = Type.Object(
-  {
-    headers: Type.Optional(Type.Record(Type.String(), Type.String())),
-    oauth: Type.Optional(
-      Type.Object(
-        {
-          authServerMetadataUrl: Type.Optional(Type.String()),
-          callbackPort: Type.Optional(Type.Integer()),
-          clientId: Type.Optional(Type.String()),
-          clientName: Type.Optional(Type.String()),
-          clientSecret: Type.Optional(Type.String()),
-          scopes: Type.Optional(Type.String()),
-        },
-        { additionalProperties: false }
-      )
-    ),
-    type: Type.Union([Type.Literal("http"), Type.Literal("streamable-http")]),
-    url: Type.String(),
-  },
-  { additionalProperties: false }
-);
+const OAuthSchema = z
+  .object({
+    authServerMetadataUrl: z.string().optional(),
+    callbackPort: z.number().int().optional(),
+    clientId: z.string().optional(),
+    clientName: z.string().optional(),
+    clientSecret: z.string().optional(),
+    scopes: z.string().optional(),
+  })
+  .strict();
 
-const StdioServerConfigSchema = Type.Object(
-  {
-    args: Type.Optional(Type.Array(Type.String())),
-    command: Type.String(),
-    env: Type.Optional(Type.Record(Type.String(), Type.String())),
-    type: Type.Literal("stdio"),
-  },
-  { additionalProperties: false }
-);
+const HttpServerConfigSchema = z
+  .object({
+    headers: z.record(z.string(), z.string()).optional(),
+    oauth: OAuthSchema.optional(),
+    type: z.enum(["http", "streamable-http"]),
+    url: z.string(),
+  })
+  .strict();
 
-const ServerConfigSchema = Type.Union([
+export const ServerConfigSchema = z.union([
+  z
+    .object({
+      args: z.array(z.string()).optional(),
+      command: z.string(),
+      env: z.record(z.string(), z.string()).optional(),
+      type: z.literal("stdio"),
+    })
+    .strict(),
   HttpServerConfigSchema,
-  StdioServerConfigSchema,
 ]);
 
-export const McpConfigSchema = Type.Object(
-  {
-    mcpServers: Type.Record(Type.String(), ServerConfigSchema),
-  },
-  { additionalProperties: false }
-);
+export const McpConfigSchema = z
+  .object({
+    mcpServers: z.record(z.string(), ServerConfigSchema),
+  })
+  .strict();
 
-export type McpConfig = Static<typeof McpConfigSchema>;
-export type HttpServerConfig = Static<typeof HttpServerConfigSchema>;
+export type McpConfig = z.infer<typeof McpConfigSchema>;
+export type McpServerConfig = z.infer<typeof ServerConfigSchema>;
+export type HttpServerConfig = z.infer<typeof HttpServerConfigSchema>;
 export type HttpOAuthAuthorizationCodeConfig = NonNullable<
   HttpServerConfig["oauth"]
 >;
+export type McpConfigScope = "global" | "project";
+
+export interface ListedMcpServer {
+  name: string;
+  scope: McpConfigScope;
+}
 
 export interface LoadMcpConfigOptions {
   cwd?: string;
@@ -68,6 +79,19 @@ const getErrorCode = (error: unknown): string | undefined =>
   typeof error === "object" && error !== null && "code" in error
     ? String(error.code)
     : undefined;
+
+const getConfigPath = (
+  scope: McpConfigScope,
+  options: LoadMcpConfigOptions
+): string => {
+  if (scope === "global") {
+    return path.join(getAgentDir(), "extensions", GLOBAL_CONFIG_FILE);
+  }
+  if (options.projectTrusted !== true) {
+    throw new Error("project-local MCP config requires a trusted project");
+  }
+  return path.resolve(options.cwd ?? process.cwd(), LOCAL_CONFIG_FILE);
+};
 
 const mergeMcpConfig = (
   globalConfig: McpConfig | undefined,
@@ -117,16 +141,123 @@ const readMcpConfigIfExists = async (
     throw error;
   }
 
-  const parsed: unknown = JSON.parse(configText);
-  if (!Value.Check(McpConfigSchema, parsed)) {
-    const errors = [...Value.Errors(McpConfigSchema, parsed)]
-      .map((e) =>
-        e.instancePath ? `${e.instancePath}: ${e.message}` : e.message
+  const parsed = McpConfigSchema.safeParse(JSON.parse(configText));
+  if (!parsed.success) {
+    const errors = parsed.error.issues
+      .map((issue) =>
+        issue.path.length > 0
+          ? `${issue.path.join(".")}: ${issue.message}`
+          : issue.message
       )
       .join(", ");
     throw new Error(`invalid config ${label}: ${errors}`);
   }
-  return parsed;
+  return parsed.data;
+};
+
+const readScopedMcpConfig = async (
+  scope: McpConfigScope,
+  options: LoadMcpConfigOptions
+): Promise<McpConfig | undefined> => {
+  const configPath = getConfigPath(scope, options);
+  return await readMcpConfigIfExists(
+    configPath,
+    scope === "global" ? GLOBAL_CONFIG_FILE : configPath
+  );
+};
+
+const getWriteMode = async (
+  configPath: string,
+  scope: McpConfigScope
+): Promise<number> => {
+  try {
+    const stats = await stat(configPath);
+    return stats.mode % 0o1000;
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      return scope === "global" ? 0o600 : 0o644;
+    }
+    throw error;
+  }
+};
+
+const writeMcpConfig = async (
+  configPath: string,
+  scope: McpConfigScope,
+  config: McpConfig
+): Promise<void> => {
+  await mkdir(path.dirname(configPath), { recursive: true });
+  const tempPath = `${configPath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    const mode = await getWriteMode(configPath, scope);
+    await writeFile(tempPath, `${JSON.stringify(config, null, 2)}\n`, {
+      encoding: "utf-8",
+      mode,
+    });
+    await chmod(tempPath, mode);
+    await rename(tempPath, configPath);
+  } finally {
+    await rm(tempPath, { force: true });
+  }
+};
+
+export const addMcpServer = async (
+  name: string,
+  serverConfig: McpServerConfig,
+  scope: McpConfigScope,
+  options: LoadMcpConfigOptions
+): Promise<void> => {
+  const configPath = getConfigPath(scope, options);
+  await withFileMutationQueue(configPath, async () => {
+    const config = (await readScopedMcpConfig(scope, options)) ?? {
+      mcpServers: {},
+    };
+    if (Object.hasOwn(config.mcpServers, name)) {
+      throw new Error(
+        `MCP server ${name} already exists in the ${scope} config`
+      );
+    }
+    await writeMcpConfig(configPath, scope, {
+      mcpServers: { ...config.mcpServers, [name]: serverConfig },
+    });
+  });
+};
+
+export const removeMcpServer = async (
+  name: string,
+  scope: McpConfigScope,
+  options: LoadMcpConfigOptions
+): Promise<void> => {
+  const configPath = getConfigPath(scope, options);
+  await withFileMutationQueue(configPath, async () => {
+    const config = await readScopedMcpConfig(scope, options);
+    if (!config || !Object.hasOwn(config.mcpServers, name)) {
+      throw new Error(
+        `MCP server ${name} does not exist in the ${scope} config`
+      );
+    }
+    const mcpServers = { ...config.mcpServers };
+    Reflect.deleteProperty(mcpServers, name);
+    await writeMcpConfig(configPath, scope, { mcpServers });
+  });
+};
+
+export const listMcpServers = async (
+  options: LoadMcpConfigOptions
+): Promise<ListedMcpServer[]> => {
+  const globalConfig = await readScopedMcpConfig("global", options);
+  const localConfig =
+    options.projectTrusted === true
+      ? await readScopedMcpConfig("project", options)
+      : undefined;
+  return Object.keys(mergeMcpConfig(globalConfig, localConfig).mcpServers).map(
+    (name) => ({
+      name,
+      scope: Object.hasOwn(localConfig?.mcpServers ?? {}, name)
+        ? "project"
+        : "global",
+    })
+  );
 };
 
 const expandEnvRecord = (
@@ -171,23 +302,11 @@ const expandMcpConfig = (config: McpConfig): McpConfig => {
 export const loadMcpConfig = async (
   options: LoadMcpConfigOptions = {}
 ): Promise<McpConfig> => {
-  const globalConfigPath = path.join(
-    getAgentDir(),
-    "extensions",
-    GLOBAL_CONFIG_FILE
-  );
-  const localConfigPath = path.resolve(
-    options.cwd ?? process.cwd(),
-    LOCAL_CONFIG_FILE
-  );
-
-  const globalConfig = await readMcpConfigIfExists(
-    globalConfigPath,
-    GLOBAL_CONFIG_FILE
-  );
+  const globalConfigPath = getConfigPath("global", options);
+  const globalConfig = await readScopedMcpConfig("global", options);
   const localConfig =
     options.projectTrusted === true
-      ? await readMcpConfigIfExists(localConfigPath, localConfigPath)
+      ? await readScopedMcpConfig("project", options)
       : undefined;
 
   if (!globalConfig && !localConfig) {

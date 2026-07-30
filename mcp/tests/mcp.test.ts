@@ -7,13 +7,17 @@ import { fileURLToPath } from "node:url";
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost as createExtensionHostBase } from "../../tests/harness/extension-host.js";
 import { createIdentityTheme, createMockTui } from "../../tests/harness/tui.js";
 import { McpConfigSchema } from "../config.js";
 import mcp from "../index.js";
+import {
+  createMcpManagerConnection,
+  MCP_MANAGER_SERVER_NAME,
+} from "../manager.js";
+import type { McpManagerBackend } from "../manager.js";
 import {
   PersistentMcpOAuthProvider,
   startOAuthCallbackServer,
@@ -109,6 +113,26 @@ describe("mcp extension", () => {
     await writeFile(localConfigPath, `${JSON.stringify(value)}\n`, "utf-8");
   };
 
+  const loadManager = async (
+    options: { cwd?: string; projectTrusted?: boolean } = {}
+  ) => {
+    const host = createExtensionHost(mcp, { hasUI: false });
+    const ctx = host.createContext({
+      cwd: options.cwd ?? process.cwd(),
+      isProjectTrusted: vi.fn<() => boolean>(
+        () => options.projectTrusted ?? true
+      ),
+      ui: {
+        select: vi.fn<() => Promise<string>>(
+          async () => MCP_MANAGER_SERVER_NAME
+        ),
+      },
+    });
+    expect(host.getRegisteredTools().size).toBe(0);
+    await host.runCommand("mcp", "", ctx);
+    return host;
+  };
+
   beforeEach(() => {
     const suffix = `${Date.now()}-${Math.random()}`;
     homeDir = path.join(tmpdir(), `pi-mcp-extension-${suffix}`);
@@ -166,7 +190,11 @@ describe("mcp extension", () => {
 
       await host.runCommand("mcp", "", ctx);
 
-      expect(select).toHaveBeenCalledWith("MCP server", ["github", "local"]);
+      expect(select).toHaveBeenCalledWith("MCP server", [
+        MCP_MANAGER_SERVER_NAME,
+        "github",
+        "local",
+      ]);
       expect(host.getRegisteredTools().size).toBe(0);
     });
 
@@ -186,8 +214,126 @@ describe("mcp extension", () => {
 
       await host.runCommand("mcp", "", ctx);
 
-      expect(select).toHaveBeenCalledWith("MCP server", ["project"]);
+      expect(select).toHaveBeenCalledWith("MCP server", [
+        MCP_MANAGER_SERVER_NAME,
+        "project",
+      ]);
       expect(host.getRegisteredTools().has("mcp_project__search")).toBeTruthy();
+    });
+
+    it("adds, lists, and removes raw config through the manager", async () => {
+      const host = await loadManager({ cwd: projectDir });
+
+      await host.runTool("mcp_mcp_manager__add_mcp", {
+        config: {
+          command: envVarRef("MCP_TEST_COMMAND"),
+          env: { TOKEN: envVarRef("MCP_TEST_TOKEN") },
+          type: "stdio",
+        },
+        name: "raw-server",
+        scope: "global",
+      });
+
+      expect(JSON.parse(await readFile(configPath, "utf-8"))).toStrictEqual({
+        mcpServers: {
+          "raw-server": {
+            command: envVarRef("MCP_TEST_COMMAND"),
+            env: { TOKEN: envVarRef("MCP_TEST_TOKEN") },
+            type: "stdio",
+          },
+        },
+      });
+      const listed = await host.runTool("mcp_mcp_manager__list_mcps", {});
+      expect(listed.content).toContainEqual({
+        text: "mcp-manager (built-in)\nraw-server (global)",
+        type: "text",
+      });
+
+      await expect(
+        host.runTool("mcp_mcp_manager__add_mcp", {
+          config: fixtureServer(),
+          name: "raw-server",
+          scope: "global",
+        })
+      ).rejects.toThrow("already exists in the global config");
+      await expect(
+        host.runTool("mcp_mcp_manager__add_mcp", {
+          config: fixtureServer(),
+          name: MCP_MANAGER_SERVER_NAME,
+          scope: "global",
+        })
+      ).rejects.toThrow("is reserved");
+
+      await host.runTool("mcp_mcp_manager__remove_mcp", {
+        name: "raw-server",
+        scope: "global",
+      });
+      expect(JSON.parse(await readFile(configPath, "utf-8"))).toStrictEqual({
+        mcpServers: {},
+      });
+    });
+
+    it("rejects project config mutations when the project is untrusted", async () => {
+      const host = await loadManager({
+        cwd: projectDir,
+        projectTrusted: false,
+      });
+
+      await expect(
+        host.runTool("mcp_mcp_manager__add_mcp", {
+          config: fixtureServer(),
+          name: "project-server",
+          scope: "project",
+        })
+      ).rejects.toThrow("requires a trusted project");
+    });
+
+    it("removes a persisted collision with the built-in manager", async () => {
+      await writeConfig({
+        mcpServers: {
+          [MCP_MANAGER_SERVER_NAME]: fixtureServer(),
+        },
+      });
+      const host = await loadManager();
+
+      await host.runTool("mcp_mcp_manager__remove_mcp", {
+        name: MCP_MANAGER_SERVER_NAME,
+        scope: "global",
+      });
+
+      expect(JSON.parse(await readFile(configPath, "utf-8"))).toStrictEqual({
+        mcpServers: {},
+      });
+      expect(
+        host.getRegisteredTools().has("mcp_mcp_manager__connect")
+      ).toBeTruthy();
+    });
+
+    it("connects a configured server through the manager", async () => {
+      await writeConfig({
+        mcpServers: { github: fixtureServer() },
+      });
+      const host = await loadManager();
+
+      await host.runTool("mcp_mcp_manager__connect", { name: "github" });
+      const result = await host.runTool("mcp_github__search", {
+        query: "managed",
+      });
+
+      expect(result.content).toContainEqual({
+        text: "result: managed",
+        type: "text",
+      });
+      expect(host.getAppendedEntries()).toMatchObject([
+        {
+          customType: "mcp-server-loaded",
+          data: { serverName: MCP_MANAGER_SERVER_NAME },
+        },
+        {
+          customType: "mcp-server-loaded",
+          data: { serverName: "github" },
+        },
+      ]);
     });
 
     it("connects the selected server and registers its tools as active", async () => {
@@ -394,7 +540,7 @@ describe("mcp extension", () => {
       expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
     });
 
-    it("reports an empty MCP config without opening the selector", async () => {
+    it("shows the manager when the MCP config is empty", async () => {
       await writeConfig({ mcpServers: {} });
       const host = createExtensionHost(mcp);
       const select = vi.fn<() => Promise<string | undefined>>(async () => {
@@ -405,10 +551,29 @@ describe("mcp extension", () => {
 
       await host.runCommand("mcp", "", ctx);
 
-      expect(select).not.toHaveBeenCalled();
+      expect(select).toHaveBeenCalledWith("MCP server", [
+        MCP_MANAGER_SERVER_NAME,
+      ]);
+      expect(host.getNotifications()).toStrictEqual([]);
+    });
+
+    it("shows the manager when MCP config is invalid", async () => {
+      await writeConfig({ invalid: true });
+      const host = createExtensionHost(mcp);
+      const select = vi.fn<() => Promise<string | undefined>>(async () => {
+        await Promise.resolve();
+        return undefined as string | undefined;
+      });
+      const ctx = host.createContext({ ui: { select } });
+
+      await host.runCommand("mcp", "", ctx);
+
+      expect(select).toHaveBeenCalledWith("MCP server", [
+        MCP_MANAGER_SERVER_NAME,
+      ]);
       expect(host.getNotifications()).toContainEqual({
-        message: "No MCP servers configured.",
-        type: "info",
+        message: expect.stringContaining("Failed to load MCP config:"),
+        type: "error",
       });
     });
 
@@ -469,6 +634,65 @@ describe("mcp extension", () => {
       expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
       expect(host.getActiveTools()).toContain("mcp_github__search");
     });
+
+    it("restores persisted manager tools on session_start without config", async () => {
+      const persistedEntry = {
+        customType: "mcp-server-loaded",
+        data: {
+          serverName: MCP_MANAGER_SERVER_NAME,
+        },
+        id: "persisted-manager-entry",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        type: "custom",
+      };
+      const host = createExtensionHost(mcp, {
+        entries: [persistedEntry as never],
+        hasUI: false,
+        leafId: "persisted-manager-entry",
+      });
+
+      await host.emitSessionStart();
+
+      expect(
+        host.getRegisteredTools().has("mcp_mcp_manager__list_mcps")
+      ).toBeTruthy();
+    });
+  });
+
+  it("forwards manager tool cancellation to its backend", async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const backend: McpManagerBackend = {
+      add: vi.fn<McpManagerBackend["add"]>(),
+      connect: async (_name, signal) => {
+        receivedSignal = signal;
+        await once(signal, "abort");
+        signal.throwIfAborted();
+        return 0;
+      },
+      list: vi.fn<McpManagerBackend["list"]>(async () => ({ servers: [] })),
+      remove: vi.fn<McpManagerBackend["remove"]>(),
+    };
+    const connection = await createMcpManagerConnection(backend);
+    try {
+      await connection.client.listTools();
+      expect(connection.client.getNegotiatedProtocolVersion()).toBe(
+        "2026-07-28"
+      );
+      const controller = new AbortController();
+      const call = connection.client.callTool(
+        { arguments: { name: "slow" }, name: "connect" },
+        { signal: controller.signal }
+      );
+      await vi.waitFor(() => expect(receivedSignal).toBeDefined());
+
+      controller.abort();
+
+      await expect(call).rejects.toThrow(/abort/iu);
+      await vi.waitFor(() => expect(receivedSignal?.aborted).toBeTruthy());
+    } finally {
+      await connection.close();
+    }
   });
 
   describe("MCP config schema validation", () => {
@@ -482,12 +706,12 @@ describe("mcp extension", () => {
           },
         },
       };
-      expect(Value.Check(McpConfigSchema, config)).toBeTruthy();
+      expect(McpConfigSchema.safeParse(config).success).toBeTruthy();
     });
 
     it("accepts OAuth http server config", () => {
       expect(
-        Value.Check(McpConfigSchema, {
+        McpConfigSchema.safeParse({
           mcpServers: {
             interactive: {
               oauth: {
@@ -510,7 +734,7 @@ describe("mcp extension", () => {
               url: "https://machine.example.com",
             },
           },
-        })
+        }).success
       ).toBeTruthy();
     });
 
@@ -525,12 +749,12 @@ describe("mcp extension", () => {
           },
         },
       };
-      expect(Value.Check(McpConfigSchema, config)).toBeTruthy();
+      expect(McpConfigSchema.safeParse(config).success).toBeTruthy();
     });
 
     it("rejects unknown server config fields", () => {
       expect(
-        Value.Check(McpConfigSchema, {
+        McpConfigSchema.safeParse({
           mcpServers: {
             api: {
               extra: true,
@@ -538,10 +762,10 @@ describe("mcp extension", () => {
               url: "https://mcp.example.com",
             },
           },
-        })
+        }).success
       ).toBeFalsy();
       expect(
-        Value.Check(McpConfigSchema, {
+        McpConfigSchema.safeParse({
           mcpServers: {
             local: {
               command: "/usr/bin/mcp-local",
@@ -549,7 +773,7 @@ describe("mcp extension", () => {
               type: "stdio",
             },
           },
-        })
+        }).success
       ).toBeFalsy();
     });
   });
@@ -581,7 +805,7 @@ describe("mcp extension", () => {
     });
 
     it("merges global and project-local servers with local taking precedence", async () => {
-      const { loadMcpConfig } = await import("../config.js");
+      const { listMcpServers, loadMcpConfig } = await import("../config.js");
       await writeConfig({
         mcpServers: {
           global: { type: "http", url: "https://global.example.com" },
@@ -604,6 +828,13 @@ describe("mcp extension", () => {
           shared: { type: "http", url: "https://new.example.com" },
         },
       });
+      await expect(
+        listMcpServers({ cwd: projectDir, projectTrusted: true })
+      ).resolves.toStrictEqual([
+        { name: "global", scope: "global" },
+        { name: "shared", scope: "project" },
+        { name: "project", scope: "project" },
+      ]);
     });
 
     it("ignores project-local config when the project is untrusted", async () => {
@@ -687,7 +918,7 @@ describe("mcp extension", () => {
     });
 
     it("reports missing environment variables", async () => {
-      const { loadMcpConfig } = await import("../config.js");
+      const { listMcpServers, loadMcpConfig } = await import("../config.js");
       await writeConfig({
         mcpServers: {
           remote: {
@@ -700,6 +931,9 @@ describe("mcp extension", () => {
         },
       });
 
+      await expect(listMcpServers({})).resolves.toStrictEqual([
+        { name: "remote", scope: "global" },
+      ]);
       await expect(loadMcpConfig()).rejects.toThrow(
         "missing environment variable in MCP config: MCP_TEST_MISSING_TOKEN"
       );
