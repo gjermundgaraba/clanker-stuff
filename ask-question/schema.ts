@@ -8,7 +8,7 @@ import type {
   AskQuestionFlowResult,
   Question,
   QuestionOption,
-} from "./core.js";
+} from "./questions.js";
 
 const MIN_QUESTIONS = 1;
 export const MAX_QUESTIONS = 5;

@@ -17,11 +17,14 @@
     "directory": "ask-question"
   },
   "files": [
-    "contract.ts",
-    "core.ts",
     "index.ts",
-    "tui.ts",
-    "README.md"
+    "input.ts",
+    "prompt.ts",
+    "questions.ts",
+    "render.ts",
+    "schema.ts",
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",

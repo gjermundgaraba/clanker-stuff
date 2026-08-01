@@ -305,6 +305,14 @@ export const answerEntryToText = (entry: AnswerEntry): string => {
     .join(", ");
 };
 
+export const allQuestionsComplete = (sessions: QuestionSession[]): boolean =>
+  sessions.every(({ question, state }) => isQuestionComplete(question, state));
+
+export const missingQuestionHeaders = (sessions: QuestionSession[]): string[] =>
+  sessions.flatMap(({ question, state }) =>
+    isQuestionComplete(question, state) ? [] : [question.header]
+  );
+
 export const buildSuccessFlowResult = (
   sessions: QuestionSession[]
 ): Extract<AskQuestionFlowResult, { cancelled: false }> | undefined => {

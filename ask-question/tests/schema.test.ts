@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
+import askQuestion from "../index.js";
 import {
   AskQuestionParametersSchema,
   buildSummaryContent,
   parseQuestionsFromParameters,
-} from "../contract.js";
-import askQuestion from "../index.js";
+} from "../schema.js";
 
 interface QuestionBranchSchema {
   additionalProperties?: boolean;

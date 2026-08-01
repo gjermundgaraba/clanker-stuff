@@ -1,13 +1,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { runAskQuestionPrompt } from "./prompt.js";
 import {
   AskQuestionParametersSchema,
   MAX_QUESTIONS,
   buildCancelledToolResult,
   buildSuccessToolResult,
   parseQuestionsFromParameters,
-} from "./contract.js";
-import { runAskQuestionTuiFlow } from "./tui.js";
+} from "./schema.js";
 
 export default function askQuestion(pi: ExtensionAPI) {
   pi.registerTool({
@@ -27,7 +27,7 @@ export default function askQuestion(pi: ExtensionAPI) {
       });
 
       try {
-        const flow = await runAskQuestionTuiFlow(ctx, questions, signal);
+        const flow = await runAskQuestionPrompt(ctx, questions, signal);
 
         if (flow.cancelled) {
           ctx.abort();

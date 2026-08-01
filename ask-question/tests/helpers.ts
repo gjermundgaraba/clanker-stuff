@@ -9,15 +9,15 @@ import {
   createCustomUiDriver,
   createKeybindings as createSharedKeybindings,
 } from "../../tests/harness/tui.js";
-import { parseQuestionsFromParameters } from "../contract.js";
+import askQuestion from "../index.js";
+import { runAskQuestionPrompt } from "../prompt.js";
+import { parseQuestionsFromParameters } from "../schema.js";
 import type {
   buildCancelledToolResult,
   buildSuccessToolResult,
-} from "../contract.js";
-import askQuestion from "../index.js";
-import { runAskQuestionTuiFlow } from "../tui.js";
+} from "../schema.js";
 
-type FlowResult = Awaited<ReturnType<typeof runAskQuestionTuiFlow>>;
+type FlowResult = Awaited<ReturnType<typeof runAskQuestionPrompt>>;
 type AskQuestionKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
 interface HarnessOptions {
   customKeys?: string[];
@@ -121,7 +121,7 @@ export const renderFlowWithKeys = async (
     },
   });
 
-  await runAskQuestionTuiFlow(ctx, parseQuestionsFromParameters(params));
+  await runAskQuestionPrompt(ctx, parseQuestionsFromParameters(params));
 
   return customUi.getLastRender() ?? "";
 };

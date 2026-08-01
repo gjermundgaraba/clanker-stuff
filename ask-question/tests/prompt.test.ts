@@ -279,4 +279,21 @@ describe("ask-question TUI flow", () => {
       type: "single_select",
     });
   });
+
+  it("accepts Kitty CSI-u printable shortcuts", async () => {
+    const { result } = await executeTool(singleQuestionParams, {
+      customKeys: [
+        KEY_ENTER,
+        "\u001B[110u",
+        ..."Needs approval",
+        KEY_ENTER,
+        KEY_TAB,
+        KEY_ENTER,
+      ],
+    });
+
+    expect(expectSuccessResult(result).answers[0]).toMatchObject({
+      answer: { label: "Yes", note: "Needs approval" },
+    });
+  });
 });
