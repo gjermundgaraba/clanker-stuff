@@ -1,11 +1,13 @@
-import type {
-  SessionEntry,
-  SessionInfo,
-} from "@earendil-works/pi-coding-agent";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { DatabaseSync, StatementSync } from "node:sqlite";
+
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
+import { patchEnv } from "../../tests/helpers/env.js";
+import { createTempDir } from "../../tests/helpers/fs.js";
 import extension from "../index.js";
 
 /* oxlint-disable vitest/max-expects -- interaction tests assert each state transition directly */
@@ -27,19 +29,43 @@ const userEntry = (
   type: "message",
 });
 
-const createHarness = async (entries: SessionEntry[] = []) => {
+const shutdowns: (() => Promise<void>)[] = [];
+
+const createHarness = async (
+  entries: SessionEntry[] = [],
+  sessionDirectory = path.join(
+    process.env.PI_CODING_AGENT_DIR ?? "",
+    "sessions",
+    "test"
+  )
+) => {
   const host = createExtensionHost(extension, {
     entries,
     leafId: entries.at(-1)?.id ?? null,
   });
   const ctx = host.createContext();
+  Object.assign(ctx.sessionManager, {
+    getSessionDir: () => sessionDirectory,
+  });
   await host.emitSessionStart(ctx);
+  shutdowns.push(() => host.emitSessionShutdown(ctx));
   return { ctx, host };
 };
 
 describe("codex reverse-i-search", () => {
-  beforeEach(() => {
-    vi.spyOn(SessionManager, "listAll").mockResolvedValue([]);
+  let agentDir = "";
+  let restoreAgentDir: (() => void) | undefined;
+
+  beforeEach(async () => {
+    agentDir = await createTempDir("reverse-i-search-");
+    restoreAgentDir = patchEnv({ PI_CODING_AGENT_DIR: agentDir });
+  });
+
+  afterEach(async () => {
+    await Promise.all(shutdowns.splice(0).map((shutdown) => shutdown()));
+    vi.restoreAllMocks();
+    restoreAgentDir?.();
+    await rm(agentDir, { force: true, recursive: true });
   });
 
   it("searches newest-first and accepts without submitting", async () => {
@@ -73,9 +99,7 @@ describe("codex reverse-i-search", () => {
 
     await host.runShortcut("ctrl+r", ctx);
     host.terminalInput("missing");
-    await vi.waitFor(() => {
-      expect(host.getWidget("codex-reverse-i-search")).toContain("no match");
-    });
+    expect(host.getWidget("codex-reverse-i-search")).toContain("no match");
 
     expect(host.terminalInput("\r").consumed).toBeTruthy();
     expect(host.getWidget("codex-reverse-i-search")).toContain("no match");
@@ -109,6 +133,21 @@ describe("codex reverse-i-search", () => {
 
     host.terminalInput("\u001B[B");
     expect(ctx.ui.getEditorText()).toBe("Build Release");
+  });
+
+  it("broadens incremental results after backspace", async () => {
+    const { ctx, host } = await createHarness([
+      userEntry("older", null, "alpha beta", 100),
+      userEntry("newer", "older", "alpha release", 200),
+    ]);
+
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("alpha b");
+    expect(ctx.ui.getEditorText()).toBe("alpha beta");
+
+    host.terminalInput("\u007F");
+    host.terminalInput("\u007F");
+    expect(ctx.ui.getEditorText()).toBe("alpha release");
   });
 
   it("adds interactive prompts and bash commands but ignores extension input", async () => {
@@ -147,30 +186,219 @@ describe("codex reverse-i-search", () => {
     expect(ctx.ui.getEditorText()).toBe("!!pnpm test");
   });
 
-  it("loads prompts from other persisted sessions", async () => {
-    const session: SessionInfo = {
-      allMessagesText: "archived prompt",
-      created: new Date(100),
-      cwd: "/other/project",
-      firstMessage: "archived prompt",
-      id: "other",
-      messageCount: 1,
-      modified: new Date(100),
-      path: "/sessions/other.jsonl",
-    };
-    vi.mocked(SessionManager.listAll).mockResolvedValue([session]);
-    vi.spyOn(SessionManager, "open").mockReturnValue({
-      getEntries: () => [userEntry("archived", null, "archived prompt", 100)],
-    } as SessionManager);
+  it("loads prompts persisted by another session", async () => {
+    const first = await createHarness();
+    await first.host.emitInput(
+      { source: "interactive", text: "archived prompt", type: "input" },
+      first.ctx
+    );
+    await first.host.emitSessionShutdown(first.ctx);
+
+    const second = await createHarness();
+    await second.host.runShortcut("ctrl+r", second.ctx);
+    second.host.terminalInput("archived");
+
+    expect(second.ctx.ui.getEditorText()).toBe("archived prompt");
+  });
+
+  it("reloads history written by another live process", async () => {
+    const first = await createHarness();
+    const second = await createHarness();
+
+    await first.host.emitInput(
+      { source: "interactive", text: "concurrent prompt", type: "input" },
+      first.ctx
+    );
+    await second.host.runShortcut("ctrl+r", second.ctx);
+    second.host.terminalInput("concurrent");
+
+    expect(second.ctx.ui.getEditorText()).toBe("concurrent prompt");
+  });
+
+  it("imports existing session files repeatedly and skips malformed lines", async () => {
+    const sessionDirectory = path.join(agentDir, "sessions", "project");
+    await mkdir(sessionDirectory, { recursive: true });
+    await writeFile(
+      path.join(sessionDirectory, "legacy.jsonl"),
+      [
+        JSON.stringify({
+          cwd: "/project",
+          id: "session",
+          timestamp: new Date(50).toISOString(),
+          type: "session",
+          version: 3,
+        }),
+        JSON.stringify(userEntry("old", null, "legacy prompt", 100)),
+        "{not json",
+        JSON.stringify(userEntry("new", "old", "legacy prompt", 200)),
+        JSON.stringify({
+          id: "bash",
+          message: {
+            command: "pnpm test",
+            excludeFromContext: true,
+            role: "bashExecution",
+            timestamp: 300,
+          },
+          parentId: "new",
+          timestamp: new Date(300).toISOString(),
+          type: "message",
+        }),
+      ].join("\n"),
+      "utf-8"
+    );
+
     const { ctx, host } = await createHarness();
+    await host.runCommand("reverse-i-search-import", "", ctx);
 
-    await vi.waitFor(() => {
-      expect(SessionManager.open).toHaveBeenCalledWith(session.path);
-    });
     await host.runShortcut("ctrl+r", ctx);
-    host.terminalInput("archived");
+    host.terminalInput("legacy");
+    expect(ctx.ui.getEditorText()).toBe("legacy prompt");
+    host.terminalInput("\u001B");
 
-    expect(ctx.ui.getEditorText()).toBe("archived prompt");
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("pnpm");
+    expect(ctx.ui.getEditorText()).toBe("!!pnpm test");
+
+    await host.runCommand("reverse-i-search-import", "", ctx);
+    expect(
+      host
+        .getNotifications()
+        .filter(({ message }) => message.startsWith("Imported 2 history"))
+    ).toHaveLength(2);
+  });
+
+  it("imports newly selected custom session directories", async () => {
+    const firstDirectory = path.join(agentDir, "custom-a");
+    const secondDirectory = path.join(agentDir, "custom-b");
+    await Promise.all(
+      [
+        [firstDirectory, "first.jsonl", "prompt from directory a"],
+        [secondDirectory, "second.jsonl", "prompt from directory b"],
+      ].map(async ([directory, file, text], index) => {
+        await mkdir(directory, { recursive: true });
+        await writeFile(
+          path.join(directory, file),
+          [
+            JSON.stringify({
+              cwd: `/project-${index}`,
+              id: `session-${index}`,
+              timestamp: new Date(50).toISOString(),
+              type: "session",
+              version: 3,
+            }),
+            JSON.stringify(
+              userEntry(`entry-${index}`, null, text, 100 + index)
+            ),
+          ].join("\n"),
+          "utf-8"
+        );
+      })
+    );
+
+    const first = await createHarness([], firstDirectory);
+    await first.host.runCommand("reverse-i-search-import", "", first.ctx);
+    await first.host.emitSessionShutdown(first.ctx);
+
+    const second = await createHarness([], secondDirectory);
+    await second.host.runCommand("reverse-i-search-import", "", second.ctx);
+    await second.host.runShortcut("ctrl+r", second.ctx);
+    second.host.terminalInput("directory a");
+    expect(second.ctx.ui.getEditorText()).toBe("prompt from directory a");
+    second.host.terminalInput("\u0015");
+    second.host.terminalInput("directory b");
+    expect(second.ctx.ui.getEditorText()).toBe("prompt from directory b");
+  });
+
+  it("reports database write failures during import", async () => {
+    const sessionDirectory = path.join(agentDir, "sessions", "project");
+    await mkdir(sessionDirectory, { recursive: true });
+    await writeFile(
+      path.join(sessionDirectory, "blocked.jsonl"),
+      [
+        JSON.stringify({
+          cwd: "/project",
+          id: "blocked-session",
+          timestamp: new Date(50).toISOString(),
+          type: "session",
+          version: 3,
+        }),
+        JSON.stringify(userEntry("blocked", null, "blocked prompt", 100)),
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const { ctx, host } = await createHarness();
+    const databasePath = path.join(agentDir, "codex-reverse-i-search.sqlite");
+    const blocker = new DatabaseSync(databasePath);
+    blocker.exec(`
+      CREATE TRIGGER block_history_import
+      BEFORE INSERT ON history
+      BEGIN
+        SELECT RAISE(FAIL, 'blocked import write');
+      END;
+    `);
+    blocker.close();
+
+    await host.runCommand("reverse-i-search-import", "", ctx);
+    expect(host.getNotifications()).toContainEqual({
+      message: expect.stringContaining(
+        "Session history import failed: blocked import write"
+      ),
+      type: "error",
+    });
+  });
+
+  it("reloads a concurrent write committed while history is loading", async () => {
+    const { ctx, host } = await createHarness();
+    const writer = new DatabaseSync(
+      path.join(agentDir, "codex-reverse-i-search.sqlite")
+    );
+    const originalAll = StatementSync.prototype.all;
+    let injectedWrite = false;
+    const allSpy = vi
+      .spyOn(StatementSync.prototype, "all")
+      .mockImplementation(function allWithConcurrentWrite(this: StatementSync) {
+        const rows = Reflect.apply(originalAll, this, []);
+        if (
+          !injectedWrite &&
+          this.sourceSQL.includes("SELECT text, last_used_at")
+        ) {
+          injectedWrite = true;
+          writer
+            .prepare("INSERT INTO history (text, last_used_at) VALUES (?, ?)")
+            .run("concurrent snapshot prompt", 100);
+        }
+        return rows;
+      });
+
+    await host.runCommand("reverse-i-search-import", "", ctx);
+    allSpy.mockRestore();
+    writer.close();
+
+    expect(injectedWrite).toBeTruthy();
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("snapshot");
+    expect(ctx.ui.getEditorText()).toBe("concurrent snapshot prompt");
+  });
+
+  it("falls back to current-session history when SQLite cannot open", async () => {
+    const invalidAgentDir = path.join(agentDir, "not-a-directory");
+    await writeFile(invalidAgentDir, "blocked", "utf-8");
+    process.env.PI_CODING_AGENT_DIR = invalidAgentDir;
+
+    const { ctx, host } = await createHarness([
+      userEntry("current", null, "current prompt", 100),
+    ]);
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("current");
+
+    expect(ctx.ui.getEditorText()).toBe("current prompt");
+    expect(host.getNotifications()).toContainEqual({
+      message: expect.stringContaining(
+        "Prompt history persistence is unavailable"
+      ),
+      type: "warning",
+    });
   });
 
   it("removes one Unicode code point on backspace", async () => {

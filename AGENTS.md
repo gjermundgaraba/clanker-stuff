@@ -5,9 +5,20 @@ This repository contains custom **pi extensions** (TypeScript-based plugins/skil
 ## General instructions
 
 - When creating or editing any `README.md`, read and follow `docs/readme-style.md` first.
+- When creating or restructuring an extension package, follow the layout in `docs/extension-structure.md`.
 - Keep tests in the smallest layer that proves the behavior: unit by default, integration only for real `AgentSession` behavior, smoke only for discovery, runtime wiring and high-level verification when needed.
 - For session-persisted tool schemas such as `ask_question`, keep `parameters` strict. When the schema evolves, add `prepareArguments(args)` to migrate old persisted calls instead of adding deprecated compatibility fields to the public schema.
 - For any custom tool that mutates files, use `withFileMutationQueue()` around the full read/modify/write critical section, keyed by the resolved absolute target path, so it participates in pi's per-file mutation queue.
+- Never suggest "upstreaming a change to pi itself". If we can't do something in an extension today, we can't do it today.
+
+## Upstream pi reference
+
+When working on pi extensions, sdk, themes or TUI, read the documentation, examples and APIs from Pi's source:
+
+1. Resolve a reusable, read-only checkout of `earendil-works/pi` at `~/.cache/checkouts/github.com/earendil-works/pi`, checked out at `v0.83.0`. Partial-clone it if absent. Never edit the shared checkout.
+2. Treat `<pi>/packages/coding-agent` as the documentation root. Read its `README.md` and relevant files under `docs/` and `examples/` completely, following Markdown cross-references. Resolve `docs/...` and `examples/...` there, not relative to this repository.
+3. Use: extensions (`docs/extensions.md`, `examples/extensions/`), themes (`docs/themes.md`), skills (`docs/skills.md`), prompt templates (`docs/prompt-templates.md`), TUI (`docs/tui.md`), keybindings (`docs/keybindings.md`), SDK (`docs/sdk.md`, `examples/sdk/`), providers (`docs/custom-provider.md`), models (`docs/models.md`), packages (`docs/packages.md`), and environment variables (`docs/environment-variables.md`).
+4. Before reimplementing pi functionality, search `<pi>/packages/`, its public exports, and its examples.
 
 ## Commands
 

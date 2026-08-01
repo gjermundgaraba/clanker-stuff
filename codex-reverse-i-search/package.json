@@ -18,7 +18,10 @@
   },
   "files": [
     "index.ts",
-    "README.md"
+    "history.ts",
+    "search.ts",
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",

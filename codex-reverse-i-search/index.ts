@@ -1,272 +1,134 @@
-import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import type { DatabaseSync } from "node:sqlite";
 
 import type {
   ExtensionAPI,
   ExtensionContext,
-  SessionEntry,
-  TerminalInputHandler,
 } from "@earendil-works/pi-coding-agent";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+
+import type { HistoryItem } from "./history.js";
 import {
-  decodeKittyPrintable,
-  isKeyRelease,
-  matchesKey,
-} from "@earendil-works/pi-tui";
+  getDataVersion,
+  historyFromEntries,
+  importPersistentHistory,
+  loadHistory,
+  normalizeHistory,
+  openHistoryDatabase,
+  saveHistoryBatch,
+  saveHistoryItem,
+} from "./history.js";
+import { createSearch, WIDGET_KEY } from "./search.js";
 
-const WIDGET_KEY = "codex-reverse-i-search";
-
-interface HistoryItem {
-  text: string;
-  timestamp: number;
-}
-
-interface SearchSession {
-  draft: string;
-  matches: string[];
-  query: string;
-  selected: number;
-  ui: ExtensionContext["ui"];
-}
-
-const textFromEntry = (entry: SessionEntry): HistoryItem | undefined => {
-  if (entry.type !== "message") {
-    return undefined;
-  }
-
-  const { message } = entry;
-  let text: string | undefined;
-  if (message.role === "user") {
-    text =
-      typeof message.content === "string"
-        ? message.content
-        : message.content
-            .filter((content) => content.type === "text")
-            .map((content) => content.text)
-            .join("");
-  } else if (message.role === "bashExecution") {
-    text = `${message.excludeFromContext ? "!!" : "!"}${message.command}`;
-  }
-
-  const trimmed = text?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  return {
-    text: trimmed,
-    timestamp: message.timestamp ?? Date.parse(entry.timestamp),
-  };
-};
-
-const historyFromEntries = (entries: SessionEntry[]): HistoryItem[] =>
-  entries.flatMap((entry) => {
-    const item = textFromEntry(entry);
-    return item ? [item] : [];
-  });
-
-const normalizeHistory = (items: HistoryItem[]): HistoryItem[] => {
-  const seen = new Set<string>();
-  return items
-    .toSorted((left, right) => right.timestamp - left.timestamp)
-    .filter(({ text }) => {
-      if (seen.has(text)) {
-        return false;
-      }
-      seen.add(text);
-      return true;
-    });
-};
-
-const loadPersistentHistory = async (): Promise<HistoryItem[]> => {
-  const sessions = await SessionManager.listAll();
-  const history: HistoryItem[] = [];
-
-  for (const session of sessions) {
-    // oxlint-disable-next-line no-await-in-loop -- yielding between files keeps the TUI responsive
-    await yieldToEventLoop();
-    try {
-      history.push(
-        ...historyFromEntries(SessionManager.open(session.path).getEntries())
-      );
-    } catch {
-      // A concurrently deleted or malformed session should not disable search.
-    }
-  }
-
-  return history;
-};
-
-const printableText = (data: string): string | undefined => {
-  const kitty = decodeKittyPrintable(data);
-  if (kitty !== undefined) {
-    return kitty;
-  }
-
-  const pasteStart = "\u001B[200~";
-  const pasteEnd = "\u001B[201~";
-  const paste =
-    data.startsWith(pasteStart) && data.endsWith(pasteEnd)
-      ? data.slice(pasteStart.length, -pasteEnd.length)
-      : undefined;
-  const text = paste ?? data;
-  if (paste === undefined && text.includes("\u001B")) {
-    return undefined;
-  }
-
-  const printable = text.replaceAll(/\p{Cc}/gu, "");
-  return printable || undefined;
-};
+const IMPORT_COMMAND = "reverse-i-search-import";
 
 export default function codexReverseISearch(pi: ExtensionAPI) {
+  let database: DatabaseSync | undefined;
+  let databaseVersion = 0;
   let history: HistoryItem[] = [];
-  let historyLoading = false;
-  let search: SearchSession | undefined;
+  let importPromise: Promise<number> | undefined;
+  let persistenceWarningShown = false;
   let unsubscribeInput: (() => void) | undefined;
 
-  const renderSearch = () => {
-    if (!search) {
+  const search = createSearch(() => history);
+
+  const warnPersistence = (
+    ui: ExtensionContext["ui"],
+    error: unknown
+  ): void => {
+    if (persistenceWarningShown) {
       return;
     }
-
-    const { ui } = search;
-    let suffix = "";
-    if (search.matches.length > 0) {
-      suffix = ui.theme.fg("dim", "  enter accept · esc cancel");
-    } else if (search.query && historyLoading) {
-      suffix = ui.theme.fg("dim", "  searching");
-    } else if (search.query) {
-      suffix = ui.theme.fg("error", "  no match");
-    }
-
-    ui.setWidget(
-      WIDGET_KEY,
-      [`reverse-i-search: ${ui.theme.fg("accent", search.query)}${suffix}`],
-      { placement: "belowEditor" }
-    );
+    persistenceWarningShown = true;
+    const message = error instanceof Error ? `: ${error.message}` : "";
+    ui.notify(`Prompt history persistence is unavailable${message}`, "warning");
   };
 
-  const refreshSearch = (preserveSelection = false) => {
-    if (!search) {
+  const refreshHistory = (ui: ExtensionContext["ui"]) => {
+    if (!database) {
       return;
     }
-
-    const selectedText = preserveSelection
-      ? search.matches[search.selected]
-      : undefined;
-    const query = search.query.toLowerCase();
-    search.matches = query
-      ? history
-          .filter(({ text }) => text.toLowerCase().includes(query))
-          .map(({ text }) => text)
-      : [];
-    search.selected =
-      selectedText === undefined
-        ? 0
-        : Math.max(0, search.matches.indexOf(selectedText));
-    search.ui.setEditorText(search.matches[search.selected] ?? search.draft);
-    renderSearch();
+    try {
+      const nextVersion = getDataVersion(database);
+      if (nextVersion !== databaseVersion) {
+        history = loadHistory(database);
+        databaseVersion = nextVersion;
+      }
+    } catch (error) {
+      warnPersistence(ui, error);
+    }
   };
 
-  const addHistory = (text: string, timestamp = Date.now()) => {
+  const addHistory = (text: string, ui: ExtensionContext["ui"]) => {
     const trimmed = text.trim();
     if (!trimmed) {
       return;
     }
-    history = [
-      { text: trimmed, timestamp },
-      ...history.filter((item) => item.text !== trimmed),
-    ];
-  };
 
-  const moveSelection = (direction: 1 | -1) => {
-    if (!search || search.matches.length === 0) {
-      return;
-    }
-
-    search.selected = Math.max(
-      0,
-      Math.min(search.matches.length - 1, search.selected + direction)
-    );
-    search.ui.setEditorText(search.matches[search.selected] ?? search.draft);
-    renderSearch();
-  };
-
-  const closeSearch = (restoreDraft: boolean) => {
-    if (!search) {
-      return;
-    }
-    if (restoreDraft) {
-      search.ui.setEditorText(search.draft);
-    }
-    search.ui.setWidget(WIDGET_KEY, undefined);
-    search = undefined;
-  };
-
-  const beginSearch = (ui: ExtensionContext["ui"]) => {
-    if (search) {
-      moveSelection(1);
-      return;
-    }
-    search = {
-      draft: ui.getEditorText(),
-      matches: [],
-      query: "",
-      selected: 0,
-      ui,
+    const item = {
+      folded: trimmed.toLowerCase(),
+      text: trimmed,
+      timestamp: Date.now(),
     };
-    renderSearch();
-  };
+    history = [item, ...history.filter((entry) => entry.text !== trimmed)];
 
-  const handleSearchInput: TerminalInputHandler = (data) => {
-    if (!search) {
-      return;
-    }
-    if (isKeyRelease(data)) {
-      return { consume: true };
-    }
-
-    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
-      closeSearch(true);
-      return { consume: true };
-    }
-    if (matchesKey(data, "enter")) {
-      if (search.matches.length > 0) {
-        closeSearch(false);
+    if (database) {
+      try {
+        saveHistoryItem(database, item);
+      } catch (error) {
+        warnPersistence(ui, error);
       }
-      return { consume: true };
     }
-    if (matchesKey(data, "ctrl+r") || matchesKey(data, "up")) {
-      moveSelection(1);
-      return { consume: true };
-    }
-    if (matchesKey(data, "ctrl+s") || matchesKey(data, "down")) {
-      moveSelection(-1);
-      return { consume: true };
-    }
-    if (matchesKey(data, "ctrl+u")) {
-      search.query = "";
-      refreshSearch();
-      return { consume: true };
-    }
-    if (matchesKey(data, "backspace") || matchesKey(data, "ctrl+h")) {
-      search.query = [...search.query].slice(0, -1).join("");
-      refreshSearch();
-      return { consume: true };
-    }
-
-    const printable = printableText(data);
-    if (printable !== undefined) {
-      search.query += printable;
-      refreshSearch();
-    }
-    return { consume: true };
   };
 
   pi.registerShortcut("ctrl+r", {
     description: "Search prompt history",
     handler: (ctx) => {
-      if (ctx.mode === "tui") {
-        beginSearch(ctx.ui);
+      if (ctx.mode !== "tui") {
+        return;
+      }
+      if (!search.isOpen()) {
+        refreshHistory(ctx.ui);
+      }
+      search.begin(ctx.ui);
+    },
+  });
+
+  pi.registerCommand(IMPORT_COMMAND, {
+    description: "Import prompt history from existing sessions",
+    handler: async (_args, ctx) => {
+      const activeDatabase = database;
+      if (!activeDatabase) {
+        ctx.ui.notify("Prompt history persistence is unavailable", "warning");
+        return;
+      }
+      if (importPromise) {
+        ctx.ui.notify("Session history import is already running.", "warning");
+        return;
+      }
+
+      const pendingImport = importPersistentHistory(
+        activeDatabase,
+        ctx.sessionManager.getSessionDir(),
+        (status) => {
+          ctx.ui.setStatus(WIDGET_KEY, status);
+        }
+      );
+      importPromise = pendingImport;
+
+      try {
+        const files = await pendingImport;
+        const nextVersion = getDataVersion(activeDatabase);
+        history = loadHistory(activeDatabase);
+        databaseVersion = nextVersion;
+        ctx.ui.notify(
+          `Imported ${history.length} history entries from ${files} session files.`,
+          "info"
+        );
+      } catch (error) {
+        const message = error instanceof Error ? `: ${error.message}` : "";
+        ctx.ui.notify(`Session history import failed${message}`, "error");
+      } finally {
+        ctx.ui.setStatus(WIDGET_KEY, undefined);
+        importPromise = undefined;
       }
     },
   });
@@ -276,38 +138,54 @@ export default function codexReverseISearch(pi: ExtensionAPI) {
       return;
     }
 
+    unsubscribeInput = ctx.ui.onTerminalInput(search.handleInput);
     history = normalizeHistory(
       historyFromEntries(ctx.sessionManager.getBranch())
     );
-    historyLoading = true;
-    unsubscribeInput = ctx.ui.onTerminalInput(handleSearchInput);
 
-    void (async () => {
-      let persistentHistory: HistoryItem[] = [];
+    try {
+      database = openHistoryDatabase();
+      saveHistoryBatch(database, history);
+      const nextVersion = getDataVersion(database);
+      history = loadHistory(database);
+      databaseVersion = nextVersion;
+    } catch (error) {
       try {
-        persistentHistory = await loadPersistentHistory();
+        database?.close();
       } catch {
-        // Current-session history remains usable when global discovery fails.
+        // Keep current-session history usable even when SQLite cleanup fails.
       }
-      history = normalizeHistory([...history, ...persistentHistory]);
-      historyLoading = false;
-      refreshSearch(true);
-    })();
-  });
-
-  pi.on("input", (event) => {
-    if (event.source === "interactive") {
-      addHistory(event.text);
+      database = undefined;
+      warnPersistence(ctx.ui, error);
     }
   });
 
-  pi.on("user_bash", (event) => {
-    addHistory(`${event.excludeFromContext ? "!!" : "!"}${event.command}`);
+  pi.on("input", (event, ctx) => {
+    if (event.source === "interactive") {
+      addHistory(event.text, ctx.ui);
+    }
   });
 
-  pi.on("session_shutdown", (_event, ctx) => {
+  pi.on("user_bash", (event, ctx) => {
+    addHistory(
+      `${event.excludeFromContext ? "!!" : "!"}${event.command}`,
+      ctx.ui
+    );
+  });
+
+  pi.on("session_shutdown", async (_event, ctx) => {
+    try {
+      await importPromise;
+    } catch {
+      // The import command handles errors; shutdown only waits for cleanup.
+    }
+
     unsubscribeInput?.();
+    unsubscribeInput = undefined;
     ctx.ui.setWidget(WIDGET_KEY, undefined);
-    search = undefined;
+    ctx.ui.setStatus(WIDGET_KEY, undefined);
+    search.reset();
+    database?.close();
+    database = undefined;
   });
 }

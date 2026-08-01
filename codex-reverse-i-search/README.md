@@ -10,4 +10,5 @@ pi install npm:@clanker-extensions/codex-reverse-i-search
 
 ## Usage
 
-Press `Ctrl+R`, type a query, press `Ctrl+R` again for older matches, then press Enter to accept without submitting.
+- Press `Ctrl+R`, type a query, press `Ctrl+R` again for older matches, then press Enter to accept.
+- Run `/reverse-i-search-import` to include prompts from existing sessions.
