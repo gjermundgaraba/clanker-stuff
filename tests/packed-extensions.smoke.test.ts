@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -15,6 +16,17 @@ import { createExtensionSmokeHarness } from "./harness/extension-smoke.js";
 import type { ExtensionSmokeHarness } from "./harness/extension-smoke.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
+const ROOT_DEV_DEPENDENCIES = (
+  JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8")) as {
+    devDependencies: Record<string, string>;
+  }
+).devDependencies;
+const CONSUMER_DEPENDENCIES = [
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-coding-agent",
+  "@earendil-works/pi-tui",
+  "typebox",
+] as const;
 const DEPENDENCY_FIELDS = [
   "dependencies",
   "devDependencies",
@@ -32,6 +44,19 @@ const EXTENSION_PACKAGES = [
     tools: ["ask_question"],
   },
   {
+    commands: ["fast"],
+    dir: "codex-fast",
+    handlers: [
+      "before_provider_request",
+      "model_select",
+      "session_shutdown",
+      "session_start",
+    ],
+    name: "@clanker-extensions/codex-fast",
+    shortcuts: [],
+    tools: [],
+  },
+  {
     commands: [],
     dir: "codex-reverse-i-search",
     handlers: ["input", "session_shutdown", "session_start", "user_bash"],
@@ -40,7 +65,7 @@ const EXTENSION_PACKAGES = [
     tools: [],
   },
   {
-    commands: ["usage"],
+    commands: [],
     dir: "footer",
     handlers: [],
     name: "@clanker-extensions/footer",
@@ -68,6 +93,14 @@ const EXTENSION_PACKAGES = [
     tools: [],
   },
   {
+    commands: [],
+    dir: "shell-resume-history",
+    handlers: ["session_shutdown"],
+    name: "@clanker-extensions/shell-resume-history",
+    shortcuts: [],
+    tools: [],
+  },
+  {
     commands: ["pop-stash"],
     dir: "stash",
     handlers: [],
@@ -88,6 +121,22 @@ const EXTENSION_PACKAGES = [
     dir: "tool-picker",
     handlers: [],
     name: "@clanker-extensions/tool-picker",
+    shortcuts: [],
+    tools: [],
+  },
+  {
+    commands: [],
+    dir: "tools",
+    handlers: ["model_select", "session_shutdown", "session_start"],
+    name: "@clanker-extensions/tools",
+    shortcuts: [],
+    tools: [],
+  },
+  {
+    commands: ["usage"],
+    dir: "usage",
+    handlers: [],
+    name: "@clanker-extensions/usage",
     shortcuts: [],
     tools: [],
   },
@@ -160,10 +209,10 @@ describe("packed extension packages", () => {
       `${JSON.stringify(
         {
           dependencies: Object.fromEntries([
-            ["@earendil-works/pi-ai", "0.81.0"],
-            ["@earendil-works/pi-coding-agent", "0.81.0"],
-            ["@earendil-works/pi-tui", "0.81.0"],
-            ["typebox", "1.3.6"],
+            ...CONSUMER_DEPENDENCIES.map((name) => [
+              name,
+              ROOT_DEV_DEPENDENCIES[name],
+            ]),
             ...tarballs.map(({ name, tarball }) => [name, `file:${tarball}`]),
           ]),
           private: true,
