@@ -7,10 +7,13 @@ import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import { patchEnv } from "../../tests/helpers/env.js";
 import { createTempDir } from "../../tests/helpers/fs.js";
 
-const setText = vi.fn<(text: string) => Promise<void>>();
+const { copyToClipboard } = vi.hoisted(() => ({
+  copyToClipboard: vi.fn<(text: string) => Promise<void>>(),
+}));
 
-vi.mock(import("@mariozechner/clipboard"), () => ({
-  setText,
+vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  copyToClipboard,
 }));
 
 const { default: extension } = await import("../index.js");
@@ -75,7 +78,7 @@ describe("stash", () => {
       restore();
     }
     vi.restoreAllMocks();
-    setText.mockReset();
+    copyToClipboard.mockReset();
   });
 
   it("stashing clears the editor, defers copying, and emits a notification", async () => {
@@ -84,7 +87,7 @@ describe("stash", () => {
     await harness.stash("draft message");
 
     expect(harness.editorText()).toBe("");
-    expect(setText).not.toHaveBeenCalled();
+    expect(copyToClipboard).not.toHaveBeenCalled();
     expect(harness.notifications()).toContainEqual({
       message: "Stashed (1). Press c to copy to clipboard.",
       type: "info",
@@ -194,7 +197,7 @@ describe("stash", () => {
     const result = harness.host.terminalInput("c");
 
     expect(result.consumed).toBeTruthy();
-    expect(setText).toHaveBeenCalledWith("draft message");
+    expect(copyToClipboard).toHaveBeenCalledWith("draft message");
     await vi.waitFor(() => {
       expect(harness.notifications()).toContainEqual({
         message: "Copied stash to clipboard.",
@@ -212,7 +215,7 @@ describe("stash", () => {
 
     expect(cancelResult.consumed).toBeFalsy();
     expect(lateCopyResult.consumed).toBeFalsy();
-    expect(setText).not.toHaveBeenCalled();
+    expect(copyToClipboard).not.toHaveBeenCalled();
   });
 
   it("empty Ctrl+S cancels the pending copy while popping", async () => {
@@ -224,7 +227,7 @@ describe("stash", () => {
 
     expect(harness.editorText()).toBe("draft message");
     expect(result.consumed).toBeFalsy();
-    expect(setText).not.toHaveBeenCalled();
+    expect(copyToClipboard).not.toHaveBeenCalled();
   });
 
   it("does not cancel the pending copy on key repeat or release events", async () => {
@@ -236,12 +239,12 @@ describe("stash", () => {
     const copyResult = harness.host.terminalInput("c");
 
     expect(copyResult.consumed).toBeTruthy();
-    expect(setText).toHaveBeenCalledWith("draft message");
+    expect(copyToClipboard).toHaveBeenCalledWith("draft message");
   });
 
   it("notifies when copying the stashed text fails", async () => {
     const harness = await createHarness();
-    setText.mockRejectedValueOnce(new Error("clipboard failed"));
+    copyToClipboard.mockRejectedValueOnce(new Error("clipboard failed"));
 
     await harness.stash("draft message");
     const result = harness.host.terminalInput("c");
@@ -266,7 +269,7 @@ describe("stash", () => {
     const result = harness.host.terminalInput("c");
 
     expect(result.consumed).toBeTruthy();
-    expect(setText).toHaveBeenCalledExactlyOnceWith("second");
+    expect(copyToClipboard).toHaveBeenCalledExactlyOnceWith("second");
   });
 
   it("clears the pending copy on shutdown", async () => {
@@ -277,7 +280,7 @@ describe("stash", () => {
     const result = harness.host.terminalInput("c");
 
     expect(result.consumed).toBeFalsy();
-    expect(setText).not.toHaveBeenCalled();
+    expect(copyToClipboard).not.toHaveBeenCalled();
   });
 
   it("restores the most recent stash on the next interactive input", async () => {

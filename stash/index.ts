@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  copyToClipboard,
   getAgentDir,
   withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
@@ -12,7 +13,6 @@ import type {
   InputEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
-import * as Clipboard from "@mariozechner/clipboard";
 
 const MAX_STASHES = 10;
 
@@ -40,7 +40,7 @@ const writeStore = async (filePath: string, store: StashStore) => {
 
 const copyStashedText = async (ctx: ExtensionContext, text: string) => {
   try {
-    await Clipboard.setText(text);
+    await copyToClipboard(text);
     ctx.ui.notify("Copied stash to clipboard.", "info");
   } catch {
     ctx.ui.notify("Failed to copy stash to clipboard.", "warning");

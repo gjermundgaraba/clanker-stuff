@@ -25,9 +25,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
-    "@mariozechner/clipboard": "0.3.2"
-  },
   "devDependencies": {
     "vitest": "*"
   },
