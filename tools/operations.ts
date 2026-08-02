@@ -73,7 +73,7 @@ const processResult = ({
 }: ProcessResult): OperationResult => textResult(output, details);
 
 const throwIfAborted = (signal: AbortSignal | undefined) => {
-  if (signal?.aborted) {
+  if (signal?.aborted === true) {
     throw new Error("Operation aborted");
   }
 };
@@ -117,16 +117,16 @@ const createGrepArguments = (
   } else {
     args.push("--with-filename");
   }
-  if (input.ignoreCase) {
+  if (input.ignoreCase === true) {
     args.push("--ignore-case");
   }
-  if (input.multiline) {
+  if (input.multiline === true) {
     args.push("--multiline");
   }
-  if (input.context && input.context > 0) {
+  if (input.context !== undefined && input.context > 0) {
     args.push("--context", String(input.context));
   }
-  if (input.glob) {
+  if (input.glob !== undefined && input.glob.length > 0) {
     args.push("--glob", input.glob);
   }
   args.push("--max-count", String(limit), "--", input.pattern, searchPath);
@@ -284,7 +284,10 @@ export class ToolOperations {
     input: GrepInput,
     execution: OperationContext
   ): Promise<OperationResult> {
-    if (input.multiline || (input.outputMode ?? "content") !== "content") {
+    if (
+      input.multiline === true ||
+      (input.outputMode ?? "content") !== "content"
+    ) {
       return await grepWithNativeOptions(input, execution);
     }
     return await runDefinition(
@@ -328,7 +331,7 @@ export class ToolOperations {
     input: ReplacementInput,
     execution: OperationContext
   ): Promise<OperationResult> {
-    if (input.replaceAll) {
+    if (input.replaceAll === true) {
       if (input.oldText.length === 0) {
         throw new Error("old_string must not be empty");
       }
@@ -394,7 +397,7 @@ export class ToolOperations {
             : resolvePath(input.cwd, execution.ctx.cwd),
         signal: execution.signal,
         timeoutMs: input.timeoutMs,
-        yieldMs: input.background ? 0 : undefined,
+        yieldMs: input.background === true ? 0 : undefined,
       })
     );
   }

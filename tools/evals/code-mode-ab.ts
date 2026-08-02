@@ -381,7 +381,7 @@ interface NativeExecEvent {
 }
 
 const parseCount = (output: string, name: string) =>
-  Number(output.match(new RegExp(`^(?:#|ℹ) ${name} (\\d+)$`, "mu"))?.[1] ?? 0);
+  Number(new RegExp(`^(?:#|ℹ) ${name} (\\d+)$`, "mu").exec(output)?.[1] ?? 0);
 
 const command = (
   executable: string,
@@ -538,9 +538,7 @@ const finalText = (messages: readonly unknown[]) => {
 const parseNativeEvent = (line: string): NativeExecEvent | undefined => {
   try {
     const value: unknown = JSON.parse(line);
-    return typeof value === "object" && value !== null
-      ? (value as NativeExecEvent)
-      : undefined;
+    return typeof value === "object" && value !== null ? value : undefined;
   } catch {
     return undefined;
   }
@@ -720,7 +718,9 @@ const runNativeVariant = async (
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
-      forceKill = setTimeout(() => child.kill("SIGKILL"), 5000);
+      forceKill = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, 5000);
     }, timeoutMs);
     child.once("error", reject);
     child.once("close", (code) => {
@@ -759,7 +759,9 @@ const runNativeVariant = async (
   writeFileSync(path.join(cwd, "test-output.txt"), evaluation.output);
   return {
     activeTools: ["native-codex-code-mode"],
-    ...(errorMessage ? { error: errorMessage } : {}),
+    ...(errorMessage !== undefined && errorMessage.length > 0
+      ? { error: errorMessage }
+      : {}),
     evaluation,
     metrics: nativeMetrics(events, elapsedMs, firstResponseMs, model),
     mode: "native",
@@ -863,10 +865,9 @@ const runPiVariant = async (
       await Promise.race([
         session.prompt(TASK_PROMPT),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`Timed out after ${timeoutMs} ms`)),
-            timeoutMs
-          );
+          timer = setTimeout(() => {
+            reject(new Error(`Timed out after ${timeoutMs} ms`));
+          }, timeoutMs);
         }),
       ]);
     } catch (promptError) {
@@ -911,7 +912,9 @@ const runPiVariant = async (
   writeFileSync(path.join(cwd, "test-output.txt"), evaluation.output);
   return {
     activeTools,
-    ...(errorMessage ? { error: errorMessage } : {}),
+    ...(errorMessage !== undefined && errorMessage.length > 0
+      ? { error: errorMessage }
+      : {}),
     evaluation,
     metrics,
     mode,
@@ -1009,7 +1012,7 @@ const main = async () => {
     },
     strict: true,
   });
-  if (values.help) {
+  if (values.help === true) {
     help();
     return;
   }
@@ -1040,7 +1043,7 @@ const main = async () => {
   mkdirSync(requestedOutput, { recursive: true });
   const output = realpathSync(requestedOutput);
 
-  if (values["prepare-only"]) {
+  if (values["prepare-only"] === true) {
     createFixture(path.join(output, "direct"));
     createFixture(path.join(output, "code"));
     createFixture(path.join(output, "native"));

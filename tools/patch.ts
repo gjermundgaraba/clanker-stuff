@@ -259,7 +259,7 @@ export const applyPatch = async (
 ): Promise<PatchResult> => {
   const mutation = { started: false };
   const throwIfAborted = () => {
-    if (!mutation.started && signal?.aborted) {
+    if (!mutation.started && signal?.aborted === true) {
       throw new Error("Operation aborted");
     }
   };
@@ -323,7 +323,7 @@ export const applyPatch = async (
       }
     });
     changes.push({
-      ...(operation.moveTo ? { from: operation.path } : {}),
+      ...(typeof operation.moveTo === "string" ? { from: operation.path } : {}),
       kind: "update",
       path: operation.moveTo ?? operation.path,
     });

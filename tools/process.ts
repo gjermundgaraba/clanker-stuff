@@ -54,13 +54,13 @@ const MAX_SESSIONS = 32;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
 const throwIfAborted = (signal: AbortSignal | undefined) => {
-  if (signal?.aborted) {
+  if (signal?.aborted === true) {
     throw new Error("Operation aborted");
   }
 };
 
 const killProcessTree = (child: ChildProcessWithoutNullStreams) => {
-  if (!child.pid) {
+  if (child.pid === undefined) {
     return;
   }
   if (process.platform === "win32") {
@@ -105,7 +105,7 @@ const createShellEnvironment = (ctx: ExtensionContext) => {
   delete env.PI_REASONING_LEVEL;
   env.PI_SESSION_ID = ctx.sessionManager.getSessionId();
   const sessionFile = ctx.sessionManager.getSessionFile();
-  if (sessionFile) {
+  if (sessionFile !== undefined && sessionFile.length > 0) {
     env.PI_SESSION_FILE = sessionFile;
   }
   if (ctx.model) {
@@ -173,10 +173,18 @@ const spawnShell = async (options: {
         }, options.timeoutMs);
   const completion = (async (): Promise<ShellResult> => {
     try {
-      const [exitCode] = await once(child, "close");
-      return { exitCode: exitCode as number | null, reason };
+      const closeEvent: unknown = await once(child, "close");
+      if (!Array.isArray(closeEvent)) {
+        throw new TypeError("Invalid process close event");
+      }
+      const closeArguments: unknown[] = closeEvent;
+      const [exitCode] = closeArguments;
+      if (exitCode !== null && typeof exitCode !== "number") {
+        throw new Error("Invalid process exit code");
+      }
+      return { exitCode, reason };
     } finally {
-      if (timeout) {
+      if (timeout !== undefined) {
         clearTimeout(timeout);
       }
     }
@@ -201,7 +209,7 @@ const wait = async (
   yieldMs: number | undefined,
   signal: AbortSignal | undefined
 ) => {
-  if (signal?.aborted) {
+  if (signal?.aborted === true) {
     session.process.kill();
     throw new Error("Operation aborted");
   }
@@ -252,7 +260,7 @@ const formatOutput = async (
     snapshot.truncation.truncated
       ? `Output truncated to the last ${snapshot.truncation.outputLines} lines.`
       : undefined,
-    snapshot.fullOutputPath
+    snapshot.fullOutputPath !== undefined && snapshot.fullOutputPath.length > 0
       ? `Full output: ${snapshot.fullOutputPath}`
       : undefined,
   ].filter((notice): notice is string => notice !== undefined);
@@ -260,7 +268,7 @@ const formatOutput = async (
     durationMs: Date.now() - session.createdAt,
     exitCode,
     fullOutputPath: snapshot.fullOutputPath,
-    output: `${snapshot.content ? `${snapshot.content}\n\n` : ""}${status}${
+    output: `${snapshot.content.length > 0 ? `${snapshot.content}\n\n` : ""}${status}${
       notices.length > 0 ? `\n\n[${notices.join(" ")}]` : ""
     }`,
     running: !exited,
@@ -353,7 +361,7 @@ export class ProcessManager {
       if (oldestSessionId !== undefined) {
         const oldestSession = this.sessions.get(oldestSessionId);
         this.sessions.delete(oldestSessionId);
-        if (oldestSession) {
+        if (oldestSession !== undefined) {
           oldestSession.process.kill();
           await oldestSession.exitPromise;
           await oldestSession.output.current.discard();
@@ -374,9 +382,9 @@ export class ProcessManager {
     if (!session) {
       throw new Error(`Unknown process session: ${options.sessionId}`);
     }
-    if (options.signal?.aborted) {
+    if (options.signal?.aborted === true) {
       session.process.kill();
-    } else if (options.chars) {
+    } else if (options.chars !== undefined && options.chars.length > 0) {
       session.process.write(options.chars);
     }
 

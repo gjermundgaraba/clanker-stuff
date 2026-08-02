@@ -24,20 +24,27 @@ import { isCodexModel } from "./profiles/codex.js";
 import { HARNESS_PROFILES } from "./profiles/index.js";
 
 const GENERIC_TOOL_RESTORERS = {
-  bash: (pi: ExtensionAPI, cwd: string) =>
-    pi.registerTool(createBashToolDefinition(cwd)),
-  edit: (pi: ExtensionAPI, cwd: string) =>
-    pi.registerTool(createEditToolDefinition(cwd)),
-  find: (pi: ExtensionAPI, cwd: string) =>
-    pi.registerTool(createFindToolDefinition(cwd)),
-  grep: (pi: ExtensionAPI, cwd: string) =>
-    pi.registerTool(createGrepToolDefinition(cwd)),
-  ls: (pi: ExtensionAPI, cwd: string) =>
-    pi.registerTool(createLsToolDefinition(cwd)),
-  read: (pi: ExtensionAPI, cwd: string) =>
-    pi.registerTool(createReadToolDefinition(cwd)),
-  write: (pi: ExtensionAPI, cwd: string) =>
-    pi.registerTool(createWriteToolDefinition(cwd)),
+  bash: (pi: ExtensionAPI, cwd: string) => {
+    pi.registerTool(createBashToolDefinition(cwd));
+  },
+  edit: (pi: ExtensionAPI, cwd: string) => {
+    pi.registerTool(createEditToolDefinition(cwd));
+  },
+  find: (pi: ExtensionAPI, cwd: string) => {
+    pi.registerTool(createFindToolDefinition(cwd));
+  },
+  grep: (pi: ExtensionAPI, cwd: string) => {
+    pi.registerTool(createGrepToolDefinition(cwd));
+  },
+  ls: (pi: ExtensionAPI, cwd: string) => {
+    pi.registerTool(createLsToolDefinition(cwd));
+  },
+  read: (pi: ExtensionAPI, cwd: string) => {
+    pi.registerTool(createReadToolDefinition(cwd));
+  },
+  write: (pi: ExtensionAPI, cwd: string) => {
+    pi.registerTool(createWriteToolDefinition(cwd));
+  },
 } as const;
 
 const isGenericToolName = (
@@ -110,21 +117,26 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
         headers[RESPONSES_LITE_HEADER] = "true";
       }
     },
-    augmentSystemPrompt(systemPrompt: string, ctx: ExtensionContext) {
-      if (!(isCodeModeActive(ctx.model) && codeModeDefinitions.length > 0)) {
-        return;
+    augmentSystemPrompt(
+      systemPrompt: string,
+      ctx: ExtensionContext
+    ): string | undefined {
+      let augmented: string | undefined;
+      if (isCodeModeActive(ctx.model) && codeModeDefinitions.length > 0) {
+        const heading = "Tools available in exec:";
+        if (systemPrompt.includes(heading)) {
+          augmented = systemPrompt;
+        } else {
+          const section = codeMode.prompt(codeModeDefinitions);
+          const markers = ["\nCurrent shell:", "\nCurrent date:"]
+            .map((marker) => systemPrompt.indexOf(marker))
+            .filter((index) => index !== -1);
+          const insertAt =
+            markers.length > 0 ? Math.min(...markers) : systemPrompt.length;
+          augmented = `${systemPrompt.slice(0, insertAt).trimEnd()}\n\n${section}${systemPrompt.slice(insertAt)}`;
+        }
       }
-      const heading = "Tools available in exec:";
-      if (systemPrompt.includes(heading)) {
-        return systemPrompt;
-      }
-      const section = codeMode.prompt(codeModeDefinitions);
-      const markers = ["\nCurrent shell:", "\nCurrent date:"]
-        .map((marker) => systemPrompt.indexOf(marker))
-        .filter((index) => index !== -1);
-      const insertAt =
-        markers.length > 0 ? Math.min(...markers) : systemPrompt.length;
-      return `${systemPrompt.slice(0, insertAt).trimEnd()}\n\n${section}${systemPrompt.slice(insertAt)}`;
+      return augmented;
     },
     async dispose() {
       await codeMode.shutdown();
