@@ -1,0 +1,63 @@
+{
+  "name": "@clanker-extensions/codex-compaction",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adds fail-closed OpenAI Codex remote compaction with durable opaque checkpoint replay.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/codex-compaction#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
+    "directory": "codex-compaction"
+  },
+  "files": [
+    "audit-local-order.ts",
+    "checkpoint.ts",
+    "index.ts",
+    "lifecycle.ts",
+    "remote.ts",
+    "renderer.ts",
+    "replay.ts",
+    "README.md",
+    "LICENSE",
+    "docs/design.md",
+    "docs/context-alignment.md",
+    "docs/live-canary.md",
+    "docs/local-deployment.md",
+    "scripts"
+  ],
+  "type": "module",
+  "imports": {
+    "#pi-responses": "@earendil-works/pi-ai/api/openai-responses-shared"
+  },
+  "exports": "./index.ts",
+  "scripts": {
+    "test:live": "node ./scripts/live-multi-compaction.mjs",
+    "test:live:branch": "node ./scripts/live-multi-compaction.mjs --branch",
+    "test:live:mid-turn": "node ./scripts/live-multi-compaction.mjs --mid-turn",
+    "test:live:real": "node ./scripts/live-multi-compaction.mjs --real-window",
+    "test:live:websocket": "node ./scripts/live-multi-compaction.mjs --websocket"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
