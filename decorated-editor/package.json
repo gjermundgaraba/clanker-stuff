@@ -1,0 +1,43 @@
+{
+  "name": "@clanker-extensions/decorated-editor",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Provides a shared custom editor for inline prompt decorations from Clanker extensions.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/decorated-editor#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
+    "directory": "decorated-editor"
+  },
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
