@@ -3,8 +3,8 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
+import { showToolsConfigurationUI } from "./picker.js";
 import { persistToolsState, restoreEnabledTools } from "./state.js";
-import { showToolsConfigurationUI } from "./tui.js";
 
 export default function toolsExtension(pi: ExtensionAPI) {
   let enabledTools = new Set<string>();
@@ -27,10 +27,7 @@ export default function toolsExtension(pi: ExtensionAPI) {
     description: "Enable/disable tools",
     handler: async (_args, ctx) => {
       const allTools = pi.getAllTools();
-      const allToolNames = new Set(allTools.map((tool) => tool.name));
-      enabledTools = new Set(
-        pi.getActiveTools().filter((toolName) => allToolNames.has(toolName))
-      );
+      enabledTools = new Set(pi.getActiveTools());
 
       await showToolsConfigurationUI(
         ctx,

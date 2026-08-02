@@ -2,7 +2,7 @@
   "name": "@clanker-extensions/tool-picker",
   "version": "0.1.0",
   "private": false,
-  "description": "Adds /tools to choose which tools are active in the current session.",
+  "description": "Adds /tools to choose which registered tools are active in the current session.",
   "keywords": [
     "pi-package"
   ],
@@ -19,8 +19,9 @@
   "files": [
     "index.ts",
     "state.ts",
-    "tui.ts",
-    "README.md"
+    "picker.ts",
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",
