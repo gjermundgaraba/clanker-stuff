@@ -28,17 +28,14 @@ export const defaultFetchJson: FetchJson = async (
   url,
   options
 ): Promise<FetchJsonResult> => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, options.timeoutMs);
+  const signal = AbortSignal.timeout(options.timeoutMs);
 
   try {
     const response = await fetch(url, {
       body: options.body,
       headers: options.headers,
       method: options.method ?? "GET",
-      signal: controller.signal,
+      signal,
     });
 
     const text = await response.text();
@@ -67,13 +64,11 @@ export const defaultFetchJson: FetchJson = async (
       };
     }
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (signal.aborted) {
       return { message: "request timed out", ok: false };
     }
     const message =
       error instanceof Error ? error.message : "network request failed";
     return { message, ok: false };
-  } finally {
-    clearTimeout(timeout);
   }
 };

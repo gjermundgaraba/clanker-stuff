@@ -1,6 +1,6 @@
 # Provider support
 
-The footer reads credentials already configured for pi and uses them only to request account usage from the active provider. It does not store or transmit credentials anywhere else.
+The usage extension reads credentials already configured for pi and uses them only to request account usage from supported providers. It does not store or transmit credentials anywhere else.
 
 | Provider       | Usage source              |
 | -------------- | ------------------------- |

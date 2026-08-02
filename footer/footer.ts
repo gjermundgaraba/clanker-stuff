@@ -3,10 +3,7 @@ import path from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import { formatResetDuration } from "./format.js";
 import type { GitStatus } from "./git.js";
-import { providerDisplayName } from "./providers.js";
-import type { UsageSnapshot, UsageWindow } from "./types.js";
 
 export type FooterTheme = Pick<Theme, "fg">;
 
@@ -14,20 +11,20 @@ type ThemeColor = Parameters<Theme["fg"]>[0];
 
 export interface ContextInfo {
   percent: number;
-  used: number;
   total: number;
+  used: number;
 }
 
 export interface FooterState {
+  codexFast: boolean;
   context: ContextInfo;
   cwd: string;
+  extensionStatuses: string[];
   git: GitStatus | null;
   home: string | undefined;
   modelName: string;
-  nowMs: number;
   reasoning: boolean;
   thinkingLevel: string;
-  usage: UsageSnapshot | null;
 }
 
 const CTX_GAUGE_WIDTH = 12;
@@ -39,13 +36,12 @@ const clampPercent = (value: number): number =>
 
 const formatTokenCount = (tokens: number): string => {
   if (tokens >= 1_000_000) {
-    const m = tokens / 1_000_000;
-    return m % 1 === 0 ? `${m}M` : `${m.toFixed(1)}M`;
+    const millions = tokens / 1_000_000;
+    return Number.isInteger(millions)
+      ? `${millions}M`
+      : `${millions.toFixed(1)}M`;
   }
-  if (tokens >= 1000) {
-    return `${Math.round(tokens / 1000)}k`;
-  }
-  return `${tokens}`;
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : `${tokens}`;
 };
 
 const selectFooterVariant = (
@@ -65,26 +61,24 @@ const selectFooterVariant = (
 const wrapFooterSegments = (
   segments: string[],
   width: number,
-  sep: string
+  separator: string
 ): string[] => {
   const lines: string[] = [];
   let current = "";
-
   for (const rawSegment of segments.filter(Boolean)) {
     const segment = truncateToWidth(rawSegment, width);
     if (current.length === 0) {
       current = segment;
       continue;
     }
-    const candidate = current + sep + segment;
+    const candidate = current + separator + segment;
     if (visibleWidth(candidate) <= width) {
       current = candidate;
-      continue;
+    } else {
+      lines.push(current);
+      current = segment;
     }
-    lines.push(current);
-    current = segment;
   }
-
   if (current.length > 0) {
     lines.push(current);
   }
@@ -98,34 +92,7 @@ const contextColor = (percent: number): ThemeColor => {
   if (percent >= 70) {
     return "warning";
   }
-  if (percent >= 50) {
-    return "accent";
-  }
-  return "success";
-};
-
-const usageColor = (usedPercent: number): ThemeColor => {
-  if (usedPercent >= 92) {
-    return "error";
-  }
-  if (usedPercent >= 85) {
-    return "warning";
-  }
-  return "success";
-};
-
-const renderBar = (
-  percent: number,
-  barWidth: number,
-  color: ThemeColor,
-  theme: FooterTheme
-): string => {
-  const filled = Math.round((percent / 100) * barWidth);
-  const empty = barWidth - filled;
-  return (
-    theme.fg(color, BAR_FILLED.repeat(filled)) +
-    theme.fg("dim", BAR_EMPTY.repeat(empty))
-  );
+  return percent >= 50 ? "accent" : "success";
 };
 
 const renderContextGauge = (
@@ -133,71 +100,24 @@ const renderContextGauge = (
   theme: FooterTheme,
   options: { barWidth: number; includeCounts: boolean }
 ): string => {
-  const { barWidth } = options;
   const clamped = clampPercent(context.percent);
-  const bar = renderBar(clamped, barWidth, contextColor(clamped), theme);
-  const pct = `${Math.round(clamped)}%`;
+  const filled = Math.round((clamped / 100) * options.barWidth);
+  const bar =
+    theme.fg(contextColor(clamped), BAR_FILLED.repeat(filled)) +
+    theme.fg("dim", BAR_EMPTY.repeat(options.barWidth - filled));
+  const percent = `${Math.round(clamped)}%`;
   const counts =
-    !options.includeCounts || context.total <= 0
-      ? ""
-      : ` ${formatTokenCount(context.used)}/${formatTokenCount(context.total)}`;
-  return `${theme.fg("dim", "ctx ")}${bar} ${theme.fg("dim", pct + counts)}`;
-};
-
-const renderUsageWindow = (
-  window: UsageWindow,
-  nowMs: number,
-  theme: FooterTheme,
-  options: { barWidth: number; includeReset: boolean }
-): string => {
-  const dim = (s: string): string => theme.fg("dim", s);
-  const used = 100 - window.remainingPercent;
-  const bar = renderBar(used, options.barWidth, usageColor(used), theme);
-  const pct = dim(`${Math.round(used)}%`);
-  const reset =
-    !options.includeReset || window.resetsAt === undefined
-      ? ""
-      : ` ${dim(formatResetDuration(window.resetsAt, nowMs))}`;
-  return `${dim(window.label)} ${bar} ${pct}${reset}`;
-};
-
-const renderUsageLine = (
-  usage: UsageSnapshot,
-  nowMs: number,
-  width: number,
-  theme: FooterTheme
-): string[] => {
-  const sep = ` ${theme.fg("dim", ">")} `;
-  const plan =
-    usage.planLabel === undefined || usage.planLabel.length === 0
-      ? ""
-      : ` (${usage.planLabel})`;
-  const provider = `${providerDisplayName(usage.provider)}${plan}`;
-  const variants = (window: UsageWindow): [string, string] => [
-    renderUsageWindow(window, nowMs, theme, {
-      barWidth: 10,
-      includeReset: true,
-    }),
-    renderUsageWindow(window, nowMs, theme, {
-      barWidth: 6,
-      includeReset: false,
-    }),
-  ];
-  const segments: string[] = [
-    theme.fg("accent", provider),
-    ...usage.windows.map((window) =>
-      selectFooterVariant(width, variants(window))
-    ),
-  ];
-  return wrapFooterSegments(segments, width, sep);
+    options.includeCounts && context.total > 0
+      ? ` ${formatTokenCount(context.used)}/${formatTokenCount(context.total)}`
+      : "";
+  return `${theme.fg("dim", "ctx ")}${bar} ${theme.fg("dim", percent + counts)}`;
 };
 
 const renderGit = (git: GitStatus, theme: FooterTheme): string => {
   if (git.branch === null) {
     return "";
   }
-  const branchColor = git.dirty ? "warning" : "success";
-  let text = theme.fg(branchColor, git.branch);
+  let text = theme.fg(git.dirty ? "warning" : "success", git.branch);
   if (git.dirty) {
     text += theme.fg("warning", " *");
   }
@@ -215,56 +135,63 @@ export const renderFooter = (
   width: number,
   theme: FooterTheme
 ): string[] => {
-  const sep = ` ${theme.fg("dim", ">")} `;
-
-  let pwd = state.cwd;
+  const separator = ` ${theme.fg("dim", ">")} `;
+  const { cwd: initialCwd } = state;
+  let cwd = initialCwd;
   if (
     state.home !== undefined &&
     state.home.length > 0 &&
-    (pwd === state.home || pwd.startsWith(`${state.home}${path.sep}`))
+    (cwd === state.home || cwd.startsWith(`${state.home}${path.sep}`))
   ) {
-    pwd = `~${pwd.slice(state.home.length)}`;
+    cwd = `~${cwd.slice(state.home.length)}`;
   }
 
-  const pwdStr = theme.fg("accent", pwd);
-  const branchStr = state.git === null ? "" : renderGit(state.git, theme);
-
-  const plainModelStr = theme.fg("muted", state.modelName);
-  const modelStr =
+  const cwdText = theme.fg("accent", cwd);
+  const gitText = state.git === null ? "" : renderGit(state.git, theme);
+  const plainModel =
+    theme.fg("muted", state.modelName) +
+    (state.codexFast ? ` ${theme.fg("warning", "⚡")}` : "");
+  const model =
     state.reasoning && state.thinkingLevel !== "off"
-      ? `${plainModelStr} ${theme.fg("dim", ">")} ${theme.fg("accent", state.thinkingLevel)}`
-      : plainModelStr;
-
-  const locationBlock =
-    branchStr.length === 0
-      ? pwdStr
+      ? `${plainModel} ${theme.fg("dim", ">")} ${theme.fg("accent", state.thinkingLevel)}`
+      : plainModel;
+  const location =
+    gitText.length === 0
+      ? cwdText
       : selectFooterVariant(width, [
-          pwdStr + sep + branchStr,
-          pwdStr,
-          branchStr,
+          cwdText + separator + gitText,
+          cwdText,
+          gitText,
         ]);
-
-  const statusBlocks = [
-    locationBlock,
-    selectFooterVariant(
-      width,
-      modelStr === plainModelStr ? [plainModelStr] : [modelStr, plainModelStr]
-    ),
-    selectFooterVariant(width, [
-      renderContextGauge(state.context, theme, {
-        barWidth: CTX_GAUGE_WIDTH,
-        includeCounts: true,
-      }),
-      renderContextGauge(state.context, theme, {
-        barWidth: 6,
-        includeCounts: false,
-      }),
-    ]),
-  ];
-
-  const lines = wrapFooterSegments(statusBlocks, width, sep);
-  if (state.usage !== null) {
-    lines.push(...renderUsageLine(state.usage, state.nowMs, width, theme));
+  const lines = wrapFooterSegments(
+    [
+      location,
+      selectFooterVariant(
+        width,
+        model === plainModel ? [plainModel] : [model, plainModel]
+      ),
+      selectFooterVariant(width, [
+        renderContextGauge(state.context, theme, {
+          barWidth: CTX_GAUGE_WIDTH,
+          includeCounts: true,
+        }),
+        renderContextGauge(state.context, theme, {
+          barWidth: 6,
+          includeCounts: false,
+        }),
+      ]),
+    ],
+    width,
+    separator
+  );
+  if (state.extensionStatuses.length > 0) {
+    lines.push(
+      truncateToWidth(
+        state.extensionStatuses.join(" "),
+        width,
+        theme.fg("dim", "...")
+      )
+    );
   }
   return lines;
 };

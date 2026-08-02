@@ -1,12 +1,12 @@
 {
-  "name": "@clanker-extensions/footer",
+  "name": "@clanker-extensions/usage",
   "version": "0.1.0",
   "private": false,
-  "description": "Replaces the pi footer with a compact context gauge, Git state, model details, and native extension statuses.",
+  "description": "Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.",
   "keywords": [
     "pi-package"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/footer#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/usage#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
   },
@@ -14,14 +14,19 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
-    "directory": "footer"
+    "directory": "usage"
   },
   "files": [
     "index.ts",
-    "git.ts",
-    "footer.ts",
+    "types.ts",
+    "providers.ts",
+    "auth.ts",
+    "http.ts",
+    "cache.ts",
+    "format.ts",
+    "adapters",
     "README.md",
-    "LICENSE"
+    "docs"
   ],
   "type": "module",
   "exports": "./index.ts",
@@ -34,7 +39,6 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "engines": {

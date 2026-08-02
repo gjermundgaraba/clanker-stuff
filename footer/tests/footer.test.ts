@@ -4,43 +4,20 @@ import { describe, expect, it } from "vitest";
 import { createIdentityTheme } from "../../tests/harness/tui.js";
 import type { FooterState } from "../footer.js";
 import { renderFooter } from "../footer.js";
-import type { UsageSnapshot } from "../types.js";
 
 const theme = createIdentityTheme();
 
-const NOW = Date.parse("2026-07-21T12:00:00.000Z");
-
 const baseState = (overrides: Partial<FooterState> = {}): FooterState => ({
+  codexFast: false,
   context: { percent: 40, total: 200_000, used: 80_000 },
   cwd: "/Users/dev/code/project",
+  extensionStatuses: [],
   git: { ahead: 0, behind: 0, branch: "main", dirty: false },
   home: "/Users/dev",
   modelName: "gpt-5",
-  nowMs: NOW,
   reasoning: true,
   thinkingLevel: "high",
-  usage: null,
   ...overrides,
-});
-
-const codexUsage = (): UsageSnapshot => ({
-  fetchedAt: NOW,
-  planLabel: "plus",
-  provider: "openai-codex",
-  windows: [
-    {
-      id: "5h",
-      label: "5h",
-      remainingPercent: 68,
-      resetsAt: new Date(NOW + 2 * 3_600_000).toISOString(),
-    },
-    {
-      id: "7d",
-      label: "7d",
-      remainingPercent: 34,
-      resetsAt: new Date(NOW + 3 * 86_400_000).toISOString(),
-    },
-  ],
 });
 
 describe("footer status line", () => {
@@ -98,35 +75,21 @@ describe("footer status line", () => {
       renderFooter(baseState({ reasoning: false }), 120, theme)[0]
     ).not.toContain("high");
   });
-});
 
-describe("footer usage line", () => {
-  it("renders provider windows as used-percent bars with resets", () => {
-    const lines = renderFooter(baseState({ usage: codexUsage() }), 120, theme);
-    expect(lines).toHaveLength(2);
-    const usageLine = lines[1] ?? "";
+  it("shows a lightning symbol when Codex fast mode is active", () => {
     expect(
-      ["Codex (plus)", "5h", "32%", "2h", "7d", "66%", "3d", "━"].every(
-        (fragment) => usageLine.includes(fragment)
-      )
-    ).toBeTruthy();
+      renderFooter(baseState({ codexFast: true }), 120, theme)[0]
+    ).toContain("gpt-5 ⚡");
   });
 
-  it("keeps every line within the width budget", () => {
-    for (const width of [30, 55, 80]) {
-      const lines = renderFooter(
-        baseState({ usage: codexUsage() }),
-        width,
-        theme
-      );
-      for (const line of lines) {
-        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-      }
-    }
-  });
+  it("renders extension statuses", () => {
+    const lines = renderFooter(
+      baseState({ extensionStatuses: ["🎙 voice", "⏱ 12s"] }),
+      120,
+      theme
+    );
 
-  it("renders no usage line without a snapshot", () => {
-    const lines = renderFooter(baseState({ usage: null }), 120, theme);
-    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain("🎙 voice");
+    expect(lines[1]).toBe("🎙 voice ⏱ 12s");
   });
 });
