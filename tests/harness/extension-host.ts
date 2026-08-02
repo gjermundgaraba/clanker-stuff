@@ -32,6 +32,9 @@ type ContextOverrides = Omit<Partial<ExtensionCommandContext>, "ui"> & {
 type ToolExecute = NonNullable<
   Parameters<ExtensionAPI["registerTool"]>[0]["execute"]
 >;
+type EditorFactory = Parameters<
+  ExtensionCommandContext["ui"]["setEditorComponent"]
+>[0];
 type MessageRenderer = Parameters<ExtensionAPI["registerMessageRenderer"]>[1];
 interface RunToolOptions {
   ctx?: ExtensionCommandContext;
@@ -47,6 +50,7 @@ export interface ExtensionHostOptions {
   activeTools?: string[];
   allTools?: string[];
   commands?: SlashCommandInfo[];
+  flags?: Record<string, boolean | string>;
   model?: ExtensionContext["model"];
 }
 
@@ -105,6 +109,8 @@ export const createExtensionHost = (
     string,
     Parameters<ExtensionAPI["registerShortcut"]>[1]
   >();
+  const registeredFlags = new Set<string>();
+  const flagValues = new Map(Object.entries(options.flags ?? {}));
   const entries = [...(options.entries ?? [])];
   const appendedEntries: SessionEntry[] = [];
   const sentUserMessages: {
@@ -120,6 +126,7 @@ export const createExtensionHost = (
   const events = createEventBus();
   let leafId = options.leafId ?? null;
   let nextAppendedEntryId = 1;
+  let editorFactory: EditorFactory | undefined;
   let activeTools = [
     ...(options.activeTools ?? ["read", "bash", "edit", "write"]),
   ];
@@ -206,6 +213,9 @@ export const createExtensionHost = (
           "Tests using ui.custom must provide ctx.ui.custom explicitly"
         );
       }) as ExtensionCommandContext["ui"]["custom"],
+      getEditorComponent: vi.fn<(...args: never[]) => unknown>(
+        () => editorFactory
+      ),
       getEditorText: vi.fn<(...args: never[]) => unknown>(() => editorText),
       notify,
       onTerminalInput,
@@ -213,6 +223,11 @@ export const createExtensionHost = (
         async (): Promise<string | undefined> => {
           await Promise.resolve();
           return undefined;
+        }
+      ),
+      setEditorComponent: vi.fn<(...args: never[]) => unknown>(
+        (factory: EditorFactory | undefined) => {
+          editorFactory = factory;
         }
       ),
       setEditorText: vi.fn<(...args: never[]) => unknown>((text: string) => {
@@ -250,6 +265,8 @@ export const createExtensionHost = (
       sessionManager: {
         getBranch,
         getLeafId: () => leafId,
+        getSessionFile: vi.fn<() => string | undefined>(),
+        getSessionId: () => "test-session",
       },
       ui,
     } as unknown as ExtensionCommandContext;
@@ -283,6 +300,8 @@ export const createExtensionHost = (
     getActiveTools: () => [...activeTools],
     getAllTools: () => [...allToolInfos],
     getCommands: () => [...(options.commands ?? [])],
+    getFlag: (name: string) =>
+      registeredFlags.has(name) ? flagValues.get(name) : undefined,
     getThinkingLevel: () => "off" as never,
     on(event: string, handler: EventHandler) {
       const eventHandlers = handlers.get(event) ?? [];
@@ -298,6 +317,15 @@ export const createExtensionHost = (
         name,
         sourceInfo: TEST_SOURCE_INFO,
       } as RegisteredCommand);
+    },
+    registerFlag(
+      name: string,
+      flagOptions: Parameters<ExtensionAPI["registerFlag"]>[1]
+    ) {
+      registeredFlags.add(name);
+      if (flagOptions.default !== undefined && !flagValues.has(name)) {
+        flagValues.set(name, flagOptions.default);
+      }
     },
     registerMessageRenderer(customType: string, renderer: MessageRenderer) {
       messageRenderers.set(customType, renderer);
@@ -316,17 +344,19 @@ export const createExtensionHost = (
         definition: tool,
         sourceInfo: TEST_SOURCE_INFO,
       } as unknown as RegisteredTool);
-      if (!allToolInfos.some((candidate) => candidate.name === tool.name)) {
-        allToolInfos = [
-          ...allToolInfos,
-          {
-            description: tool.description,
-            name: tool.name,
-            parameters: tool.parameters,
-            sourceInfo: TEST_SOURCE_INFO,
-          },
-        ];
-      }
+      const info = {
+        description: tool.description,
+        name: tool.name,
+        parameters: tool.parameters,
+        sourceInfo: TEST_SOURCE_INFO,
+      };
+      allToolInfos = allToolInfos.some(
+        (candidate) => candidate.name === tool.name
+      )
+        ? allToolInfos.map((candidate) =>
+            candidate.name === tool.name ? info : candidate
+          )
+        : [...allToolInfos, info];
 
       if (!wasKnownTool && !activeTools.includes(tool.name)) {
         activeTools = [...activeTools, tool.name];
@@ -533,6 +563,9 @@ export const createExtensionHost = (
         current = factory(current);
       }
       return current;
+    },
+    getEditorFactory() {
+      return editorFactory;
     },
     getLeafId() {
       return leafId;
