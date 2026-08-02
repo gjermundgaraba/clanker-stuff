@@ -1,0 +1,6 @@
+interface:
+  display_name: "Plannotator Annotate"
+  short_description: "Annotate a file or URL in Plannotator."
+  default_prompt: "Use $plannotator-annotate to annotate this file in Plannotator."
+policy:
+  allow_implicit_invocation: false
