@@ -4,6 +4,7 @@ import type {
   BeforeAgentStartEventResult,
   ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter, Text } from "@earendil-works/pi-tui";
 
 const SKILL_MENTION = /\$(?<name>[A-Za-z0-9_:-]+)/gu;
@@ -142,8 +143,9 @@ export default function codexSkillsExtension(pi: ExtensionAPI) {
           .map(async (skill) => {
             try {
               const contents = await readFile(skill.filePath, "utf-8");
+              const body = stripFrontmatter(contents).trim();
               return {
-                content: `<skill>\n<name>${skill.name}</name>\n<path>${skill.filePath}</path>\n${contents}\n</skill>`,
+                content: `<skill>\n<name>${skill.name}</name>\n<path>${skill.filePath}</path>\n${body}\n</skill>`,
                 name: skill.name,
                 path: skill.filePath,
               };

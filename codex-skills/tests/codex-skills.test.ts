@@ -75,7 +75,7 @@ describe("codex skill mentions", () => {
     ]);
 
     const host = createExtensionHost(extension);
-    const content = `<skill>\n<name>alpha</name>\n<path>${alphaPath}</path>\n${alpha}\n</skill>\n\n<skill>\n<name>beta</name>\n<path>${betaPath}</path>\n${beta}\n</skill>\n\n<skill>\n<name>plugin:deploy</name>\n<path>${pluginPath}</path>\n${plugin}\n</skill>`;
+    const content = `<skill>\n<name>alpha</name>\n<path>${alphaPath}</path>\nAlpha instructions.\n</skill>\n\n<skill>\n<name>beta</name>\n<path>${betaPath}</path>\nBeta instructions.\n</skill>\n\n<skill>\n<name>plugin:deploy</name>\n<path>${pluginPath}</path>\nPlugin deploy instructions.\n</skill>`;
     const details = {
       skills: [
         { name: "alpha", path: alphaPath },
