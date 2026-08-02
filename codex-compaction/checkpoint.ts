@@ -161,13 +161,16 @@ const expectExactKeys = (
 };
 
 const expectIdentifier = (value: unknown, path: string): string => {
-  const hasControlCharacter =
-    typeof value === "string" &&
-    // oxlint-disable-next-line typescript/no-misused-spread -- iterating Unicode code points is intentional for control-character validation
-    [...value].some((character) => {
+  let hasControlCharacter = false;
+  if (typeof value === "string") {
+    for (const character of value) {
       const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint <= 31 || codePoint === 127;
-    });
+      if (codePoint <= 31 || codePoint === 127) {
+        hasControlCharacter = true;
+        break;
+      }
+    }
+  }
   if (
     typeof value !== "string" ||
     value.length === 0 ||

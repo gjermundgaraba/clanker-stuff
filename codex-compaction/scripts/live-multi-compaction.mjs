@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-/* oxlint-disable typescript/no-unsafe-member-access, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/strict-boolean-expressions, typescript/no-unsafe-return, typescript/no-unsafe-argument, typescript/strict-void-return, typescript/prefer-nullish-coalescing -- This shipped live canary intentionally validates dynamic remote/session JSON at runtime. */
-
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -21,38 +19,86 @@ const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
 const CHECKPOINT_TYPE = "codex-compaction.checkpoint";
 const DIAGNOSTIC_TYPE = "codex-compaction.diagnostic";
 
+/**
+ * @typedef {object} CanaryAssistantMessage
+ * @property {string | undefined} errorMessage - Provider error message.
+ * @property {string | undefined} stopReason - Assistant stop reason.
+ * @property {unknown} usage - Provider usage payload.
+ */
+
+/**
+ * @param {boolean} condition - Condition that must hold.
+ * @param {string} message - Failure message.
+ * @returns {asserts condition} Assertion result.
+ */
 const assert = (condition, message) => {
   if (!condition) {
     throw new Error(message);
   }
 };
 
+/**
+ * @param {unknown} value - Candidate value.
+ * @returns {value is Record<string, unknown>} Whether the value is a record.
+ */
+const isRecord = (value) =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * @param {string} name - Environment variable name.
+ * @param {number} fallback - Value used when the variable is absent.
+ * @returns {number} Parsed positive integer.
+ */
 const positiveInteger = (name, fallback) => {
   const raw = process.env[name];
   const value = raw === undefined ? fallback : Number(raw);
   assert(
-    Number.isSafeInteger(value) && value > 0,
+    typeof value === "number" && Number.isSafeInteger(value) && value > 0,
     `${name} must be a positive safe integer`
   );
   return value;
 };
 
+/**
+ * @param {import("@earendil-works/pi-coding-agent").SessionManager} manager - Session manager.
+ * @param {string} customType - Custom entry type.
+ * @returns {import("@earendil-works/pi-coding-agent").CustomEntry<unknown>[]} Matching entries.
+ */
 const customEntries = (manager, customType) =>
-  manager
-    .getBranch()
-    .filter(
-      (entry) => entry.type === "custom" && entry.customType === customType
-    );
+  manager.getBranch().filter(
+    /** @returns {entry is import("@earendil-works/pi-coding-agent").CustomEntry<unknown>} Whether the entry matches. */
+    (entry) => entry.type === "custom" && entry.customType === customType
+  );
 
-const contextTokens = (usage) =>
-  usage?.totalTokens ||
-  (usage?.input ?? 0) +
-    (usage?.output ?? 0) +
-    (usage?.cacheRead ?? 0) +
-    (usage?.cacheWrite ?? 0);
+/**
+ * @param {unknown} usage - Assistant usage.
+ * @returns {number} Context token count.
+ */
+const contextTokens = (usage) => {
+  if (!isRecord(usage)) {
+    return 0;
+  }
+  const totalTokens =
+    typeof usage.totalTokens === "number" ? usage.totalTokens : undefined;
+  const input = typeof usage.input === "number" ? usage.input : 0;
+  const output = typeof usage.output === "number" ? usage.output : 0;
+  const cacheRead = typeof usage.cacheRead === "number" ? usage.cacheRead : 0;
+  const cacheWrite =
+    typeof usage.cacheWrite === "number" ? usage.cacheWrite : 0;
+  return totalTokens === undefined || totalTokens === 0
+    ? input + output + cacheRead + cacheWrite
+    : totalTokens;
+};
 
+/**
+ * @param {import("@earendil-works/pi-coding-agent").CustomEntry<unknown> | undefined} entry - Checkpoint entry.
+ * @returns {string} Response ID.
+ */
 const responseId = (entry) => {
-  const id = entry?.type === "custom" ? entry.data?.response?.id : undefined;
+  const data = entry?.data;
+  const response =
+    isRecord(data) && isRecord(data.response) ? data.response : undefined;
+  const id = response?.id;
   assert(
     typeof id === "string" && id.length > 0,
     "Checkpoint response ID missing"
@@ -60,6 +106,15 @@ const responseId = (entry) => {
   return id;
 };
 
+/**
+ * @param {import("@earendil-works/pi-coding-agent").CustomEntry<unknown> | undefined} entry - Checkpoint entry.
+ * @param {number} expectedRound - Expected compaction round.
+ * @param {number} forcedContextWindow - Canary context window.
+ * @param {number} minimumSideInputTokens - Minimum provider input.
+ * @param {boolean} requireLocalThreshold - Whether to check the local threshold.
+ * @param {"mid-turn" | "pre-sampling"} [expectedPhase] - Expected checkpoint phase.
+ * @returns {number} Provider-side input tokens.
+ */
 const assertCheckpoint = (
   entry,
   expectedRound,
@@ -73,40 +128,67 @@ const assertCheckpoint = (
     `Round ${expectedRound}: checkpoint missing`
   );
   const checkpoint = entry.data;
+  if (!isRecord(checkpoint)) {
+    throw new Error(`Round ${expectedRound}: checkpoint invalid`);
+  }
   assert(
-    checkpoint?.version === 4,
+    checkpoint.version === 4,
     `Round ${expectedRound}: expected checkpoint v4`
   );
   assert(
     checkpoint.phase === expectedPhase && checkpoint.reason === "threshold",
     `Round ${expectedRound}: unexpected checkpoint phase/reason`
   );
-  assert(Number.isSafeInteger(checkpoint.sourceTokens), "Source usage missing");
+  assert(
+    typeof checkpoint.sourceTokens === "number" &&
+      Number.isSafeInteger(checkpoint.sourceTokens),
+    "Source usage missing"
+  );
   if (requireLocalThreshold) {
     assert(
       checkpoint.sourceTokens >= Math.floor(forcedContextWindow * 0.9),
       `Round ${expectedRound}: checkpoint source did not cross 90%`
     );
   }
+  const { replacement } = checkpoint;
+  if (!Array.isArray(replacement)) {
+    throw new TypeError(
+      `Round ${expectedRound}: checkpoint replacement is not canonical`
+    );
+  }
   assert(
-    Array.isArray(checkpoint.replacement) &&
-      checkpoint.replacement.filter((item) => item?.type === "compaction")
-        .length === 1,
+    replacement.filter((item) => isRecord(item) && item.type === "compaction")
+      .length === 1,
     `Round ${expectedRound}: checkpoint replacement is not canonical`
   );
   if (expectedPhase === "mid-turn") {
     assert(
-      !checkpoint.replacement.some(
+      !replacement.some(
         (item) =>
-          item?.type === "function_call" ||
-          item?.type === "function_call_output"
+          isRecord(item) &&
+          (item.type === "function_call" ||
+            item.type === "function_call_output")
       ),
       `Round ${expectedRound}: tool history leaked into the replacement`
     );
   }
-  const usage = checkpoint.response?.usage;
+  const { response: rawResponse } = checkpoint;
+  const response = isRecord(rawResponse) ? rawResponse : undefined;
+  const rawUsage = response === undefined ? undefined : response.usage;
+  const usage = isRecord(rawUsage) ? rawUsage : undefined;
+  const input = usage === undefined ? undefined : usage.input;
+  const cacheRead = usage === undefined ? undefined : usage.cacheRead;
+  const cacheWrite = usage === undefined ? undefined : usage.cacheWrite;
+  assert(
+    [input, cacheRead, cacheWrite].every(
+      (value) => value === undefined || typeof value === "number"
+    ),
+    `Round ${expectedRound}: checkpoint usage invalid`
+  );
   const sideInputTokens =
-    (usage?.input ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0);
+    (typeof input === "number" ? input : 0) +
+    (typeof cacheRead === "number" ? cacheRead : 0) +
+    (typeof cacheWrite === "number" ? cacheWrite : 0);
   assert(
     Number.isSafeInteger(sideInputTokens) &&
       sideInputTokens >= minimumSideInputTokens,
@@ -115,22 +197,56 @@ const assertCheckpoint = (
   return sideInputTokens;
 };
 
-const lastAssistant = (session) =>
-  session.messages.toReversed().find((message) => message.role === "assistant");
+/**
+ * @param {import("@earendil-works/pi-coding-agent").AgentSession} session - Agent session.
+ * @returns {CanaryAssistantMessage | undefined} Latest assistant message.
+ */
+const lastAssistant = (session) => {
+  const sessionView =
+    /** @type {{messages: unknown[]}} */
+    (session);
+  const { messages } = sessionView;
+  /** @type {CanaryAssistantMessage | undefined} */
+  let assistant;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (isRecord(message) && message.role === "assistant") {
+      assistant = {
+        errorMessage:
+          typeof message.errorMessage === "string"
+            ? message.errorMessage
+            : undefined,
+        stopReason:
+          typeof message.stopReason === "string"
+            ? message.stopReason
+            : undefined,
+        usage: message.usage,
+      };
+      break;
+    }
+  }
+  return assistant;
+};
 
+/** @param {number} bytes - Desired byte count. */
 const syntheticHex = (bytes) =>
   randomBytes(Math.ceil(bytes / 2))
     .toString("hex")
     .slice(0, bytes);
 
+/** @param {number} bytes - Desired byte count. */
 const syntheticText = (bytes) => {
   const unit = "The quick brown fox jumps over the lazy dog. ";
   return unit.repeat(Math.ceil(bytes / unit.length)).slice(0, bytes);
 };
 
+/**
+ * @param {string} name - Environment variable name.
+ * @returns {string} Required value.
+ */
 const requiredEnvironment = (name) => {
   const value = process.env[name];
-  assert(value, `${name} is required`);
+  assert(typeof value === "string" && value.length > 0, `${name} is required`);
   return value;
 };
 
@@ -163,9 +279,18 @@ const runBranchChild = async () => {
     modelsPath: path.join(realAgentDir, "models.json"),
   });
   const baseModel = modelRuntime.getModel("openai-codex", modelId);
-  assert(baseModel, `Model openai-codex/${modelId} is unavailable`);
+  assert(
+    baseModel !== undefined,
+    `Model openai-codex/${modelId} is unavailable`
+  );
+  /** @type {string[]} */
   const notifications = [];
 
+  /**
+   * @param {import("@earendil-works/pi-coding-agent").SessionManager} manager - Session manager.
+   * @param {number} contextWindow - Context window.
+   * @returns {Promise<import("@earendil-works/pi-coding-agent").AgentSession>} Agent session.
+   */
   const openSession = async (manager, contextWindow) => {
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
@@ -198,8 +323,12 @@ const runBranchChild = async () => {
     });
     await created.session.bindExtensions({
       uiContext: {
-        notify: (message) => notifications.push(message),
-        setStatus: () => null,
+        notify: (message) => {
+          notifications.push(message);
+        },
+        setStatus: () => {
+          // Branch child does not inspect status updates.
+        },
       },
     });
     return created.session;
@@ -227,7 +356,7 @@ const runBranchChild = async () => {
       "Divergent branch reused or retained checkpoint 2"
     );
     const [, divergentEntry] = divergentCheckpoints;
-    assert(divergentEntry, "Divergent checkpoint missing");
+    assert(divergentEntry !== undefined, "Divergent checkpoint missing");
     const divergentEntryId = divergentEntry.id;
     const divergentResponseId = responseId(divergentEntry);
     assert(
@@ -320,8 +449,11 @@ Environment:
     return;
   }
 
+  const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
   const modelId =
-    process.env.CODEX_COMPACTION_LIVE_MODEL?.trim() || "gpt-5.6-sol";
+    configuredModel === undefined || configuredModel.length === 0
+      ? "gpt-5.6-sol"
+      : configuredModel;
   const defaultRounds = branchMode || realWindow || websocketMode ? 2 : 3;
   const rounds = positiveInteger(
     "CODEX_COMPACTION_LIVE_ROUNDS",
@@ -360,15 +492,16 @@ Environment:
     modelsPath: path.join(realAgentDir, "models.json"),
   });
   const baseModel = modelRuntime.getModel("openai-codex", modelId);
-  assert(baseModel, `Model openai-codex/${modelId} is unavailable`);
+  assert(
+    baseModel !== undefined,
+    `Model openai-codex/${modelId} is unavailable`
+  );
   assert(
     baseModel.api === "openai-codex-responses",
     `Model ${modelId} does not use openai-codex-responses`
   );
-  assert(
-    await modelRuntime.getAuth(baseModel),
-    "OpenAI Codex auth is unavailable"
-  );
+  const auth = await modelRuntime.getAuth(baseModel);
+  assert(auth !== undefined, "OpenAI Codex auth is unavailable");
   const forcedContextWindow = realWindow
     ? baseModel.contextWindow
     : positiveInteger("CODEX_COMPACTION_LIVE_CONTEXT_WINDOW", 4096);
@@ -385,9 +518,19 @@ Environment:
     ? Math.floor(forcedContextWindow * (midTurn ? 0.8 : 0.9))
     : 0;
 
+  /** @type {import("@earendil-works/pi-coding-agent").ExtensionError[]} */
   const extensionErrors = [];
+  /** @type {string[]} */
   const notifications = [];
+  /** @type {{key: string, text: string | undefined}[]} */
   const statuses = [];
+  /**
+   * @param {import("@earendil-works/pi-coding-agent").SessionManager} sessionManager - Session manager.
+   * @param {number} contextWindow - Context window.
+   * @param {boolean} [loadCompaction] - Whether to load the extension.
+   * @param {import("@earendil-works/pi-coding-agent").ToolDefinition[]} [customTools] - Custom tools.
+   * @returns {Promise<import("@earendil-works/pi-coding-agent").AgentSession>} Agent session.
+   */
   const createCanarySession = async (
     sessionManager,
     contextWindow,
@@ -446,15 +589,22 @@ Environment:
       thinkingLevel: "minimal",
     });
     await created.session.bindExtensions({
-      onError: (error) => extensionErrors.push(error),
+      onError: (error) => {
+        extensionErrors.push(error);
+      },
       uiContext: {
-        notify: (message) => notifications.push(message),
-        setStatus: (key, text) => statuses.push({ key, text }),
+        notify: (message) => {
+          notifications.push(message);
+        },
+        setStatus: (key, text) => {
+          statuses.push({ key, text });
+        },
       },
     });
     return created.session;
   };
 
+  /** @type {{bytesPerToken: number, inputTokens: number, probeBytes: number} | undefined} */
   let calibration;
   if (realWindow) {
     const probeBytes = 64_000;
@@ -512,6 +662,7 @@ Environment:
 
   const manager = SessionManager.create(canaryCwd, sessionDir);
   let toolCalls = 0;
+  /** @type {import("@earendil-works/pi-coding-agent").ToolDefinition} */
   const midTurnTool = {
     description:
       "Return the synthetic context payload. Call exactly once when instructed.",
@@ -544,7 +695,9 @@ Environment:
     true,
     midTurn ? [midTurnTool] : []
   );
+  /** @type {string[]} */
   const ids = [];
+  /** @type {number[]} */
   const sideInputTokens = [];
   try {
     console.log(`Live artifacts: ${runRoot}`);
@@ -640,11 +793,17 @@ Environment:
     }
 
     const sessionFile = manager.getSessionFile();
-    assert(sessionFile, "Persistent session file was not created");
+    assert(
+      sessionFile !== undefined,
+      "Persistent session file was not created"
+    );
     if (branchMode) {
       const checkpoints = customEntries(manager, CHECKPOINT_TYPE);
       const [first, second] = checkpoints;
-      assert(first && second, "Branch canary requires two checkpoints");
+      assert(
+        first !== undefined && second !== undefined,
+        "Branch canary requires two checkpoints"
+      );
       const resultFile = path.join(runRoot, "branch-result.json");
       session.dispose();
       execFileSync(process.execPath, [import.meta.filename, "--branch-child"], {
@@ -663,7 +822,9 @@ Environment:
         },
         stdio: "inherit",
       });
+      /** @type {unknown} */
       const branchResult = JSON.parse(await readFile(resultFile, "utf-8"));
+      assert(isRecord(branchResult), "Fresh-process branch result is invalid");
       assert(
         branchResult.status === "passed",
         "Fresh-process branch child did not pass"

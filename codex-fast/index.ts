@@ -36,20 +36,15 @@ export default function codexFastExtension(pi: ExtensionAPI) {
     );
   };
 
-  pi.on("before_provider_request", (event, ctx) => {
-    if (
-      !enabled ||
-      !supportsFastMode(ctx.model) ||
-      typeof event.payload !== "object" ||
-      event.payload === null ||
-      Array.isArray(event.payload)
-    ) {
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- required by consistent-return
-      return undefined;
-    }
-
-    return { ...event.payload, service_tier: "priority" };
-  });
+  pi.on("before_provider_request", (event, ctx) =>
+    !enabled ||
+    !supportsFastMode(ctx.model) ||
+    typeof event.payload !== "object" ||
+    event.payload === null ||
+    Array.isArray(event.payload)
+      ? undefined
+      : { ...event.payload, service_tier: "priority" }
+  );
 
   pi.registerCommand("fast", {
     description: "Toggle OpenAI Codex fast mode",

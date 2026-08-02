@@ -140,8 +140,7 @@ export const createSearch = (
 
   const handleInput: TerminalInputHandler = (data) => {
     if (!session) {
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- required by consistent-return
-      return undefined;
+      return { consume: false };
     }
     if (isKeyRelease(data)) {
       return { consume: true };
@@ -171,8 +170,7 @@ export const createSearch = (
       return { consume: true };
     }
     if (matchesKey(data, "backspace") || matchesKey(data, "ctrl+h")) {
-      // oxlint-disable-next-line unicorn/prefer-spread -- spread is rejected by no-misused-spread
-      session.query = Array.from(session.query).slice(0, -1).join("");
+      session.query = session.query.replace(/.$/su, "");
       refresh();
       return { consume: true };
     }

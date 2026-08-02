@@ -170,75 +170,50 @@ export class SideSessionController {
   }
 
   private handleEvent(event: AgentSessionEvent): void {
-    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- Other session events do not affect side conversation state.
-    switch (event.type) {
-      case "agent_start": {
-        this.state.isRunning = true;
-        this.state.statusMessage = undefined;
-        break;
+    if (event.type === "agent_start") {
+      this.state.isRunning = true;
+      this.state.statusMessage = undefined;
+    } else if (event.type === "agent_settled") {
+      this.state.isRunning = false;
+    } else if (event.type === "message_update") {
+      if (event.message.role === "assistant") {
+        this.state.streamingMessage = event.message;
       }
-      case "agent_settled": {
-        this.state.isRunning = false;
-        break;
-      }
-      case "message_update": {
-        if (event.message.role === "assistant") {
-          this.state.streamingMessage = event.message;
-        }
-        break;
-      }
-      case "message_end": {
-        if (event.message.role === "assistant") {
-          this.state.transcript.push({
-            kind: "assistant",
-            message: event.message,
-          });
-          this.state.streamingMessage = undefined;
-          if (event.message.stopReason === "error") {
-            this.state.statusMessage =
-              event.message.errorMessage ?? "Side response failed.";
-          }
-        }
-        break;
-      }
-      case "tool_execution_start": {
+    } else if (event.type === "message_end") {
+      if (event.message.role === "assistant") {
         this.state.transcript.push({
-          id: event.toolCallId,
-          kind: "tool",
-          name: event.toolName,
-          status: "running",
+          kind: "assistant",
+          message: event.message,
         });
-        break;
-      }
-      case "tool_execution_end": {
-        const tool = this.state.transcript.find(
-          (item): item is Extract<SideTranscriptItem, { kind: "tool" }> =>
-            item.kind === "tool" && item.id === event.toolCallId
-        );
-        if (tool) {
-          tool.status = event.isError ? "error" : "done";
+        this.state.streamingMessage = undefined;
+        if (event.message.stopReason === "error") {
+          this.state.statusMessage =
+            event.message.errorMessage ?? "Side response failed.";
         }
-        break;
       }
-      case "auto_retry_start": {
-        this.state.statusMessage = `Retrying side response (${event.attempt}/${event.maxAttempts})…`;
-        break;
+    } else if (event.type === "tool_execution_start") {
+      this.state.transcript.push({
+        id: event.toolCallId,
+        kind: "tool",
+        name: event.toolName,
+        status: "running",
+      });
+    } else if (event.type === "tool_execution_end") {
+      const tool = this.state.transcript.find(
+        (item): item is Extract<SideTranscriptItem, { kind: "tool" }> =>
+          item.kind === "tool" && item.id === event.toolCallId
+      );
+      if (tool) {
+        tool.status = event.isError ? "error" : "done";
       }
-      case "auto_retry_end": {
-        this.state.statusMessage = event.success ? undefined : event.finalError;
-        break;
-      }
-      case "compaction_start": {
-        this.state.statusMessage = "Compacting side context…";
-        break;
-      }
-      case "compaction_end": {
-        this.state.statusMessage = event.errorMessage;
-        break;
-      }
-      default: {
-        break;
-      }
+    } else if (event.type === "auto_retry_start") {
+      this.state.statusMessage = `Retrying side response (${event.attempt}/${event.maxAttempts})…`;
+    } else if (event.type === "auto_retry_end") {
+      this.state.statusMessage = event.success ? undefined : event.finalError;
+    } else if (event.type === "compaction_start") {
+      this.state.statusMessage = "Compacting side context…";
+    } else if (event.type === "compaction_end") {
+      this.state.statusMessage = event.errorMessage;
     }
     this.notify();
   }
