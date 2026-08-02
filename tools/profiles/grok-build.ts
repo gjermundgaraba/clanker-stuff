@@ -7,7 +7,7 @@ import type { HarnessProfile } from "./types.js";
 const strict = { additionalProperties: false } as const;
 
 export const grokBuildProfile: HarnessProfile = {
-  createTools: (core) => [
+  createTools: (operations) => [
     defineTool({
       name: "run_terminal_cmd",
       label: "Run Terminal Command",
@@ -22,7 +22,7 @@ export const grokBuildProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.runShell(
+        return await operations.runShell(
           {
             background: params.is_background,
             command: params.command,
@@ -45,7 +45,7 @@ export const grokBuildProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.read(
+        return await operations.read(
           {
             limit: params.limit,
             offset: params.offset === undefined ? undefined : params.offset + 1,
@@ -69,7 +69,7 @@ export const grokBuildProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.replace(
+        return await operations.replace(
           {
             newText: params.new_string,
             oldText: params.old_string,
@@ -99,7 +99,7 @@ export const grokBuildProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.grep(
+        return await operations.grep(
           {
             context: Math.max(
               params["-A"] ?? 0,
@@ -123,7 +123,7 @@ export const grokBuildProfile: HarnessProfile = {
       description: "List entries in a directory.",
       parameters: Type.Object({ target_directory: Type.String() }, strict),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.list(
+        return await operations.list(
           { path: params.target_directory },
           { ctx, onUpdate, signal, toolCallId }
         );

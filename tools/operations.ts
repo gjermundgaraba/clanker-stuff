@@ -53,22 +53,24 @@ interface ContinueProcessInput {
 }
 type WriteInput = WriteToolInput & { mode?: "append" | "overwrite" };
 
-interface CoreExecutionContext {
+interface OperationContext {
   ctx: ExtensionContext;
   onUpdate?: AgentToolUpdateCallback<unknown>;
   signal?: AbortSignal;
   toolCallId: string;
 }
 
-export type CoreResult = AgentToolResult<unknown>;
+export type OperationResult = AgentToolResult<unknown>;
 
 const textResult = (text: string, details: unknown = {}) => ({
   content: [{ text, type: "text" as const }],
   details,
 });
 
-const processResult = ({ output, ...details }: ProcessResult): CoreResult =>
-  textResult(output, details);
+const processResult = ({
+  output,
+  ...details
+}: ProcessResult): OperationResult => textResult(output, details);
 
 const throwIfAborted = (signal: AbortSignal | undefined) => {
   if (signal?.aborted) {
@@ -89,8 +91,8 @@ interface ExecutableDefinition<TParams, TDetails> {
 const runDefinition = async <TParams, TDetails>(
   definition: ExecutableDefinition<TParams, TDetails>,
   params: NoInfer<TParams>,
-  execution: CoreExecutionContext
-): Promise<CoreResult> =>
+  execution: OperationContext
+): Promise<OperationResult> =>
   await definition.execute(
     execution.toolCallId,
     params,
@@ -144,7 +146,7 @@ const formatGrepPath = (line: string, searchPath: string) => {
 const executeGrep = async (
   command: string,
   limit: number,
-  execution: CoreExecutionContext
+  execution: OperationContext
 ) => {
   const controller = new AbortController();
   const chunks: Buffer[] = [];
@@ -203,8 +205,8 @@ const executeGrep = async (
 
 const grepWithNativeOptions = async (
   input: GrepInput,
-  execution: CoreExecutionContext
-): Promise<CoreResult> => {
+  execution: OperationContext
+): Promise<OperationResult> => {
   const searchPath = resolvePath(input.path ?? ".", execution.ctx.cwd);
   const limit = Math.max(1, input.limit ?? 100);
   const args = createGrepArguments(input, limit, searchPath);
@@ -245,14 +247,14 @@ const grepWithNativeOptions = async (
   });
 };
 
-/* oxlint-disable eslint/class-methods-use-this -- stateless methods share the process-owning core API */
-export class ToolCore {
+/* oxlint-disable eslint/class-methods-use-this -- stateless methods share the process-owning operations API */
+export class ToolOperations {
   private readonly processes = new ProcessManager();
 
   async continueProcess(
     input: ContinueProcessInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     return processResult(
       await this.processes.continue({
         chars: input.chars,
@@ -269,8 +271,8 @@ export class ToolCore {
 
   async findFiles(
     input: FindToolInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     return await runDefinition(
       createFindToolDefinition(execution.ctx.cwd),
       input,
@@ -280,8 +282,8 @@ export class ToolCore {
 
   async grep(
     input: GrepInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     if (input.multiline || (input.outputMode ?? "content") !== "content") {
       return await grepWithNativeOptions(input, execution);
     }
@@ -294,8 +296,8 @@ export class ToolCore {
 
   async list(
     input: LsToolInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     return await runDefinition(
       createLsToolDefinition(execution.ctx.cwd),
       input,
@@ -305,16 +307,16 @@ export class ToolCore {
 
   async patch(
     patch: string,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     const result = await applyPatch(patch, execution.ctx.cwd, execution.signal);
     return textResult(result.output, { changes: result.changes });
   }
 
   async read(
     input: ReadToolInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     return await runDefinition(
       createReadToolDefinition(execution.ctx.cwd),
       input,
@@ -324,8 +326,8 @@ export class ToolCore {
 
   async replace(
     input: ReplacementInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     if (input.replaceAll) {
       if (input.oldText.length === 0) {
         throw new Error("old_string must not be empty");
@@ -362,8 +364,8 @@ export class ToolCore {
 
   async runProcess(
     input: ProcessInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     return processResult(
       await this.processes.start({
         command: input.command,
@@ -380,8 +382,8 @@ export class ToolCore {
 
   async runShell(
     input: ShellInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     return processResult(
       await this.processes.start({
         command: input.command,
@@ -399,8 +401,8 @@ export class ToolCore {
 
   async write(
     input: WriteInput,
-    execution: CoreExecutionContext
-  ): Promise<CoreResult> {
+    execution: OperationContext
+  ): Promise<OperationResult> {
     if (input.mode === "append") {
       const absolutePath = resolvePath(input.path, execution.ctx.cwd);
       return await withFileMutationQueue(absolutePath, async () => {

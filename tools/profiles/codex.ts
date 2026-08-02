@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import type { HarnessProfile } from "./types.js";
 
 const strict = { additionalProperties: false } as const;
-const CODEX_MODEL_IDS = new Set([
+export const CODEX_MODEL_IDS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -27,7 +27,7 @@ change_line: ("+" | "-" | " ") /(.*)/ LF
 eof_line: "*** End of File" LF
 %import common.LF`;
 
-const supportsGrammarTools = (
+export const supportsGrammarTools = (
   model: Parameters<HarnessProfile["matches"]>[0]
 ) => {
   const { compat } = model;
@@ -39,8 +39,12 @@ const supportsGrammarTools = (
   );
 };
 
+export const isCodexModel = (
+  candidate: Parameters<HarnessProfile["matches"]>[0]
+) => CODEX_MODEL_IDS.has(candidate.id) && supportsGrammarTools(candidate);
+
 export const codexProfile: HarnessProfile = {
-  createTools: (core) => [
+  createTools: (operations) => [
     defineTool({
       name: "exec_command",
       label: "Execute Command",
@@ -55,7 +59,7 @@ export const codexProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.runProcess(
+        return await operations.runProcess(
           {
             command: params.cmd,
             workdir: params.workdir,
@@ -78,7 +82,7 @@ export const codexProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.continueProcess(
+        return await operations.continueProcess(
           {
             chars: params.chars,
             sessionId: params.session_id,
@@ -102,7 +106,7 @@ export const codexProfile: HarnessProfile = {
         variants: { openai_lark: APPLY_PATCH_GRAMMAR },
       },
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.patch(params.patch, {
+        return await operations.patch(params.patch, {
           ctx,
           onUpdate,
           signal,
@@ -116,7 +120,7 @@ export const codexProfile: HarnessProfile = {
       description: "Attach a local image to the conversation.",
       parameters: Type.Object({ path: Type.String() }, strict),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.read(
+        return await operations.read(
           { path: params.path },
           { ctx, onUpdate, signal, toolCallId }
         );
@@ -124,6 +128,5 @@ export const codexProfile: HarnessProfile = {
     }),
   ],
   id: "codex",
-  matches: (model) =>
-    CODEX_MODEL_IDS.has(model.id) && supportsGrammarTools(model),
+  matches: isCodexModel,
 };

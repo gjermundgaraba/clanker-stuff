@@ -10,4 +10,4 @@ pi install npm:@clanker-extensions/tools
 
 ## Usage
 
-Select a model; supported models use the matching first-party coding-harness interface automatically, while other models keep pi's native tools.
+Select a model; run `/code-mode` to toggle GPT-5.6 Codex models between `exec`/`wait` Code Mode and their direct tools.

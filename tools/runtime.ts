@@ -2,6 +2,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
   createBashToolDefinition,
@@ -13,7 +14,13 @@ import {
   createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
-import { ToolCore } from "./core.js";
+import {
+  RESPONSES_LITE_HEADER,
+  rewriteResponsesLiteRequest,
+} from "./code-mode/provider.js";
+import { CodeModeRuntime } from "./code-mode/tools.js";
+import { ToolOperations } from "./operations.js";
+import { isCodexModel } from "./profiles/codex.js";
 import { HARNESS_PROFILES } from "./profiles/index.js";
 
 const GENERIC_TOOL_RESTORERS = {
@@ -44,16 +51,27 @@ const resolveProfile = (model: Model<Api> | undefined) =>
     : undefined;
 
 export const createToolsRuntime = (pi: ExtensionAPI) => {
-  const core = new ToolCore();
+  const operations = new ToolOperations();
+  const codeMode = new CodeModeRuntime();
   let baseline: string[] | undefined;
+  let codeModeEnabled = false;
+  let codeModeDefinitions: ToolDefinition[] = [];
   let profileNames = new Set<string>();
+  const isCodeModeActive = (model: Model<Api> | undefined) =>
+    codeModeEnabled && model !== undefined && isCodexModel(model);
 
   return {
     apply(ctx: ExtensionContext) {
       baseline ??= pi.getActiveTools();
 
       const profile = resolveProfile(ctx.model);
-      const tools = profile ? [...profile.createTools(core)] : [];
+      const profileTools = profile ? [...profile.createTools(operations)] : [];
+      const useCodeMode =
+        profile?.id === "codex" && isCodeModeActive(ctx.model);
+      codeModeDefinitions = useCodeMode ? profileTools : [];
+      const tools = useCodeMode
+        ? codeMode.createTools(profileTools)
+        : profileTools;
       const selectedNames = tools.map((tool) => tool.name);
       const selectedNameSet = new Set(selectedNames);
 
@@ -82,10 +100,44 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
             : [...baseline, ...unmanaged]
         ),
       ]);
-      return profile?.id ?? "generic-pi";
+      return useCodeMode ? "codex-code-mode" : (profile?.id ?? "generic-pi");
+    },
+    applyProviderHeaders(
+      headers: Record<string, string | null>,
+      ctx: ExtensionContext
+    ) {
+      if (isCodeModeActive(ctx.model)) {
+        headers[RESPONSES_LITE_HEADER] = "true";
+      }
+    },
+    augmentSystemPrompt(systemPrompt: string, ctx: ExtensionContext) {
+      if (!(isCodeModeActive(ctx.model) && codeModeDefinitions.length > 0)) {
+        return;
+      }
+      const heading = "Tools available in exec:";
+      if (systemPrompt.includes(heading)) {
+        return systemPrompt;
+      }
+      const section = codeMode.prompt(codeModeDefinitions);
+      const markers = ["\nCurrent shell:", "\nCurrent date:"]
+        .map((marker) => systemPrompt.indexOf(marker))
+        .filter((index) => index !== -1);
+      const insertAt =
+        markers.length > 0 ? Math.min(...markers) : systemPrompt.length;
+      return `${systemPrompt.slice(0, insertAt).trimEnd()}\n\n${section}${systemPrompt.slice(insertAt)}`;
     },
     async dispose() {
-      await core.dispose();
+      await codeMode.shutdown();
+      await operations.dispose();
+    },
+    rewriteProviderRequest(payload: unknown, ctx: ExtensionContext) {
+      return isCodeModeActive(ctx.model)
+        ? rewriteResponsesLiteRequest(payload)
+        : undefined;
+    },
+    toggleCodeMode() {
+      codeModeEnabled = !codeModeEnabled;
+      return codeModeEnabled;
     },
   };
 };

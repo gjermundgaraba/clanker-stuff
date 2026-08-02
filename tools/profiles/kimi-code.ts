@@ -8,7 +8,7 @@ import type { HarnessProfile } from "./types.js";
 const strict = { additionalProperties: false } as const;
 
 export const kimiCodeProfile: HarnessProfile = {
-  createTools: (core) => [
+  createTools: (operations) => [
     defineTool({
       name: "Read",
       label: "Read",
@@ -22,7 +22,7 @@ export const kimiCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.read(
+        return await operations.read(
           {
             limit: params.n_lines,
             offset: params.line_offset,
@@ -38,7 +38,7 @@ export const kimiCodeProfile: HarnessProfile = {
       description: "Read an image or other model-supported media file.",
       parameters: Type.Object({ path: Type.String() }, strict),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.read(
+        return await operations.read(
           { path: params.path },
           { ctx, onUpdate, signal, toolCallId }
         );
@@ -57,7 +57,7 @@ export const kimiCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.write(
+        return await operations.write(
           {
             content: params.content,
             mode: params.mode,
@@ -81,7 +81,7 @@ export const kimiCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.replace(
+        return await operations.replace(
           {
             newText: params.new_string,
             oldText: params.old_string,
@@ -112,7 +112,7 @@ export const kimiCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.grep(
+        return await operations.grep(
           {
             context: params["-C"],
             glob: params.glob,
@@ -139,7 +139,7 @@ export const kimiCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.findFiles(
+        return await operations.findFiles(
           {
             limit: 100,
             path: params.path,
@@ -165,7 +165,7 @@ export const kimiCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.runShell(
+        return await operations.runShell(
           {
             background: params.run_in_background,
             command: params.command,

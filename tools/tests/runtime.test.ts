@@ -1,23 +1,8 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import extension from "../index.js";
-
-const createModel = (id: string, grammar = false) =>
-  ({
-    api: "openai-responses",
-    baseUrl: "https://example.com",
-    compat: grammar ? { supportsOpenAIGrammarTools: true } : undefined,
-    contextWindow: 100_000,
-    cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0 },
-    id,
-    input: ["text"],
-    maxTokens: 10_000,
-    name: id,
-    provider: "test",
-    reasoning: true,
-  }) as Model<Api>;
+import { createModel } from "./fixtures.js";
 
 const profileCases = [
   {
@@ -107,10 +92,39 @@ describe("native harness routing", () => {
       "apply_patch",
       "view_image",
     ]);
+  });
+
+  it("toggles Codex Code Mode", async () => {
+    const model = createModel("gpt-5.6-sol", true);
+    const supported = createExtensionHost(extension, { model });
+    await supported.emitSessionStart();
+    const ctx = supported.createContext({
+      model,
+    });
+
+    expect(supported.getActiveTools()).toStrictEqual([
+      "exec_command",
+      "write_stdin",
+      "apply_patch",
+      "view_image",
+    ]);
+    await supported.runCommand("code-mode", "", ctx);
+    expect(supported.getActiveTools()).toStrictEqual(["exec", "wait"]);
     expect(
-      supported.getRegisteredTools().get("apply_patch")?.definition
-        .constrainedSampling
+      supported.getRegisteredTools().get("exec")?.definition.constrainedSampling
     ).toMatchObject({ type: "grammar" });
+    expect(supported.getNotifications()).toContainEqual({
+      message: "Code Mode enabled",
+      type: "info",
+    });
+
+    await supported.runCommand("code-mode", "", ctx);
+    expect(supported.getActiveTools()).toStrictEqual([
+      "exec_command",
+      "write_stdin",
+      "apply_patch",
+      "view_image",
+    ]);
   });
 
   it("replaces colliding definitions when the model changes", async () => {

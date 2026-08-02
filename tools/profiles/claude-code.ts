@@ -13,7 +13,7 @@ const CLAUDE_CODE_MODEL_IDS = new Set([
 ]);
 
 export const claudeCodeProfile: HarnessProfile = {
-  createTools: (core) => [
+  createTools: (operations) => [
     defineTool({
       name: "Read",
       label: "Read",
@@ -30,7 +30,7 @@ export const claudeCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.read(
+        return await operations.read(
           {
             limit: params.limit,
             offset: params.offset === undefined ? undefined : params.offset + 1,
@@ -54,7 +54,7 @@ export const claudeCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.write(
+        return await operations.write(
           { content: params.content, path: params.file_path },
           { ctx, onUpdate, signal, toolCallId }
         );
@@ -77,7 +77,7 @@ export const claudeCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.replace(
+        return await operations.replace(
           {
             newText: params.new_string,
             oldText: params.old_string,
@@ -100,7 +100,7 @@ export const claudeCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.findFiles(
+        return await operations.findFiles(
           { path: params.path, pattern: params.pattern },
           { ctx, onUpdate, signal, toolCallId }
         );
@@ -128,7 +128,7 @@ export const claudeCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.grep(
+        return await operations.grep(
           {
             context: Math.max(
               params["-A"] ?? 0,
@@ -163,7 +163,7 @@ export const claudeCodeProfile: HarnessProfile = {
         strict
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await core.runShell(
+        return await operations.runShell(
           {
             background: params.run_in_background,
             command: params.command,
