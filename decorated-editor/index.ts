@@ -82,8 +82,10 @@ const decorateEditor = (
         };
       }
 
-      const value = Reflect.get(target, property);
-      return typeof value === "function" ? value.bind(target) : value;
+      const value = Reflect.get(target, property) as unknown;
+      return typeof value === "function"
+        ? (...args: unknown[]) => Reflect.apply(value, target, args) as unknown
+        : value;
     },
     set(target, property, value) {
       return Reflect.set(target, property, value, target);

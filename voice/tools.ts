@@ -120,7 +120,7 @@ export const registerVoiceTools = (
         return new Text(theme.fg("muted", "Preparing terminal result…"), 0, 0);
       }
       const details = result.details as VoicePresentationDetails | undefined;
-      if (!details?.markdown) {
+      if (details?.markdown === undefined || details.markdown === "") {
         return new Text(
           theme.fg("warning", "No terminal result was available."),
           0,

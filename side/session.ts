@@ -170,6 +170,7 @@ export class SideSessionController {
   }
 
   private handleEvent(event: AgentSessionEvent): void {
+    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- Other session events do not affect side conversation state.
     switch (event.type) {
       case "agent_start": {
         this.state.isRunning = true;

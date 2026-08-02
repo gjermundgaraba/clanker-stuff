@@ -82,7 +82,9 @@ export class SidePanel implements Focusable {
       this.editor.addToHistory(prompt);
       this.scrollOffset = 0;
     };
-    this.unsubscribe = conversation.subscribe(() => this.tui.requestRender());
+    this.unsubscribe = conversation.subscribe(() => {
+      this.tui.requestRender();
+    });
   }
 
   get focused(): boolean {
@@ -133,7 +135,9 @@ export class SidePanel implements Focusable {
     const editorLines = this.editor
       .render(Math.max(10, innerWidth - 2))
       .slice(-Math.max(1, Math.min(6, Math.floor(height / 4))));
-    const statusHeight = this.conversation.state.statusMessage ? 1 : 0;
+    const { statusMessage } = this.conversation.state;
+    const statusHeight =
+      statusMessage === undefined || statusMessage.length === 0 ? 0 : 1;
     const transcriptHeight = Math.max(
       0,
       height - 7 - editorLines.length - statusHeight
@@ -159,10 +163,8 @@ export class SidePanel implements Focusable {
     for (const line of editorLines) {
       lines.push(row(line));
     }
-    if (this.conversation.state.statusMessage) {
-      lines.push(
-        row(this.theme.fg("warning", this.conversation.state.statusMessage))
-      );
+    if (statusMessage !== undefined && statusMessage.length > 0) {
+      lines.push(row(this.theme.fg("warning", statusMessage)));
     }
     lines.push(
       row(

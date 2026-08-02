@@ -36,7 +36,11 @@ export const formatResumeCommand = ({
   sessionFile,
   sessionId,
 }: ResumeCommandSession): string | undefined => {
-  if (!sessionFile || !existsSync(sessionFile)) {
+  if (
+    sessionFile === undefined ||
+    sessionFile === "" ||
+    !existsSync(sessionFile)
+  ) {
     return undefined;
   }
 
@@ -52,7 +56,7 @@ export const enqueueResumeCommand = async (
   command: string,
   inbox = process.env[INBOX_ENV]
 ): Promise<boolean> => {
-  if (!inbox) {
+  if (inbox === undefined || inbox === "") {
     return false;
   }
   const inboxStats = await stat(inbox);
@@ -91,7 +95,7 @@ export default function shellResumeHistory(pi: ExtensionAPI): void {
       sessionFile: sessionManager.getSessionFile(),
       sessionId: sessionManager.getSessionId(),
     });
-    if (!command) {
+    if (command === undefined || command === "") {
       return;
     }
 

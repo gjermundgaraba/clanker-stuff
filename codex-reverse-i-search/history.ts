@@ -37,11 +37,11 @@ const textFromEntry = (entry: SessionEntry): HistoryItem | undefined => {
             .map((block) => block.text)
             .join("");
   } else if (message.role === "bashExecution") {
-    text = `${message.excludeFromContext ? "!!" : "!"}${message.command}`;
+    text = `${message.excludeFromContext === true ? "!!" : "!"}${message.command}`;
   }
 
   const trimmed = text?.trim();
-  if (!trimmed) {
+  if (trimmed === undefined || trimmed.length === 0) {
     return undefined;
   }
 

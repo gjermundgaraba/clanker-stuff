@@ -44,7 +44,8 @@ export default function codexFastExtension(pi: ExtensionAPI) {
       event.payload === null ||
       Array.isArray(event.payload)
     ) {
-      return;
+      // oxlint-disable-next-line unicorn/no-useless-undefined -- required by consistent-return
+      return undefined;
     }
 
     return { ...event.payload, service_tier: "priority" };

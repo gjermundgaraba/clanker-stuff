@@ -95,7 +95,7 @@ const createManagerServer = (backend: McpManagerBackend): McpServer => {
       const lines = result.servers.map(
         ({ name, scope }) => `${name} (${scope})`
       );
-      if (result.error) {
+      if (result.error !== undefined && result.error !== "") {
         lines.push("", `Warning: ${result.error}`);
       }
       return textResult(lines.join("\n"));

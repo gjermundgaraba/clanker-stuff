@@ -184,7 +184,7 @@ export default function mcp(pi: ExtensionAPI) {
     description: "Load MCP server tools",
     handler: async (_args, ctx) => {
       const available = await listAvailableServers(ctx);
-      if (available.error) {
+      if (available.error !== undefined && available.error !== "") {
         ctx.ui.notify(available.error, "error");
       }
 

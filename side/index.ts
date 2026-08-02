@@ -61,7 +61,7 @@ export default function sideExtension(pi: ExtensionAPI): void {
 
   const insertLatest = (side: ActiveSide): void => {
     const text = side.conversation.latestAssistantText();
-    if (!text) {
+    if (text === undefined) {
       side.context.ui.notify(
         "Side has no completed response to insert.",
         "warning"
@@ -78,7 +78,7 @@ export default function sideExtension(pi: ExtensionAPI): void {
       restore(side);
       return;
     }
-    if (side.handle?.isFocused()) {
+    if (side.handle?.isFocused() === true) {
       side.handle.unfocus();
       return;
     }
@@ -163,7 +163,7 @@ export default function sideExtension(pi: ExtensionAPI): void {
     side.unsubscribe = conversation.subscribe(() => {
       if (
         !conversation.state.isRunning &&
-        (side.hidden || !side.handle?.isFocused())
+        (side.hidden || side.handle?.isFocused() !== true)
       ) {
         side.unread = true;
       }
@@ -176,17 +176,27 @@ export default function sideExtension(pi: ExtensionAPI): void {
       await ctx.ui.custom<null>(
         (tui, theme, keybindings, done) => {
           tuiRef = tui;
-          side.finish = () => done(null);
+          side.finish = () => {
+            done(null);
+          };
           side.panel = new SidePanel(tui, theme, keybindings, conversation, {
             getMainWorking: () => !ctx.isIdle(),
-            onClose: () => side.finish?.(),
+            onClose: () => {
+              side.finish?.();
+            },
             onFocus: () => {
               side.unread = false;
               updateStatus(side);
             },
-            onHide: () => hide(side),
-            onInsertLatest: () => insertLatest(side),
-            onToggleFocus: () => toggleFocus(side),
+            onHide: () => {
+              hide(side);
+            },
+            onInsertLatest: () => {
+              insertLatest(side);
+            },
+            onToggleFocus: () => {
+              toggleFocus(side);
+            },
           });
           if (prompt) {
             side.panel.submitExternalPrompt(prompt);
