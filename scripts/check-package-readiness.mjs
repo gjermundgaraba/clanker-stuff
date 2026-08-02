@@ -108,8 +108,6 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   }
 
   if (!pkg.version) errors.push(`${label}: missing version`);
-  if (pkg.private !== false)
-    errors.push(`${label}: publishable packages must set private: false`);
   if (!pkg.description) errors.push(`${label}: missing description`);
   if (pkg.license !== EXPECTED_LICENSE) {
     errors.push(`${label}: expected license ${EXPECTED_LICENSE}`);
@@ -122,6 +120,40 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     readFileSync(packageLicensePath, "utf8") !== rootLicense
   ) {
     errors.push(`${label}: LICENSE must match the root LICENSE`);
+  }
+  if (!existsSync(join(dir, "README.md")))
+    errors.push(`${label}: missing README.md`);
+  if (!hasIndexExport(pkg))
+    errors.push(`${label}: expected exports to be ./index.ts`);
+  if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
+    errors.push(`${label}: missing files allowlist`);
+  } else {
+    for (const entry of pkg.files) {
+      if (!pathExistsForEntry(dir, entry))
+        errors.push(`${label}: files entry does not exist: ${entry}`);
+    }
+  }
+  if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {
+    errors.push(`${label}: extension package must include keyword pi-package`);
+  }
+  if (
+    !pkg.pi ||
+    !Array.isArray(pkg.pi.extensions) ||
+    pkg.pi.extensions.length === 0
+  ) {
+    errors.push(`${label}: extension package must declare pi.extensions`);
+  } else {
+    for (const entry of pkg.pi.extensions) {
+      if (!pathExistsForEntry(dir, entry))
+        errors.push(`${label}: pi.extensions entry does not exist: ${entry}`);
+    }
+  }
+
+  if (pkg.private === true) {
+    continue;
+  }
+  if (pkg.private !== false) {
+    errors.push(`${label}: publishable packages must set private: false`);
   }
   if (
     pkg.repository?.type !== "git" ||
@@ -138,36 +170,8 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   if (pkg.homepage !== `${HOMEPAGE_PREFIX}${dir}#readme`) {
     errors.push(`${label}: expected homepage ${HOMEPAGE_PREFIX}${dir}#readme`);
   }
-  if (!existsSync(join(dir, "README.md")))
-    errors.push(`${label}: missing README.md`);
-  if (!hasIndexExport(pkg))
-    errors.push(`${label}: expected exports to be ./index.ts`);
-  if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
-    errors.push(`${label}: missing files allowlist`);
-  } else {
-    for (const entry of pkg.files) {
-      if (!pathExistsForEntry(dir, entry))
-        errors.push(`${label}: files entry does not exist: ${entry}`);
-    }
-  }
   if (pkg.publishConfig?.access !== "public") {
     errors.push(`${label}: expected publishConfig.access to be public`);
-  }
-
-  if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {
-    errors.push(`${label}: extension package must include keyword pi-package`);
-  }
-  if (
-    !pkg.pi ||
-    !Array.isArray(pkg.pi.extensions) ||
-    pkg.pi.extensions.length === 0
-  ) {
-    errors.push(`${label}: extension package must declare pi.extensions`);
-  } else {
-    for (const entry of pkg.pi.extensions) {
-      if (!pathExistsForEntry(dir, entry))
-        errors.push(`${label}: pi.extensions entry does not exist: ${entry}`);
-    }
   }
 
   for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {

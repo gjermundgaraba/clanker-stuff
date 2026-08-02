@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { readWorkspacePackages } from "./workspace-packages.mjs";
+import { publishableWorkspacePackages } from "./workspace-packages.mjs";
 
 const CODE_FENCE = "```";
 const MAX_README_LINES = 30;
@@ -15,10 +15,9 @@ const MARKDOWN_BLOCK_START =
   /^(?:#{1,6}\s|[-+*]\s|\d+[.)]\s|>\s?|`{3}|~{3}|\|| {4}|\t)/u;
 
 const repoRoot = process.cwd();
-const packages = readWorkspacePackages()
+const packages = publishableWorkspacePackages()
   .filter(
     ({ dir, packageJson }) =>
-      dir !== "." &&
       Array.isArray(packageJson.pi?.extensions) &&
       packageJson.pi.extensions.length > 0
   )

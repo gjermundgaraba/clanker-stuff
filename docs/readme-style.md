@@ -1,6 +1,6 @@
 # README style
 
-Package `README.md` files are short installation pages. The root `README.md` is the catalog for the extension collection.
+Publishable package `README.md` files are short installation pages. The root `README.md` is the catalog for the public extension collection. Private workspace packages may document their local installation contract instead.
 
 ## Goals
 
@@ -72,7 +72,7 @@ The root `README.md` should contain:
 6. A one-line `Development` section naming the Node.js requirement and validation command.
 7. A `License` section linking to the root license.
 
-List only packages that declare pi extensions in the extension table.
+List only publishable packages that declare pi extensions in the extension table.
 
 ## Deeper documentation
 
