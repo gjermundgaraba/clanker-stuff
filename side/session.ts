@@ -285,6 +285,6 @@ export const createSideConversation = async (
     settingsManager,
     thinkingLevel,
   });
-  session.extensionRunner.setUIContext(ctx.ui, ctx.mode);
+  await session.bindExtensions({ mode: ctx.mode, uiContext: ctx.ui });
   return new SideSessionController(session);
 };

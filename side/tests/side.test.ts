@@ -1,6 +1,12 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSession,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  KeybindingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
@@ -14,9 +20,9 @@ import { SidePanel } from "../panel.js";
 import {
   createSideConversation,
   createSideSessionManager,
+  SideSessionController,
   stableSnapshotMessages,
 } from "../session.js";
-import type { SideSessionController } from "../session.js";
 
 vi.mock(import("../session.js"), async (importOriginal) => {
   const actual = await importOriginal();
@@ -28,7 +34,51 @@ vi.mock(import("../session.js"), async (importOriginal) => {
   };
 });
 
+vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createAgentSession: vi.fn<typeof actual.createAgentSession>(),
+  };
+});
+
 describe("side extension", () => {
+  it("binds child extensions before returning the conversation", async () => {
+    const binding = Promise.withResolvers<null>();
+    const bindExtensions = vi.fn<() => Promise<null>>(() => binding.promise);
+    vi.mocked(createAgentSession).mockResolvedValueOnce({
+      session: {
+        bindExtensions,
+        isStreaming: false,
+        subscribe: () => () => {},
+      },
+    } as never);
+    const ctx = {
+      cwd: process.cwd(),
+      isProjectTrusted: () => true,
+      mode: "tui",
+      model: {} as never,
+      sessionManager: SessionManager.inMemory(),
+      ui: {} as never,
+    } as unknown as ExtensionContext;
+
+    const conversation = createSideConversation(ctx, "off");
+    let returned = false;
+    void conversation.then(() => {
+      returned = true;
+    });
+    await vi.waitFor(() => {
+      expect(bindExtensions).toHaveBeenCalledWith({
+        mode: ctx.mode,
+        uiContext: ctx.ui,
+      });
+    });
+    expect(returned).toBeFalsy();
+
+    binding.resolve(null);
+    await expect(conversation).resolves.toBeInstanceOf(SideSessionController);
+  });
+
   it("registers only /side and the focus shortcut", async () => {
     const host = createExtensionHost(sideExtension);
     await host.ready;

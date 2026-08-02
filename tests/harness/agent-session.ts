@@ -26,6 +26,7 @@ import {
 import type {
   AgentSession,
   AgentSessionEvent,
+  ExtensionContext,
   ExtensionFactory,
   ExtensionUIContext,
   PromptOptions,
@@ -55,6 +56,7 @@ export type {
 
 interface AgentSessionHarnessOptions {
   extensionFactories?: ExtensionFactory[];
+  mode?: ExtensionContext["mode"];
   models?: FauxModelDefinition[];
   settings?: Parameters<typeof SettingsManager.inMemory>[0];
   systemPrompt?: string;
@@ -333,9 +335,12 @@ export const createAgentSessionHarness = async (
     });
     ({ session } = createdSession);
 
-    await session.bindExtensions(
-      options.uiContext ? { uiContext: options.uiContext } : {}
-    );
+    await session.bindExtensions({
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+      ...(options.uiContext === undefined
+        ? {}
+        : { uiContext: options.uiContext }),
+    });
 
     const events: AgentSessionEvent[] = [];
     session.subscribe((event) => {
