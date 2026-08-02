@@ -10,7 +10,7 @@ const { basename, join } = path;
 const traceDirectory = process.env.CODEX_VOICE_TRACE_DIR;
 const realCli =
   process.env.CODEX_REAL_CLI_PATH ??
-  "/Applications/Codex.app/Contents/Resources/codex";
+  "/Applications/ChatGPT.app/Contents/Resources/codex";
 
 if (!traceDirectory) {
   process.stderr.write("CODEX_VOICE_TRACE_DIR is required.\n");

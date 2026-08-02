@@ -72,5 +72,11 @@ describe("voice extension", () => {
     await host.emitSessionStart(ctx);
 
     expect(host.getStatus("voice")).toBeUndefined();
+    expect(host.getActiveTools()).toStrictEqual([
+      "read",
+      "bash",
+      "edit",
+      "write",
+    ]);
   });
 });

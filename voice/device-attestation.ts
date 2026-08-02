@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-const DEFAULT_CODEX_APP_PATH = "/Applications/Codex.app";
+const DEFAULT_CODEX_APP_PATH = "/Applications/ChatGPT.app";
 const DEFAULT_BUNDLE_IDENTIFIER = "com.openai.codex";
 const ATTESTATION_TOKEN_VERSION = "v1";
 const PROCESS_APP_SESSION_ID = randomUUID();
@@ -134,7 +134,7 @@ export function buildCodexDesktopAttestationToken(input: {
     Buffer.concat([cborText("f"), cborBytes(encodedSignals)]),
     Buffer.concat([cborText("t"), cborFloat(input.latencyMs)]),
   ];
-  return `${ATTESTATION_TOKEN_VERSION}.${base64Url(Buffer.concat([cborLength(5, fields.length), ...fields]))}`;
+  return `${ATTESTATION_TOKEN_VERSION}.${Buffer.concat([cborLength(5, fields.length), ...fields]).toString("base64url")}`;
 }
 
 function loadDeviceCheckAddon(addonPath: string): DeviceCheckAddon {
@@ -288,14 +288,6 @@ function cborLength(majorType: number, value: number): Buffer {
     return encoded;
   }
   throw new Error(`CBOR value is too large: ${value}.`);
-}
-
-function base64Url(value: Buffer): string {
-  return value
-    .toString("base64")
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/u, "");
 }
 
 function boundedText(value: string, maxLength: number): string {

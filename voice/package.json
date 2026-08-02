@@ -17,6 +17,7 @@
     "directory": "voice"
   },
   "files": [
+    "auth.ts",
     "coordinator.ts",
     "device-attestation.ts",
     "index.ts",
@@ -24,9 +25,11 @@
     "media-process.ts",
     "realtime.ts",
     "stream.ts",
+    "tools.ts",
     "trace.ts",
     "transcript.ts",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",

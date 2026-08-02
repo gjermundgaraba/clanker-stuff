@@ -70,6 +70,7 @@ describe("voice transcript handling", () => {
     expect(text).toContain("USER: line-2");
     expect(text).toContain("ASSISTANT: line-11");
     expect(text).toContain("Remain completely silent");
+    expect(text).toContain("use the backend as soon as possible");
   });
 
   it("strictly restores bounded persisted continuity", () => {

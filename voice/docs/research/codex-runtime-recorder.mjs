@@ -17,7 +17,7 @@ import { createServer } from "node:net";
 import pathModule from "node:path";
 
 const { join, resolve: resolvePath } = pathModule;
-const CODEX_APP = "/Applications/Codex.app";
+const CODEX_APP = process.env.CODEX_APP_PATH ?? "/Applications/ChatGPT.app";
 const CODEX_EXECUTABLE = `${CODEX_APP}/Contents/MacOS/ChatGPT`;
 const CODEX_CLI = `${CODEX_APP}/Contents/Resources/codex`;
 const CODEX_ASAR = `${CODEX_APP}/Contents/Resources/app.asar`;

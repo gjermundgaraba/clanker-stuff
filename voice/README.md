@@ -14,4 +14,4 @@ Run `/voice` to start or stop voice; click the orb to pause, or ask the assistan
 
 ## Requirements
 
-macOS arm64, Codex.app, microphone access, and an OpenAI Codex OAuth login in pi.
+macOS arm64, ChatGPT.app, microphone access, and an OpenAI Codex OAuth login in pi.

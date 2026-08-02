@@ -195,7 +195,7 @@ You are resuming an existing voice chat after a pause. Use the recent transcript
 
 Remain completely silent when this session starts. The transcript below ended before the current session and is not a new user message. Do not greet the user, acknowledge the resumed session, answer or continue any message from the transcript, or produce any speech, audio, or text on your own.
 
-Your first response in this session must occur only after the user sends a new message in the current session. Until then, produce no response whatsoever. After the user speaks, continue naturally from where the conversation left off when relevant. For new requests or questions that would benefit from tools or additional context, use the client as soon as possible.
+Your first response in this session must occur only after the user sends a new message in the current session. Until then, produce no response whatsoever. After the user speaks, continue naturally from where the conversation left off when relevant. For new requests or questions that would benefit from tools or additional context, use the backend as soon as possible.
 
 <recent_voice_transcript>
 ${formatted}
@@ -232,3 +232,26 @@ export const parsePersistedTranscript = (value: unknown): TranscriptEntry[] => {
     })
     .slice(-CONTINUITY_MAX_ITEMS);
 };
+
+export const messageText = (message: {
+  content: string | readonly unknown[];
+}): string =>
+  (typeof message.content === "string" ? [message.content] : message.content)
+    .flatMap((part) => {
+      if (typeof part === "string") {
+        return [part];
+      }
+      if (
+        part !== null &&
+        typeof part === "object" &&
+        "type" in part &&
+        part.type === "text" &&
+        "text" in part &&
+        typeof part.text === "string"
+      ) {
+        return [part.text];
+      }
+      return [];
+    })
+    .join("\n")
+    .trim();

@@ -1,51 +1,26 @@
-import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Markdown, Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
 
-import { VoiceCoordinator } from "./coordinator.js";
+import { isRecord, resolveVoiceAuth, validateCoordinator } from "./auth.js";
+import { COORDINATOR_INSTRUCTIONS, VoiceCoordinator } from "./coordinator.js";
 import { MediaProcess } from "./media-process.js";
 import type { VoiceAuth, VoiceDelegation, VoiceState } from "./realtime.js";
 import { VoiceSession } from "./realtime.js";
+import { registerVoiceTools, VOICE_TOOL_NAMES } from "./tools.js";
 import { createVoiceTrace } from "./trace.js";
 import {
   formatDelegation,
   formatTranscriptTail,
+  messageText,
   parsePersistedTranscript,
 } from "./transcript.js";
 import type { TranscriptEntry } from "./transcript.js";
 
 const STATUS_KEY = "voice";
 const CONTINUITY_ENTRY = "voice-continuity";
-const MAX_PRESENTATION_CHARS = 50_000;
-const MAX_SPEECH_CHARS = 400;
-const COORDINATOR_INSTRUCTIONS = `## Realtime voice coordination
-
-You are coordinating an active realtime voice chat. The realtime model handles low-latency conversation; this pi session is the authoritative execution and state layer of the same assistant.
-
-Treat realtime delegation input as speech transcript that may contain recognition errors. The <input> is the current request. <transcript_delta> is mechanical conversation context since the previous delegation and may include unrelated discussion.
-
-Handle conversation, quick checks, and interactive decisions here. For slow or independent work, use existing agent-orchestration capabilities when they are already available and useful; do not assume a particular agent host exists. Running work remains steerable.
-
-Never claim an action completed without checking the actual result.
-
-Your terminal assistant response is automatically returned to the active voice handoff as its single [COMPLETE] message unless present_voice_result completes the handoff first. Do not add protocol tags to your response and do not call speak_to_user for the final result.
-
-Use present_voice_result when the user needs substantial Markdown, code, links, a comparison, a plan, or other content best inspected in the pi terminal. Put the exact visual content in markdown and a concise natural-language takeaway in spokenSummary. The tool displays the Markdown without sending it to the realtime model and completes the voice handoff.
-
-speak_to_user sends a [STATUS] update for the active handoff. Use it only for a verified finding, concrete user-relevant progress, a newly identified blocker, or a decision that matters while work continues. Never use it for an acknowledgement, intent, reassurance, “checking,” “still working,” elapsed time, or repeated information. After one meaningful update, remain silent until there is another material change or the terminal response is ready.
-
-Call end_realtime_voice_call for an explicit request to end voice or a clear conversational sign-off such as “goodbye,” “talk to you later,” or “that’s all for now.” Do not end voice for a bare “stop,” a request to pause or be quiet, a request to stop only the current task, or a merely polite acknowledgement.
-
-Ending voice never ends this pi session or its ongoing work.`;
-
-interface VoicePresentationDetails {
-  delivered: boolean;
-  markdown: string;
-}
+const VOICE_TOOL_NAME_SET = new Set<string>(VOICE_TOOL_NAMES);
 
 type RuntimeState =
   | "stopped"
@@ -54,83 +29,6 @@ type RuntimeState =
   | "active"
   | "paused"
   | "failed";
-
-const messageText = (message: {
-  content: string | readonly unknown[];
-}): string =>
-  (typeof message.content === "string" ? [message.content] : message.content)
-    .flatMap((part) => {
-      if (typeof part === "string") {
-        return [part];
-      }
-      if (
-        part !== null &&
-        typeof part === "object" &&
-        "type" in part &&
-        part.type === "text" &&
-        "text" in part &&
-        typeof part.text === "string"
-      ) {
-        return [part.text];
-      }
-      return [];
-    })
-    .join("\n")
-    .trim();
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-const accountIdFromAccessToken = (accessToken: string): string => {
-  try {
-    const parts = accessToken.split(".");
-    const [, encodedPayload] = parts;
-    if (parts.length !== 3 || !encodedPayload) {
-      throw new Error("not a JWT");
-    }
-    const payload: unknown = JSON.parse(
-      Buffer.from(encodedPayload, "base64url").toString("utf-8")
-    );
-    if (!isRecord(payload)) {
-      throw new Error("invalid JWT payload");
-    }
-    const auth = payload["https://api.openai.com/auth"];
-    const accountId =
-      auth !== null &&
-      typeof auth === "object" &&
-      "chatgpt_account_id" in auth &&
-      typeof auth.chatgpt_account_id === "string"
-        ? auth.chatgpt_account_id
-        : undefined;
-    if (accountId === undefined || accountId.length === 0) {
-      throw new Error("account ID missing");
-    }
-    return accountId;
-  } catch {
-    throw new Error(
-      "OpenAI Codex OAuth token does not contain a ChatGPT account ID."
-    );
-  }
-};
-
-const validateCoordinator = async (ctx: ExtensionContext): Promise<void> => {
-  if (!ctx.model) {
-    throw new Error("Select a Pi coordinator model before starting voice.");
-  }
-  const { id, provider } = ctx.model;
-  const model = ctx.modelRegistry
-    .getAll()
-    .find(
-      (candidate) => candidate.provider === provider && candidate.id === id
-    );
-  if (!model) {
-    throw new Error("The selected Pi coordinator model is unavailable.");
-  }
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok) {
-    throw new Error(auth.error);
-  }
-};
 
 const voiceExtension = (pi: ExtensionAPI): void => {
   const trace = createVoiceTrace();
@@ -141,6 +39,20 @@ const voiceExtension = (pi: ExtensionAPI): void => {
   let runtimeState: RuntimeState = "stopped";
   let startupGeneration = 0;
   let voice: VoiceSession | undefined;
+
+  const setVoiceToolsActive = (active: boolean): void => {
+    const current = pi.getActiveTools();
+    const next = current.filter((name) => !VOICE_TOOL_NAME_SET.has(name));
+    if (active) {
+      next.push(...VOICE_TOOL_NAMES);
+    }
+    if (
+      next.length !== current.length ||
+      next.some((name, index) => name !== current[index])
+    ) {
+      pi.setActiveTools(next);
+    }
+  };
 
   const updateStatus = (ctx: ExtensionContext): void => {
     const label = {
@@ -156,26 +68,13 @@ const voiceExtension = (pi: ExtensionAPI): void => {
 
   const setState = (state: RuntimeState): void => {
     runtimeState = state;
+    if (state === "failed" || state === "stopped") {
+      setVoiceToolsActive(false);
+    }
     if (context !== undefined) {
       updateStatus(context);
     }
     media?.sendState(state);
-  };
-
-  const resolveVoiceAuth = async (
-    ctx: ExtensionContext
-  ): Promise<VoiceAuth> => {
-    const result = await ctx.modelRegistry.getProviderAuth("openai-codex");
-    const accessToken = result?.auth.apiKey;
-    if (accessToken === undefined || accessToken.length === 0) {
-      throw new Error(
-        "OpenAI Codex OAuth is not configured. Run /login and choose OpenAI Codex."
-      );
-    }
-    return {
-      accessToken,
-      accountId: accountIdFromAccessToken(accessToken),
-    };
   };
 
   const coordinator = new VoiceCoordinator({
@@ -304,6 +203,7 @@ const voiceExtension = (pi: ExtensionAPI): void => {
         trace,
       });
       voice = nextVoice;
+      setVoiceToolsActive(true);
 
       const nextMedia = new MediaProcess({
         onClosed: () => {
@@ -393,136 +293,16 @@ const voiceExtension = (pi: ExtensionAPI): void => {
     handler: toggle,
   });
 
-  pi.registerTool({
-    description:
-      "Send one meaningful progress update to the active realtime voice handoff. Use only for a verified finding, material progress, a newly identified blocker, or a decision that matters while work continues. Never use for acknowledgements, generic checking or waiting updates, or the final result; the final assistant response is delivered automatically.",
-    async execute(_toolCallId, params) {
-      const message = params.message
-        .replaceAll(/\s+/gu, " ")
-        .trim()
-        .slice(0, MAX_SPEECH_CHARS);
-      const delivered = Boolean(message && coordinator.sendStatus(message));
-      return {
-        content: [
-          {
-            text: delivered
-              ? "The update was sent to the active voice conversation."
-              : "No active voice conversation was available.",
-            type: "text" as const,
-          },
-        ],
-        details: { delivered },
-      };
-    },
-    label: "Speak to user",
-    name: "speak_to_user",
-    parameters: Type.Object(
-      {
-        message: Type.String({
-          description:
-            "One or two short spoken sentences without markdown or implementation detail.",
-          maxLength: MAX_SPEECH_CHARS,
-          minLength: 1,
-        }),
-      },
-      { additionalProperties: false }
-    ),
-    promptGuidelines: [
-      "During active voice chat, use speak_to_user only for meaningful non-final status; the final assistant response is delivered automatically.",
-    ],
-  });
-
-  pi.registerTool({
-    description:
-      "Display substantial Markdown in the pi terminal and send only a concise spoken summary as the final response to the active realtime voice handoff. Use for reports, code, links, comparisons, plans, or other output that is better inspected than heard.",
-    async execute(_toolCallId, params) {
-      const markdown = params.markdown.trim();
-      const spokenSummary = params.spokenSummary
-        .replaceAll(/\s+/gu, " ")
-        .trim();
-      if (!markdown || !spokenSummary) {
-        throw new Error(
-          "Both terminal Markdown and a spoken summary are required."
-        );
-      }
-      const delivered = coordinator.finish(spokenSummary);
-      return {
-        content: [
-          {
-            text: delivered
-              ? "The terminal result was displayed and its spoken summary was sent."
-              : "No active voice conversation was available.",
-            type: "text" as const,
-          },
-        ],
-        details: { delivered, markdown },
-        terminate: delivered,
-      };
-    },
-    label: "Present voice result",
-    name: "present_voice_result",
-    parameters: Type.Object(
-      {
-        markdown: Type.String({
-          description:
-            "Exact Markdown to display in the pi terminal without sending it to the realtime voice model.",
-          maxLength: MAX_PRESENTATION_CHARS,
-          minLength: 1,
-        }),
-        spokenSummary: Type.String({
-          description:
-            "One or two concise natural-language sentences summarizing the result for speech.",
-          maxLength: MAX_SPEECH_CHARS,
-          minLength: 1,
-        }),
-      },
-      { additionalProperties: false }
-    ),
-    promptGuidelines: [
-      "During active voice chat, call present_voice_result by itself after work is complete when substantial visual output is needed; it completes the handoff, so do not add a second final response.",
-    ],
-    renderResult(result, { isPartial }, theme) {
-      if (isPartial) {
-        return new Text(theme.fg("muted", "Preparing terminal result…"), 0, 0);
-      }
-      const details = result.details as VoicePresentationDetails | undefined;
-      if (!details?.markdown) {
-        return new Text(
-          theme.fg("warning", "No terminal result was available."),
-          0,
-          0
-        );
-      }
-      return new Markdown(details.markdown, 0, 0, getMarkdownTheme());
-    },
-  });
-
-  pi.registerTool({
-    description:
-      "End the current realtime voice chat. Call when the user explicitly asks to end voice or clearly signs off with wording such as goodbye, talk to you later, or that is all for now. Do not call for a bare stop, a request to pause or be quiet, a request to stop only the current task, or a polite acknowledgement. This does not stop pi or ongoing work.",
-    async execute() {
+  registerVoiceTools(pi, {
+    endActiveCall: () => {
       const active = voice !== undefined;
       if (active) {
         stop();
       }
-      return {
-        content: [
-          {
-            text: active
-              ? "The realtime voice chat ended. Pi and ongoing work continue."
-              : "No active realtime voice chat was available.",
-            type: "text" as const,
-          },
-        ],
-        details: { ended: active },
-      };
+      return active;
     },
-    label: "End realtime voice call",
-    name: "end_realtime_voice_call",
-    parameters: Type.Object({}, { additionalProperties: false }),
-    promptGuidelines: [
-      "Use end_realtime_voice_call for explicit voice-ending requests and clear conversational sign-offs, but not for pause, silence, task-stop, or acknowledgement requests.",
-    ],
+    finish: (spokenSummary) => coordinator.finish(spokenSummary),
+    sendStatus: (message) => coordinator.sendStatus(message),
   });
 
   pi.on("session_start", (_event, ctx) => {
@@ -540,6 +320,7 @@ const voiceExtension = (pi: ExtensionAPI): void => {
         : undefined;
     persistedTranscript = parsePersistedTranscript(data?.entries);
     persistedTranscriptSignature = JSON.stringify(persistedTranscript);
+    setVoiceToolsActive(false);
     updateStatus(ctx);
   });
 
@@ -549,6 +330,7 @@ const voiceExtension = (pi: ExtensionAPI): void => {
       runtimeState === "stopped" ||
       runtimeState === "failed"
     ) {
+      setVoiceToolsActive(false);
       return {};
     }
     return {

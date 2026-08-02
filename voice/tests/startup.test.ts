@@ -94,12 +94,28 @@ describe("voice startup ownership", () => {
         },
       } as unknown as ExtensionContext["modelRegistry"],
     });
+    await host.emitSessionStart(ctx);
 
     const firstStart = host.runCommand("voice", "start", ctx);
     await vi.waitFor(() => {
       expect(fakes.media).toHaveLength(1);
     });
+    expect(host.getActiveTools()).toStrictEqual([
+      "read",
+      "bash",
+      "edit",
+      "write",
+      "speak_to_user",
+      "present_voice_result",
+      "end_realtime_voice_call",
+    ]);
     await host.runCommand("voice", "stop", ctx);
+    expect(host.getActiveTools()).toStrictEqual([
+      "read",
+      "bash",
+      "edit",
+      "write",
+    ]);
 
     const secondStart = host.runCommand("voice", "start", ctx);
     await vi.waitFor(() => {

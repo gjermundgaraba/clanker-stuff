@@ -1,6 +1,43 @@
-# Codex Voice vs Pi Voice: runtime research
+# Codex/ChatGPT Voice vs Pi Voice: runtime research
 
 Date: 28 July 2026
+
+## Refresh: 31 July 2026
+
+The detailed report below is the 28 July baseline, not a description of the current Pi implementation.
+
+The renamed ChatGPT app is now `/Applications/ChatGPT.app`, version `26.727.40816` (build `6067`), with `codex-cli 0.146.0-alpha.9.2`. An exact native call logged on 30 July, after this build was installed, confirms:
+
+- the 12,067-character core prompt is byte-for-byte unchanged;
+- the model remains `gpt-live-1-codex`, the voice remains `maple`, and delegation remains `{ "type": "client" }`;
+- the session payload shape remains `instructions`, `audio`, `delegation`, `model`, and optional `initial_items`;
+- the observed full prompt was longer only because of a dynamic 1,486-character capabilities appendix; and
+- the four voice-specific public source files cited below are byte-for-byte identical between `rust-v0.146.0-alpha.3.1` and `rust-v0.146.0-alpha.9.2`.
+
+The current app bundle also contains a rollout-configurable architecture not covered by the baseline:
+
+- an alternate front prompt with `[USER]`/`[BACKEND]` framing and immediate steering of corrections;
+- a dedicated voice-coordinator prompt that selects conversation, quick-check, or delegation modes and can dispatch blocking work to worker Codex threads; and
+- `new_thread_*`, `default_voice_chat_thread_version`, and `realtime_voice_tools_developer_instructions` configuration keys.
+
+This is static bundle evidence, not observed active behavior. The 30 July call continued the older voice thread created during the baseline capture and still received the unchanged core prompt, so a controlled new-thread capture is required before treating the bundled path as live.
+
+Pi has since adopted the first three implementation implications at the end of this report: the Codex model/voice and post-spawn policy, delegation-bound `commentary`/`speakable` status and completion frames, and mandatory session-context routing. It also added delegation-ID replay protection, unresolved-repeat suppression, terminal companion output, call renewal, and stricter handoff ownership. The old comparisons against `gpt-live-1-boulder-alpha`, the 1,525-character Pi prompt, and the dual unstructured output path are historical.
+
+Current intentional differences are:
+
+1. Pi adapts screen and shared-timeline language to its session, workspace, and terminal.
+2. Pi uses the current session as coordinator and serializes delegated requests; ChatGPT's observed path uses a dedicated voice thread and can route a later handoff as steering, while its bundled alternate path can also dispatch worker threads. Pi therefore does not yet deliver a newly delegated correction into an active coordinator turn.
+3. Pi suppresses substantially repeated unresolved requests in the live prompt; the current ChatGPT core prompt does not contain that rule.
+4. Pi renders substantial output through `present_voice_result`; ChatGPT supports its proprietary `::codex-realtime-inline{}` timeline directive.
+
+Refresh evidence is private under:
+
+```text
+~/Library/Application Support/Pi Voice Research/captures/chatgpt-refresh-2026-07-31/evidence
+```
+
+The runtime recorder and CLI proxy now default to `/Applications/ChatGPT.app`; `CODEX_APP_PATH` can override the recorder path.
 
 ## Bottom line
 
