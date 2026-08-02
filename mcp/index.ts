@@ -11,12 +11,13 @@ import {
   loadMcpConfig,
   removeMcpServer,
 } from "./config.js";
+import { errorMessage } from "./connection.js";
 import {
   createMcpManagerConnection,
   MCP_MANAGER_SERVER_NAME,
 } from "./manager.js";
 import type { McpManagerBackend, McpManagerListResult } from "./manager.js";
-import { errorMessage, McpRuntime } from "./runtime.js";
+import { McpServerPool } from "./servers.js";
 
 type LoaderResult<T> =
   | { type: "ok"; value: T }
@@ -111,7 +112,7 @@ const listAvailableServers = async (
 };
 
 export default function mcp(pi: ExtensionAPI) {
-  const runtime = new McpRuntime();
+  const serverPool = new McpServerPool();
 
   const loadNamedServer = async (
     ctx: ExtensionContext,
@@ -148,7 +149,7 @@ export default function mcp(pi: ExtensionAPI) {
           await removeMcpServer(name, scope, configOptions(ctx));
         },
       };
-      result = await runtime.loadServer({
+      result = await serverPool.loadServer({
         connectionFactory: (_interactive, signal) =>
           createMcpManagerConnection(backend, signal),
         interactive: options.interactive,
@@ -163,7 +164,7 @@ export default function mcp(pi: ExtensionAPI) {
       if (serverConfig === undefined) {
         throw new Error(`MCP server ${serverName} is not configured`);
       }
-      result = await runtime.loadServer({
+      result = await serverPool.loadServer({
         interactive: options.interactive,
         pi,
         serverConfig,
@@ -232,5 +233,5 @@ export default function mcp(pi: ExtensionAPI) {
     }
   });
 
-  pi.on("session_shutdown", () => runtime.closeAll());
+  pi.on("session_shutdown", () => serverPool.closeAll());
 }

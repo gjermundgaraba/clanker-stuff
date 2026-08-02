@@ -9,7 +9,7 @@ import type {
   McpConfigScope,
   McpServerConfig,
 } from "./config.js";
-import type { McpClientConnection } from "./runtime.js";
+import type { McpClientConnection } from "./connection.js";
 
 export const MCP_MANAGER_SERVER_NAME = "mcp-manager";
 

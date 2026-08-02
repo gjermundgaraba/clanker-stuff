@@ -21,7 +21,9 @@
     "config.ts",
     "manager.ts",
     "oauth.ts",
-    "runtime.ts",
+    "bridge.ts",
+    "connection.ts",
+    "servers.ts",
     "README.md",
     "docs"
   ],
