@@ -54,7 +54,10 @@ export type FinalizedFrameResult =
     };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const isUnknownArray = (value: unknown): value is unknown[] =>
+  Array.isArray(value);
 
 const utf8Bytes = (value: string) => encoder.encode(value).byteLength;
 
@@ -116,7 +119,7 @@ export const frameContiguousBaseline = <T>(
         baselineValues[baselineIndex] === messageValues[messageIndex]
       ) {
         if (baselineIndex >= segmentOffset) {
-          effectiveSegment.push(messages[messageIndex] as T);
+          effectiveSegment.push(messages[messageIndex]);
         }
         messageIndex += 1;
       } else if (!omittable[baselineIndex]) {
@@ -154,11 +157,11 @@ const serializedMarker = (
   item: ResponsesInputItem,
   nonce: string
 ): "end" | "start" | undefined => {
-  if (item.role !== "user" || !Array.isArray(item.content)) {
-    return;
+  if (item.role !== "user" || !isUnknownArray(item.content)) {
+    return undefined;
   }
   if (item.content.length !== 1) {
-    return;
+    return undefined;
   }
   const [content] = item.content;
   if (
@@ -166,7 +169,7 @@ const serializedMarker = (
     content.type !== "input_text" ||
     typeof content.text !== "string"
   ) {
-    return;
+    return undefined;
   }
   if (content.text === frameMarkerText("start", nonce)) {
     return "start";
@@ -501,9 +504,9 @@ const formatUuid = (bytes: Uint8Array) => {
 export const syntheticOutputId = (
   prefix: "ctco" | "fco" | "tso",
   sourceItemId: unknown
-) => {
+): string | undefined => {
   if (typeof sourceItemId !== "string" || sourceItemId.length === 0) {
-    return;
+    return undefined;
   }
   const digest = createHash("sha1")
     .update(uuidBytes(SYNTHETIC_OUTPUT_NAMESPACE))
@@ -546,7 +549,7 @@ const supportedCall = (
     }
   | undefined => {
   const id = callId(item);
-  if (!id) {
+  if (id === undefined) {
     return undefined;
   }
   if (item.type === "function_call" || item.type === "local_shell_call") {
@@ -568,7 +571,7 @@ const syntheticOutput = (
   const id = syntheticOutputId(call.prefix, item.id);
   if (call.family === "tool-search") {
     return {
-      ...(id ? { id } : {}),
+      ...(id === undefined ? {} : { id }),
       call_id: call.callId,
       execution: "client",
       status: "completed",
@@ -577,7 +580,7 @@ const syntheticOutput = (
     };
   }
   return {
-    ...(id ? { id } : {}),
+    ...(id === undefined ? {} : { id }),
     call_id: call.callId,
     output: "aborted",
     type:
@@ -593,7 +596,7 @@ export const normalizeToolHistory = (
   const validCalls = new Set<string>();
   for (const item of input) {
     const call = supportedCall(item);
-    if (call) {
+    if (call !== undefined) {
       validCalls.add(familyKey(call.family, call.callId));
     }
   }
@@ -601,12 +604,12 @@ export const normalizeToolHistory = (
   const seenOutputs = new Set<string>();
   const withoutOrphans = input.filter((item) => {
     const family = outputFamily(item);
-    if (!family) {
+    if (family === undefined) {
       return true;
     }
     if (family === "tool-search" && item.execution === "server") {
       const serverCallId = callId(item);
-      if (!serverCallId) {
+      if (serverCallId === undefined) {
         return true;
       }
       const serverKey = `server-tool-search:${serverCallId}`;
@@ -617,7 +620,7 @@ export const normalizeToolHistory = (
       return true;
     }
     const id = callId(item);
-    if (!id) {
+    if (id === undefined) {
       return false;
     }
     const key = familyKey(family, id);
@@ -632,7 +635,7 @@ export const normalizeToolHistory = (
   for (const item of withoutOrphans) {
     normalized.push(item);
     const call = supportedCall(item);
-    if (!call) {
+    if (call === undefined) {
       continue;
     }
     const key = familyKey(call.family, call.callId);

@@ -33,12 +33,18 @@ const TERMINAL_TYPES = new Set([
 const SUCCESS_TYPES = new Set(["response.completed", "response.done"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  value !== null && typeof value === "object" && !Array.isArray(value);
 
 const abortError = (signal: AbortSignal) =>
   signal.reason instanceof Error
     ? signal.reason
     : new DOMException("The operation was aborted", "AbortError");
+
+const assertNotAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted === true) {
+    throw abortError(signal);
+  }
+};
 
 const compactionSseFailure = (
   compactionSseCode: CompactionSseFailureCode,
@@ -57,16 +63,16 @@ export const isCompactionSseFailure = (
   "compactionSseCode" in value &&
   typeof value.compactionSseCode === "string";
 
-const parseData = (dataLines: readonly string[]) => {
+const parseData = (dataLines: readonly string[]): SseEvent | undefined => {
   const data = dataLines.join("\n");
-  if (!data || data === "[DONE]") {
-    return;
+  if (data.length === 0 || data === "[DONE]") {
+    return undefined;
   }
   const parsed: unknown = JSON.parse(data);
   if (!isRecord(parsed)) {
     throw new Error("SSE data was not a JSON object");
   }
-  return parsed as SseEvent;
+  return parsed;
 };
 
 const readCompactionSse = async (
@@ -76,12 +82,10 @@ const readCompactionSse = async (
   readonly compactionItems: readonly unknown[];
   readonly terminal: SseEvent | undefined;
 }> => {
-  if (!response.body) {
+  if (response.body === null) {
     throw new Error("SSE response has no body");
   }
-  if (signal?.aborted) {
-    throw abortError(signal);
-  }
+  assertNotAborted(signal);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -103,7 +107,7 @@ const readCompactionSse = async (
   const dispatch = () => {
     const event = parseData(dataLines);
     dataLines.length = 0;
-    if (!event) {
+    if (event === undefined) {
       return;
     }
     if (
@@ -114,7 +118,7 @@ const readCompactionSse = async (
     ) {
       compactionItems.push(event.item);
     }
-    if (event.type && TERMINAL_TYPES.has(event.type)) {
+    if (event.type !== undefined && TERMINAL_TYPES.has(event.type)) {
       terminal = event;
     }
   };
@@ -169,14 +173,19 @@ const readCompactionSse = async (
 
   try {
     while (true) {
-      if (signal?.aborted) {
-        throw abortError(signal);
-      }
+      assertNotAborted(signal);
       // oxlint-disable-next-line no-await-in-loop -- stream reads are sequential
-      const { done, value } = await reader.read();
-      if (signal?.aborted) {
-        throw abortError(signal);
+      const readResult: unknown = await reader.read();
+      if (
+        !isRecord(readResult) ||
+        typeof readResult.done !== "boolean" ||
+        (readResult.value !== undefined &&
+          !(readResult.value instanceof Uint8Array))
+      ) {
+        throw new Error("SSE reader returned an invalid chunk");
       }
+      const { done, value } = readResult;
+      assertNotAborted(signal);
       if (done) {
         buffer += decoder.decode();
         drainLines(true);
@@ -187,7 +196,7 @@ const readCompactionSse = async (
       }
       buffer += decoder.decode(value, { stream: true });
       drainLines(false);
-      if (terminal) {
+      if (terminal !== undefined) {
         break;
       }
     }
@@ -214,7 +223,7 @@ export const collectCompactionSse = async (
   try {
     observation = await readCompactionSse(response, signal);
   } catch (error) {
-    if (signal?.aborted) {
+    if (signal?.aborted === true) {
       throw error;
     }
     throw compactionSseFailure(
@@ -225,7 +234,7 @@ export const collectCompactionSse = async (
     );
   }
   const { terminal } = observation;
-  if (!terminal?.type) {
+  if (terminal?.type === undefined || terminal.type.length === 0) {
     throw compactionSseFailure(
       "premature",
       "Compaction SSE closed before a terminal event"
@@ -241,7 +250,7 @@ export const collectCompactionSse = async (
     ? terminal.response
     : undefined;
   if (
-    !completedResponse ||
+    completedResponse === undefined ||
     completedResponse.status !== "completed" ||
     typeof completedResponse.id !== "string" ||
     completedResponse.id.length === 0 ||
@@ -264,16 +273,15 @@ export const collectCompactionSse = async (
       "Compaction SSE contained an invalid compaction item"
     );
   }
-  if (compactions.length !== 1) {
+  const compaction = compactions.length === 1 ? compactions[0] : undefined;
+  if (compaction === undefined) {
     throw compactionSseFailure(
       "invalid-output",
       `Compaction SSE expected exactly one compaction item, got ${compactions.length}`
     );
   }
-  const [compaction] = compactions;
-
   return {
-    compaction: compaction as CanonicalCompactionItem,
+    compaction,
     responseId: completedResponse.id,
   };
 };

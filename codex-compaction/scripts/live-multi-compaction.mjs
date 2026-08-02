@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* oxlint-disable typescript/no-unsafe-member-access, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/strict-boolean-expressions, typescript/no-unsafe-return, typescript/no-unsafe-argument, typescript/strict-void-return, typescript/prefer-nullish-coalescing -- This shipped live canary intentionally validates dynamic remote/session JSON at runtime. */
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";

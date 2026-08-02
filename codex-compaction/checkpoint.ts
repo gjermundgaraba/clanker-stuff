@@ -126,11 +126,14 @@ export type ActiveCheckpointBoundary =
 
 type JsonRecord = Record<string, unknown>;
 
+const isUnknownArray = (value: unknown): value is unknown[] =>
+  Array.isArray(value);
+
 const isRecord = (value: unknown): value is JsonRecord => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
-  const prototype = Object.getPrototypeOf(value);
+  const prototype: unknown = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 };
 
@@ -140,9 +143,9 @@ const validationError = (message: string): never => {
 
 const expectRecord = (value: unknown, path: string): JsonRecord => {
   if (!isRecord(value)) {
-    validationError(`${path} must be a plain object`);
+    throw new Error(`${path} must be a plain object`);
   }
-  return value as JsonRecord;
+  return value;
 };
 
 const expectExactKeys = (
@@ -152,7 +155,7 @@ const expectExactKeys = (
 ) => {
   const allowed = new Set(allowedKeys);
   const unknown = Object.keys(value).find((key) => !allowed.has(key));
-  if (unknown) {
+  if (unknown !== undefined) {
     validationError(`${path}.${unknown} is not recognized`);
   }
 };
@@ -160,6 +163,7 @@ const expectExactKeys = (
 const expectIdentifier = (value: unknown, path: string): string => {
   const hasControlCharacter =
     typeof value === "string" &&
+    // oxlint-disable-next-line typescript/no-misused-spread -- iterating Unicode code points is intentional for control-character validation
     [...value].some((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
       return codePoint <= 31 || codePoint === 127;
@@ -171,30 +175,28 @@ const expectIdentifier = (value: unknown, path: string): string => {
     value !== value.trim() ||
     hasControlCharacter
   ) {
-    validationError(`${path} must be a non-empty identifier`);
+    throw new Error(`${path} must be a non-empty identifier`);
   }
-  return value as string;
+  return value;
 };
 
-const expectString = (value: unknown, path: string): string => {
-  if (typeof value !== "string") {
-    validationError(`${path} must be a string`);
-  }
-  return value as string;
-};
+const expectString = (value: unknown, path: string): string =>
+  typeof value === "string"
+    ? value
+    : validationError(`${path} must be a string`);
 
 const expectNonnegativeInteger = (value: unknown, path: string): number => {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    validationError(`${path} must be a nonnegative safe integer`);
+    throw new Error(`${path} must be a nonnegative safe integer`);
   }
-  return value as number;
+  return value;
 };
 
 const expectSha256 = (value: unknown, path: string): string => {
   if (typeof value !== "string" || !SHA256_PATTERN.test(value)) {
-    validationError(`${path} must be a lowercase SHA-256 digest`);
+    throw new Error(`${path} must be a lowercase SHA-256 digest`);
   }
-  return value as string;
+  return value;
 };
 
 export const normalizeBaseUrl = (value: string | null | undefined) => {
@@ -258,7 +260,7 @@ export const parseCompactionItem = (
   );
   if (
     item.type !== "compaction" &&
-    !(options.allowAlias && item.type === "compaction_summary")
+    !(options.allowAlias === true && item.type === "compaction_summary")
   ) {
     validationError("compaction.type is not canonical");
   }
@@ -303,13 +305,14 @@ export const parseRealUserInputItem = (
   if (item.type !== "message" || item.role !== "user") {
     validationError(`${path} must be a canonical user message`);
   }
-  if (!Array.isArray(item.content) || item.content.length === 0) {
-    validationError(`${path}.content must be a non-empty array`);
+  const rawContent = item.content;
+  if (!isUnknownArray(rawContent) || rawContent.length === 0) {
+    throw new Error(`${path}.content must be a non-empty array`);
   }
 
-  const content = (item.content as unknown[]).map((rawContent, index) => {
+  const content = rawContent.map((rawContentItem, index) => {
     const contentPath = `${path}.content[${index}]`;
-    const contentItem = expectRecord(rawContent, contentPath);
+    const contentItem = expectRecord(rawContentItem, contentPath);
     if (contentItem.type === "input_text") {
       expectExactKeys(contentItem, ["text", "type"], contentPath);
       return {
@@ -341,11 +344,11 @@ const parseReplacement = (
   value: unknown
 ): readonly CheckpointReplacementItem[] => {
   if (!Array.isArray(value) || value.length === 0) {
-    validationError("checkpoint.replacement must be a non-empty array");
+    throw new Error("checkpoint.replacement must be a non-empty array");
   }
 
   let compactionCount = 0;
-  const rawReplacement = value as unknown[];
+  const rawReplacement: unknown[] = value;
   const replacement = rawReplacement.map((item, index) => {
     if (isRecord(item) && item.type === "compaction") {
       compactionCount += 1;
@@ -358,10 +361,13 @@ const parseReplacement = (
       item,
       `checkpoint.replacement[${index}]`
     );
-    if (user.content.some((content) => content.type !== "input_text")) {
+    const textContent = user.content.filter(
+      (content): content is InputTextItem => content.type === "input_text"
+    );
+    if (textContent.length !== user.content.length) {
       validationError("checkpoint replacement users must be text-only");
     }
-    return user as CheckpointUserInputItem;
+    return { ...user, content: textContent } satisfies CheckpointUserInputItem;
   });
   if (compactionCount !== 1) {
     validationError("checkpoint replacement requires exactly one compaction");
@@ -383,9 +389,9 @@ const parseIdentity = (value: unknown): Checkpoint["identity"] => {
     validationError("checkpoint identity provider/API is not supported");
   }
   if (identity.baseUrl !== null && typeof identity.baseUrl !== "string") {
-    validationError("checkpoint.identity.baseUrl must be a string or null");
+    throw new Error("checkpoint.identity.baseUrl must be a string or null");
   }
-  const baseUrl = normalizeBaseUrl(identity.baseUrl as string | null);
+  const baseUrl = normalizeBaseUrl(identity.baseUrl);
   if (identity.baseUrl !== baseUrl) {
     validationError("checkpoint.identity.baseUrl must be canonical");
   }
@@ -512,7 +518,7 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
     value.reason !== "overflow" &&
     value.reason !== "threshold"
   ) {
-    validationError("checkpoint.reason is invalid");
+    throw new Error("checkpoint.reason is invalid");
   }
   if (
     value.phase !== "mid-turn" &&
@@ -520,7 +526,7 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
     value.phase !== "pre-sampling" &&
     value.phase !== "standalone"
   ) {
-    validationError("checkpoint.phase is invalid");
+    throw new Error("checkpoint.phase is invalid");
   }
 
   const replacement = parseReplacement(value.replacement);
@@ -534,9 +540,9 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
 
   return {
     identity: parseIdentity(value.identity),
-    phase: value.phase as Checkpoint["phase"],
+    phase: value.phase,
     protocol: CHECKPOINT_PROTOCOL,
-    reason: value.reason as Checkpoint["reason"],
+    reason: value.reason,
     replacement,
     replacementSha256,
     response: parseResponse(value.response),
@@ -550,7 +556,7 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
 };
 
 const deepFreeze = <T>(value: T): T => {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) {
       deepFreeze(child);
     }

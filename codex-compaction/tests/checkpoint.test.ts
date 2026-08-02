@@ -125,7 +125,7 @@ describe("checkpoint protocol", () => {
           ["a", 1],
         ])
       ),
-      inputWasNotFrozen: Object.isFrozen(source) === false,
+      inputWasNotFrozen: !Object.isFrozen(source),
       parsedWasCloned: parsed.checkpoint !== source,
     }).toStrictEqual({
       canonical: '{"a":1,"b":2}',
