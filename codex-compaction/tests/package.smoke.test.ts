@@ -132,7 +132,7 @@ describe("codex-compaction package", () => {
         "package/remote.ts",
         "package/renderer.ts",
         "package/replay.ts",
-        "package/scripts/live-multi-compaction.mjs",
+        "package/scripts/live-multi-compaction.ts",
       ].toSorted()
     );
     const installDir = path.join(tempRoot, "install");

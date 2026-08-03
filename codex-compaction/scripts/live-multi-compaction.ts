@@ -5,6 +5,14 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
+import type {
+  AgentSession,
+  CreateAgentSessionOptions,
+  CustomEntry,
+  ExtensionError,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -14,42 +22,26 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
+import { parseCheckpoint } from "../checkpoint.ts";
+
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
 const CHECKPOINT_TYPE = "codex-compaction.checkpoint";
 const DIAGNOSTIC_TYPE = "codex-compaction.diagnostic";
 
-/**
- * @typedef {object} CanaryAssistantMessage
- * @property {string | undefined} errorMessage - Provider error message.
- * @property {string | undefined} stopReason - Assistant stop reason.
- * @property {unknown} usage - Provider usage payload.
- */
-
-/**
- * @param {boolean} condition - Condition that must hold.
- * @param {string} message - Failure message.
- * @returns {asserts condition} Assertion result.
- */
-const assert = (condition, message) => {
+const assert: (condition: boolean, message: string) => asserts condition = (
+  condition,
+  message
+) => {
   if (!condition) {
     throw new Error(message);
   }
 };
 
-/**
- * @param {unknown} value - Candidate value.
- * @returns {value is Record<string, unknown>} Whether the value is a record.
- */
-const isRecord = (value) =>
+const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-/**
- * @param {string} name - Environment variable name.
- * @param {number} fallback - Value used when the variable is absent.
- * @returns {number} Parsed positive integer.
- */
-const positiveInteger = (name, fallback) => {
+const positiveInteger = (name: string, fallback: number): number => {
   const raw = process.env[name];
   const value = raw === undefined ? fallback : Number(raw);
   assert(
@@ -59,78 +51,49 @@ const positiveInteger = (name, fallback) => {
   return value;
 };
 
-/**
- * @param {import("@earendil-works/pi-coding-agent").SessionManager} manager - Session manager.
- * @param {string} customType - Custom entry type.
- * @returns {import("@earendil-works/pi-coding-agent").CustomEntry<unknown>[]} Matching entries.
- */
-const customEntries = (manager, customType) =>
-  manager.getBranch().filter(
-    /** @returns {entry is import("@earendil-works/pi-coding-agent").CustomEntry<unknown>} Whether the entry matches. */
-    (entry) => entry.type === "custom" && entry.customType === customType
-  );
+const customEntries = (
+  manager: SessionManager,
+  customType: string
+): CustomEntry[] =>
+  manager
+    .getBranch()
+    .filter(
+      (entry): entry is CustomEntry =>
+        entry.type === "custom" && entry.customType === customType
+    );
 
-/**
- * @param {unknown} usage - Assistant usage.
- * @returns {number} Context token count.
- */
-const contextTokens = (usage) => {
-  if (!isRecord(usage)) {
+const contextTokens = (usage: Usage | undefined): number => {
+  if (usage === undefined) {
     return 0;
   }
-  const totalTokens =
-    typeof usage.totalTokens === "number" ? usage.totalTokens : undefined;
-  const input = typeof usage.input === "number" ? usage.input : 0;
-  const output = typeof usage.output === "number" ? usage.output : 0;
-  const cacheRead = typeof usage.cacheRead === "number" ? usage.cacheRead : 0;
-  const cacheWrite =
-    typeof usage.cacheWrite === "number" ? usage.cacheWrite : 0;
-  return totalTokens === undefined || totalTokens === 0
-    ? input + output + cacheRead + cacheWrite
-    : totalTokens;
+  return usage.totalTokens === 0
+    ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite
+    : usage.totalTokens;
 };
 
-/**
- * @param {import("@earendil-works/pi-coding-agent").CustomEntry<unknown> | undefined} entry - Checkpoint entry.
- * @returns {string} Response ID.
- */
-const responseId = (entry) => {
-  const data = entry?.data;
-  const response =
-    isRecord(data) && isRecord(data.response) ? data.response : undefined;
-  const id = response?.id;
-  assert(
-    typeof id === "string" && id.length > 0,
-    "Checkpoint response ID missing"
-  );
-  return id;
-};
-
-/**
- * @param {import("@earendil-works/pi-coding-agent").CustomEntry<unknown> | undefined} entry - Checkpoint entry.
- * @param {number} expectedRound - Expected compaction round.
- * @param {number} forcedContextWindow - Canary context window.
- * @param {number} minimumSideInputTokens - Minimum provider input.
- * @param {boolean} requireLocalThreshold - Whether to check the local threshold.
- * @param {"mid-turn" | "pre-sampling"} [expectedPhase] - Expected checkpoint phase.
- * @returns {number} Provider-side input tokens.
- */
-const assertCheckpoint = (
-  entry,
-  expectedRound,
-  forcedContextWindow,
-  minimumSideInputTokens,
-  requireLocalThreshold,
-  expectedPhase = "pre-sampling"
-) => {
-  assert(
-    entry?.type === "custom",
-    `Round ${expectedRound}: checkpoint missing`
-  );
-  const checkpoint = entry.data;
-  if (!isRecord(checkpoint)) {
-    throw new Error(`Round ${expectedRound}: checkpoint invalid`);
+const responseId = (entry: CustomEntry | undefined): string => {
+  assert(entry !== undefined, "Checkpoint response ID missing");
+  const parsed = parseCheckpoint(entry.data);
+  if (!parsed.ok) {
+    throw new Error(`Checkpoint invalid: ${parsed.error}`);
   }
+  return parsed.checkpoint.response.id;
+};
+
+const assertCheckpoint = (
+  entry: CustomEntry | undefined,
+  expectedRound: number,
+  forcedContextWindow: number,
+  minimumSideInputTokens: number,
+  requireLocalThreshold: boolean,
+  expectedPhase: "mid-turn" | "pre-sampling" = "pre-sampling"
+): number => {
+  assert(entry !== undefined, `Round ${expectedRound}: checkpoint missing`);
+  const parsed = parseCheckpoint(entry.data);
+  if (!parsed.ok) {
+    throw new Error(`Round ${expectedRound}: ${parsed.error}`);
+  }
+  const { checkpoint } = parsed;
   assert(
     checkpoint.version === 4,
     `Round ${expectedRound}: expected checkpoint v4`
@@ -139,112 +102,39 @@ const assertCheckpoint = (
     checkpoint.phase === expectedPhase && checkpoint.reason === "threshold",
     `Round ${expectedRound}: unexpected checkpoint phase/reason`
   );
-  assert(
-    typeof checkpoint.sourceTokens === "number" &&
-      Number.isSafeInteger(checkpoint.sourceTokens),
-    "Source usage missing"
-  );
   if (requireLocalThreshold) {
     assert(
       checkpoint.sourceTokens >= Math.floor(forcedContextWindow * 0.9),
       `Round ${expectedRound}: checkpoint source did not cross 90%`
     );
   }
-  const { replacement } = checkpoint;
-  if (!Array.isArray(replacement)) {
-    throw new TypeError(
-      `Round ${expectedRound}: checkpoint replacement is not canonical`
-    );
-  }
+  const { usage } = checkpoint.response;
+  const sideInputTokens = usage.input + usage.cacheRead + usage.cacheWrite;
   assert(
-    replacement.filter((item) => isRecord(item) && item.type === "compaction")
-      .length === 1,
-    `Round ${expectedRound}: checkpoint replacement is not canonical`
-  );
-  if (expectedPhase === "mid-turn") {
-    assert(
-      !replacement.some(
-        (item) =>
-          isRecord(item) &&
-          (item.type === "function_call" ||
-            item.type === "function_call_output")
-      ),
-      `Round ${expectedRound}: tool history leaked into the replacement`
-    );
-  }
-  const { response: rawResponse } = checkpoint;
-  const response = isRecord(rawResponse) ? rawResponse : undefined;
-  const rawUsage = response === undefined ? undefined : response.usage;
-  const usage = isRecord(rawUsage) ? rawUsage : undefined;
-  const input = usage === undefined ? undefined : usage.input;
-  const cacheRead = usage === undefined ? undefined : usage.cacheRead;
-  const cacheWrite = usage === undefined ? undefined : usage.cacheWrite;
-  assert(
-    [input, cacheRead, cacheWrite].every(
-      (value) => value === undefined || typeof value === "number"
-    ),
-    `Round ${expectedRound}: checkpoint usage invalid`
-  );
-  const sideInputTokens =
-    (typeof input === "number" ? input : 0) +
-    (typeof cacheRead === "number" ? cacheRead : 0) +
-    (typeof cacheWrite === "number" ? cacheWrite : 0);
-  assert(
-    Number.isSafeInteger(sideInputTokens) &&
-      sideInputTokens >= minimumSideInputTokens,
-    `Round ${expectedRound}: provider processed ${sideInputTokens ?? "unknown"} input tokens; expected at least ${minimumSideInputTokens}`
+    sideInputTokens >= minimumSideInputTokens,
+    `Round ${expectedRound}: provider processed ${sideInputTokens} input tokens; expected at least ${minimumSideInputTokens}`
   );
   return sideInputTokens;
 };
 
-/**
- * @param {import("@earendil-works/pi-coding-agent").AgentSession} session - Agent session.
- * @returns {CanaryAssistantMessage | undefined} Latest assistant message.
- */
-const lastAssistant = (session) => {
-  const sessionView =
-    /** @type {{messages: unknown[]}} */
-    (session);
-  const { messages } = sessionView;
-  /** @type {CanaryAssistantMessage | undefined} */
-  let assistant;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (isRecord(message) && message.role === "assistant") {
-      assistant = {
-        errorMessage:
-          typeof message.errorMessage === "string"
-            ? message.errorMessage
-            : undefined,
-        stopReason:
-          typeof message.stopReason === "string"
-            ? message.stopReason
-            : undefined,
-        usage: message.usage,
-      };
-      break;
-    }
-  }
-  return assistant;
-};
+const lastAssistant = (session: AgentSession): AssistantMessage | undefined =>
+  session.messages
+    .toReversed()
+    .find(
+      (message): message is AssistantMessage => message.role === "assistant"
+    );
 
-/** @param {number} bytes - Desired byte count. */
-const syntheticHex = (bytes) =>
+const syntheticHex = (bytes: number): string =>
   randomBytes(Math.ceil(bytes / 2))
     .toString("hex")
     .slice(0, bytes);
 
-/** @param {number} bytes - Desired byte count. */
-const syntheticText = (bytes) => {
+const syntheticText = (bytes: number): string => {
   const unit = "The quick brown fox jumps over the lazy dog. ";
   return unit.repeat(Math.ceil(bytes / unit.length)).slice(0, bytes);
 };
 
-/**
- * @param {string} name - Environment variable name.
- * @returns {string} Required value.
- */
-const requiredEnvironment = (name) => {
+const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
   assert(typeof value === "string" && value.length > 0, `${name} is required`);
   return value;
@@ -283,15 +173,10 @@ const runBranchChild = async () => {
     baseModel !== undefined,
     `Model openai-codex/${modelId} is unavailable`
   );
-  /** @type {string[]} */
-  const notifications = [];
-
-  /**
-   * @param {import("@earendil-works/pi-coding-agent").SessionManager} manager - Session manager.
-   * @param {number} contextWindow - Context window.
-   * @returns {Promise<import("@earendil-works/pi-coding-agent").AgentSession>} Agent session.
-   */
-  const openSession = async (manager, contextWindow) => {
+  const openSession = async (
+    manager: SessionManager,
+    contextWindow: number
+  ): Promise<AgentSession> => {
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
       retry: { enabled: true, maxRetries: 2 },
@@ -321,16 +206,7 @@ const runBranchChild = async () => {
       settingsManager,
       thinkingLevel: "minimal",
     });
-    await created.session.bindExtensions({
-      uiContext: {
-        notify: (message) => {
-          notifications.push(message);
-        },
-        setStatus: () => {
-          // Branch child does not inspect status updates.
-        },
-      },
-    });
+    await created.session.bindExtensions({});
     return created.session;
   };
 
@@ -410,7 +286,6 @@ const runBranchChild = async () => {
       JSON.stringify({
         divergentResponseId,
         firstResponseId,
-        notifications,
         originalResponseId: secondResponseId,
         status: "passed",
       })
@@ -518,25 +393,13 @@ Environment:
     ? Math.floor(forcedContextWindow * (midTurn ? 0.8 : 0.9))
     : 0;
 
-  /** @type {import("@earendil-works/pi-coding-agent").ExtensionError[]} */
-  const extensionErrors = [];
-  /** @type {string[]} */
-  const notifications = [];
-  /** @type {{key: string, text: string | undefined}[]} */
-  const statuses = [];
-  /**
-   * @param {import("@earendil-works/pi-coding-agent").SessionManager} sessionManager - Session manager.
-   * @param {number} contextWindow - Context window.
-   * @param {boolean} [loadCompaction] - Whether to load the extension.
-   * @param {import("@earendil-works/pi-coding-agent").ToolDefinition[]} [customTools] - Custom tools.
-   * @returns {Promise<import("@earendil-works/pi-coding-agent").AgentSession>} Agent session.
-   */
+  const extensionErrors: ExtensionError[] = [];
   const createCanarySession = async (
-    sessionManager,
-    contextWindow,
+    sessionManager: SessionManager,
+    contextWindow: number,
     loadCompaction = true,
-    customTools = []
-  ) => {
+    customTools: ToolDefinition[] = []
+  ): Promise<AgentSession> => {
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
       retry: { enabled: true, maxRetries: 2 },
@@ -570,7 +433,10 @@ Environment:
         "codex-compaction extension was not loaded"
       );
     }
-    const toolOptions =
+    const toolOptions: Pick<
+      CreateAgentSessionOptions,
+      "customTools" | "noTools" | "tools"
+    > =
       customTools.length > 0
         ? {
             customTools,
@@ -592,20 +458,13 @@ Environment:
       onError: (error) => {
         extensionErrors.push(error);
       },
-      uiContext: {
-        notify: (message) => {
-          notifications.push(message);
-        },
-        setStatus: (key, text) => {
-          statuses.push({ key, text });
-        },
-      },
     });
     return created.session;
   };
 
-  /** @type {{bytesPerToken: number, inputTokens: number, probeBytes: number} | undefined} */
-  let calibration;
+  let calibration:
+    | { bytesPerToken: number; inputTokens: number; probeBytes: number }
+    | undefined;
   if (realWindow) {
     const probeBytes = 64_000;
     const syntheticPayload = midTurn ? syntheticText : syntheticHex;
@@ -662,8 +521,7 @@ Environment:
 
   const manager = SessionManager.create(canaryCwd, sessionDir);
   let toolCalls = 0;
-  /** @type {import("@earendil-works/pi-coding-agent").ToolDefinition} */
-  const midTurnTool = {
+  const midTurnTool: ToolDefinition = {
     description:
       "Return the synthetic context payload. Call exactly once when instructed.",
     execute: async () => {
@@ -695,10 +553,8 @@ Environment:
     true,
     midTurn ? [midTurnTool] : []
   );
-  /** @type {string[]} */
-  const ids = [];
-  /** @type {number[]} */
-  const sideInputTokens = [];
+  const ids: string[] = [];
+  const sideInputTokens: number[] = [];
   try {
     console.log(`Live artifacts: ${runRoot}`);
     console.log(
@@ -715,6 +571,7 @@ Environment:
           `Round ${round}: expected ${round} tool call(s), observed ${toolCalls}`
         );
       } else if (realWindow) {
+        assert(calibration !== undefined, "Token-density calibration missing");
         const baselineTokens =
           round === 1 ? 0 : contextTokens(lastAssistant(session)?.usage);
         const targetTokens = Math.ceil(minimumSideInputTokens * 1.015);
@@ -763,7 +620,7 @@ Environment:
       const checkpoints = customEntries(manager, CHECKPOINT_TYPE);
       if (checkpoints.length !== round) {
         throw new Error(
-          `Round ${round}: expected ${round} checkpoints, found ${checkpoints.length}; assistant=${lastAssistant(session)?.stopReason ?? "missing"}; notifications=${notifications.join(" | ")}; statusUpdates=${statuses.length}`
+          `Round ${round}: expected ${round} checkpoints, found ${checkpoints.length}; assistant=${lastAssistant(session)?.stopReason ?? "missing"}`
         );
       }
       const checkpoint = checkpoints.at(-1);
@@ -822,8 +679,9 @@ Environment:
         },
         stdio: "inherit",
       });
-      /** @type {unknown} */
-      const branchResult = JSON.parse(await readFile(resultFile, "utf-8"));
+      const branchResult: unknown = JSON.parse(
+        await readFile(resultFile, "utf-8")
+      );
       assert(isRecord(branchResult), "Fresh-process branch result is invalid");
       assert(
         branchResult.status === "passed",
@@ -881,13 +739,11 @@ Environment:
           checkpoints: ids,
           midTurn,
           model: `openai-codex/${modelId}`,
-          notifications,
           realWindow,
           rounds,
           sessionFile,
           sideInputTokens,
           status: "passed",
-          statusUpdates: statuses.length,
           transport: websocketMode ? "websocket+sse-compaction" : "sse",
         },
         null,

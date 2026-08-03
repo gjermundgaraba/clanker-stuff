@@ -38,11 +38,11 @@
   },
   "exports": "./index.ts",
   "scripts": {
-    "test:live": "node ./scripts/live-multi-compaction.mjs",
-    "test:live:branch": "node ./scripts/live-multi-compaction.mjs --branch",
-    "test:live:mid-turn": "node ./scripts/live-multi-compaction.mjs --mid-turn",
-    "test:live:real": "node ./scripts/live-multi-compaction.mjs --real-window",
-    "test:live:websocket": "node ./scripts/live-multi-compaction.mjs --websocket"
+    "test:live": "node ./scripts/live-multi-compaction.ts",
+    "test:live:branch": "node ./scripts/live-multi-compaction.ts --branch",
+    "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
+    "test:live:real": "node ./scripts/live-multi-compaction.ts --real-window",
+    "test:live:websocket": "node ./scripts/live-multi-compaction.ts --websocket"
   },
   "devDependencies": {
     "vitest": "*"
