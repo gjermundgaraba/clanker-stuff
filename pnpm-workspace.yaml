@@ -1,7 +1,7 @@
 packages:
   - "."
   - "ask-question"
-  - "codex-compaction"
+  - "codex-provider"
   - "codex-fast"
   - "codex-reverse-i-search"
   - "codex-skills"

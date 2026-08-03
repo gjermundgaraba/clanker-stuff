@@ -65,7 +65,17 @@ importers:
         specifier: '*'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
-  codex-compaction:
+  codex-fast:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.83.0
+        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+    devDependencies:
+      vitest:
+        specifier: '*'
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+
+  codex-provider:
     dependencies:
       '@earendil-works/pi-ai':
         specifier: 0.83.0
@@ -76,16 +86,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.83.0
         version: 0.83.0
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
-
-  codex-fast:
-    dependencies:
-      '@earendil-works/pi-coding-agent':
-        specifier: 0.83.0
-        version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
     devDependencies:
       vitest:
         specifier: '*'
