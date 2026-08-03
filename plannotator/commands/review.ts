@@ -8,7 +8,7 @@ export const registerReviewCommand = (
   runtime: CommandRuntime
 ): void => {
   pi.registerCommand("plannotator-review", {
-    description: "Open interactive code review for current changes or a PR URL",
+    description: "Review current changes, a base ref, or a pull request URL",
     handler: async (args, ctx) => {
       const tokens = runtime.parseArguments(args, ctx);
       if (tokens === undefined) {

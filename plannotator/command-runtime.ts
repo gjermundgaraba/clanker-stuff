@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CliProcess, CliStarter } from "./cli.js";
-import { processFailure, tokenizeArguments } from "./cli.js";
+import { processFailure } from "./cli.js";
 
 interface ActiveRun {
   cancelled: boolean;
@@ -28,6 +28,68 @@ export interface CommandRuntime {
   ) => string[] | undefined;
   shutdown: () => Promise<void>;
 }
+
+export const tokenizeArguments = (input: string): string[] => {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  let escaping = false;
+  let started = false;
+
+  for (const character of input) {
+    if (escaping) {
+      current += character;
+      escaping = false;
+      started = true;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaping = true;
+      started = true;
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = undefined;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      started = true;
+      continue;
+    }
+
+    if (/\s/u.test(character)) {
+      if (started) {
+        tokens.push(current);
+        current = "";
+        started = false;
+      }
+      continue;
+    }
+
+    current += character;
+    started = true;
+  }
+
+  if (escaping) {
+    throw new Error("Arguments end with an incomplete escape");
+  }
+  if (quote) {
+    throw new Error(`Arguments contain an unterminated ${quote} quote`);
+  }
+  if (started) {
+    tokens.push(current);
+  }
+
+  return tokens;
+};
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

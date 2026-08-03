@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import type { CliCompletion, CliStarter, CliStartOptions } from "../cli.js";
-import { tokenizeArguments } from "../cli.js";
+import { tokenizeArguments } from "../command-runtime.js";
 import { createMinimalPlannotatorExtension } from "../index.js";
 
 interface PendingProcess {

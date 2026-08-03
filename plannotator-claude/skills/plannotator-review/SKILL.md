@@ -1,15 +1,17 @@
 ---
 name: plannotator-review
-description: Open Plannotator's browser-based code review UI for the current worktree or a pull request URL, then act on the feedback that comes back.
-allowed-tools: Bash(plannotator:*)
+description: Open Plannotator's browser-based code review UI for the current worktree, a specific base, or a pull request URL, then act on the feedback that comes back.
+allowed-tools: Bash(node:*)
 disable-model-invocation: true
 ---
 
 # Plannotator Review
 
+Pass `--base <ref>` when requested to review all committed and working-tree changes since that ref. Without `--base`, Plannotator uses its normal current-worktree or pull-request target.
+
 ## Code review feedback
 
-!`plannotator review $ARGUMENTS`
+!`node "${CLAUDE_SKILL_DIR}/scripts/review-launcher.ts" $ARGUMENTS`
 
 ## Your task
 

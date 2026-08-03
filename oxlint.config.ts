@@ -37,7 +37,11 @@ export default defineConfig({
     node: true,
   },
   extends: [core, vitest],
-  ignorePatterns: [...coreIgnore, "scripts/**"],
+  ignorePatterns: [
+    ...coreIgnore,
+    "scripts/**",
+    "**/skills/plannotator-review/scripts/*.ts",
+  ],
   overrides: [
     {
       files: [

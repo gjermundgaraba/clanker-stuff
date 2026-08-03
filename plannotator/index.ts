@@ -6,12 +6,13 @@ import { registerAnnotateCommand } from "./commands/annotate.js";
 import { registerLastCommand } from "./commands/last.js";
 import { registerReviewCommand } from "./commands/review.js";
 import { startPlannotatorCli } from "./plannotator.js";
+import { createTargetedReviewStarter } from "./review-launcher.js";
 
 export const createMinimalPlannotatorExtension = (
   startCli: CliStarter = startPlannotatorCli
 ) =>
   function minimalPlannotator(pi: ExtensionAPI): void {
-    const runtime = createCommandRuntime(startCli);
+    const runtime = createCommandRuntime(createTargetedReviewStarter(startCli));
 
     registerReviewCommand(pi, runtime);
     registerAnnotateCommand(pi, runtime);

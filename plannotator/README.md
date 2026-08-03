@@ -10,7 +10,7 @@ pi install npm:@clanker-extensions/plannotator
 
 ## Usage
 
-- `/plannotator-review` reviews current changes or a pull request.
+- `/plannotator-review [--base <ref>]` reviews current Git changes or, without `--base`, a pull request.
 - `/plannotator-annotate <target>` annotates a file, folder, or URL.
 - `/plannotator-last` annotates the last assistant response.
 

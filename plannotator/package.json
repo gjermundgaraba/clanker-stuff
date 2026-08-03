@@ -1,6 +1,6 @@
 {
   "name": "@clanker-extensions/plannotator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "description": "Adds Plannotator review and annotation commands to pi.",
   "keywords": [
@@ -21,8 +21,10 @@
     "command-runtime.ts",
     "commands",
     "index.ts",
+    "LICENSE",
     "plannotator.ts",
-    "README.md"
+    "README.md",
+    "review-launcher.ts"
   ],
   "type": "module",
   "exports": "./index.ts",

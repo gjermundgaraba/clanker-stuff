@@ -73,6 +73,7 @@ export const startPlannotatorCli: CliStarter = (args, options) =>
     ...options,
     env: {
       ...process.env,
+      ...options.env,
       PLANNOTATOR_CWD: options.cwd,
       PLANNOTATOR_ORIGIN: "pi",
     },
