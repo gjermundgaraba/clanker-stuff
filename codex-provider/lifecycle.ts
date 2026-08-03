@@ -173,13 +173,16 @@ interface LifecycleState {
   inFlight?:
     | {
         kind: "inline";
-        key: string;
         promise: Promise<InlineOperationResult>;
       }
     | {
+        abort: () => void;
+        cancelOverlap: () => void;
+        completion: Promise<null>;
+        finish: () => void;
         kind: "lifecycle";
-        key: string;
         promise: Promise<SessionBeforeCompactResult>;
+        settled: boolean;
       };
   notified: Set<string>;
   pendingInstall?: PendingInstall;
@@ -774,8 +777,34 @@ const notifyOnce = (
   ctx.ui.notify(message, type);
 };
 
+const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
+  const operation = state.inFlight;
+  if (operation?.kind !== "lifecycle") {
+    return;
+  }
+  state.inFlight = undefined;
+  if (abort) {
+    operation.abort();
+  }
+  operation.finish();
+};
+
+const releaseSettledLifecycleOperation = (
+  state: LifecycleState,
+  ctx: ExtensionContext,
+  providerRuntime: CodexProviderRuntime
+) => {
+  const pending = state.pendingInstall;
+  state.pendingInstall = undefined;
+  if (pending && isPendingInstallationResolvable(state, pending, ctx)) {
+    providerRuntime.installWindow(pending.sessionId, pending.runtime);
+  }
+  releaseLifecycleOperation(state);
+};
+
 const resetGeneration = (state: LifecycleState) => {
   state.controller.abort();
+  releaseLifecycleOperation(state, true);
   state.controller = new AbortController();
   state.candidate = undefined;
   state.frame = undefined;
@@ -865,6 +894,7 @@ const runLifecycleHook = async (
     requestSnapshot = snapshotLifecycleRequestState(pi, ctx);
     operationKey = sha256Canonical({
       branch: source.branchSha256,
+      customInstructions: event.customInstructions ?? null,
       firstKeptEntryId: event.preparation.firstKeptEntryId,
       model: modelIdentity(model),
       reason: event.reason,
@@ -899,20 +929,16 @@ const runLifecycleHook = async (
   }
 
   if (state.inFlight) {
-    if (
-      state.inFlight.kind === "lifecycle" &&
-      state.inFlight.key === operationKey
-    ) {
-      return await state.inFlight.promise;
+    const active = state.inFlight;
+    if (active.kind === "lifecycle") {
+      active.cancelOverlap();
+      if (active.settled) {
+        releaseSettledLifecycleOperation(state, ctx, providerRuntime);
+      } else {
+        await active.completion;
+      }
     }
     return { cancel: true };
-  }
-  if (state.pendingInstall) {
-    const pending = state.pendingInstall;
-    state.pendingInstall = undefined;
-    if (isPendingInstallationResolvable(state, pending, ctx)) {
-      providerRuntime.installWindow(pending.sessionId, pending.runtime);
-    }
   }
 
   const { generation } = state;
@@ -920,6 +946,8 @@ const runLifecycleHook = async (
   const identity = modelIdentity(model);
   const sessionId = ctx.sessionManager.getSessionId();
   const operationController = new AbortController();
+  const completion = Promise.withResolvers<null>();
+  let cancelledByOverlap = false;
   const signal = AbortSignal.any([
     event.signal,
     state.controller.signal,
@@ -928,6 +956,7 @@ const runLifecycleHook = async (
   const isCurrent = () => {
     try {
       if (
+        cancelledByOverlap ||
         event.signal.aborted ||
         state.controller.signal.aborted ||
         state.generation !== generation ||
@@ -954,6 +983,11 @@ const runLifecycleHook = async (
       return false;
     }
   };
+  const notifyStale = (key: string, message: string) => {
+    if (!cancelledByOverlap) {
+      notifyOnce(state, key, ctx, message, "error");
+    }
+  };
 
   const operation = (async (): Promise<SessionBeforeCompactResult> => {
     ctx.ui.setStatus(STATUS_KEY, STATUS_MESSAGE);
@@ -971,12 +1005,9 @@ const runLifecycleHook = async (
       }
 
       if (!isCurrent()) {
-        notifyOnce(
-          state,
+        notifyStale(
           `${operationKey}:stale`,
-          ctx,
-          "OpenAI compaction was discarded because the session changed.",
-          "error"
+          "OpenAI compaction was discarded because the session changed."
         );
         return { cancel: true };
       }
@@ -1053,12 +1084,9 @@ const runLifecycleHook = async (
       ]);
 
       if (!isCurrent()) {
-        notifyOnce(
-          state,
+        notifyStale(
           `${operationKey}:stale`,
-          ctx,
-          "OpenAI compaction was discarded because the session changed.",
-          "error"
+          "OpenAI compaction was discarded because the session changed."
         );
         return { cancel: true };
       }
@@ -1111,12 +1139,9 @@ const runLifecycleHook = async (
           }
           usePortable = choice === "Use portable text summary";
           if (!isCurrent()) {
-            notifyOnce(
-              state,
+            notifyStale(
               `${operationKey}:choice-stale`,
-              ctx,
-              "Portable compaction was discarded because the session changed.",
-              "error"
+              "Portable compaction was discarded because the session changed."
             );
             return { cancel: true };
           }
@@ -1180,16 +1205,31 @@ const runLifecycleHook = async (
     }
   })();
 
-  state.inFlight = {
-    key: operationKey,
-    kind: "lifecycle",
+  const lifecycleOperation = {
+    abort: () => {
+      operationController.abort();
+    },
+    cancelOverlap: () => {
+      cancelledByOverlap = true;
+      operationController.abort();
+    },
+    completion: completion.promise,
+    finish: () => {
+      completion.resolve(null);
+    },
+    kind: "lifecycle" as const,
     promise: operation,
+    settled: false,
   };
+  state.inFlight = lifecycleOperation;
+  let result: SessionBeforeCompactResult | undefined;
   try {
-    return await operation;
+    result = await operation;
+    lifecycleOperation.settled = true;
+    return result;
   } finally {
-    if (state.inFlight?.promise === operation) {
-      state.inFlight = undefined;
+    if (state.inFlight?.promise === operation && !result?.compaction) {
+      releaseLifecycleOperation(state);
     }
   }
 };
@@ -2101,7 +2141,6 @@ const runInlineCompactionOperation = async (
     }
   })();
   state.inFlight = {
-    key: operationKey,
     kind: "inline",
     promise: operation,
   };
@@ -2544,6 +2583,7 @@ const registerLifecycleHooks = (
     state.candidate = undefined;
     state.frame = undefined;
     state.generation += 1;
+    releaseLifecycleOperation(state, true);
     state.inFlight = undefined;
     state.pendingInstall = undefined;
     state.requestHeaders = undefined;
@@ -2563,6 +2603,7 @@ const registerLifecycleHooks = (
   pi.on("session_compact", (event, ctx) => {
     const pending = state.pendingInstall;
     state.pendingInstall = undefined;
+    releaseLifecycleOperation(state);
     ctx.ui.setStatus(STATUS_KEY, undefined);
     if (!pending) {
       return;

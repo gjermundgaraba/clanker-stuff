@@ -751,6 +751,58 @@ describe("replacement provider", () => {
     });
   });
 
+  it.each([
+    { abort: true, expectedCloses: 1, expectedSockets: 1, label: "abort" },
+    { abort: false, expectedCloses: 2, expectedSockets: 2, label: "timeout" },
+  ])(
+    "closes sockets that fail to connect by $label",
+    async ({ abort, expectedCloses, expectedSockets }) => {
+      let closes = 0;
+      let sockets = 0;
+      const connecting = Promise.withResolvers<null>();
+      const ConnectingWebSocket = function ConnectingWebSocket() {
+        sockets += 1;
+        connecting.resolve(null);
+        const socket = new EventTarget() as EventTarget & {
+          close: () => void;
+          readyState: number;
+          send: () => void;
+        };
+        socket.readyState = 0;
+        socket.close = () => {
+          closes += 1;
+        };
+        socket.send = () => null;
+        return socket;
+      };
+      vi.stubGlobal("WebSocket", ConnectingWebSocket);
+      const controller = new AbortController();
+      const runtime = createCodexProviderRuntime();
+      const result = runtime.provider
+        .streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch: async () => sse(responseEvents("resp_connect", "fallback")),
+          sessionId: `session-connect-${abort ? "abort" : "timeout"}`,
+          signal: controller.signal,
+          transport: "websocket",
+          websocketConnectTimeoutMs: 1,
+        })
+        .result();
+
+      if (abort) {
+        await connecting.promise;
+        controller.abort();
+      }
+      const output = await result;
+
+      expect({ closes, sockets, stopReason: output.stopReason }).toStrictEqual({
+        closes: expectedCloses,
+        sockets: expectedSockets,
+        stopReason: abort ? "aborted" : "stop",
+      });
+    }
+  );
+
   it("retries WebSocket protocol errors before output", async () => {
     const frames: Record<string, unknown>[] = [];
     let connections = 0;

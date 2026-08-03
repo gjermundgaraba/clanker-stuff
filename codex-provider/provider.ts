@@ -1120,6 +1120,7 @@ const connectSocket = async (
   if (!isWebSocketConstructor(Constructor)) {
     throw new Error("WebSocket transport is unavailable");
   }
+  signal?.throwIfAborted();
   const socket = new Constructor(url, { headers: headersRecord(headers) });
   await new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1160,6 +1161,16 @@ const connectSocket = async (
         finish(new Error(`WebSocket connect timed out after ${timeout}ms`));
       }, timeout);
     }
+    if (signal?.aborted === true) {
+      onAbort();
+    }
+  }).catch((error: unknown) => {
+    try {
+      socket.close(1000, "connect failed");
+    } catch {
+      // The failed connection may already be closed.
+    }
+    throw error;
   });
   session.socket = { busy: true, createdAt: now, value: socket };
   return socket;
@@ -1727,11 +1738,11 @@ export const createCodexProviderRuntime = () => {
   const compact = async (
     request: CodexCompactionRequest
   ): Promise<CodexCompactionResult> => {
-    const runtimeSessionId =
-      request.phase === "standalone"
-        ? `${request.sessionId}:compaction:${uuidv7()}`
-        : request.sessionId;
-    const session = getSession(runtimeSessionId);
+    const standalone = request.phase === "standalone";
+    const runtimeSessionId = standalone
+      ? `${request.sessionId}:compaction:${uuidv7()}`
+      : request.sessionId;
+    const session = standalone ? createSession() : getSession(runtimeSessionId);
     session.turn ??= {
       id: uuidv7(),
       prewarmed: true,
@@ -1878,9 +1889,8 @@ export const createCodexProviderRuntime = () => {
       }
       throw new Error("Compaction retry loop ended unexpectedly");
     } finally {
-      if (request.phase === "standalone") {
+      if (standalone) {
         closeSocket(session);
-        sessions.delete(runtimeSessionId);
       }
     }
   };

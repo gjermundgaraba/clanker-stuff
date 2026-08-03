@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { zstdDecompressSync } from "node:zlib";
 
 import type { FetchFunction, Model } from "@earendil-works/pi-ai";
@@ -3049,6 +3050,183 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         newestResponse: "resp_second",
       });
     } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("cancels overlapping lifecycle compactions without sharing a result", async () => {
+    const paths = await workspace("codex-lifecycle-concurrent-");
+    const sideRequestsStarted = Promise.withResolvers<null>();
+    const pendingResponses: {
+      readonly resolve: () => void;
+    }[] = [];
+    let sideRequests = 0;
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      const request = requestJson(init?.body, headers);
+      const serialized = JSON.stringify(request);
+      if (
+        inputItemTypes(request.input).includes("compaction_trigger") ||
+        serialized.includes("<conversation>")
+      ) {
+        sideRequests += 1;
+        if (sideRequests === 2) {
+          sideRequestsStarted.resolve(null);
+        }
+        const pending = Promise.withResolvers<Response>();
+        const response = inputItemTypes(request.input).includes(
+          "compaction_trigger"
+        )
+          ? compactResponse("concurrent-native")
+          : assistantResponse("concurrent-portable");
+        pendingResponses.push({
+          resolve: () => pending.resolve(response),
+        });
+        const signal = init?.signal;
+        const onAbort = () => {
+          const error = new Error("aborted concurrent compaction");
+          error.name = "AbortError";
+          pending.reject(error);
+        };
+        if (signal?.aborted) {
+          onAbort();
+        } else {
+          signal?.addEventListener("abort", onAbort, { once: true });
+        }
+        return pending.promise;
+      }
+      return assistantResponse("concurrent-source");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const manager = SessionManager.inMemory(paths.cwd);
+    const notifications: string[] = [];
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: true,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [codexCompactionExtension],
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+      uiContext: {
+        notify: (message: string) => notifications.push(message),
+        setStatus: () => null,
+      } as unknown as ExtensionUIContext,
+    });
+
+    try {
+      await session.prompt("concurrent lifecycle source");
+      const first = session.compact("first instructions");
+      await sideRequestsStarted.promise;
+      const second = session.compact("second instructions");
+      const settled = Promise.allSettled([first, second]);
+      await delay(0);
+      for (const pending of pendingResponses) {
+        pending.resolve();
+      }
+      const results = await settled;
+
+      expect({
+        compactions: manager
+          .getBranch()
+          .filter((entry) => entry.type === "compaction").length,
+        notifications,
+        reasons: results.map((result) =>
+          result.status === "rejected" ? String(result.reason) : "fulfilled"
+        ),
+        sideRequests,
+      }).toStrictEqual({
+        compactions: 0,
+        notifications: [],
+        reasons: ["Error: Compaction cancelled", "Error: Compaction cancelled"],
+        sideRequests: 2,
+      });
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("holds the lifecycle lock until its matching compact event", async () => {
+    const paths = await workspace("codex-lifecycle-install-lock-");
+    const firstHookFinished = Promise.withResolvers<null>();
+    const releaseFirstHook = Promise.withResolvers<null>();
+    let beforeCompactEvents = 0;
+    const delayFirstInstall: ExtensionFactory = (pi) => {
+      pi.on("session_before_compact", async () => {
+        beforeCompactEvents += 1;
+        if (beforeCompactEvents === 1) {
+          firstHookFinished.resolve(null);
+          await releaseFirstHook.promise;
+        }
+      });
+    };
+    let nativeCompactions = 0;
+    let portableCompactions = 0;
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      const request = requestJson(init?.body, headers);
+      if (inputItemTypes(request.input).includes("compaction_trigger")) {
+        nativeCompactions += 1;
+        return compactResponse(`install-lock-${nativeCompactions}`);
+      }
+      if (JSON.stringify(request).includes("<conversation>")) {
+        portableCompactions += 1;
+        return assistantResponse(
+          `install-lock-portable-${portableCompactions}`
+        );
+      }
+      return assistantResponse("install-lock-source");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const manager = SessionManager.inMemory(paths.cwd);
+    const notifications: string[] = [];
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: true,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [codexCompactionExtension, delayFirstInstall],
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+      uiContext: {
+        notify: (message: string) => notifications.push(message),
+        setStatus: () => null,
+      } as unknown as ExtensionUIContext,
+    });
+
+    try {
+      await session.prompt("install lock source");
+      const first = session.compact("first install");
+      await firstHookFinished.promise;
+      const second = session.compact("second install");
+      const settled = Promise.allSettled([first, second]);
+      await delay(0);
+      releaseFirstHook.resolve(null);
+      const results = await settled;
+
+      expect({
+        compactions: manager
+          .getBranch()
+          .filter((entry) => entry.type === "compaction").length,
+        installErrors: notifications.filter((message) =>
+          message.includes("installation could not be verified")
+        ),
+        nativeCompactions,
+        portableCompactions,
+        statuses: results.map((result) => result.status),
+      }).toStrictEqual({
+        compactions: 0,
+        installErrors: [],
+        nativeCompactions: 1,
+        portableCompactions: 1,
+        statuses: ["rejected", "rejected"],
+      });
+    } finally {
+      releaseFirstHook.resolve(null);
       session.dispose();
       await rm(paths.rootDir, { force: true, recursive: true });
     }
