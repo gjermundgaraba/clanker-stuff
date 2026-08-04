@@ -21,6 +21,7 @@
     "index.ts",
     "LICENSE",
     "README.md",
+    "resume-command.ts",
     "shell"
   ],
   "type": "module",

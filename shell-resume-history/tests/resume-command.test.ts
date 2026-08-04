@@ -14,17 +14,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import { patchEnv } from "../../tests/helpers/env.js";
 import { createTempDir } from "../../tests/helpers/fs.js";
-import extension, {
+import {
   enqueueResumeCommand,
   formatResumeCommand,
   getDefaultSessionDirectory,
   INBOX_ENV,
-} from "../index.js";
+  recordResumeCommand,
+} from "../resume-command.js";
 
 const hasCommand = (command: string) =>
   spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0;
 
-describe("shell resume history", () => {
+describe("resume command", () => {
   let tempRoot: string | undefined;
   let restoreEnv: (() => void) | undefined;
 
@@ -56,7 +57,7 @@ describe("shell resume history", () => {
     const sessionFile = path.join(sessionDir, "session.jsonl");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(sessionFile, "{}\n");
-    const host = createExtensionHost(extension);
+    const host = createExtensionHost(() => {});
     const ctx = host.createContext({
       cwd,
       sessionManager: {
@@ -66,7 +67,7 @@ describe("shell resume history", () => {
       } as never,
     });
 
-    await host.emitSessionShutdown(ctx);
+    await recordResumeCommand("quit", ctx);
 
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(1);
@@ -100,18 +101,19 @@ describe("shell resume history", () => {
     const sessionFile = path.join(sessionDir, "session.jsonl");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(sessionFile, "{}\n");
-    const host = createExtensionHost(extension);
+    const host = createExtensionHost(() => {});
     const sessionManager = {
       getSessionDir: () => sessionDir,
       getSessionFile: () => sessionFile,
       getSessionId: () => "full-session-id",
     } as never;
 
-    await host.emitSessionShutdown(
-      host.createContext({ cwd, sessionManager }),
-      "reload"
+    await recordResumeCommand(
+      "reload",
+      host.createContext({ cwd, sessionManager })
     );
-    await host.emitSessionShutdown(
+    await recordResumeCommand(
+      "quit",
       host.createContext({ cwd, mode: "print", sessionManager })
     );
 
@@ -120,7 +122,7 @@ describe("shell resume history", () => {
 
   it("does not queue missing session files", async () => {
     const { cwd, inbox } = await setup();
-    const host = createExtensionHost(extension);
+    const host = createExtensionHost(() => {});
     const ctx = host.createContext({
       cwd,
       sessionManager: {
@@ -130,7 +132,7 @@ describe("shell resume history", () => {
       } as never,
     });
 
-    await host.emitSessionShutdown(ctx);
+    await recordResumeCommand("quit", ctx);
 
     await expect(readdir(inbox)).resolves.toStrictEqual([]);
   });

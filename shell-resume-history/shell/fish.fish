@@ -17,7 +17,7 @@ function __pi_shell_resume_history_setup
     set -gx PI_SHELL_RESUME_HISTORY_OWNER_PID "$fish_pid"
 end
 
-function __pi_shell_resume_history_drain
+function __pi_shell_resume_history_drain --on-event fish_prompt
     if test "$PI_SHELL_RESUME_HISTORY_OWNER_PID" != "$fish_pid"; or not test -d "$PI_SHELL_RESUME_HISTORY_DIR"
         return 0
     end
@@ -32,15 +32,9 @@ function __pi_shell_resume_history_drain
     end
 end
 
-function __pi_shell_resume_history_on_prompt --on-event fish_prompt
-    __pi_shell_resume_history_drain
-end
-
 function __pi_shell_resume_history_cleanup --on-process-exit %self
     if test "$PI_SHELL_RESUME_HISTORY_OWNER_PID" = "$fish_pid"; and test -n "$PI_SHELL_RESUME_HISTORY_DIR"
         command rm -rf -- "$PI_SHELL_RESUME_HISTORY_DIR"
-        set -e PI_SHELL_RESUME_HISTORY_DIR
-        set -e PI_SHELL_RESUME_HISTORY_OWNER_PID
     end
 end
 

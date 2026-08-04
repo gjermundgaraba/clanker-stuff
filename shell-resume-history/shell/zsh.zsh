@@ -41,8 +41,6 @@ function __pi_shell_resume_history_cleanup() {
   if [[ ${PI_SHELL_RESUME_HISTORY_OWNER_PID:-} == $$ &&
     -n ${PI_SHELL_RESUME_HISTORY_DIR:-} ]]; then
     command rm -rf -- "$PI_SHELL_RESUME_HISTORY_DIR"
-    unset PI_SHELL_RESUME_HISTORY_DIR
-    unset PI_SHELL_RESUME_HISTORY_OWNER_PID
   fi
 }
 
