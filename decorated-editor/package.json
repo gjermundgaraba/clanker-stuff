@@ -17,8 +17,10 @@
     "directory": "decorated-editor"
   },
   "files": [
+    "editor.ts",
     "index.ts",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",

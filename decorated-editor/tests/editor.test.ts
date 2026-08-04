@@ -11,7 +11,7 @@ import {
   createKeybindings,
   createMockTui,
 } from "../../tests/harness/tui.js";
-import extension from "../index.js";
+import { createDecoratedEditor } from "../editor.js";
 
 const identity = (text: string) => text;
 const editorTheme: EditorTheme = {
@@ -26,9 +26,10 @@ const editorTheme: EditorTheme = {
 };
 
 describe("decorated editor", () => {
-  it("applies registered decorations without changing editor text", async () => {
-    const host = createExtensionHost(extension);
-    host.events.emit("decorated-editor:register", {
+  it("applies registered decorations without changing editor text", () => {
+    const host = createExtensionHost(() => {});
+    const decoratedEditor = createDecoratedEditor();
+    decoratedEditor.register({
       color: "accent",
       id: "test",
       pattern: /\$alpha/gu,
@@ -39,7 +40,8 @@ describe("decorated editor", () => {
       fg: (color: string, text: string) =>
         color === "accent" ? `<accent>${text}</accent>` : text,
     } as Theme;
-    await host.emitSessionStart(host.createContext({ ui: { theme } }));
+    const ctx = host.createContext({ ui: { theme } });
+    decoratedEditor.install(ctx);
 
     const factory = host.getEditorFactory();
     if (!factory) {
@@ -58,8 +60,9 @@ describe("decorated editor", () => {
     );
   });
 
-  it("decorates a prior editor without changing its input behavior", async () => {
-    const host = createExtensionHost(extension);
+  it("decorates a prior editor without changing its input behavior", () => {
+    const host = createExtensionHost(() => {});
+    const decoratedEditor = createDecoratedEditor();
     const context = host.createContext({
       ui: {
         theme: {
@@ -89,17 +92,13 @@ describe("decorated editor", () => {
       }
     }
     const previousEditor = new PreviousEditor();
-    const previousFactory: NonNullable<
-      Parameters<typeof context.ui.setEditorComponent>[0]
-    > = () => previousEditor;
-
-    context.ui.setEditorComponent(previousFactory);
-    host.events.emit("decorated-editor:register", {
+    context.ui.setEditorComponent(() => previousEditor);
+    decoratedEditor.register({
       color: "accent",
       id: "test",
       pattern: /\$alpha/gu,
     });
-    await host.emitSessionStart(context);
+    decoratedEditor.install(context);
 
     const factory = host.getEditorFactory();
     if (!factory) {
