@@ -16,7 +16,7 @@ import {
   missingQuestionHeaders,
 } from "../questions.js";
 import type { Question, QuestionSession, QuestionState } from "../questions.js";
-import { HELP_EDITOR, formatKeyLabel } from "./input.js";
+import { formatKeyLabel } from "./input.js";
 import type { HelpText } from "./input.js";
 
 export type EditMode =
@@ -73,29 +73,11 @@ const wrapWithPrefix = (
     return [truncateLine(prefix.trimEnd(), width)];
   }
 
-  const output: string[] = [];
   const indent = " ".repeat(Math.max(0, visibleWidth(prefix)));
-  const logicalLines = text.split(/\r\n|\r|\n/u);
-
-  for (const logicalLine of logicalLines) {
-    const firstPrefix = output.length === 0 ? prefix : indent;
-
-    if (logicalLine.length === 0) {
-      output.push(truncateLine(firstPrefix.trimEnd(), width));
-      continue;
-    }
-
-    const available = Math.max(1, width - visibleWidth(firstPrefix));
-    const wrapped = wrapTextWithAnsi(logicalLine, available);
-
-    for (let index = 0; index < wrapped.length; index += 1) {
-      const currentPrefix = index === 0 ? firstPrefix : indent;
-      const line = wrapped[index] ?? "";
-      output.push(truncateLine(`${currentPrefix}${line}`, width));
-    }
-  }
-
-  return output;
+  const available = Math.max(1, width - visibleWidth(prefix));
+  return wrapTextWithAnsi(text, available).map((line, index) =>
+    truncateLine(`${index === 0 ? prefix : indent}${line}`, width)
+  );
 };
 
 const pushPreviewLines = (
@@ -342,13 +324,45 @@ const renderTabBar = (
       : theme.fg(allQuestionsComplete(sessions) ? "success" : "dim", submitText)
   );
 
-  add(tabs.join(" "));
+  let row = "";
+  for (const tab of tabs) {
+    const candidate = row === "" ? tab : `${row} ${tab}`;
+    if (row !== "" && visibleWidth(candidate) > maxWidth) {
+      add(row);
+      row = tab;
+    } else {
+      row = candidate;
+    }
+  }
+  if (row !== "") {
+    add(row);
+  }
+};
+
+const describeEditTarget = (view: PromptView): string => {
+  const { editMode, sessions } = view;
+  if (editMode.kind === "none") {
+    return "";
+  }
+
+  const { question } = sessions[editMode.questionIndex];
+  if (editMode.kind === "free_text") {
+    return `Editing answer for: ${question.header}`;
+  }
+
+  if (question.type === "free_text") {
+    return `Editing answer for: ${question.header}`;
+  }
+  const option = question.options[editMode.optionIndex];
+  return isOtherOption(option)
+    ? `Editing Other answer for: ${question.header}`
+    : `Editing note for: ${option.label}`;
 };
 
 const renderFooterHelp = (view: PromptView, add: (line: string) => void) => {
   const { currentTab, editMode, helpText, sessions, theme } = view;
   if (editMode.kind !== "none") {
-    add(theme.fg("dim", HELP_EDITOR));
+    add(theme.fg("dim", helpText.editor));
     return;
   }
 
@@ -395,7 +409,7 @@ export const renderPrompt = (view: PromptView, width: number): string[] => {
 
   if (editMode.kind !== "none") {
     lines.push("");
-    add(view.theme.fg("muted", "Editing..."));
+    add(view.theme.fg("muted", describeEditTarget(view)));
     if (activeEditor !== undefined) {
       for (const editorLine of activeEditor.render(maxWidth)) {
         lines.push(editorLine);

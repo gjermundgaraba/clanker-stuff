@@ -261,6 +261,6 @@ export const createSideConversation = async (
     settingsManager,
     thinkingLevel,
   });
-  await session.bindExtensions({ mode: ctx.mode, uiContext: ctx.ui });
+  await session.bindExtensions({ mode: "print" });
   return new SideSessionController(session);
 };

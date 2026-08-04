@@ -43,7 +43,7 @@ vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => {
 });
 
 describe("side extension", () => {
-  it("binds child extensions before returning the conversation", async () => {
+  it("binds child extensions without access to the main UI", async () => {
     const binding = Promise.withResolvers<null>();
     const bindExtensions = vi.fn<() => Promise<null>>(() => binding.promise);
     vi.mocked(createAgentSession).mockResolvedValueOnce({
@@ -69,8 +69,7 @@ describe("side extension", () => {
     });
     await vi.waitFor(() => {
       expect(bindExtensions).toHaveBeenCalledWith({
-        mode: ctx.mode,
-        uiContext: ctx.ui,
+        mode: "print",
       });
     });
     expect(returned).toBeFalsy();

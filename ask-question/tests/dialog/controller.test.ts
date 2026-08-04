@@ -9,6 +9,7 @@ import {
   executeTool,
   expectCancelledResult,
   expectSuccessResult,
+  renderFlowWithKeys,
 } from "../helpers.js";
 
 const singleQuestionParams = {
@@ -156,6 +157,33 @@ describe("ask-question dialog controller", () => {
     });
   });
 
+  it("clears row-specific hints after moving the cursor", async () => {
+    const params = {
+      questions: [
+        {
+          header: "Features",
+          options: [{ label: "Feature A" }, { label: "Feature B" }],
+          question: "Which features do you need?",
+          type: "multi_select" as const,
+        },
+      ],
+    };
+
+    const withHint = await renderFlowWithKeys(
+      params,
+      ["y"],
+      VIM_STYLE_KEYBINDINGS
+    );
+    const afterMove = await renderFlowWithKeys(
+      params,
+      ["y", "j"],
+      VIM_STYLE_KEYBINDINGS
+    );
+
+    expect(withHint).toContain("This question is incomplete");
+    expect(afterMove).not.toContain("This question is incomplete");
+  });
+
   it("uses the injected cancel keybinding", async () => {
     const { result, abortCalls } = await executeTool(singleQuestionParams, {
       customKeybindings: createKeybindings({
@@ -170,11 +198,11 @@ describe("ask-question dialog controller", () => {
     expect(abortCalls).toBe(1);
   });
 
-  it("keeps the local note shortcut working", async () => {
+  it("routes Kitty CSI-u note shortcuts through the controller", async () => {
     const { result } = await executeTool(singleQuestionParams, {
       customKeys: [
         KEY_ENTER,
-        "n",
+        "\u001B[110u",
         ..."Needs approval",
         KEY_ENTER,
         KEY_TAB,

@@ -93,7 +93,8 @@ describe("ask-question contract", () => {
     };
 
     expect(definition).toBeDefined();
-    expect(schema.additionalProperties).toBeFalsy();
+    // oxlint-disable-next-line vitest/prefer-to-be-falsy, vitest/prefer-to-be -- undefined would violate the strict schema contract
+    expect(schema.additionalProperties).toStrictEqual(false);
     expect(
       schema.properties?.questions?.items?.anyOf?.every(
         (branch) => branch.additionalProperties === false
@@ -132,6 +133,35 @@ describe("ask-question contract", () => {
 
   it.each([
     {
+      labels: ["Alpha", " alpha "],
+      message: "Duplicate option label: alpha",
+    },
+    {
+      labels: ["Alpha", "   "],
+      message: "Option labels must not be blank",
+    },
+    {
+      labels: ["Alpha", " Other "],
+      message:
+        "Do not include an 'Other' option; the UI provides it automatically",
+    },
+  ])("rejects ambiguous labels: $labels", ({ labels, message }) => {
+    expect(() =>
+      parseQuestionsFromParameters({
+        questions: [
+          {
+            header: "Plan",
+            options: labels.map((label) => ({ label })),
+            question: "Choose one",
+            type: "single_select",
+          },
+        ],
+      })
+    ).toThrow(message);
+  });
+
+  it.each([
+    {
       firstLabel: "Alpha",
       header: "Plan",
       question: "Choose one",
@@ -163,7 +193,7 @@ describe("ask-question contract", () => {
     }
   );
 
-  it("appends an implicit Other option and preserves details", () => {
+  it("trims labels and reserves only the exact Other label", () => {
     expect(
       parseQuestionsFromParameters({
         questions: [
@@ -172,8 +202,9 @@ describe("ask-question contract", () => {
             options: [
               {
                 details: "Best default for most teams.",
-                label: "Fast (Suggested)",
+                label: " Fast (Suggested) ",
               },
+              { label: "Other?" },
             ],
             placeholder: "Pick one",
             question: "Which plan do you want?",
@@ -189,6 +220,11 @@ describe("ask-question contract", () => {
             details: "Best default for most teams.",
             kind: "option",
             label: "Fast (Suggested)",
+          },
+          {
+            details: undefined,
+            kind: "option",
+            label: "Other?",
           },
           {
             kind: "other",

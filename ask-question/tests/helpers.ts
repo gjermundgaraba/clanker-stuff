@@ -41,11 +41,13 @@ export const KEY_ESCAPE = "\u001B";
 export const createAskQuestionHost = () => createExtensionHost(askQuestion);
 
 const DEFAULT_KEYBINDINGS = createSharedKeybindings({
+  "tui.input.submit": [KEY_ENTER],
   "tui.select.cancel": [KEY_ESCAPE],
   "tui.select.confirm": [KEY_ENTER],
 });
 
 export const VIM_STYLE_KEYBINDINGS = createSharedKeybindings({
+  "tui.input.submit": [KEY_ENTER],
   "tui.select.cancel": ["x"],
   "tui.select.confirm": ["y"],
   "tui.select.down": ["j"],

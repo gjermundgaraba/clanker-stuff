@@ -1,8 +1,6 @@
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { Key, decodeKittyPrintable, matchesKey } from "@earendil-works/pi-tui";
 
-export const HELP_EDITOR = "Pi editor keybindings • Enter save • Esc discard";
-
 export type DecodedIntent =
   | { type: "confirm" }
   | { type: "cancel" }
@@ -58,13 +56,19 @@ export const formatKeyLabel = (key: string): string => {
       if (!key.includes("+")) {
         return key;
       }
-      return key
-        .split("+")
-        .map((part) =>
-          part.length === 1
-            ? part.toUpperCase()
-            : `${part[0].toUpperCase()}${part.slice(1)}`
-        )
+      const parts = key.endsWith("+")
+        ? [...key.slice(0, -1).split("+").filter(Boolean), "+"]
+        : key.split("+");
+      return parts
+        .map((part) => {
+          if (part === "+") {
+            return part;
+          }
+          if (part.length === 1) {
+            return part.toUpperCase();
+          }
+          return `${part[0].toUpperCase()}${part.slice(1)}`;
+        })
         .join("+");
     }
   }
@@ -161,6 +165,11 @@ export const createHelpText = (keybindings: AskQuestionKeybindings) => {
     "confirm"
   );
   const cancel = formatBindingLabel(keybindings, "tui.select.cancel", "cancel");
+  const editorSubmit = formatBindingLabel(
+    keybindings,
+    "tui.input.submit",
+    "submit"
+  );
   const up = formatBindingLabel(keybindings, "tui.select.up", "↑");
   const down = formatBindingLabel(keybindings, "tui.select.down", "↓");
   const move = `${up}/${down}`;
@@ -168,11 +177,12 @@ export const createHelpText = (keybindings: AskQuestionKeybindings) => {
   return {
     cancel,
     confirm,
+    editor: `Pi editor keybindings • ${editorSubmit} save • ${cancel} discard`,
     freeText: `${confirm} edit answer`,
     globalTabs: `Tab/Shift+Tab or ←→ tabs • ${cancel} cancel questionnaire`,
     move,
     multi: `${move} move • Space toggle • ${confirm} confirm • n note`,
-    multiOther: `${move} move • Space/${confirm} edit Other`,
+    multiOther: `${move} move • Space toggle • ${confirm} edit Other`,
     single: `${move} move • ${confirm} select • n note`,
     singleOther: `${move} move • ${confirm} edit Other`,
     submit: `${confirm} submit`,

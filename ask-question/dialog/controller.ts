@@ -92,6 +92,7 @@ export const runAskQuestionPrompt = async (
           0,
           Math.min(question.options.length - 1, state.cursor + delta)
         );
+        hint = "";
         tui.requestRender();
       };
 

@@ -138,15 +138,20 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
     const seenOptionLabels = new Set<string>();
     const options: QuestionOption[] = questionValue.options.map(
       (optionValue) => {
-        const { details, label } = optionValue;
-        if (label.toLowerCase() === "other") {
+        const { details } = optionValue;
+        const label = optionValue.label.trim();
+        const normalizedLabel = label.toLowerCase();
+        if (label === "") {
+          throw new Error("Option labels must not be blank");
+        }
+        if (normalizedLabel === "other") {
           throw new Error(EXPLICIT_OTHER_OPTION_ERROR);
         }
-        if (seenOptionLabels.has(label)) {
+        if (seenOptionLabels.has(normalizedLabel)) {
           throw new Error(`Duplicate option label: ${label}`);
         }
 
-        seenOptionLabels.add(label);
+        seenOptionLabels.add(normalizedLabel);
         return {
           details,
           kind: "option",
