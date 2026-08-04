@@ -34,6 +34,15 @@ const userInput = (text: string) => ({
   type: "message" as const,
 });
 
+const CHECKPOINT_RUNTIME = {
+  compHash: null,
+  currentWindowId: "window-test",
+  effectiveTokenLimit: 100_000,
+  previousWindowId: null,
+  requestSchemaVersion: 1 as const,
+  windowNumber: 1,
+};
+
 const entry = (
   id: string,
   value: Record<string, unknown>,
@@ -63,15 +72,14 @@ const fallbackAssistant = (overrides: Record<string, unknown> = {}) => ({
 const captureLifecycleHooks = async () => {
   const hooks = new Map<string, unknown>();
   const previousFailure = process.env.CLANKER_CODEX_COMPACTION_FAILURE;
-  const previousReplacement = process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT;
   process.env.CLANKER_CODEX_COMPACTION_FAILURE = "ask";
-  process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT = "0";
   try {
     await codexCompactionExtension({
       on(name: string, hook: unknown) {
         hooks.set(name, hook);
       },
       registerEntryRenderer() {},
+      registerProvider() {},
     } as never);
   } finally {
     if (previousFailure === undefined) {
@@ -79,17 +87,12 @@ const captureLifecycleHooks = async () => {
     } else {
       process.env.CLANKER_CODEX_COMPACTION_FAILURE = previousFailure;
     }
-    if (previousReplacement === undefined) {
-      delete process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT;
-    } else {
-      process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT = previousReplacement;
-    }
   }
   return hooks;
 };
 
 describe("transport fallback notification", () => {
-  it("warns once for the replacement provider diagnostic", async () => {
+  it("warns once for the provider diagnostic", async () => {
     const hooks = await captureLifecycleHooks();
     const messageEnd = hooks.get("message_end") as (
       event: { readonly message: Record<string, unknown> },
@@ -105,50 +108,6 @@ describe("transport fallback notification", () => {
 
     messageEnd({ message: fallbackAssistant() }, ctx);
     messageEnd({ message: fallbackAssistant() }, ctx);
-
-    expect(notifications).toStrictEqual([
-      [
-        "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
-        "warning",
-      ],
-    ]);
-  });
-
-  it("warns for Pi's built-in fallback diagnostic when replacement is disabled", async () => {
-    const hooks = await captureLifecycleHooks();
-    const messageEnd = hooks.get("message_end") as (
-      event: { readonly message: Record<string, unknown> },
-      ctx: { readonly ui: { notify: (message: string, type: string) => void } }
-    ) => void;
-    const notifications: [string, string][] = [];
-    const ctx = {
-      ui: {
-        notify: (message: string, type: string) =>
-          notifications.push([message, type]),
-      },
-    };
-
-    messageEnd(
-      {
-        message: fallbackAssistant({
-          diagnostics: [
-            {
-              details: {
-                configuredTransport: "auto",
-                eventsEmitted: false,
-                fallbackTransport: "sse",
-                phase: "before_message_stream_start",
-                requestBytes: 123,
-              },
-              error: { message: "WebSocket connection failed" },
-              timestamp: 1,
-              type: "provider_transport_failure",
-            },
-          ],
-        }),
-      },
-      ctx
-    );
 
     expect(notifications).toStrictEqual([
       [
@@ -174,20 +133,6 @@ describe("transport fallback notification", () => {
       {
         details: { configuredTransport: "sse" },
         type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-      },
-      {
-        details: {
-          fallbackTransport: "websocket",
-          phase: "before_message_stream_start",
-        },
-        type: "provider_transport_failure",
-      },
-      {
-        details: {
-          fallbackTransport: "sse",
-          phase: "after_message_stream_start",
-        },
-        type: "provider_transport_failure",
       },
       { details: fallbackDiagnostic.details, type: "unrelated" },
     ]) {
@@ -266,104 +211,6 @@ describe("lifecycle source and checkpoint construction", () => {
     });
   });
 
-  it("blocks nonportable lifecycle state but permits authoritative inline history in replay-only mode", async () => {
-    const execution = {
-      compaction: {
-        encrypted_content: "opaque-replay-only",
-        id: "cmp_replay_only",
-        type: "compaction",
-      },
-      estimatedSourceTokens: 100,
-      ok: true,
-      responseId: "resp_replay_only",
-      usage: {
-        cacheRead: 0,
-        cacheWrite: 0,
-        cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: 0 },
-        input: 10,
-        output: 3,
-        totalTokens: 13,
-      },
-    } satisfies LifecycleExecutionSuccess;
-    const v4 = buildLifecycleCheckpoint({
-      execution,
-      model: SPIKE_MODEL,
-      phase: "standalone",
-      reason: "manual",
-    });
-    const v5 = buildLifecycleCheckpoint({
-      execution,
-      model: SPIKE_MODEL,
-      phase: "pre-sampling",
-      reason: "threshold",
-      runtime: {
-        compHash: "hash-replay-only",
-        currentWindowId: "window-replay-only",
-        effectiveTokenLimit: 100_000,
-        previousWindowId: null,
-        requestSchemaVersion: 1,
-        windowNumber: 1,
-      },
-    });
-    type Hook = (
-      event: { readonly branchEntries: readonly SessionEntry[] },
-      ctx: { readonly model: typeof SPIKE_MODEL }
-    ) => Promise<unknown>;
-    let hook: Hook | undefined;
-    const previousReplacement = process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT;
-    process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT = "0";
-    try {
-      await codexCompactionExtension({
-        on(name: string, registered: unknown) {
-          if (name === "session_before_compact") {
-            hook = registered as Hook;
-          }
-        },
-        registerEntryRenderer() {},
-      } as never);
-    } finally {
-      if (previousReplacement === undefined) {
-        delete process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT;
-      } else {
-        process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT = previousReplacement;
-      }
-    }
-    const run = hook;
-    if (!run) {
-      throw new Error("session_before_compact hook was not registered");
-    }
-
-    expect([
-      await run({ branchEntries: [] }, { model: SPIKE_MODEL }),
-      await run(
-        {
-          branchEntries: [
-            entry("v4", {
-              details: { checkpoint: v4, type: CHECKPOINT_CUSTOM_TYPE },
-              firstKeptEntryId: "v4",
-              summary: "opaque",
-              tokensBefore: 100,
-              type: "compaction",
-            }),
-          ],
-        },
-        { model: SPIKE_MODEL }
-      ),
-      await run(
-        {
-          branchEntries: [
-            entry("v5", {
-              customType: CHECKPOINT_CUSTOM_TYPE,
-              data: v5,
-              type: "custom",
-            }),
-          ],
-        },
-        { model: SPIKE_MODEL }
-      ),
-    ]).toStrictEqual([undefined, { cancel: true }, undefined]);
-  });
-
   it("uses full active branch history rather than Pi's summary subset", () => {
     const branch = [
       entry("user-old", {
@@ -430,11 +277,11 @@ describe("lifecycle source and checkpoint construction", () => {
         )
         .join("|"),
       prefix: source.inputPrefix,
-      retainedUsers: source.retainedUsers,
+      retainedItems: source.retainedItems,
     }).toStrictEqual({
       contextText: "old user|assistant|new user",
       prefix: [],
-      retainedUsers: [userInput("old user"), userInput("new user")],
+      retainedItems: [userInput("old user"), userInput("new user")],
     });
   });
 
@@ -551,7 +398,7 @@ describe("lifecycle source and checkpoint construction", () => {
       noPriorCompaction: {
         ignored: noPriorCompaction.ignoredInvalidInlineCheckpoint,
         prefix: noPriorCompaction.inputPrefix,
-        users: noPriorCompaction.retainedUsers,
+        retainedItems: noPriorCompaction.retainedItems,
       },
     }).toStrictEqual({
       afterOrdinary: {
@@ -561,7 +408,7 @@ describe("lifecycle source and checkpoint construction", () => {
       noPriorCompaction: {
         ignored: true,
         prefix: [],
-        users: [
+        retainedItems: [
           userInput("before corrupt inline"),
           userInput("after corrupt inline"),
         ],
@@ -609,7 +456,7 @@ describe("lifecycle source and checkpoint construction", () => {
       model: SPIKE_MODEL,
       phase: "overflow-retry",
       reason: "overflow",
-      retainedUsers: [
+      retainedItems: [
         userInput("retained"),
         {
           content: [
@@ -622,6 +469,7 @@ describe("lifecycle source and checkpoint construction", () => {
           type: "message",
         },
       ],
+      runtime: CHECKPOINT_RUNTIME,
     });
     const serialized = JSON.stringify({
       checkpoint,
@@ -672,7 +520,7 @@ describe("lifecycle source and checkpoint construction", () => {
       repeatedSource: {
         context: repeatedSource.contextMessages,
         prefix: repeatedSource.inputPrefix,
-        retainedUsers: repeatedSource.retainedUsers,
+        retainedItems: repeatedSource.retainedItems,
       },
       resolvableInstall: isLifecycleInstallationResolvable(
         [lifecycleEntry, tailEntry],
@@ -696,7 +544,7 @@ describe("lifecycle source and checkpoint construction", () => {
           },
         ],
         prefix: checkpoint.replacement,
-        retainedUsers: [
+        retainedItems: [
           userInput("retained"),
           userInput(RETAINED_USER_IMAGE_PLACEHOLDER),
           userInput("tail user"),
@@ -717,7 +565,7 @@ describe("lifecycle source and checkpoint construction", () => {
     });
   });
 
-  it("restores V5 transition provenance and preserves a missing hash", () => {
+  it("restores transition provenance and preserves a missing hash", () => {
     const previousModel = { ...SPIKE_MODEL, id: "model-a", name: "Model A" };
     const currentModel = { ...SPIKE_MODEL, id: "model-b", name: "Model B" };
     const checkpoint = buildLifecycleCheckpoint({
@@ -742,6 +590,7 @@ describe("lifecycle source and checkpoint construction", () => {
       model: previousModel,
       phase: "pre-sampling",
       reason: "threshold",
+      retainedItems: [],
       runtime: {
         compHash: "hash-a",
         currentWindowId: "window-a",
@@ -1042,7 +891,8 @@ describe("lifecycle source and checkpoint construction", () => {
       model: SPIKE_MODEL,
       phase: "pre-sampling",
       reason: "threshold",
-      retainedUsers: [userInput("retained")],
+      retainedItems: [userInput("retained")],
+      runtime: CHECKPOINT_RUNTIME,
     });
     const previous = entry("previous", {
       message: {

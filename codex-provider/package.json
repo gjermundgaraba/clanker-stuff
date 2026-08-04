@@ -17,7 +17,6 @@
     "directory": "codex-provider"
   },
   "files": [
-    "audit-local-order.ts",
     "checkpoint.ts",
     "index.ts",
     "lifecycle.ts",
@@ -26,11 +25,12 @@
     "replay.ts",
     "README.md",
     "LICENSE",
+    "docs/codex-baseline.md",
     "docs/design.md",
     "docs/context-alignment.md",
+    "docs/evaluation.md",
     "docs/live-canary.md",
-    "docs/local-deployment.md",
-    "scripts"
+    "docs/local-deployment.md"
   ],
   "type": "module",
   "imports": {
@@ -41,17 +41,25 @@
   },
   "exports": "./index.ts",
   "scripts": {
+    "eval:agents": "node ./scripts/evaluate-agents.ts",
+    "eval:agents:dry": "node ./scripts/evaluate-agents.ts --dry-run",
+    "eval:agents:smoke": "node ./scripts/evaluate-agents.ts --smoke",
     "test:live": "node ./scripts/live-multi-compaction.ts",
     "test:live:branch": "node ./scripts/live-multi-compaction.ts --branch",
     "test:live:capabilities": "node ./scripts/live-multi-compaction.ts --capabilities",
     "test:live:fallback": "node ./scripts/live-multi-compaction.ts --fallback",
+    "test:live:fault": "node ./scripts/live-multi-compaction.ts --stream-fault --sse",
     "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
     "test:live:portable": "node ./scripts/live-multi-compaction.ts --portable",
     "test:live:real": "node ./scripts/live-multi-compaction.ts --real-window",
+    "test:live:crash": "node ./scripts/live-chaos.ts --crash",
+    "test:live:marathon": "pnpm run test:live:soak:sse && pnpm run test:live:websocket && pnpm run test:live:mid-turn && pnpm run test:live:fault && pnpm run test:live:rpc && pnpm run test:live:crash",
+    "test:live:rpc": "node ./scripts/live-chaos.ts --rpc",
     "test:live:soak:sse": "node ./scripts/live-multi-compaction.ts --soak --sse",
     "test:live:soak:websocket": "node ./scripts/live-multi-compaction.ts --soak --websocket",
     "test:live:threshold": "node ./scripts/live-multi-compaction.ts --threshold",
-    "test:live:websocket": "node ./scripts/live-multi-compaction.ts --branch --websocket"
+    "test:live:websocket": "node ./scripts/live-multi-compaction.ts --branch --websocket",
+    "verify:provider": "pnpm -w check:all && pnpm run test:live:marathon && pnpm run eval:agents --repetitions 3 && pnpm run eval:agents --task compaction-resume"
   },
   "devDependencies": {
     "vitest": "*"

@@ -1,8 +1,8 @@
-# Live provider-replacement canary
+# Live Codex provider canary
 
-The live canary exercises the installed OpenAI Codex credential, the replacement provider, remote V2 compaction, durable v5 checkpoints, transport behavior, and replay in a fresh Node process. It makes real network requests and consumes model usage.
+The live canary exercises the installed OpenAI Codex credential, the replacement provider, remote V2 compaction, durable `clanker.codex-provider/checkpoint` schema-v1 checkpoints under the `codex-provider.checkpoint` session namespace, transport behavior, and replay in a fresh Node process. It makes real network requests and consumes model usage.
 
-The runner clears `CLANKER_CODEX_PROVIDER_REPLACEMENT` so it exercises default replacement ownership. It does not load project context, skills, prompts, themes, other extensions, or unrelated tools.
+The runner does not load project context, skills, prompts, themes, other extensions, or unrelated tools.
 
 ## Default SSE run
 
@@ -15,7 +15,7 @@ pnpm --dir codex-provider test:live
 SSE is the default transport. Three rounds use a small estimator window and synthetic prompts. Every round must:
 
 1. Perform compaction and the following model response over SSE without constructing a WebSocket.
-2. Add exactly one strict v5 threshold checkpoint with a unique response ID.
+2. Add exactly one strict schema-v1 threshold checkpoint with a unique response ID.
 3. Advance `windowNumber`, set `previousWindowId` to the prior `currentWindowId`, and issue a new current ID.
 4. Complete without a framing diagnostic or extension error.
 
@@ -27,7 +27,7 @@ The parent then exits its session. A new Node process opens the JSONL session, s
 pnpm --dir codex-provider test:live:portable
 ```
 
-This SSE-only mode performs a real lifecycle `/compact` with custom instructions. It requires one readable Pi summary beside one native v5 checkpoint, verifies that the custom marker enters only the summary, and confirms the compatible request contains the opaque replacement instead of the readable summary. The model must recall a generated value that the custom instructions deliberately omitted from the portable summary, proving that omission did not alter native checkpoint recall.
+This SSE-only mode performs a real lifecycle `/compact` with custom instructions. It requires one readable Pi summary beside one native schema-v1 checkpoint, verifies that the custom marker enters only the summary, and confirms the compatible request contains the opaque replacement instead of the readable summary. The model must recall a generated value that the custom instructions deliberately omitted from the portable summary, proving that omission did not alter native checkpoint recall.
 
 Retries can increase usage and cost. The retained JSONL artifact stores the readable summary and original conversation in plaintext; summary omission is not deletion.
 
@@ -51,7 +51,7 @@ Expect roughly 1.4–1.6 million provider-context tokens across calibration, fil
 pnpm --dir codex-provider test:live:mid-turn
 ```
 
-This mode calibrates natural text and performs two real tool loops. In each round the model must call `context_filler` exactly once. Its result fills at least 80% of the real context and crosses the local threshold, forcing compaction before the next model response. The model must then call `post_compaction_probe` exactly once; the tool rejects an early call by recording how many checkpoints existed when it ran. This proves the post-compaction request still contains the current tool schemas and system instructions. Both checkpoints must have phase `mid-turn`, and their v5 windows must form one monotonic replacement chain.
+This mode calibrates natural text and performs two real tool loops. In each round the model must call `context_filler` exactly once. Its result fills at least 80% of the real context and crosses the local threshold, forcing compaction before the next model response. The model must then call `post_compaction_probe` exactly once; the tool rejects an early call by recording how many checkpoints existed when it ran. This proves the post-compaction request still contains the current tool schemas and system instructions. Both checkpoints must have phase `mid-turn`, and their windows must form one monotonic replacement chain.
 
 Before round two replays the active checkpoint, a canary extension injects one hidden custom message and deterministically changes its live top-level timestamp from the persisted timestamp. The provider request must still contain exactly one opaque compaction item and one copy of the sentinel text, and replay must complete without a context-frame diagnostic.
 
@@ -63,7 +63,7 @@ Expect roughly 460,000–600,000 provider-context tokens.
 pnpm --dir codex-provider test:live:websocket
 ```
 
-This is genuine WebSocket coverage for both compaction and normal turns. The runner counts WebSocket constructions and fails if any `/responses` request uses SSE. It performs repeated v5 replacements, then proves branch isolation in a fresh process over WebSocket. Before disposal, the harness uses Pi's public reload lifecycle so `session_shutdown` closes cached sockets immediately.
+This is genuine WebSocket coverage for both compaction and normal turns. The runner counts WebSocket constructions and fails if any `/responses` request uses SSE. It performs repeated schema-v1 replacements, then proves branch isolation in a fresh process over WebSocket. Before disposal, the harness uses Pi's public reload lifecycle so `session_shutdown` closes cached sockets immediately.
 
 ## Forced fallback run
 
@@ -83,7 +83,7 @@ pnpm --dir codex-provider test:live:branch
 
 The parent creates at least two checkpoints and exits its session. A spawned Node process then:
 
-1. Forks at checkpoint 1 and creates a divergent v5 window chained from it.
+1. Forks at checkpoint 1 and creates a divergent schema-v1 window chained from it.
 2. Proves checkpoint 2 is absent from the divergent branch.
 3. Reopens checkpoint 2's original branch and proves the divergent checkpoint is absent.
 4. Restores the divergent branch and verifies it remains independent.
@@ -113,18 +113,50 @@ pnpm --dir codex-provider test:live:soak:sse
 pnpm --dir codex-provider test:live:soak:websocket
 ```
 
-Each soak performs ten sequential compactions, verifies unique response IDs and one monotonic v5 window chain, then reopens the session in a fresh Node process for two replay turns. The WebSocket soak additionally requires one reused connection and zero SSE requests. Set `CODEX_COMPACTION_LIVE_ROUNDS` to increase the run beyond ten rounds.
+Each soak performs ten sequential compactions, verifies unique response IDs and one monotonic schema-v1 window chain, then reopens the session in a fresh Node process for two replay turns. The WebSocket soak additionally requires one reused connection and zero SSE requests. Set `CODEX_COMPACTION_LIVE_ROUNDS` to increase the run beyond ten rounds.
 
 A ten-round soak processes at least about 375,000 input tokens through compaction, plus the normal responses and fresh-process replay. Run these deliberately; they are broader state-leak and long-chain coverage, not routine unit tests.
+
+## Client stream-fault run
+
+```bash
+node codex-provider/scripts/live-multi-compaction.ts --stream-fault --sse
+```
+
+This mode interrupts the first real `/responses` compaction response body inside the client after the HTTP request succeeds. It identifies compaction structurally by the trailing `compaction_trigger`, matching the provider protocol rather than assuming a separate endpoint. The provider must retry, persist exactly two schema-v1 checkpoints across two rounds, and replay them in a fresh process. The runner requires exactly one injected fault and at least one extra compaction request.
+
+## Concurrent RPC run
+
+```bash
+node codex-provider/scripts/live-chaos.ts --rpc
+```
+
+This launches Pi's real RPC process and sends two `compact` commands without awaiting either one. Both overlapping compactions must cancel without persisting a partial entry. A following recovery compaction must persist one schema-v1 lifecycle checkpoint and remain usable on the next prompt. The isolated artifacts are retained, but their copied `auth.json` is removed before exit.
+
+## Crash/restart run
+
+```bash
+node codex-provider/scripts/live-chaos.ts --crash
+```
+
+This launches the normal SSE runner, polls its JSONL artifact, and sends `SIGKILL` as soon as the first complete checkpoint line is readable. A fresh Node process then opens that exact session and proves the durable checkpoint can serve two normal turns without being replaced.
+
+## Mixed marathon run
+
+```bash
+pnpm --dir codex-provider test:live:marathon
+```
+
+The marathon deliberately composes existing canaries: a ten-round SSE soak, WebSocket branch isolation, two real-window mid-turn tool loops, client stream-fault recovery, concurrent RPC recovery, and checkpoint-boundary `SIGKILL` recovery. It consumes roughly one million or more provider-context tokens; retries increase that total.
 
 Use one transport flag with any compatible behavior mode:
 
 ```text
 --sse | --websocket | --fallback
---branch | --capabilities | --portable | --real-window | --mid-turn | --soak | --threshold
+--branch | --capabilities | --portable | --real-window | --mid-turn | --soak | --stream-fault | --threshold
 ```
 
-`--sse` is implicit when no transport flag is present. Choose at most one behavior mode. `--portable` requires SSE. Real-window and mid-turn evidence requires SSE request inspection, so `--real-window --websocket` and `--mid-turn --websocket` are rejected; forced fallback remains compatible because its compaction requests continue over SSE. `--mid-turn` implies `--real-window`. Internal `--branch-child` and `--restart-child` flags are reserved for the runner.
+`--sse` is implicit when no transport flag is present. Choose at most one behavior mode. `--portable` and `--stream-fault` require SSE. Real-window and mid-turn evidence requires SSE request inspection, so `--real-window --websocket` and `--mid-turn --websocket` are rejected; forced fallback remains compatible because its compaction requests continue over SSE. `--mid-turn` implies `--real-window`. Internal `--branch-child` and `--restart-child` flags are reserved for the runner.
 
 ## Configuration and artifacts
 
@@ -134,9 +166,9 @@ Optional environment variables:
 
 - `CODEX_COMPACTION_LIVE_MODEL` — model ID.
 - `CODEX_COMPACTION_LIVE_ALT_MODEL` — capability-run model-switch target; default `gpt-5.6-terra`.
-- `CODEX_COMPACTION_LIVE_ROUNDS` — compaction rounds; minimum 2, default 3, 10 for soak mode, or 2 for real-window, mid-turn, and branch modes.
+- `CODEX_COMPACTION_LIVE_ROUNDS` — compaction rounds; minimum 2, default 3, 10 for soak mode, or 2 for real-window, mid-turn, branch, and stream-fault modes.
 - `CODEX_COMPACTION_LIVE_CONTEXT_WINDOW` — forced estimator window; default 4096.
 - `CODEX_COMPACTION_LIVE_PAYLOAD_BYTES` — synthetic bytes per round; default 20000.
 - `CODEX_COMPACTION_LIVE_DIR` — artifact parent directory.
 
-This is a release canary, not a deterministic correctness test. It does not inject rate limits or partial-stream disconnects into the paid backend. Unit and integration tests remain responsible for those cases and for exact malformed-state, race, retry-alignment, fail-closed, and replacement opt-out behavior.
+This is a release canary, not a deterministic correctness test. It does not inject server-side rate limits or disconnect the paid backend itself. Unit and integration tests remain responsible for exact malformed-state, race, retry-alignment, and fail-closed behavior.

@@ -38,9 +38,17 @@ const checkpoint = () => {
         totalTokens: 120,
       },
     },
-    schema: "clanker.codex-compaction/checkpoint",
+    runtime: {
+      compHash: "comp-a",
+      currentWindowId: "window-2",
+      effectiveTokenLimit: 190_000,
+      previousWindowId: "window-1",
+      requestSchemaVersion: 1,
+      windowNumber: 2,
+    },
+    schema: "clanker.codex-provider/checkpoint",
     sourceTokens: 12_345,
-    version: 4,
+    version: 1,
   };
 };
 

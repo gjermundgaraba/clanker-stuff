@@ -66,7 +66,7 @@ describe("request framing and finalized replay", () => {
   it("frames one baseline while preserving fresh prefix/suffix and removes the lifecycle marker", () => {
     const prefix = { content: "fresh prefix", role: "user" };
     const marker = {
-      content: "[OpenAI encrypted compaction checkpoint]",
+      content: "portable checkpoint summary",
       role: "compactionSummary",
     };
     const oldBaseline = { content: "old baseline", role: "user" };
@@ -105,8 +105,8 @@ describe("request framing and finalized replay", () => {
 
     expect({
       context: framed.messages,
-      markerCount: JSON.stringify(rewritten).match(/codex-compaction:frame/gu)
-        ?.length,
+      markerCount:
+        JSON.stringify(rewritten).match(/codex-provider:frame/gu)?.length,
       opaqueCount: rewritten.filter((item) => item.type === "compaction")
         .length,
       replay: rewritten,
@@ -139,7 +139,7 @@ describe("request framing and finalized replay", () => {
     expect(
       cases.map((input) => extractFinalizedFrame(input, nonce).kind)
     ).toStrictEqual(["invalid", "invalid", "invalid", "invalid", "invalid"]);
-    const malformed = textUser("[codex-compaction:frame:start:not-a-uuid!]");
+    const malformed = textUser("[codex-provider:frame:start:not-a-uuid!]");
     const staleStart = serializedMarker("start", stale);
     const staleEnd = serializedMarker("end", stale);
     const unrelated = extractFinalizedFrame(

@@ -1,17 +1,19 @@
 # Context alignment
 
-Pi persists every completed assistant attempt, but automatic retry removes the retryable error from live `agent.state.messages` while retaining it in the session branch. A successful retry therefore leaves a deliberate persisted-versus-live divergence: the failed assistant remains in JSONL history but is absent from later provider requests.
+Pi persists every completed assistant attempt, but automatic retry removes a retryable error from live `agent.state.messages` while leaving it on the active session branch. A successful retry therefore creates an intentional persisted-versus-live difference.
 
-Codex checkpoint replay treats the live `context` event as the authoritative pending request and the persisted branch as proof of the checkpoint boundary. It aligns them under these rules:
+Checkpoint replay treats the live `context` event as the pending request authority and the persisted branch as proof of the checkpoint boundary. [`frameContiguousBaseline`](../replay.ts) and the lifecycle hooks enforce these rules:
 
 1. Retained branch messages must canonically equal their live counterparts.
 2. The only permitted omission is a persisted assistant with `stopReason === "error"`.
-3. Fresh live messages are allowed only outside the aligned branch as the preserved context prefix or suffix.
+3. Fresh live messages may appear only outside the aligned branch as the preserved prefix or suffix.
 4. The checkpoint tail must be a canonical suffix of the branch projection.
-5. Alignment must produce exactly one result; otherwise replay fails closed.
+5. Alignment must produce exactly one result; missing or ambiguous alignment fails closed.
 
-The framed checkpoint tail is built from matched live messages. Omitted retry errors are therefore not reintroduced from persisted history. Historical errors that remain in live context match normally and are retained.
+The framed segment is built from matched live messages, so omitted retry errors are never reintroduced from JSONL history. Historical errors that still exist in live context match normally.
 
-This request-local proof handles trailing, interior, and repeated retry failures without persisting retry state or changing checkpoint schema v4/v5. Marker-free structural parity still validates the complete finalized Responses input before provider execution.
+Temporary frame markers prove which serialized Responses items came from the aligned segment. Before provider execution, the extension removes the markers, substitutes checkpoint v1 history, repairs only Pi-generated fallback IDs whose marker-free identity is proven, and compares the complete result with marker-free serialization. Native IDs and valid tool linkage are never rewritten.
 
-If alignment fails with an active checkpoint, the request is aborted and a redacted `codex-compaction.diagnostic` entry records counts, hashes, message shapes, and the first mismatch location.
+This handles trailing, interior, and repeated retry failures without persisting retry state. It also preserves prefix/suffix content added by earlier hooks. Active checkpoint replay aborts if later hooks duplicate or move a marker, split a tool pair, mutate the branch, change request state, or otherwise break structural parity.
+
+Failure appends a redacted `codex-provider.diagnostic` entry containing counts, hashes, message shapes, and the first mismatch location. It contains no prompt text or provider secrets. Coverage is in [request framing tests](../tests/replay.test.ts), [fallback-ID parity tests](../tests/fallback-id-parity.test.ts), and [real-session lifecycle tests](../tests/lifecycle.integration.test.ts).

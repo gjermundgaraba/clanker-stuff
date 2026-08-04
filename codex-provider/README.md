@@ -12,4 +12,4 @@ OpenAI Codex requests compact and replay opaque checkpoints automatically when t
 
 ## Configuration
 
-The complete replacement is enabled by default. See [design](docs/design.md) for provider ownership and remote-compaction failure policy.
+The provider replacement is always active. See [design](docs/design.md) for ownership and remote-compaction failure policy.

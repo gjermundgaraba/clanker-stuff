@@ -20,7 +20,7 @@ export const CONTEXT_WINDOW_TRUNCATED_OUTPUT_MESSAGE =
 export const FIXED_IMAGE_BYTE_ESTIMATE = 7373;
 export const NON_VISION_USER_IMAGE_PLACEHOLDER =
   "(image omitted: model does not support images)";
-export const FRAME_MARKER_PREFIX = "[codex-compaction:frame:";
+export const FRAME_MARKER_PREFIX = "[codex-provider:frame:";
 
 const SYNTHETIC_OUTPUT_NAMESPACE = "90d38d3e-6a5b-4d52-bfe2-2f1e634bfac4";
 const encoder = new TextEncoder();

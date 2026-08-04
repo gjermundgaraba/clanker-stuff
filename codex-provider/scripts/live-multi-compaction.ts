@@ -26,25 +26,22 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
-import type { CheckpointV5 } from "../checkpoint.ts";
-import { parseCheckpoint } from "../checkpoint.ts";
+import type { Checkpoint } from "../checkpoint.ts";
+import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
-const CHECKPOINT_TYPE = "codex-compaction.checkpoint";
-const DIAGNOSTIC_TYPE = "codex-compaction.diagnostic";
-const TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE = "codex-provider.transport-fallback";
+const CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE = "codex-provider.diagnostic";
+const CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE =
+  "codex-provider.transport-fallback";
 const TRANSPORT_FALLBACK_WARNING =
   "OpenAI Codex WebSocket is unavailable; using SSE for this session.";
 const TRUNCATED_OUTPUT_MESSAGE =
   "Output exceeded the available model context and was truncated";
-const LEGACY_CHECKPOINT_MARKER = "[OpenAI encrypted compaction checkpoint]";
 const TIMESTAMP_CANARY_TYPE = "live-timestamp-canary";
 const TIMESTAMP_CANARY_SENTINEL = "MIDTURN-TIMESTAMP-CANARY-7F3A";
 const MAGENTA_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAA1BMVEX/AP804Oa6AAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
-
-delete process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT;
 
 type TransportMode = "fallback" | "sse" | "websocket";
 
@@ -86,20 +83,26 @@ const compactionEntries = (manager: SessionManager): CompactionEntry[] =>
     .getBranch()
     .filter((entry): entry is CompactionEntry => entry.type === "compaction");
 
+const parseLiveCheckpoint = (value: unknown, label: string): Checkpoint => {
+  const parsed = parseCheckpoint(value);
+  if (!parsed.ok) {
+    throw new Error(`${label}: ${parsed.error}`);
+  }
+  return parsed.checkpoint;
+};
+
 const lifecycleCheckpoint = (
   entry: CompactionEntry | undefined
-): CheckpointV5 => {
+): Checkpoint => {
   assert(entry !== undefined, "Lifecycle compaction entry missing");
   assert(
-    isRecord(entry.details) && entry.details.type === CHECKPOINT_TYPE,
+    isRecord(entry.details) && entry.details.type === CHECKPOINT_CUSTOM_TYPE,
     "Lifecycle compaction details missing"
   );
-  const parsed = parseCheckpoint(entry.details.checkpoint);
-  if (!parsed.ok) {
-    throw new Error(`Lifecycle checkpoint invalid: ${parsed.error}`);
-  }
-  assert(parsed.checkpoint.version === 5, "Expected lifecycle checkpoint v5");
-  return parsed.checkpoint;
+  return parseLiveCheckpoint(
+    entry.details.checkpoint,
+    "Lifecycle checkpoint invalid"
+  );
 };
 
 const contextTokens = (usage: Usage | undefined): number => {
@@ -111,24 +114,13 @@ const contextTokens = (usage: Usage | undefined): number => {
     : usage.totalTokens;
 };
 
-const checkpointV5 = (entry: CustomEntry | undefined): CheckpointV5 => {
+const parsedCheckpoint = (entry: CustomEntry | undefined): Checkpoint => {
   assert(entry !== undefined, "Checkpoint missing");
-  const parsed = parseCheckpoint(entry.data);
-  if (!parsed.ok) {
-    throw new Error(`Checkpoint invalid: ${parsed.error}`);
-  }
-  assert(parsed.checkpoint.version === 5, "Expected checkpoint v5");
-  return parsed.checkpoint;
+  return parseLiveCheckpoint(entry.data, "Checkpoint invalid");
 };
 
-const responseId = (entry: CustomEntry | undefined): string => {
-  assert(entry !== undefined, "Checkpoint response ID missing");
-  const parsed = parseCheckpoint(entry.data);
-  if (!parsed.ok) {
-    throw new Error(`Checkpoint invalid: ${parsed.error}`);
-  }
-  return parsed.checkpoint.response.id;
-};
+const responseId = (entry: CustomEntry | undefined): string =>
+  parsedCheckpoint(entry).response.id;
 
 const assertCheckpoint = (
   entry: CustomEntry | undefined,
@@ -138,19 +130,10 @@ const assertCheckpoint = (
   requireLocalThreshold: boolean,
   expectedPhase: "mid-turn" | "pre-sampling" = "pre-sampling"
 ): {
-  readonly runtime: CheckpointV5["runtime"];
+  readonly runtime: Checkpoint["runtime"];
   readonly sideInputTokens: number;
 } => {
-  assert(entry !== undefined, `Round ${expectedRound}: checkpoint missing`);
-  const parsed = parseCheckpoint(entry.data);
-  if (!parsed.ok) {
-    throw new Error(`Round ${expectedRound}: ${parsed.error}`);
-  }
-  const { checkpoint } = parsed;
-  assert(
-    checkpoint.version === 5,
-    `Round ${expectedRound}: expected checkpoint v5`
-  );
+  const checkpoint = parsedCheckpoint(entry);
   assert(
     checkpoint.phase === expectedPhase && checkpoint.reason === "threshold",
     `Round ${expectedRound}: unexpected checkpoint phase/reason`
@@ -205,7 +188,7 @@ const assertTransportFallbackDiagnostic = (
   );
   const [diagnostic] = diagnostics;
   assert(
-    diagnostic?.type === TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE &&
+    diagnostic?.type === CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE &&
       Number.isSafeInteger(diagnostic.timestamp) &&
       diagnostic.timestamp > 0 &&
       diagnostic.error === undefined &&
@@ -332,7 +315,31 @@ const requestBody = async (
   ).toString("utf-8");
 };
 
-const installTransportProbe = (mode: TransportMode, forceSse = false) => {
+const compactionRequestBody = (
+  body: string | undefined
+): Record<string, unknown> | undefined => {
+  if (body === undefined) {
+    return undefined;
+  }
+  try {
+    const value: unknown = JSON.parse(body);
+    if (!isRecord(value) || !Array.isArray(value.input)) {
+      return undefined;
+    }
+    const trigger: unknown = value.input.at(-1);
+    return isRecord(trigger) && trigger.type === "compaction_trigger"
+      ? value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const installTransportProbe = (
+  mode: TransportMode,
+  forceSse = false,
+  injectStreamFault = false
+) => {
   const failureObservations: Promise<void>[] = [];
   const failures: string[] = [];
   const responses: string[] = [];
@@ -368,6 +375,7 @@ const installTransportProbe = (mode: TransportMode, forceSse = false) => {
     }
   };
   let sseRequests = 0;
+  let streamFaults = 0;
   let websocketConstructions = 0;
   const nativeFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -376,12 +384,44 @@ const installTransportProbe = (mode: TransportMode, forceSse = false) => {
       pathname.endsWith("/responses") ||
       pathname.endsWith("/responses/compact");
     const body = await requestBody(input, init);
-    const response = await nativeFetch(input, init);
+    const compactionRequest = compactionRequestBody(body) !== undefined;
+    let response = await nativeFetch(input, init);
     if (observed) {
       sseRequests += 1;
       requests.push({ body, pathname });
       responses.push(`${pathname}:${response.status}`);
-      failureObservations.push(observeFailures(response));
+      if (
+        injectStreamFault &&
+        streamFaults === 0 &&
+        compactionRequest &&
+        response.body !== null
+      ) {
+        streamFaults += 1;
+        const reader = response.body.getReader();
+        const faultBody = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            const first: unknown = await reader.read();
+            assert(isRecord(first), "Response read result is invalid");
+            if (first.done !== true) {
+              const { value } = first;
+              assert(
+                value instanceof Uint8Array,
+                "Response chunk is not bytes"
+              );
+              controller.enqueue(value.subarray(0, 1));
+            }
+            await reader.cancel();
+            controller.error(new Error("Injected client-side stream fault"));
+          },
+        });
+        response = new Response(faultBody, {
+          headers: response.headers,
+          status: response.status,
+          statusText: response.statusText,
+        });
+      } else {
+        failureObservations.push(observeFailures(response));
+      }
     }
     return response;
   };
@@ -432,6 +472,9 @@ const installTransportProbe = (mode: TransportMode, forceSse = false) => {
     },
     get sseRequests() {
       return sseRequests;
+    },
+    get streamFaults() {
+      return streamFaults;
     },
     get websocketConstructions() {
       return websocketConstructions;
@@ -551,26 +594,26 @@ const runFreshChild = async (branchMode: boolean) => {
       const expectedResponseId = environment("RESPONSE");
       const expectedRounds = Number(environment("ROUNDS"));
       assert(
-        Number.isSafeInteger(expectedRounds) && expectedRounds >= 2,
+        Number.isSafeInteger(expectedRounds) && expectedRounds >= 1,
         "Fresh-process checkpoint count is invalid"
       );
       await session.prompt("FRESH PROCESS RESUME ONE. Reply only RESUMED ONE.");
       const firstAssistant = lastAssistant(session);
       const fallbackAfterFirst = transportProbe.websocketConstructions;
       await session.prompt("FRESH PROCESS RESUME TWO. Reply only RESUMED TWO.");
-      const checkpoints = customEntries(manager, CHECKPOINT_TYPE);
+      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
       assert(
         checkpoints.length === expectedRounds &&
           responseId(checkpoints.at(-1)) === expectedResponseId,
         "Fresh-process restart unexpectedly created, lost, or replaced a checkpoint"
       );
-      checkpointV5(checkpoints.at(-1));
+      parsedCheckpoint(checkpoints.at(-1));
       assert(
         lastAssistant(session)?.stopReason === "stop",
         "Fresh-process restart assistant did not complete"
       );
       assert(
-        customEntries(manager, DIAGNOSTIC_TYPE).length === 0,
+        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length === 0,
         "Fresh-process restart persisted a framing diagnostic"
       );
       assert(extensionErrors.length === 0, "Extension errors were emitted");
@@ -614,18 +657,18 @@ const runFreshChild = async (branchMode: boolean) => {
     const secondEntryId = environment("SECOND_ENTRY");
     const secondResponseId = environment("SECOND_RESPONSE");
     await session.navigateTree(firstEntryId, { summarize: false });
-    const activeCheckpoints = customEntries(manager, CHECKPOINT_TYPE);
+    const activeCheckpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
     const [activeCheckpoint] = activeCheckpoints;
     assert(
       activeCheckpoints.length === 1 &&
         responseId(activeCheckpoint) === firstResponseId,
       "Checkpoint 1 was not active after the fresh-process fork"
     );
-    const firstWindow = checkpointV5(activeCheckpoint).runtime;
+    const firstWindow = parsedCheckpoint(activeCheckpoint).runtime;
     await session.prompt(
       `FRESH PROCESS DIVERGENT BRANCH.\n${"d".repeat(20_000)}`
     );
-    const divergentCheckpoints = customEntries(manager, CHECKPOINT_TYPE);
+    const divergentCheckpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
     assert(
       divergentCheckpoints.length === 2 &&
         responseId(divergentCheckpoints[0]) === firstResponseId &&
@@ -636,7 +679,7 @@ const runFreshChild = async (branchMode: boolean) => {
     assert(divergentEntry !== undefined, "Divergent checkpoint missing");
     const divergentEntryId = divergentEntry.id;
     const divergentResponseId = responseId(divergentEntry);
-    const divergentWindow = checkpointV5(divergentEntry).runtime;
+    const divergentWindow = parsedCheckpoint(divergentEntry).runtime;
     assert(
       divergentWindow.windowNumber > firstWindow.windowNumber &&
         divergentWindow.previousWindowId === firstWindow.currentWindowId &&
@@ -657,7 +700,7 @@ const runFreshChild = async (branchMode: boolean) => {
     );
     await session.navigateTree(secondEntryId, { summarize: false });
     await session.prompt("FRESH PROCESS ORIGINAL BRANCH. Reply only ORIGINAL.");
-    const originalCheckpoints = customEntries(manager, CHECKPOINT_TYPE);
+    const originalCheckpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
     assert(
       originalCheckpoints.length === 2 &&
         responseId(originalCheckpoints[0]) === firstResponseId &&
@@ -680,7 +723,7 @@ const runFreshChild = async (branchMode: boolean) => {
       transportMode === "fallback" ? 2 : 1
     );
     await session.navigateTree(divergentEntryId, { summarize: false });
-    const restoredDivergent = customEntries(manager, CHECKPOINT_TYPE);
+    const restoredDivergent = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
     assert(
       restoredDivergent.length === 2 &&
         responseId(restoredDivergent[1]) === divergentResponseId &&
@@ -690,7 +733,7 @@ const runFreshChild = async (branchMode: boolean) => {
       "Divergent branch was not independently restorable"
     );
     assert(
-      customEntries(manager, DIAGNOSTIC_TYPE).length === 0,
+      customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length === 0,
       "Branch replay persisted a framing diagnostic"
     );
     assert(extensionErrors.length === 0, "Extension errors were emitted");
@@ -723,6 +766,7 @@ const main = async () => {
   const realWindow = midTurn || realWindowMode;
   const soakMode = process.argv.includes("--soak");
   const sseMode = process.argv.includes("--sse");
+  const streamFaultMode = process.argv.includes("--stream-fault");
   const thresholdMode = process.argv.includes("--threshold");
   const websocketMode = process.argv.includes("--websocket");
   assert(
@@ -736,9 +780,10 @@ const main = async () => {
       portableMode,
       realWindow,
       soakMode,
+      streamFaultMode,
       thresholdMode,
     ].filter(Boolean).length <= 1,
-    "Choose only one behavior mode: --branch, --capabilities, --portable, --real-window, --mid-turn, --soak, or --threshold"
+    "Choose only one behavior mode: --branch, --capabilities, --portable, --real-window, --mid-turn, --soak, --stream-fault, or --threshold"
   );
   let transportMode: TransportMode = "sse";
   if (fallbackMode) {
@@ -754,14 +799,18 @@ const main = async () => {
     !realWindow || transportMode !== "websocket",
     "Real-window and mid-turn canaries require SSE request inspection"
   );
+  assert(
+    !streamFaultMode || transportMode === "sse",
+    "Stream-fault canary requires SSE"
+  );
   if (process.argv.includes("--help")) {
     console.log(`Usage:
-  node codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--portable|--real-window|--mid-turn|--soak|--threshold]
+  node codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--portable|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
 
 Environment:
   CODEX_COMPACTION_LIVE_MODEL          Model ID (default: gpt-5.6-sol)
   CODEX_COMPACTION_LIVE_ALT_MODEL      Capability-canary switch target (default: gpt-5.6-terra)
-  CODEX_COMPACTION_LIVE_ROUNDS         Inline compactions (default: 3; soak: 10; real/branch/mid-turn: 2)
+  CODEX_COMPACTION_LIVE_ROUNDS         Inline compactions (default: 3; soak: 10; real/branch/mid-turn/stream-fault: 2)
   CODEX_COMPACTION_LIVE_CONTEXT_WINDOW Forced estimator window (default: 4096)
   CODEX_COMPACTION_LIVE_PAYLOAD_BYTES  Synthetic bytes per round (default: 20000)
   CODEX_COMPACTION_LIVE_DIR            Parent directory for retained artifacts`);
@@ -769,13 +818,13 @@ Environment:
   }
   const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
   const modelId =
-    configuredModel === undefined || configuredModel.length === 0
-      ? "gpt-5.6-sol"
-      : configuredModel;
+    configuredModel !== undefined && configuredModel.length > 0
+      ? configuredModel
+      : "gpt-5.6-sol";
   let defaultRounds = 3;
   if (soakMode) {
     defaultRounds = 10;
-  } else if (branchMode || realWindow) {
+  } else if (branchMode || realWindow || streamFaultMode) {
     defaultRounds = 2;
   }
   const rounds = positiveInteger("CODEX_COMPACTION_LIVE_ROUNDS", defaultRounds);
@@ -823,9 +872,9 @@ Environment:
   assert(auth !== undefined, "OpenAI Codex auth is unavailable");
   const alternateValue = process.env.CODEX_COMPACTION_LIVE_ALT_MODEL?.trim();
   const configuredAlternate =
-    alternateValue === undefined || alternateValue.length === 0
-      ? undefined
-      : alternateValue;
+    alternateValue !== undefined && alternateValue.length > 0
+      ? alternateValue
+      : undefined;
   const availableModels = capabilityMode
     ? await modelRuntime.getAvailable()
     : [];
@@ -927,7 +976,8 @@ Environment:
           live.timestamp !== new Date(persisted.timestamp).getTime() &&
           branch.some(
             (entry) =>
-              entry.type === "custom" && entry.customType === CHECKPOINT_TYPE
+              entry.type === "custom" &&
+              entry.customType === CHECKPOINT_CUSTOM_TYPE
           ),
         "Timestamp canary did not precede active checkpoint replay"
       );
@@ -1094,7 +1144,11 @@ Environment:
     );
   }
 
-  const transportProbe = installTransportProbe(transportMode, portableMode);
+  const transportProbe = installTransportProbe(
+    transportMode,
+    portableMode,
+    streamFaultMode
+  );
   const manager = SessionManager.create(canaryCwd, sessionDir);
   let toolCalls = 0;
   const postCompactionToolCalls: number[] = [];
@@ -1127,7 +1181,7 @@ Environment:
       "Confirm tool availability after context_filler has caused compaction.",
     execute: async () => {
       postCompactionToolCalls.push(
-        customEntries(manager, CHECKPOINT_TYPE).length
+        customEntries(manager, CHECKPOINT_CUSTOM_TYPE).length
       );
       return {
         content: [
@@ -1255,7 +1309,7 @@ Environment:
   }
   const ids: string[] = [];
   const sideInputTokens: number[] = [];
-  const windows: CheckpointV5["runtime"][] = [];
+  const windows: Checkpoint["runtime"][] = [];
   const estimatorEvidence: {
     readonly declaredContextWindow: number;
     readonly effectiveContextLimit: number;
@@ -1294,7 +1348,6 @@ Environment:
       assert(
         compactionEntries(manager).length === 1 &&
           result.summary === entry?.summary &&
-          entry.summary.trim() !== LEGACY_CHECKPOINT_MARKER &&
           entry.summary.includes(summaryMarker) &&
           !entry.summary.includes(secret),
         "Lifecycle /compact did not persist the instructed readable summary"
@@ -1304,7 +1357,7 @@ Environment:
         "Lifecycle /compact persisted the wrong checkpoint phase or reason"
       );
       const nativeRequest = transportProbe.requests.findLast(
-        ({ body }) => body?.includes('"type":"compaction_trigger"') === true
+        ({ body }) => compactionRequestBody(body) !== undefined
       );
       assert(
         nativeRequest?.body !== undefined,
@@ -1343,8 +1396,8 @@ Environment:
         "Compatible replay included plaintext portable-summary state"
       );
       assert(
-        customEntries(manager, DIAGNOSTIC_TYPE).length === 0 &&
-          extensionErrors.length === 0,
+        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length ===
+          0 && extensionErrors.length === 0,
         "Portable canary emitted a diagnostic or extension error"
       );
       assertTransport(transportMode, transportProbe);
@@ -1372,7 +1425,7 @@ Environment:
       await session.prompt(
         "BELOW-THRESHOLD CANARY. Call threshold_probe exactly once, then give the required final reply."
       );
-      const checkpoints = customEntries(manager, CHECKPOINT_TYPE);
+      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
       const assistant = lastAssistant(session);
       assert(toolCalls === 1, `Threshold canary made ${toolCalls} tool calls`);
       assert(
@@ -1385,8 +1438,8 @@ Environment:
         `Below-threshold tool loop created ${checkpoints.length} checkpoint(s)`
       );
       assert(
-        customEntries(manager, DIAGNOSTIC_TYPE).length === 0 &&
-          extensionErrors.length === 0,
+        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length ===
+          0 && extensionErrors.length === 0,
         "Threshold canary emitted a diagnostic or extension error"
       );
       assertTransport(transportMode, transportProbe);
@@ -1452,7 +1505,7 @@ Environment:
       await session.prompt(
         `CAPABILITY COMPACTION. Reply only COMPACTED.\n${syntheticHex(payloadBytes)}`
       );
-      const compacted = customEntries(manager, CHECKPOINT_TYPE);
+      const compacted = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
       if (compacted.length !== 1) {
         const failures = await transportProbe.failures();
         throw new Error(
@@ -1470,7 +1523,7 @@ Environment:
       assert(
         compacted.length === 1 &&
           !JSON.stringify(
-            checkpointV5(compactedCheckpoint).replacement
+            parsedCheckpoint(compactedCheckpoint).replacement
           ).includes(MAGENTA_PNG_BASE64),
         "Capability compaction did not persist one image-safe checkpoint"
       );
@@ -1480,7 +1533,10 @@ Environment:
         `MODEL SWITCH CAPABILITY CANARY. Reply only SWITCHED ${alternateModel.id}.`
       );
       const switchedAssistant = lastAssistant(session);
-      const switchedCheckpoints = customEntries(manager, CHECKPOINT_TYPE);
+      const switchedCheckpoints = customEntries(
+        manager,
+        CHECKPOINT_CUSTOM_TYPE
+      );
       assert(
         switchedAssistant?.stopReason === "stop" &&
           switchedAssistant.model === alternateModel.id,
@@ -1491,11 +1547,11 @@ Environment:
         `Model switch produced ${switchedCheckpoints.length} checkpoints`
       );
       for (const checkpoint of switchedCheckpoints) {
-        checkpointV5(checkpoint);
+        parsedCheckpoint(checkpoint);
       }
       assert(
-        customEntries(manager, DIAGNOSTIC_TYPE).length === 0 &&
-          extensionErrors.length === 0,
+        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length ===
+          0 && extensionErrors.length === 0,
         "Capability canary emitted a diagnostic or extension error"
       );
       assertTransport(transportMode, transportProbe);
@@ -1570,7 +1626,7 @@ Environment:
               );
         const checkpointsBefore = customEntries(
           manager,
-          CHECKPOINT_TYPE
+          CHECKPOINT_CUSTOM_TYPE
         ).length;
         // oxlint-disable-next-line no-await-in-loop -- each fill starts from the prior checkpoint
         await session.prompt(
@@ -1588,7 +1644,8 @@ Environment:
           `Round ${round}: fill reached ${fillTokens.toLocaleString()} tokens; expected at least ${minimumSideInputTokens.toLocaleString()}`
         );
         assert(
-          customEntries(manager, CHECKPOINT_TYPE).length === checkpointsBefore,
+          customEntries(manager, CHECKPOINT_CUSTOM_TYPE).length ===
+            checkpointsBefore,
           `Round ${round}: fill compacted before server usage could be observed`
         );
         console.log(
@@ -1603,7 +1660,7 @@ Environment:
             : `LIVE CANARY ROUND ${round}. Reply only ACK ${round}.\n${String(round).repeat(payloadBytes)}`
         );
       }
-      const checkpoints = customEntries(manager, CHECKPOINT_TYPE);
+      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
       if (checkpoints.length !== round) {
         // oxlint-disable-next-line no-await-in-loop -- waits only on a terminal canary failure
         const failures = await transportProbe.failures();
@@ -1627,7 +1684,7 @@ Environment:
             checked.runtime.previousWindowId ===
               previousWindow.currentWindowId &&
             checked.runtime.currentWindowId !== previousWindow.currentWindowId,
-          `Round ${round}: v5 window generation or ID chain did not advance monotonically`
+          `Round ${round}: window generation or ID chain did not advance monotonically`
         );
       }
       windows.push(checked.runtime);
@@ -1639,17 +1696,8 @@ Environment:
         const bodies = transportProbe.requests
           .slice(requestCountBefore)
           .flatMap(({ body }) => {
-            if (body === undefined) {
-              return [];
-            }
-            const value: unknown = JSON.parse(body);
-            if (!isRecord(value) || !Array.isArray(value.input)) {
-              return [];
-            }
-            const trigger: unknown = value.input.at(-1);
-            return isRecord(trigger) && trigger.type === "compaction_trigger"
-              ? [value]
-              : [];
+            const value = compactionRequestBody(body);
+            return value === undefined ? [] : [value];
           });
         assert(
           bodies.length > 0,
@@ -1661,7 +1709,7 @@ Environment:
           `Round ${round}: compaction body is missing`
         );
         const localEstimatedSourceTokens =
-          checkpointV5(checkpoint).sourceTokens;
+          parsedCheckpoint(checkpoint).sourceTokens;
         const localToProviderRatio =
           localEstimatedSourceTokens / checked.sideInputTokens;
         assert(
@@ -1674,7 +1722,7 @@ Environment:
           effectiveContextLimit: checked.runtime.effectiveTokenLimit,
           localEstimatedSourceTokens,
           localToProviderRatio,
-          model: checkpointV5(checkpoint).identity.model,
+          model: parsedCheckpoint(checkpoint).identity.model,
           providerPromptTokens: checked.sideInputTokens,
           responsesLite: body.instructions === "",
           rewrittenTrailingOutputs,
@@ -1686,7 +1734,7 @@ Environment:
         `Round ${round}: assistant did not complete`
       );
       assert(
-        customEntries(manager, DIAGNOSTIC_TYPE).length === 0,
+        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length === 0,
         `Round ${round}: framing diagnostic was persisted`
       );
       if (transportMode === "fallback") {
@@ -1722,13 +1770,23 @@ Environment:
       );
     }
 
+    if (streamFaultMode) {
+      const compactRequests = transportProbe.requests.filter(
+        ({ body }) => compactionRequestBody(body) !== undefined
+      ).length;
+      assert(
+        transportProbe.streamFaults === 1 && compactRequests >= rounds + 1,
+        `Stream-fault canary injected ${transportProbe.streamFaults} fault(s) across ${compactRequests} compaction request(s)`
+      );
+    }
+
     const sessionFile = manager.getSessionFile();
     assert(
       sessionFile !== undefined,
       "Persistent session file was not created"
     );
     if (branchMode) {
-      const checkpoints = customEntries(manager, CHECKPOINT_TYPE);
+      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
       const [first, second] = checkpoints;
       assert(
         first !== undefined && second !== undefined,
@@ -1827,6 +1885,7 @@ Environment:
           sessionFile,
           sideInputTokens,
           status: "passed",
+          streamFaults: transportProbe.streamFaults,
           transport: transportMode,
           transportRequests: {
             sse: transportProbe.sseRequests,
@@ -1843,12 +1902,14 @@ Environment:
   }
 };
 
-try {
-  const branchChild = process.argv.includes("--branch-child");
-  await (branchChild || process.argv.includes("--restart-child")
-    ? runFreshChild(branchChild)
-    : main());
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+if (import.meta.main) {
+  try {
+    const branchChild = process.argv.includes("--branch-child");
+    await (branchChild || process.argv.includes("--restart-child")
+      ? runFreshChild(branchChild)
+      : main());
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

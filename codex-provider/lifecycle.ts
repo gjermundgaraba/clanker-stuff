@@ -28,7 +28,6 @@ import {
   CHECKPOINT_CUSTOM_TYPE,
   CHECKPOINT_PROTOCOL,
   CHECKPOINT_SCHEMA,
-  LEGACY_CHECKPOINT_SUMMARY as LEGACY_MARKER,
   REMOTE_USER_IMAGE_PLACEHOLDER,
   canUseInlineLocalFallback,
   decideCheckpointCompatibility,
@@ -44,10 +43,10 @@ import type {
   CanonicalCompactionItem,
   Checkpoint,
   CheckpointAgentMessageItem,
-  CheckpointV5,
   RealUserInputItem,
 } from "./checkpoint.js";
 import {
+  ALLOWED_TOOL_CALL_PROVIDERS,
   CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
   createCodexProviderRuntime,
   isCodexCompactionCurrentModelFallbackError,
@@ -71,15 +70,9 @@ import {
 } from "./replay.js";
 import type { ResponsesInputItem } from "./replay.js";
 
-export { LEGACY_CHECKPOINT_SUMMARY as ENCRYPTED_CHECKPOINT_MARKER } from "./checkpoint.js";
 export const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
-export const CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE = "codex-compaction.diagnostic";
+export const CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE = "codex-provider.diagnostic";
 
-const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
-  "openai",
-  "openai-codex",
-  "opencode",
-]);
 const STATUS_KEY = "codex-provider";
 const STATUS_MESSAGE = "Compacting with OpenAI Codex…";
 
@@ -105,7 +98,6 @@ export interface LifecycleSource {
     | CheckpointAgentMessageItem
     | RealUserInputItem
   )[];
-  readonly retainedUsers: readonly RealUserInputItem[];
 }
 
 export interface LifecycleExecutionSuccess {
@@ -133,7 +125,7 @@ interface PendingInstall {
   readonly generation: number;
   readonly replacementSha256: string;
   readonly responseId: string;
-  readonly runtime: CheckpointV5["runtime"];
+  readonly runtime: Checkpoint["runtime"];
   readonly sessionId: string;
   readonly summarySha256: string;
 }
@@ -264,13 +256,15 @@ export const isSupportedLifecycleModel = (
 export const hasResolvedLifecycleAuth = (apiKey?: string): apiKey is string =>
   typeof apiKey === "string" && apiKey.trim().length > 0;
 
-const branchSha256 = (branch: readonly SessionEntry[]) => {
-  const serialized = JSON.stringify(branch);
+const hashJsonClone = (value: unknown) => {
+  const serialized = JSON.stringify(value);
   if (!serialized) {
-    throw new Error("Active branch is not serializable");
+    throw new Error("Value is not JSON serializable");
   }
   return sha256Canonical(JSON.parse(serialized));
 };
+
+const branchSha256 = (branch: readonly SessionEntry[]) => hashJsonClone(branch);
 
 const serializeRealUserEntries = (
   entries: readonly SessionEntry[],
@@ -324,7 +318,7 @@ const omitUnsupportedImagesFromUsers = (
     users.map((user) => ({ ...user })),
     model.input.includes("image")
   ).map((item, index) =>
-    parseRealUserInputItem(item, `retainedUsers[${index}]`)
+    parseRealUserInputItem(item, `retainedItems[${index}]`)
   );
 
 const omitUnsupportedImagesFromRetained = (
@@ -427,7 +421,6 @@ export const buildLifecycleSource = (
       api: model.api,
       baseUrl: model.baseUrl,
       compHash,
-      model: model.id,
       provider: model.provider,
     });
     if (!compatibility.compatible) {
@@ -450,9 +443,6 @@ export const buildLifecycleSource = (
       previousItems,
       model
     );
-    const previousUsers = previousItems.filter(
-      (item): item is RealUserInputItem => item.type === "message"
-    );
     const tailUsers = omitUnsupportedImagesFromUsers(
       serializeRealUserEntries(boundary.tail, model),
       model
@@ -472,35 +462,28 @@ export const buildLifecycleSource = (
       ignoredInvalidInlineCheckpoint: false,
       inputPrefix,
       retainedItems: [...safePreviousItems, ...tailUsers],
-      retainedUsers: [...previousUsers, ...tailUsers],
     };
   }
 
   const contextEntries = buildContextEntries([...branch]);
   const users = serializeRealUserEntries(contextEntries, model);
-  const retainedUsers = omitUnsupportedImagesFromUsers(users, model);
+  const retainedItems = omitUnsupportedImagesFromUsers(users, model);
   return {
     branchSha256: branchSha256(branch),
     contextMessages: convertToLlm(buildSessionContext([...branch]).messages),
     ignoredInvalidInlineCheckpoint:
       boundary.kind === "invalid-checkpoint" && boundary.carrier === "inline",
     inputPrefix: [],
-    retainedItems: retainedUsers,
-    retainedUsers,
+    retainedItems,
   };
 };
 
-const lifecycleSourceSha256 = (source: LifecycleSource) => {
-  const serialized = JSON.stringify({
+const lifecycleSourceSha256 = (source: LifecycleSource) =>
+  hashJsonClone({
     contextMessages: source.contextMessages,
     inputPrefix: source.inputPrefix,
     retainedItems: source.retainedItems,
   });
-  if (!serialized) {
-    throw new Error("Lifecycle compaction source is not serializable");
-  }
-  return sha256Canonical(JSON.parse(serialized));
-};
 
 const withRemoteCompactionFeature = (features: readonly string[]) => {
   const merged = [...features];
@@ -585,18 +568,18 @@ export const buildLifecycleCheckpoint = (options: {
   readonly model: SupportedModel;
   readonly phase: Checkpoint["phase"];
   readonly reason: Checkpoint["reason"];
-  readonly retainedItems?: readonly (
+  readonly retainedItems: readonly (
     | CheckpointAgentMessageItem
     | RealUserInputItem
   )[];
-  readonly retainedUsers?: readonly RealUserInputItem[];
-  readonly runtime?: CheckpointV5["runtime"];
+  readonly runtime: Checkpoint["runtime"];
 }): Checkpoint => {
   const { execution, model, phase, reason, runtime } = options;
-  const retainedItems = options.retainedItems ?? options.retainedUsers ?? [];
-  const { compaction } = execution;
-  const replacement = buildCheckpointReplacement(retainedItems, compaction);
-  const common = {
+  const replacement = buildCheckpointReplacement(
+    options.retainedItems,
+    execution.compaction
+  );
+  const parsed = parseCheckpoint({
     identity: {
       api: "openai-codex-responses",
       baseUrl: normalizeBaseUrl(model.baseUrl),
@@ -612,13 +595,11 @@ export const buildLifecycleCheckpoint = (options: {
       id: execution.responseId,
       usage: checkpointUsage(execution.usage),
     },
+    runtime,
     schema: CHECKPOINT_SCHEMA,
     sourceTokens: execution.estimatedSourceTokens,
-  };
-  const candidate = runtime
-    ? { ...common, runtime, version: 5 }
-    : { ...common, version: 4 };
-  const parsed = parseCheckpoint(candidate);
+    version: 1,
+  });
   if (!parsed.ok) {
     throw new Error("Constructed checkpoint failed strict validation");
   }
@@ -629,7 +610,7 @@ const nextCheckpointRuntime = (
   runtime: CodexProviderRuntime,
   sessionId: string,
   model: SupportedModel
-): CheckpointV5["runtime"] => {
+): Checkpoint["runtime"] => {
   const current = runtime.getWindow(sessionId);
   const window = runtime.getModelWindow(model);
   if (!window) {
@@ -787,13 +768,12 @@ const hasTransportFallbackNotification = (message: unknown) =>
       return false;
     }
     const { configuredTransport } = diagnostic.details;
-    return diagnostic.type === CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE
-      ? configuredTransport === "auto" ||
-          configuredTransport === "websocket" ||
-          configuredTransport === "websocket-cached"
-      : diagnostic.type === "provider_transport_failure" &&
-          diagnostic.details.fallbackTransport === "sse" &&
-          diagnostic.details.phase === "before_message_stream_start";
+    return (
+      diagnostic.type === CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE &&
+      (configuredTransport === "auto" ||
+        configuredTransport === "websocket" ||
+        configuredTransport === "websocket-cached")
+    );
   });
 
 const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
@@ -882,7 +862,7 @@ const runLifecycleHook = async (
   state: LifecycleState,
   event: SessionBeforeCompactEvent,
   ctx: ExtensionContext,
-  providerRuntime: CodexProviderRuntime | undefined,
+  providerRuntime: CodexProviderRuntime,
   failurePolicy: CompactionFailurePolicy
 ): Promise<SessionBeforeCompactResult | undefined> => {
   const { model } = ctx;
@@ -890,9 +870,6 @@ const runLifecycleHook = async (
     lifecycleSourceSafety(event.branchEntries);
   if (!sourceAuthoritative) {
     return { cancel: true };
-  }
-  if (!providerRuntime) {
-    return undefined;
   }
   if (!isSupportedLifecycleModel(model)) {
     return undefined;
@@ -907,7 +884,7 @@ const runLifecycleHook = async (
     source = buildLifecycleSource(
       event.branchEntries,
       model,
-      providerRuntime?.getModelMetadata(model.id)?.comp_hash
+      providerRuntime.getModelMetadata(model.id)?.comp_hash
     );
     sourceSha256 = lifecycleSourceSha256(source);
     requestSnapshot = snapshotLifecycleRequestState(pi, ctx);
@@ -1052,7 +1029,6 @@ const runLifecycleHook = async (
           );
           if (
             result.summary.trim().length === 0 ||
-            result.summary.trim() === LEGACY_MARKER ||
             result.firstKeptEntryId !== event.preparation.firstKeptEntryId ||
             result.tokensBefore !== event.preparation.tokensBefore ||
             !result.usage
@@ -1260,7 +1236,7 @@ type ReplayBoundaryDecision =
 const replayBoundaryDecision = (
   branch: readonly SessionEntry[],
   model: Model<string> | undefined,
-  providerRuntime?: CodexProviderRuntime,
+  providerRuntime: CodexProviderRuntime,
   previousModel?: SupportedModel,
   previousCompHash?: string | null
 ): ReplayBoundaryDecision => {
@@ -1278,8 +1254,7 @@ const replayBoundaryDecision = (
     ? decideCheckpointCompatibility(boundary.checkpoint, {
         api: model.api,
         baseUrl: model.baseUrl,
-        compHash: providerRuntime?.getModelMetadata(model.id)?.comp_hash,
-        model: model.id,
+        compHash: providerRuntime.getModelMetadata(model.id)?.comp_hash,
         provider: model.provider,
       })
     : undefined;
@@ -1292,9 +1267,8 @@ const replayBoundaryDecision = (
         baseUrl: previousModel.baseUrl,
         compHash:
           previousCompHash === undefined
-            ? providerRuntime?.getModelMetadata(previousModel.id)?.comp_hash
+            ? providerRuntime.getModelMetadata(previousModel.id)?.comp_hash
             : previousCompHash,
-        model: previousModel.id,
         provider: previousModel.provider,
       })
     : undefined;
@@ -1313,14 +1287,6 @@ const contextSourceMessages = (
   activeCheckpoint
     ? activeCheckpoint.tail.flatMap(sessionEntryToContextMessages)
     : buildSessionContext([...branch]).messages;
-
-const hashJsonClone = (value: unknown) => {
-  const serialized = JSON.stringify(value);
-  if (!serialized) {
-    throw new Error("Value is not JSON serializable");
-  }
-  return sha256Canonical(JSON.parse(serialized));
-};
 
 const messageDiagnostic = (
   message: ContextEvent["messages"][number] | undefined
@@ -1591,7 +1557,7 @@ const prepareContextReplay = (
   state: LifecycleState,
   branch: readonly SessionEntry[],
   ctx: ExtensionContext,
-  providerRuntime?: CodexProviderRuntime
+  providerRuntime: CodexProviderRuntime
 ):
   | {
       readonly activeCheckpoint?: ActiveNativeCheckpoint;
@@ -1637,8 +1603,8 @@ const prepareContextReplay = (
   }
   const activeCheckpoint =
     decision.kind === "active" ? decision.boundary : undefined;
-  if (activeCheckpoint?.checkpoint.version === 5) {
-    providerRuntime?.installWindow(
+  if (activeCheckpoint) {
+    providerRuntime.installWindow(
       ctx.sessionManager.getSessionId(),
       activeCheckpoint.checkpoint.runtime
     );
@@ -1651,7 +1617,7 @@ const runContextHook = (
   state: LifecycleState,
   event: ContextEvent,
   ctx: ExtensionContext,
-  providerRuntime?: CodexProviderRuntime
+  providerRuntime: CodexProviderRuntime
 ): { readonly messages: ContextEvent["messages"] } | undefined => {
   state.candidate = undefined;
   state.frame = undefined;
@@ -1662,13 +1628,12 @@ const runContextHook = (
     return undefined;
   }
   const { activeCheckpoint, model } = replay;
-  if (!activeCheckpoint && !providerRuntime) {
-    return undefined;
-  }
   const usage = ctx.getContextUsage();
-  const possibleThreshold = providerRuntime
-    ? isPossibleAutomaticThreshold(model, usage, providerRuntime)
-    : false;
+  const possibleThreshold = isPossibleAutomaticThreshold(
+    model,
+    usage,
+    providerRuntime
+  );
   if (!activeCheckpoint && !possibleThreshold) {
     captureUnframedCandidate(pi, state, branch, model, ctx);
     return undefined;
@@ -1868,7 +1833,7 @@ const prepareFinalizedReplay = (
   model: Model<string> | undefined,
   frame: RequestFrame,
   branch: readonly SessionEntry[],
-  providerRuntime?: CodexProviderRuntime
+  providerRuntime: CodexProviderRuntime
 ): FinalizedReplayPreparation => {
   if (!isSupportedLifecycleModel(model)) {
     return { kind: "invalid-payload" };
@@ -1915,16 +1880,14 @@ const prepareFinalizedReplay = (
     extracted,
     kind: "ok",
     model,
-    shouldCompact:
-      providerRuntime !== undefined &&
-      shouldCompactFinalizedInput({
-        autoCompactTokens:
-          providerRuntime.getModelWindow(model)?.autoCompactTokens,
-        contextWindow: model.contextWindow,
-        estimatedTokens,
-        freshUsageTokens,
-        unchangedReplacement,
-      }),
+    shouldCompact: shouldCompactFinalizedInput({
+      autoCompactTokens:
+        providerRuntime.getModelWindow(model)?.autoCompactTokens,
+      contextWindow: model.contextWindow,
+      estimatedTokens,
+      freshUsageTokens,
+      unchangedReplacement,
+    }),
   };
 };
 
@@ -1956,7 +1919,7 @@ export const decideModelTransitionReason = (options: {
 
 const transitionCompactionModel = (
   state: LifecycleState,
-  runtime: CodexProviderRuntime | undefined,
+  runtime: CodexProviderRuntime,
   currentModel: SupportedModel,
   instructions: string,
   input: readonly ResponsesInputItem[]
@@ -1968,7 +1931,6 @@ const transitionCompactionModel = (
   | undefined => {
   const { transition } = state;
   if (
-    !runtime ||
     !transition ||
     transition.currentIdentity !== modelIdentity(currentModel)
   ) {
@@ -2183,12 +2145,8 @@ const runUnframedCandidateHook = async (
   headers: Readonly<ProviderHeaders> | undefined,
   payload: unknown,
   ctx: ExtensionContext,
-  providerRuntime?: CodexProviderRuntime
+  providerRuntime: CodexProviderRuntime
 ): Promise<unknown> => {
-  if (!providerRuntime) {
-    state.candidate = undefined;
-    return payload;
-  }
   const { model } = ctx;
   if (
     candidate.generation !== state.generation ||
@@ -2308,7 +2266,7 @@ const runBeforeProviderRequestHook = async (
   headers: Readonly<ProviderHeaders> | undefined,
   payload: unknown,
   ctx: ExtensionContext,
-  providerRuntime?: CodexProviderRuntime
+  providerRuntime: CodexProviderRuntime
 ): Promise<unknown> => {
   const { frame } = state;
   if (!frame) {
@@ -2395,10 +2353,6 @@ const runBeforeProviderRequestHook = async (
     state.frame = undefined;
     return { ...envelope, input: effectiveInput };
   }
-  if (!providerRuntime) {
-    state.frame = undefined;
-    return { ...envelope, input: effectiveInput };
-  }
   if (state.inFlight) {
     state.frame = undefined;
     abortUnsafeRequest(
@@ -2479,9 +2433,7 @@ export const resolvePreviousTurnTransition = (
 ): LifecycleState["transition"] => {
   const boundary = resolveActiveCheckpointBoundary(branch);
   const durableCheckpoint =
-    boundary.kind === "checkpoint" && boundary.checkpoint.version === 5
-      ? boundary.checkpoint
-      : undefined;
+    boundary.kind === "checkpoint" ? boundary.checkpoint : undefined;
   const tailMessage =
     boundary.kind === "checkpoint"
       ? findPreviousModelMessage(boundary.tail)
@@ -2520,14 +2472,10 @@ export const resolvePreviousTurnTransition = (
   };
 };
 
-const restoreTransition = (
-  state: LifecycleState,
-  ctx: ExtensionContext,
-  providerRuntime: CodexProviderRuntime | undefined
-) => {
+const restoreTransition = (state: LifecycleState, ctx: ExtensionContext) => {
   state.transition = undefined;
   const currentModel = ctx.model;
-  if (!providerRuntime || !isSupportedLifecycleModel(currentModel)) {
+  if (!isSupportedLifecycleModel(currentModel)) {
     return;
   }
   const branch = ctx.sessionManager.getBranch();
@@ -2547,11 +2495,11 @@ const restoreTransition = (
 const registerLifecycleHooks = (
   pi: Parameters<ExtensionFactory>[0],
   state: LifecycleState,
-  providerRuntime: CodexProviderRuntime | undefined,
+  providerRuntime: CodexProviderRuntime,
   failurePolicy: ParsedCompactionFailurePolicy
 ) => {
   pi.on("session_start", (_event, ctx) => {
-    providerRuntime?.resetSession(ctx.sessionManager.getSessionId());
+    providerRuntime.closeSession(ctx.sessionManager.getSessionId());
     state.transition = undefined;
     state.transitionRestored = false;
     resetGeneration(state);
@@ -2566,7 +2514,6 @@ const registerLifecycleHooks = (
   pi.on("model_select", (event) => {
     resetGeneration(state);
     state.transition =
-      providerRuntime &&
       isSupportedLifecycleModel(event.model) &&
       isSupportedLifecycleModel(event.previousModel)
         ? {
@@ -2583,18 +2530,17 @@ const registerLifecycleHooks = (
     state.transitionRestored =
       state.transition !== undefined ||
       event.source !== "restore" ||
-      !providerRuntime ||
       !isSupportedLifecycleModel(event.model);
   });
   pi.on("before_agent_start", (_event, ctx) => {
     if (!state.transitionRestored) {
-      restoreTransition(state, ctx, providerRuntime);
+      restoreTransition(state, ctx);
       state.transitionRestored = true;
     }
-    providerRuntime?.beginTurn(ctx.sessionManager.getSessionId());
+    providerRuntime.beginTurn(ctx.sessionManager.getSessionId());
   });
   pi.on("agent_settled", (_event, ctx) => {
-    providerRuntime?.endTurn(ctx.sessionManager.getSessionId());
+    providerRuntime.endTurn(ctx.sessionManager.getSessionId());
   });
   pi.on("message_end", (event, ctx) => {
     if (!hasTransportFallbackNotification(event.message)) {
@@ -2609,7 +2555,7 @@ const registerLifecycleHooks = (
     );
   });
   pi.on("session_shutdown", (_event, ctx) => {
-    providerRuntime?.closeSession(ctx.sessionManager.getSessionId());
+    providerRuntime.closeSession(ctx.sessionManager.getSessionId());
     state.controller.abort();
     state.candidate = undefined;
     state.frame = undefined;
@@ -2652,7 +2598,7 @@ const registerLifecycleHooks = (
       );
       return;
     }
-    providerRuntime?.installWindow(pending.sessionId, pending.runtime);
+    providerRuntime.installWindow(pending.sessionId, pending.runtime);
   });
 };
 
@@ -2660,13 +2606,8 @@ export const codexCompactionExtension: ExtensionFactory = (pi) => {
   const failurePolicy = parseCompactionFailurePolicy(
     process.env.CLANKER_CODEX_COMPACTION_FAILURE
   );
-  const providerRuntime =
-    process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT === "0"
-      ? undefined
-      : createCodexProviderRuntime();
-  if (providerRuntime) {
-    pi.registerProvider(providerRuntime.provider);
-  }
+  const providerRuntime = createCodexProviderRuntime();
+  pi.registerProvider(providerRuntime.provider);
   registerCheckpointRenderer(pi);
   const state = createLifecycleState();
   registerLifecycleHooks(pi, state, providerRuntime, failurePolicy);
@@ -2714,13 +2655,11 @@ export const codexCompactionExtension: ExtensionFactory = (pi) => {
       return;
     }
     mergeRemoteCompactionFeatureHeader(event.headers);
-    state.requestHeaders = providerRuntime
-      ? {
-          generation: state.generation,
-          headers: { ...event.headers },
-          leafId: ctx.sessionManager.getLeafId(),
-          modelIdentity: modelIdentity(ctx.model),
-        }
-      : undefined;
+    state.requestHeaders = {
+      generation: state.generation,
+      headers: { ...event.headers },
+      leafId: ctx.sessionManager.getLeafId(),
+      modelIdentity: modelIdentity(ctx.model),
+    };
   });
 };

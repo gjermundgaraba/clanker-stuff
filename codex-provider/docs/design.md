@@ -1,64 +1,77 @@
 # Codex provider design
 
-> This document describes the durable checkpoint and replay foundation used by the complete provider replacement. The replacement is specified in the [provider replacement plan](provider-replacement-plan.md), backed by the [current research](provider-replacement-research.md).
+This extension is the always-on `openai-codex` provider for one controlled Pi 0.83.0 installation. It owns normal Responses requests, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
 
-## Supported boundary
+The implementation follows the pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
 
-This private extension supports only Pi 0.83.0, `openai-codex`, and `openai-codex-responses`. By default it owns normal request construction, SSE/WebSocket transport, model metadata, turn state, continuation, and compaction V2 while reusing Pi's OAuth and serializers. With `CLANKER_CODEX_PROVIDER_REPLACEMENT=0`, normal requests use Pi's built-in provider and existing v4/v5 checkpoints remain replayable, but the extension does not create new remote checkpoints.
+## Runtime ownership
 
-The extension must load last. Pi 0.83.0 cannot guarantee terminal hook ownership, so general discovery and npm publication remain unsupported.
+| Responsibility | Implementation |
+| --- | --- |
+| Provider registration and lifecycle hooks | [`lifecycle.ts`](../lifecycle.ts) |
+| Request bodies, models, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
+| Strict persisted checkpoint format and active-branch resolution | [`checkpoint.ts`](../checkpoint.ts) |
+| Framing, retention, token estimates, and tool-history repair | [`replay.ts`](../replay.ts) |
+| Redacted checkpoint display | [`renderer.ts`](../renderer.ts) |
 
-## Source baseline
+The provider runtime is not optional. Loading the extension replaces Pi's effective `openai-codex` provider for the process. The extension must resolve last so no later context, header, payload, provider, or compaction registration can invalidate its checks; see [local deployment](local-deployment.md).
 
-The checkpoint foundation was derived from these pinned revisions:
+One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, exact continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. Session shutdown closes transport state.
 
-- OpenAI Codex `6219b7c40fc9c702c0aef9964e72b492558f60e4`.
-- `ogulcancelik/pi-extensions` `d0b1fc8ba5523c14ed5b48fbd1536f5752a42bb6`.
-- `IgorWarzocha/howaboua-pi-stuff` `7f72997715bfdbcaa1ced0d38d1c7b3bad7f8988`.
+## Request and transport flow
 
-Current Codex is a moving reference rather than an automatic compatibility promise. The extension intentionally diverges by omitting image bytes from durable compacted history to avoid the retained-image failure reported in `openai/codex#24388`.
+1. Pi finalizes its system prompt, messages, tools, auth, options, and earlier extension transformations.
+2. The provider serializes the effective Pi context with Pi's public Responses converters, then adds only extension-owned Codex metadata.
+3. `context`, `before_provider_headers`, and `before_provider_request` pair the active branch, finalized input, and headers to the same request generation.
+4. WebSocket `auto` mode may prewarm once, reuses an idle socket, and sends `previous_response_id` only when every stable request field matches and the new input is an exact extension of the completed request.
+5. A pre-output WebSocket failure makes SSE sticky for that Pi session. Visible assistant output is never internally replayed after emission; Pi remains responsible for outer retry.
 
-The complete provider implementation follows OpenAI Codex `bb5054fe47abe73ecbbd454751066a28c89f4bb9` and Pi `845d6ff1f6643aba440341cce877ce1c43ebbc39` (`v0.83.0`).
+Redirects are rejected for remote compaction. Normal and compaction streams require terminal protocol state, and compaction additionally requires a matching completed response ID, usage, and exactly one canonical opaque item.
 
-## Request and replay invariants
+## Compaction and checkpoint v1
 
-1. Context framing must identify exactly one canonical persisted-to-live match.
-2. Only persisted assistant errors omitted by Pi's automatic retry may be absent live.
-3. Marker-free finalized input must retain complete structural parity.
+Automatic compaction uses the remote model limit when available, capped at 90% of the context window; the effective window defaults to 95%. It can run before sampling, between tool-loop calls, for Pi manual/threshold/overflow lifecycle events, and for model `comp_hash` or usable-window transitions. Inline compaction reuses the active turn transport and turn state. Standalone lifecycle compaction uses an isolated provider session.
+
+Every new native checkpoint has:
+
+- custom entry type `codex-provider.checkpoint`;
+- schema `clanker.codex-provider/checkpoint`, version `1`;
+- protocol `openai-responses-compaction-v2`;
+- provider/API/base-URL identity and the producing model ID;
+- exactly one final canonical `compaction` item, recent canonical user messages, and bounded non-final `agent_message` items;
+- response ID and usage, source-token estimate, reason, phase, and a SHA-256 replacement digest;
+- current/previous window IDs, window number, model `comp_hash`, effective token limit, and request-schema version.
+
+The parser requires exact keys, validates every scalar and replacement item, verifies the digest, and deep-freezes a clone. No earlier local checkpoint namespace or version is accepted. Wire `compaction_summary` is accepted only as a provider-output alias and is canonicalized immediately to `compaction`.
+
+Retained user text has a 64,000-token budget using the conservative local estimator. Eligible non-final agent messages must fit individually within 10,000 estimated tokens. Final-answer agent messages, stale tool/reasoning/system/developer items, and image bytes are not persisted. Images become small text omissions in the durable replacement; supported inline images may remain only in the transient request that triggered compaction.
+
+## Portable lifecycle summaries
+
+Lifecycle compaction runs Pi's readable summarizer beside native compaction. The Pi summary and opaque checkpoint are installed together only after source, branch, model, generation, request state, and persistence checks pass. Compatible Codex replay sends the opaque replacement; an incompatible provider can use the readable summary.
+
+`CLANKER_CODEX_COMPACTION_FAILURE=ask|fallback|cancel` controls a genuine native failure after a readable summary succeeds. The default `ask` offers fallback or cancellation only in a dialog-capable UI; headless operation, dismissal, abort, stale state, unsafe context, or failed persistence cancels. Custom `/compact` instructions affect Pi's history-summary request only, including Pi 0.83.0's existing split-turn limitation; they do not alter native compaction.
+
+Both the readable summary and the original JSONL history remain plaintext on disk. The opaque item is not secure deletion.
+
+## Safety invariants
+
+1. Context framing must find exactly one canonical persisted-to-live match.
+2. Only persisted retryable assistant errors omitted by Pi may be absent from live context.
+3. Marker-free finalized input must retain complete structural parity and valid tool pairs.
 4. Earlier payload and header transformations are paired request-locally and never persisted.
-5. Lifecycle compaction atomically stores a readable Pi summary and an opaque checkpoint; compatible Codex replay sends only the checkpoint, while incompatible providers use the summary.
-6. Remote compaction must return exactly one canonical opaque item and a matching completed response ID.
-7. Stale generation, branch, model, request-state, race, or persistence checks abort the request.
-8. Redirects are rejected and unsafe failures never fall back to textual compaction.
+5. Compatible replay requires provider, API, canonical base URL, and non-conflicting `comp_hash`; model transitions compact explicitly instead of treating the model ID as the compatibility key.
+6. A stale generation, branch, leaf, model, request state, source hash, race, or unverifiable append aborts the pending request.
+7. Diagnostics contain shapes, counts, and hashes only, never message text, tool arguments, headers, credentials, URLs, or encrypted checkpoint content.
 
-Wire `compaction_summary` remains an accepted provider-output alias and is immediately canonicalized to `compaction`. It is never valid in persisted state.
+The persisted-versus-live proof is detailed in [context alignment](context-alignment.md). Executable coverage lives in the [checkpoint](../tests/checkpoint.test.ts), [provider](../tests/provider.test.ts), [replay](../tests/replay.test.ts), and [lifecycle integration](../tests/lifecycle.integration.test.ts) tests.
 
-## Private checkpoints v4 and v5
+## Accepted limits
 
-Checkpoint v4 stores:
+- Pi 0.83.0 cannot atomically replace arbitrary raw provider history and append the matching checkpoint, so append and continuation are separately verified and fail closed.
+- Pi exposes load-order chaining, not exclusive terminal ownership. This package is approved only under the audited local load-last contract.
+- Pi's effective prompt, tools, permissions, and messages remain authoritative. Codex application world-state sections that Pi does not expose are not fabricated.
+- Token accounting is a conservative UTF-8/4 estimate plus a fixed image estimate, not the server tokenizer.
+- Server sockets, response continuation, and turn state are ephemeral. Durable resume reconstructs a complete request from checkpoint plus Pi history.
 
-- One final canonical `compaction` item.
-- Recent canonical user messages containing only `input_text`.
-- Provider/model/base-URL identity, response ID and usage, source tokens, reason, and phase.
-- A canonical SHA-256 digest of the replacement.
-
-Every retained image becomes a small text omission before token budgeting and persistence. The transient replacement used by the inline request that triggered compaction may still carry its inline data images; those bytes never enter the checkpoint. Unsupported `agent_message` input fails closed before remote compaction.
-
-Each lifecycle compaction runs Pi's portable summarizer alongside native remote compaction. This adds one ordinary model request, provider usage, and cost. The Pi summary and original JSONL history remain plaintext on disk; the opaque checkpoint remains in `details.checkpoint`. Custom `/compact` instructions affect only the history-summary request, not native compaction or compatible replay. Under Pi 0.83.0 split-turn semantics, they do not affect the separately generated turn-prefix section. Omitting text from the summary is therefore portability guidance, not secure deletion.
-
-Set `CLANKER_CODEX_COMPACTION_FAILURE` to `ask`, `fallback`, or `cancel` (case-insensitive after trimming); the default is `ask`. `fallback` installs the completed portable summary when native remote compaction fails, while `cancel` leaves context unchanged. `ask` offers those choices only with dialog-capable UI and otherwise cancels. Invalid values warn once and behave as `ask`; dismissal, abort, stale state, or unsafe context always cancels.
-
-Middle-truncation markers count toward the same UTF-8/4 retained-text budget. If the marker itself cannot fit, that boundary text is omitted.
-
-Checkpoint v5 also retains bounded non-final `agent_message` items and adds the current and previous window IDs, window number, model `comp_hash`, effective token limit, and request-schema version. The parser requires exact keys, validates all scalar values, verifies the replacement hash, and deep-freezes the result. Earlier versions other than v4 are unsupported without migration.
-
-## Operational limitations
-
-- Pi provides no atomic checkpoint installation and history replacement transaction.
-- Provider-owned compaction reuses the active session transport and turn state. The deleted legacy side-request path could not do so.
-- Portable replay requires a non-empty readable lifecycle summary. Legacy marker-only lifecycle compactions cannot be migrated and remain fail-closed on incompatible providers.
-- Pi's built-in provider exposes no Codex `comp_hash`, context-window ID, or world-state reinjection. The replacement obtains the first two from remote model metadata and owns its window state; Codex application world state remains unavailable.
-- Lifecycle and inline installation remain separate because they handle different Pi events, even though replacement compaction shares one provider runtime.
-- Redacted diagnostics persist shapes, counts, and hashes only; they never contain message text, tool arguments, headers, credentials, or encrypted checkpoint content.
-
-See [local deployment](local-deployment.md), [context alignment](context-alignment.md), and the [live canary](live-canary.md) for operational use.
+See [the source map and intentional divergences](codex-baseline.md), [local deployment](local-deployment.md), and the [live canary](live-canary.md).

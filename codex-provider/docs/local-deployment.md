@@ -1,23 +1,30 @@
 # Local deployment contract
 
-This package is approved only for a controlled local Pi 0.83.0 deployment where its resolved `index.ts` is the final enabled extension. The audit rejects every other Pi version.
+This package is approved only for a controlled Pi 0.83.0 installation where its resolved `index.ts` is the final enabled extension. The provider runtime is always on, and the audit rejects every other Pi SDK or executable version.
 
 1. Add the package path as the last global `packages` entry in `PI_CODING_AGENT_DIR/settings.json`.
-2. Run `node audit-local-order.ts [cwd]` from this package.
-3. Restart or reload Pi, then rerun the audit.
+2. From this repository, run `node codex-provider/audit-local-order.ts [cwd]`.
+3. Restart or `/reload` Pi, then rerun the audit.
 
-The audit uses Pi's public resource loader, includes trusted project settings, rejects extension diagnostics, verifies reload stability, compares both its SDK and the `pi` executable on `PATH` to 0.83.0, and fails unless this package is exactly last.
+The audit uses Pi's public `SettingsManager` and `DefaultResourceLoader`, includes trusted project settings, rejects extension diagnostics, resolves twice to verify reload stability, and requires this package's canonical `index.ts` exactly once and last. It compares both the imported SDK and the `pi` executable on `PATH` with `0.83.0`.
 
-Rerun it after any global or project settings change, package addition or reorder, extension-path change, or Pi upgrade. A later global package invalidates the contract until the package is restored to the final resolved position and the audit passes.
+Rerun the audit after:
 
-This procedure is an external operational check, not an in-package ordering guarantee. General discovery and npm publication remain unsupported until Pi provides exclusive terminal hook ownership.
+- any global or project settings change;
+- any package addition, removal, or reorder;
+- any extension-path change or `/reload`;
+- any Pi upgrade or executable change.
 
-See the [current design](design.md) for request, replay, and checkpoint invariants.
+A later package invalidates the contract until this package is restored to the final resolved position and the audit passes. This is an external operational check, not an in-package ordering guarantee; general discovery and npm publication are unsupported.
 
-Fail-closed context-framing errors append a redacted `codex-compaction.diagnostic` entry to the session. It contains only counts, hashes, message shapes, and the first mismatch location; provide the session ID when reporting the failure.
+## Runtime and recovery
 
-See [context alignment](context-alignment.md) for the persisted-versus-live retry invariant and fail-closed matching rules.
+Loading the extension always registers its complete `openai-codex` provider. There is no built-in-provider or replay-only switch. Do not co-load another package that registers the same provider or competes for `context`, `before_provider_headers`, `before_provider_request`, or `session_before_compact` ownership.
 
-Before and after Pi/provider upgrades, run the [live multi-compaction canary](live-canary.md).
+New checkpoints use only custom type `codex-provider.checkpoint`, schema `clanker.codex-provider/checkpoint`, version `1`. Earlier local checkpoint namespaces and versions are unsupported; start a new session or branch before an old checkpoint after upgrading. Persisted replacements omit image bytes and carry provider window and model-compatibility state.
 
-The private checkpoint formats are v4 and v5. Earlier checkpoints are intentionally unsupported; start a new session or branch before an earlier checkpoint after upgrading. Persisted replacements omit image bytes, while v5 also carries provider window and model-compatibility state. Set `CLANKER_CODEX_PROVIDER_REPLACEMENT=0` only for built-in provider ownership with replay of existing checkpoints; no new remote checkpoints are created in that mode.
+Set `CLANKER_CODEX_COMPACTION_FAILURE` to `ask`, `fallback`, or `cancel` when the default interactive choice is unsuitable. Invalid values warn once and behave as `ask`. This changes only failure handling after readable summary generation; it does not disable provider ownership.
+
+Fail-closed alignment errors append a redacted `codex-provider.diagnostic` entry. It contains counts, hashes, message shapes, and the first mismatch location only; provide the session ID when reporting a failure.
+
+Before and after any Pi or provider change, run the package tests and the [live multi-compaction canary](live-canary.md). See [design](design.md) for the runtime contract and [context alignment](context-alignment.md) for replay failure rules.

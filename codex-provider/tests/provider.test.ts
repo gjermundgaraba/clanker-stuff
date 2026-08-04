@@ -151,7 +151,7 @@ const markProtocolRetryPayload = (payload: unknown) => ({
   protocolRetryTest: true,
 });
 
-describe("replacement provider", () => {
+describe("Codex provider", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

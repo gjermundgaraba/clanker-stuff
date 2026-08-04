@@ -120,10 +120,11 @@ describe("codex-provider package", () => {
       [
         "package/LICENSE",
         "package/README.md",
-        "package/audit-local-order.ts",
         "package/checkpoint.ts",
+        "package/docs/codex-baseline.md",
         "package/docs/context-alignment.md",
         "package/docs/design.md",
+        "package/docs/evaluation.md",
         "package/docs/live-canary.md",
         "package/docs/local-deployment.md",
         "package/index.ts",
@@ -132,7 +133,6 @@ describe("codex-provider package", () => {
         "package/provider.ts",
         "package/renderer.ts",
         "package/replay.ts",
-        "package/scripts/live-multi-compaction.ts",
       ].toSorted()
     );
     const installDir = path.join(tempRoot, "install");

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
-  LEGACY_CHECKPOINT_SUMMARY,
   canUseInlineLocalFallback,
   canonicalJson,
   decideCheckpointCompatibility,
@@ -50,6 +49,14 @@ interface CheckpointFixture {
       totalTokens: number;
     };
   };
+  runtime: {
+    compHash: string | null;
+    currentWindowId: string;
+    effectiveTokenLimit: number;
+    previousWindowId: string | null;
+    requestSchemaVersion: number;
+    windowNumber: number;
+  };
   schema: string;
   sourceTokens: number;
   version: number;
@@ -79,9 +86,17 @@ const validCheckpoint = (): CheckpointFixture => {
         totalTokens: 120,
       },
     },
-    schema: "clanker.codex-compaction/checkpoint",
+    runtime: {
+      compHash: "comp-a",
+      currentWindowId: "window-2",
+      effectiveTokenLimit: 190_000,
+      previousWindowId: "window-1",
+      requestSchemaVersion: 1,
+      windowNumber: 2,
+    },
+    schema: "clanker.codex-provider/checkpoint",
     sourceTokens: 123,
-    version: 4,
+    version: 1,
   };
 };
 
@@ -107,7 +122,7 @@ const entry = (id: string, value: Record<string, unknown>): SessionEntry =>
   }) as SessionEntry;
 
 describe("checkpoint protocol", () => {
-  it("canonicalizes, hashes, parses immutably, and compares exact identity", () => {
+  it("canonicalizes, hashes, parses immutably, and compares compatibility", () => {
     const source = validCheckpoint();
     const parsed = parseCheckpoint(source);
     if (!parsed.ok) {
@@ -142,37 +157,26 @@ describe("checkpoint protocol", () => {
       decideCheckpointCompatibility(parsed.checkpoint, {
         api: "openai-codex-responses",
         baseUrl: "https://chatgpt.com/backend-api/",
-        model: "gpt-5.2-codex",
         provider: "openai-codex",
       }),
       decideCheckpointCompatibility(parsed.checkpoint, {
         api: "openai-codex-responses",
         baseUrl: "https://other.invalid/backend-api",
-        model: "gpt-5.2-codex",
-        provider: "openai-codex",
-      }),
-      decideCheckpointCompatibility(parsed.checkpoint, {
-        api: "openai-codex-responses",
-        baseUrl: "https://chatgpt.com/backend-api",
-        model: "gpt-5.3-codex",
         provider: "openai-codex",
       }),
       decideCheckpointCompatibility(parsed.checkpoint, {
         api: "different-api",
         baseUrl: "https://chatgpt.com/backend-api",
-        model: "gpt-5.2-codex",
         provider: "openai-codex",
       }),
       decideCheckpointCompatibility(parsed.checkpoint, {
         api: "openai-codex-responses",
         baseUrl: "https://chatgpt.com/backend-api",
-        model: "gpt-5.2-codex",
         provider: "different-provider",
       }),
     ]).toStrictEqual([
       { compatible: true },
       { compatible: false, field: "baseUrl" },
-      { compatible: false, field: "model" },
       { compatible: false, field: "api" },
       { compatible: false, field: "provider" },
     ]);
@@ -363,8 +367,10 @@ describe("checkpoint protocol", () => {
         .filter(([, value]) => parseKind(value) !== "invalid")
         .map(([name]) => name)
     ).toStrictEqual([]);
-    expect(parseKind({ ...validCheckpoint(), version: 3 })).toBe("invalid");
-    expect(parseKind({ ...validCheckpoint(), version: 5 })).toBe("invalid");
+    expect(parseKind({ ...validCheckpoint(), version: 0 })).toBe("invalid");
+    expect(parseKind({ ...validCheckpoint(), version: 4 })).toBe("invalid");
+    const { runtime: _, ...missingRuntime } = validCheckpoint();
+    expect(parseKind(missingRuntime)).toBe("invalid");
   });
 
   it("resolves only the newest active-branch compaction boundary", () => {
@@ -491,7 +497,6 @@ describe("checkpoint protocol", () => {
         type: "compaction",
       });
     const readable = lifecycle("  readable portable summary  ");
-    const legacy = lifecycle(` ${LEGACY_CHECKPOINT_SUMMARY} `);
     const blank = lifecycle(" \n ");
     const unresolved = lifecycle("readable", "missing");
     const corrupt = lifecycle("readable");
@@ -505,7 +510,6 @@ describe("checkpoint protocol", () => {
     const cases = [
       [[], true],
       [[kept, readable], true],
-      [[kept, legacy], false],
       [[kept, blank], false],
       [[kept, unresolved], false],
       [[kept, corrupt], false],
@@ -525,7 +529,7 @@ describe("checkpoint protocol", () => {
     ).toStrictEqual(cases.slice(1).map(([, expected]) => expected));
   });
 
-  it("parses V5 runtime state and applies comp-hash compatibility", () => {
+  it("parses runtime state and applies comp-hash compatibility", () => {
     const source = validCheckpoint();
     const agent = {
       author: "assistant",
@@ -533,17 +537,8 @@ describe("checkpoint protocol", () => {
       recipient: "user",
       type: "agent_message",
     };
-    source.version = 5;
     source.replacement = [user(), agent, compaction()];
     source.replacementSha256 = sha256Canonical(source.replacement);
-    source.runtime = {
-      compHash: "comp-a",
-      currentWindowId: "window-2",
-      effectiveTokenLimit: 190_000,
-      previousWindowId: "window-1",
-      requestSchemaVersion: 1,
-      windowNumber: 2,
-    };
     const parsed = parseCheckpoint(source);
     if (!parsed.ok) {
       throw new Error(parsed.error);
@@ -557,14 +552,12 @@ describe("checkpoint protocol", () => {
         api: "openai-codex-responses",
         baseUrl: "https://chatgpt.com/backend-api",
         compHash: "comp-a",
-        model: "new-model",
         provider: "openai-codex",
       }),
       mismatchedHash: decideCheckpointCompatibility(parsed.checkpoint, {
         api: "openai-codex-responses",
         baseUrl: "https://chatgpt.com/backend-api",
         compHash: "comp-b",
-        model: "new-model",
         provider: "openai-codex",
       }),
       version: parsed.checkpoint.version,
@@ -572,7 +565,7 @@ describe("checkpoint protocol", () => {
       incompatible: "invalid",
       matchingHash: { compatible: true },
       mismatchedHash: { compatible: false, field: "compHash" },
-      version: 5,
+      version: 1,
     });
   });
 });

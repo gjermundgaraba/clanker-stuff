@@ -57,7 +57,7 @@ const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
 const WEBSOCKET_MAX_AGE_MS = 55 * 60_000;
 export const CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE =
   "codex-provider.transport-fallback";
-const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
+export const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
   "openai",
   "openai-codex",
   "opencode",
@@ -2333,9 +2333,6 @@ export const createCodexProviderRuntime = () => {
       return { ...session.window };
     },
     provider,
-    resetSession(sessionId: string) {
-      this.closeSession(sessionId);
-    },
     streamPortableSummary,
   };
 };

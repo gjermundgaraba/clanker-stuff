@@ -2,11 +2,9 @@ import { createHash } from "node:crypto";
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-export const CHECKPOINT_CUSTOM_TYPE = "codex-compaction.checkpoint";
+export const CHECKPOINT_CUSTOM_TYPE = "codex-provider.checkpoint";
 export const CHECKPOINT_PROTOCOL = "openai-responses-compaction-v2";
-export const CHECKPOINT_SCHEMA = "clanker.codex-compaction/checkpoint";
-export const LEGACY_CHECKPOINT_SUMMARY =
-  "[OpenAI encrypted compaction checkpoint]";
+export const CHECKPOINT_SCHEMA = "clanker.codex-provider/checkpoint";
 export const RETAINED_USER_TOKEN_BUDGET = 64_000;
 export const RETAINED_USER_IMAGE_PLACEHOLDER =
   "image content omitted from compacted history";
@@ -67,7 +65,7 @@ export type CheckpointReplacementItem =
   | CheckpointUserInputItem
   | CheckpointAgentMessageItem;
 
-interface CheckpointBase {
+export interface Checkpoint {
   readonly identity: {
     readonly api: "openai-codex-responses";
     readonly baseUrl: string | null;
@@ -89,19 +87,6 @@ interface CheckpointBase {
       readonly totalTokens: number;
     };
   };
-  readonly schema: "clanker.codex-compaction/checkpoint";
-  readonly sourceTokens: number;
-}
-
-export interface CheckpointV4 extends CheckpointBase {
-  readonly replacement: readonly (
-    | CanonicalCompactionItem
-    | CheckpointUserInputItem
-  )[];
-  readonly version: 4;
-}
-
-export interface CheckpointV5 extends CheckpointBase {
   readonly runtime: {
     readonly compHash: string | null;
     readonly currentWindowId: string;
@@ -110,10 +95,10 @@ export interface CheckpointV5 extends CheckpointBase {
     readonly requestSchemaVersion: 1;
     readonly windowNumber: number;
   };
-  readonly version: 5;
+  readonly schema: "clanker.codex-provider/checkpoint";
+  readonly sourceTokens: number;
+  readonly version: 1;
 }
-
-export type Checkpoint = CheckpointV4 | CheckpointV5;
 
 export type CheckpointParseResult =
   | {
@@ -128,7 +113,6 @@ export type CheckpointParseResult =
 export interface CheckpointIdentity {
   readonly api: string;
   readonly baseUrl?: string | null;
-  readonly model: string;
   readonly provider: string;
   readonly compHash?: string | null;
 }
@@ -137,7 +121,7 @@ export type CompatibilityDecision =
   | { readonly compatible: true }
   | {
       readonly compatible: false;
-      readonly field: "api" | "baseUrl" | "compHash" | "model" | "provider";
+      readonly field: "api" | "baseUrl" | "compHash" | "provider";
     };
 
 export type ActiveCheckpointBoundary =
@@ -470,8 +454,7 @@ export const parseAgentMessageItem = (
 };
 
 const parseReplacement = (
-  value: unknown,
-  allowAgentMessages: boolean
+  value: unknown
 ): readonly CheckpointReplacementItem[] => {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error("checkpoint.replacement must be a non-empty array");
@@ -487,7 +470,7 @@ const parseReplacement = (
       }
       return parseCompactionItem(item);
     }
-    if (allowAgentMessages && isRecord(item) && item.type === "agent_message") {
+    if (isRecord(item) && item.type === "agent_message") {
       return parseAgentMessageItem(item, `checkpoint.replacement[${index}]`);
     }
     const user = parseRealUserInputItem(
@@ -576,7 +559,7 @@ const parseResponse = (value: unknown): Checkpoint["response"] => {
   };
 };
 
-const parseRuntime = (value: unknown): CheckpointV5["runtime"] => {
+const parseRuntime = (value: unknown): Checkpoint["runtime"] => {
   const runtime = expectRecord(value, "checkpoint.runtime");
   expectExactKeys(
     runtime,
@@ -679,7 +662,6 @@ export const sha256Canonical = (value: unknown) =>
   createHash("sha256").update(canonicalJson(value)).digest("hex");
 
 const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
-  const { version } = value;
   expectExactKeys(
     value,
     [
@@ -690,7 +672,7 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
       "replacement",
       "replacementSha256",
       "response",
-      ...(version === 5 ? ["runtime"] : []),
+      "runtime",
       "schema",
       "sourceTokens",
       "version",
@@ -700,7 +682,7 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
   if (
     value.schema !== CHECKPOINT_SCHEMA ||
     value.protocol !== CHECKPOINT_PROTOCOL ||
-    (version !== 4 && version !== 5)
+    value.version !== 1
   ) {
     validationError("checkpoint schema/protocol/version is invalid");
   }
@@ -712,7 +694,7 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
     throw new Error("checkpoint.phase is invalid");
   }
 
-  const replacement = parseReplacement(value.replacement, version === 5);
+  const replacement = parseReplacement(value.replacement);
   const replacementSha256 = expectSha256(
     value.replacementSha256,
     "checkpoint.replacementSha256"
@@ -721,7 +703,7 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
     validationError("checkpoint replacement integrity does not match");
   }
 
-  const common = {
+  return {
     identity: parseIdentity(value.identity),
     phase,
     protocol: "openai-responses-compaction-v2" as const,
@@ -729,30 +711,13 @@ const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
     replacement,
     replacementSha256,
     response: parseResponse(value.response),
-    schema: "clanker.codex-compaction/checkpoint" as const,
+    runtime: parseRuntime(value.runtime),
+    schema: CHECKPOINT_SCHEMA,
     sourceTokens: expectNonnegativeInteger(
       value.sourceTokens,
       "checkpoint.sourceTokens"
     ),
-  };
-  if (version === 4) {
-    if (replacement.some((item) => item.type === "agent_message")) {
-      validationError("checkpoint v4 cannot contain agent messages");
-    }
-    return {
-      ...common,
-      replacement: replacement.filter(
-        (item): item is CanonicalCompactionItem | CheckpointUserInputItem =>
-          item.type !== "agent_message"
-      ),
-      version: 4,
-    };
-  }
-  return {
-    ...common,
-    replacement,
-    runtime: parseRuntime(value.runtime),
-    version: 5,
+    version: 1,
   };
 };
 
@@ -784,8 +749,7 @@ export const parseCheckpoint = (value: unknown): CheckpointParseResult => {
 };
 
 export const decideCheckpointCompatibility = (
-  checkpoint: Pick<Checkpoint, "identity" | "version"> &
-    Partial<Pick<CheckpointV5, "runtime">>,
+  checkpoint: Pick<Checkpoint, "identity" | "runtime">,
   current: CheckpointIdentity
 ): CompatibilityDecision => {
   if (checkpoint.identity.provider !== current.provider) {
@@ -794,13 +758,8 @@ export const decideCheckpointCompatibility = (
   if (checkpoint.identity.api !== current.api) {
     return { compatible: false, field: "api" };
   }
-  if (checkpoint.version === 4 && checkpoint.identity.model !== current.model) {
-    return { compatible: false, field: "model" };
-  }
   if (
-    checkpoint.version === 5 &&
-    checkpoint.runtime?.compHash !== null &&
-    checkpoint.runtime?.compHash !== undefined &&
+    checkpoint.runtime.compHash !== null &&
     current.compHash !== null &&
     current.compHash !== undefined &&
     checkpoint.runtime.compHash !== current.compHash
@@ -820,9 +779,7 @@ export const decideCheckpointCompatibility = (
 };
 
 const isReadablePortableLifecycleSummary = (summary: unknown) =>
-  typeof summary === "string" &&
-  summary.trim().length > 0 &&
-  summary.trim() !== LEGACY_CHECKPOINT_SUMMARY;
+  typeof summary === "string" && summary.trim().length > 0;
 
 export const isPortableLifecycleCompaction = (
   branch: readonly SessionEntry[],
