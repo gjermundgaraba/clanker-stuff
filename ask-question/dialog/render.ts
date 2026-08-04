@@ -6,8 +6,6 @@ import {
 } from "@earendil-works/pi-tui";
 import type { Editor } from "@earendil-works/pi-tui";
 
-import { HELP_EDITOR, formatKeyLabel } from "./input.js";
-import type { HelpText } from "./input.js";
 import {
   allQuestionsComplete,
   answerEntryToText,
@@ -16,8 +14,10 @@ import {
   isOtherOption,
   isQuestionComplete,
   missingQuestionHeaders,
-} from "./questions.js";
-import type { Question, QuestionSession, QuestionState } from "./questions.js";
+} from "../questions.js";
+import type { Question, QuestionSession, QuestionState } from "../questions.js";
+import { HELP_EDITOR, formatKeyLabel } from "./input.js";
+import type { HelpText } from "./input.js";
 
 export type EditMode =
   | { kind: "none" }

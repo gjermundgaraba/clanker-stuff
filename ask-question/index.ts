@@ -1,44 +1,17 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { runAskQuestionPrompt } from "./prompt.js";
 import {
   AskQuestionParametersSchema,
   MAX_QUESTIONS,
-  buildCancelledToolResult,
-  buildSuccessToolResult,
-  parseQuestionsFromParameters,
-} from "./schema.js";
+  executeAskQuestion,
+} from "./tool.js";
 
 export default function askQuestion(pi: ExtensionAPI) {
   pi.registerTool({
     description:
       "Ask one or more structured clarification questions and return machine-readable answers.",
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const questions = parseQuestionsFromParameters(params);
-
-      if (ctx.mode !== "tui") {
-        throw new Error("ask_question requires interactive UI");
-      }
-
-      // https://github.com/ogulcancelik/herdr/blob/v0.7.5/src/integration/assets/pi/herdr-agent-state.ts#L230-L246
-      pi.events.emit("herdr:blocked", {
-        active: true,
-        label: "Waiting for answers",
-      });
-
-      try {
-        const flow = await runAskQuestionPrompt(ctx, questions, signal);
-
-        if (flow.cancelled) {
-          ctx.abort();
-          return buildCancelledToolResult(flow.reason);
-        }
-
-        return buildSuccessToolResult(questions, flow);
-      } finally {
-        pi.events.emit("herdr:blocked", { active: false });
-      }
-    },
+    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
+      executeAskQuestion(pi, params, signal, ctx),
     executionMode: "sequential",
     label: "Ask Question",
     name: "ask_question",

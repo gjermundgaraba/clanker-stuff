@@ -1,8 +1,13 @@
 import { StringEnum } from "@earendil-works/pi-ai";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
+import { runAskQuestionPrompt } from "./dialog/controller.js";
 import type {
   AnswerEntry,
   AskQuestionFlowResult,
@@ -260,4 +265,36 @@ export const buildCancelledToolResult = (
     },
     terminate: true,
   };
+};
+
+export const executeAskQuestion = async (
+  pi: ExtensionAPI,
+  params: unknown,
+  signal: AbortSignal | undefined,
+  ctx: ExtensionContext
+) => {
+  const questions = parseQuestionsFromParameters(params);
+
+  if (ctx.mode !== "tui") {
+    throw new Error("ask_question requires interactive UI");
+  }
+
+  // https://github.com/ogulcancelik/herdr/blob/v0.7.5/src/integration/assets/pi/herdr-agent-state.ts#L230-L246
+  pi.events.emit("herdr:blocked", {
+    active: true,
+    label: "Waiting for answers",
+  });
+
+  try {
+    const flow = await runAskQuestionPrompt(ctx, questions, signal);
+
+    if (flow.cancelled) {
+      ctx.abort();
+      return buildCancelledToolResult(flow.reason);
+    }
+
+    return buildSuccessToolResult(questions, flow);
+  } finally {
+    pi.events.emit("herdr:blocked", { active: false });
+  }
 };

@@ -17,12 +17,10 @@
     "directory": "ask-question"
   },
   "files": [
+    "dialog",
     "index.ts",
-    "input.ts",
-    "prompt.ts",
     "questions.ts",
-    "render.ts",
-    "schema.ts",
+    "tool.ts",
     "README.md",
     "LICENSE"
   ],

@@ -9,13 +9,13 @@ import {
   createCustomUiDriver,
   createKeybindings as createSharedKeybindings,
 } from "../../tests/harness/tui.js";
+import { runAskQuestionPrompt } from "../dialog/controller.js";
 import askQuestion from "../index.js";
-import { runAskQuestionPrompt } from "../prompt.js";
-import { parseQuestionsFromParameters } from "../schema.js";
+import { parseQuestionsFromParameters } from "../tool.js";
 import type {
   buildCancelledToolResult,
   buildSuccessToolResult,
-} from "../schema.js";
+} from "../tool.js";
 
 type FlowResult = Awaited<ReturnType<typeof runAskQuestionPrompt>>;
 type AskQuestionKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;

@@ -1,12 +1,32 @@
 import { describe, expect, it } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
+import { createCustomUiDriver } from "../../tests/harness/tui.js";
 import askQuestion from "../index.js";
 import {
   AskQuestionParametersSchema,
   buildSummaryContent,
   parseQuestionsFromParameters,
-} from "../schema.js";
+} from "../tool.js";
+import {
+  KEY_ENTER,
+  KEY_ESCAPE,
+  KEY_TAB,
+  executeTool,
+  expectCancelledResult,
+  expectSuccessResult,
+} from "./helpers.js";
+
+const singleQuestionParams = {
+  questions: [
+    {
+      header: "Plan",
+      options: [{ label: "Yes" }, { label: "No" }],
+      question: "Which plan do you want?",
+      type: "single_select" as const,
+    },
+  ],
+};
 
 interface QuestionBranchSchema {
   additionalProperties?: boolean;
@@ -217,5 +237,67 @@ describe("ask-question contract", () => {
         "- [Notes] Anything else to add? -> Need examples",
       ].join("\n")
     );
+  });
+});
+
+describe("ask-question execution", () => {
+  it("rejects custom UI outside TUI mode", async () => {
+    await expect(
+      executeTool(singleQuestionParams, { mode: "rpc" })
+    ).rejects.toThrow("ask_question requires interactive UI");
+  });
+
+  it("returns cancellation details and aborts the run when the user cancels", async () => {
+    const { result, abortCalls } = await executeTool(singleQuestionParams, {
+      customKeys: [KEY_ESCAPE],
+    });
+
+    const details = expectCancelledResult(result);
+    expect(details.abortedRun).toBeTruthy();
+    expect(details.reason).toBe("user_cancelled");
+    expect(result.content[0]?.text).toContain("cancelled");
+    expect(result).toMatchObject({ terminate: true });
+    expect(abortCalls).toBe(1);
+  });
+
+  it("returns external abort details when the run is aborted while open", async () => {
+    const controller = new AbortController();
+    const driver = createCustomUiDriver({
+      onComponent: () => controller.abort(),
+    });
+
+    const { result, abortCalls } = await executeTool(singleQuestionParams, {
+      custom: driver.custom,
+      signal: controller.signal,
+    });
+
+    const details = expectCancelledResult(result);
+    expect(details.reason).toBe("external_aborted");
+    expect(result.content[0]?.text).toContain("aborted");
+    expect(result).toMatchObject({ terminate: true });
+    expect(abortCalls).toBe(1);
+  });
+
+  it("returns structured answers on success", async () => {
+    const { blockedEvents, result } = await executeTool(singleQuestionParams, {
+      customKeys: [KEY_ENTER, KEY_TAB, KEY_ENTER],
+    });
+
+    expect(blockedEvents).toStrictEqual([
+      { active: true, label: "Waiting for answers" },
+      { active: false },
+    ]);
+
+    const details = expectSuccessResult(result);
+    expect(details.answers).toStrictEqual([
+      {
+        answer: {
+          label: "Yes",
+        },
+        type: "single_select",
+      },
+    ]);
+    expect(result.content[0]?.text).toContain("[Plan]");
+    expect(result.content[0]?.text).toContain("Yes");
   });
 });

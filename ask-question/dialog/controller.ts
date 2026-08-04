@@ -3,19 +3,19 @@ import { Editor } from "@earendil-works/pi-tui";
 import type { TUI } from "@earendil-works/pi-tui";
 
 import {
-  createHelpText,
-  decodeAskQuestionIntent,
-  isSingleCharShortcut,
-} from "./input.js";
-import type { DecodedIntent } from "./input.js";
-import {
   buildSuccessFlowResult,
   createQuestionSessions,
   isOtherOption,
   isQuestionComplete,
   missingQuestionHeaders,
-} from "./questions.js";
-import type { AskQuestionFlowResult, Question } from "./questions.js";
+} from "../questions.js";
+import type { AskQuestionFlowResult, Question } from "../questions.js";
+import {
+  createHelpText,
+  decodeAskQuestionIntent,
+  isSingleCharShortcut,
+} from "./input.js";
+import type { DecodedIntent } from "./input.js";
 import { renderPrompt } from "./render.js";
 import type { EditMode, PromptView } from "./render.js";
 

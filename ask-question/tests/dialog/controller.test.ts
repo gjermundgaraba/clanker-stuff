@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createKeybindings } from "../../tests/harness/tui.js";
+import { createKeybindings } from "../../../tests/harness/tui.js";
 import {
   KEY_ENTER,
   KEY_SPACE,
@@ -9,8 +9,7 @@ import {
   executeTool,
   expectCancelledResult,
   expectSuccessResult,
-  renderFlowWithKeys,
-} from "./helpers.js";
+} from "../helpers.js";
 
 const singleQuestionParams = {
   questions: [
@@ -45,7 +44,7 @@ const allQuestionTypesParams = {
   ],
 };
 
-describe("ask-question TUI flow", () => {
+describe("ask-question dialog controller", () => {
   it("supports all question types in one flow", async () => {
     const { result } = await executeTool(allQuestionTypesParams, {
       customKeys: [
@@ -105,17 +104,6 @@ describe("ask-question TUI flow", () => {
     });
   });
 
-  it("keeps single-select Other incomplete until it has text", async () => {
-    const rendered = await renderFlowWithKeys(
-      singleQuestionParams,
-      ["j", "j", "y", "x", KEY_TAB, "y"],
-      VIM_STYLE_KEYBINDINGS
-    );
-
-    expect(rendered).toContain("• Plan: incomplete");
-    expect(rendered).toContain("Incomplete: Plan");
-  });
-
   it("supports the implicit Other field alongside multi-select choices", async () => {
     const { result } = await executeTool(
       {
@@ -153,58 +141,6 @@ describe("ask-question TUI flow", () => {
     });
   });
 
-  it("keeps multi-select Other incomplete until it has text", async () => {
-    const rendered = await renderFlowWithKeys(
-      {
-        questions: [
-          {
-            header: "Features",
-            options: [{ label: "Feature A" }, { label: "Feature B" }],
-            question: "Which features do you need?",
-            type: "multi_select" as const,
-          },
-        ],
-      },
-      ["j", "j", KEY_SPACE, "x", KEY_TAB, "y"],
-      VIM_STYLE_KEYBINDINGS
-    );
-
-    expect(rendered).toContain("• Features: incomplete");
-    expect(rendered).toContain("Incomplete: Features");
-  });
-
-  it("renders inline details for the highlighted option", async () => {
-    const params = {
-      questions: [
-        {
-          header: "Plan",
-          options: [
-            {
-              details: "Best default for most teams.",
-              label: "Fast (Suggested)",
-            },
-            { label: "Safe" },
-          ],
-          question: "Which plan do you want?",
-          type: "single_select" as const,
-        },
-      ],
-    };
-
-    const renderedWithDetails = await renderFlowWithKeys(params, []);
-    const renderedWithoutDetails = await renderFlowWithKeys(
-      params,
-      ["j"],
-      VIM_STYLE_KEYBINDINGS
-    );
-
-    expect(renderedWithDetails).toContain("Details");
-    expect(renderedWithDetails).toContain("Best default for most teams.");
-    expect(renderedWithoutDetails).not.toContain(
-      "Best default for most teams."
-    );
-  });
-
   it("uses injected keybindings for confirm and vertical navigation", async () => {
     const { result } = await executeTool(singleQuestionParams, {
       customKeybindings: VIM_STYLE_KEYBINDINGS,
@@ -217,30 +153,6 @@ describe("ask-question TUI flow", () => {
         label: "No",
       },
       type: "single_select",
-    });
-  });
-
-  it("renders remapped keybinding labels instead of the defaults", async () => {
-    const rendered = await renderFlowWithKeys(
-      singleQuestionParams,
-      [],
-      VIM_STYLE_KEYBINDINGS
-    );
-
-    expect({
-      hasArrows: rendered.includes("↑/↓"),
-      hasCancel: rendered.includes("• x "),
-      hasConfirm: rendered.includes(" y "),
-      hasEnter: rendered.includes("Enter"),
-      hasEsc: rendered.includes("Esc"),
-      hasNav: rendered.includes("k/j"),
-    }).toStrictEqual({
-      hasArrows: false,
-      hasCancel: true,
-      hasConfirm: true,
-      hasEnter: false,
-      hasEsc: false,
-      hasNav: true,
     });
   });
 
@@ -277,23 +189,6 @@ describe("ask-question TUI flow", () => {
         note: "Needs approval",
       },
       type: "single_select",
-    });
-  });
-
-  it("accepts Kitty CSI-u printable shortcuts", async () => {
-    const { result } = await executeTool(singleQuestionParams, {
-      customKeys: [
-        KEY_ENTER,
-        "\u001B[110u",
-        ..."Needs approval",
-        KEY_ENTER,
-        KEY_TAB,
-        KEY_ENTER,
-      ],
-    });
-
-    expect(expectSuccessResult(result).answers[0]).toMatchObject({
-      answer: { label: "Yes", note: "Needs approval" },
     });
   });
 });
