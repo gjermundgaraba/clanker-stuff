@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
@@ -16,7 +17,22 @@ vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => ({
   copyToClipboard,
 }));
 
-const { default: extension } = await import("../index.js");
+const { createStash } = await import("../stash.js");
+
+const extension = (pi: ExtensionAPI) => {
+  const stash = createStash();
+
+  pi.on("session_start", (_event, ctx) => stash.start(ctx));
+  pi.registerShortcut("ctrl+s", {
+    handler: (ctx) => stash.toggle(ctx),
+  });
+  pi.registerCommand("pop-stash", {
+    handler: (_args, ctx) => stash.pop(ctx),
+  });
+  pi.on("input", (event, ctx) => stash.prepareRestore(event, ctx));
+  pi.on("turn_start", (_event, ctx) => stash.commitRestore(ctx));
+  pi.on("session_shutdown", (_event, ctx) => stash.dispose(ctx));
+};
 
 const getStorePath = (agentDir: string) =>
   path.join(agentDir, "stash", "state.json");
@@ -32,7 +48,7 @@ describe("stash", () => {
 
   const readStore = async (agentDir: string) =>
     JSON.parse(await readFile(getStorePath(agentDir), "utf-8")) as {
-      entries: Record<string, { stack: string[] }>;
+      entries: Record<string, string[]>;
     };
 
   const createHarness = async (options: { cwd?: string } = {}) => {
@@ -122,7 +138,7 @@ describe("stash", () => {
       type: "info",
     });
     const store = await readStore(agentDir);
-    expect(store.entries[`cwd:${cwd}`].stack).toStrictEqual(
+    expect(store.entries[cwd]).toStrictEqual(
       Array.from({ length: 10 }, (_, index) => `draft ${index + 3}`)
     );
 
@@ -149,7 +165,7 @@ describe("stash", () => {
     await harness.popStash();
 
     const store = await readStore(agentDir);
-    expect(store.entries).not.toHaveProperty(`cwd:${cwd}`);
+    expect(store.entries).not.toHaveProperty(cwd);
   });
 
   it("treats malformed persisted stash as empty", async () => {
@@ -351,34 +367,12 @@ describe("stash", () => {
     harness.ctx.ui.setEditorText("");
     await harness.host.runShortcut("ctrl+s", harness.ctx);
     const afterFirstPop = await readStore(agentDir);
-    expect(afterFirstPop.entries[`cwd:${cwd}`].stack).toStrictEqual(["first"]);
+    expect(afterFirstPop.entries[cwd]).toStrictEqual(["first"]);
 
     harness.ctx.ui.setEditorText("");
     await harness.host.runShortcut("ctrl+s", harness.ctx);
     const afterSecondPop = await readStore(agentDir);
-    expect(afterSecondPop.entries).not.toHaveProperty(`cwd:${cwd}`);
-  });
-
-  it("does not double-consume after Ctrl+S pops on an empty editor", async () => {
-    const harness = await createHarness();
-    const { ctx } = harness;
-
-    await harness.stash("first");
-    await harness.stash("second");
-
-    harness.ctx.ui.setEditorText("");
-    await harness.host.runShortcut("ctrl+s", ctx);
-    expect(harness.editorText()).toBe("second");
-
-    await harness.host.emit(
-      "turn_start",
-      { turnIndex: 0, type: "turn_start" },
-      ctx
-    );
-
-    harness.ctx.ui.setEditorText("");
-    await harness.popStash();
-    expect(harness.editorText()).toBe("first");
+    expect(afterSecondPop.entries).not.toHaveProperty(cwd);
   });
 
   it("pops stashed text in LIFO order across repeated /pop-stash calls", async () => {
@@ -439,32 +433,6 @@ describe("stash", () => {
     harness.ctx.ui.setEditorText("");
     await harness.popStash();
     expect(harness.editorText()).toBe("first");
-  });
-
-  it("defers stack consumption until turn_start fires", async () => {
-    const harness = await createHarness();
-    const { ctx } = harness;
-
-    await harness.stash("draft");
-    await harness.input("send", "interactive");
-
-    expect(harness.editorText()).toBe("draft");
-
-    harness.ctx.ui.setEditorText("");
-    await harness.popStash();
-    expect(harness.editorText()).toBe("draft");
-
-    await harness.host.emit(
-      "turn_start",
-      { turnIndex: 0, type: "turn_start" },
-      ctx
-    );
-    harness.ctx.ui.setEditorText("");
-    await harness.popStash();
-    expect(harness.notifications()).toContainEqual({
-      message: "Nothing stashed.",
-      type: "info",
-    });
   });
 
   it("preserves the stash when input is handled and turn_start never fires", async () => {

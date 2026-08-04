@@ -18,7 +18,9 @@
   },
   "files": [
     "index.ts",
-    "README.md"
+    "stash.ts",
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",
