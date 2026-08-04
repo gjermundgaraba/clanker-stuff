@@ -1,7 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const TIMER_INTERVAL_MS = 100;
-const STATUS_KEY = "timer";
 
 const formatElapsed = (ms: number): string => {
   const totalSeconds = ms / 1000;
@@ -27,26 +26,21 @@ export const createTimer = () => {
   const updateStatus = (ctx: ExtensionContext) => {
     if (startTime !== undefined) {
       ctx.ui.setStatus(
-        STATUS_KEY,
+        "timer",
         ctx.ui.theme.fg("dim", formatElapsed(Date.now() - startTime))
       );
     }
   };
 
   return {
-    dispose() {
-      clear();
-      startTime = undefined;
-    },
+    dispose: clear,
     start(ctx: ExtensionContext) {
       if (startTime !== undefined) {
         return;
       }
       startTime = Date.now();
       updateStatus(ctx);
-      intervalId = setInterval(() => {
-        updateStatus(ctx);
-      }, TIMER_INTERVAL_MS);
+      intervalId = setInterval(() => updateStatus(ctx), TIMER_INTERVAL_MS);
     },
     stop(ctx: ExtensionContext) {
       clear();

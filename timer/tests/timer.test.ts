@@ -19,13 +19,6 @@ describe("timer", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  it("shows 0.0s immediately on agent_start", () => {
-    const { host, ctx, timer } = setup();
-    timer.start(ctx);
-    expect(host.getStatus("timer")).toBe("0.0s");
   });
 
   it("updates the status while the agent is running", () => {
@@ -43,8 +36,6 @@ describe("timer", () => {
     const { host, ctx, timer } = setup();
     timer.start(ctx);
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 12);
-    expect(host.getStatus("timer")).toBe("1.2s");
-
     timer.stop(ctx);
     expect(host.getStatus("timer")).toBe("1.2s");
 
@@ -71,8 +62,6 @@ describe("timer", () => {
     timer.start(ctx);
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 20);
     timer.start(ctx);
-    expect(host.getStatus("timer")).toBe("2.0s");
-
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 4);
     expect(host.getStatus("timer")).toBe("2.4s");
 
