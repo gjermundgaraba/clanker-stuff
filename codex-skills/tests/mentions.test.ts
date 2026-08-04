@@ -3,16 +3,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
-import type { BeforeAgentStartEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  BeforeAgentStartEvent,
+  ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
+import type { ExtensionHostOptions } from "../../tests/harness/extension-host.js";
 import {
   createIdentityTheme,
   renderComponent,
 } from "../../tests/harness/tui.js";
-import extension from "../index.js";
+import { createSkillMentions } from "../mentions.js";
 
 const SOURCE_INFO = createSyntheticSourceInfo("<test>", {
   origin: "top-level",
@@ -24,37 +28,46 @@ const renderOptions = (expanded: boolean) => ({
   outputPad: 0,
 });
 
-const createSkillHost = () =>
-  createExtensionHost(extension, {
-    commands: [
-      {
-        description: "Alpha instructions",
-        name: "skill:alpha",
-        source: "skill",
-        sourceInfo: SOURCE_INFO,
-      },
-      {
-        description: "Beta instructions",
-        name: "skill:beta",
-        source: "skill",
-        sourceInfo: SOURCE_INFO,
-      },
-      {
-        description: "Plugin deploy instructions",
-        name: "skill:plugin:deploy",
-        source: "skill",
-        sourceInfo: SOURCE_INFO,
-      },
-      {
-        description: "Must remain a shell variable",
-        name: "skill:PATH",
-        source: "skill",
-        sourceInfo: SOURCE_INFO,
-      },
-    ],
-  });
+const createMentionHost = (commands: ExtensionHostOptions["commands"] = []) =>
+  createExtensionHost(
+    (pi: ExtensionAPI) => {
+      const mentions = createSkillMentions(pi);
+      pi.registerMessageRenderer("codex-skills", mentions.render);
+      pi.on("session_start", (_event, ctx) => mentions.install(ctx));
+      pi.on("before_agent_start", (event, ctx) => mentions.inject(event, ctx));
+    },
+    { commands }
+  );
 
-describe("codex skill mentions", () => {
+const createSkillHost = () =>
+  createMentionHost([
+    {
+      description: "Alpha instructions",
+      name: "skill:alpha",
+      source: "skill",
+      sourceInfo: SOURCE_INFO,
+    },
+    {
+      description: "Beta instructions",
+      name: "skill:beta",
+      source: "skill",
+      sourceInfo: SOURCE_INFO,
+    },
+    {
+      description: "Plugin deploy instructions",
+      name: "skill:plugin:deploy",
+      source: "skill",
+      sourceInfo: SOURCE_INFO,
+    },
+    {
+      description: "Must remain a shell variable",
+      name: "skill:PATH",
+      source: "skill",
+      sourceInfo: SOURCE_INFO,
+    },
+  ]);
+
+describe("skill mentions", () => {
   it("injects complete skill files once in catalog order", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "codex-skills-"));
     onTestFinished(() => rm(directory, { force: true, recursive: true }));
@@ -74,7 +87,7 @@ describe("codex skill mentions", () => {
       writeFile(shellPath, shell),
     ]);
 
-    const host = createExtensionHost(extension);
+    const host = createMentionHost();
     const content = `<skill>\n<name>alpha</name>\n<path>${alphaPath}</path>\nAlpha instructions.\n</skill>\n\n<skill>\n<name>beta</name>\n<path>${betaPath}</path>\nBeta instructions.\n</skill>\n\n<skill>\n<name>plugin:deploy</name>\n<path>${pluginPath}</path>\nPlugin deploy instructions.\n</skill>`;
     const details = {
       skills: [
