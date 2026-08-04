@@ -17,8 +17,10 @@
     "directory": "codex-fast"
   },
   "files": [
+    "fast-mode.ts",
     "index.ts",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",
