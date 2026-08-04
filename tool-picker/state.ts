@@ -28,8 +28,7 @@ const getLatestSavedEnabledTools = (
       Array.isArray(data.enabledTools) &&
       data.enabledTools.every((tool) => typeof tool === "string")
     ) {
-      const { enabledTools } = data;
-      return enabledTools;
+      return data.enabledTools;
     }
   }
 

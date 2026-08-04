@@ -1,49 +1,26 @@
-import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import extension from "../index.js";
 import { createMessageEntry, createToolsEntry } from "./harness.js";
 
-describe("tools state restoration", () => {
+describe("tool selection restoration", () => {
   it("restores saved inactive tools when they have been registered", async () => {
-    const host = createExtensionHost(
-      (pi) => {
-        pi.registerTool({
-          description: "extra-tool tool",
-          async execute() {
-            await Promise.resolve();
-            return {
-              content: [{ text: "ok", type: "text" }],
-              details: {},
-            };
+    const host = createExtensionHost(extension, {
+      activeTools: ["read"],
+      allTools: ["read", "extra-tool"],
+      entries: [
+        createMessageEntry({ id: "root", parentId: null }),
+        createToolsEntry({
+          data: {
+            enabledTools: ["read", "extra-tool"],
           },
-          label: "extra-tool",
-          name: "extra-tool",
-          parameters: Type.Object({}),
-        });
-        extension(pi);
-      },
-      {
-        activeTools: ["read"],
-        allTools: ["read", "extra-tool"],
-        entries: [
-          createMessageEntry({
-            id: "root",
-            parentId: null,
-            text: "root",
-          }),
-          createToolsEntry({
-            data: {
-              enabledTools: ["read", "extra-tool"],
-            },
-            id: "tools-a",
-            parentId: "root",
-          }),
-        ],
-        leafId: "tools-a",
-      }
-    );
+          id: "tools-a",
+          parentId: "root",
+        }),
+      ],
+      leafId: "tools-a",
+    });
 
     await host.emitSessionStart();
 
@@ -56,12 +33,10 @@ describe("tools state restoration", () => {
         createMessageEntry({
           id: "root",
           parentId: null,
-          text: "root",
         }),
         createMessageEntry({
           id: "branch-a",
           parentId: "root",
-          text: "branch a",
         }),
         createToolsEntry({
           data: {
@@ -73,7 +48,6 @@ describe("tools state restoration", () => {
         createMessageEntry({
           id: "branch-b",
           parentId: "root",
-          text: "branch b",
         }),
       ],
       leafId: "tools-a",
@@ -99,7 +73,6 @@ describe("tools state restoration", () => {
         createMessageEntry({
           id: "root",
           parentId: null,
-          text: "root",
         }),
         createToolsEntry({
           data: {

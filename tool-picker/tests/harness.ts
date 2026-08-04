@@ -6,11 +6,10 @@ import type { ToolsState } from "../state.js";
 export const createMessageEntry = (options: {
   id: string;
   parentId: string | null;
-  text: string;
 }): SessionEntry => ({
   id: options.id,
   message: {
-    content: options.text,
+    content: "message",
     role: "user",
     timestamp: 1,
   },
