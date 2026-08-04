@@ -104,7 +104,7 @@ describe("Codex code mode", () => {
       "before_agent_start",
       {
         prompt: "test",
-        systemPrompt: "Base prompt\nCurrent date: today",
+        systemPrompt: "Base prompt\nCurrent working directory: /tmp",
         systemPromptOptions: {},
         type: "before_agent_start",
       },
@@ -114,6 +114,27 @@ describe("Codex code mode", () => {
       "systemPrompt",
       expect.stringContaining("Tools available in exec:")
     );
+    const augmentedPrompt =
+      typeof prompt === "object" &&
+      prompt !== null &&
+      "systemPrompt" in prompt &&
+      typeof prompt.systemPrompt === "string"
+        ? prompt.systemPrompt
+        : "";
+    expect(augmentedPrompt).toContain(
+      "Current working directory: /tmp\n\nTools available in exec:"
+    );
+    const [duplicate] = await host.emit(
+      "before_agent_start",
+      {
+        prompt: "test",
+        systemPrompt: augmentedPrompt,
+        systemPromptOptions: {},
+        type: "before_agent_start",
+      },
+      ctx
+    );
+    expect(duplicate).toBeUndefined();
   });
 
   it("leaves provider requests untouched in direct fallback mode", async () => {

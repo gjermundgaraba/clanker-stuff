@@ -1,4 +1,4 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 
 export const createModel = (id: string, grammar = false) =>
   ({
@@ -13,4 +13,4 @@ export const createModel = (id: string, grammar = false) =>
     name: id,
     provider: "test",
     reasoning: true,
-  }) as Model<Api>;
+  }) satisfies Model<"openai-responses">;

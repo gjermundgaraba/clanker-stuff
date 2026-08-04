@@ -6,8 +6,6 @@ import type {
 
 export interface NestedTool {
   definition: ToolDefinition;
-  inputSchema: unknown;
-  name: string;
   usage: string;
   invoke: (
     input: unknown,

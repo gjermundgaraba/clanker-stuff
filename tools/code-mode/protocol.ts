@@ -12,11 +12,11 @@ export const DEFAULT_CODE_MODE_EXEC_YIELD_MS = 30_000;
 
 export const toWireToolDefinition = (tool: NestedTool) => ({
   description: [`Usage: ${tool.usage}`, tool.definition.description].join("\n"),
-  input_schema: tool.inputSchema,
+  input_schema: tool.definition.parameters,
   kind: "function",
-  name: tool.name,
+  name: tool.definition.name,
   output_schema: null,
-  tool_name: { name: tool.name, namespace: null },
+  tool_name: { name: tool.definition.name, namespace: null },
 });
 
 export const parseExecSource = (

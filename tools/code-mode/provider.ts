@@ -81,19 +81,6 @@ const prepareLiteInput = (input: readonly unknown[]) =>
     if (
       (item.type === "function_call_output" ||
         item.type === "custom_tool_call_output") &&
-      isRecord(item.output)
-    ) {
-      return {
-        ...item,
-        output: {
-          ...item.output,
-          content: prepareLiteContent(item.output.content),
-        },
-      };
-    }
-    if (
-      (item.type === "function_call_output" ||
-        item.type === "custom_tool_call_output") &&
       Array.isArray(item.output)
     ) {
       return { ...item, output: prepareLiteContent(item.output) };

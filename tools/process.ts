@@ -1,6 +1,6 @@
+/* oxlint-disable promise/avoid-new -- child-process events require one shared completion promise */
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { once } from "node:events";
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -52,6 +52,7 @@ export interface ProcessResult {
 // ponytail: global cap; add per-profile limits or TTL eviction only if real workloads need them.
 const MAX_SESSIONS = 32;
 const MAX_TIMEOUT_MS = 2_147_483_647;
+const PROCESS_CLOSE_GRACE_MS = 1000;
 
 const throwIfAborted = (signal: AbortSignal | undefined) => {
   if (signal?.aborted === true) {
@@ -142,53 +143,88 @@ const spawnShell = async (options: {
   }
 
   const shell = getShellConfig();
-  const commandFromStdin = shell.commandTransport === "stdin";
-  const child = spawn(
-    shell.shell,
-    commandFromStdin ? shell.args : [...shell.args, options.command],
-    {
-      cwd: options.cwd,
-      detached: process.platform !== "win32",
-      env: createShellEnvironment(options.ctx),
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    }
-  );
+  if (shell.commandTransport === "stdin") {
+    throw new Error("Shell stdin command transport is not supported");
+  }
+  const child = spawn(shell.shell, [...shell.args, options.command], {
+    cwd: options.cwd,
+    detached: process.platform !== "win32",
+    env: createShellEnvironment(options.ctx),
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
   child.stdin.on("error", () => {
     // The process may exit before a queued write reaches stdin.
   });
   child.stdout.on("data", options.onData);
   child.stderr.on("data", options.onData);
-  if (commandFromStdin) {
-    child.stdin.write(`${options.command}\n`);
-  }
 
   let reason: ExitReason = "exit";
+  let settled = false;
+  let finishAfterGrace: (() => void) | undefined;
+  const kill = () => {
+    if (settled) {
+      return;
+    }
+    killProcessTree(child);
+    finishAfterGrace?.();
+  };
   const timeout =
     options.timeoutMs === undefined
       ? undefined
       : setTimeout(() => {
           reason = "timeout";
-          killProcessTree(child);
+          kill();
         }, options.timeoutMs);
-  const completion = (async (): Promise<ShellResult> => {
-    try {
-      const closeEvent: unknown = await once(child, "close");
-      if (!Array.isArray(closeEvent)) {
-        throw new TypeError("Invalid process close event");
-      }
-      const closeArguments: unknown[] = closeEvent;
-      const [exitCode] = closeArguments;
-      if (exitCode !== null && typeof exitCode !== "number") {
-        throw new Error("Invalid process exit code");
-      }
-      return { exitCode, reason };
-    } finally {
+  const completion = new Promise<ShellResult>((resolve, reject) => {
+    let exitCode: number | null = null;
+    let grace: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
       if (timeout !== undefined) {
         clearTimeout(timeout);
       }
-    }
-  })();
+      if (grace !== undefined) {
+        clearTimeout(grace);
+      }
+      child.removeAllListeners("exit");
+      child.removeAllListeners("close");
+    };
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      resolve({ exitCode, reason });
+    };
+    const fail = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      reject(error);
+    };
+    finishAfterGrace = () => {
+      grace ??= setTimeout(() => {
+        killProcessTree(child);
+        finish();
+      }, PROCESS_CLOSE_GRACE_MS);
+    };
+    child.once("error", fail);
+    child.once("exit", (code) => {
+      exitCode = code;
+      finishAfterGrace?.();
+    });
+    child.once("close", (code) => {
+      exitCode = code;
+      finish();
+    });
+  });
 
   return {
     completion,
@@ -196,7 +232,7 @@ const spawnShell = async (options: {
       if (reason === "exit") {
         reason = "killed";
       }
-      killProcessTree(child);
+      kill();
     },
     write(chars) {
       child.stdin.write(chars);
@@ -357,15 +393,16 @@ export class ProcessManager {
     const sessionId = this.nextSessionId;
     this.nextSessionId += 1;
     if (this.sessions.size >= MAX_SESSIONS) {
-      const oldestSessionId = this.sessions.keys().next().value;
-      if (oldestSessionId !== undefined) {
-        const oldestSession = this.sessions.get(oldestSessionId);
-        this.sessions.delete(oldestSessionId);
-        if (oldestSession !== undefined) {
-          oldestSession.process.kill();
-          await oldestSession.exitPromise;
-          await oldestSession.output.current.discard();
-        }
+      const entries = [...this.sessions];
+      const candidate =
+        entries.find(([, storedSession]) => storedSession.status.exited) ??
+        entries[0];
+      if (candidate) {
+        const [candidateId, candidateSession] = candidate;
+        this.sessions.delete(candidateId);
+        candidateSession.process.kill();
+        await candidateSession.exitPromise;
+        await candidateSession.output.current.discard();
       }
     }
     this.sessions.set(sessionId, session);

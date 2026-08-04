@@ -307,6 +307,23 @@ describe("profile execution", () => {
     expect(textContent(finished)).toContain("Process exited with code 0");
   });
 
+  it.skipIf(process.platform === "win32")(
+    "bounds completion when a detached descendant holds the output pipes",
+    async () => {
+      const model = createModel("gpt-5.6-luna", true);
+      const host = createExtensionHost(extension, { model });
+      await host.emitSessionStart();
+      const startedAt = Date.now();
+
+      const result = await host.runTool("exec_command", {
+        cmd: `node -e "const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setTimeout(()=>{},5000)'],{detached:true,stdio:['ignore',1,2]}); child.unref()"`,
+      });
+
+      expect(result.details).toMatchObject({ running: false });
+      expect(Date.now() - startedAt).toBeLessThan(3000);
+    }
+  );
+
   it("kills and forgets an aborted Codex process session", async () => {
     const model = createModel("gpt-5.6-luna", true);
     const host = createExtensionHost(extension, { model });

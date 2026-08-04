@@ -145,7 +145,7 @@ export class CodeModeDelegateRuntime {
     const trace = this.traces.start(
       cellId,
       invocation.runtime_tool_call_id,
-      tool.name,
+      tool.definition.name,
       input
     );
     const invocationContext: ToolExecutionContext = {

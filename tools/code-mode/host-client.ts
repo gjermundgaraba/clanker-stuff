@@ -46,12 +46,10 @@ export class CodeModeHostClient {
   private ready: Promise<void> | undefined;
   private requestId = 0;
   private readonly sessionId = randomUUID();
-  private readonly shutdownGraceMs: number;
   private stderr = "";
 
-  constructor(binary: string, shutdownGraceMs = DEFAULT_SHUTDOWN_GRACE_MS) {
+  constructor(binary: string) {
     this.binary = binary;
-    this.shutdownGraceMs = shutdownGraceMs;
   }
 
   async start(): Promise<void> {
@@ -84,7 +82,7 @@ export class CodeModeHostClient {
       this.initial.set(id, { reject, resolve });
     });
     void initial.catch(() => null);
-    const toolSet = new Map(tools.map((tool) => [tool.name, tool]));
+    const toolSet = new Map(tools.map((tool) => [tool.definition.name, tool]));
     const started = this.requestWithId(
       id,
       {
@@ -215,7 +213,7 @@ export class CodeModeHostClient {
           sessionId: this.sessionId,
         }),
         new Promise<void>((resolve) => {
-          setTimeout(resolve, this.shutdownGraceMs);
+          setTimeout(resolve, DEFAULT_SHUTDOWN_GRACE_MS);
         }),
       ]);
     } catch {

@@ -100,7 +100,7 @@ export class CodeModeRuntime {
 
   createTools(definitions: ToolDefinition[]): ToolDefinition[] {
     const nested = definitions.map(toNestedTool);
-    const byName = new Map(nested.map((tool) => [tool.name, tool]));
+    const byName = new Map(nested.map((tool) => [tool.definition.name, tool]));
     return [
       defineTool({
         constrainedSampling: {
@@ -186,11 +186,10 @@ export class CodeModeRuntime {
 
   prompt = (definitions: ToolDefinition[]): string => {
     const lines = definitions
-      .map(toNestedTool)
       .toSorted((left, right) => left.name.localeCompare(right.name))
       .map(
-        (tool) =>
-          `### \`${tool.name}\`\n${tool.definition.description}\n\nUsage: \`${tool.usage}\``
+        (definition) =>
+          `### \`${definition.name}\`\n${definition.description}\n\nUsage: \`${usageFor(definition.name)}\``
       );
     return `Tools available in exec:\n\n${lines.join("\n\n")}`;
   };
@@ -226,7 +225,6 @@ export class CodeModeRuntime {
 
 export const toNestedTool = (definition: ToolDefinition): NestedTool => ({
   definition,
-  inputSchema: definition.parameters,
   async invoke(input, context, signal) {
     signal.throwIfAborted();
     const prepared: unknown = definition.prepareArguments
@@ -240,7 +238,7 @@ export const toNestedTool = (definition: ToolDefinition): NestedTool => ({
       id: context.toolCallId ?? `code-mode-${definition.name}`,
       name: definition.name,
       type: "toolCall",
-    }) as unknown;
+    });
     signal.throwIfAborted();
     const result = await definition.execute(
       context.toolCallId ?? `code-mode-${definition.name}`,
@@ -255,7 +253,6 @@ export const toNestedTool = (definition: ToolDefinition): NestedTool => ({
     context.captureResult?.(normalized);
     return nestedResultValue(definition.name, normalized);
   },
-  name: definition.name,
   usage: usageFor(definition.name),
 });
 
