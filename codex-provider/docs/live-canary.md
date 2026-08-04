@@ -29,7 +29,7 @@ pnpm --dir codex-provider test:live:portable
 
 This SSE-only mode performs a real lifecycle `/compact` with custom instructions. It requires one readable Pi summary beside one native v5 checkpoint, verifies that the custom marker enters only the summary, and confirms the compatible request contains the opaque replacement instead of the readable summary. The model must recall a generated value that the custom instructions deliberately omitted from the portable summary, proving that omission did not alter native checkpoint recall.
 
-The run makes at least five provider responses: two setup turns, one portable-summary request, one native compaction request, and one compatible replay turn. Retries can increase usage and cost. Its retained JSONL artifact stores the readable summary and original conversation in plaintext; summary omission is not deletion.
+Retries can increase usage and cost. The retained JSONL artifact stores the readable summary and original conversation in plaintext; summary omission is not deletion.
 
 ## Real-window SSE run
 
@@ -38,6 +38,10 @@ pnpm --dir codex-provider test:live:real
 ```
 
 This mode uses the model's declared context window. It calibrates a high-token-density payload, then performs two SSE compactions. Before each compaction, a fill turn must reach at least 90% of the server context without crossing the local byte estimate. The following turn must compact from provider-reported usage, and the checkpoint must report at least 90% side-input usage.
+
+The final JSON includes one metadata-only estimator record per round, derived from that round's latest compaction request: the local estimated source tokens, Pi's provider-reported prompt-side total (`input + cacheRead + cacheWrite`), their local/provider ratio, model, declared and effective context limits, observed Responses Lite request state, and the inferred count of rewritten trailing outputs. Every round must produce at least one new compaction request, but retries may produce more. The ratio must be positive and finite. The canary does not assume a fixed context size or use a tokenizer.
+
+Request bodies are inspected only in memory to derive those fields. The estimator evidence does not include or write prompt text, tool arguments, encrypted content, credentials, headers, URLs, payload bodies, or request sizes. The separately retained Pi session JSONL still contains the canary's synthetic conversation, as required for fresh-process replay.
 
 Expect roughly 1.4–1.6 million provider-context tokens across calibration, fills, compactions, normal responses, and fresh-process replay. Cached tokens still count toward context occupancy.
 
@@ -67,7 +71,9 @@ This is genuine WebSocket coverage for both compaction and normal turns. The run
 pnpm --dir codex-provider test:live:fallback
 ```
 
-The runner injects a WebSocket constructor that always fails. The first inline compaction must make exactly one WebSocket attempt and fall back to SSE. Every later compaction and normal turn in that runtime must stay on SSE without constructing another WebSocket. In the fresh process, checkpoint replay transforms the finalized payload, so prewarm is skipped; the first normal turn makes one failed WebSocket attempt and that new runtime must then remain on SSE for its second turn.
+The runner injects a WebSocket constructor that always fails. Round one starts with inline compaction, whose private retry loop makes exactly three pre-output WebSocket attempts before activating provider-owned SSE fallback. The following successful assistant must contain exactly one pending `codex-provider.transport-fallback` diagnostic, proving that compaction-first fallback is visible without relying on Pi outer retry. The diagnostic may contain only `type`, `timestamp`, and `details.configuredTransport`; it must contain no `error`, `raw`, message, stack, body, header, URL, payload, or request-size data. The exact UI warning `OpenAI Codex WebSocket is unavailable; using SSE for this session.` must appear once. Every later compaction and normal turn in that runtime must stay on SSE without constructing another WebSocket, diagnostic, or warning.
+
+In the fresh process, checkpoint replay transforms the finalized payload, so prewarm is skipped. Its first normal turn makes one failed WebSocket attempt, completes with the same single sanitized diagnostic and UI warning, and the new runtime stays on SSE without another diagnostic or warning for its second turn.
 
 ## Fresh-process branch isolation
 
@@ -118,7 +124,7 @@ Use one transport flag with any compatible behavior mode:
 --branch | --capabilities | --portable | --real-window | --mid-turn | --soak | --threshold
 ```
 
-`--sse` is implicit when no transport flag is present. Choose at most one behavior mode. `--portable` requires SSE request inspection; `--mid-turn` implies `--real-window`. Internal `--branch-child` and `--restart-child` flags are reserved for the runner.
+`--sse` is implicit when no transport flag is present. Choose at most one behavior mode. `--portable` requires SSE. Real-window and mid-turn evidence requires SSE request inspection, so `--real-window --websocket` and `--mid-turn --websocket` are rejected; forced fallback remains compatible because its compaction requests continue over SSE. `--mid-turn` implies `--real-window`. Internal `--branch-child` and `--restart-child` flags are reserved for the runner.
 
 ## Configuration and artifacts
 
@@ -133,6 +139,4 @@ Optional environment variables:
 - `CODEX_COMPACTION_LIVE_PAYLOAD_BYTES` — synthetic bytes per round; default 20000.
 - `CODEX_COMPACTION_LIVE_DIR` — artifact parent directory.
 
-The default run makes at least eight provider responses: one compaction and one normal response per round, then two fresh-process replay responses. Retries can increase that count.
-
-This is a release canary, not a deterministic correctness test. Unit and integration tests remain responsible for exact malformed-state, race, retry-alignment, fail-closed, and replacement opt-out behavior.
+This is a release canary, not a deterministic correctness test. It does not inject rate limits or partial-stream disconnects into the paid backend. Unit and integration tests remain responsible for those cases and for exact malformed-state, race, retry-alignment, fail-closed, and replacement opt-out behavior.

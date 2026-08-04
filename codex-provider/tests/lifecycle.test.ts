@@ -25,6 +25,7 @@ import {
   shouldCompactFinalizedInput,
 } from "../lifecycle.js";
 import type { LifecycleExecutionSuccess } from "../lifecycle.js";
+import { CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE } from "../provider.js";
 import { SPIKE_MODEL } from "./fixtures.js";
 
 const userInput = (text: string) => ({
@@ -44,6 +45,161 @@ const entry = (
     timestamp: "2026-07-30T12:00:00.000Z",
     ...value,
   }) as SessionEntry;
+
+const fallbackDiagnostic = {
+  details: {
+    configuredTransport: "auto",
+  },
+  type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+};
+
+const fallbackAssistant = (overrides: Record<string, unknown> = {}) => ({
+  diagnostics: [fallbackDiagnostic],
+  role: "assistant",
+  stopReason: "stop",
+  ...overrides,
+});
+
+const captureLifecycleHooks = async () => {
+  const hooks = new Map<string, unknown>();
+  const previousFailure = process.env.CLANKER_CODEX_COMPACTION_FAILURE;
+  const previousReplacement = process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT;
+  process.env.CLANKER_CODEX_COMPACTION_FAILURE = "ask";
+  process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT = "0";
+  try {
+    await codexCompactionExtension({
+      on(name: string, hook: unknown) {
+        hooks.set(name, hook);
+      },
+      registerEntryRenderer() {},
+    } as never);
+  } finally {
+    if (previousFailure === undefined) {
+      delete process.env.CLANKER_CODEX_COMPACTION_FAILURE;
+    } else {
+      process.env.CLANKER_CODEX_COMPACTION_FAILURE = previousFailure;
+    }
+    if (previousReplacement === undefined) {
+      delete process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT;
+    } else {
+      process.env.CLANKER_CODEX_PROVIDER_REPLACEMENT = previousReplacement;
+    }
+  }
+  return hooks;
+};
+
+describe("transport fallback notification", () => {
+  it("warns once for the replacement provider diagnostic", async () => {
+    const hooks = await captureLifecycleHooks();
+    const messageEnd = hooks.get("message_end") as (
+      event: { readonly message: Record<string, unknown> },
+      ctx: { readonly ui: { notify: (message: string, type: string) => void } }
+    ) => void;
+    const notifications: [string, string][] = [];
+    const ctx = {
+      ui: {
+        notify: (message: string, type: string) =>
+          notifications.push([message, type]),
+      },
+    };
+
+    messageEnd({ message: fallbackAssistant() }, ctx);
+    messageEnd({ message: fallbackAssistant() }, ctx);
+
+    expect(notifications).toStrictEqual([
+      [
+        "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
+        "warning",
+      ],
+    ]);
+  });
+
+  it("warns for Pi's built-in fallback diagnostic when replacement is disabled", async () => {
+    const hooks = await captureLifecycleHooks();
+    const messageEnd = hooks.get("message_end") as (
+      event: { readonly message: Record<string, unknown> },
+      ctx: { readonly ui: { notify: (message: string, type: string) => void } }
+    ) => void;
+    const notifications: [string, string][] = [];
+    const ctx = {
+      ui: {
+        notify: (message: string, type: string) =>
+          notifications.push([message, type]),
+      },
+    };
+
+    messageEnd(
+      {
+        message: fallbackAssistant({
+          diagnostics: [
+            {
+              details: {
+                configuredTransport: "auto",
+                eventsEmitted: false,
+                fallbackTransport: "sse",
+                phase: "before_message_stream_start",
+                requestBytes: 123,
+              },
+              error: { message: "WebSocket connection failed" },
+              timestamp: 1,
+              type: "provider_transport_failure",
+            },
+          ],
+        }),
+      },
+      ctx
+    );
+
+    expect(notifications).toStrictEqual([
+      [
+        "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
+        "warning",
+      ],
+    ]);
+  });
+
+  it("ignores malformed and spoofed fallback diagnostics", async () => {
+    const hooks = await captureLifecycleHooks();
+    const messageEnd = hooks.get("message_end") as (
+      event: { readonly message: Record<string, unknown> },
+      ctx: { readonly ui: { notify: (message: string) => void } }
+    ) => void;
+    const notifications: string[] = [];
+    const ctx = {
+      ui: { notify: (message: string) => notifications.push(message) },
+    };
+
+    for (const diagnostic of [
+      { type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE },
+      {
+        details: { configuredTransport: "sse" },
+        type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+      },
+      {
+        details: {
+          fallbackTransport: "websocket",
+          phase: "before_message_stream_start",
+        },
+        type: "provider_transport_failure",
+      },
+      {
+        details: {
+          fallbackTransport: "sse",
+          phase: "after_message_stream_start",
+        },
+        type: "provider_transport_failure",
+      },
+      { details: fallbackDiagnostic.details, type: "unrelated" },
+    ]) {
+      messageEnd(
+        { message: fallbackAssistant({ diagnostics: [diagnostic] }) },
+        ctx
+      );
+    }
+
+    expect(notifications).toStrictEqual([]);
+  });
+});
 
 describe("lifecycle source and checkpoint construction", () => {
   it("parses failure policy and merges complete usage", () => {

@@ -33,6 +33,11 @@ const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
 const CHECKPOINT_TYPE = "codex-compaction.checkpoint";
 const DIAGNOSTIC_TYPE = "codex-compaction.diagnostic";
+const TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE = "codex-provider.transport-fallback";
+const TRANSPORT_FALLBACK_WARNING =
+  "OpenAI Codex WebSocket is unavailable; using SSE for this session.";
+const TRUNCATED_OUTPUT_MESSAGE =
+  "Output exceeded the available model context and was truncated";
 const LEGACY_CHECKPOINT_MARKER = "[OpenAI encrypted compaction checkpoint]";
 const TIMESTAMP_CANARY_TYPE = "live-timestamp-canary";
 const TIMESTAMP_CANARY_SENTINEL = "MIDTURN-TIMESTAMP-CANARY-7F3A";
@@ -184,6 +189,64 @@ const assistantText = (message: AssistantMessage | undefined) =>
   message?.content
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("") ?? "";
+
+const assertTransportFallbackDiagnostic = (
+  message: AssistantMessage | undefined,
+  label: string
+) => {
+  assert(
+    message?.stopReason === "stop",
+    `${label}: assistant did not complete`
+  );
+  const diagnostics = message.diagnostics ?? [];
+  assert(
+    diagnostics.length === 1,
+    `${label}: expected exactly one transport fallback diagnostic`
+  );
+  const [diagnostic] = diagnostics;
+  assert(
+    diagnostic?.type === TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE &&
+      Number.isSafeInteger(diagnostic.timestamp) &&
+      diagnostic.timestamp > 0 &&
+      diagnostic.error === undefined &&
+      !("raw" in diagnostic) &&
+      isRecord(diagnostic.details),
+    `${label}: transport fallback diagnostic is invalid`
+  );
+  assert(
+    JSON.stringify(Object.keys(diagnostic).toSorted()) ===
+      JSON.stringify(["details", "timestamp", "type"]) &&
+      JSON.stringify(Object.keys(diagnostic.details).toSorted()) ===
+        JSON.stringify(["configuredTransport"]) &&
+      (diagnostic.details.configuredTransport === "auto" ||
+        diagnostic.details.configuredTransport === "websocket" ||
+        diagnostic.details.configuredTransport === "websocket-cached"),
+    `${label}: transport fallback diagnostic contains unapproved fields or values`
+  );
+};
+
+const rewrittenTrailingOutputCount = (requestBodyValue: unknown): number => {
+  assert(isRecord(requestBodyValue), "Compaction request body is invalid");
+  assert(Array.isArray(requestBodyValue.input), "Compaction input is missing");
+  return requestBodyValue.input.filter((item) => {
+    if (!isRecord(item)) {
+      return false;
+    }
+    if (
+      item.type !== "function_call_output" &&
+      item.type !== "custom_tool_call_output"
+    ) {
+      return (
+        item.type === "tool_search_output" &&
+        Array.isArray(item.tools) &&
+        item.tools.length === 0
+      );
+    }
+    return isRecord(item.output)
+      ? item.output.body === TRUNCATED_OUTPUT_MESSAGE
+      : item.output === TRUNCATED_OUTPUT_MESSAGE;
+  }).length;
+};
 
 const disposedSessions = new WeakSet<AgentSession>();
 
@@ -388,13 +451,12 @@ const assertTransport = (
     );
   } else if (mode === "fallback") {
     assert(
-      probe.websocketConstructions === expectedFallbackConstructions &&
-        probe.sseRequests > 0,
+      probe.websocketConstructions === expectedFallbackConstructions,
       `Fallback canary used ${probe.websocketConstructions} WebSocket attempt(s) and ${probe.sseRequests} SSE request(s)`
     );
   } else {
     assert(
-      probe.websocketConstructions === 0 && probe.sseRequests > 0,
+      probe.websocketConstructions === 0,
       `SSE canary used ${probe.websocketConstructions} WebSocket connection(s) and ${probe.sseRequests} SSE request(s)`
     );
   }
@@ -493,6 +555,7 @@ const runFreshChild = async (branchMode: boolean) => {
         "Fresh-process checkpoint count is invalid"
       );
       await session.prompt("FRESH PROCESS RESUME ONE. Reply only RESUMED ONE.");
+      const firstAssistant = lastAssistant(session);
       const fallbackAfterFirst = transportProbe.websocketConstructions;
       await session.prompt("FRESH PROCESS RESUME TWO. Reply only RESUMED TWO.");
       const checkpoints = customEntries(manager, CHECKPOINT_TYPE);
@@ -512,16 +575,24 @@ const runFreshChild = async (branchMode: boolean) => {
       );
       assert(extensionErrors.length === 0, "Extension errors were emitted");
       if (transportMode === "fallback") {
+        assertTransportFallbackDiagnostic(
+          firstAssistant,
+          "Fresh-process fallback"
+        );
+        assert(
+          notifications.filter(
+            (notification) => notification === TRANSPORT_FALLBACK_WARNING
+          ).length === 1,
+          "Fresh-process fallback warning was not emitted exactly once"
+        );
+        assert(
+          (lastAssistant(session)?.diagnostics ?? []).length === 0,
+          "Fresh-process sticky SSE assistant emitted another diagnostic"
+        );
         assert(
           fallbackAfterFirst === 1 &&
             transportProbe.websocketConstructions === fallbackAfterFirst,
           `Fresh-process fallback made ${fallbackAfterFirst} WebSocket attempt(s) on the first turn and ${transportProbe.websocketConstructions} total`
-        );
-      }
-      if (transportMode !== "websocket") {
-        assert(
-          transportProbe.sseRequests >= 2,
-          "Fresh-process restart did not keep both turns on SSE"
         );
       }
       assertTransport(transportMode, transportProbe, 1);
@@ -577,12 +648,6 @@ const runFreshChild = async (branchMode: boolean) => {
       "Divergent branch assistant did not complete"
     );
     assertTransport(transportMode, transportProbe);
-    if (transportMode !== "websocket") {
-      assert(
-        transportProbe.sseRequests >= 2,
-        "Fresh-process branch compaction and response did not both use SSE"
-      );
-    }
     await disposeCanarySession(session, transportMode);
 
     manager = SessionManager.open(sessionFile, sessionDir, canaryCwd);
@@ -614,13 +679,6 @@ const runFreshChild = async (branchMode: boolean) => {
       transportProbe,
       transportMode === "fallback" ? 2 : 1
     );
-    if (transportMode !== "websocket") {
-      assert(
-        transportProbe.sseRequests >= 3,
-        "Fresh-process original branch response did not use SSE"
-      );
-    }
-
     await session.navigateTree(divergentEntryId, { summarize: false });
     const restoredDivergent = customEntries(manager, CHECKPOINT_TYPE);
     assert(
@@ -691,6 +749,10 @@ const main = async () => {
   assert(
     !portableMode || transportMode === "sse",
     "Portable canary requires SSE request inspection"
+  );
+  assert(
+    !realWindow || transportMode !== "websocket",
+    "Real-window and mid-turn canaries require SSE request inspection"
   );
   if (process.argv.includes("--help")) {
     console.log(`Usage:
@@ -1194,6 +1256,17 @@ Environment:
   const ids: string[] = [];
   const sideInputTokens: number[] = [];
   const windows: CheckpointV5["runtime"][] = [];
+  const estimatorEvidence: {
+    readonly declaredContextWindow: number;
+    readonly effectiveContextLimit: number;
+    readonly localEstimatedSourceTokens: number;
+    readonly localToProviderRatio: number;
+    readonly model: string;
+    readonly providerPromptTokens: number;
+    readonly responsesLite: boolean;
+    readonly rewrittenTrailingOutputs: number;
+    readonly round: number;
+  }[] = [];
   try {
     console.log(`Live artifacts: ${runRoot}`);
     if (portableMode) {
@@ -1317,12 +1390,6 @@ Environment:
         "Threshold canary emitted a diagnostic or extension error"
       );
       assertTransport(transportMode, transportProbe);
-      if (transportMode !== "websocket") {
-        assert(
-          transportProbe.sseRequests === 2,
-          `Threshold canary used ${transportProbe.sseRequests} SSE requests`
-        );
-      }
       console.log(
         JSON.stringify(
           {
@@ -1432,12 +1499,6 @@ Environment:
         "Capability canary emitted a diagnostic or extension error"
       );
       assertTransport(transportMode, transportProbe);
-      if (transportMode !== "websocket") {
-        assert(
-          transportProbe.sseRequests >= 6,
-          `Capability canary used only ${transportProbe.sseRequests} SSE requests`
-        );
-      }
       console.log(
         JSON.stringify(
           {
@@ -1470,6 +1531,7 @@ Environment:
       `Running ${rounds} ${runLabel}inline compactions with openai-codex/${modelId} (${forcedContextWindow.toLocaleString()} token window)...`
     );
     for (let round = 1; round <= rounds; round += 1) {
+      const requestCountBefore = transportProbe.requests.length;
       if (midTurn) {
         // oxlint-disable-next-line no-await-in-loop -- optional repeated mid-turn rounds are sequential
         await session.prompt(
@@ -1573,6 +1635,52 @@ Environment:
       assert(!ids.includes(id), `Round ${round}: response ID was reused`);
       ids.push(id);
       sideInputTokens.push(checked.sideInputTokens);
+      if (realWindow) {
+        const bodies = transportProbe.requests
+          .slice(requestCountBefore)
+          .flatMap(({ body }) => {
+            if (body === undefined) {
+              return [];
+            }
+            const value: unknown = JSON.parse(body);
+            if (!isRecord(value) || !Array.isArray(value.input)) {
+              return [];
+            }
+            const trigger: unknown = value.input.at(-1);
+            return isRecord(trigger) && trigger.type === "compaction_trigger"
+              ? [value]
+              : [];
+          });
+        assert(
+          bodies.length > 0,
+          `Round ${round}: captured no new structural compaction request`
+        );
+        const body = bodies.at(-1);
+        assert(
+          body !== undefined,
+          `Round ${round}: compaction body is missing`
+        );
+        const localEstimatedSourceTokens =
+          checkpointV5(checkpoint).sourceTokens;
+        const localToProviderRatio =
+          localEstimatedSourceTokens / checked.sideInputTokens;
+        assert(
+          Number.isFinite(localToProviderRatio) && localToProviderRatio > 0,
+          `Round ${round}: estimator/provider ratio must be finite and positive`
+        );
+        const rewrittenTrailingOutputs = rewrittenTrailingOutputCount(body);
+        estimatorEvidence.push({
+          declaredContextWindow: forcedContextWindow,
+          effectiveContextLimit: checked.runtime.effectiveTokenLimit,
+          localEstimatedSourceTokens,
+          localToProviderRatio,
+          model: checkpointV5(checkpoint).identity.model,
+          providerPromptTokens: checked.sideInputTokens,
+          responsesLite: body.instructions === "",
+          rewrittenTrailingOutputs,
+          round,
+        });
+      }
       assert(
         lastAssistant(session)?.stopReason === "stop",
         `Round ${round}: assistant did not complete`
@@ -1583,17 +1691,32 @@ Environment:
       );
       if (transportMode === "fallback") {
         assert(
-          transportProbe.websocketConstructions === 1,
-          `Round ${round}: fallback retried WebSocket after the first failure`
+          transportProbe.websocketConstructions === 3,
+          `Round ${round}: sticky SSE constructed another WebSocket after provider fallback`
         );
-      }
-      assertTransport(transportMode, transportProbe);
-      if (transportMode !== "websocket") {
+        if (round === 1) {
+          assertTransportFallbackDiagnostic(
+            lastAssistant(session),
+            "Compaction-first fallback"
+          );
+        } else {
+          assert(
+            (lastAssistant(session)?.diagnostics ?? []).length === 0,
+            `Round ${round}: sticky SSE assistant emitted another diagnostic`
+          );
+        }
         assert(
-          transportProbe.sseRequests >= round * 2,
-          `Round ${round}: compaction and response did not both use SSE`
+          notifications.filter(
+            (notification) => notification === TRANSPORT_FALLBACK_WARNING
+          ).length === 1,
+          `Round ${round}: fallback warning was not emitted exactly once`
         );
       }
+      assertTransport(
+        transportMode,
+        transportProbe,
+        transportMode === "fallback" ? 3 : 1
+      );
       console.log(
         `Round ${round}: checkpoint ${id}; window ${checked.runtime.windowNumber} ${checked.runtime.currentWindowId}; provider input ${checked.sideInputTokens.toLocaleString()} tokens (${((checked.sideInputTokens / forcedContextWindow) * 100).toFixed(1)}%)`
       );
@@ -1694,6 +1817,7 @@ Environment:
         {
           calibration,
           checkpoints: ids,
+          estimatorEvidence,
           midTurn,
           model: `openai-codex/${modelId}`,
           postCompactionToolCalls,

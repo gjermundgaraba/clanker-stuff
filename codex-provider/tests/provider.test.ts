@@ -8,6 +8,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
   createCodexProviderRuntime,
   isCodexCompactionCurrentModelFallbackError,
 } from "../provider.js";
@@ -152,6 +153,7 @@ const markProtocolRetryPayload = (payload: unknown) => ({
 
 describe("replacement provider", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -190,6 +192,7 @@ describe("replacement provider", () => {
           "x-codex-turn-metadata"
         ]
       ),
+      diagnostics: message.diagnostics,
       instructions: body.instructions,
       output: message.content,
       requestCount: requests.length,
@@ -201,6 +204,7 @@ describe("replacement provider", () => {
         session_id: "session-sse",
         thread_id: "session-sse",
       },
+      diagnostics: undefined,
       instructions: "System truth",
       output: [{ text: "hello back", type: "text" }],
       requestCount: 1,
@@ -234,11 +238,42 @@ describe("replacement provider", () => {
 
     expect({
       attempts,
+      diagnostics: message.diagnostics,
       error: message.errorMessage,
       stop: message.stopReason,
     }).toStrictEqual({
       attempts: 1,
+      diagnostics: undefined,
       error: "SSE interrupted after output",
+      stop: "error",
+    });
+  });
+
+  it("retries generic HTTP 429 responses", async () => {
+    let attempts = 0;
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          attempts += 1;
+          return Response.json(
+            { error: { code: "rate_limit", message: "rate limited" } },
+            { status: 429 }
+          );
+        },
+        maxRetries: 2,
+        sessionId: "session-generic-429",
+        transport: "sse",
+      })
+      .result();
+
+    expect({
+      attempts,
+      error: message.errorMessage,
+      stop: message.stopReason,
+    }).toStrictEqual({
+      attempts: 3,
+      error: "rate limited",
       stop: "error",
     });
   });
@@ -701,7 +736,85 @@ describe("replacement provider", () => {
     });
   });
 
-  it("releases every portable-summary session and cached socket", async () => {
+  it("falls back concurrent same-session work without closing the busy socket", async () => {
+    let closes = 0;
+    let activeSocket: EventTarget | undefined;
+    const requestStarted = Promise.withResolvers<null>();
+    const BusyWebSocket = function BusyWebSocket() {
+      const socket = new EventTarget() as EventTarget & {
+        close: () => void;
+        readyState: number;
+        send: (data: string) => void;
+      };
+      activeSocket = socket;
+      socket.readyState = 1;
+      socket.close = () => {
+        closes += 1;
+      };
+      socket.send = (data) => {
+        const frame = JSON.parse(data) as Record<string, unknown>;
+        if (frame.generate === false) {
+          queueMicrotask(() =>
+            socket.dispatchEvent(
+              new MessageEvent("message", {
+                data: JSON.stringify({
+                  response: { id: "prewarm", status: "completed" },
+                  type: "response.done",
+                }),
+              })
+            )
+          );
+        } else {
+          requestStarted.resolve(null);
+        }
+      };
+      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+      return socket;
+    };
+    vi.stubGlobal("WebSocket", BusyWebSocket);
+    const runtime = createCodexProviderRuntime();
+    const firstResult = runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId: "session-concurrent",
+      })
+      .result();
+    await requestStarted.promise;
+    const second = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => sse(responseEvents("resp_sse", "second")),
+        sessionId: "session-concurrent",
+      })
+      .result();
+
+    for (const event of responseEvents("resp_ws", "first")) {
+      activeSocket?.dispatchEvent(
+        new MessageEvent("message", { data: JSON.stringify(event) })
+      );
+    }
+    const first = await firstResult;
+
+    expect({
+      closes,
+      contents: [first, second].map((message) =>
+        message.content.map((block) => ("text" in block ? block.text : ""))
+      ),
+      diagnostics: second.diagnostics,
+    }).toStrictEqual({
+      closes: 0,
+      contents: [["first"], ["second"]],
+      diagnostics: [
+        {
+          details: { configuredTransport: "auto" },
+          timestamp: expect.any(Number),
+          type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+        },
+      ],
+    });
+  });
+
+  it("isolates portable summaries from a supplied live session", async () => {
     const windowIds: string[] = [];
     let closes = 0;
     const SummaryWebSocket = function SummaryWebSocket(
@@ -734,6 +847,12 @@ describe("replacement provider", () => {
     };
     vi.stubGlobal("WebSocket", SummaryWebSocket);
     const runtime = createCodexProviderRuntime();
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId: "portable-summary",
+      })
+      .result();
 
     for (let round = 0; round < 10; round += 1) {
       // oxlint-disable-next-line eslint/no-await-in-loop -- each round must observe the prior cleanup
@@ -744,10 +863,16 @@ describe("replacement provider", () => {
         })
         .result();
     }
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId: "portable-summary",
+      })
+      .result();
 
     expect({ closes, uniqueWindows: new Set(windowIds).size }).toStrictEqual({
       closes: 10,
-      uniqueWindows: 10,
+      uniqueWindows: 11,
     });
   });
 
@@ -794,14 +919,153 @@ describe("replacement provider", () => {
         controller.abort();
       }
       const output = await result;
+      const fallbackTimestamp = expect.any(Number);
+      const expectedDiagnostics = abort
+        ? undefined
+        : [
+            {
+              details: { configuredTransport: "websocket" },
+              timestamp: fallbackTimestamp,
+              type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+            },
+          ];
 
-      expect({ closes, sockets, stopReason: output.stopReason }).toStrictEqual({
+      expect({
+        closes,
+        diagnostics: output.diagnostics,
+        sockets,
+        stopReason: output.stopReason,
+      }).toStrictEqual({
         closes: expectedCloses,
+        diagnostics: expectedDiagnostics,
         sockets: expectedSockets,
         stopReason: abort ? "aborted" : "stop",
       });
     }
   );
+
+  it("carries one sanitized fallback diagnostic to the next successful output", async () => {
+    let now = 100;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const secret = "secret-token-in-websocket-error";
+    let socketAttempts = 0;
+    const FailingWebSocket = function FailingWebSocket() {
+      socketAttempts += 1;
+      throw new Error(secret);
+    };
+    vi.stubGlobal("WebSocket", FailingWebSocket);
+    let responses = 0;
+    const fetch = vi.fn<() => Promise<Response>>(async () => {
+      responses += 1;
+      return responses === 1
+        ? sse([])
+        : sse(responseEvents(`resp_fallback_${responses}`, "ok"));
+    });
+    const runtime = createCodexProviderRuntime();
+    const first = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        sessionId: "session-sticky-fallback",
+      })
+      .result();
+    now = 200;
+    const second = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        sessionId: "session-sticky-fallback",
+      })
+      .result();
+    const third = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        sessionId: "session-sticky-fallback",
+      })
+      .result();
+
+    expect({
+      firstDiagnostics: first.diagnostics,
+      firstError: first.errorMessage,
+      secondDiagnostics: second.diagnostics,
+      socketAttempts,
+      stops: [first.stopReason, second.stopReason, third.stopReason],
+      thirdDiagnostics: third.diagnostics,
+    }).toStrictEqual({
+      firstDiagnostics: undefined,
+      firstError:
+        "OpenAI Responses stream ended before a terminal response event",
+      secondDiagnostics: [
+        {
+          details: { configuredTransport: "auto" },
+          timestamp: 100,
+          type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+        },
+      ],
+      socketAttempts: 2,
+      stops: ["error", "stop", "stop"],
+      thirdDiagnostics: undefined,
+    });
+    expect(JSON.stringify(second.diagnostics)).not.toContain(secret);
+  });
+
+  it("surfaces a retryable WebSocket error without retrying after stream start", async () => {
+    let socketAttempts = 0;
+    const FailingWebSocket = function FailingWebSocket() {
+      socketAttempts += 1;
+      const socket = new EventTarget() as EventTarget & {
+        close: () => void;
+        readyState: number;
+        send: () => void;
+      };
+      socket.readyState = 1;
+      socket.close = () => null;
+      socket.send = () => {
+        queueMicrotask(() =>
+          socket.dispatchEvent(
+            new MessageEvent("message", {
+              data: JSON.stringify({
+                response: { id: "resp_ws_failure", status: "in_progress" },
+                type: "response.created",
+              }),
+            })
+          )
+        );
+        setTimeout(() => socket.dispatchEvent(new Event("error")), 0);
+      };
+      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+      return socket;
+    };
+    vi.stubGlobal("WebSocket", FailingWebSocket);
+    const fetch = vi.fn<() => Promise<Response>>(async () =>
+      sse(responseEvents("resp_unexpected_retry", "must not retry"))
+    );
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        maxRetries: 5,
+        onPayload: markProtocolRetryPayload,
+        sessionId: "session-ws-stream-failure",
+      })
+      .result();
+
+    expect({
+      diagnostics: message.diagnostics,
+      error: message.errorMessage,
+      fetches: fetch.mock.calls.length,
+      socketAttempts,
+      stop: message.stopReason,
+    }).toStrictEqual({
+      diagnostics: undefined,
+      error: "WebSocket error: stream failed",
+      fetches: 0,
+      socketAttempts: 1,
+      stop: "error",
+    });
+  });
 
   it("retries WebSocket protocol errors before output", async () => {
     const frames: Record<string, unknown>[] = [];
@@ -894,14 +1158,101 @@ describe("replacement provider", () => {
 
     expect({
       connections,
+      diagnostics: [first.diagnostics, second.diagnostics],
       fetches: fetch.mock.calls.length,
       previousResponseIds: frames.map((frame) => frame.previous_response_id),
       stops: [first.stopReason, second.stopReason],
     }).toStrictEqual({
       connections: 3,
+      diagnostics: [undefined, undefined],
       fetches: 0,
       previousResponseIds: [undefined, undefined, "resp_protocol_2", undefined],
       stops: ["stop", "stop"],
+    });
+  });
+
+  it("falls back after three partial WebSocket compaction failures", async () => {
+    let socketAttempts = 0;
+    const PartialCompactionWebSocket = function PartialCompactionWebSocket() {
+      socketAttempts += 1;
+      const socket = new EventTarget() as EventTarget & {
+        close: () => void;
+        readyState: number;
+        send: () => void;
+      };
+      socket.readyState = 1;
+      socket.close = () => null;
+      socket.send = () => {
+        queueMicrotask(() =>
+          socket.dispatchEvent(
+            new MessageEvent("message", {
+              data: JSON.stringify({
+                response: {
+                  id: `resp_partial_compact_${socketAttempts}`,
+                  status: "in_progress",
+                },
+                type: "response.created",
+              }),
+            })
+          )
+        );
+        setTimeout(() => socket.dispatchEvent(new Event("error")), 0);
+      };
+      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+      return socket;
+    };
+    vi.stubGlobal("WebSocket", PartialCompactionWebSocket);
+    const requests: RequestInit[] = [];
+    const fetch = vi.fn<
+      (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+    >(async (_input: string | URL | Request, init?: RequestInit) => {
+      requests.push(init ?? {});
+      return requestKind(readBody(init?.body)) === "compaction"
+        ? sse(compactionEvents("resp_compact_sse_fallback"))
+        : sse(responseEvents("resp_after_compact_fallback", "done"));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const runtime = createCodexProviderRuntime();
+    const sessionId = "session-partial-compact-fallback";
+    const result = await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      authoritativeInput: [],
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model: SPIKE_MODEL,
+      phase: "pre-sampling",
+      reason: "threshold",
+      sessionId,
+      signal: new AbortController().signal,
+      thinkingLevel: "medium",
+    });
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        sessionId,
+      })
+      .result();
+
+    expect({
+      diagnostics: message.diagnostics,
+      requestKinds: requests.map((request) =>
+        requestKind(readBody(request.body))
+      ),
+      responseId: result.responseId,
+      socketAttempts,
+    }).toStrictEqual({
+      diagnostics: [
+        {
+          details: { configuredTransport: "auto" },
+          timestamp: expect.any(Number),
+          type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+        },
+      ],
+      requestKinds: ["compaction", "turn"],
+      responseId: "resp_compact_sse_fallback",
+      socketAttempts: 3,
     });
   });
 
@@ -925,8 +1276,16 @@ describe("replacement provider", () => {
       marker: true,
     });
 
-    let attempts = 0;
     vi.stubGlobal("WebSocket", null);
+    const compactionSessionId = "session-compaction-classification";
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => sse(responseEvents("resp_compaction_setup", "ok")),
+        sessionId: compactionSessionId,
+      })
+      .result();
+    let attempts = 0;
     vi.stubGlobal("fetch", async () => {
       attempts += 1;
       return attempts === 1
@@ -947,9 +1306,9 @@ describe("replacement provider", () => {
       effectiveTokenLimit: 1000,
       inputPrefix: [],
       model: SPIKE_MODEL,
-      phase: "standalone",
+      phase: "pre-sampling",
       reason: "manual",
-      sessionId: "session-retry",
+      sessionId: compactionSessionId,
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
@@ -974,9 +1333,9 @@ describe("replacement provider", () => {
       effectiveTokenLimit: 1000,
       inputPrefix: [],
       model: SPIKE_MODEL,
-      phase: "standalone",
+      phase: "pre-sampling",
       reason: "manual",
-      sessionId: "session-incomplete",
+      sessionId: compactionSessionId,
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
@@ -996,22 +1355,72 @@ describe("replacement provider", () => {
         effectiveTokenLimit: 1000,
         inputPrefix: [],
         model: SPIKE_MODEL,
-        phase: "standalone",
+        phase: "pre-sampling",
         reason: "manual",
-        sessionId: "session-malformed",
+        sessionId: compactionSessionId,
         signal: new AbortController().signal,
         thinkingLevel: "medium",
       })
     ).rejects.toThrow("invalid response");
     expect(malformedAttempts).toBe(1);
+  });
 
-    const responseFailure = async (code: string) => {
-      let failureAttempts = 0;
+  it.each([
+    {
+      code: "context_length_exceeded",
+      expectedAttempts: 1,
+      expectedFallback: true,
+    },
+    {
+      code: "insufficient_quota",
+      expectedAttempts: 1,
+      expectedFallback: false,
+    },
+    {
+      code: "usage_not_included",
+      expectedAttempts: 1,
+      expectedFallback: false,
+    },
+    {
+      code: "cyber_policy",
+      expectedAttempts: 1,
+      expectedFallback: false,
+    },
+    {
+      code: "invalid_prompt",
+      expectedAttempts: 1,
+      expectedFallback: true,
+    },
+    {
+      code: "server_is_overloaded",
+      expectedAttempts: 1,
+      expectedFallback: true,
+    },
+    {
+      code: "unknown_failure",
+      expectedAttempts: 3,
+      expectedFallback: false,
+      message: "cyber_policy context_length_exceeded",
+    },
+  ])(
+    "classifies compaction failure $code with exact attempts and fallback",
+    async ({ code, expectedAttempts, expectedFallback, message = code }) => {
+      vi.stubGlobal("WebSocket", null);
+      const sessionId = `session-classification-${code}`;
+      const runtime = createCodexProviderRuntime();
+      await runtime.provider
+        .streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch: async () => sse(responseEvents(`resp_setup_${code}`, "ok")),
+          sessionId,
+        })
+        .result();
+      let attempts = 0;
       vi.stubGlobal("fetch", async () => {
-        failureAttempts += 1;
+        attempts += 1;
         return sse([
           {
-            response: { error: { code, message: code } },
+            response: { error: { code, message } },
             type: "response.failed",
           },
         ]);
@@ -1025,89 +1434,156 @@ describe("replacement provider", () => {
           effectiveTokenLimit: 1000,
           inputPrefix: [],
           model: SPIKE_MODEL,
-          phase: "standalone",
+          phase: "pre-sampling",
           reason: "manual",
-          sessionId: `session-${code}`,
+          sessionId,
           signal: new AbortController().signal,
           thinkingLevel: "medium",
         });
       } catch (error) {
         failure = error;
       }
-      return { failure, failureAttempts };
-    };
-    const contextFailure = await responseFailure("context_length_exceeded");
-    const cyberFailure = await responseFailure("cyber_policy");
-    const overloadedFailure = await responseFailure("server_is_overloaded");
-    // oxlint-disable-next-line vitest/max-expects -- one compact protocol matrix
-    expect({
-      contextAttempts: contextFailure.failureAttempts,
-      contextFallback: isCodexCompactionCurrentModelFallbackError(
-        contextFailure.failure
-      ),
-      cyberAttempts: cyberFailure.failureAttempts,
-      cyberFallback: isCodexCompactionCurrentModelFallbackError(
-        cyberFailure.failure
-      ),
-      overloadedAttempts: overloadedFailure.failureAttempts,
-      overloadedFallback: isCodexCompactionCurrentModelFallbackError(
-        overloadedFailure.failure
-      ),
-    }).toStrictEqual({
-      contextAttempts: 1,
-      contextFallback: true,
-      cyberAttempts: 1,
-      cyberFallback: false,
-      overloadedAttempts: 1,
-      overloadedFallback: true,
-    });
 
-    vi.stubGlobal("fetch", async () =>
-      Response.json(
-        { error: { code: "invalid_request_error", message: "bad model" } },
-        { status: 400 }
-      )
-    );
-    // oxlint-disable-next-line vitest/max-expects -- one compact protocol matrix
-    await expect(
-      runtime.compact({
-        apiKey: SPIKE_API_KEY,
-        authoritativeInput: [],
-        context: context([]),
-        effectiveTokenLimit: 1000,
-        inputPrefix: [],
-        model: SPIKE_MODEL,
-        phase: "standalone",
-        reason: "manual",
-        sessionId: "session-fallback-classification",
-        signal: new AbortController().signal,
-        thinkingLevel: "medium",
-      })
-    ).rejects.toSatisfy(isCodexCompactionCurrentModelFallbackError);
+      expect({
+        attempts,
+        fallback: isCodexCompactionCurrentModelFallbackError(failure),
+      }).toStrictEqual({
+        attempts: expectedAttempts,
+        fallback: expectedFallback,
+      });
+    }
+  );
 
-    vi.stubGlobal("fetch", async () =>
-      Response.json(
-        { error: { code: "insufficient_quota", message: "quota exceeded" } },
-        { status: 429 }
-      )
-    );
-    // oxlint-disable-next-line vitest/max-expects -- one compact protocol matrix
-    await expect(
-      runtime.compact({
-        apiKey: SPIKE_API_KEY,
-        authoritativeInput: [],
-        context: context([]),
-        effectiveTokenLimit: 1000,
-        inputPrefix: [],
-        model: SPIKE_MODEL,
-        phase: "standalone",
-        reason: "manual",
-        sessionId: "session-quota-classification",
-        signal: new AbortController().signal,
-        thinkingLevel: "medium",
-      })
-    ).rejects.not.toSatisfy(isCodexCompactionCurrentModelFallbackError);
-  });
+  it.each([
+    {
+      body: { error: { code: "server_is_overloaded", message: "overloaded" } },
+      expectedAttempts: 3,
+      expectedFallback: true,
+      label: "HTTP 500 internal server",
+      status: 500,
+    },
+    {
+      body: { error: { code: "teapot", message: "teapot" } },
+      expectedAttempts: 3,
+      expectedFallback: true,
+      label: "unexpected HTTP status",
+      status: 418,
+    },
+    {
+      body: {
+        error: { code: "rate_limit", message: "usage_not_included" },
+      },
+      expectedAttempts: 3,
+      expectedFallback: true,
+      label: "generic HTTP 429",
+      status: 429,
+    },
+    {
+      body: {
+        error: { message: "usage limit", type: "usage_limit_reached" },
+      },
+      expectedAttempts: 1,
+      expectedFallback: true,
+      label: "HTTP 429 usage limit",
+      status: 429,
+    },
+    {
+      body: {
+        error: { message: "not included", type: "usage_not_included" },
+      },
+      expectedAttempts: 1,
+      expectedFallback: false,
+      label: "HTTP 429 usage not included",
+      status: 429,
+    },
+    {
+      body: { error: { code: "invalid_image", message: "invalid image" } },
+      expectedAttempts: 1,
+      expectedFallback: true,
+      label: "HTTP 400 structured invalid request",
+      status: 400,
+    },
+    {
+      body: { error: { code: "cyber_policy", message: "blocked" } },
+      expectedAttempts: 1,
+      expectedFallback: false,
+      label: "HTTP 400 cyber policy",
+      status: 400,
+    },
+    {
+      body: "The image data you provided does not represent a valid image",
+      expectedAttempts: 1,
+      expectedFallback: false,
+      label: "HTTP 400 plain-text invalid image",
+      status: 400,
+    },
+    {
+      body: {
+        error: {
+          message:
+            "The image data you provided does not represent a valid image",
+        },
+      },
+      expectedAttempts: 1,
+      expectedFallback: false,
+      label: "HTTP 400 JSON invalid image",
+      status: 400,
+    },
+    {
+      body: { error: { code: "slow_down", message: "slow down" } },
+      expectedAttempts: 1,
+      expectedFallback: true,
+      label: "HTTP overload",
+      status: 503,
+    },
+  ])(
+    "classifies $label for compaction",
+    async ({ body, expectedAttempts, expectedFallback, label, status }) => {
+      vi.stubGlobal("WebSocket", null);
+      const sessionId = `session-http-classification-${label}`;
+      const runtime = createCodexProviderRuntime();
+      await runtime.provider
+        .streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch: async () => sse(responseEvents("resp_setup_http", "ok")),
+          sessionId,
+        })
+        .result();
+      let attempts = 0;
+      vi.stubGlobal("fetch", async () => {
+        attempts += 1;
+        return typeof body === "string"
+          ? new Response(body, { status })
+          : Response.json(body, { status });
+      });
+      let failure: unknown;
+      try {
+        await runtime.compact({
+          apiKey: SPIKE_API_KEY,
+          authoritativeInput: [],
+          context: context([]),
+          effectiveTokenLimit: 1000,
+          inputPrefix: [],
+          model: SPIKE_MODEL,
+          phase: "pre-sampling",
+          reason: "manual",
+          sessionId,
+          signal: new AbortController().signal,
+          thinkingLevel: "medium",
+        });
+      } catch (error) {
+        failure = error;
+      }
+
+      expect({
+        attempts,
+        fallback: isCodexCompactionCurrentModelFallbackError(failure),
+      }).toStrictEqual({
+        attempts: expectedAttempts,
+        fallback: expectedFallback,
+      });
+    }
+  );
 
   it("sends canonical V2 compaction metadata on the active turn", async () => {
     vi.stubGlobal("WebSocket", null);

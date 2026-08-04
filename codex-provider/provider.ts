@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
 
 import {
+  appendAssistantMessageDiagnostic,
   calculateCost,
   clampThinkingLevel,
   createAssistantMessageEventStream,
@@ -54,6 +55,8 @@ const REQUEST_COMPRESSION_LEVEL = 3;
 const WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
 const WEBSOCKET_MAX_AGE_MS = 55 * 60_000;
+export const CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE =
+  "codex-provider.transport-fallback";
 const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
   "openai",
   "openai-codex",
@@ -146,6 +149,13 @@ interface SessionRuntime {
   activeTransport?: OpenAICodexResponsesOptions["transport"];
   continuation?: ContinuationState;
   fallbackToSse: boolean;
+  pendingTransportFallback?: {
+    configuredTransport: Exclude<
+      OpenAICodexResponsesOptions["transport"],
+      "sse" | undefined
+    >;
+    timestamp: number;
+  };
   socket?: {
     busy: boolean;
     createdAt: number;
@@ -789,20 +799,30 @@ class CodexProviderError extends Error {
   }
 }
 
-const retryableCodexError = (code: string | undefined, message: string) =>
-  /stream|timeout|unexpected.?status|response.?stream.?failed|connection|internal/iu.test(
-    `${code ?? ""} ${message}`
-  );
+// oxlint-disable-next-line eslint/max-classes-per-file -- private transport control signal
+class WebSocketUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WebSocketUnavailableError";
+  }
+}
+
+const RETRYABLE_WEBSOCKET_ERROR_CODES = new Set([
+  "previous_response_not_found",
+  "websocket_connection_limit_reached",
+]);
 
 export const isCodexCompactionCurrentModelFallbackError = (error: unknown) =>
   error instanceof CodexProviderError && error.useCurrentModelFallback;
 
 const responseFailureClassification = (code: string | undefined) => {
-  if (/context.?window|context.?length/iu.test(code ?? "")) {
+  if (code === "context_length_exceeded") {
     return { retryable: false, useCurrentModelFallback: true };
   }
   if (
-    /quota|usage.?not.?included|cyber.?policy|invalid.?image/iu.test(code ?? "")
+    code === "insufficient_quota" ||
+    code === "usage_not_included" ||
+    code === "cyber_policy"
   ) {
     return { retryable: false, useCurrentModelFallback: false };
   }
@@ -845,7 +865,7 @@ const mapCodexEvent = (event: JsonRecord) => {
     throw new CodexProviderError(
       resolvedMessage,
       code,
-      retryableCodexError(code, resolvedMessage)
+      RETRYABLE_WEBSOCKET_ERROR_CODES.has(code ?? "")
     );
   }
   if (event.type === "response.failed") {
@@ -1013,49 +1033,71 @@ const retryDelay = (response: Response, attempt: number) => {
   return 1000 * 2 ** attempt;
 };
 
-const retryableResponse = (status: number, text: string) =>
-  (status === 429 &&
-    !/GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing|usage_limit_reached/iu.test(
-      text
-    )) ||
-  ([500, 502, 503, 504].includes(status) &&
-    !/server_is_overloaded|"code"\s*:\s*"slow_down"/iu.test(text)) ||
-  (!/server_is_overloaded|slow_down/iu.test(text) &&
-    /rate.?limit|overloaded|service.?unavailable|upstream.?connect|connection.?refused/iu.test(
-      text
-    ));
+const responseErrorClassification = (
+  status: number,
+  code: string | undefined,
+  body: string
+) => {
+  if (status === 400) {
+    const excludedFromModelFallback =
+      code === "cyber_policy" ||
+      body.includes(
+        "The image data you provided does not represent a valid image"
+      );
+    return {
+      retryable: false,
+      useCurrentModelFallback: !excludedFromModelFallback,
+    };
+  }
+  if (status === 429) {
+    return {
+      retryable:
+        code !== "usage_limit_reached" && code !== "usage_not_included",
+      useCurrentModelFallback: code !== "usage_not_included",
+    };
+  }
+  if (
+    status === 503 &&
+    (code === "server_is_overloaded" || code === "slow_down")
+  ) {
+    return { retryable: false, useCurrentModelFallback: true };
+  }
+  return { retryable: true, useCurrentModelFallback: true };
+};
 
 const responseError = (status: number, text: string) => {
-  const excludedFromModelFallback =
-    /quota|usage.?not.?included|cyber.?policy|invalid.?image/iu.test(text);
   try {
     const parsed: unknown = JSON.parse(text);
     if (isRecord(parsed) && isRecord(parsed.error)) {
-      return new CodexProviderError(
-        typeof parsed.error.message === "string"
-          ? parsed.error.message
-          : `Codex request failed (${status})`,
+      const code =
         typeof parsed.error.code === "string"
           ? parsed.error.code
           : typeof parsed.error.type === "string"
             ? parsed.error.type
-            : undefined,
-        retryableResponse(status, text),
+            : undefined;
+      const classification = responseErrorClassification(status, code, text);
+      return new CodexProviderError(
+        typeof parsed.error.message === "string"
+          ? parsed.error.message
+          : `Codex request failed (${status})`,
+        code,
+        classification.retryable,
         status,
         text,
-        !excludedFromModelFallback
+        classification.useCurrentModelFallback
       );
     }
   } catch {
     // Plain-text error bodies are valid.
   }
+  const classification = responseErrorClassification(status, undefined, text);
   return new CodexProviderError(
     text.length > 0 ? text : `Codex request failed (${status})`,
     undefined,
-    retryableResponse(status, text),
+    classification.retryable,
     status,
     text,
-    !excludedFromModelFallback
+    classification.useCurrentModelFallback
   );
 };
 
@@ -1081,13 +1123,16 @@ const isWebSocketConstructor = (
   value: unknown
 ): value is WebSocketConstructor => typeof value === "function";
 
-const closeSocket = (session: SessionRuntime) => {
+const closeSocket = (
+  session: SessionRuntime,
+  expected = session.socket?.value
+) => {
   const cached = session.socket;
-  session.socket = undefined;
-  session.continuation = undefined;
-  if (!cached) {
+  if (!cached || cached.value !== expected) {
     return;
   }
+  session.socket = undefined;
+  session.continuation = undefined;
   clearTimeout(cached.idleTimer);
   try {
     cached.value.close(1000, "session reset");
@@ -1105,6 +1150,9 @@ const connectSocket = async (
 ) => {
   const now = Date.now();
   const cached = session.socket;
+  if (cached?.busy === true) {
+    throw new WebSocketUnavailableError("WebSocket session is busy");
+  }
   if (
     cached &&
     !cached.busy &&
@@ -1115,13 +1163,16 @@ const connectSocket = async (
     cached.busy = true;
     return cached.value;
   }
-  closeSocket(session);
+  if (cached) {
+    closeSocket(session, cached.value);
+  }
   const Constructor: unknown = globalThis.WebSocket;
   if (!isWebSocketConstructor(Constructor)) {
-    throw new Error("WebSocket transport is unavailable");
+    throw new WebSocketUnavailableError("WebSocket transport is unavailable");
   }
   signal?.throwIfAborted();
   const socket = new Constructor(url, { headers: headersRecord(headers) });
+  session.socket = { busy: true, createdAt: now, value: socket };
   await new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
@@ -1165,29 +1216,28 @@ const connectSocket = async (
       onAbort();
     }
   }).catch((error: unknown) => {
-    try {
-      socket.close(1000, "connect failed");
-    } catch {
-      // The failed connection may already be closed.
-    }
+    closeSocket(session, socket);
     throw error;
   });
-  session.socket = { busy: true, createdAt: now, value: socket };
   return socket;
 };
 
-const releaseSocket = (session: SessionRuntime, keep: boolean) => {
+const releaseSocket = (
+  session: SessionRuntime,
+  socket: WebSocketLike,
+  keep: boolean
+) => {
   const cached = session.socket;
-  if (!cached) {
+  if (cached?.value !== socket) {
     return;
   }
   if (!keep) {
-    closeSocket(session);
+    closeSocket(session, socket);
     return;
   }
   cached.busy = false;
   cached.idleTimer = setTimeout(() => {
-    closeSocket(session);
+    closeSocket(session, socket);
   }, WEBSOCKET_IDLE_TTL_MS);
   cached.idleTimer.unref?.();
 };
@@ -1242,7 +1292,7 @@ async function* parseWebSocket(
     enqueue(new Error("WebSocket closed before completion"));
   };
   const onError = () => {
-    enqueue(new Error("WebSocket stream failed"));
+    enqueue(new Error("WebSocket error: stream failed"));
   };
   const onMessage = (event: unknown) => {
     void messageData(event)
@@ -1393,7 +1443,7 @@ const sseEvents = async function* sseEvents(
       }
       const text = await response.text();
       const error = responseError(response.status, text);
-      if (attempt === maxRetries || !retryableResponse(response.status, text)) {
+      if (attempt === maxRetries || !error.retryable) {
         throw error;
       }
       const wait = retryDelay(response, attempt);
@@ -1514,11 +1564,11 @@ const websocketEvents = async function* websocketEvents(
               responseItems: cloneJson(capture.outputItems),
             }
           : undefined;
-      releaseSocket(session, capture.completed);
+      releaseSocket(session, socket, capture.completed);
       return;
     } catch (error) {
       const code = error instanceof CodexProviderError ? error.code : undefined;
-      closeSocket(session);
+      closeSocket(session, socket);
       if (
         !emitted &&
         code === "previous_response_not_found" &&
@@ -1544,6 +1594,20 @@ const createSession = (): SessionRuntime => ({
   fallbackToSse: false,
   window: { currentId: uuidv7(), number: 0 },
 });
+
+const activateSseFallback = (
+  session: SessionRuntime,
+  configuredTransport: Exclude<
+    OpenAICodexResponsesOptions["transport"],
+    "sse" | undefined
+  >
+) => {
+  session.pendingTransportFallback ??= {
+    configuredTransport,
+    timestamp: Date.now(),
+  };
+  session.fallbackToSse = true;
+};
 
 function successfulOutput(
   output: AssistantMessage
@@ -1688,7 +1752,8 @@ export const createCodexProviderRuntime = () => {
     requestId: string,
     capture: ResponseCapture,
     responsesLite = false,
-    redirect: "follow" | "manual" = "follow"
+    redirect: "follow" | "manual" = "follow",
+    fallbackAfterWebSocketFailure = true
   ) {
     const transport = options?.transport ?? "auto";
     if (transport !== "sse" && !session.fallbackToSse) {
@@ -1709,14 +1774,14 @@ export const createCodexProviderRuntime = () => {
         return;
       } catch (error) {
         if (
+          !fallbackAfterWebSocketFailure ||
           emitted ||
           isAborted(options?.signal) ||
           error instanceof CodexProviderError
         ) {
           throw error;
         }
-        session.fallbackToSse = true;
-        closeSocket(session);
+        activateSseFallback(session, transport);
       }
     }
     session.continuation = undefined;
@@ -1818,7 +1883,14 @@ export const createCodexProviderRuntime = () => {
       stream: true,
     };
     try {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      const configuredWebsocketTransport =
+        options.transport === "sse" ? undefined : (options.transport ?? "auto");
+      const websocketAttempts =
+        configuredWebsocketTransport === undefined || session.fallbackToSse
+          ? 0
+          : 3;
+      const maxAttempts = websocketAttempts + 3;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const capture: ResponseCapture = {
           completed: false,
           outputItems: [],
@@ -1834,7 +1906,8 @@ export const createCodexProviderRuntime = () => {
             uuidv7(),
             capture,
             built.responsesLite,
-            "manual"
+            "manual",
+            false
           )) {
             mapCodexEvent(event);
             if (
@@ -1876,13 +1949,33 @@ export const createCodexProviderRuntime = () => {
           };
         } catch (error) {
           if (
-            attempt === 2 ||
             request.signal.aborted ||
             (error instanceof CodexProviderError && !error.retryable)
           ) {
             throw error;
           }
-          await delay(attempt === 0 ? 500 : 1000, undefined, {
+          if (
+            configuredWebsocketTransport !== undefined &&
+            attempt < websocketAttempts &&
+            error instanceof WebSocketUnavailableError
+          ) {
+            activateSseFallback(session, configuredWebsocketTransport);
+            attempt = websocketAttempts - 1;
+            continue;
+          }
+          if (
+            configuredWebsocketTransport !== undefined &&
+            attempt + 1 === websocketAttempts
+          ) {
+            activateSseFallback(session, configuredWebsocketTransport);
+            continue;
+          }
+          if (attempt === maxAttempts - 1) {
+            throw error;
+          }
+          const transportAttempt =
+            attempt < websocketAttempts ? attempt : attempt - websocketAttempts;
+          await delay(transportAttempt === 0 ? 500 : 1000, undefined, {
             signal: request.signal,
           });
         }
@@ -1944,7 +2037,7 @@ export const createCodexProviderRuntime = () => {
       }
       session.continuation = undefined;
     } catch {
-      closeSocket(session);
+      // websocketEvents owns cleanup for the socket it acquired.
     }
   };
 
@@ -2077,6 +2170,16 @@ export const createCodexProviderRuntime = () => {
           throw new Error("Codex stream ended before completion");
         }
         successfulOutput(output);
+        if (session.pendingTransportFallback) {
+          const { configuredTransport, timestamp } =
+            session.pendingTransportFallback;
+          appendAssistantMessageDiagnostic(output, {
+            details: { configuredTransport },
+            timestamp,
+            type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+          });
+          session.pendingTransportFallback = undefined;
+        }
         events.push({
           message: output,
           reason: output.stopReason,
@@ -2138,10 +2241,7 @@ export const createCodexProviderRuntime = () => {
     context,
     options
   ) => {
-    const sessionId =
-      options?.sessionId !== undefined && options.sessionId.length > 0
-        ? options.sessionId
-        : uuidv7();
+    const sessionId = `portable-summary:${uuidv7()}`;
     const events = streamSimple(model, context, { ...options, sessionId });
     void events.result().then(
       () => {

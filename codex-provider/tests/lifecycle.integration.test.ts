@@ -4,7 +4,11 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { zstdDecompressSync } from "node:zlib";
 
-import type { FetchFunction, Model } from "@earendil-works/pi-ai";
+import type {
+  AssistantMessage,
+  FetchFunction,
+  Model,
+} from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionFactory,
@@ -59,7 +63,12 @@ const inputItemTypes = (input: unknown) =>
       )
     : [];
 
-const assistantResponse = (id = "normal", inputTokens = 10) => {
+const assistantText = (message: AssistantMessage) =>
+  message.content
+    .flatMap((content) => (content.type === "text" ? [content.text] : []))
+    .join("");
+
+const assistantEvents = (id = "normal", inputTokens = 10) => {
   const message = {
     content: [
       {
@@ -73,7 +82,59 @@ const assistantResponse = (id = "normal", inputTokens = 10) => {
     status: "completed",
     type: "message",
   };
-  return new Response(
+  return [
+    {
+      response: { id: `resp_${id}`, status: "in_progress" },
+      type: "response.created",
+    },
+    {
+      item: {
+        content: [],
+        id: message.id,
+        role: "assistant",
+        status: "in_progress",
+        type: "message",
+      },
+      output_index: 0,
+      type: "response.output_item.added",
+    },
+    {
+      content_index: 0,
+      delta: `assistant-${id}`,
+      output_index: 0,
+      type: "response.output_text.delta",
+    },
+    {
+      item: message,
+      output_index: 0,
+      type: "response.output_item.done",
+    },
+    {
+      response: {
+        id: `resp_${id}`,
+        output: [message],
+        status: "completed",
+        usage: {
+          input_tokens: inputTokens,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens: 2,
+          output_tokens_details: { reasoning_tokens: 0 },
+          total_tokens: inputTokens + 2,
+        },
+      },
+      type: "response.completed",
+    },
+  ];
+};
+
+const assistantResponse = (id = "normal", inputTokens = 10) =>
+  new Response(assistantEvents(id, inputTokens).map(event).join(""), {
+    headers: { "content-type": "text/event-stream" },
+    status: 200,
+  });
+
+const interruptedAssistantResponse = (id: string, text: string) => {
+  const bytes = new TextEncoder().encode(
     [
       event({
         response: { id: `resp_${id}`, status: "in_progress" },
@@ -82,7 +143,7 @@ const assistantResponse = (id = "normal", inputTokens = 10) => {
       event({
         item: {
           content: [],
-          id: message.id,
+          id: `msg_${id}`,
           role: "assistant",
           status: "in_progress",
           type: "message",
@@ -92,35 +153,25 @@ const assistantResponse = (id = "normal", inputTokens = 10) => {
       }),
       event({
         content_index: 0,
-        delta: `assistant-${id}`,
+        delta: text,
         output_index: 0,
         type: "response.output_text.delta",
       }),
-      event({
-        item: message,
-        output_index: 0,
-        type: "response.output_item.done",
-      }),
-      event({
-        response: {
-          id: `resp_${id}`,
-          output: [message],
-          status: "completed",
-          usage: {
-            input_tokens: inputTokens,
-            input_tokens_details: { cached_tokens: 0 },
-            output_tokens: 2,
-            output_tokens_details: { reasoning_tokens: 0 },
-            total_tokens: inputTokens + 2,
-          },
-        },
-        type: "response.completed",
-      }),
-    ].join(""),
-    {
-      headers: { "content-type": "text/event-stream" },
-      status: 200,
-    }
+    ].join("")
+  );
+  let sent = false;
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(bytes);
+          return;
+        }
+        controller.error(new Error("fetch failed after partial output"));
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } }
   );
 };
 
@@ -1144,6 +1195,179 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         failedAssistants: 1,
         fetches: 6,
         finalStopReason: "stop",
+      });
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("leaves a post-output provider failure to Pi's outer retry", async () => {
+    const paths = await workspace("codex-outer-retry-partial-");
+    const requests: Record<string, unknown>[] = [];
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      requests.push(requestJson(init?.body, new Headers(init?.headers)));
+      return requests.length === 1
+        ? interruptedAssistantResponse("partial", "partial-before-retry")
+        : assistantResponse("retry-clean");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const manager = SessionManager.inMemory(paths.cwd);
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: false,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [codexCompactionExtension],
+      retry: {
+        baseDelayMs: 1,
+        enabled: true,
+        maxRetries: 1,
+        provider: { maxRetries: 1 },
+      },
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+    });
+
+    try {
+      await session.prompt("retry after partial output");
+      const persistedAssistants = manager
+        .getBranch()
+        .flatMap((branchEntry) =>
+          branchEntry.type === "message" &&
+          branchEntry.message.role === "assistant"
+            ? [branchEntry.message]
+            : []
+        );
+      const liveAssistants = session.messages.filter(
+        (message) => message.role === "assistant"
+      );
+
+      expect({
+        fetches: fetch.mock.calls.length,
+        liveStops: liveAssistants.map((message) => message.stopReason),
+        persistedStops: persistedAssistants.map(
+          (message) => message.stopReason
+        ),
+        persistedText: persistedAssistants.map(assistantText),
+        retryContext: JSON.stringify(requests[1]?.input),
+        winningText: assistantText(liveAssistants[0]),
+      }).toStrictEqual({
+        fetches: 2,
+        liveStops: ["stop"],
+        persistedStops: ["error", "stop"],
+        persistedText: ["partial-before-retry", "assistant-retry-clean"],
+        retryContext: expect.not.stringContaining("partial-before-retry"),
+        winningText: "assistant-retry-clean",
+      });
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("outer-retries the incident WebSocket error after stream start", async () => {
+    const paths = await workspace("codex-outer-retry-websocket-");
+    const frames: Record<string, unknown>[] = [];
+    let generatedAttempts = 0;
+    let socketAttempts = 0;
+    const IncidentWebSocket = function IncidentWebSocket() {
+      socketAttempts += 1;
+      const socket = new EventTarget() as EventTarget & {
+        close: () => void;
+        readyState: number;
+        send: (data: string) => void;
+      };
+      socket.readyState = 1;
+      socket.close = () => null;
+      socket.send = (data: string) => {
+        const frame = JSON.parse(data) as Record<string, unknown>;
+        frames.push(frame);
+        generatedAttempts += 1;
+        if (generatedAttempts === 1) {
+          queueMicrotask(() =>
+            socket.dispatchEvent(
+              new MessageEvent("message", {
+                data: JSON.stringify({
+                  response: {
+                    id: "resp_ws_outer_failure",
+                    status: "in_progress",
+                  },
+                  type: "response.created",
+                }),
+              })
+            )
+          );
+          setTimeout(() => socket.dispatchEvent(new Event("error")), 0);
+          return;
+        }
+        for (const responseEvent of assistantEvents("ws-outer-retry-clean")) {
+          queueMicrotask(() =>
+            socket.dispatchEvent(
+              new MessageEvent("message", {
+                data: JSON.stringify(responseEvent),
+              })
+            )
+          );
+        }
+      };
+      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+      return socket;
+    };
+    vi.stubGlobal("WebSocket", IncidentWebSocket);
+    const fetch = vi.fn<FetchFunction>(async () => {
+      throw new Error("unexpected SSE fallback");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const manager = SessionManager.inMemory(paths.cwd);
+    const session = await createRealCodexSession({
+      extensionFactories: [addEnvelopeFields, codexCompactionExtension],
+      retry: {
+        baseDelayMs: 1,
+        enabled: true,
+        maxRetries: 1,
+        provider: { maxRetries: 5 },
+      },
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+      transport: "websocket",
+    });
+
+    try {
+      await session.prompt("retry the WebSocket incident");
+      const persistedAssistants = manager
+        .getBranch()
+        .flatMap((branchEntry) =>
+          branchEntry.type === "message" &&
+          branchEntry.message.role === "assistant"
+            ? [branchEntry.message]
+            : []
+        );
+      const generatedFrames = frames.filter(
+        (frame) => frame.generate !== false
+      );
+
+      expect({
+        errors: persistedAssistants.map((message) => message.errorMessage),
+        fetches: fetch.mock.calls.length,
+        generatedAttempts,
+        persistedStops: persistedAssistants.map(
+          (message) => message.stopReason
+        ),
+        retryContext: JSON.stringify(generatedFrames[1]?.input),
+        socketAttempts,
+        winningText: assistantText(persistedAssistants[1]),
+      }).toStrictEqual({
+        errors: ["WebSocket error: stream failed", undefined],
+        fetches: 0,
+        generatedAttempts: 2,
+        persistedStops: ["error", "stop"],
+        retryContext: expect.not.stringContaining(
+          "WebSocket error: stream failed"
+        ),
+        socketAttempts: 2,
+        winningText: "assistant-ws-outer-retry-clean",
       });
     } finally {
       session.dispose();
@@ -3556,7 +3780,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         await session.prompt("result matrix source");
         const before = manager.getBranch().map((branchEntry) => branchEntry.id);
         await expect(session.compact()).rejects.toThrow("cancelled");
-        const expectedFetches = native === "abort" ? 5 : 3;
+        const expectedFetches = native === "abort" ? 5 : 2;
         expect({
           after: manager.getBranch().map((branchEntry) => branchEntry.id),
           fetches: fetch.mock.calls.length,

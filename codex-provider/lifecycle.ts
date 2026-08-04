@@ -48,6 +48,7 @@ import type {
   RealUserInputItem,
 } from "./checkpoint.js";
 import {
+  CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
   createCodexProviderRuntime,
   isCodexCompactionCurrentModelFallbackError,
 } from "./provider.js";
@@ -776,6 +777,24 @@ const notifyOnce = (
   state.notified.add(key);
   ctx.ui.notify(message, type);
 };
+
+const hasTransportFallbackNotification = (message: unknown) =>
+  isRecord(message) &&
+  message.role === "assistant" &&
+  Array.isArray(message.diagnostics) &&
+  message.diagnostics.some((diagnostic) => {
+    if (!isRecord(diagnostic) || !isRecord(diagnostic.details)) {
+      return false;
+    }
+    const { configuredTransport } = diagnostic.details;
+    return diagnostic.type === CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE
+      ? configuredTransport === "auto" ||
+          configuredTransport === "websocket" ||
+          configuredTransport === "websocket-cached"
+      : diagnostic.type === "provider_transport_failure" &&
+          diagnostic.details.fallbackTransport === "sse" &&
+          diagnostic.details.phase === "before_message_stream_start";
+  });
 
 const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
   const operation = state.inFlight;
@@ -2576,6 +2595,18 @@ const registerLifecycleHooks = (
   });
   pi.on("agent_settled", (_event, ctx) => {
     providerRuntime?.endTurn(ctx.sessionManager.getSessionId());
+  });
+  pi.on("message_end", (event, ctx) => {
+    if (!hasTransportFallbackNotification(event.message)) {
+      return;
+    }
+    notifyOnce(
+      state,
+      CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+      ctx,
+      "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
+      "warning"
+    );
   });
   pi.on("session_shutdown", (_event, ctx) => {
     providerRuntime?.closeSession(ctx.sessionManager.getSessionId());
