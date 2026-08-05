@@ -19,12 +19,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
+  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
   resolveActiveCheckpointBoundary,
 } from "../checkpoint.js";
-import {
-  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
-  codexCompactionExtension,
-} from "../lifecycle.js";
+import { codexCompactionExtension } from "../lifecycle.js";
 import { FRAME_MARKER_PREFIX } from "../replay.js";
 import { createRealCodexSession } from "./agent-session.js";
 import { SPIKE_MODEL } from "./fixtures.js";
@@ -643,6 +641,45 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  it("shows Codex provider status without changing the session", async () => {
+    const paths = await workspace("codex-provider-status-");
+    const manager = SessionManager.inMemory(paths.cwd);
+    const notifications: { message: string; type?: string }[] = [];
+    const session = await createRealCodexSession({
+      extensionFactories: [codexCompactionExtension],
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+      uiContext: {
+        notify: (message: string, type?: string) =>
+          notifications.push({ message, type }),
+      } as unknown as ExtensionUIContext,
+    });
+
+    try {
+      const before = manager.getEntries();
+      await session.prompt("/codex-provider");
+
+      expect(manager.getEntries()).toStrictEqual(before);
+      expect(notifications).toStrictEqual([
+        {
+          message: expect.stringContaining(
+            `Codex provider status\nSession: ${manager.getSessionId()}`
+          ),
+          type: "info",
+        },
+      ]);
+      expect(notifications[0]?.message).toContain(
+        `Model: ${SPIKE_MODEL.provider}/${SPIKE_MODEL.id}`
+      );
+      expect(notifications[0]?.message).toContain(
+        "Count: 0 current branch · 0 session"
+      );
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
   });
 
   it("preserves the built-in request body apart from canonical metadata and merges its feature header", async () => {

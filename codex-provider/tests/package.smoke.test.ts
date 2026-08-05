@@ -68,6 +68,7 @@ describe("codex-provider package", () => {
     );
 
     expect({
+      command: extension?.commands.has("codex-provider"),
       entryRenderer: extension?.entryRenderers?.has(CHECKPOINT_CUSTOM_TYPE),
       errors: result.errors,
       exports: Object.keys(packageEntry),
@@ -75,6 +76,7 @@ describe("codex-provider package", () => {
         extension?.handlers.has(hook)
       ),
     }).toStrictEqual({
+      command: true,
       entryRenderer: true,
       errors: [],
       exports: ["default"],
@@ -133,6 +135,7 @@ describe("codex-provider package", () => {
         "package/provider.ts",
         "package/renderer.ts",
         "package/replay.ts",
+        "package/status.ts",
       ].toSorted()
     );
     const installDir = path.join(tempRoot, "install");

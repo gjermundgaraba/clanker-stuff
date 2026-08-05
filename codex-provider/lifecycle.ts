@@ -26,6 +26,7 @@ import { convertResponsesMessages } from "#pi-responses";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
+  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
   CHECKPOINT_PROTOCOL,
   CHECKPOINT_SCHEMA,
   REMOTE_USER_IMAGE_PLACEHOLDER,
@@ -69,9 +70,9 @@ import {
   shouldAutoCompact,
 } from "./replay.js";
 import type { ResponsesInputItem } from "./replay.js";
+import { formatCodexProviderStatus } from "./status.js";
 
 export const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
-export const CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE = "codex-provider.diagnostic";
 
 const STATUS_KEY = "codex-provider";
 const STATUS_MESSAGE = "Compacting with OpenAI Codex…";
@@ -2610,6 +2611,44 @@ export const codexCompactionExtension: ExtensionFactory = (pi) => {
   pi.registerProvider(providerRuntime.provider);
   registerCheckpointRenderer(pi);
   const state = createLifecycleState();
+  pi.registerCommand("codex-provider", {
+    description: "Show Codex provider and compaction status",
+    handler: async (_args, ctx) => {
+      const { model } = ctx;
+      const supportedModel = isSupportedLifecycleModel(model)
+        ? model
+        : undefined;
+      const modelWindow = supportedModel
+        ? providerRuntime.getModelWindow(supportedModel)
+        : undefined;
+      const metadata = supportedModel
+        ? providerRuntime.getModelMetadata(supportedModel.id)
+        : undefined;
+      const contextUsage = ctx.getContextUsage();
+      ctx.ui.notify(
+        formatCodexProviderStatus({
+          branch: ctx.sessionManager.getBranch(),
+          current: {
+            autoCompactTokens: modelWindow?.autoCompactTokens,
+            contextUsage: contextUsage ?? undefined,
+            identity: supportedModel
+              ? {
+                  api: supportedModel.api,
+                  baseUrl: supportedModel.baseUrl,
+                  compHash: metadata?.comp_hash,
+                  provider: supportedModel.provider,
+                }
+              : undefined,
+            model: model ? `${model.provider}/${model.id}` : undefined,
+            reasoning: ctx.thinkingLevel,
+          },
+          entries: ctx.sessionManager.getEntries(),
+          sessionId: ctx.sessionManager.getSessionId(),
+        }),
+        "info"
+      );
+    },
+  });
   registerLifecycleHooks(pi, state, providerRuntime, failurePolicy);
   pi.on("context", (event, ctx): ReturnType<typeof runContextHook> => {
     try {

@@ -78,6 +78,7 @@ const captureLifecycleHooks = async () => {
       on(name: string, hook: unknown) {
         hooks.set(name, hook);
       },
+      registerCommand() {},
       registerEntryRenderer() {},
       registerProvider() {},
     } as never);

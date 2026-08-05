@@ -8,7 +8,7 @@ Follow the audited [local load-last deployment contract](docs/local-deployment.m
 
 ## Usage
 
-OpenAI Codex requests compact and replay opaque checkpoints automatically when the active model and session are compatible.
+OpenAI Codex requests compact and replay opaque checkpoints automatically; run `/codex-provider` to inspect the current session's provider and compaction status.
 
 ## Configuration
 

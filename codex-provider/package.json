@@ -23,6 +23,7 @@
     "provider.ts",
     "renderer.ts",
     "replay.ts",
+    "status.ts",
     "README.md",
     "LICENSE",
     "docs/codex-baseline.md",

@@ -18,6 +18,7 @@ SSE is the default transport. Three rounds use a small estimator window and synt
 2. Add exactly one strict schema-v1 threshold checkpoint with a unique response ID.
 3. Advance `windowNumber`, set `previousWindowId` to the prior `currentWindowId`, and issue a new current ID.
 4. Complete without a framing diagnostic or extension error.
+5. Report every checkpoint through `/codex-provider` without appending a session entry.
 
 The parent then exits its session. A new Node process opens the JSONL session, sends two normal turns with a large window, and proves the newest opaque window replays without creating another checkpoint.
 

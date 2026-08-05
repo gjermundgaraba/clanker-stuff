@@ -6,16 +6,16 @@ import type { Checkpoint } from "./checkpoint.js";
 import { estimateModelVisibleTokens } from "./replay.js";
 
 const phaseLabels: Record<Checkpoint["phase"], string> = {
-  "mid-turn": "while the agent was working",
-  "overflow-retry": "while recovering from the context limit",
-  "pre-sampling": "before the model replied",
-  standalone: "between turns",
+  "mid-turn": "While the agent was working",
+  "overflow-retry": "While recovering from the context limit",
+  "pre-sampling": "Before the model replied",
+  standalone: "Between turns",
 };
 
 const reasonLabels: Record<Checkpoint["reason"], string> = {
-  manual: "Manual: requested by you",
-  overflow: "Automatic: context limit exceeded",
-  threshold: "Automatic: context threshold reached",
+  manual: "Manual — requested by you",
+  overflow: "Automatic — context limit exceeded",
+  threshold: "Automatic — context threshold reached",
 };
 
 const formatNumber = (value: number) => value.toLocaleString("en-US");
@@ -28,10 +28,14 @@ const formatSizeChange = (before: number, after: number) => {
     return "larger";
   }
   const percent = Math.abs(1 - after / before) * 100;
-  return `${percent.toLocaleString("en-US", { maximumFractionDigits: 1 })}% ${after < before ? "smaller" : "larger"}`;
+  const absolute = formatNumber(Math.abs(before - after));
+  return `~${absolute} ${after < before ? "fewer" : "more"} (${percent.toLocaleString("en-US", { maximumFractionDigits: 1 })}% ${after < before ? "smaller" : "larger"})`;
 };
 
-export const formatCheckpointEntry = (data: unknown): string | undefined => {
+export const formatCheckpointEntry = (
+  data: unknown,
+  expanded = false
+): string | undefined => {
   const parsed = parseCheckpoint(data);
   if (!parsed.ok) {
     return undefined;
@@ -43,18 +47,37 @@ export const formatCheckpointEntry = (data: unknown): string | undefined => {
   );
   const { usage } = checkpoint.response;
   const lines = [
-    `✓ Context compacted successfully · ${checkpoint.identity.model}`,
-    `Context: ~${formatNumber(checkpoint.sourceTokens)} → ~${formatNumber(replacementTokens)} tokens · ${formatSizeChange(checkpoint.sourceTokens, replacementTokens)}`,
-    `${reasonLabels[checkpoint.reason]} · ${phaseLabels[checkpoint.phase]}`,
-    `Provider usage: ${formatNumber(usage.totalTokens)} tokens total`,
-    `Breakdown: ${formatNumber(usage.input)} uncached input · ${formatNumber(usage.cacheRead)} cached input · ${formatNumber(usage.output)} output · ${formatNumber(usage.cacheWrite)} cache write`,
+    `✓ Context compacted successfully · Model: ${checkpoint.identity.model}`,
+    `Estimated context size: ~${formatNumber(checkpoint.sourceTokens)} → ~${formatNumber(replacementTokens)} tokens · ${formatSizeChange(checkpoint.sourceTokens, replacementTokens)}`,
+    `Trigger: ${reasonLabels[checkpoint.reason]} · Timing: ${phaseLabels[checkpoint.phase]}`,
+    `OpenAI compaction usage: ${formatNumber(usage.totalTokens)} tokens total`,
+    `Usage breakdown: ${formatNumber(usage.input)} uncached input · ${formatNumber(usage.cacheRead)} cached input · ${formatNumber(usage.output)} output · ${formatNumber(usage.cacheWrite)} cache write`,
+    `Checkpoint: saved and validated · Provider window: ${formatNumber(checkpoint.runtime.windowNumber)}`,
   ];
+  if (expanded) {
+    const retainedUsers = checkpoint.replacement.filter(
+      (item) => item.type === "message"
+    ).length;
+    const retainedAgents = checkpoint.replacement.filter(
+      (item) => item.type === "agent_message"
+    ).length;
+    lines.push(
+      "Checkpoint details:",
+      `Response ID: ${checkpoint.response.id}`,
+      `Window IDs: ${checkpoint.runtime.previousWindowId ?? "none"} → ${checkpoint.runtime.currentWindowId}`,
+      `Replacement SHA-256: ${checkpoint.replacementSha256}`,
+      `Compaction hash: ${checkpoint.runtime.compHash ?? "none"}`,
+      `Schema: ${checkpoint.schema} v${checkpoint.version} · ${checkpoint.protocol} · request v${checkpoint.runtime.requestSchemaVersion}`,
+      `Effective token limit: ${formatNumber(checkpoint.runtime.effectiveTokenLimit)}`,
+      `Replacement: ${formatNumber(checkpoint.replacement.length)} items · 1 compaction · ${formatNumber(retainedUsers)} user · ${formatNumber(retainedAgents)} agent`
+    );
+  }
   return lines.join("\n");
 };
 
 export const registerCheckpointRenderer = (pi: ExtensionAPI) => {
-  pi.registerEntryRenderer(CHECKPOINT_CUSTOM_TYPE, (entry, _options, theme) => {
-    const text = formatCheckpointEntry(entry.data);
+  pi.registerEntryRenderer(CHECKPOINT_CUSTOM_TYPE, (entry, options, theme) => {
+    const text = formatCheckpointEntry(entry.data, options.expanded);
     return text === undefined
       ? undefined
       : new Text(theme.fg("accent", text), 1, 0);

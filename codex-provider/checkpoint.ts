@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export const CHECKPOINT_CUSTOM_TYPE = "codex-provider.checkpoint";
+export const CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE = "codex-provider.diagnostic";
 export const CHECKPOINT_PROTOCOL = "openai-responses-compaction-v2";
 export const CHECKPOINT_SCHEMA = "clanker.codex-provider/checkpoint";
 export const RETAINED_USER_TOKEN_BUDGET = 64_000;
@@ -781,18 +782,25 @@ export const decideCheckpointCompatibility = (
 const isReadablePortableLifecycleSummary = (summary: unknown) =>
   typeof summary === "string" && summary.trim().length > 0;
 
-export const isPortableLifecycleCompaction = (
-  branch: readonly SessionEntry[],
-  lifecycleBoundaryIndex: number
-) => {
-  const entry = branch[lifecycleBoundaryIndex];
+export const resolveCheckpointCarrier = (entry: SessionEntry) => {
+  if (entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE) {
+    const parsed = parseCheckpoint(entry.data);
+    return parsed.ok
+      ? ({
+          carrier: "inline",
+          checkpoint: parsed.checkpoint,
+          kind: "checkpoint",
+        } as const)
+      : ({ carrier: "inline", kind: "invalid-checkpoint" } as const);
+  }
+  if (entry.type !== "compaction") {
+    return { kind: "none" } as const;
+  }
   if (
-    entry?.type !== "compaction" ||
-    !isReadablePortableLifecycleSummary(entry.summary) ||
     !isRecord(entry.details) ||
     entry.details.type !== CHECKPOINT_CUSTOM_TYPE
   ) {
-    return false;
+    return { kind: "pi-compaction" } as const;
   }
   try {
     expectExactKeys(
@@ -801,14 +809,33 @@ export const isPortableLifecycleCompaction = (
       "compaction.details"
     );
   } catch {
+    return { carrier: "lifecycle", kind: "invalid-checkpoint" } as const;
+  }
+  const parsed = parseCheckpoint(entry.details.checkpoint);
+  return parsed.ok
+    ? ({
+        carrier: "lifecycle",
+        checkpoint: parsed.checkpoint,
+        kind: "checkpoint",
+      } as const)
+    : ({ carrier: "lifecycle", kind: "invalid-checkpoint" } as const);
+};
+
+export const isPortableLifecycleCompaction = (
+  branch: readonly SessionEntry[],
+  lifecycleBoundaryIndex: number
+) => {
+  const entry = branch[lifecycleBoundaryIndex];
+  if (
+    entry?.type !== "compaction" ||
+    !isReadablePortableLifecycleSummary(entry.summary) ||
+    resolveCheckpointCarrier(entry).kind !== "checkpoint"
+  ) {
     return false;
   }
-  return (
-    parseCheckpoint(entry.details.checkpoint).ok &&
-    branch
-      .slice(0, lifecycleBoundaryIndex)
-      .some((candidate) => candidate.id === entry.firstKeptEntryId)
-  );
+  return branch
+    .slice(0, lifecycleBoundaryIndex)
+    .some((candidate) => candidate.id === entry.firstKeptEntryId);
 };
 
 export const canUseInlineLocalFallback = (
@@ -821,15 +848,13 @@ export const canUseInlineLocalFallback = (
   if (nearestCompactionIndex === -1) {
     return true;
   }
-  const nearestCompaction = branch[nearestCompactionIndex];
-  if (
-    nearestCompaction?.type === "compaction" &&
-    isRecord(nearestCompaction.details) &&
-    nearestCompaction.details.type === CHECKPOINT_CUSTOM_TYPE
-  ) {
+  const carrier = resolveCheckpointCarrier(branch[nearestCompactionIndex]);
+  if (carrier.kind === "checkpoint" && carrier.carrier === "lifecycle") {
     return isPortableLifecycleCompaction(branch, nearestCompactionIndex);
   }
-  return true;
+  return !(
+    carrier.kind === "invalid-checkpoint" && carrier.carrier === "lifecycle"
+  );
 };
 
 export const resolveActiveCheckpointBoundary = (
@@ -837,56 +862,22 @@ export const resolveActiveCheckpointBoundary = (
 ): ActiveCheckpointBoundary => {
   for (let index = branch.length - 1; index >= 0; index -= 1) {
     const entry = branch[index];
-    if (
-      entry?.type === "custom" &&
-      entry.customType === CHECKPOINT_CUSTOM_TYPE
-    ) {
-      const parsed = parseCheckpoint(entry.data);
-      if (!parsed.ok) {
-        return {
-          boundaryIndex: index,
-          carrier: "inline",
-          kind: "invalid-checkpoint",
-        };
-      }
-      return {
-        boundaryEntryId: entry.id,
-        boundaryIndex: index,
-        carrier: "inline",
-        checkpoint: parsed.checkpoint,
-        kind: "checkpoint",
-        tail: branch.slice(index + 1),
-      };
-    }
-    if (entry?.type !== "compaction") {
+    const carrier = resolveCheckpointCarrier(entry);
+    if (carrier.kind === "none") {
       continue;
     }
-
-    if (
-      !isRecord(entry.details) ||
-      entry.details.type !== CHECKPOINT_CUSTOM_TYPE
-    ) {
-      return { kind: "pi-compaction" };
+    if (carrier.kind === "pi-compaction") {
+      return carrier;
     }
-    try {
-      expectExactKeys(
-        entry.details,
-        ["checkpoint", "type"],
-        "compaction.details"
-      );
-    } catch {
-      return { carrier: "lifecycle", kind: "invalid-checkpoint" };
-    }
-    const parsed = parseCheckpoint(entry.details.checkpoint);
-    if (!parsed.ok) {
-      return { carrier: "lifecycle", kind: "invalid-checkpoint" };
+    if (carrier.kind === "invalid-checkpoint") {
+      return carrier.carrier === "inline"
+        ? { ...carrier, boundaryIndex: index }
+        : carrier;
     }
     return {
+      ...carrier,
       boundaryEntryId: entry.id,
       boundaryIndex: index,
-      carrier: "lifecycle",
-      checkpoint: parsed.checkpoint,
-      kind: "checkpoint",
       tail: branch.slice(index + 1),
     };
   }

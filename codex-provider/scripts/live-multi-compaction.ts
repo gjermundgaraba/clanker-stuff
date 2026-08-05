@@ -27,11 +27,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import type { Checkpoint } from "../checkpoint.ts";
-import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
+import {
+  CHECKPOINT_CUSTOM_TYPE,
+  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
+  parseCheckpoint,
+} from "../checkpoint.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
-const CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE = "codex-provider.diagnostic";
 const CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE =
   "codex-provider.transport-fallback";
 const TRANSPORT_FALLBACK_WARNING =
@@ -1769,6 +1772,17 @@ Environment:
         `Round ${round}: checkpoint ${id}; window ${checked.runtime.windowNumber} ${checked.runtime.currentWindowId}; provider input ${checked.sideInputTokens.toLocaleString()} tokens (${((checked.sideInputTokens / forcedContextWindow) * 100).toFixed(1)}%)`
       );
     }
+
+    const entriesBeforeStatus = manager.getEntries().length;
+    await session.prompt("/codex-provider");
+    const statusReport = notifications.findLast((notification) =>
+      notification.startsWith("Codex provider status\n")
+    );
+    assert(
+      statusReport?.includes(`Count: ${rounds} current branch`) === true &&
+        manager.getEntries().length === entriesBeforeStatus,
+      "Codex provider status did not report the live checkpoints without changing the session"
+    );
 
     if (streamFaultMode) {
       const compactRequests = transportProbe.requests.filter(

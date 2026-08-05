@@ -13,10 +13,17 @@ The implementation follows the pinned [Codex and Pi source baseline](codex-basel
 | Strict persisted checkpoint format and active-branch resolution | [`checkpoint.ts`](../checkpoint.ts) |
 | Framing, retention, token estimates, and tool-history repair | [`replay.ts`](../replay.ts) |
 | Redacted checkpoint display | [`renderer.ts`](../renderer.ts) |
+| Read-only session diagnostics | [`status.ts`](../status.ts) |
 
 The provider runtime is not optional. Loading the extension replaces Pi's effective `openai-codex` provider for the process. The extension must resolve last so no later context, header, payload, provider, or compaction registration can invalidate its checks; see [local deployment](local-deployment.md).
 
 One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, exact continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. Session shutdown closes transport state.
+
+## Session diagnostics
+
+`/codex-provider` renders a read-only report from the current Pi context and existing session entries. It distinguishes the active branch from the complete session tree, summarizes valid checkpoint usage and estimated reduction, reports invalid checkpoint carriers and redacted framing or transport diagnostics, and checks the active checkpoint against the current provider identity. The report is shown through Pi's notification UI and is never appended to the session.
+
+The checkpoint entry renderer presents estimated before/after context size separately from provider-reported compaction usage. Its default view contains operational results only; Pi's expanded-entry view reveals checkpoint identifiers, hashes, protocol versions, limits, and retained-item counts. These values establish persistence and replay health, not semantic summary quality.
 
 ## Request and transport flow
 
