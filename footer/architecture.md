@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the normative design for `new-footer/`. `spec.md` contains acceptance gates, while `research.md` retains only the evidence behind the design. The replacement stays beside `footer/` until the user approves cutover.
+This is the normative design for `footer/`. `spec.md` contains acceptance gates, while `research.md` retains only the evidence behind the design.
 
 ## Boundaries
 

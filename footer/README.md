@@ -1,6 +1,6 @@
 # footer
 
-Replaces the pi footer with a compact context gauge, Git state, model details, and native extension statuses.
+Hosts a configurable cooperative footer for built-in, native, and rich extension widgets.
 
 ## Install
 
@@ -10,4 +10,10 @@ pi install npm:@clanker-extensions/footer
 
 ## Usage
 
-The footer loads automatically and includes statuses from optional extensions such as usage, voice, and timers.
+- Run `/footer` to arrange widgets and save the layout.
+- Run `/footer inspect` or `/footer doctor` for state and diagnostics.
+- Disable other custom-footer extensions because pi supports one footer owner.
+
+## Configuration
+
+See [footer configuration](docs/configuration.md) and [contributor integration](docs/contributors.md).

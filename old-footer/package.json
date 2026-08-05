@@ -1,12 +1,12 @@
 {
-  "name": "@clanker-extensions/footer",
+  "name": "@clanker-extensions/old-footer",
   "version": "0.1.0",
-  "private": false,
-  "description": "Hosts a configurable cooperative footer for built-in, native, and rich extension widgets.",
+  "private": true,
+  "description": "Archived previous footer implementation kept for reference.",
   "keywords": [
     "pi-package"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/footer#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-extensions/tree/main/old-footer#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-extensions/issues"
   },
@@ -14,20 +14,14 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-extensions.git",
-    "directory": "footer"
+    "directory": "old-footer"
   },
   "files": [
     "index.ts",
-    "config.ts",
     "git.ts",
-    "layout.ts",
-    "protocol.ts",
-    "types.ts",
-    "ui.ts",
-    "widgets.ts",
+    "footer.ts",
     "README.md",
-    "LICENSE",
-    "docs"
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",

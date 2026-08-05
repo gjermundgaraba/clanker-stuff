@@ -2,7 +2,7 @@
 
 ## Status
 
-This file contains only the gates for replacing `footer/` with `new-footer/`. Normative behavior lives in `architecture.md`; supporting evidence lives in `research.md`.
+This file contains only the acceptance gates for `footer/`. Normative behavior lives in `architecture.md`; supporting evidence lives in `research.md`.
 
 ## Required product behavior
 
@@ -84,10 +84,10 @@ This file contains only the gates for replacing `footer/` with `new-footer/`. No
 Before cutover:
 
 ```bash
-pnpm test:unit new-footer
-pnpm test:integration new-footer
-pnpm test:smoke new-footer
-pnpm exec ultracite check new-footer
+pnpm test:unit footer
+pnpm test:integration footer
+pnpm test:smoke footer
+pnpm exec ultracite check footer
 pnpm typecheck
 pnpm check:all
 ```
@@ -96,5 +96,5 @@ Cutover also requires:
 
 - Footer and usage package documentation follows repository README policy.
 - Direct loading and footer/usage co-installation smoke tests pass.
-- No existing package imports from `new-footer/`.
+- No existing package imports from a parallel footer implementation.
 - The user explicitly approves deleting the old implementation and renaming the directory.

@@ -11,7 +11,7 @@ A collection of independently installable extensions for [pi](https://github.com
 | [`@clanker-extensions/codex-reverse-i-search`](codex-reverse-i-search) | Adds Codex-style Ctrl+R reverse history search to pi's prompt editor. |
 | [`@clanker-extensions/codex-skills`](codex-skills) | Injects complete SKILL.md instructions when prompts explicitly mention $skill-name. |
 | [`@clanker-extensions/decorated-editor`](decorated-editor) | Provides a shared custom editor for inline prompt decorations from Clanker extensions. |
-| [`@clanker-extensions/footer`](footer) | Replaces the pi footer with a compact context gauge, Git state, model details, and native extension statuses. |
+| [`@clanker-extensions/footer`](footer) | Hosts a configurable cooperative footer for built-in, native, and rich extension widgets. |
 | [`@clanker-extensions/mcp`](mcp) | Connects selected MCP servers to pi and registers their tools. |
 | [`@clanker-extensions/plannotator`](plannotator) | Adds Plannotator review and annotation commands to pi. |
 | [`@clanker-extensions/shell-resume-history`](shell-resume-history) | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits. |
