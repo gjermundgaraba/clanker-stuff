@@ -2,34 +2,36 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import { patchEnv } from "../../tests/helpers/env.js";
 import { createTempDir } from "../../tests/helpers/fs.js";
-import extension from "../index.js";
+import { createReverseSearch } from "../controller.js";
+import { userEntry } from "./fixtures.js";
 
 /* oxlint-disable vitest/max-expects -- interaction tests assert each state transition directly */
 
-const userEntry = (
-  id: string,
-  parentId: string | null,
-  text: string,
-  timestamp: number
-): SessionEntry => ({
-  id,
-  message: {
-    content: text,
-    role: "user",
-    timestamp,
-  },
-  parentId,
-  timestamp: new Date(timestamp).toISOString(),
-  type: "message",
-});
-
 const shutdowns: (() => Promise<void>)[] = [];
+
+const extension = (pi: ExtensionAPI) => {
+  const search = createReverseSearch();
+
+  pi.registerShortcut("ctrl+r", {
+    handler: (ctx) => search.open(ctx),
+  });
+  pi.registerCommand("reverse-i-search-import", {
+    handler: (_args, ctx) => search.importHistory(ctx),
+  });
+  pi.on("session_start", (_event, ctx) => search.start(ctx));
+  pi.on("input", (event, ctx) => search.recordInput(event, ctx));
+  pi.on("user_bash", (event, ctx) => search.recordBash(event, ctx));
+  pi.on("session_shutdown", (_event, ctx) => search.dispose(ctx));
+};
 
 const createHarness = async (
   entries: SessionEntry[] = [],
@@ -52,7 +54,7 @@ const createHarness = async (
   return { ctx, host };
 };
 
-describe("codex reverse-i-search", () => {
+describe("reverse-search controller", () => {
   let agentDir = "";
   let restoreAgentDir: (() => void) | undefined;
 
@@ -66,88 +68,6 @@ describe("codex reverse-i-search", () => {
     vi.restoreAllMocks();
     restoreAgentDir?.();
     await rm(agentDir, { force: true, recursive: true });
-  });
-
-  it("searches newest-first and accepts without submitting", async () => {
-    const { ctx, host } = await createHarness([
-      userEntry("older", null, "Deploy production", 100),
-      userEntry("newer", "older", "Check deploy status", 200),
-    ]);
-    ctx.ui.setEditorText("unfinished draft");
-
-    await host.runShortcut("ctrl+r", ctx);
-    expect(host.terminalInput("deploy").consumed).toBeTruthy();
-    expect(ctx.ui.getEditorText()).toBe("Check deploy status");
-
-    host.terminalInput("\u0012");
-    expect(ctx.ui.getEditorText()).toBe("Deploy production");
-
-    host.terminalInput("\u0013");
-    expect(ctx.ui.getEditorText()).toBe("Check deploy status");
-
-    expect(host.terminalInput("\r").consumed).toBeTruthy();
-    expect(ctx.ui.getEditorText()).toBe("Check deploy status");
-    expect(host.getWidget("codex-reverse-i-search")).toBeUndefined();
-    expect(host.terminalInput("\r").consumed).toBeFalsy();
-  });
-
-  it("keeps no-match search open and restores the original draft", async () => {
-    const { ctx, host } = await createHarness([
-      userEntry("one", null, "Known prompt", 100),
-    ]);
-    ctx.ui.setEditorText("unfinished draft");
-
-    await host.runShortcut("ctrl+r", ctx);
-    host.terminalInput("missing");
-    expect(host.getWidget("codex-reverse-i-search")).toContain("no match");
-
-    expect(host.terminalInput("\r").consumed).toBeTruthy();
-    expect(host.getWidget("codex-reverse-i-search")).toContain("no match");
-
-    host.terminalInput("\u0015");
-    expect(ctx.ui.getEditorText()).toBe("unfinished draft");
-    expect(host.getWidget("codex-reverse-i-search")).toBe("reverse-i-search: ");
-
-    host.terminalInput("known");
-    expect(ctx.ui.getEditorText()).toBe("Known prompt");
-    expect(host.terminalInput("\u001B").consumed).toBeTruthy();
-    expect(ctx.ui.getEditorText()).toBe("unfinished draft");
-    expect(host.getWidget("codex-reverse-i-search")).toBeUndefined();
-  });
-
-  it("matches case-insensitively, deduplicates exact text, and holds boundaries", async () => {
-    const { ctx, host } = await createHarness([
-      userEntry("case", null, "build release", 100),
-      userEntry("duplicate", "case", "Build Release", 200),
-      userEntry("newest", "duplicate", "Build Release", 300),
-    ]);
-
-    await host.runShortcut("ctrl+r", ctx);
-    host.terminalInput("BUILD");
-    expect(ctx.ui.getEditorText()).toBe("Build Release");
-
-    host.terminalInput("\u001B[A");
-    expect(ctx.ui.getEditorText()).toBe("build release");
-    host.terminalInput("\u0012");
-    expect(ctx.ui.getEditorText()).toBe("build release");
-
-    host.terminalInput("\u001B[B");
-    expect(ctx.ui.getEditorText()).toBe("Build Release");
-  });
-
-  it("broadens incremental results after backspace", async () => {
-    const { ctx, host } = await createHarness([
-      userEntry("older", null, "alpha beta", 100),
-      userEntry("newer", "older", "alpha release", 200),
-    ]);
-
-    await host.runShortcut("ctrl+r", ctx);
-    host.terminalInput("alpha b");
-    expect(ctx.ui.getEditorText()).toBe("alpha beta");
-
-    host.terminalInput("\u007F");
-    host.terminalInput("\u007F");
-    expect(ctx.ui.getEditorText()).toBe("alpha release");
   });
 
   it("adds interactive prompts and bash commands but ignores extension input", async () => {
@@ -399,34 +319,5 @@ describe("codex reverse-i-search", () => {
       ),
       type: "warning",
     });
-  });
-
-  it("removes one Unicode code point on backspace", async () => {
-    const { ctx, host } = await createHarness([
-      userEntry("rocket", null, "ship 🚀 now", 100),
-    ]);
-    ctx.ui.setEditorText("draft");
-
-    await host.runShortcut("ctrl+r", ctx);
-    host.terminalInput("🚀");
-    expect(ctx.ui.getEditorText()).toBe("ship 🚀 now");
-
-    host.terminalInput("\u007F");
-    expect(ctx.ui.getEditorText()).toBe("draft");
-  });
-
-  it("accepts bracketed paste without leaking terminal sequences", async () => {
-    const { ctx, host } = await createHarness([
-      userEntry("deploy", null, "deploy production", 100),
-    ]);
-    ctx.ui.setEditorText("draft");
-
-    await host.runShortcut("ctrl+r", ctx);
-    host.terminalInput("\u001B[200~de\u0080ploy\u001B[201~");
-    expect(ctx.ui.getEditorText()).toBe("deploy production");
-
-    host.terminalInput("\u0015");
-    host.terminalInput("\u001B[3~");
-    expect(ctx.ui.getEditorText()).toBe("draft");
   });
 });

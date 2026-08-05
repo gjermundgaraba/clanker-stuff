@@ -17,6 +17,7 @@
     "directory": "codex-reverse-i-search"
   },
   "files": [
+    "controller.ts",
     "index.ts",
     "history.ts",
     "search.ts",

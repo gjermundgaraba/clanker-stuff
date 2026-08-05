@@ -42,16 +42,7 @@ const printableText = (data: string): string | undefined => {
   return printable || undefined;
 };
 
-export interface SearchController {
-  begin: (ui: ExtensionContext["ui"]) => void;
-  handleInput: TerminalInputHandler;
-  isOpen: () => boolean;
-  reset: () => void;
-}
-
-export const createSearch = (
-  getHistory: () => readonly HistoryItem[]
-): SearchController => {
+export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
   let session: SearchSession | undefined;
 
   const render = () => {

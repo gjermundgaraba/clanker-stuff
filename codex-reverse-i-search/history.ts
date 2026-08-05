@@ -134,26 +134,21 @@ export const saveHistoryBatch = (
 };
 
 export const loadHistory = (database: DatabaseSync): HistoryItem[] =>
-  database
-    .prepare(
-      `
+  (
+    database
+      .prepare(
+        `
         SELECT text, last_used_at
         FROM history
         ORDER BY last_used_at DESC, id DESC
       `
-    )
-    .all()
-    .flatMap((row) =>
-      typeof row.text === "string" && typeof row.last_used_at === "number"
-        ? [
-            {
-              folded: row.text.toLowerCase(),
-              text: row.text,
-              timestamp: row.last_used_at,
-            },
-          ]
-        : []
-    );
+      )
+      .all() as { last_used_at: number; text: string }[]
+  ).map((row) => ({
+    folded: row.text.toLowerCase(),
+    text: row.text,
+    timestamp: row.last_used_at,
+  }));
 
 export const getDataVersion = (database: DatabaseSync): number => {
   const version = database.prepare("PRAGMA data_version").get()?.data_version;
