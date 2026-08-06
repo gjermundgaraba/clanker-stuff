@@ -2,7 +2,7 @@
 
 The live canary exercises the installed OpenAI Codex credential, the replacement provider, remote V2 compaction, durable `clanker.codex-provider/checkpoint` schema-v1 checkpoints under the `codex-provider.checkpoint` session namespace, transport behavior, and replay in a fresh Node process. It makes real network requests and consumes model usage.
 
-The runner does not load project context, skills, prompts, themes, other extensions, or unrelated tools.
+Except for the installed-environment RPC run, the runners do not load project context, skills, prompts, themes, other extensions, or unrelated tools.
 
 ## Default SSE run
 
@@ -142,6 +142,18 @@ node codex-provider/scripts/live-chaos.ts --crash
 
 This launches the normal SSE runner, polls its JSONL artifact, and sends `SIGKILL` as soon as the first complete checkpoint line is readable. A fresh Node process then opens that exact session and proves the durable checkpoint can serve two normal turns without being replaced.
 
+## Installed-environment RPC run
+
+```bash
+pnpm --filter @clanker-extensions/codex-provider run test:live:native:installed
+```
+
+This explicitly invoked canary resolves the system `pi` command to its compiled installation, requires Pi 0.83.0, and runs it in RPC mode with the actual `PI_CODING_AGENT_DIR`. It therefore loads the user's configured settings, extensions, and other resources instead of constructing an extension-isolated environment. The working directory and session directory are temporary, and the retained artifact root is printed at startup. A project-local compaction setting keeps the short manual run eligible; it does not change the model context window.
+
+The model keeps its native declared context window; this run does not force the small estimator window used by the default synthetic canary. One happy path verifies project instructions plus real read/write tools, a strict manual checkpoint whose readable summary omits an assistant-generated opaque token, a non-persisting `/codex-provider` status request, and fresh-process post-compaction tool availability plus opaque checkpoint recall.
+
+This canary makes paid model requests, depends on the installed Pi environment and backend, and is intentionally non-deterministic. Run it deliberately when validating the real local deployment; deterministic tests remain responsible for exact protocol and failure behavior.
+
 ## Mixed marathon run
 
 ```bash
@@ -149,6 +161,12 @@ pnpm --dir codex-provider test:live:marathon
 ```
 
 The marathon deliberately composes existing canaries: a ten-round SSE soak, WebSocket branch isolation, two real-window mid-turn tool loops, client stream-fault recovery, concurrent RPC recovery, and checkpoint-boundary `SIGKILL` recovery. It consumes roughly one million or more provider-context tokens; retries increase that total.
+
+## Optional manual TUI smoke
+
+For a visual check, open the system Pi CLI in a disposable working directory from a Herdr pane, complete a normal turn and a manual `/compact`, run `/codex-provider`, then complete another turn. Confirm that the checkpoint and status views render clearly and the configured tools remain available after compaction.
+
+This is a manual, non-gating smoke check. Terminal layout, timing, and model output make it unsuitable as an automated PTY assertion suite; the RPC canaries remain the structured runtime checks.
 
 Use one transport flag with any compatible behavior mode:
 

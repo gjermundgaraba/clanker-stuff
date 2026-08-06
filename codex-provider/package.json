@@ -51,6 +51,7 @@
     "test:live:fallback": "node ./scripts/live-multi-compaction.ts --fallback",
     "test:live:fault": "node ./scripts/live-multi-compaction.ts --stream-fault --sse",
     "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
+    "test:live:native:installed": "node ./scripts/live-installed.ts",
     "test:live:portable": "node ./scripts/live-multi-compaction.ts --portable",
     "test:live:real": "node ./scripts/live-multi-compaction.ts --real-window",
     "test:live:crash": "node ./scripts/live-chaos.ts --crash",
