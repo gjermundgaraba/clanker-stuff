@@ -2,14 +2,12 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
-import { discoverCodexBarBinary } from "../adapters/opencode.js";
 import type { ProviderAuthClient } from "../auth.js";
 import { providerAuthClientFromContext } from "../auth.js";
 import type { FetchJson } from "../http.js";
 import { defaultFetchJson } from "../http.js";
 import extension from "../index.js";
 
-vi.mock(import("../adapters/opencode.js"), { spy: true });
 vi.mock(import("../auth.js"), { spy: true });
 vi.mock(import("../http.js"), { spy: true });
 
@@ -59,9 +57,6 @@ const fetchJson: FetchJson = async () => ({
 });
 
 const stubDependencies = (nowRef: { value: number }) => {
-  vi.mocked(discoverCodexBarBinary).mockResolvedValue(
-    process.env.PI_TEST_MISSING_CODEXBAR
-  );
   vi.mocked(providerAuthClientFromContext).mockReturnValue(authClient);
   vi.mocked(defaultFetchJson).mockImplementation(fetchJson);
   // oxlint-disable-next-line vitest/prefer-mock-return-shorthand -- time must be read lazily; tests advance nowRef mid-run

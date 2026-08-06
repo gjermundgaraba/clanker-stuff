@@ -10,11 +10,7 @@ import { fetchCopilotUsage } from "./adapters/copilot.js";
 import { fetchGeminiUsage } from "./adapters/gemini.js";
 import { fetchKimiUsage } from "./adapters/kimi.js";
 import { fetchMinimaxUsage } from "./adapters/minimax.js";
-import {
-  defaultCodexBarExec,
-  discoverCodexBarBinary,
-  runCodexBarUsage,
-} from "./adapters/opencode.js";
+import { runCodexBarUsage } from "./adapters/opencode.js";
 import type { AdapterDeps } from "./adapters/util.js";
 import { fetchXaiUsage } from "./adapters/xai.js";
 import { providerAuthClientFromContext } from "./auth.js";
@@ -43,7 +39,7 @@ const FOOTER_READY_EVENT = "clanker-footer:ready";
 const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
 const REFRESH_INTERVAL_MS = 5 * 60_000;
 const NO_AVAILABLE_PROVIDERS_MESSAGE =
-  "usage: no supported providers are available (log in to a supported provider; opencode-go also requires CodexBar)";
+  "usage: no supported providers are available (log in to a supported provider; opencode-go also requires CodexBar to be running)";
 
 // Wrapped so tests can control time by spying on Date.now.
 const now = (): number => Date.now();
@@ -85,12 +81,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
       fetchMinimaxUsage(adapterDeps, "minimax-cn")
     ),
     "openai-codex": fromHttpAdapter(fetchCodexUsage),
-    "opencode-go": () =>
-      runCodexBarUsage({
-        discover: discoverCodexBarBinary,
-        exec: defaultCodexBarExec,
-        now,
-      }),
+    "opencode-go": () => runCodexBarUsage({ now }),
     xai: fromHttpAdapter(fetchXaiUsage),
   } satisfies Record<SupportedProvider, UsageFetcher>;
 
