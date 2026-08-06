@@ -2,9 +2,6 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import type { CliStarter } from "./cli.js";
-import { startCli } from "./cli.js";
-
 const AnnotationOutcomeSchema = Type.Union([
   Type.Object({ decision: Type.Literal("approved") }),
   Type.Object({ decision: Type.Literal("dismissed") }),
@@ -15,8 +12,6 @@ const AnnotationOutcomeSchema = Type.Union([
 ]);
 
 export type AnnotationOutcome = Static<typeof AnnotationOutcomeSchema>;
-
-export const REVIEW_CLOSED_SENTINEL = "Review session closed without feedback.";
 
 const ANNOTATION_FLAGS_WITHOUT_VALUES = new Set([
   "--gate",
@@ -67,14 +62,3 @@ export const parseAnnotationOutcome = (stdout: string): AnnotationOutcome => {
 
   return value;
 };
-
-export const startPlannotatorCli: CliStarter = (args, options) =>
-  startCli("plannotator", args, {
-    ...options,
-    env: {
-      ...process.env,
-      ...options.env,
-      PLANNOTATOR_CWD: options.cwd,
-      PLANNOTATOR_ORIGIN: "pi",
-    },
-  });

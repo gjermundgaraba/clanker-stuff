@@ -17,12 +17,12 @@
     "directory": "plannotator"
   },
   "files": [
+    "annotations.ts",
     "cli.ts",
     "command-runtime.ts",
     "commands",
     "index.ts",
     "LICENSE",
-    "plannotator.ts",
     "README.md",
     "review-launcher.ts"
   ],

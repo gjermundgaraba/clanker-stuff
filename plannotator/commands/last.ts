@@ -4,12 +4,12 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
-import type { CommandRuntime } from "../command-runtime.js";
-import { notifyError } from "../command-runtime.js";
 import {
   normalizeAnnotationArguments,
   parseAnnotationOutcome,
-} from "../plannotator.js";
+} from "../annotations.js";
+import type { CommandRuntime } from "../command-runtime.js";
+import { notifyError } from "../command-runtime.js";
 
 interface AssistantSnapshot {
   entryId: string;
@@ -75,67 +75,61 @@ const anchorFeedback = (feedback: string, message: string): string => {
   return `This feedback applies to the earlier assistant response excerpted below:\n\n${quote}\n\nUser feedback:\n${feedback}`;
 };
 
-export const registerLastCommand = (
-  pi: ExtensionAPI,
-  runtime: CommandRuntime
-): void => {
-  pi.registerCommand("plannotator-last", {
-    description: "Annotate the last assistant message",
-    handler: async (args, ctx) => {
-      const parsed = runtime.parseArguments(args, ctx);
-      if (parsed === undefined) {
-        return;
-      }
+export const createLastHandler =
+  (pi: ExtensionAPI, runtime: CommandRuntime) =>
+  async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+    const parsed = runtime.parseArguments(args, ctx);
+    if (parsed === undefined) {
+      return;
+    }
 
-      let tokens: string[];
-      try {
-        tokens = normalizeAnnotationArguments(
-          parsed,
-          new Set(["--json", "--stdin"])
-        );
-      } catch (error) {
-        notifyError(ctx, "Invalid Plannotator arguments", error);
-        return;
-      }
+    let tokens: string[];
+    try {
+      tokens = normalizeAnnotationArguments(
+        parsed,
+        new Set(["--json", "--stdin"])
+      );
+    } catch (error) {
+      notifyError(ctx, "Invalid Plannotator arguments", error);
+      return;
+    }
 
-      const snapshot = getLastAssistantSnapshot(ctx);
-      if (snapshot === undefined) {
-        ctx.ui.notify("No assistant message found in session.", "error");
-        return;
-      }
+    const snapshot = getLastAssistantSnapshot(ctx);
+    if (snapshot === undefined) {
+      ctx.ui.notify("No assistant message found in session.", "error");
+      return;
+    }
 
-      runtime.launch(["annotate-last", "--stdin", "--json", ...tokens], ctx, {
-        failureLabel: "Plannotator message annotation",
-        onOutput(stdout) {
-          const outcome = parseAnnotationOutcome(stdout);
-          if (outcome.decision === "approved") {
-            ctx.ui.notify("Plannotator message approved.", "info");
-            return;
-          }
-          if (outcome.decision === "dismissed") {
-            ctx.ui.notify("Plannotator message annotation closed.", "info");
-            return;
-          }
+    runtime.launch(["annotate-last", "--stdin", "--json", ...tokens], ctx, {
+      failureLabel: "Plannotator message annotation",
+      onOutput(stdout) {
+        const outcome = parseAnnotationOutcome(stdout);
+        if (outcome.decision === "approved") {
+          ctx.ui.notify("Plannotator message approved.", "info");
+          return;
+        }
+        if (outcome.decision === "dismissed") {
+          ctx.ui.notify("Plannotator message annotation closed.", "info");
+          return;
+        }
 
-          let feedback = outcome.feedback.trim();
-          if (feedback.length === 0) {
-            ctx.ui.notify(
-              "Plannotator message annotation closed without feedback.",
-              "info"
-            );
-            return;
-          }
-          if (hasMovedPastSnapshot(ctx, snapshot.entryId)) {
-            feedback = anchorFeedback(feedback, snapshot.text);
-          }
-          pi.sendUserMessage(
-            `# Message Annotations\n\n${feedback}\n\nPlease address the annotation feedback above.`,
-            { deliverAs: "followUp" }
+        let feedback = outcome.feedback.trim();
+        if (feedback.length === 0) {
+          ctx.ui.notify(
+            "Plannotator message annotation closed without feedback.",
+            "info"
           );
-        },
-        openedMessage: "Plannotator message annotation opened.",
-        stdin: snapshot.text,
-      });
-    },
-  });
-};
+          return;
+        }
+        if (hasMovedPastSnapshot(ctx, snapshot.entryId)) {
+          feedback = anchorFeedback(feedback, snapshot.text);
+        }
+        pi.sendUserMessage(
+          `# Message Annotations\n\n${feedback}\n\nPlease address the annotation feedback above.`,
+          { deliverAs: "followUp" }
+        );
+      },
+      openedMessage: "Plannotator message annotation opened.",
+      stdin: snapshot.text,
+    });
+  };

@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CliProcess, CliStarter } from "./cli.js";
-import { processFailure } from "./cli.js";
+import { processFailure, startCli } from "./cli.js";
 
 interface ActiveRun {
   cancelled: boolean;
@@ -102,7 +102,18 @@ export const notifyError = (
   ctx.ui.notify(`${label}: ${errorMessage(error)}`, "error");
 };
 
-export const createCommandRuntime = (startCli: CliStarter): CommandRuntime => {
+export const startPlannotatorCli: CliStarter = (args, options) =>
+  startCli("plannotator", args, {
+    ...options,
+    env: {
+      ...process.env,
+      ...options.env,
+      PLANNOTATOR_CWD: options.cwd,
+      PLANNOTATOR_ORIGIN: "pi",
+    },
+  });
+
+export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
   const activeRuns = new Set<ActiveRun>();
 
   const launch = (
@@ -112,7 +123,7 @@ export const createCommandRuntime = (startCli: CliStarter): CommandRuntime => {
   ): void => {
     let cliProcess: CliProcess;
     try {
-      cliProcess = startCli(args, { cwd: ctx.cwd, stdin: options.stdin });
+      cliProcess = starter(args, { cwd: ctx.cwd, stdin: options.stdin });
     } catch (error) {
       notifyError(ctx, options.failureLabel, error);
       return;
