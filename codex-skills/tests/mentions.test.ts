@@ -91,9 +91,13 @@ describe("skill mentions", () => {
     const content = `<skill>\n<name>alpha</name>\n<path>${alphaPath}</path>\nAlpha instructions.\n</skill>\n\n<skill>\n<name>beta</name>\n<path>${betaPath}</path>\nBeta instructions.\n</skill>\n\n<skill>\n<name>plugin:deploy</name>\n<path>${pluginPath}</path>\nPlugin deploy instructions.\n</skill>`;
     const details = {
       skills: [
-        { name: "alpha", path: alphaPath },
-        { name: "beta", path: betaPath },
-        { name: "plugin:deploy", path: pluginPath },
+        { body: "Alpha instructions.", name: "alpha", path: alphaPath },
+        { body: "Beta instructions.", name: "beta", path: betaPath },
+        {
+          body: "Plugin deploy instructions.",
+          name: "plugin:deploy",
+          path: pluginPath,
+        },
       ],
     };
     const [result] = await host.emit(
@@ -170,12 +174,13 @@ describe("skill mentions", () => {
         renderer(message, renderOptions(false), createIdentityTheme())
       )
     ).toContain("◆ Skills injected: $alpha, $beta, $plugin:deploy");
-    expect(
-      renderComponent(
-        renderer(message, renderOptions(true), createIdentityTheme()),
-        200
-      )
-    ).toContain(alphaPath);
+    const expanded = renderComponent(
+      renderer(message, renderOptions(true), createIdentityTheme()),
+      200
+    );
+    expect(expanded).toContain(alphaPath);
+    expect(expanded).toContain("Alpha instructions.");
+    expect(expanded).toContain("Plugin deploy instructions.");
   });
 
   it("completes loaded skill names after a dollar sign", async () => {

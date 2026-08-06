@@ -7,8 +7,11 @@ import type {
   ExtensionContext,
   MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
-import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
-import { fuzzyFilter, Text } from "@earendil-works/pi-tui";
+import {
+  getMarkdownTheme,
+  stripFrontmatter,
+} from "@earendil-works/pi-coding-agent";
+import { Box, fuzzyFilter, Markdown, Text } from "@earendil-works/pi-tui";
 
 const SKILL_MENTION = /\$(?<name>[A-Za-z0-9_:-]+)/gu;
 const SKILL_COMPLETION = /(?:^|[ \t])\$(?<query>[A-Za-z0-9_:-]*)$/u;
@@ -31,7 +34,7 @@ const COMMON_ENV_VARS = new Set([
 ]);
 
 export interface InjectedSkillsDetails {
-  skills: { name: string; path: string }[];
+  skills: { body: string; name: string; path: string }[];
 }
 
 const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
@@ -40,22 +43,29 @@ const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
   theme
 ) => {
   const skills = message.details?.skills ?? [];
-  let text = theme.fg(
+  const header = theme.fg(
     "accent",
     `◆ Skills injected: ${skills.map((skill) => `$${skill.name}`).join(", ")}`
   );
-  if (expanded) {
-    text += skills
-      .map(
-        (skill) =>
-          `\n  ${theme.fg("accent", `$${skill.name}`)}\n    ${theme.fg("dim", skill.path)}`
-      )
-      .join("");
+  const bg = (content: string) => theme.bg("customMessageBg", content);
+
+  if (!expanded) {
+    return new Text(header, outputPad, 1, bg);
   }
 
-  return new Text(text, outputPad, 1, (content) =>
-    theme.bg("customMessageBg", content)
-  );
+  const box = new Box(outputPad, 1, bg);
+  box.addChild(new Text(header, 0, 0));
+  for (const skill of skills) {
+    box.addChild(
+      new Text(
+        `${theme.fg("accent", `$${skill.name}`)}\n${theme.fg("dim", skill.path)}`,
+        0,
+        0
+      )
+    );
+    box.addChild(new Markdown(skill.body, 0, 0, getMarkdownTheme()));
+  }
+  return box;
 };
 
 export const createSkillMentions = (pi: ExtensionAPI) => {
@@ -147,6 +157,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
             const contents = await readFile(skill.filePath, "utf-8");
             const body = stripFrontmatter(contents).trim();
             return {
+              body,
               content: `<skill>\n<name>${skill.name}</name>\n<path>${skill.filePath}</path>\n${body}\n</skill>`,
               name: skill.name,
               path: skill.filePath,
@@ -170,7 +181,11 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
         content: blocks.map((block) => block.content).join("\n\n"),
         customType: "codex-skills",
         details: {
-          skills: blocks.map(({ name, path }) => ({ name, path })),
+          skills: blocks.map(({ body, name, path }) => ({
+            body,
+            name,
+            path,
+          })),
         } satisfies InjectedSkillsDetails,
         display: true,
       },
