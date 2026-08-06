@@ -9,7 +9,26 @@ import {
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-import type { FooterConfig } from "./types.js";
+import type { FooterIconFamily } from "./protocol.js";
+
+export interface FooterRowConfig {
+  left: string[];
+  center: string[];
+  right: string[];
+}
+
+export interface FooterWidgetOverride {
+  enabled?: boolean;
+}
+
+export interface FooterConfig {
+  version: 1;
+  enabled: boolean;
+  iconFamily: FooterIconFamily;
+  separator: string;
+  rows: FooterRowConfig[];
+  widgets: Record<string, FooterWidgetOverride>;
+}
 
 const STRICT = { additionalProperties: false } as const;
 const WidgetOverrideSchema = Type.Object(

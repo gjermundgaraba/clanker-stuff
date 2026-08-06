@@ -3,16 +3,24 @@ import type {
   ExtensionFactory,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAgentSessionHarness } from "../../tests/harness/agent-session.js";
 import type { AgentSessionHarness } from "../../tests/harness/agent-session.js";
 import { createIdentityTheme, createMockTui } from "../../tests/harness/tui.js";
-import { cloneFooterConfig, DEFAULT_CONFIG } from "../config.js";
+import {
+  cloneFooterConfig,
+  createFooterConfigStore,
+  DEFAULT_CONFIG,
+} from "../config.js";
 import type { FooterConfigStore } from "../config.js";
-import { createFooterExtension } from "../index.js";
-import { FOOTER_READY_EVENT } from "../types.js";
+import { readGitStatus } from "../git.js";
+import footerExtension from "../index.js";
+import { FOOTER_READY_EVENT } from "../protocol.js";
 import { formatTokenCount } from "../widgets.js";
+
+vi.mock(import("../config.js"), { spy: true });
+vi.mock(import("../git.js"), { spy: true });
 
 type FooterFactory = Exclude<
   Parameters<ExtensionUIContext["setFooter"]>[0],
@@ -36,6 +44,11 @@ const configStore = (): FooterConfigStore => ({
   },
 });
 
+const stubFooterStorage = (): void => {
+  vi.mocked(createFooterConfigStore).mockReturnValue(configStore());
+  vi.mocked(readGitStatus).mockResolvedValue(null);
+};
+
 describe("footer AgentSession lifecycle", () => {
   let harness: AgentSessionHarness | undefined;
 
@@ -45,6 +58,7 @@ describe("footer AgentSession lifecycle", () => {
   });
 
   it("removes process-bus listeners before a real session reload", async () => {
+    stubFooterStorage();
     let generation = 0;
     const readyGenerations: number[] = [];
     const producer: ExtensionFactory = (pi) => {
@@ -57,13 +71,7 @@ describe("footer AgentSession lifecycle", () => {
     };
 
     harness = await createAgentSessionHarness({
-      extensionFactories: [
-        createFooterExtension({
-          configStore: configStore(),
-          readGit: async () => null,
-        }),
-        producer,
-      ],
+      extensionFactories: [footerExtension, producer],
       uiContext: {
         notify: () => {
           // Keeps the real reload lifecycle bound without installing a TUI.
@@ -78,6 +86,7 @@ describe("footer AgentSession lifecycle", () => {
   });
 
   it("renders the completed turn's persisted usage during turn_end", async () => {
+    stubFooterStorage();
     let component: FooterComponent | undefined;
     let renderedAtTurnEnd: string | undefined;
     const footerData = {
@@ -107,13 +116,7 @@ describe("footer AgentSession lifecycle", () => {
     };
 
     harness = await createAgentSessionHarness({
-      extensionFactories: [
-        createFooterExtension({
-          configStore: configStore(),
-          readGit: async () => null,
-        }),
-        probe,
-      ],
+      extensionFactories: [footerExtension, probe],
       mode: "tui",
       uiContext,
     });

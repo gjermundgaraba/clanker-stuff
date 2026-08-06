@@ -15,8 +15,8 @@ import {
 import type { SelectItem } from "@earendil-works/pi-tui";
 
 import { cloneFooterConfig, DEFAULT_CONFIG } from "./config.js";
-import type { LoadedFooterConfig } from "./config.js";
-import type { FooterConfig, FooterSource } from "./types.js";
+import type { FooterConfig, LoadedFooterConfig } from "./config.js";
+import type { FooterSource } from "./widgets.js";
 
 const GROUPS = ["left", "center", "right"] as const;
 const ICONS: FooterConfig["iconFamily"][] = ["ascii", "unicode", "nerd"];

@@ -3,15 +3,78 @@
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-import { FOOTER_PROTOCOL_VERSION } from "./types.js";
-import type {
-  FooterContent,
-  FooterSpan,
-  FooterWidgetHealth,
-  FooterWidgetIcon,
-  FooterWidgetMessage,
-  FooterWidgetSnapshot,
-} from "./types.js";
+export const FOOTER_PROTOCOL_VERSION = 1 as const;
+export const FOOTER_READY_EVENT = "clanker-footer:ready";
+export const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
+
+export type FooterTone =
+  | "text"
+  | "dim"
+  | "muted"
+  | "accent"
+  | "success"
+  | "warning"
+  | "error";
+
+export interface FooterSpan {
+  text: string;
+  tone?: FooterTone;
+  bold?: boolean;
+}
+
+export type FooterContent = readonly FooterSpan[];
+
+export type FooterIconFamily = "ascii" | "unicode" | "nerd";
+
+export interface FooterWidgetIcon {
+  glyphs: string | Partial<Record<FooterIconFamily, string>>;
+  tone?: FooterTone;
+}
+
+export interface FooterWidgetDisplayDefaults {
+  enabled?: boolean;
+}
+
+export type FooterTruncation = "start" | "middle" | "end";
+
+export type FooterWidgetHealthState = "loading" | "ready" | "stale" | "error";
+
+export interface FooterWidgetHealth {
+  state: FooterWidgetHealthState;
+  message?: string;
+  updatedAt?: number;
+}
+
+export interface FooterWidgetSnapshot {
+  id: string;
+  label: string;
+  content: FooterContent;
+  icon?: FooterWidgetIcon | false;
+  defaults?: FooterWidgetDisplayDefaults;
+  health?: FooterWidgetHealth;
+  consumesStatusKeys?: readonly string[];
+  truncate?: FooterTruncation;
+}
+
+export interface FooterReadyMessage {
+  protocol: 1;
+  type: "ready";
+  instanceId: string;
+}
+
+export type FooterWidgetMessage =
+  | {
+      protocol: 1;
+      type: "upsert";
+      instanceId: string;
+      widget: FooterWidgetSnapshot;
+    }
+  | {
+      protocol: 1;
+      type: "remove";
+      instanceId: string;
+      id: string;
+    };
 
 export type ValidationResult<T> =
   | { ok: true; value: T }

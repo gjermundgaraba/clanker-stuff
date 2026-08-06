@@ -1,5 +1,6 @@
 /* oxlint-disable eslint/complexity, eslint/no-control-regex, eslint/no-nested-ternary, typescript/no-non-null-assertion -- bounded layout and terminal sanitizing are clearer as direct state machines */
 
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
   sliceByColumn,
   truncateToWidth,
@@ -7,21 +8,51 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { hasTerminalControl } from "./config.js";
+import type { FooterConfig } from "./config.js";
 import type {
   FooterContent,
   FooterIconFamily,
-  FooterLayoutDecision,
-  FooterLayoutResult,
-  FooterRenderState,
   FooterSpan,
-  FooterTheme,
   FooterTone,
   FooterTruncation,
   FooterWidgetIcon,
-  FooterWidgetRenderError,
-  LiveWidget,
-  RenderableWidget,
-} from "./types.js";
+} from "./protocol.js";
+import type { LiveWidget } from "./widgets.js";
+
+export interface RenderableWidget {
+  id: string;
+  group: "left" | "center" | "right";
+  text: string;
+  truncate?: FooterTruncation;
+}
+
+export interface FooterLayoutDecision {
+  id: string;
+  outcome: "visible" | "truncated";
+  reason: string;
+}
+
+export interface FooterWidgetRenderError {
+  id: string;
+  message: string;
+}
+
+export interface FooterLayoutResult {
+  lines: string[];
+  decisions: FooterLayoutDecision[];
+  consumedStatusIds: string[];
+  duplicates: string[];
+  widgetErrors: FooterWidgetRenderError[];
+}
+
+export interface FooterRenderState {
+  builtins: ReadonlyMap<string, LiveWidget>;
+  rich: ReadonlyMap<string, LiveWidget>;
+  config: FooterConfig;
+  nativeStatuses: ReadonlyMap<string, string>;
+}
+
+export type FooterTheme = Pick<Theme, "bold" | "fg">;
 
 const GROUPS: RenderableWidget["group"][] = ["left", "center", "right"];
 const SGR_PATTERN = /^\u001B\[[0-9;]*m/u;

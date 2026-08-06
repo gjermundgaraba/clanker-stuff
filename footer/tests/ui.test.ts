@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createIdentityTheme } from "../../tests/harness/tui.js";
 import { cloneFooterConfig, DEFAULT_CONFIG } from "../config.js";
-import type { FooterConfig } from "../types.js";
+import type { FooterConfig } from "../config.js";
 import { FooterEditor, showFooterEditor } from "../ui.js";
 
 describe("footer editor", () => {

@@ -19,10 +19,11 @@
   "files": [
     "index.ts",
     "config.ts",
+    "diagnostics.ts",
     "git.ts",
+    "host.ts",
     "layout.ts",
     "protocol.ts",
-    "types.ts",
     "ui.ts",
     "widgets.ts",
     "README.md",

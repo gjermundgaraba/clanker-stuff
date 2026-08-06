@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFooterConfigStore, DEFAULT_CONFIG } from "../config.js";
+import {
+  createFooterConfigStore,
+  DEFAULT_CONFIG,
+  parseFooterConfig,
+} from "../config.js";
 
 describe("footer config store", () => {
   let directory: string | undefined;
@@ -36,5 +40,45 @@ describe("footer config store", () => {
     expect(createFooterConfigStore("relative/footer.json").path).toBe(
       path.resolve("relative/footer.json")
     );
+  });
+});
+
+describe(parseFooterConfig, () => {
+  it("rejects unknown config fields", () => {
+    expect(() =>
+      parseFooterConfig({
+        enabled: true,
+        iconFamily: "unicode",
+        rows: [{ center: [], left: [], right: [] }],
+        separator: "·",
+        unknown: true,
+        version: 1,
+        widgets: {},
+      })
+    ).toThrow("strict object");
+  });
+
+  it("rejects control-bearing widget IDs in configuration", () => {
+    const nativeId = "status:line\n\u001B[31m";
+    expect(() =>
+      parseFooterConfig({
+        enabled: true,
+        iconFamily: "unicode",
+        rows: [{ center: [], left: [nativeId], right: [] }],
+        separator: "·",
+        version: 1,
+        widgets: {},
+      })
+    ).toThrow("terminal controls");
+    expect(() =>
+      parseFooterConfig({
+        enabled: true,
+        iconFamily: "unicode",
+        rows: [{ center: [], left: [], right: [] }],
+        separator: "·",
+        version: 1,
+        widgets: { [nativeId]: { enabled: false } },
+      })
+    ).toThrow("terminal controls");
   });
 });

@@ -1,140 +1,64 @@
-/* oxlint-disable vitest/max-expects -- one host lifecycle is the behavior under test */
-
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
-import { createIdentityTheme } from "../../tests/harness/tui.js";
-import { cloneFooterConfig, DEFAULT_CONFIG } from "../config.js";
-import { createFooterExtension } from "../index.js";
-import { FOOTER_READY_EVENT, FOOTER_WIDGET_EVENT } from "../types.js";
-import type { FooterWidgetSnapshot } from "../types.js";
+import extension from "../index.js";
 
-type FooterFactory = Exclude<
-  Parameters<ExtensionContext["ui"]["setFooter"]>[0],
-  undefined
->;
-type FooterComponent = ReturnType<FooterFactory>;
+const footerHost = vi.hoisted(() => ({
+  refresh: vi.fn<(ctx: ExtensionContext) => void>(),
+  refreshTotals: vi.fn<(ctx: ExtensionContext) => void>(),
+  runCommand: vi.fn<(args: string, ctx: ExtensionContext) => Promise<void>>(),
+  shutdown: vi.fn<() => void>(),
+  start: vi.fn<(ctx: ExtensionContext) => Promise<void>>(),
+  turnEnd: vi.fn<(ctx: ExtensionContext) => void>(),
+}));
 
-describe("footer host", () => {
-  it("renders live native/rich state and refreshes totals post-persistence", async () => {
-    const statuses = new Map<string, string>();
-    const requestRender = vi.fn<() => void>();
-    const getEntries = vi.fn<() => []>(() => []);
-    let failTopLevelRender = false;
-    const theme = createIdentityTheme();
-    theme.fg = (_tone, text) => {
-      if (failTopLevelRender && text === "·") {
-        throw new Error("layout failed");
-      }
-      return text;
-    };
-    const footerData = {
-      getAvailableProviderCount: () => 1,
-      getExtensionStatuses: () => statuses,
-      getGitBranch: () => null,
-      onBranchChange: () => vi.fn<() => void>(),
-    };
-    let component: FooterComponent | undefined;
-    const setFooter: ExtensionContext["ui"]["setFooter"] = (factory) => {
-      component?.dispose?.();
-      component =
-        factory === undefined
-          ? undefined
-          : factory({ requestRender } as never, theme, footerData);
-    };
-    const store = {
-      load: async () => ({
-        config: cloneFooterConfig(DEFAULT_CONFIG),
-      }),
-      path: "/tmp/footer.json",
-      save: async () => {
-        await Promise.resolve();
-      },
-    };
-    const host = createExtensionHost(
-      createFooterExtension({
-        configStore: store,
-        now: () => Date.parse("2025-01-01T00:05:00.000Z"),
-        readGit: async () => null,
-      })
+vi.mock(import("../host.js"), () => ({
+  createFooterHost: () => footerHost,
+}));
+
+describe("footer registration", () => {
+  it("registers /footer and delegates lifecycle to the host", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+
+    await host.runCommand("footer", "doctor", ctx);
+    await host.emitSessionStart(ctx);
+    await host.emit("model_select", { type: "model_select" }, ctx);
+    await host.emit(
+      "thinking_level_select",
+      { type: "thinking_level_select" },
+      ctx
     );
-    let ready: { instanceId: string } | undefined;
-    host.events.on(FOOTER_READY_EVENT, (value) => {
-      ready = value as { instanceId: string };
+    await host.emit("message_end", { type: "message_end" }, ctx);
+    await host.emitTurnEnd(undefined, ctx);
+    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    await host.emit("session_tree", { type: "session_tree" }, ctx);
+    await host.emit("session_compact", { type: "session_compact" }, ctx);
+    await host.emit(
+      "session_info_changed",
+      { type: "session_info_changed" },
+      ctx
+    );
+    await host.emitSessionShutdown(ctx);
+
+    expect(host.getRegisteredCommands().get("footer")).toMatchObject({
+      description: "Configure or inspect the cooperative footer",
     });
-    const context = host.createContext({
-      cwd: "/tmp/project",
-      getContextUsage: () => ({
-        contextWindow: 100,
-        percent: 42,
-        tokens: 42,
-      }),
-      model: {
-        id: "demo",
-        name: "Demo",
-        provider: "test",
-        reasoning: true,
-      } as never,
-      modelRegistry: {
-        getAvailable: () => [],
-        getProviderDisplayName: (provider: string) => provider,
-      } as never,
-      sessionManager: {
-        getEntries,
-        getHeader: () => ({
-          timestamp: "2025-01-01T00:00:00.000Z",
-        }),
-        getSessionName: () => "test",
-      } as never,
-      thinkingLevel: "high",
-      ui: { setFooter },
+    expect({
+      refresh: footerHost.refresh.mock.calls,
+      refreshTotals: footerHost.refreshTotals.mock.calls,
+      runCommand: footerHost.runCommand.mock.calls,
+      shutdown: footerHost.shutdown.mock.calls.length,
+      start: footerHost.start.mock.calls,
+      turnEnd: footerHost.turnEnd.mock.calls,
+    }).toStrictEqual({
+      refresh: [[ctx], [ctx], [ctx]],
+      refreshTotals: [[ctx], [ctx], [ctx], [ctx]],
+      runCommand: [["doctor", ctx]],
+      shutdown: 1,
+      start: [[ctx]],
+      turnEnd: [[ctx]],
     });
-
-    await host.emitSessionStart(context);
-    expect(component).toBeDefined();
-    expect(ready?.instanceId).toBeTruthy();
-    expect(getEntries).toHaveBeenCalledOnce();
-    expect(component?.render(120).join("\n")).toContain("Demo");
-
-    statuses.set("voice", "voice ready");
-    expect(component?.render(120).join("\n")).toContain("voice ready");
-
-    const rich: FooterWidgetSnapshot = {
-      content: [{ text: "rich value" }],
-      id: "example.widget",
-      label: "Example",
-    };
-    host.events.emit(FOOTER_WIDGET_EVENT, {
-      instanceId: ready?.instanceId,
-      protocol: 1,
-      type: "upsert",
-      widget: rich,
-    });
-    expect(component?.render(120).join("\n")).toContain("rich value");
-
-    host.events.emit(FOOTER_WIDGET_EVENT, {
-      instanceId: ready?.instanceId,
-      protocol: 1,
-      type: "upsert",
-      widget: { ...rich, content: [{ text: "\u001B[31m" }] },
-    });
-    expect(component?.render(120).join("\n")).toContain("rich value");
-
-    failTopLevelRender = true;
-    expect(component?.render(120)).toStrictEqual([]);
-    failTopLevelRender = false;
-
-    await host.emit("message_end", { type: "message_end" }, context);
-    expect(getEntries).toHaveBeenCalledOnce();
-    await host.emitTurnEnd(undefined, context);
-    expect(getEntries).toHaveBeenCalledTimes(2);
-
-    component?.dispose?.();
-    expect(host.getNotifications()).toContainEqual({
-      message: "Footer was replaced by another extension; run /footer doctor",
-      type: "warning",
-    });
-    await host.emitSessionShutdown(context);
   });
 });
