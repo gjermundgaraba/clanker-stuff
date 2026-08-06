@@ -90,7 +90,11 @@ const incompleteResponseEvents = (id: string, text: string) => {
     ...events.slice(0, -1),
     {
       ...terminal,
-      response: { ...terminal.response, status: "incomplete" },
+      response: {
+        ...terminal.response,
+        incomplete_details: { reason: "max_output_tokens" },
+        status: "incomplete",
+      },
       type: "response.incomplete",
     },
   ];
@@ -355,15 +359,25 @@ describe("Codex provider", () => {
   });
 
   it("refreshes full model metadata and restores the projected catalog offline", async () => {
-    let stored:
-      | Awaited<
-          ReturnType<
-            Parameters<
-              NonNullable<typeof runtime.provider.refreshModels>
-            >[0]["store"]["read"]
-          >
-        >
-      | undefined;
+    type RefreshContext = Parameters<
+      NonNullable<
+        ReturnType<
+          typeof createCodexProviderRuntime
+        >["provider"]["refreshModels"]
+      >
+    >[0];
+    type StoreEntry = NonNullable<RefreshContext["stored"]>;
+    let stored: StoreEntry | undefined;
+    const publish: RefreshContext["publish"] = async (publication) => {
+      if (publication.persist === null) {
+        stored = undefined;
+      } else if (publication.persist !== undefined) {
+        stored = structuredClone(publication.persist);
+      }
+      publication.update?.();
+      return true;
+    };
+    const { signal } = new AbortController();
     const runtime = createCodexProviderRuntime();
     const requests: Request[] = [];
     vi.stubGlobal(
@@ -413,23 +427,21 @@ describe("Codex provider", () => {
         );
       }
     );
-    const store = {
-      delete: async () => {
-        stored = undefined;
-      },
-      read: async () => stored,
-      write: async (value: NonNullable<typeof stored>) => {
-        stored = structuredClone(value);
-      },
-    };
     await runtime.provider.refreshModels?.({
       allowNetwork: true,
       credential: { key: SPIKE_API_KEY, type: "api_key" } satisfies Credential,
-      store,
+      publish,
+      signal,
+      stored,
     });
 
     const restored = createCodexProviderRuntime();
-    await restored.provider.refreshModels?.({ allowNetwork: false, store });
+    await restored.provider.refreshModels?.({
+      allowNetwork: false,
+      publish,
+      signal,
+      stored,
+    });
     const liteRequests: RequestInit[] = [];
     const [remoteModel] = runtime.provider.getModels();
     await runtime.provider

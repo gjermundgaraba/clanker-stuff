@@ -77,6 +77,18 @@ export const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
 const STATUS_KEY = "codex-provider";
 const STATUS_MESSAGE = "Compacting with OpenAI Codex…";
 
+/** Pi's portable compact() still takes plain string headers. */
+const withoutDeletedHeaders = (
+  headers: ProviderHeaders | undefined
+): Record<string, string> | undefined =>
+  headers
+    ? Object.fromEntries(
+        Object.entries(headers).filter(
+          (entry): entry is [string, string] => entry[1] !== null
+        )
+      )
+    : undefined;
+
 type SupportedModel = Model<"openai-codex-responses">;
 export type CompactionFailurePolicy = "ask" | "cancel" | "fallback";
 
@@ -746,6 +758,15 @@ const snapshotLifecycleRequestState = (
   };
 };
 
+/** UI calls must not throw after reload invalidates ctx. */
+const withUi = (ctx: ExtensionContext, run: () => void): void => {
+  try {
+    run();
+  } catch {
+    // Session reload/replacement invalidates extension ctx.
+  }
+};
+
 const notifyOnce = (
   state: LifecycleState,
   key: string,
@@ -757,7 +778,18 @@ const notifyOnce = (
     return;
   }
   state.notified.add(key);
-  ctx.ui.notify(message, type);
+  withUi(ctx, () => {
+    ctx.ui.notify(message, type);
+  });
+};
+
+const setLifecycleStatus = (
+  ctx: ExtensionContext,
+  message: string | undefined
+): void => {
+  withUi(ctx, () => {
+    ctx.ui.setStatus(STATUS_KEY, message);
+  });
 };
 
 const hasTransportFallbackNotification = (message: unknown) =>
@@ -987,7 +1019,7 @@ const runLifecycleHook = async (
   };
 
   const operation = (async (): Promise<SessionBeforeCompactResult> => {
-    ctx.ui.setStatus(STATUS_KEY, STATUS_MESSAGE);
+    setLifecycleStatus(ctx, STATUS_MESSAGE);
     try {
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
       if (!auth.ok || !hasResolvedLifecycleAuth(auth.apiKey)) {
@@ -1021,7 +1053,7 @@ const runLifecycleHook = async (
             event.preparation,
             model,
             auth.apiKey,
-            auth.headers,
+            withoutDeletedHeaders(auth.headers),
             event.customInstructions,
             signal,
             requestSnapshot.thinkingLevel,
@@ -1197,7 +1229,7 @@ const runLifecycleHook = async (
       );
       return { cancel: true };
     } finally {
-      ctx.ui.setStatus(STATUS_KEY, undefined);
+      setLifecycleStatus(ctx, undefined);
     }
   })();
 
@@ -2018,7 +2050,7 @@ const runInlineCompactionOperation = async (
   const signal = AbortSignal.any(signals);
   // oxlint-disable-next-line eslint/complexity -- one fail-closed compaction and checkpoint transaction
   const operation = (async (): Promise<InlineOperationResult> => {
-    ctx.ui.setStatus(STATUS_KEY, STATUS_MESSAGE);
+    setLifecycleStatus(ctx, STATUS_MESSAGE);
     try {
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
       if (!auth.ok || !hasResolvedLifecycleAuth(auth.apiKey) || !headers) {
@@ -2119,7 +2151,7 @@ const runInlineCompactionOperation = async (
       state.transition = undefined;
       return { checkpoint, kind: "success", requestReplacement };
     } finally {
-      ctx.ui.setStatus(STATUS_KEY, undefined);
+      setLifecycleStatus(ctx, undefined);
     }
   })();
   state.inFlight = {
@@ -2582,7 +2614,7 @@ const registerLifecycleHooks = (
     const pending = state.pendingInstall;
     state.pendingInstall = undefined;
     releaseLifecycleOperation(state);
-    ctx.ui.setStatus(STATUS_KEY, undefined);
+    setLifecycleStatus(ctx, undefined);
     if (!pending) {
       return;
     }

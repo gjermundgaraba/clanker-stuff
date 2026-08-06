@@ -146,9 +146,9 @@ describe("codex-provider package", () => {
         {
           dependencies: {
             "@clanker-extensions/codex-provider": `file:${tarball}`,
-            "@earendil-works/pi-ai": "0.83.0",
-            "@earendil-works/pi-coding-agent": "0.83.0",
-            "@earendil-works/pi-tui": "0.83.0",
+            "@earendil-works/pi-ai": "0.84.0",
+            "@earendil-works/pi-coding-agent": "0.84.0",
+            "@earendil-works/pi-tui": "0.84.0",
           },
           private: true,
         },
@@ -178,9 +178,9 @@ describe("codex-provider package", () => {
     ).toMatchObject({
       name: "@clanker-extensions/codex-provider",
       peerDependencies: {
-        "@earendil-works/pi-ai": "0.83.0",
-        "@earendil-works/pi-coding-agent": "0.83.0",
-        "@earendil-works/pi-tui": "0.83.0",
+        "@earendil-works/pi-ai": "0.84.0",
+        "@earendil-works/pi-coding-agent": "0.84.0",
+        "@earendil-works/pi-tui": "0.84.0",
       },
       private: true,
     });

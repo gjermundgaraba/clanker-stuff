@@ -7,13 +7,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
 
 import { auditLocalOrder } from "../audit-local-order.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
 
-const SUPPORTED_PI_VERSION = "0.83.0";
+const SUPPORTED_PI_VERSION = "0.84.0";
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0
@@ -79,7 +79,7 @@ const waitForNotify = (client: RpcClient, timeoutMs = 10_000) => {
   });
 };
 
-const toolNames = (events: readonly AgentSessionEvent[]) =>
+const toolNames = (events: readonly JsonAgentSessionEvent[]) =>
   events.flatMap((event) =>
     event.type === "tool_execution_start" ? [event.toolName] : []
   );
@@ -156,7 +156,7 @@ const run = async () => {
 
   const extensionErrors: unknown[] = [];
   let client = clientOptions({ agentDir, cliPath, cwd, sessionDir });
-  const watchErrors = (event: AgentSessionEvent) => {
+  const watchErrors = (event: JsonAgentSessionEvent) => {
     if (eventType(event) === "extension_error") {
       extensionErrors.push(event);
     }
@@ -350,7 +350,7 @@ if (import.meta.main) {
   if (process.argv.includes("--help")) {
     console.log(`Usage: pnpm run test:live:native:installed
 
-Runs a paid happy-path canary through the system-installed Pi 0.83.0, actual
+Runs a paid happy-path canary through the system-installed Pi 0.84.0, actual
 configured environment, native model context window, and isolated temp project.`);
   } else {
     try {

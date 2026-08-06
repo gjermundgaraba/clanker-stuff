@@ -1672,9 +1672,9 @@ export const createCodexProviderRuntime = () => {
   };
 
   const refreshModels = async (context: RefreshModelsContext) => {
-    const stored = await context.store.read();
-    // Stored model projections omit the private metadata required to build requests.
-    if (!context.allowNetwork) {
+    const { stored } = context;
+    // Stored projections omit private request metadata; skip offline restore.
+    if (!context.allowNetwork || context.signal.aborted) {
       return;
     }
     const now = Date.now();
@@ -1706,8 +1706,13 @@ export const createCodexProviderRuntime = () => {
       headers,
       signal: context.signal,
     });
+    if (context.signal.aborted) {
+      return;
+    }
     if (response.status === 304 && metadataByModel.size > 0) {
-      await context.store.write({ ...stored, checkedAt: now, models });
+      await context.publish({
+        persist: { ...stored, checkedAt: now, models },
+      });
       return;
     }
     if (!response.ok) {
@@ -1732,12 +1737,19 @@ export const createCodexProviderRuntime = () => {
       .map((metadata) =>
         projectModel(metadata, fallback, base.baseUrl ?? DEFAULT_BASE_URL)
       );
-    metadataByModel = nextMetadata;
-    models = nextModels;
-    await context.store.write({
-      checkedAt: now,
-      etag: response.headers.get("etag") ?? undefined,
-      models,
+    if (context.signal.aborted) {
+      return;
+    }
+    await context.publish({
+      persist: {
+        checkedAt: now,
+        etag: response.headers.get("etag") ?? undefined,
+        models: nextModels,
+      },
+      update: () => {
+        metadataByModel = nextMetadata;
+        models = nextModels;
+      },
     });
   };
 

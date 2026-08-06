@@ -1287,27 +1287,25 @@ Environment:
     );
     const { apiKey } = auth.auth;
     assert(apiKey !== undefined, "Threshold canary auth is unavailable");
-    type StoreEntry = Awaited<
-      ReturnType<
-        Parameters<
-          NonNullable<typeof provider.refreshModels>
-        >[0]["store"]["read"]
-      >
+    type StoreEntry = NonNullable<
+      Parameters<NonNullable<typeof provider.refreshModels>>[0]["stored"]
     >;
-    let stored: StoreEntry;
+    let stored: StoreEntry | undefined;
     await provider.refreshModels({
       allowNetwork: true,
       credential: { env: auth.env, key: apiKey, type: "api_key" },
       force: true,
-      store: {
-        delete: async () => {
+      publish: async (publication) => {
+        if (publication.persist === null) {
           stored = undefined;
-        },
-        read: async () => stored,
-        write: async (value) => {
-          stored = value;
-        },
+        } else if (publication.persist !== undefined) {
+          stored = publication.persist;
+        }
+        publication.update?.();
+        return true;
       },
+      signal: AbortSignal.timeout(30_000),
+      stored,
     });
   }
   const ids: string[] = [];

@@ -70,7 +70,7 @@ describe("local order audit", () => {
     const result = await auditLocalOrder({
       agentDir,
       cwd,
-      piVersion: "0.83.0",
+      piVersion: "0.84.0",
     });
     expect({
       count: result.count,
@@ -84,12 +84,12 @@ describe("local order audit", () => {
       count: 3,
       finalPath: path.join(PACKAGE_ROOT, "index.ts"),
       orderedFiles: ["configured.ts", "index.ts", "index.ts"],
-      piVersion: "0.83.0",
-      sdkVersion: "0.83.0",
+      piVersion: "0.84.0",
+      sdkVersion: "0.84.0",
     });
 
     await expect(
-      auditLocalOrder({ agentDir, cwd, piVersion: "0.84.0" })
-    ).rejects.toThrow("Unsupported Pi executable version 0.84.0");
+      auditLocalOrder({ agentDir, cwd, piVersion: "0.83.0" })
+    ).rejects.toThrow("Unsupported Pi executable version 0.83.0");
   });
 });

@@ -148,7 +148,7 @@ This launches the normal SSE runner, polls its JSONL artifact, and sends `SIGKIL
 pnpm --filter @clanker-extensions/codex-provider run test:live:native:installed
 ```
 
-This explicitly invoked canary resolves the system `pi` command to its compiled installation, requires Pi 0.83.0, and runs it in RPC mode with the actual `PI_CODING_AGENT_DIR`. It therefore loads the user's configured settings, extensions, and other resources instead of constructing an extension-isolated environment. The working directory and session directory are temporary, and the retained artifact root is printed at startup. A project-local compaction setting keeps the short manual run eligible; it does not change the model context window.
+This explicitly invoked canary resolves the system `pi` command to its compiled installation, requires Pi 0.84.0, and runs it in RPC mode with the actual `PI_CODING_AGENT_DIR`. It therefore loads the user's configured settings, extensions, and other resources instead of constructing an extension-isolated environment. The working directory and session directory are temporary, and the retained artifact root is printed at startup. A project-local compaction setting keeps the short manual run eligible; it does not change the model context window.
 
 The model keeps its native declared context window; this run does not force the small estimator window used by the default synthetic canary. One happy path verifies project instructions plus real read/write tools, a strict manual checkpoint whose readable summary omits an assistant-generated opaque token, a non-persisting `/codex-provider` status request, and fresh-process post-compaction tool availability plus opaque checkpoint recall.
 
