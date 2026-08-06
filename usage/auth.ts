@@ -2,7 +2,7 @@ import type { Credential } from "@earendil-works/pi-ai";
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import type { SupportedProvider, UsageFetchError } from "./types.js";
+import type { SupportedProvider, UsageFetchError } from "./providers.js";
 
 interface ResolvedAccess {
   accessToken: string;

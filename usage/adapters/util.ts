@@ -1,6 +1,6 @@
 import type { ProviderAuthClient } from "../auth.js";
 import type { FetchJson } from "../http.js";
-import type { UsageWindow, UsageWindowId } from "../types.js";
+import type { UsageWindow, UsageWindowId } from "../providers.js";
 
 export interface AdapterDeps {
   authClient: ProviderAuthClient;

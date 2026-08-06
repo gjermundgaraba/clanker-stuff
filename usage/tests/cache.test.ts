@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { UsageCache } from "../cache.js";
-import type { UsageSnapshot } from "../types.js";
+import type { UsageSnapshot } from "../providers.js";
 
 const snapshot = (overrides: Partial<UsageSnapshot> = {}): UsageSnapshot => ({
   fetchedAt: 1000,

@@ -2,8 +2,8 @@ import type {
   SupportedProvider,
   UsageFetchResult,
   UsageSnapshot,
-} from "./types.js";
-import { usageFailure } from "./types.js";
+} from "./providers.js";
+import { usageFailure } from "./providers.js";
 
 const CACHE_TTL_MS = 60_000;
 

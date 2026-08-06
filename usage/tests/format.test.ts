@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { formatDetail, formatResetDuration } from "../format.js";
-import type { UsageSnapshot } from "../types.js";
+import type { UsageSnapshot } from "../providers.js";
 
 const now = Date.parse("2026-07-21T12:00:00.000Z");
 

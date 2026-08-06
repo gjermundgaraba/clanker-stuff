@@ -4,8 +4,12 @@ import { Value } from "typebox/value";
 
 import { resolveOAuthAccess } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
-import type { UsageFetchResult, UsageWindow, UsageWindowId } from "../types.js";
-import { usageFailure, usageResult } from "../types.js";
+import type {
+  UsageFetchResult,
+  UsageWindow,
+  UsageWindowId,
+} from "../providers.js";
+import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
 import {
   isDefined,

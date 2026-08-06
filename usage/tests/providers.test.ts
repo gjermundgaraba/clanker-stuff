@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getActiveProvider, providerDisplayName } from "../providers.js";
-import { SUPPORTED_PROVIDERS } from "../types.js";
+import {
+  getActiveProvider,
+  providerDisplayName,
+  SUPPORTED_PROVIDERS,
+} from "../providers.js";
 
 describe("providers", () => {
   it("recognizes exactly the supported providers", () => {

@@ -4,7 +4,7 @@ import type {
   UsageSnapshot,
   UsageWindow,
   UsageWindowId,
-} from "./types.js";
+} from "./providers.js";
 
 const WINDOW_ORDER: Record<UsageWindowId, number> = {
   "5h": 0,
