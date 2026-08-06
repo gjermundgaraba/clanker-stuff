@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/no-use-before-define, eslint/no-nested-ternary, unicorn/no-nested-ternary, eslint/class-methods-use-this, eslint/complexity -- tool definitions read top-down while rendering handles each trace state */
+/* oxlint-disable eslint/no-use-before-define, eslint/no-nested-ternary, eslint/class-methods-use-this, eslint/complexity -- tool definitions read top-down while rendering handles each trace state */
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type {
   AgentToolResult,
@@ -233,7 +233,7 @@ export const toNestedTool = (definition: ToolDefinition): NestedTool => ({
     if (!isRecord(prepared)) {
       throw new TypeError(`Invalid arguments for ${definition.name}`);
     }
-    const validated = validateToolArguments(definition, {
+    const validated: unknown = validateToolArguments(definition, {
       arguments: prepared,
       id: context.toolCallId ?? `code-mode-${definition.name}`,
       name: definition.name,

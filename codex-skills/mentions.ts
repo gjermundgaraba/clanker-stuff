@@ -108,7 +108,10 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
           query,
           (skill) => skill.name
         ).map((skill) => ({
-          ...(skill.description ? { description: skill.description } : {}),
+          ...(typeof skill.description === "string" &&
+          skill.description.length > 0
+            ? { description: skill.description }
+            : {}),
           label: `$${skill.name}`,
           value: `$${skill.name}`,
         }));

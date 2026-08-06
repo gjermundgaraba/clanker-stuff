@@ -707,7 +707,6 @@ describe("Codex provider", () => {
 
     const generated = frames.filter((frame) => frame.generate !== false);
     const prewarm = frames.find((frame) => frame.generate === false);
-    // oxlint-disable-next-line vitest/max-expects -- one compact protocol matrix
     expect({
       delta: (generated[1]?.input as unknown[])?.length,
       firstDelta: (generated[0]?.input as unknown[])?.length,
@@ -1346,7 +1345,6 @@ describe("Codex provider", () => {
       malformedAttempts += 1;
       return sse(responseEvents("resp_no_compaction", "not opaque"));
     });
-    // oxlint-disable-next-line vitest/max-expects -- one compact protocol matrix
     await expect(
       runtime.compact({
         apiKey: SPIKE_API_KEY,

@@ -1,5 +1,3 @@
-/* eslint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/strict-boolean-expressions */
-
 import { BufferedAudioQueue } from "./buffered-audio-queue.js";
 
 class RealtimeBufferedAudioProcessor extends AudioWorkletProcessor {

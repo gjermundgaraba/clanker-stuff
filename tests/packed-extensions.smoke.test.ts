@@ -46,12 +46,7 @@ const EXTENSION_PACKAGES = [
   {
     commands: ["fast"],
     dir: "codex-fast",
-    handlers: [
-      "before_provider_request",
-      "model_select",
-      "session_shutdown",
-      "session_start",
-    ],
+    handlers: ["before_provider_request", "model_select", "session_start"],
     name: "@clanker-extensions/codex-fast",
     shortcuts: [],
     tools: [],

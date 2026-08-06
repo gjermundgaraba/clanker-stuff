@@ -17,9 +17,9 @@ const CODEX_FAST_STATUS_KEY = "codex-fast";
 const normalizeStatus = (status: string): string =>
   status.replaceAll(/\s+/gu, " ").trim();
 
-// oxlint-disable-next-line eslint/arrow-body-style -- closure owns one session runtime
-export const createFooterExtension = (deps: FooterExtensionDeps = {}) => {
-  return (pi: ExtensionAPI): void => {
+export const createFooterExtension =
+  (deps: FooterExtensionDeps = {}) =>
+  (pi: ExtensionAPI): void => {
     let generation = 0;
     let active = false;
     let git: GitStatus | null = null;
@@ -116,6 +116,5 @@ export const createFooterExtension = (deps: FooterExtensionDeps = {}) => {
       requestRender = undefined;
     });
   };
-};
 
 export default createFooterExtension();

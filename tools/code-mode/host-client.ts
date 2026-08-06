@@ -1,8 +1,9 @@
-/* oxlint-disable eslint/no-use-before-define, eslint/no-plusplus, promise/avoid-new, promise/prefer-await-to-then, promise/prefer-await-to-callbacks -- framed subprocess protocol requires explicit deferreds and callbacks */
+/* oxlint-disable eslint/no-use-before-define, eslint/no-plusplus, promise/prefer-await-to-then, promise/prefer-await-to-callbacks -- framed subprocess protocol requires explicit deferreds and callbacks */
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { CodeModeDelegateRuntime } from "./delegate-runtime.js";
 import {
@@ -78,10 +79,9 @@ export class CodeModeHostClient {
     throwIfAborted(signal);
     const { code, maxOutputTokens, yieldTimeMs } = parseExecSource(source);
     const id = ++this.requestId;
-    const initial = new Promise<unknown>((resolve, reject) => {
-      this.initial.set(id, { reject, resolve });
-    });
-    void initial.catch(() => null);
+    const initial = Promise.withResolvers<unknown>();
+    this.initial.set(id, initial);
+    void initial.promise.catch(() => null);
     const toolSet = new Map(tools.map((tool) => [tool.definition.name, tool]));
     const started = this.requestWithId(
       id,
@@ -121,7 +121,9 @@ export class CodeModeHostClient {
         throw abortError();
       }
       return {
-        ...this.delegateRuntime.attach(parseRuntimeResponse(await initial)),
+        ...this.delegateRuntime.attach(
+          parseRuntimeResponse(await initial.promise)
+        ),
         maxOutputTokens: maxOutputTokens ?? 10_000,
       };
     } catch (error) {
@@ -212,9 +214,7 @@ export class CodeModeHostClient {
           method: "session/shutdown",
           sessionId: this.sessionId,
         }),
-        new Promise<void>((resolve) => {
-          setTimeout(resolve, DEFAULT_SHUTDOWN_GRACE_MS);
-        }),
+        delay(DEFAULT_SHUTDOWN_GRACE_MS),
       ]);
     } catch {
       // Process teardown below is authoritative.
@@ -257,13 +257,12 @@ export class CodeModeHostClient {
         );
       }
     });
-    const handshake = new Promise<void>((resolve, reject) => {
-      this.pending.set(0, {
-        reject,
-        resolve: () => {
-          resolve();
-        },
-      });
+    const handshake = Promise.withResolvers<null>();
+    this.pending.set(0, {
+      reject: handshake.reject,
+      resolve: () => {
+        handshake.resolve(null);
+      },
     });
     this.send({
       optionalCapabilities: [],
@@ -271,7 +270,7 @@ export class CodeModeHostClient {
       supportedVersions: [1],
       type: "connection/hello",
     });
-    await handshake;
+    await handshake.promise;
     await this.request({ method: "session/open", sessionId: this.sessionId });
   }
 
@@ -310,15 +309,20 @@ export class CodeModeHostClient {
     context?: ToolExecutionContext,
     tools?: Map<string, NestedTool>
   ): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { context, reject, resolve, tools });
-      try {
-        this.send({ id, request, type: "operation/request" });
-      } catch (error) {
-        this.pending.delete(id);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
+    const result = Promise.withResolvers<unknown>();
+    this.pending.set(id, {
+      context,
+      reject: result.reject,
+      resolve: result.resolve,
+      tools,
     });
+    try {
+      this.send({ id, request, type: "operation/request" });
+    } catch (error) {
+      this.pending.delete(id);
+      result.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+    return result.promise;
   }
 
   private rejectOperation(id: number, error: Error): void {

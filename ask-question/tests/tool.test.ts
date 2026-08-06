@@ -93,8 +93,7 @@ describe("ask-question contract", () => {
     };
 
     expect(definition).toBeDefined();
-    // oxlint-disable-next-line vitest/prefer-to-be-falsy, vitest/prefer-to-be -- undefined would violate the strict schema contract
-    expect(schema.additionalProperties).toStrictEqual(false);
+    expect(schema.additionalProperties === false).toBeTruthy();
     expect(
       schema.properties?.questions?.items?.anyOf?.every(
         (branch) => branch.additionalProperties === false

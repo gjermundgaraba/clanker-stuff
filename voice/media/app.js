@@ -1,4 +1,4 @@
-/* eslint-disable func-style, promise/avoid-new, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/prefer-nullish-coalescing, typescript/return-await, typescript/strict-boolean-expressions */
+/* eslint-disable func-style, promise/avoid-new */
 
 import { CallLifecycle } from "./call-lifecycle.js";
 import { BrowserMediaSession } from "./media-session.js";

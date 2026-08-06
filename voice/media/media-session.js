@@ -1,4 +1,4 @@
-/* eslint-disable complexity, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch, typescript/consistent-return, typescript/no-confusing-void-expression, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/prefer-promise-reject-errors, typescript/prefer-readonly, typescript/strict-boolean-expressions */
+/* eslint-disable promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch */
 
 export class BrowserMediaSession {
   #channel;

@@ -39,7 +39,11 @@ export const formatResumeCommand = ({
   sessionFile,
   sessionId,
 }: ResumeCommandSession): string | undefined => {
-  if (!sessionFile || !existsSync(sessionFile)) {
+  if (
+    sessionFile === undefined ||
+    sessionFile.length === 0 ||
+    !existsSync(sessionFile)
+  ) {
     return undefined;
   }
 
@@ -55,7 +59,7 @@ export const enqueueResumeCommand = async (
   command: string,
   inbox = process.env[INBOX_ENV]
 ): Promise<void> => {
-  if (!inbox) {
+  if (inbox === undefined || inbox.length === 0) {
     return;
   }
 
@@ -91,7 +95,7 @@ export const recordResumeCommand = async (
     sessionFile: sessionManager.getSessionFile(),
     sessionId: sessionManager.getSessionId(),
   });
-  if (!command) {
+  if (command === undefined) {
     return;
   }
 

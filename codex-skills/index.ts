@@ -10,6 +10,8 @@ export default function codexSkillsExtension(pi: ExtensionAPI): void {
     "codex-skills",
     mentions.render
   );
-  pi.on("session_start", (_event, ctx) => mentions.install(ctx));
+  pi.on("session_start", (_event, ctx) => {
+    mentions.install(ctx);
+  });
   pi.on("before_agent_start", (event, ctx) => mentions.inject(event, ctx));
 }

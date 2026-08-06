@@ -41,6 +41,7 @@ export default defineConfig({
     ...coreIgnore,
     "scripts/**",
     "**/skills/plannotator-review/scripts/*.ts",
+    "voice/docs/research/**",
   ],
   overrides: [
     {
@@ -53,6 +54,22 @@ export default defineConfig({
       plugins: ["vitest"],
       rules: { ...asyncStyleRules, ...testBoundaryRules },
     },
+    {
+      // Untyped browser/media JS cannot satisfy type-aware rules.
+      files: ["voice/media/**/*.{js,mjs,cjs}"],
+      rules: {
+        ...testBoundaryRules,
+        "typescript/no-unsafe-argument": "off",
+        "typescript/prefer-nullish-coalescing": "off",
+        "typescript/prefer-promise-reject-errors": "off",
+        "typescript/prefer-readonly": "off",
+      },
+    },
   ],
-  rules: asyncStyleRules,
+  rules: {
+    ...asyncStyleRules,
+    // Duplicate of no-nested-ternary, and its parenthesized-nesting allowance
+    // fights oxfmt, which strips those parentheses on format.
+    "unicorn/no-nested-ternary": "off",
+  },
 });

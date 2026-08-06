@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/no-use-before-define, eslint/no-nested-ternary, unicorn/no-nested-ternary -- mirrors the upstream wire variants */
+/* oxlint-disable eslint/no-use-before-define, eslint/no-nested-ternary -- mirrors the upstream wire variants */
 // Protocol adapter derived from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import type {
   NestedTool,

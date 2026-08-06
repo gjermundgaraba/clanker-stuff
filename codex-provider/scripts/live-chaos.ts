@@ -229,15 +229,10 @@ export const waitForCrashCheckpoint = ({
   let poll: NodeJS.Timeout | undefined;
   let root: string | undefined;
   let settled = false;
-  // oxlint-disable-next-line eslint/prefer-const -- initialized after callbacks that clear it are defined
-  let timeout: NodeJS.Timeout | undefined;
   const lines = createInterface({ input: stdout });
   const cleanup = () => {
     if (poll !== undefined) {
       clearTimeout(poll);
-    }
-    if (timeout !== undefined) {
-      clearTimeout(timeout);
     }
     lines.close();
   };
@@ -265,9 +260,15 @@ export const waitForCrashCheckpoint = ({
       })();
     }, pollIntervalMs);
   };
-  timeout = setTimeout(() => {
-    fail(new Error("Crash canary did not persist a checkpoint in 10 minutes"));
-  }, timeoutMs);
+  AbortSignal.timeout(timeoutMs).addEventListener(
+    "abort",
+    () => {
+      fail(
+        new Error("Crash canary did not persist a checkpoint in 10 minutes")
+      );
+    },
+    { once: true }
+  );
 
   lines.on("line", (line) => {
     if (root === undefined && line.startsWith("Live artifacts: ")) {

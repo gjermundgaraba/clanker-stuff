@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/no-nested-ternary, unicorn/no-nested-ternary -- snapshot content keeps its fallback states adjacent */
+/* oxlint-disable eslint/no-nested-ternary -- snapshot content keeps its fallback states adjacent */
 
 import type {
   ExtensionAPI,

@@ -83,16 +83,16 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
       }
     },
     augmentSystemPrompt(systemPrompt: string, ctx: ExtensionContext) {
-      if (!(isCodeModeActive(ctx.model) && codeModeDefinitions.length > 0)) {
-        return;
+      let result: { systemPrompt: string } | undefined;
+      if (isCodeModeActive(ctx.model) && codeModeDefinitions.length > 0) {
+        const section = codeMode.prompt(codeModeDefinitions);
+        if (!systemPrompt.includes(section)) {
+          result = {
+            systemPrompt: `${systemPrompt.trimEnd()}\n\n${section}`,
+          };
+        }
       }
-      const section = codeMode.prompt(codeModeDefinitions);
-      if (systemPrompt.includes(section)) {
-        return;
-      }
-      return {
-        systemPrompt: `${systemPrompt.trimEnd()}\n\n${section}`,
-      };
+      return result;
     },
     async dispose() {
       await codeMode.shutdown();

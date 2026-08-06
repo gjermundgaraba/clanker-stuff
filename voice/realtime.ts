@@ -1,4 +1,4 @@
-/* eslint-disable func-style, max-classes-per-file, no-use-before-define */
+/* eslint-disable no-use-before-define, func-style, max-classes-per-file */
 
 import { randomUUID } from "node:crypto";
 

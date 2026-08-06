@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/class-methods-use-this, eslint/complexity, eslint/no-negated-condition, eslint/no-nested-ternary, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, typescript/no-non-null-assertion, unicorn/no-array-for-each, unicorn/no-negated-condition, unicorn/no-nested-ternary -- keyboard editor is one bounded state machine */
+/* oxlint-disable eslint/class-methods-use-this, eslint/complexity, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, typescript/no-non-null-assertion, unicorn/no-array-for-each, eslint/no-nested-ternary -- keyboard editor is one bounded state machine */
 
 import type {
   ExtensionCommandContext,

@@ -1,5 +1,4 @@
 /* oxlint-disable eslint/no-nested-ternary -- bounded numeric formatters stay adjacent */
-
 import os from "node:os";
 import path from "node:path";
 

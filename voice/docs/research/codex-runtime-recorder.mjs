@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-/* eslint-disable eslint/max-classes-per-file, eslint/no-await-in-loop, eslint/prefer-const, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, typescript/no-confusing-void-expression, typescript/no-misused-promises, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/no-unsafe-return, typescript/return-await, typescript/strict-boolean-expressions, typescript/strict-void-return, typescript/use-unknown-in-catch-callback-variable, unicorn/consistent-function-scoping */
-
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {

@@ -40,7 +40,9 @@ export const createTimer = () => {
       }
       startTime = Date.now();
       updateStatus(ctx);
-      intervalId = setInterval(() => updateStatus(ctx), TIMER_INTERVAL_MS);
+      intervalId = setInterval(() => {
+        updateStatus(ctx);
+      }, TIMER_INTERVAL_MS);
     },
     stop(ctx: ExtensionContext) {
       clear();

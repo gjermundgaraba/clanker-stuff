@@ -20,5 +20,7 @@ export default function stashExtension(pi: ExtensionAPI): void {
 
   pi.on("input", (event, ctx) => stash.prepareRestore(event, ctx));
   pi.on("turn_start", (_event, ctx) => stash.commitRestore(ctx));
-  pi.on("session_shutdown", (_event, ctx) => stash.dispose(ctx));
+  pi.on("session_shutdown", (_event, ctx) => {
+    stash.dispose(ctx);
+  });
 }

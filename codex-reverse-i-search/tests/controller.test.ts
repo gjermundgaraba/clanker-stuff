@@ -14,8 +14,6 @@ import { createTempDir } from "../../tests/helpers/fs.js";
 import { createReverseSearch } from "../controller.js";
 import { userEntry } from "./fixtures.js";
 
-/* oxlint-disable vitest/max-expects -- interaction tests assert each state transition directly */
-
 const shutdowns: (() => Promise<void>)[] = [];
 
 const extension = (pi: ExtensionAPI) => {

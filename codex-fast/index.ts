@@ -17,11 +17,16 @@ export default function codexFastExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("fast", {
     description: "Toggle OpenAI Codex fast mode",
-    handler: (_args, ctx) => Promise.resolve(fastMode.toggle(ctx)),
+    handler: (_args, ctx) => {
+      fastMode.toggle(ctx);
+      return Promise.resolve();
+    },
   });
 
-  pi.on("session_start", (_event, ctx) =>
-    fastMode.start(pi.getFlag("fast") === true, ctx)
-  );
-  pi.on("model_select", (_event, ctx) => fastMode.refreshStatus(ctx));
+  pi.on("session_start", (_event, ctx) => {
+    fastMode.start(pi.getFlag("fast") === true, ctx);
+  });
+  pi.on("model_select", (_event, ctx) => {
+    fastMode.refreshStatus(ctx);
+  });
 }

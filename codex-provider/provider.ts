@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/complexity, eslint/func-style, eslint/no-await-in-loop, eslint/no-loop-func, eslint/no-nested-ternary, eslint/no-use-before-define, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then -- Responses transport parsing, ordered retries, and socket event queues are bounded protocol state machines */
+/* oxlint-disable eslint/no-use-before-define, eslint/complexity, eslint/func-style, eslint/no-nested-ternary, eslint/no-await-in-loop, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then -- Responses transport parsing, ordered retries, and socket event queues are bounded protocol state machines */
 
 import { arch, platform, release } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -847,14 +847,9 @@ const mapCodexEvent = (event: JsonRecord) => {
     if (status !== undefined) {
       throw responseError(status, JSON.stringify({ error: nested ?? event }));
     }
-    const code =
-      typeof event.code === "string"
-        ? event.code
-        : typeof nested?.code === "string"
-          ? nested.code
-          : typeof nested?.type === "string"
-            ? nested.type
-            : undefined;
+    const code = [event.code, nested?.code, nested?.type].find(
+      (value): value is string => typeof value === "string"
+    );
     const message =
       typeof event.message === "string"
         ? event.message
@@ -1316,9 +1311,11 @@ async function* parseWebSocket(
   try {
     while (!finished) {
       if (queue.length === 0) {
-        await new Promise<void>((resolve) => {
-          wake = resolve;
-        });
+        const waiting = Promise.withResolvers<null>();
+        wake = () => {
+          waiting.resolve(null);
+        };
+        await waiting.promise;
       }
       const value = queue.shift();
       if (!value) {

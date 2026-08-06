@@ -1,4 +1,3 @@
-/* oxlint-disable promise/avoid-new -- child-process events require one shared completion promise */
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { access } from "node:fs/promises";
@@ -161,73 +160,73 @@ const spawnShell = async (options: {
 
   let reason: ExitReason = "exit";
   let settled = false;
-  let finishAfterGrace: (() => void) | undefined;
+  const completion = Promise.withResolvers<ShellResult>();
+  let exitCode: number | null = null;
+  let grace: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = () => {
+    if (grace !== undefined) {
+      clearTimeout(grace);
+    }
+    child.removeAllListeners("exit");
+    child.removeAllListeners("close");
+  };
+  const finish = () => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    cleanup();
+    child.stdout.destroy();
+    child.stderr.destroy();
+    completion.resolve({ exitCode, reason });
+  };
+  const fail = (error: Error) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    cleanup();
+    child.stdout.destroy();
+    child.stderr.destroy();
+    completion.reject(error);
+  };
+  const finishAfterGrace = () => {
+    grace ??= setTimeout(() => {
+      killProcessTree(child);
+      finish();
+    }, PROCESS_CLOSE_GRACE_MS);
+  };
   const kill = () => {
     if (settled) {
       return;
     }
     killProcessTree(child);
-    finishAfterGrace?.();
+    finishAfterGrace();
   };
-  const timeout =
-    options.timeoutMs === undefined
-      ? undefined
-      : setTimeout(() => {
+  if (options.timeoutMs !== undefined) {
+    AbortSignal.timeout(options.timeoutMs).addEventListener(
+      "abort",
+      () => {
+        if (!settled) {
           reason = "timeout";
           kill();
-        }, options.timeoutMs);
-  const completion = new Promise<ShellResult>((resolve, reject) => {
-    let exitCode: number | null = null;
-    let grace: ReturnType<typeof setTimeout> | undefined;
-    const cleanup = () => {
-      if (timeout !== undefined) {
-        clearTimeout(timeout);
-      }
-      if (grace !== undefined) {
-        clearTimeout(grace);
-      }
-      child.removeAllListeners("exit");
-      child.removeAllListeners("close");
-    };
-    const finish = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      child.stdout.destroy();
-      child.stderr.destroy();
-      resolve({ exitCode, reason });
-    };
-    const fail = (error: Error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      child.stdout.destroy();
-      child.stderr.destroy();
-      reject(error);
-    };
-    finishAfterGrace = () => {
-      grace ??= setTimeout(() => {
-        killProcessTree(child);
-        finish();
-      }, PROCESS_CLOSE_GRACE_MS);
-    };
-    child.once("error", fail);
-    child.once("exit", (code) => {
-      exitCode = code;
-      finishAfterGrace?.();
-    });
-    child.once("close", (code) => {
-      exitCode = code;
-      finish();
-    });
+        }
+      },
+      { once: true }
+    );
+  }
+  child.once("error", fail);
+  child.once("exit", (code) => {
+    exitCode = code;
+    finishAfterGrace();
+  });
+  child.once("close", (code) => {
+    exitCode = code;
+    finish();
   });
 
   return {
-    completion,
+    completion: completion.promise,
     kill() {
       if (reason === "exit") {
         reason = "killed";
@@ -397,13 +396,11 @@ export class ProcessManager {
       const candidate =
         entries.find(([, storedSession]) => storedSession.status.exited) ??
         entries[0];
-      if (candidate) {
-        const [candidateId, candidateSession] = candidate;
-        this.sessions.delete(candidateId);
-        candidateSession.process.kill();
-        await candidateSession.exitPromise;
-        await candidateSession.output.current.discard();
-      }
+      const [candidateId, candidateSession] = candidate;
+      this.sessions.delete(candidateId);
+      candidateSession.process.kill();
+      await candidateSession.exitPromise;
+      await candidateSession.output.current.discard();
     }
     this.sessions.set(sessionId, session);
     return identifySession(result, sessionId);

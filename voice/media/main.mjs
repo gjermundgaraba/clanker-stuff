@@ -1,4 +1,4 @@
-/* eslint-disable promise/prefer-await-to-callbacks, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/strict-boolean-expressions */
+/* eslint-disable promise/prefer-await-to-callbacks */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";

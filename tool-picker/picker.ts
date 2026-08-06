@@ -29,8 +29,12 @@ export const showToolsConfigurationUI = async (
       items,
       Math.min(items.length + 2, 15),
       getSettingsListTheme(),
-      (id, newValue) => onToggle(id, newValue === "enabled"),
-      () => done(null)
+      (id, newValue) => {
+        onToggle(id, newValue === "enabled");
+      },
+      () => {
+        done(null);
+      }
     );
 
     container.addChild(settingsList);

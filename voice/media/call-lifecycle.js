@@ -1,4 +1,4 @@
-/* eslint-disable promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/prefer-nullish-coalescing, typescript/prefer-promise-reject-errors, typescript/strict-boolean-expressions */
+/* eslint-disable promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch */
 
 export class CallLifecycle {
   #attempt;

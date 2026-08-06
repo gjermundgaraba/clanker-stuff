@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/no-plusplus, eslint/no-use-before-define, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, typescript/no-misused-spread, unicorn/consistent-function-scoping, unicorn/no-negated-condition, unicorn/no-useless-collection-argument -- lifecycle helpers stay adjacent to their state; summaries use protocol-defined code points */
+/* oxlint-disable eslint/no-use-before-define, eslint/no-plusplus, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, typescript/no-misused-spread, unicorn/consistent-function-scoping, unicorn/no-useless-collection-argument -- lifecycle helpers stay adjacent to their state; summaries use protocol-defined code points */
 
 import { randomUUID } from "node:crypto";
 

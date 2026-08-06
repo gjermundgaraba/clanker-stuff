@@ -1,4 +1,4 @@
-/* eslint-disable complexity, func-style, no-use-before-define */
+/* eslint-disable no-use-before-define, complexity, func-style */
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";

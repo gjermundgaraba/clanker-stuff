@@ -288,22 +288,21 @@ const runJsonProcess = async (
   });
   child.stdin.end(input);
   let forceKill: NodeJS.Timeout | undefined;
-  // oxlint-disable-next-line promise/avoid-new -- ChildProcess exposes callback events, not a completion promise
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      forceKill = setTimeout(() => {
-        child.kill("SIGKILL");
-      }, 5000);
-    }, timeoutMs);
-    child.once("error", reject);
-    child.once("close", (code) => {
-      clearTimeout(timer);
-      clearTimeout(forceKill);
-      resolve(code);
-    });
+  const exit = Promise.withResolvers<number | null>();
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+    forceKill = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, 5000);
+  }, timeoutMs);
+  child.once("error", exit.reject);
+  child.once("close", (code) => {
+    clearTimeout(timer);
+    clearTimeout(forceKill);
+    exit.resolve(code);
   });
+  const exitCode = await exit.promise;
   return { exitCode, timedOut };
 };
 

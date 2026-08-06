@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-/* eslint-disable no-await-in-loop, promise/prefer-await-to-callbacks, typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/no-unsafe-return, typescript/strict-boolean-expressions */
-
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {

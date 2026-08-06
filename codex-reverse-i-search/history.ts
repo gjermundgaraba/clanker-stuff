@@ -134,21 +134,32 @@ export const saveHistoryBatch = (
 };
 
 export const loadHistory = (database: DatabaseSync): HistoryItem[] =>
-  (
-    database
-      .prepare(
-        `
+  database
+    .prepare(
+      `
         SELECT text, last_used_at
         FROM history
         ORDER BY last_used_at DESC, id DESC
       `
-      )
-      .all() as { last_used_at: number; text: string }[]
-  ).map((row) => ({
-    folded: row.text.toLowerCase(),
-    text: row.text,
-    timestamp: row.last_used_at,
-  }));
+    )
+    .all()
+    .map((row) => {
+      if (
+        row === null ||
+        typeof row !== "object" ||
+        !("text" in row) ||
+        typeof row.text !== "string" ||
+        !("last_used_at" in row) ||
+        typeof row.last_used_at !== "number"
+      ) {
+        throw new TypeError("SQLite returned an invalid history row");
+      }
+      return {
+        folded: row.text.toLowerCase(),
+        text: row.text,
+        timestamp: row.last_used_at,
+      };
+    });
 
 export const getDataVersion = (database: DatabaseSync): number => {
   const version = database.prepare("PRAGMA data_version").get()?.data_version;

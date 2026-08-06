@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/func-style, eslint/no-use-before-define, eslint/complexity -- bounded serializer is kept aligned with upstream */
+/* oxlint-disable eslint/no-use-before-define, eslint/func-style, eslint/complexity -- bounded serializer is kept aligned with upstream */
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import type { RuntimeToolResult, RuntimeToolTrace } from "./types.js";
 

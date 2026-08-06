@@ -7,11 +7,18 @@ export default function toolsExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("code-mode", {
     description: "Toggle GPT-5.6 Codex Code Mode",
-    handler: (_args, ctx) => Promise.resolve(runtime.toggleCodeMode(ctx)),
+    handler: (_args, ctx) => {
+      runtime.toggleCodeMode(ctx);
+      return Promise.resolve();
+    },
   });
 
-  pi.on("session_start", (_event, ctx) => runtime.apply(ctx));
-  pi.on("model_select", (_event, ctx) => runtime.apply(ctx));
+  pi.on("session_start", (_event, ctx) => {
+    runtime.apply(ctx);
+  });
+  pi.on("model_select", (_event, ctx) => {
+    runtime.apply(ctx);
+  });
   pi.on("before_agent_start", (event, ctx) =>
     runtime.augmentSystemPrompt(event.systemPrompt, ctx)
   );
@@ -20,8 +27,8 @@ export default function toolsExtension(pi: ExtensionAPI): void {
     runtime.rewriteProviderRequest(event.payload, ctx)
   );
 
-  pi.on("before_provider_headers", (event, ctx) =>
-    runtime.applyProviderHeaders(event.headers, ctx)
-  );
+  pi.on("before_provider_headers", (event, ctx) => {
+    runtime.applyProviderHeaders(event.headers, ctx);
+  });
   pi.on("session_shutdown", () => runtime.dispose());
 }

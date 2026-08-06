@@ -1,5 +1,3 @@
-/* eslint-disable typescript/no-unsafe-argument, typescript/no-unsafe-assignment, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/no-unsafe-return, typescript/strict-boolean-expressions */
-
 const copyInput = (input, output, start = 0) => {
   if (!input) {
     return;

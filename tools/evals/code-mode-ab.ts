@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/no-await-in-loop, eslint/complexity, promise/avoid-new -- eval variants stay sequential for timing isolation; metrics collect both Pi and native Codex event shapes */
+/* oxlint-disable eslint/no-await-in-loop, eslint/complexity -- eval variants stay sequential for timing isolation; metrics collect both Pi and native Codex event shapes */
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -714,21 +714,21 @@ const runNativeVariant = async (
 
   let timedOut = false;
   let forceKill: NodeJS.Timeout | undefined;
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      forceKill = setTimeout(() => {
-        child.kill("SIGKILL");
-      }, 5000);
-    }, timeoutMs);
-    child.once("error", reject);
-    child.once("close", (code) => {
-      clearTimeout(timer);
-      clearTimeout(forceKill);
-      resolve(code);
-    });
-  }).catch((error: unknown) => {
+  const exit = Promise.withResolvers<number | null>();
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+    forceKill = setTimeout(() => {
+      child.kill("SIGKILL");
+    }, 5000);
+  }, timeoutMs);
+  child.once("error", exit.reject);
+  child.once("close", (code) => {
+    clearTimeout(timer);
+    clearTimeout(forceKill);
+    exit.resolve(code);
+  });
+  const exitCode = await exit.promise.catch((error: unknown) => {
     errorMessage = error instanceof Error ? error.message : String(error);
     return null;
   });
@@ -862,14 +862,11 @@ const runPiVariant = async (
     startedAt = Date.now();
     let timer: NodeJS.Timeout | undefined;
     try {
-      await Promise.race([
-        session.prompt(TASK_PROMPT),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error(`Timed out after ${timeoutMs} ms`));
-          }, timeoutMs);
-        }),
-      ]);
+      const timeout = Promise.withResolvers<never>();
+      timer = setTimeout(() => {
+        timeout.reject(new Error(`Timed out after ${timeoutMs} ms`));
+      }, timeoutMs);
+      await Promise.race([session.prompt(TASK_PROMPT), timeout.promise]);
     } catch (promptError) {
       await session.abort();
       throw promptError;

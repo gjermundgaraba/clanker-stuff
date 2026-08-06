@@ -1,4 +1,4 @@
-/* oxlint-disable eslint/complexity, eslint/no-control-regex, eslint/no-nested-ternary, unicorn/no-nested-ternary, typescript/no-non-null-assertion -- bounded layout and terminal sanitizing are clearer as direct state machines */
+/* oxlint-disable eslint/complexity, eslint/no-control-regex, eslint/no-nested-ternary, typescript/no-non-null-assertion -- bounded layout and terminal sanitizing are clearer as direct state machines */
 
 import {
   sliceByColumn,

@@ -7,7 +7,9 @@ export default function codexReverseISearch(pi: ExtensionAPI): void {
 
   pi.registerShortcut("ctrl+r", {
     description: "Search prompt history",
-    handler: (ctx) => search.open(ctx),
+    handler: (ctx) => {
+      search.open(ctx);
+    },
   });
 
   pi.registerCommand("reverse-i-search-import", {
@@ -15,8 +17,14 @@ export default function codexReverseISearch(pi: ExtensionAPI): void {
     handler: (_args, ctx) => search.importHistory(ctx),
   });
 
-  pi.on("session_start", (_event, ctx) => search.start(ctx));
-  pi.on("input", (event, ctx) => search.recordInput(event, ctx));
-  pi.on("user_bash", (event, ctx) => search.recordBash(event, ctx));
+  pi.on("session_start", (_event, ctx) => {
+    search.start(ctx);
+  });
+  pi.on("input", (event, ctx) => {
+    search.recordInput(event, ctx);
+  });
+  pi.on("user_bash", (event, ctx) => {
+    search.recordBash(event, ctx);
+  });
   pi.on("session_shutdown", (_event, ctx) => search.dispose(ctx));
 }
