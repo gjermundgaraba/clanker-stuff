@@ -1,82 +1,95 @@
-import { describe, expect, it } from "vitest";
+import type {
+  BeforeAgentStartEvent,
+  BeforeAgentStartEventResult,
+  ExtensionContext,
+  MessageStartEvent,
+  TurnEndEvent,
+} from "@earendil-works/pi-coding-agent";
+import { describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import extension from "../index.js";
 
-describe("voice extension", () => {
-  it("registers the command, shortcut, and voice tools", async () => {
-    const host = createExtensionHost(extension);
-    await host.ready;
+const controller = vi.hoisted(() => ({
+  beforeAgentStart: vi.fn<
+    (event: BeforeAgentStartEvent) => BeforeAgentStartEventResult
+  >(() => ({})),
+  endActiveCall: vi.fn<() => boolean>(() => true),
+  finish: vi.fn<(spokenSummary: string) => boolean>(() => true),
+  messageStart: vi.fn<(event: MessageStartEvent) => void>(),
+  runCommand: vi.fn<(args: string, ctx: ExtensionContext) => Promise<void>>(),
+  sendStatus: vi.fn<(message: string) => boolean>(() => true),
+  sessionStart: vi.fn<(ctx: ExtensionContext) => void>(),
+  settled: vi.fn<() => void>(),
+  shutdown: vi.fn<() => void>(),
+  toggle: vi.fn<(ctx: ExtensionContext) => Promise<void>>(),
+  turnEnd: vi.fn<(event: TurnEndEvent) => void>(),
+}));
 
-    expect(host.getRegisteredCommands().has("voice")).toBeTruthy();
-    expect(host.getRegisteredTools().has("speak_to_user")).toBeTruthy();
-    expect(host.getRegisteredTools().has("present_voice_result")).toBeTruthy();
-    expect(
-      host.getRegisteredTools().has("end_realtime_voice_call")
-    ).toBeTruthy();
-    await expect(
-      host.runShortcut("ctrl+shift+v", host.createContext({ mode: "json" }))
-    ).rejects.toThrow("interactive TUI");
-  });
+vi.mock(import("../controller.js"), () => ({
+  createVoiceController: () => controller,
+}));
 
-  it("reports unavailable speech without an active call", async () => {
-    const host = createExtensionHost(extension);
-    const result = await host.runTool("speak_to_user", {
-      message: "The tests need your approval.",
-    });
-
-    expect(result).toMatchObject({
-      content: [{ text: "No active voice conversation was available." }],
-      details: { delivered: false },
-    });
-  });
-
-  it("reports unavailable voice ending without an active call", async () => {
-    const host = createExtensionHost(extension);
-    const result = await host.runTool("end_realtime_voice_call", {});
-
-    expect(result).toMatchObject({
-      content: [{ text: "No active realtime voice chat was available." }],
-      details: { ended: false },
-    });
-  });
-
-  it("keeps a visual result available when no voice handoff is active", async () => {
-    const host = createExtensionHost(extension);
-    const result = await host.runTool("present_voice_result", {
-      markdown: "# Detailed result",
-      spokenSummary: "The detailed result is in the terminal.",
-    });
-
-    expect(result).toMatchObject({
-      content: [{ text: "No active voice conversation was available." }],
-      details: { delivered: false, markdown: "# Detailed result" },
-      terminate: false,
-    });
-  });
-
-  it("documents clear sign-offs as voice-ending intent", async () => {
-    const host = createExtensionHost(extension);
-    await host.ready;
-
-    const tool = host
-      .getRegisteredTools()
-      .get("end_realtime_voice_call")?.definition;
-    expect(tool?.description).toContain("clearly signs off");
-  });
-
-  it("starts with no footer status", async () => {
+describe("voice registration", () => {
+  it("registers the command, shortcut, and tools, and delegates to the controller", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();
+    const turnEndEvent = { message: { role: "assistant" }, type: "turn_end" };
+    const messageStartEvent = {
+      message: { role: "user" },
+      type: "message_start",
+    };
 
+    await host.runCommand("voice", "status", ctx);
+    await host.runShortcut("ctrl+shift+v", ctx);
     await host.emitSessionStart(ctx);
+    await host.emit(
+      "before_agent_start",
+      { systemPrompt: "base", type: "before_agent_start" },
+      ctx
+    );
+    await host.emit("turn_end", turnEndEvent, ctx);
+    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    await host.emit("message_start", messageStartEvent, ctx);
+    await host.runTool("speak_to_user", { message: "Progress update." });
+    await host.runTool("present_voice_result", {
+      markdown: "# Result",
+      spokenSummary: "The result is ready.",
+    });
+    await host.runTool("end_realtime_voice_call", {});
+    await host.emitSessionShutdown(ctx);
 
-    expect(host.getStatus("voice")).toBeUndefined();
-    expect(host.getActiveTools()).toStrictEqual([
-      "read",
-      "bash",
-      "edit",
-      "write",
-    ]);
+    expect(host.getRegisteredCommands().get("voice")).toMatchObject({
+      description: "Start, stop, or inspect realtime voice",
+    });
+    expect(
+      host.getRegisteredTools().get("end_realtime_voice_call")?.definition
+        .description
+    ).toContain("clearly signs off");
+    expect({
+      beforeAgentStart: controller.beforeAgentStart.mock.calls.length,
+      endActiveCall: controller.endActiveCall.mock.calls.length,
+      finish: controller.finish.mock.calls,
+      messageStart: controller.messageStart.mock.calls.length,
+      runCommand: controller.runCommand.mock.calls,
+      sendStatus: controller.sendStatus.mock.calls,
+      sessionStart: controller.sessionStart.mock.calls,
+      settled: controller.settled.mock.calls.length,
+      shutdown: controller.shutdown.mock.calls.length,
+      toggle: controller.toggle.mock.calls,
+      turnEnd: controller.turnEnd.mock.calls.length,
+    }).toStrictEqual({
+      beforeAgentStart: 1,
+      endActiveCall: 1,
+      finish: [["The result is ready."]],
+      messageStart: 1,
+      runCommand: [["status", ctx]],
+      sendStatus: [["Progress update."]],
+      sessionStart: [[ctx]],
+      settled: 1,
+      shutdown: 1,
+      toggle: [[ctx]],
+      turnEnd: 1,
+    });
   });
 });

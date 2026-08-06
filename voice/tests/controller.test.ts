@@ -1,7 +1,7 @@
 /* eslint-disable max-classes-per-file, vitest/prefer-import-in-mock */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -58,16 +58,72 @@ vi.mock("../realtime.js", () => ({
   },
 }));
 
+describe("voice controller", () => {
+  it("requires pi's interactive TUI mode", async () => {
+    const host = createExtensionHost(extension);
+    await expect(
+      host.runShortcut("ctrl+shift+v", host.createContext({ mode: "json" }))
+    ).rejects.toThrow("interactive TUI");
+  });
+
+  it("reports unavailable speech without an active call", async () => {
+    const host = createExtensionHost(extension);
+    const result = await host.runTool("speak_to_user", {
+      message: "The tests need your approval.",
+    });
+
+    expect(result).toMatchObject({
+      content: [{ text: "No active voice conversation was available." }],
+      details: { delivered: false },
+    });
+  });
+
+  it("reports unavailable voice ending without an active call", async () => {
+    const host = createExtensionHost(extension);
+    const result = await host.runTool("end_realtime_voice_call", {});
+
+    expect(result).toMatchObject({
+      content: [{ text: "No active realtime voice chat was available." }],
+      details: { ended: false },
+    });
+  });
+
+  it("keeps a visual result available when no voice handoff is active", async () => {
+    const host = createExtensionHost(extension);
+    const result = await host.runTool("present_voice_result", {
+      markdown: "# Detailed result",
+      spokenSummary: "The detailed result is in the terminal.",
+    });
+
+    expect(result).toMatchObject({
+      content: [{ text: "No active voice conversation was available." }],
+      details: { delivered: false, markdown: "# Detailed result" },
+      terminate: false,
+    });
+  });
+
+  it("starts with no footer status", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+
+    await host.emitSessionStart(ctx);
+
+    expect(host.getStatus("voice")).toBeUndefined();
+    expect(host.getActiveTools()).toStrictEqual([
+      "read",
+      "bash",
+      "edit",
+      "write",
+    ]);
+  });
+});
+
 describe("voice startup ownership", () => {
   beforeEach(() => {
     fakes.media.length = 0;
     fakes.voices.length = 0;
     vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
     vi.spyOn(process, "arch", "get").mockReturnValue("arm64");
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
   });
 
   it("does not let a stopped startup tear down its replacement", async () => {

@@ -18,6 +18,7 @@
   },
   "files": [
     "auth.ts",
+    "controller.ts",
     "coordinator.ts",
     "device-attestation.ts",
     "index.ts",
