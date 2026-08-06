@@ -17,14 +17,16 @@
     "directory": "mcp"
   },
   "files": [
-    "index.ts",
+    "bridge.ts",
     "config.ts",
+    "connection.ts",
+    "index.ts",
+    "loader.ts",
     "manager.ts",
     "oauth.ts",
-    "bridge.ts",
-    "connection.ts",
     "servers.ts",
     "README.md",
+    "LICENSE",
     "docs"
   ],
   "type": "module",
