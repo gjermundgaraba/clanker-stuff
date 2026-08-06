@@ -320,6 +320,8 @@ export const createUsageController = (pi: ExtensionAPI) => {
     trackModel: (
       ctx: ExtensionContext,
       model: { provider?: string } | undefined | null
-    ): void => refresh(ctx, getActiveProvider(model)),
+    ): void => {
+      refresh(ctx, getActiveProvider(model));
+    },
   };
 };

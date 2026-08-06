@@ -182,7 +182,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
     dispose: (): Promise<void> => serverPool.closeAll(),
     pickAndLoad: async (ctx: ExtensionCommandContext): Promise<void> => {
       const available = await listAvailableServers(ctx);
-      if (available.error) {
+      if (available.error !== undefined && available.error !== "") {
         ctx.ui.notify(available.error, "error");
       }
 
