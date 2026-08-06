@@ -17,10 +17,12 @@
     "directory": "side"
   },
   "files": [
+    "controller.ts",
     "index.ts",
     "panel.ts",
     "session.ts",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": "./index.ts",

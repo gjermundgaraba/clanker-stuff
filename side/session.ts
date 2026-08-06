@@ -161,6 +161,19 @@ export class SideSessionController {
       } catch {
         // Disposal must continue after an abort failure.
       }
+      // AgentSession.dispose() does not notify extensions; without this the
+      // child session's extensions never see session_shutdown and leak
+      // whatever they spawned on session_start.
+      try {
+        if (this.session.hasExtensionHandlers("session_shutdown")) {
+          await this.session.extensionRunner.emit({
+            reason: "quit",
+            type: "session_shutdown",
+          });
+        }
+      } catch {
+        // Disposal must continue after a shutdown-handler failure.
+      }
       this.unsubscribe?.();
       this.unsubscribe = undefined;
       this.listeners.clear();

@@ -4,35 +4,17 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type {
+  AgentSession,
   ExtensionContext,
-  KeybindingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import { createExtensionHost } from "../../tests/harness/extension-host.js";
-import {
-  createIdentityTheme,
-  createKeybindings,
-  createMockTui,
-} from "../../tests/harness/tui.js";
-import sideExtension from "../index.js";
-import { SidePanel } from "../panel.js";
 import {
   createSideConversation,
   createSideSessionManager,
   SideSessionController,
   stableSnapshotMessages,
 } from "../session.js";
-
-vi.mock(import("../session.js"), async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    createSideConversation: vi.fn<typeof actual.createSideConversation>(
-      actual.createSideConversation
-    ),
-  };
-});
 
 vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => {
   const actual = await importOriginal();
@@ -42,7 +24,7 @@ vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => {
   };
 });
 
-describe("side extension", () => {
+describe("side session", () => {
   it("binds child extensions without access to the main UI", async () => {
     const binding = Promise.withResolvers<null>();
     const bindExtensions = vi.fn<() => Promise<null>>(() => binding.promise);
@@ -78,66 +60,31 @@ describe("side extension", () => {
     await expect(conversation).resolves.toBeInstanceOf(SideSessionController);
   });
 
-  it("registers only /side and the focus shortcut", async () => {
-    const host = createExtensionHost(sideExtension);
-    await host.ready;
-
-    expect([...host.getRegisteredCommands().keys()]).toStrictEqual(["side"]);
-    await host.runShortcut("ctrl+/", host.createContext({ mode: "rpc" }));
-    expect(host.getNotifications()).toStrictEqual([
-      {
-        message: "/side requires interactive TUI mode.",
-        type: "warning",
+  it("emits session_shutdown to child extensions before disposal", async () => {
+    const order: string[] = [];
+    const session = {
+      dispose: vi.fn<() => void>(() => {
+        order.push("dispose");
+      }),
+      extensionRunner: {
+        emit: vi.fn<() => Promise<void>>(async () => {
+          order.push("emit");
+          await Promise.resolve();
+        }),
       },
-    ]);
-  });
+      hasExtensionHandlers: () => true,
+      isStreaming: false,
+      subscribe: () => () => {},
+    } as unknown as AgentSession;
 
-  it("returns from /side while the child session opens in the background", async () => {
-    const { promise: pending } = Promise.withResolvers<SideSessionController>();
-    vi.mocked(createSideConversation).mockReturnValueOnce(pending);
-    const host = createExtensionHost(sideExtension);
-    await host.ready;
-    const ctx = host.createContext({ model: {} as never });
+    const controller = new SideSessionController(session);
+    await controller.dispose();
 
-    await expect(host.runCommand("side", "", ctx)).resolves.toBeUndefined();
-    await host.runCommand("side", "second prompt", ctx);
-
-    expect(createSideConversation).toHaveBeenCalledOnce();
-    expect(host.getNotifications()).toContainEqual({
-      message: "Side is still opening. Use its editor once ready.",
-      type: "info",
+    expect(session.extensionRunner.emit).toHaveBeenCalledWith({
+      reason: "quit",
+      type: "session_shutdown",
     });
-  });
-
-  it("preserves the editor draft when the side is already running", () => {
-    const submit = vi.fn<(text: string) => boolean>(() => false);
-    const panel = new SidePanel(
-      createMockTui(),
-      createIdentityTheme(),
-      createKeybindings() as unknown as KeybindingsManager,
-      {
-        state: { isRunning: true, transcript: [] },
-        submit,
-        subscribe: () => vi.fn<() => void>(),
-      } as unknown as SideSessionController,
-      {
-        getMainWorking: () => false,
-        onClose: vi.fn<() => void>(),
-        onFocus: vi.fn<() => void>(),
-        onHide: vi.fn<() => void>(),
-        onInsertLatest: vi.fn<() => void>(),
-        onToggleFocus: vi.fn<() => void>(),
-      }
-    );
-
-    for (const character of "draft") {
-      panel.handleInput(character);
-    }
-    panel.handleInput("\r");
-
-    expect(submit).toHaveBeenCalledWith("draft");
-    expect(panel.render(80).join("\n")).toContain("draft");
-    panel.dispose();
+    expect(order).toStrictEqual(["emit", "dispose"]);
   });
 
   it("removes an incomplete parent tool turn from the snapshot", () => {
