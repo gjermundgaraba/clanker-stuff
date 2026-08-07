@@ -14,11 +14,17 @@ import {
   sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
 import type {
+  BeforeProviderHeadersEvent,
+  BeforeProviderRequestEvent,
   CompactionResult,
   ContextEvent,
+  ExtensionCommandContext,
   ExtensionContext,
+  ExtensionEvent,
   ExtensionFactory,
+  MessageEndEvent,
   SessionBeforeCompactEvent,
+  SessionCompactEvent,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
@@ -56,7 +62,6 @@ import type {
   CodexCompactionRequest,
   CodexProviderRuntime,
 } from "./provider.js";
-import { registerCheckpointRenderer } from "./renderer.js";
 import {
   buildCheckpointReplacement,
   buildTransientCheckpointReplacement,
@@ -2525,127 +2530,156 @@ const restoreTransition = (state: LifecycleState, ctx: ExtensionContext) => {
   );
 };
 
-const registerLifecycleHooks = (
-  pi: Parameters<ExtensionFactory>[0],
-  state: LifecycleState,
-  providerRuntime: CodexProviderRuntime,
-  failurePolicy: ParsedCompactionFailurePolicy
-) => {
-  pi.on("session_start", (_event, ctx) => {
-    providerRuntime.closeSession(ctx.sessionManager.getSessionId());
-    state.transition = undefined;
-    state.transitionRestored = false;
-    resetGeneration(state);
-    if (failurePolicy.invalid && !state.failurePolicyWarned) {
-      state.failurePolicyWarned = true;
-      ctx.ui.notify(
-        "Invalid CLANKER_CODEX_COMPACTION_FAILURE value; using ask.",
-        "warning"
-      );
-    }
-  });
-  pi.on("model_select", (event) => {
-    resetGeneration(state);
-    state.transition =
-      isSupportedLifecycleModel(event.model) &&
-      isSupportedLifecycleModel(event.previousModel)
-        ? {
-            currentIdentity: modelIdentity(event.model),
-            previousCompHash: providerRuntime.getModelMetadata(
-              event.previousModel.id
-            )?.comp_hash,
-            previousEffectiveTokenLimit: providerRuntime.getModelWindow(
-              event.previousModel
-            )?.effectiveWindowTokens,
-            previousModel: event.previousModel,
-          }
-        : undefined;
-    state.transitionRestored =
-      state.transition !== undefined ||
-      event.source !== "restore" ||
-      !isSupportedLifecycleModel(event.model);
-  });
-  pi.on("before_agent_start", (_event, ctx) => {
-    if (!state.transitionRestored) {
-      restoreTransition(state, ctx);
-      state.transitionRestored = true;
-    }
-    providerRuntime.beginTurn(ctx.sessionManager.getSessionId());
-  });
-  pi.on("agent_settled", (_event, ctx) => {
-    providerRuntime.endTurn(ctx.sessionManager.getSessionId());
-  });
-  pi.on("message_end", (event, ctx) => {
-    if (!hasTransportFallbackNotification(event.message)) {
-      return;
-    }
-    notifyOnce(
-      state,
-      CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-      ctx,
-      "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
-      "warning"
-    );
-  });
-  pi.on("session_shutdown", (_event, ctx) => {
-    providerRuntime.closeSession(ctx.sessionManager.getSessionId());
-    state.controller.abort();
-    state.candidate = undefined;
-    state.frame = undefined;
-    state.generation += 1;
-    releaseLifecycleOperation(state, true);
-    state.inFlight = undefined;
-    state.pendingInstall = undefined;
-    state.requestHeaders = undefined;
-    state.transition = undefined;
-    state.transitionRestored = false;
-  });
-  pi.on("session_before_compact", (event, ctx) =>
-    runLifecycleHook(
-      pi,
-      state,
-      event,
-      ctx,
-      providerRuntime,
-      failurePolicy.policy
-    )
-  );
-  pi.on("session_compact", (event, ctx) => {
-    const pending = state.pendingInstall;
-    state.pendingInstall = undefined;
-    releaseLifecycleOperation(state);
-    setLifecycleStatus(ctx, undefined);
-    if (!pending) {
-      return;
-    }
-    if (
-      !event.fromExtension ||
-      !isPendingInstallationResolvable(state, pending, ctx)
-    ) {
-      notifyOnce(
-        state,
-        `install:${pending.responseId}`,
-        ctx,
-        "OpenAI compaction checkpoint installation could not be verified.",
-        "error"
-      );
-      return;
-    }
-    providerRuntime.installWindow(pending.sessionId, pending.runtime);
-  });
-};
-
-export const codexCompactionExtension: ExtensionFactory = (pi) => {
+export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
   const failurePolicy = parseCompactionFailurePolicy(
     process.env.CLANKER_CODEX_COMPACTION_FAILURE
   );
   const providerRuntime = createCodexProviderRuntime();
-  pi.registerProvider(providerRuntime.provider);
-  registerCheckpointRenderer(pi);
   const state = createLifecycleState();
-  pi.registerCommand("codex-provider", {
-    description: "Show Codex provider and compaction status",
-    handler: async (_args, ctx) => {
+
+  return {
+    beforeAgentStart: (ctx: ExtensionContext): void => {
+      if (!state.transitionRestored) {
+        restoreTransition(state, ctx);
+        state.transitionRestored = true;
+      }
+      providerRuntime.beginTurn(ctx.sessionManager.getSessionId());
+    },
+    beforeCompact: (
+      event: SessionBeforeCompactEvent,
+      ctx: ExtensionContext
+    ): ReturnType<typeof runLifecycleHook> =>
+      runLifecycleHook(
+        pi,
+        state,
+        event,
+        ctx,
+        providerRuntime,
+        failurePolicy.policy
+      ),
+    beforeProviderHeaders: (
+      event: BeforeProviderHeadersEvent,
+      ctx: ExtensionContext
+    ): void => {
+      if (!isSupportedLifecycleModel(ctx.model)) {
+        state.requestHeaders = undefined;
+        return;
+      }
+      mergeRemoteCompactionFeatureHeader(event.headers);
+      state.requestHeaders = {
+        generation: state.generation,
+        headers: { ...event.headers },
+        leafId: ctx.sessionManager.getLeafId(),
+        modelIdentity: modelIdentity(ctx.model),
+      };
+    },
+    beforeProviderRequest: async (
+      event: BeforeProviderRequestEvent,
+      ctx: ExtensionContext
+    ): Promise<unknown> => {
+      const headers = consumeRequestHeaders(state, ctx);
+      try {
+        return await runBeforeProviderRequestHook(
+          pi,
+          state,
+          headers,
+          event.payload,
+          ctx,
+          providerRuntime
+        );
+      } catch {
+        state.candidate = undefined;
+        state.frame = undefined;
+        abortUnsafeRequest(
+          state,
+          ctx,
+          "payload:failure",
+          "OpenAI checkpoint request preparation failed; the model request was cancelled."
+        );
+        return event.payload;
+      }
+    },
+    compact: (event: SessionCompactEvent, ctx: ExtensionContext): void => {
+      const pending = state.pendingInstall;
+      state.pendingInstall = undefined;
+      releaseLifecycleOperation(state);
+      setLifecycleStatus(ctx, undefined);
+      if (!pending) {
+        return;
+      }
+      if (
+        !event.fromExtension ||
+        !isPendingInstallationResolvable(state, pending, ctx)
+      ) {
+        notifyOnce(
+          state,
+          `install:${pending.responseId}`,
+          ctx,
+          "OpenAI compaction checkpoint installation could not be verified.",
+          "error"
+        );
+        return;
+      }
+      providerRuntime.installWindow(pending.sessionId, pending.runtime);
+    },
+    context: (
+      event: ContextEvent,
+      ctx: ExtensionContext
+    ): ReturnType<typeof runContextHook> => {
+      try {
+        return runContextHook(pi, state, event, ctx, providerRuntime);
+      } catch {
+        state.candidate = undefined;
+        state.frame = undefined;
+        abortUnsafeRequest(
+          state,
+          ctx,
+          "context:failure",
+          "OpenAI checkpoint context preparation failed; the model request was cancelled."
+        );
+        return undefined;
+      }
+    },
+    messageEnd: (event: MessageEndEvent, ctx: ExtensionContext): void => {
+      if (!hasTransportFallbackNotification(event.message)) {
+        return;
+      }
+      notifyOnce(
+        state,
+        CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+        ctx,
+        "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
+        "warning"
+      );
+    },
+    modelSelect: (
+      event: Extract<ExtensionEvent, { type: "model_select" }>
+    ): void => {
+      resetGeneration(state);
+      state.transition =
+        isSupportedLifecycleModel(event.model) &&
+        isSupportedLifecycleModel(event.previousModel)
+          ? {
+              currentIdentity: modelIdentity(event.model),
+              previousCompHash: providerRuntime.getModelMetadata(
+                event.previousModel.id
+              )?.comp_hash,
+              previousEffectiveTokenLimit: providerRuntime.getModelWindow(
+                event.previousModel
+              )?.effectiveWindowTokens,
+              previousModel: event.previousModel,
+            }
+          : undefined;
+      state.transitionRestored =
+        state.transition !== undefined ||
+        event.source !== "restore" ||
+        !isSupportedLifecycleModel(event.model);
+    },
+    provider: providerRuntime.provider,
+    runCommand: async (
+      _args: string,
+      ctx: ExtensionCommandContext
+    ): Promise<void> => {
       const { model } = ctx;
       const supportedModel = isSupportedLifecycleModel(model)
         ? model
@@ -2680,57 +2714,34 @@ export const codexCompactionExtension: ExtensionFactory = (pi) => {
         "info"
       );
     },
-  });
-  registerLifecycleHooks(pi, state, providerRuntime, failurePolicy);
-  pi.on("context", (event, ctx): ReturnType<typeof runContextHook> => {
-    try {
-      return runContextHook(pi, state, event, ctx, providerRuntime);
-    } catch {
+    settled: (ctx: ExtensionContext): void => {
+      providerRuntime.endTurn(ctx.sessionManager.getSessionId());
+    },
+    shutdown: (ctx: ExtensionContext): void => {
+      providerRuntime.closeSession(ctx.sessionManager.getSessionId());
+      state.controller.abort();
       state.candidate = undefined;
       state.frame = undefined;
-      abortUnsafeRequest(
-        state,
-        ctx,
-        "context:failure",
-        "OpenAI checkpoint context preparation failed; the model request was cancelled."
-      );
-      return undefined;
-    }
-  });
-  pi.on("before_provider_request", async (event, ctx) => {
-    const headers = consumeRequestHeaders(state, ctx);
-    try {
-      return await runBeforeProviderRequestHook(
-        pi,
-        state,
-        headers,
-        event.payload,
-        ctx,
-        providerRuntime
-      );
-    } catch {
-      state.candidate = undefined;
-      state.frame = undefined;
-      abortUnsafeRequest(
-        state,
-        ctx,
-        "payload:failure",
-        "OpenAI checkpoint request preparation failed; the model request was cancelled."
-      );
-      return event.payload;
-    }
-  });
-  pi.on("before_provider_headers", (event, ctx) => {
-    if (!isSupportedLifecycleModel(ctx.model)) {
+      state.generation += 1;
+      releaseLifecycleOperation(state, true);
+      state.inFlight = undefined;
+      state.pendingInstall = undefined;
       state.requestHeaders = undefined;
-      return;
-    }
-    mergeRemoteCompactionFeatureHeader(event.headers);
-    state.requestHeaders = {
-      generation: state.generation,
-      headers: { ...event.headers },
-      leafId: ctx.sessionManager.getLeafId(),
-      modelIdentity: modelIdentity(ctx.model),
-    };
-  });
+      state.transition = undefined;
+      state.transitionRestored = false;
+    },
+    start: (ctx: ExtensionContext): void => {
+      providerRuntime.closeSession(ctx.sessionManager.getSessionId());
+      state.transition = undefined;
+      state.transitionRestored = false;
+      resetGeneration(state);
+      if (failurePolicy.invalid && !state.failurePolicyWarned) {
+        state.failurePolicyWarned = true;
+        ctx.ui.notify(
+          "Invalid CLANKER_CODEX_COMPACTION_FAILURE value; using ask.",
+          "warning"
+        );
+      }
+    },
+  };
 };

@@ -22,7 +22,7 @@ import {
   CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
   resolveActiveCheckpointBoundary,
 } from "../checkpoint.js";
-import { codexCompactionExtension } from "../lifecycle.js";
+import codexCompactionExtension from "../index.js";
 import { FRAME_MARKER_PREFIX } from "../replay.js";
 import { createRealCodexSession } from "./agent-session.js";
 import { SPIKE_MODEL } from "./fixtures.js";

@@ -1,4 +1,8 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  MessageEndEvent,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,8 +14,8 @@ import {
   buildContextFrameDiagnostic,
   buildLifecycleCheckpoint,
   buildLifecycleSource,
-  codexCompactionExtension,
   combineCompactionUsage,
+  createCodexLifecycle,
   decideModelTransitionReason,
   freshAssistantUsageTokens,
   hasResolvedLifecycleAuth,
@@ -69,46 +73,30 @@ const fallbackAssistant = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const captureLifecycleHooks = async () => {
-  const hooks = new Map<string, unknown>();
-  const previousFailure = process.env.CLANKER_CODEX_COMPACTION_FAILURE;
-  process.env.CLANKER_CODEX_COMPACTION_FAILURE = "ask";
-  try {
-    await codexCompactionExtension({
-      on(name: string, hook: unknown) {
-        hooks.set(name, hook);
+const createMessageEndHarness = () => {
+  const notifications: [string, string][] = [];
+  const ctx = {
+    ui: {
+      notify: (message: string, type: string) => {
+        notifications.push([message, type]);
       },
-      registerCommand() {},
-      registerEntryRenderer() {},
-      registerProvider() {},
-    } as never);
-  } finally {
-    if (previousFailure === undefined) {
-      delete process.env.CLANKER_CODEX_COMPACTION_FAILURE;
-    } else {
-      process.env.CLANKER_CODEX_COMPACTION_FAILURE = previousFailure;
-    }
-  }
-  return hooks;
+    },
+  } as unknown as ExtensionContext;
+  const { messageEnd } = createCodexLifecycle({} as never);
+  return {
+    messageEnd: (message: Record<string, unknown>) => {
+      messageEnd({ message } as unknown as MessageEndEvent, ctx);
+    },
+    notifications,
+  };
 };
 
 describe("transport fallback notification", () => {
-  it("warns once for the provider diagnostic", async () => {
-    const hooks = await captureLifecycleHooks();
-    const messageEnd = hooks.get("message_end") as (
-      event: { readonly message: Record<string, unknown> },
-      ctx: { readonly ui: { notify: (message: string, type: string) => void } }
-    ) => void;
-    const notifications: [string, string][] = [];
-    const ctx = {
-      ui: {
-        notify: (message: string, type: string) =>
-          notifications.push([message, type]),
-      },
-    };
+  it("warns once for the provider diagnostic", () => {
+    const { messageEnd, notifications } = createMessageEndHarness();
 
-    messageEnd({ message: fallbackAssistant() }, ctx);
-    messageEnd({ message: fallbackAssistant() }, ctx);
+    messageEnd(fallbackAssistant());
+    messageEnd(fallbackAssistant());
 
     expect(notifications).toStrictEqual([
       [
@@ -118,16 +106,8 @@ describe("transport fallback notification", () => {
     ]);
   });
 
-  it("ignores malformed and spoofed fallback diagnostics", async () => {
-    const hooks = await captureLifecycleHooks();
-    const messageEnd = hooks.get("message_end") as (
-      event: { readonly message: Record<string, unknown> },
-      ctx: { readonly ui: { notify: (message: string) => void } }
-    ) => void;
-    const notifications: string[] = [];
-    const ctx = {
-      ui: { notify: (message: string) => notifications.push(message) },
-    };
+  it("ignores malformed and spoofed fallback diagnostics", () => {
+    const { messageEnd, notifications } = createMessageEndHarness();
 
     for (const diagnostic of [
       { type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE },
@@ -137,10 +117,7 @@ describe("transport fallback notification", () => {
       },
       { details: fallbackDiagnostic.details, type: "unrelated" },
     ]) {
-      messageEnd(
-        { message: fallbackAssistant({ diagnostics: [diagnostic] }) },
-        ctx
-      );
+      messageEnd(fallbackAssistant({ diagnostics: [diagnostic] }));
     }
 
     expect(notifications).toStrictEqual([]);
