@@ -100,7 +100,7 @@ ask-question/
 
 ## Tests
 
-Tests mirror the source path and responsibility. `tests/index.test.ts` covers registration metadata, delegation, and lifecycle wiring. Omit it only when the package's real `AgentSession` integration tests load the entrypoint's default export, so the registered surface is already exercised end to end; in that case do not add a mock-only test that mirrors every delegation line on top. Unit tests cover the matching source module. Use `*.integration.test.ts` only for real `AgentSession` behavior and `*.smoke.test.ts` only for discovery, packaging, or runtime loading.
+Tests mirror the source path and responsibility. Prefer real modules over mocked collaborators; mock only impractical dependencies such as external processes, network, or wall-clock time. `tests/index.test.ts` covers registration metadata, delegation, and lifecycle wiring. Omit it when real `AgentSession` integration tests load the entrypoint's default export and exercise the registered surface end to end; do not keep a mock-only mirror of coverage that real usage already provides. Unit tests cover the matching source module. Use `*.integration.test.ts` only for real `AgentSession` behavior and `*.smoke.test.ts` only for discovery, packaging, or runtime loading.
 
 Do not create package-wide catch-all tests such as `mcp.test.ts`. Put shared setup in `tests/helpers.ts` or `tests/fixtures/` only after at least two tests need it.
 
