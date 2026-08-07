@@ -1,0 +1,17 @@
+{
+  "description": "Record a Codex resume command when a session ends.",
+  "hooks": {
+    "SessionEnd": [
+      {
+        "matcher": "^other$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$PLUGIN_ROOT/scripts/resume-history.sh\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
