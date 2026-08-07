@@ -136,6 +136,43 @@ describe("footer host", () => {
     await host.emitTurnEnd(undefined, context);
     expect(getEntries).toHaveBeenCalledTimes(2);
 
+    await host.emit("agent_settled", { type: "agent_settled" }, context);
+    await host.emit("session_tree", { type: "session_tree" }, context);
+    await host.emit("session_compact", { type: "session_compact" }, context);
+    await host.emit(
+      "session_info_changed",
+      { type: "session_info_changed" },
+      context
+    );
+    expect(getEntries).toHaveBeenCalledTimes(6);
+
+    await host.emit(
+      "model_select",
+      { type: "model_select" },
+      {
+        ...context,
+        model: {
+          id: "demo2",
+          name: "Demo2",
+          provider: "test",
+          reasoning: true,
+        } as never,
+      }
+    );
+    expect(component?.render(120).join("\n")).toContain("Demo2");
+    await host.emit(
+      "thinking_level_select",
+      { type: "thinking_level_select" },
+      { ...context, thinkingLevel: "medium" }
+    );
+    expect(component?.render(120).join("\n")).toContain("medium");
+
+    await host.runCommand("footer", "", host.createContext({ mode: "json" }));
+    expect(host.getNotifications()).toContainEqual({
+      message: "/footer requires TUI mode",
+      type: "info",
+    });
+
     component?.dispose?.();
     expect(host.getNotifications()).toContainEqual({
       message: "Footer was replaced by another extension; run /footer doctor",
