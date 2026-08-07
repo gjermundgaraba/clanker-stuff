@@ -1,0 +1,54 @@
+{
+  "name": "@clanker-stuff/usage",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/usage#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/usage"
+  },
+  "files": [
+    "adapters",
+    "auth.ts",
+    "cache.ts",
+    "controller.ts",
+    "format.ts",
+    "http.ts",
+    "index.ts",
+    "providers.ts",
+    "widgets.ts",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

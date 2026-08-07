@@ -13,15 +13,15 @@ const PI_PROVIDED = new Set([
 ]);
 const EXPECTED_PI_PROVIDED_VERSION = "*";
 
-const ROOT_PACKAGE_NAME = "clanker-extensions";
+const ROOT_PACKAGE_NAME = "clanker-stuff";
 const EXPECTED_NODE_ENGINE = ">=24";
 const EXPECTED_PACKAGE_MANAGER_PREFIX = "pnpm@";
 const EXPECTED_LICENSE = "MIT";
 const REPOSITORY_URL =
-  "git+https://github.com/gjermundgaraba/clanker-extensions.git";
-const BUGS_URL = "https://github.com/gjermundgaraba/clanker-extensions/issues";
+  "git+https://github.com/gjermundgaraba/clanker-stuff.git";
+const BUGS_URL = "https://github.com/gjermundgaraba/clanker-stuff/issues";
 const HOMEPAGE_PREFIX =
-  "https://github.com/gjermundgaraba/clanker-extensions/tree/main/";
+  "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
 
 function collectRuntimeTsFiles(dir) {
   const files = [];
@@ -175,7 +175,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   }
 
   for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
-    if (name.startsWith("@clanker-extensions/")) {
+    if (name.startsWith("@clanker-stuff/")) {
       errors.push(
         `${label}: published extensions must be standalone; remove ${name}`
       );

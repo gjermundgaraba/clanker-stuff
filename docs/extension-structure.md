@@ -106,8 +106,8 @@ Do not create package-wide catch-all tests such as `mcp.test.ts`. Put shared set
 
 ## Package and repository boundaries
 
-Every root-level extension directory must be a workspace package with `package.json`, `README.md`, and `LICENSE`. Its package export and `pi.extensions` entry both point to `./index.ts`. Expose another package path only for an intentional shared protocol; internal test seams are not public API.
+Every directory under `pi/extensions/` must be a workspace package with `package.json`, `README.md`, and `LICENSE`. Its package export and `pi.extensions` entry both point to `./index.ts`. Expose another package path only for an intentional shared protocol; internal test seams are not public API.
 
 `package.json` `files` must include every runtime source file and asset plus `README.md` and `LICENSE`. Do not publish tests, research, audits, or development scripts unless they are required at runtime.
 
-Standalone skills belong under `skills/`. Prototypes and executable research belong under `lab/`, not beside workspace extensions. A directory that looks like an extension must not be invisible to workspace validation.
+Standalone Pi skills belong under `pi/skills/`. Prototypes and executable Pi research belong under `pi/lab/`, not beside workspace extensions. A directory that looks like an extension must not be invisible to workspace validation.

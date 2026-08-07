@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import { publishableWorkspacePackages } from "./workspace-packages.mjs";
@@ -13,6 +13,10 @@ const PACKAGE_TAIL_PATTERN = new RegExp(
 );
 const MARKDOWN_BLOCK_START =
   /^(?:#{1,6}\s|[-+*]\s|\d+[.)]\s|>\s?|`{3}|~{3}|\|| {4}|\t)/u;
+const PLUGIN_CATALOGS = [
+  { directory: "claude/plugins", heading: "Claude Code plugins" },
+  { directory: "codex/plugins", heading: "Codex plugins" },
+];
 
 const repoRoot = process.cwd();
 const packages = publishableWorkspacePackages()
@@ -52,37 +56,61 @@ if (!existsSync(rootReadmePath)) {
       `| [\`${packageJson.name}\`](${dir}) | ${packageJson.description} |`
   );
   const expectedCatalog = [
-    "## Extensions",
+    "## Pi extensions",
     "",
     "| Extension | Description |",
     "| --- | --- |",
     ...expectedRows,
   ].join("\n");
-  const expectedInstall = `## Install\n\n${CODE_FENCE}bash\npi install npm:@clanker-extensions/<package-name>\n${CODE_FENCE}`;
   const rootHeadings = rootReadme
     .split("\n")
     .filter((line) => /^#{1,6}\s/u.test(line));
 
-  if (!rootReadme.startsWith("# clanker extensions\n\n")) {
+  if (!rootReadme.startsWith("# clanker stuff\n\n")) {
     errors.push("README.md must start with the repository title.");
   }
-  if (!rootReadme.includes(`${expectedCatalog}\n\n## Install\n`)) {
+  if (!rootReadme.includes(`${expectedCatalog}\n\n## Claude Code plugins\n`)) {
     errors.push(
-      "README.md Extensions table must list every extension exactly once in directory order using canonical package metadata."
+      "README.md Pi extensions table must list every extension exactly once in directory order using canonical package metadata."
     );
   }
-  if (!rootReadme.includes(expectedInstall)) {
-    errors.push("README.md must contain the generic pi install example.");
-  }
   if (
-    rootHeadings.length !== 5 ||
-    rootHeadings[0] !== "# clanker extensions" ||
-    rootHeadings[1] !== "## Extensions" ||
-    rootHeadings[2] !== "## Install" ||
-    rootHeadings[3] !== "## Development" ||
-    rootHeadings[4] !== "## License"
+    rootHeadings.length !== 6 ||
+    rootHeadings[0] !== "# clanker stuff" ||
+    rootHeadings[1] !== "## Pi extensions" ||
+    rootHeadings[2] !== "## Claude Code plugins" ||
+    rootHeadings[3] !== "## Codex plugins" ||
+    rootHeadings[4] !== "## Development" ||
+    rootHeadings[5] !== "## License"
   ) {
     errors.push("README.md contains an unexpected or misordered heading.");
+  }
+
+  for (const { directory, heading } of PLUGIN_CATALOGS) {
+    const absoluteDirectory = path.join(repoRoot, directory);
+    if (!existsSync(absoluteDirectory)) {
+      errors.push(`${directory} is missing.`);
+      continue;
+    }
+
+    const expectedEntries = readdirSync(absoluteDirectory, {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => [entry.name, `${directory}/${entry.name}`])
+      .sort(([left], [right]) => left.localeCompare(right));
+    const section = rootReadme
+      .split(`## ${heading}\n\n`)[1]
+      ?.split("\n\n## ")[0];
+    const actualEntries = [
+      ...(section?.matchAll(/^\| \[`([^`]+)`\]\(([^)]+)\) \| .+ \|$/gmu) ?? []),
+    ].map((match) => [match[1], match[2]]);
+
+    if (JSON.stringify(actualEntries) !== JSON.stringify(expectedEntries)) {
+      errors.push(
+        `README.md ${heading} table must list every plugin directory exactly once in directory order.`
+      );
+    }
   }
 }
 
@@ -90,6 +118,7 @@ for (const { dir, packageJson } of packages) {
   const readmePath = path.join(repoRoot, dir, "README.md");
   const description = packageJson.description?.trim();
   const packageName = packageJson.name?.trim();
+  const title = path.basename(dir);
 
   if (!description) {
     errors.push(`${dir}/package.json is missing a non-empty description.`);
@@ -112,7 +141,7 @@ for (const { dir, packageJson } of packages) {
     );
   }
 
-  const requiredPrefix = `# ${dir}\n\n${description}\n\n## Install\n\n${CODE_FENCE}bash\npi install npm:${packageName}\n${CODE_FENCE}\n\n## Usage\n\n`;
+  const requiredPrefix = `# ${title}\n\n${description}\n\n## Install\n\n${CODE_FENCE}bash\npi install npm:${packageName}\n${CODE_FENCE}\n\n## Usage\n\n`;
   const normalized = actual.trimEnd();
   if (!normalized.startsWith(requiredPrefix)) {
     errors.push(

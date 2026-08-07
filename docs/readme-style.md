@@ -1,6 +1,6 @@
 # README style
 
-Publishable package `README.md` files are short installation pages. The root `README.md` is the catalog for the public extension collection. Private workspace packages may document their local installation contract instead.
+Publishable Pi package `README.md` files are short installation pages. The root `README.md` catalogs every supported host. Private workspace packages may document their local installation contract instead.
 
 ## Goals
 
@@ -65,12 +65,13 @@ The limit is a backstop, not a target. Prefer fewer lines when the package can b
 The root `README.md` should contain:
 
 1. The repository title and a one-paragraph description.
-2. An `Extensions` table with one row for every package that declares `pi.extensions`.
+2. A `Pi extensions` table with one row for every publishable package that declares `pi.extensions`.
 3. Links from package names to their package directories.
 4. Descriptions sourced from each package's `package.json`.
-5. A short installation example using `pi install npm:@clanker-extensions/<package-name>`.
-6. A one-line `Development` section naming the Node.js requirement and validation command.
-7. A `License` section linking to the root license.
+5. A `Claude Code plugins` table linking each Claude plugin directory.
+6. A `Codex plugins` table linking each Codex plugin directory.
+7. A one-line `Development` section naming the Node.js requirement and validation command.
+8. A `License` section linking to the root license.
 
 List only publishable packages that declare pi extensions in the extension table.
 

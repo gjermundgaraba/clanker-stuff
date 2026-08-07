@@ -1,0 +1,44 @@
+{
+  "name": "@clanker-stuff/codex-fast",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Adds /fast to toggle OpenAI Codex fast mode and shows a lightning status while active.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/codex-fast#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/codex-fast"
+  },
+  "files": [
+    "fast-mode.ts",
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

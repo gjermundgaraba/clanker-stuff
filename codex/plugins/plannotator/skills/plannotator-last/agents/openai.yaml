@@ -1,0 +1,6 @@
+interface:
+  display_name: "Plannotator Last"
+  short_description: "Annotate the latest response in Plannotator."
+  default_prompt: "Use $plannotator:plannotator-last to annotate your latest response."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,51 @@
+{
+  "name": "@clanker-stuff/tools",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Wraps pi's coding capabilities in the tool interfaces exposed by model labs' own coding harnesses.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/tools#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/tools"
+  },
+  "files": [
+    "index.ts",
+    "operations.ts",
+    "path.ts",
+    "patch.ts",
+    "process-output.ts",
+    "process.ts",
+    "runtime.ts",
+    "code-mode",
+    "profiles",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

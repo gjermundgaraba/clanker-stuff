@@ -41,7 +41,7 @@ export default defineConfig({
       },
     ],
     restoreMocks: true,
-    setupFiles: [path.resolve(rootDir, "tests/harness/setup.ts")],
+    setupFiles: [path.resolve(rootDir, "pi/tests/harness/setup.ts")],
     testTimeout: 10_000,
   },
 });

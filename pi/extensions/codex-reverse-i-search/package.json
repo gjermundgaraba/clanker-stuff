@@ -1,0 +1,47 @@
+{
+  "name": "@clanker-stuff/codex-reverse-i-search",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Adds Codex-style Ctrl+R reverse history search to pi's prompt editor.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/codex-reverse-i-search#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/codex-reverse-i-search"
+  },
+  "files": [
+    "controller.ts",
+    "index.ts",
+    "history.ts",
+    "search.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

@@ -10,11 +10,11 @@ import {
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const SOURCE_DIRECTORY = path.join(ROOT, "plannotator");
+const SOURCE_DIRECTORY = path.join(ROOT, "pi/extensions/plannotator");
 const FILES = ["review-launcher.ts", "cli.ts"];
 const OUTPUT_DIRECTORIES = [
-  "plannotator-claude/skills/plannotator-review/scripts",
-  "plannotator-codex/skills/plannotator-review/scripts",
+  "claude/plugins/plannotator/skills/plannotator-review/scripts",
+  "codex/plugins/plannotator/skills/plannotator-review/scripts",
 ];
 const check = process.argv.includes("--check");
 const stale = [];

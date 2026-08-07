@@ -1,6 +1,0 @@
-interface:
-  display_name: "Plannotator Review"
-  short_description: "Review code changes in Plannotator."
-  default_prompt: "Use $plannotator-codex:plannotator-review to review my current changes."
-policy:
-  allow_implicit_invocation: false

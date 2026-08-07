@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const ALL_DEPENDENCY_FIELDS = [
@@ -13,10 +13,17 @@ export function readJson(path) {
 }
 
 export function readWorkspaceDirs() {
-  return readFileSync("pnpm-workspace.yaml", "utf8")
+  const dirs = readFileSync("pnpm-workspace.yaml", "utf8")
     .split(/\r?\n/)
-    .map((line) => line.match(/^\s*-\s*"([^"]+)"\s*$/)?.[1])
-    .filter(Boolean);
+    .map((line) => line.match(/^\s*-\s*["']?([^"'#]+?)["']?\s*(?:#.*)?$/u)?.[1])
+    .filter(Boolean)
+    .flatMap((dir) => (dir.includes("*") ? globSync(dir) : dir));
+
+  if (dirs.every((dir) => dir === ".")) {
+    throw new Error("pnpm-workspace.yaml discovered no package directories");
+  }
+
+  return dirs;
 }
 
 export function readWorkspacePackages() {

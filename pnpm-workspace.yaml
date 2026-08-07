@@ -1,22 +1,6 @@
 packages:
   - "."
-  - "ask-question"
-  - "codex-provider"
-  - "codex-fast"
-  - "codex-reverse-i-search"
-  - "codex-skills"
-  - "decorated-editor"
-  - "footer"
-  - "mcp"
-  - "plannotator"
-  - "shell-resume-history"
-  - "side"
-  - "stash"
-  - "timer"
-  - "tool-picker"
-  - "tools"
-  - "usage"
-  - "voice"
+  - "pi/extensions/*"
 
 overrides:
   "@earendil-works/pi-agent-core": "0.84.0"

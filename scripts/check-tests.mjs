@@ -13,8 +13,14 @@ const INTEGRATION_TEST_PATTERN = /\.integration\.test\.ts$/;
 const SMOKE_TEST_PATTERN = /\.smoke\.test\.ts$/;
 const SOURCE_FILE_PATTERN = /\.ts$/;
 const IGNORED_DIRS = new Set([".git", "dist", "node_modules"]);
-const AGENT_SESSION_HARNESS = path.join("tests", "harness", "agent-session.ts");
+const AGENT_SESSION_HARNESS = path.join(
+  "pi",
+  "tests",
+  "harness",
+  "agent-session.ts"
+);
 const EXTENSION_SMOKE_HARNESS = path.join(
+  "pi",
   "tests",
   "harness",
   "extension-smoke.ts"
@@ -112,6 +118,11 @@ function getPackageDirs() {
 }
 
 const errors = [];
+for (const harnessPath of [AGENT_SESSION_HARNESS, EXTENSION_SMOKE_HARNESS]) {
+  if (!existsSync(path.join(repoRoot, harnessPath))) {
+    errors.push(`${harnessPath}: missing harness policy target`);
+  }
+}
 const packageDirs = getPackageDirs();
 
 for (const packageName of packageDirs) {

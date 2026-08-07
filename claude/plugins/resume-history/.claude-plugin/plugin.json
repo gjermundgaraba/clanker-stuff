@@ -1,0 +1,5 @@
+{
+  "name": "resume-history",
+  "description": "Adds `claude --resume <session-id>` to the invoking shell's history when Claude Code exits.",
+  "version": "0.1.0"
+}

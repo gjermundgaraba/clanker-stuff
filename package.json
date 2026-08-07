@@ -1,5 +1,5 @@
 {
-  "name": "clanker-extensions",
+  "name": "clanker-stuff",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "check:plannotator-review": "node ./scripts/build-plannotator-review.mjs --check",
     "check:readmes": "node ./scripts/check-readmes.mjs",
     "check:tests": "node ./scripts/check-tests.mjs",
-    "eval:code-mode": "node ./tools/evals/code-mode-ab.ts",
+    "eval:code-mode": "node ./pi/extensions/tools/evals/code-mode-ab.ts",
     "fix": "ultracite fix --type-aware",
     "format": "oxfmt --check",
     "format:fix": "oxfmt",

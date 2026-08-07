@@ -41,22 +41,22 @@ export default defineConfig({
     ...coreIgnore,
     "scripts/**",
     "**/skills/plannotator-review/scripts/*.ts",
-    "voice/docs/research/**",
+    "pi/extensions/voice/docs/research/**",
   ],
   overrides: [
     {
       files: [
         "**/*.{test,spec}.ts",
         "**/tests/**/*.ts",
-        "tests/harness/**/*.ts",
-        "tests/helpers/**/*.ts",
+        "pi/tests/harness/**/*.ts",
+        "pi/tests/helpers/**/*.ts",
       ],
       plugins: ["vitest"],
       rules: { ...asyncStyleRules, ...testBoundaryRules },
     },
     {
       // Untyped browser/media JS cannot satisfy type-aware rules.
-      files: ["voice/media/**/*.{js,mjs,cjs}"],
+      files: ["pi/extensions/voice/media/**/*.{js,mjs,cjs}"],
       rules: {
         ...testBoundaryRules,
         "typescript/no-unsafe-argument": "off",

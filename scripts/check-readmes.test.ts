@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const CHECK_READMES_PATH = path.join(import.meta.dirname, "check-readmes.mjs");
 const DESCRIPTION = "Adds a sample extension.";
-const PACKAGE_NAME = "@clanker-extensions/sample";
+const PACKAGE_NAME = "@clanker-stuff/sample";
 const tempDirs: string[] = [];
 
 const createFixture = (usage: string, finalNewline = true) => {
@@ -15,6 +15,8 @@ const createFixture = (usage: string, finalNewline = true) => {
   tempDirs.push(root);
   const packageDir = path.join(root, "sample");
   mkdirSync(packageDir);
+  mkdirSync(path.join(root, "claude/plugins"), { recursive: true });
+  mkdirSync(path.join(root, "codex/plugins"), { recursive: true });
 
   writeFileSync(
     path.join(root, "pnpm-workspace.yaml"),
@@ -22,7 +24,7 @@ const createFixture = (usage: string, finalNewline = true) => {
   );
   writeFileSync(
     path.join(root, "package.json"),
-    JSON.stringify({ name: "clanker-extensions", private: true })
+    JSON.stringify({ name: "clanker-stuff", private: true })
   );
   writeFileSync(
     path.join(packageDir, "package.json"),
@@ -35,7 +37,7 @@ const createFixture = (usage: string, finalNewline = true) => {
   );
   writeFileSync(
     path.join(root, "README.md"),
-    `# clanker extensions\n\nFixture repository.\n\n## Extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |\n\n## Install\n\n\`\`\`bash\npi install npm:@clanker-extensions/<package-name>\n\`\`\`\n\n## Development\n\nRequires Node.js 24 or newer. Run \`pnpm check:all\`.\n\n## License\n\n[MIT](LICENSE)\n`
+    `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Development\n\nRequires Node.js 24 or newer. Run \`pnpm check:all\`.\n\n## License\n\n[MIT](LICENSE)\n`
   );
 
   const packageReadme = `# sample\n\n${DESCRIPTION}\n\n## Install\n\n\`\`\`bash\npi install npm:${PACKAGE_NAME}\n\`\`\`\n\n## Usage\n\n${usage}`;

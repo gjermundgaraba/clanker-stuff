@@ -1,0 +1,59 @@
+{
+  "name": "@clanker-stuff/mcp",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Connects selected MCP servers to pi and registers their tools.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/mcp#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/mcp"
+  },
+  "files": [
+    "bridge.ts",
+    "config.ts",
+    "connection.ts",
+    "index.ts",
+    "loader.ts",
+    "manager.ts",
+    "oauth.ts",
+    "servers.ts",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/core": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

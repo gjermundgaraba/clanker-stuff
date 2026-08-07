@@ -1,6 +1,6 @@
 # AGENTS
 
-This repository contains custom **pi extensions** (TypeScript-based plugins/skills for the `@earendil-works/pi-coding-agent` ecosystem).
+This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extensions live under `pi/extensions/`; host plugins live under `claude/plugins/` and `codex/plugins/`.
 
 ## General instructions
 
@@ -24,7 +24,7 @@ When working on pi extensions, sdk, themes or TUI, read the documentation, examp
 
 Most work targets one extension package. Prefer package-scoped validation first, then broaden only when the change is cross-cutting or before final handoff.
 
-Use the package name from the extension's `package.json`, e.g. `@clanker-extensions/ask-question`, and the directory name, e.g. `ask-question`.
+Use the package name from the extension's `package.json`, e.g. `@clanker-stuff/ask-question`, and the directory path, e.g. `pi/extensions/ask-question`.
 
 ### Single-extension validation
 

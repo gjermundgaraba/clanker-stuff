@@ -25,7 +25,7 @@ const createFixture = (valid: boolean) => {
     path.join(root, "package.json"),
     JSON.stringify({
       engines: { node: ">=24" },
-      name: "clanker-extensions",
+      name: "clanker-stuff",
       packageManager: "pnpm@10",
       private: true,
     })
@@ -35,7 +35,7 @@ const createFixture = (valid: boolean) => {
     path.join(packageDir, "package.json"),
     JSON.stringify({
       engines: { node: ">=24" },
-      name: "@clanker-extensions/sample",
+      name: "@clanker-stuff/sample",
       private: true,
       version: "0.1.0",
       ...(valid

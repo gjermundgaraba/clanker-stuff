@@ -1,0 +1,82 @@
+{
+  "name": "@clanker-stuff/codex-provider",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Replaces Pi's OpenAI Codex provider with Codex-compatible requests, transport, compaction, and durable checkpoint replay.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/codex-provider#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/codex-provider"
+  },
+  "files": [
+    "checkpoint.ts",
+    "index.ts",
+    "lifecycle.ts",
+    "provider.ts",
+    "renderer.ts",
+    "replay.ts",
+    "status.ts",
+    "README.md",
+    "LICENSE",
+    "docs/codex-baseline.md",
+    "docs/design.md",
+    "docs/context-alignment.md",
+    "docs/evaluation.md",
+    "docs/live-canary.md",
+    "docs/local-deployment.md"
+  ],
+  "type": "module",
+  "imports": {
+    "#pi-constrained-sampling": "@earendil-works/pi-ai/api/constrained-sampling",
+    "#pi-openai-codex": "@earendil-works/pi-ai/providers/openai-codex",
+    "#pi-responses": "@earendil-works/pi-ai/api/openai-responses-shared",
+    "#pi-simple-options": "@earendil-works/pi-ai/api/simple-options"
+  },
+  "exports": "./index.ts",
+  "scripts": {
+    "eval:agents": "node ./scripts/evaluate-agents.ts",
+    "eval:agents:dry": "node ./scripts/evaluate-agents.ts --dry-run",
+    "eval:agents:smoke": "node ./scripts/evaluate-agents.ts --smoke",
+    "test:live": "node ./scripts/live-multi-compaction.ts",
+    "test:live:branch": "node ./scripts/live-multi-compaction.ts --branch",
+    "test:live:capabilities": "node ./scripts/live-multi-compaction.ts --capabilities",
+    "test:live:fallback": "node ./scripts/live-multi-compaction.ts --fallback",
+    "test:live:fault": "node ./scripts/live-multi-compaction.ts --stream-fault --sse",
+    "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
+    "test:live:native:installed": "node ./scripts/live-installed.ts",
+    "test:live:portable": "node ./scripts/live-multi-compaction.ts --portable",
+    "test:live:real": "node ./scripts/live-multi-compaction.ts --real-window",
+    "test:live:crash": "node ./scripts/live-chaos.ts --crash",
+    "test:live:marathon": "pnpm run test:live:soak:sse && pnpm run test:live:websocket && pnpm run test:live:mid-turn && pnpm run test:live:fault && pnpm run test:live:rpc && pnpm run test:live:crash",
+    "test:live:rpc": "node ./scripts/live-chaos.ts --rpc",
+    "test:live:soak:sse": "node ./scripts/live-multi-compaction.ts --soak --sse",
+    "test:live:soak:websocket": "node ./scripts/live-multi-compaction.ts --soak --websocket",
+    "test:live:threshold": "node ./scripts/live-multi-compaction.ts --threshold",
+    "test:live:websocket": "node ./scripts/live-multi-compaction.ts --branch --websocket",
+    "verify:provider": "pnpm -w check:all && pnpm run test:live:marathon && pnpm run eval:agents --repetitions 3 && pnpm run eval:agents --task compaction-resume"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
