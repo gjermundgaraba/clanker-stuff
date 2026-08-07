@@ -31,7 +31,7 @@ Every pi extension uses the same entrypoint contract and grows directories only 
 - construction of shared runtime or controller objects;
 - direct `pi.register*()` and `pi.on()` calls;
 - registration metadata such as names, labels, descriptions, and prompt guidance; and
-- single-expression callbacks that delegate to imported functions or runtime methods.
+- thin callbacks that only delegate to a single imported function or runtime method, adapting arguments and passing through returns; block and expression syntax both qualify.
 
 ```ts
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -41,9 +41,15 @@ import { createTimer } from "./timer.js";
 export default function timer(pi: ExtensionAPI): void {
   const timer = createTimer();
 
-  pi.on("agent_start", (_event, ctx) => timer.start(ctx));
-  pi.on("agent_settled", (_event, ctx) => timer.stop(ctx));
-  pi.on("session_shutdown", (_event, ctx) => timer.dispose(ctx));
+  pi.on("agent_start", (_event, ctx) => {
+    timer.start(ctx);
+  });
+  pi.on("agent_settled", (_event, ctx) => {
+    timer.stop(ctx);
+  });
+  pi.on("session_shutdown", (_event, ctx) => {
+    timer.dispose(ctx);
+  });
 }
 ```
 
@@ -94,7 +100,7 @@ ask-question/
 
 ## Tests
 
-Tests mirror the source path and responsibility. `tests/index.test.ts` covers registration metadata, delegation, and lifecycle wiring. Unit tests cover the matching source module. Use `*.integration.test.ts` only for real `AgentSession` behavior and `*.smoke.test.ts` only for discovery, packaging, or runtime loading.
+Tests mirror the source path and responsibility. `tests/index.test.ts` covers registration metadata, delegation, and lifecycle wiring. Omit it only when the package's real `AgentSession` integration tests load the entrypoint's default export, so the registered surface is already exercised end to end; in that case do not add a mock-only test that mirrors every delegation line on top. Unit tests cover the matching source module. Use `*.integration.test.ts` only for real `AgentSession` behavior and `*.smoke.test.ts` only for discovery, packaging, or runtime loading.
 
 Do not create package-wide catch-all tests such as `mcp.test.ts`. Put shared setup in `tests/helpers.ts` or `tests/fixtures/` only after at least two tests need it.
 
