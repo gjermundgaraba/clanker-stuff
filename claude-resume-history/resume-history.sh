@@ -14,7 +14,8 @@ case "$reason" in
 esac
 
 sid=$(jq -r '.session_id // empty' <<<"$json")
-[ -n "$sid" ] || exit 0
+# sid lands verbatim in shell history; reject anything but a plain id.
+[[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 
 name="$(date +%s)-$$-${RANDOM}.command"
 tmp="$inbox/.$name.tmp"

@@ -1,21 +1,14 @@
 # claude-resume-history
 
-Adds Claude Code's resume command to the invoking fish or zsh shell's history when Claude Code exits. Companion to [shell-resume-history](../shell-resume-history/); reuses its shell-side inbox hook unchanged.
+Claude Code plugin: adds Claude Code's resume command to the invoking fish or zsh shell's history when Claude Code exits. Companion to [shell-resume-history](../shell-resume-history/); reuses its shell-side inbox hook unchanged.
 
 ## Install
 
 ```bash
-mkdir -p ~/.claude/hooks
-ln -s "$PWD/resume-history.sh" ~/.claude/hooks/resume-history.sh
+ln -s "$PWD" ~/.claude/skills/claude-resume-history
 ```
 
-Then register it as a `SessionEnd` hook in `~/.claude/settings.json`:
-
-```json
-"SessionEnd": [
-  { "hooks": [{ "type": "command", "command": "bash ~/.claude/hooks/resume-history.sh" }] }
-]
-```
+Auto-loads next session as `claude-resume-history@skills-dir` with its bundled `SessionEnd` hook; no `settings.json` entry needed.
 
 ## Usage
 

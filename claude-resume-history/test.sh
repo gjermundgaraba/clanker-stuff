@@ -16,6 +16,10 @@ run prompt_input_exit abc-123
   { echo "FAIL: expected resume command in inbox"; exit 1; }
 rm "$inbox"/*.command
 
+run prompt_input_exit 'abc; rm -rf /'
+ls "$inbox"/*.command >/dev/null 2>&1 &&
+  { echo "FAIL: unsafe session_id must not enqueue"; exit 1; }
+
 run clear abc-123
 ls "$inbox"/*.command >/dev/null 2>&1 &&
   { echo "FAIL: clear must not enqueue"; exit 1; }
