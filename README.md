@@ -7,7 +7,6 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex.
 | Extension | Description |
 | --- | --- |
 | [`@clanker-stuff/ask-question`](pi/extensions/ask-question) | Lets pi ask multiple-choice or free-text questions before continuing. |
-| [`@clanker-stuff/codex-fast`](pi/extensions/codex-fast) | Adds /fast to toggle OpenAI Codex fast mode and shows a lightning status while active. |
 | [`@clanker-stuff/codex-reverse-i-search`](pi/extensions/codex-reverse-i-search) | Adds Codex-style Ctrl+R reverse history search to pi's prompt editor. |
 | [`@clanker-stuff/codex-skills`](pi/extensions/codex-skills) | Injects complete SKILL.md instructions when prompts explicitly mention $skill-name. |
 | [`@clanker-stuff/decorated-editor`](pi/extensions/decorated-editor) | Provides a shared custom editor for inline prompt decorations from Clanker extensions. |

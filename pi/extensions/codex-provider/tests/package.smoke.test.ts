@@ -72,18 +72,22 @@ describe("codex-provider package", () => {
     );
 
     expect({
-      command: extension?.commands.has("codex-provider"),
+      commands: ["codex-provider", "fast"].filter((command) =>
+        extension?.commands.has(command)
+      ),
       entryRenderer: extension?.entryRenderers?.has(CHECKPOINT_CUSTOM_TYPE),
       errors: result.errors,
       exports: Object.keys(packageEntry),
+      fastFlag: extension?.flags.has("fast"),
       sensitiveHooks: SENSITIVE_HOOKS.filter((hook) =>
         extension?.handlers.has(hook)
       ),
     }).toStrictEqual({
-      command: true,
+      commands: ["codex-provider", "fast"],
       entryRenderer: true,
       errors: [],
       exports: ["default"],
+      fastFlag: true,
       sensitiveHooks: [...SENSITIVE_HOOKS],
     });
     expect(

@@ -130,13 +130,16 @@ describe("transport fallback notification", () => {
 describe("observability lifecycle", () => {
   it("keeps observations in memory when Pi has no session file", () => {
     const observability = new CodexObservability("persistent.sqlite");
-    const lifecycle = createCodexLifecycle({} as never, observability);
+    const lifecycle = createCodexLifecycle(
+      { getFlag: () => false } as never,
+      observability
+    );
     lifecycle.start({
       sessionManager: {
         getSessionFile: vi.fn<() => string | undefined>(),
         getSessionId: () => "ephemeral-session",
       },
-      ui: { notify: vi.fn<() => void>() },
+      ui: { notify: vi.fn<() => void>(), setStatus: vi.fn<() => void>() },
     } as unknown as ExtensionContext);
 
     expect(observability.path).toBe(":memory:");

@@ -59,6 +59,14 @@ const REQUEST_COMPRESSION_LEVEL = 3;
 const WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
 const WEBSOCKET_MAX_AGE_MS = 55 * 60_000;
+// ponytail: offline model catalogs omit service tiers; live metadata replaces this fallback.
+const FAST_MODE_FALLBACK_MODELS = new Set([
+  "gpt-5.4",
+  "gpt-5.5",
+  "gpt-5.6-luna",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+]);
 export const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
   "openai",
   "openai-codex",
@@ -103,7 +111,7 @@ interface RequestBody extends JsonRecord {
   previous_response_id?: string;
   prompt_cache_key?: string;
   reasoning?: { context?: string; effort?: string; summary?: string };
-  service_tier?: string;
+  service_tier?: OpenAICodexResponsesOptions["serviceTier"];
   store: boolean;
   stream: boolean;
   stream_options?: JsonRecord;
@@ -116,6 +124,7 @@ interface ResponseCapture {
   completed: boolean;
   outputItems: ResponsesInputItem[];
   responseId?: string;
+  serviceTier?: string;
   terminal: boolean;
   usage?: Usage;
 }
@@ -219,6 +228,14 @@ export interface CodexCompactionResult {
 
 const isRecord = (value: unknown): value is JsonRecord =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+
+const modelSupportsServiceTier = (
+  metadata: CodexModelMetadata,
+  serviceTier: string
+) =>
+  (metadata.service_tiers ?? []).some(
+    (tier) => isRecord(tier) && tier.id === serviceTier
+  );
 
 const isNonnegativeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -703,17 +720,12 @@ const buildRequestBody = (
     body.temperature = options.temperature;
   }
   const serviceTier = options?.serviceTier;
-  const supportedServiceTiers = new Set(
-    (metadata?.service_tiers ?? []).flatMap((tier) =>
-      isRecord(tier) && typeof tier.id === "string" ? [tier.id] : []
-    )
-  );
   if (
     serviceTier !== null &&
     serviceTier !== undefined &&
     serviceTier.length > 0 &&
     serviceTier !== "default" &&
-    (metadata === undefined || supportedServiceTiers.has(serviceTier))
+    (metadata === undefined || modelSupportsServiceTier(metadata, serviceTier))
   ) {
     body.service_tier = serviceTier;
   }
@@ -959,6 +971,9 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
     const response = isRecord(event.response) ? event.response : undefined;
     if (typeof response?.id === "string") {
       capture.responseId = response.id;
+    }
+    if (typeof response?.service_tier === "string") {
+      capture.serviceTier = response.service_tier;
     }
     capture.completed =
       event.type !== "response.incomplete" && response?.status !== "incomplete";
@@ -1714,13 +1729,21 @@ const applyServiceTier = (
 };
 
 export const createCodexProviderRuntime = (
-  observability: CodexObservability
+  observability: CodexObservability,
+  isFastModeEnabled: () => boolean = () => false
 ) => {
   const base = openaiCodexProvider();
   const fallback = [...base.getModels()];
   let models = fallback;
   let metadataByModel = new Map<string, CodexModelMetadata>();
   const sessions = new Map<string, SessionRuntime>();
+
+  const supportsFastMode = (model: SupportedModel) => {
+    const metadata = metadataByModel.get(model.id);
+    return metadata === undefined
+      ? FAST_MODE_FALLBACK_MODELS.has(model.id)
+      : modelSupportsServiceTier(metadata, "priority");
+  };
 
   const getSession = (sessionId: string) => {
     let session = sessions.get(sessionId);
@@ -1893,6 +1916,10 @@ export const createCodexProviderRuntime = (
       headers: request.headers,
       maxRetries: 0,
       reasoningEffort: request.thinkingLevel,
+      serviceTier:
+        isFastModeEnabled() && supportsFastMode(request.model)
+          ? "priority"
+          : undefined,
       sessionId: runtimeSessionId,
       signal: request.signal,
       transport: session.activeTransport ?? "auto",
@@ -1965,6 +1992,13 @@ export const createCodexProviderRuntime = (
         store: false,
         stream: true,
       };
+      if (
+        request.codexReason !== undefined &&
+        body.service_tier === "priority" &&
+        !supportsFastMode(request.model)
+      ) {
+        delete body.service_tier;
+      }
       observedBody = body;
       const configuredWebsocketTransport =
         options.transport === "sse" ? undefined : (options.transport ?? "auto");
@@ -2026,6 +2060,13 @@ export const createCodexProviderRuntime = (
             );
           }
           calculateCost(request.model, capture.usage);
+          applyServiceTier(
+            capture.usage,
+            capture.serviceTier === "default"
+              ? body.service_tier
+              : (capture.serviceTier ?? body.service_tier),
+            request.model
+          );
           compactionResult = {
             compaction: compactions[0],
             estimatedSourceTokens,
@@ -2227,6 +2268,9 @@ export const createCodexProviderRuntime = (
           ? built.body.input.slice(0, litePrefixLength)
           : [];
         let { body } = built;
+        if (isFastModeEnabled() && supportsFastMode(model)) {
+          body.service_tier = "priority";
+        }
         const originalBodyJson = JSON.stringify(body);
         const previousTransport = session.activeTransport;
         session.activeTransport = session.fallbackToSse
@@ -2302,7 +2346,7 @@ export const createCodexProviderRuntime = (
             responseTier === "default"
               ? requestTier
               : (responseTier ?? requestTier),
-          serviceTier: options.serviceTier,
+          serviceTier: body.service_tier,
         });
         if (!capture.terminal) {
           throw new Error("Codex stream ended before completion");
@@ -2502,6 +2546,7 @@ export const createCodexProviderRuntime = (
     },
     provider,
     streamPortableSummary,
+    supportsFastMode,
   };
 };
 

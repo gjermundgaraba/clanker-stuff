@@ -15,8 +15,10 @@ import {
 import { responseEvents, SPIKE_API_KEY, SPIKE_MODEL, sse } from "./fixtures.js";
 
 const defaultObservability = new CodexObservability(":memory:");
-const createCodexProviderRuntime = (observability = defaultObservability) =>
-  createProviderRuntime(observability);
+const createCodexProviderRuntime = (
+  observability = defaultObservability,
+  isFastModeEnabled: () => boolean = () => false
+) => createProviderRuntime(observability, isFastModeEnabled);
 
 const interruptedSse = (firstEvent: unknown) => {
   const bytes = new TextEncoder().encode(
@@ -58,7 +60,7 @@ const incompleteResponseEvents = (id: string, text: string) => {
   ];
 };
 
-const compactionEvents = (id: string) => [
+const compactionEvents = (id: string, serviceTier?: string) => [
   { response: { id, status: "in_progress" }, type: "response.created" },
   {
     item: {
@@ -73,6 +75,7 @@ const compactionEvents = (id: string) => [
     response: {
       id,
       output: [],
+      service_tier: serviceTier,
       status: "completed",
       usage: {
         input_tokens: 8,
@@ -112,6 +115,13 @@ const markProtocolRetryPayload = (payload: unknown) => ({
   ...(payload as Record<string, unknown>),
   protocolRetryTest: true,
 });
+
+const FAST_MODEL = {
+  ...SPIKE_MODEL,
+  cost: { cacheRead: 0, cacheWrite: 0, input: 1, output: 2 },
+  id: "gpt-5.5",
+  name: "GPT-5.5",
+};
 
 describe("Codex provider", () => {
   afterEach(() => {
@@ -179,6 +189,114 @@ describe("Codex provider", () => {
     expect(
       (body.client_metadata as Record<string, unknown>)["x-codex-turn-metadata"]
     ).toStrictEqual(expect.any(String));
+  });
+
+  it("applies fast mode to turns and compaction with priority pricing", async () => {
+    const requests: Record<string, unknown>[] = [];
+    const runtime = createCodexProviderRuntime(
+      defaultObservability,
+      () => true
+    );
+    vi.stubGlobal(
+      "fetch",
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        const body = readBody(init?.body);
+        requests.push(body);
+        return requestKind(body) === "compaction"
+          ? sse(compactionEvents("resp_fast_compaction"))
+          : sse(responseEvents("resp_fast_turn", "fast"));
+      }
+    );
+
+    const compaction = await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model: FAST_MODEL,
+      phase: "standalone",
+      reason: "threshold",
+      sessionId: "session-fast",
+      signal: new AbortController().signal,
+      thinkingLevel: "medium",
+    });
+    const message = await runtime.provider
+      .streamSimple(FAST_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId: "session-fast",
+        transport: "sse",
+      })
+      .result();
+
+    expect({
+      serviceTiers: requests.map((request) => request.service_tier),
+      supportsFastMode: runtime.supportsFastMode(FAST_MODEL),
+    }).toStrictEqual({
+      serviceTiers: ["priority", "priority"],
+      supportsFastMode: true,
+    });
+    expect(compaction.usage.cost.total).toBeCloseTo(3e-5);
+    expect(message.usage.cost.total).toBeCloseTo(3e-5);
+  });
+
+  it("removes priority from transition compaction on an unsupported model", async () => {
+    let request: Record<string, unknown> | undefined;
+    const runtime = createCodexProviderRuntime(
+      defaultObservability,
+      () => true
+    );
+    vi.stubGlobal(
+      "fetch",
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        request = readBody(init?.body);
+        return sse(compactionEvents("resp_transition_tier"));
+      }
+    );
+
+    await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      authoritativeEnvelope: { service_tier: "priority" },
+      codexReason: "model_downshift",
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model: SPIKE_MODEL,
+      phase: "pre-sampling",
+      reason: "threshold",
+      sessionId: "session-transition-tier",
+      signal: new AbortController().signal,
+      thinkingLevel: "medium",
+    });
+
+    expect(request?.service_tier).toBeUndefined();
+  });
+
+  it("prices compaction using the effective response tier", async () => {
+    let request: Record<string, unknown> | undefined;
+    const runtime = createCodexProviderRuntime();
+    vi.stubGlobal(
+      "fetch",
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        request = readBody(init?.body);
+        return sse(compactionEvents("resp_effective_tier", "priority"));
+      }
+    );
+
+    const result = await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model: FAST_MODEL,
+      phase: "standalone",
+      reason: "threshold",
+      sessionId: "session-effective-tier",
+      signal: new AbortController().signal,
+      thinkingLevel: "medium",
+    });
+
+    expect(request?.service_tier).toBeUndefined();
+    expect(result.usage.cost.total).toBeCloseTo(3e-5);
   });
 
   it("does not retry SSE after the first emitted event", async () => {
@@ -368,6 +486,7 @@ describe("Codex provider", () => {
                 display_name: "Remote Codex",
                 effective_context_window_percent: 95,
                 priority: 1,
+                service_tiers: [{ id: "priority" }],
                 slug: "remote-codex",
                 support_verbosity: true,
                 supported_in_api: true,
@@ -457,6 +576,7 @@ describe("Codex provider", () => {
       restoredRemoteCatalog: restored.provider
         .getModels()
         .some((model) => model.id === "remote-codex"),
+      supportsFastMode: runtime.supportsFastMode(remoteModel),
       window: runtime.getModelWindow(remoteModel),
     }).toMatchObject({
       lite: {
@@ -473,6 +593,7 @@ describe("Codex provider", () => {
       model: { contextWindow: 200_000, id: "remote-codex" },
       request: expect.stringContaining("/codex/models?client_version="),
       restoredRemoteCatalog: false,
+      supportsFastMode: true,
       window: {
         autoCompactTokens: 150_000,
         effectiveWindowTokens: 190_000,

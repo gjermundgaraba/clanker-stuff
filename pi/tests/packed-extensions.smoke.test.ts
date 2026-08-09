@@ -44,14 +44,6 @@ const EXTENSION_PACKAGES = [
     tools: ["ask_question"],
   },
   {
-    commands: ["fast"],
-    dir: "codex-fast",
-    handlers: ["before_provider_request", "model_select", "session_start"],
-    name: "@clanker-stuff/codex-fast",
-    shortcuts: [],
-    tools: [],
-  },
-  {
     commands: [],
     dir: "codex-reverse-i-search",
     handlers: ["input", "session_shutdown", "session_start", "user_bash"],

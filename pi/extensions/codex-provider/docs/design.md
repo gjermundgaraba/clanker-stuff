@@ -1,6 +1,6 @@
 # Codex provider design
 
-This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.0 installation. It owns normal Responses requests, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
+This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.0 installation. It owns normal Responses requests, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
 
 The implementation follows the pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
 
@@ -9,7 +9,7 @@ The implementation follows the pinned [Codex and Pi source baseline](codex-basel
 | Responsibility | Implementation |
 | --- | --- |
 | Provider registration and lifecycle hooks | [`lifecycle.ts`](../lifecycle.ts) |
-| Request bodies, models, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
+| Request bodies, models, service tiers, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
 | Best-effort request and reliability observations | [`observability.ts`](../observability.ts) |
 | Strict persisted checkpoint format and active-branch resolution | [`checkpoint.ts`](../checkpoint.ts) |
 | Framing, retention, token estimates, and tool-history repair | [`replay.ts`](../replay.ts) |
@@ -19,6 +19,8 @@ The implementation follows the pinned [Codex and Pi source baseline](codex-basel
 The provider runtime is not optional. Loading the extension replaces Pi's effective `openai-codex` provider for the process. The extension must resolve last so no later context, header, payload, provider, or compaction registration can invalidate its checks; see [local deployment](local-deployment.md).
 
 One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, exact continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. Session shutdown closes transport state.
+
+Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service tier for supported models across normal requests and native compaction. Live model metadata is authoritative; the pinned fallback catalog covers offline startup. The lightning status appears only when the selected model supports fast mode.
 
 ## Status and observability
 

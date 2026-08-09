@@ -2516,11 +2516,25 @@ export const createCodexLifecycle = (
   pi: Parameters<ExtensionFactory>[0],
   observability: CodexObservability
 ) => {
+  let fastModeEnabled = false;
   const failurePolicy = parseCompactionFailurePolicy(
     process.env.CLANKER_CODEX_COMPACTION_FAILURE
   );
-  const providerRuntime = createCodexProviderRuntime(observability);
+  const providerRuntime = createCodexProviderRuntime(
+    observability,
+    () => fastModeEnabled
+  );
   const state = createLifecycleState();
+  const refreshFastStatus = (ctx: ExtensionContext): void => {
+    ctx.ui.setStatus(
+      "codex-fast",
+      fastModeEnabled &&
+        isSupportedLifecycleModel(ctx.model) &&
+        providerRuntime.supportsFastMode(ctx.model)
+        ? ctx.ui.theme.fg("warning", "⚡")
+        : undefined
+    );
+  };
 
   return {
     beforeAgentStart: (ctx: ExtensionContext): void => {
@@ -2656,7 +2670,8 @@ export const createCodexLifecycle = (
       );
     },
     modelSelect: (
-      event: Extract<ExtensionEvent, { type: "model_select" }>
+      event: Extract<ExtensionEvent, { type: "model_select" }>,
+      ctx: ExtensionContext
     ): void => {
       resetGeneration(state);
       state.transition =
@@ -2677,6 +2692,7 @@ export const createCodexLifecycle = (
         state.transition !== undefined ||
         event.source !== "restore" ||
         !isSupportedLifecycleModel(event.model);
+      refreshFastStatus(ctx);
     },
     provider: providerRuntime.provider,
     runCommand: async (
@@ -2747,6 +2763,8 @@ export const createCodexLifecycle = (
       state.transition = undefined;
       state.transitionRestored = false;
       resetGeneration(state);
+      fastModeEnabled = pi.getFlag("fast") === true;
+      refreshFastStatus(ctx);
       if (failurePolicy.invalid && !state.failurePolicyWarned) {
         state.failurePolicyWarned = true;
         ctx.ui.notify(
@@ -2754,6 +2772,14 @@ export const createCodexLifecycle = (
           "warning"
         );
       }
+    },
+    toggleFastMode: (ctx: ExtensionContext): Promise<void> => {
+      fastModeEnabled = !fastModeEnabled;
+      refreshFastStatus(ctx);
+      ctx.ui.notify(
+        `Codex fast mode ${fastModeEnabled ? "enabled" : "disabled"}`
+      );
+      return Promise.resolve();
     },
   };
 };

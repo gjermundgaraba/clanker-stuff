@@ -13,8 +13,19 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
     new CodexObservability(path.join(getAgentDir(), "codex-provider.sqlite"))
   );
 
+  pi.registerFlag("fast", {
+    default: false,
+    description: "Start with OpenAI Codex fast mode enabled",
+    type: "boolean",
+  });
+
   pi.registerProvider(codex.provider);
   registerCheckpointRenderer(pi);
+
+  pi.registerCommand("fast", {
+    description: "Toggle OpenAI Codex fast mode",
+    handler: (_args, ctx) => codex.toggleFastMode(ctx),
+  });
 
   pi.registerCommand("codex-provider", {
     description: "Show Codex provider and compaction status",
@@ -24,8 +35,8 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     codex.start(ctx);
   });
-  pi.on("model_select", (event) => {
-    codex.modelSelect(event);
+  pi.on("model_select", (event, ctx) => {
+    codex.modelSelect(event, ctx);
   });
   pi.on("before_agent_start", (_event, ctx) => {
     codex.beforeAgentStart(ctx);

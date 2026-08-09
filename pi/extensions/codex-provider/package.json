@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/codex-provider",
   "version": "0.1.0",
   "private": true,
-  "description": "Replaces Pi's OpenAI Codex provider with Codex-compatible requests, transport, compaction, and durable checkpoint replay.",
+  "description": "Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, transport, compaction, and durable checkpoint replay.",
   "keywords": [
     "pi-package"
   ],

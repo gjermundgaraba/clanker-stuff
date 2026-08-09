@@ -42,7 +42,7 @@ At this revision, model instructions live under `ModelMessages`, plugin instruct
 
 The local provider mirrors the parts of Codex that occur after Pi has finalized `Context`:
 
-1. Model-driven request fields, Codex headers, truthful canonical session/turn/window metadata, event parsing, usage, and service-tier pricing.
+1. Model-driven request fields, Codex headers, truthful canonical session/turn/window metadata, event parsing, usage, fast-mode selection, and service-tier pricing.
 2. Cached WebSocket transport, turn-state propagation, startup prewarm, exact delta continuation, protocol retries before visible output, and session-sticky SSE fallback.
 3. Remote V2 compaction on the active turn session, bounded private-stream retries, 64,000-token retained input, non-final agent retention, tool-history repair, model transitions, and explicit window generations.
 4. `/models` refresh with a five-minute freshness window, ETag revalidation, a provider-private metadata map, and a Pi-compatible projected model catalog.
