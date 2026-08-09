@@ -54,7 +54,7 @@ describe("mcp oauth", () => {
     });
     expect(
       JSON.parse(
-        await readFile(path.join(t.configDir, "mcp-oauth.json"), "utf-8")
+        await readFile(path.join(t.dataDir, "mcp-oauth.json"), "utf-8")
       )
     ).toMatchObject({
       servers: {
@@ -112,7 +112,7 @@ describe("mcp oauth", () => {
       });
       expect(
         JSON.parse(
-          await readFile(path.join(t.configDir, "mcp-oauth.json"), "utf-8")
+          await readFile(path.join(t.dataDir, "mcp-oauth.json"), "utf-8")
         )
       ).toMatchObject({
         servers: {
@@ -219,9 +219,9 @@ describe("mcp oauth", () => {
     });
 
     it("rejects malformed persisted OAuth state", async () => {
-      await mkdir(t.configDir, { recursive: true });
+      await mkdir(t.dataDir, { recursive: true });
       await writeFile(
-        path.join(t.configDir, "mcp-oauth.json"),
+        path.join(t.dataDir, "mcp-oauth.json"),
         '{"servers":null}\n',
         "utf-8"
       );
@@ -236,7 +236,7 @@ describe("mcp oauth", () => {
       );
 
       await writeFile(
-        path.join(t.configDir, "mcp-oauth.json"),
+        path.join(t.dataDir, "mcp-oauth.json"),
         '{"servers":{"remote":{"tokens":{"access_token":42}}}}\n',
         "utf-8"
       );

@@ -34,6 +34,13 @@ const DEPENDENCY_FIELDS = [
   "peerDependencies",
 ] as const;
 
+const SHARED_PACKAGES = [
+  {
+    dir: "extension-paths",
+    name: "@clanker-stuff/pi-extension-paths",
+  },
+] as const;
+
 const EXTENSION_PACKAGES = [
   {
     commands: [],
@@ -184,6 +191,11 @@ describe("packed extension packages", () => {
 
   it("installs and loads every packed npm artifact", async () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), "packed-extensions-smoke-"));
+    const sharedTarballs = SHARED_PACKAGES.map(({ dir, name }) => {
+      const tarball = packPackage(tempRoot ?? "", name, dir);
+      inspectTarball(name, tarball);
+      return { name, tarball };
+    });
     const tarballs = EXTENSION_PACKAGES.map(({ dir, name }) => {
       const tarball = packPackage(tempRoot ?? "", name, dir);
       inspectTarball(name, tarball);
@@ -200,7 +212,10 @@ describe("packed extension packages", () => {
               name,
               ROOT_DEV_DEPENDENCIES[name],
             ]),
-            ...tarballs.map(({ name, tarball }) => [name, `file:${tarball}`]),
+            ...[...sharedTarballs, ...tarballs].map(({ name, tarball }) => [
+              name,
+              `file:${tarball}`,
+            ]),
           ]),
           private: true,
         },

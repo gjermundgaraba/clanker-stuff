@@ -98,6 +98,33 @@ ask-question/
       render.test.ts
 ```
 
+## Runtime files
+
+Use `@clanker-stuff/pi-extension-paths` instead of constructing extension-owned paths directly. Pass the package directory name as the stable lowercase kebab-case extension ID.
+
+```ts
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+
+const paths = getExtensionStoragePaths("footer");
+```
+
+The package resolves this layout through Pi's `getAgentDir()` and `CONFIG_DIR_NAME` APIs:
+
+```text
+<agent-dir>/
+  <id>.json              # global config
+  <id>/                  # durable data
+    cache/  runs/  logs/
+
+<project>/<config-dir>/  # normally .pi
+  <id>.json              # trusted project config
+  <id>/                  # intentionally project-owned data
+```
+
+Missing config reads must not create files. Read project config only after Pi trusts the project. Keep session-scoped state in Pi session entries, disposable work under the OS temporary directory, and bundled assets relative to `import.meta.url`. Do not write runtime files into `extensions/`, package source, or installation directories.
+
+Persistent logs are opt-in. Put run-specific JSONL beside its run under `runs/`; reserve `logs/` for continuous audit data with documented retention and secret redaction. Custom tools that write files must follow the repository-wide `withFileMutationQueue()` rule.
+
 ## Tests
 
 Tests mirror the source path and responsibility. Prefer real modules over mocked collaborators; mock only impractical dependencies such as external processes, network, or wall-clock time. `tests/index.test.ts` covers registration metadata, delegation, and lifecycle wiring. Omit it when another test loads the real entrypoint and exercises the registered surface end to end; do not keep a mock-only mirror of coverage that real usage already provides. Unit tests cover the matching source module. Use `*.integration.test.ts` only for real `AgentSession` behavior and `*.smoke.test.ts` only for discovery, packaging, or runtime loading.
@@ -107,6 +134,8 @@ Do not create package-wide catch-all tests such as `mcp.test.ts`. Put shared set
 ## Package and repository boundaries
 
 Every directory under `pi/extensions/` must be a workspace package with `package.json`, `README.md`, and `LICENSE`. Its package export and `pi.extensions` entry both point to `./index.ts`. Expose another package path only for an intentional shared protocol; internal test seams are not public API.
+
+Shared runtime libraries belong under `pi/packages/` and must be real workspace dependencies. Add one only when at least two published extensions need the same behavior; do not create generic common or utilities packages.
 
 `package.json` `files` must include every runtime source file and asset plus `README.md` and `LICENSE`. Do not publish tests, research, audits, or development scripts unless they are required at runtime.
 

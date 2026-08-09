@@ -142,7 +142,7 @@ Invalid messages preserve the previous valid snapshot. The host stores at most 5
 The strict global file is:
 
 ```ts
-path.join(getAgentDir(), "footer.json");
+getExtensionStoragePaths("footer").configFile;
 ```
 
 ```ts

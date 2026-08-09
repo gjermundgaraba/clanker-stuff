@@ -68,12 +68,17 @@ export const createCustomStub = (): ExtensionCommandContext["ui"]["custom"] =>
 // theme singleton, which pi initializes at startup but tests do not.
 initTheme("dark");
 
+const writeJson = async (filePath: string, value: unknown) => {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(value)}\n`, "utf-8");
+};
+
 // Registers beforeEach/afterEach hooks for the calling test file: isolated
 // config directories, host shutdown, and HTTP fixture cleanup.
 export const setupMcpTest = () => {
   const state = {
-    configDir: "",
     configPath: "",
+    dataDir: "",
     homeDir: "",
     hosts: [] as ReturnType<typeof createExtensionHostBase>[],
     httpFixtures: [] as { close: () => Promise<void> }[],
@@ -87,10 +92,11 @@ export const setupMcpTest = () => {
     state.homeDir = path.join(tmpdir(), `pi-mcp-extension-${suffix}`);
     state.projectDir = path.join(tmpdir(), `pi-mcp-project-${suffix}`);
     state.previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = path.join(state.homeDir, ".pi", "agent");
-    state.configDir = path.join(state.homeDir, ".pi", "agent", "extensions");
-    state.configPath = path.join(state.configDir, "mcp.json");
-    state.localConfigPath = path.join(state.projectDir, ".mcp.json");
+    const agentDir = path.join(state.homeDir, ".pi", "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    state.configPath = path.join(agentDir, "mcp.json");
+    state.dataDir = path.join(agentDir, "mcp");
+    state.localConfigPath = path.join(state.projectDir, ".pi", "mcp.json");
     state.hosts = [];
     state.httpFixtures = [];
   });
@@ -122,17 +128,11 @@ export const setupMcpTest = () => {
   };
 
   const writeConfig = async (value: unknown) => {
-    await mkdir(state.configDir, { recursive: true });
-    await writeFile(state.configPath, `${JSON.stringify(value)}\n`, "utf-8");
+    await writeJson(state.configPath, value);
   };
 
   const writeLocalConfig = async (value: unknown) => {
-    await mkdir(state.projectDir, { recursive: true });
-    await writeFile(
-      state.localConfigPath,
-      `${JSON.stringify(value)}\n`,
-      "utf-8"
-    );
+    await writeJson(state.localConfigPath, value);
   };
 
   const loadManager = async (
@@ -156,13 +156,13 @@ export const setupMcpTest = () => {
   };
 
   return {
-    get configDir() {
-      return state.configDir;
-    },
     get configPath() {
       return state.configPath;
     },
     createExtensionHost,
+    get dataDir() {
+      return state.dataDir;
+    },
     loadManager,
     get localConfigPath() {
       return state.localConfigPath;

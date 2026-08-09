@@ -1,9 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import {
   copyToClipboard,
-  getAgentDir,
   withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
 import type {
@@ -19,7 +19,8 @@ interface StashStore {
   entries: Record<string, string[]>;
 }
 
-const getStorePath = () => path.resolve(getAgentDir(), "stash", "state.json");
+const getStorePath = () =>
+  path.join(getExtensionStoragePaths("stash").dataDir, "state.json");
 
 const emptyStore = (): StashStore => ({ entries: {} });
 

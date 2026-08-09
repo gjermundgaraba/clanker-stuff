@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 
 import { codeModeHostBinaryName, HOST_RELEASE } from "./host-assets.js";
 import { installCodeModeHost } from "./install-host.js";
@@ -11,9 +11,7 @@ export const codeModeHostBinaryPath = (
   arch = process.arch
 ) =>
   path.join(
-    getAgentDir(),
-    "cache",
-    "clanker-tools",
+    getExtensionStoragePaths("tools").cacheDir,
     "code-mode",
     HOST_RELEASE,
     `${platform}-${arch}`,

@@ -2,10 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  getAgentDir,
-  withFileMutationQueue,
-} from "@earendil-works/pi-coding-agent";
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -173,7 +171,7 @@ const errorCode = (error: unknown): string | undefined =>
     : undefined;
 
 export const getFooterConfigPath = (): string =>
-  path.join(getAgentDir(), "footer.json");
+  getExtensionStoragePaths("footer").configFile;
 
 export const createFooterConfigStore = (
   configPath = getFooterConfigPath()

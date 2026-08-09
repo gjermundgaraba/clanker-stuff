@@ -1,5 +1,6 @@
 packages:
   - "."
+  - "pi/packages/*"
   - "pi/extensions/*"
 
 overrides:

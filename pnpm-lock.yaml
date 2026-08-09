@@ -122,6 +122,9 @@ importers:
 
   pi/extensions/footer:
     dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../packages/extension-paths
       '@earendil-works/pi-ai':
         specifier: 0.84.0
         version: 0.84.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -141,6 +144,9 @@ importers:
 
   pi/extensions/mcp:
     dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../packages/extension-paths
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.0
         version: 0.84.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -208,6 +214,9 @@ importers:
 
   pi/extensions/stash:
     dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../packages/extension-paths
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.0
         version: 0.84.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -240,6 +249,9 @@ importers:
 
   pi/extensions/tools:
     dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../packages/extension-paths
       '@earendil-works/pi-ai':
         specifier: 0.84.0
         version: 0.84.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -290,6 +302,16 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      vitest:
+        specifier: '*'
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+
+  pi/packages/extension-paths:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.84.0
+        version: 0.84.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+    devDependencies:
       vitest:
         specifier: '*'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))

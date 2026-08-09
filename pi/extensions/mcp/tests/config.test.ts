@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -91,7 +92,7 @@ describe("MCP config schema validation", () => {
 describe(loadMcpConfig, () => {
   const t = setupMcpTest();
 
-  it("loads a project-local .mcp.json when global config is missing", async () => {
+  it("loads project-local .pi/mcp.json when global config is missing", async () => {
     await t.writeLocalConfig({
       mcpServers: {
         project: {
@@ -169,7 +170,7 @@ describe(loadMcpConfig, () => {
   });
 
   it("rejects invalid project-local config", async () => {
-    await mkdir(t.projectDir, { recursive: true });
+    await mkdir(path.dirname(t.localConfigPath), { recursive: true });
     await writeFile(
       t.localConfigPath,
       JSON.stringify({ mcpServers: { bad: { type: "stdio" } } }),
@@ -178,7 +179,7 @@ describe(loadMcpConfig, () => {
 
     await expect(
       loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })
-    ).rejects.toThrow(/invalid config .*\.mcp\.json/u);
+    ).rejects.toThrow(/invalid config .*mcp\.json/u);
   });
 
   it("expands Claude-style environment variables", async () => {

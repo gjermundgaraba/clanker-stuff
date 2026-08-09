@@ -11,15 +11,16 @@ const CHECK_PACKAGE_READINESS_PATH = path.join(
 );
 const tempDirs: string[] = [];
 
-const createFixture = (valid: boolean) => {
+const createFixture = (valid: boolean, extension = true) => {
   const root = mkdtempSync(path.join(tmpdir(), "package-readiness-test-"));
   tempDirs.push(root);
-  const packageDir = path.join(root, "sample");
-  mkdirSync(packageDir);
+  const packagePath = extension ? "pi/extensions/sample" : "pi/packages/sample";
+  const packageDir = path.join(root, packagePath);
+  mkdirSync(packageDir, { recursive: true });
 
   writeFileSync(
     path.join(root, "pnpm-workspace.yaml"),
-    'packages:\n  - "."\n  - "sample"\n'
+    `packages:\n  - "."\n  - "${packagePath}"\n`
   );
   writeFileSync(
     path.join(root, "package.json"),
@@ -43,9 +44,13 @@ const createFixture = (valid: boolean) => {
             description: "Adds a sample extension.",
             exports: "./index.ts",
             files: ["index.ts", "README.md", "LICENSE"],
-            keywords: ["pi-package"],
             license: "MIT",
-            pi: { extensions: ["./index.ts"] },
+            ...(extension
+              ? {
+                  keywords: ["pi-package"],
+                  pi: { extensions: ["./index.ts"] },
+                }
+              : {}),
           }
         : {}),
     })
@@ -92,5 +97,12 @@ describe("package readiness", () => {
     ]) {
       expect(invalid.stderr).toContain(message);
     }
+  });
+
+  it("allows shared library packages without extension metadata", () => {
+    expect(validateFixture(createFixture(true, false))).toMatchObject({
+      status: 0,
+      stderr: "",
+    });
   });
 });

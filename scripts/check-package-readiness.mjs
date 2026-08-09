@@ -11,6 +11,7 @@ const PI_PROVIDED = new Set([
   "@earendil-works/pi-tui",
   "typebox",
 ]);
+const SHARED_RUNTIME_PACKAGES = new Set(["@clanker-stuff/pi-extension-paths"]);
 const EXPECTED_PI_PROVIDED_VERSION = "*";
 
 const ROOT_PACKAGE_NAME = "clanker-stuff";
@@ -133,19 +134,25 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
         errors.push(`${label}: files entry does not exist: ${entry}`);
     }
   }
-  if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {
-    errors.push(`${label}: extension package must include keyword pi-package`);
-  }
-  if (
-    !pkg.pi ||
-    !Array.isArray(pkg.pi.extensions) ||
-    pkg.pi.extensions.length === 0
-  ) {
-    errors.push(`${label}: extension package must declare pi.extensions`);
-  } else {
-    for (const entry of pkg.pi.extensions) {
-      if (!pathExistsForEntry(dir, entry))
-        errors.push(`${label}: pi.extensions entry does not exist: ${entry}`);
+  const isExtensionPackage = dir.startsWith("pi/extensions/");
+  if (isExtensionPackage) {
+    if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {
+      errors.push(
+        `${label}: extension package must include keyword pi-package`
+      );
+    }
+    if (
+      !pkg.pi ||
+      !Array.isArray(pkg.pi.extensions) ||
+      pkg.pi.extensions.length === 0
+    ) {
+      errors.push(`${label}: extension package must declare pi.extensions`);
+    } else {
+      for (const entry of pkg.pi.extensions) {
+        if (!pathExistsForEntry(dir, entry)) {
+          errors.push(`${label}: pi.extensions entry does not exist: ${entry}`);
+        }
+      }
     }
   }
 
@@ -175,10 +182,11 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   }
 
   for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
-    if (name.startsWith("@clanker-stuff/")) {
-      errors.push(
-        `${label}: published extensions must be standalone; remove ${name}`
-      );
+    if (
+      name.startsWith("@clanker-stuff/") &&
+      !SHARED_RUNTIME_PACKAGES.has(name)
+    ) {
+      errors.push(`${label}: unapproved shared runtime dependency ${name}`);
     }
     if (PI_PROVIDED.has(name)) {
       errors.push(

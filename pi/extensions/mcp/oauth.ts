@@ -4,10 +4,8 @@ import { mkdir, readFile, rename, writeFile, chmod } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 
-import {
-  getAgentDir,
-  withFileMutationQueue,
-} from "@earendil-works/pi-coding-agent";
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
@@ -71,7 +69,7 @@ type StoredServerOAuthState = z.infer<typeof StoredServerOAuthStateSchema>;
 type StoredOAuthState = z.infer<typeof StoredOAuthStateSchema>;
 
 const getOAuthStatePath = (): string =>
-  path.join(getAgentDir(), "extensions", OAUTH_STATE_FILE);
+  path.join(getExtensionStoragePaths("mcp").dataDir, OAUTH_STATE_FILE);
 
 const parseStoredOAuthState = (value: unknown): StoredOAuthState => {
   const result = StoredOAuthStateSchema.safeParse(value);

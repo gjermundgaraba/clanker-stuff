@@ -10,14 +10,9 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  getAgentDir,
-  withFileMutationQueue,
-} from "@earendil-works/pi-coding-agent";
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { z } from "zod/v4";
-
-const GLOBAL_CONFIG_FILE = "mcp.json";
-const LOCAL_CONFIG_FILE = ".mcp.json";
 
 const OAuthSchema = z
   .object({
@@ -84,13 +79,14 @@ const getConfigPath = (
   scope: McpConfigScope,
   options: LoadMcpConfigOptions
 ): string => {
+  const paths = getExtensionStoragePaths("mcp");
   if (scope === "global") {
-    return path.join(getAgentDir(), "extensions", GLOBAL_CONFIG_FILE);
+    return paths.configFile;
   }
   if (options.projectTrusted !== true) {
     throw new Error("project-local MCP config requires a trusted project");
   }
-  return path.resolve(options.cwd ?? process.cwd(), LOCAL_CONFIG_FILE);
+  return paths.project(options.cwd ?? process.cwd()).configFile;
 };
 
 const mergeMcpConfig = (
@@ -128,8 +124,7 @@ const expandEnv = (value: string): string => {
 };
 
 const readMcpConfigIfExists = async (
-  configPath: string,
-  label: string
+  configPath: string
 ): Promise<McpConfig | undefined> => {
   let configText: string;
   try {
@@ -150,21 +145,16 @@ const readMcpConfigIfExists = async (
           : issue.message
       )
       .join(", ");
-    throw new Error(`invalid config ${label}: ${errors}`);
+    throw new Error(`invalid config ${configPath}: ${errors}`);
   }
   return parsed.data;
 };
 
-const readScopedMcpConfig = async (
+const readScopedMcpConfig = (
   scope: McpConfigScope,
   options: LoadMcpConfigOptions
-): Promise<McpConfig | undefined> => {
-  const configPath = getConfigPath(scope, options);
-  return await readMcpConfigIfExists(
-    configPath,
-    scope === "global" ? GLOBAL_CONFIG_FILE : configPath
-  );
-};
+): Promise<McpConfig | undefined> =>
+  readMcpConfigIfExists(getConfigPath(scope, options));
 
 const getWriteMode = async (
   configPath: string,

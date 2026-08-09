@@ -2,8 +2,10 @@
 
 The MCP extension reads server configuration from:
 
-1. Global config: `~/.pi/agent/extensions/mcp.json`
-2. Project-local config: `<current-cwd>/.mcp.json`
+1. Global config: `<agent-dir>/mcp.json`, normally `~/.pi/agent/mcp.json`
+2. Project-local config: `<current-cwd>/.pi/mcp.json`
+
+The extension honors Pi's configured agent and project-directory names.
 
 Both files use the same shape:
 
@@ -21,7 +23,7 @@ Both files use the same shape:
 
 When both files exist, `mcpServers` is merged shallowly. Project-local servers override global servers with the same name.
 
-Project-local configuration is loaded only after pi marks the current project as trusted. Lookup is limited to `.mcp.json` directly under the current pi working directory; parent directories are not searched.
+Project-local configuration is loaded only after pi marks the current project as trusted. Lookup is limited to `.pi/mcp.json` under the current pi working directory; parent directories are not searched.
 
 ## MCP manager
 
@@ -36,6 +38,6 @@ The name `mcp-manager` is reserved and cannot be added. A manually configured co
 
 ## Security note
 
-Project-local `.mcp.json` files are executable configuration. A server entry can define `stdio` commands that run local programs, and HTTP servers can receive context and tool arguments sent by the agent.
+Project-local `.pi/mcp.json` files are executable configuration. A server entry can define `stdio` commands that run local programs, and HTTP servers can receive context and tool arguments sent by the agent.
 
-Pi's project trust gate prevents this extension from reading or modifying `.mcp.json` in an untrusted project. Review the file before trusting an unfamiliar repository. Manager mutations preserve `${VAR}` placeholders and use atomic writes, but tool arguments are still stored in the pi session; prefer environment placeholders over literal secrets. Previously loaded servers reconnect without opening a browser; run `/mcp` explicitly when interactive OAuth is required.
+Pi's project trust gate prevents this extension from reading or modifying `.pi/mcp.json` in an untrusted project. Review the file before trusting an unfamiliar repository. Manager mutations preserve `${VAR}` placeholders and use atomic writes, but tool arguments are still stored in the pi session; prefer environment placeholders over literal secrets. Previously loaded servers reconnect without opening a browser; run `/mcp` explicitly when interactive OAuth is required.
