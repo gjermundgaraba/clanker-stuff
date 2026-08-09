@@ -10,4 +10,4 @@ pi install npm:@clanker-stuff/codex-skills
 
 ## Usage
 
-Type `$` to complete a loaded skill name; `decorated-editor` highlights valid mentions, and submission injects the complete `SKILL.md`. Expand the summary (`Ctrl+O`) to render each skill body as Markdown.
+Type `$` to complete and highlight a loaded skill name; submission injects the complete `SKILL.md`. Expand the summary (`Ctrl+O`) to render each skill body as Markdown.

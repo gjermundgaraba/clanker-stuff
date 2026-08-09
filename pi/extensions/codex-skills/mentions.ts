@@ -13,12 +13,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Box, fuzzyFilter, Markdown, Text } from "@earendil-works/pi-tui";
 
+import { installSkillMentionEditor } from "./editor.js";
+
 const SKILL_MENTION = /\$(?<name>[A-Za-z0-9_:-]+)/gu;
 const SKILL_COMPLETION = /(?:^|[ \t])\$(?<query>[A-Za-z0-9_:-]*)$/u;
 const SKILL_NAME = /^[A-Za-z0-9_:-]+$/u;
 const DEFINITE_SHELL_PARAMETER = /^(?:\d+|[-_])$/u;
 const SKILL_COMMAND_PREFIX = "skill:";
-const REGISTER_DECORATION_EVENT = "decorated-editor:register";
 const COMMON_ENV_VARS = new Set([
   "HOME",
   "LANG",
@@ -84,16 +85,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
 
   const install = (ctx: ExtensionContext): void => {
     const skillNames = getSkills().map((skill) => skill.name);
-    if (skillNames.length > 0) {
-      pi.events.emit(REGISTER_DECORATION_EVENT, {
-        color: "accent",
-        id: "codex-skills",
-        pattern: new RegExp(
-          `\\$(?:${skillNames.join("|")})(?![A-Za-z0-9_:-])`,
-          "gu"
-        ),
-      });
-    }
+    installSkillMentionEditor(ctx, skillNames);
 
     ctx.ui.addAutocompleteProvider((current) => ({
       applyCompletion: current.applyCompletion.bind(current),

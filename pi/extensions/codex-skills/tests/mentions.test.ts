@@ -224,31 +224,4 @@ describe("skill mentions", () => {
     });
     expect(shellSuggestions).toBeNull();
   });
-
-  it("decorates exact loaded skill mentions", async () => {
-    const host = createSkillHost();
-    const decorations: {
-      color: string;
-      id: string;
-      pattern: RegExp;
-    }[] = [];
-    host.events.on("decorated-editor:register", (data) => {
-      decorations.push(data as { color: string; id: string; pattern: RegExp });
-    });
-    await host.emitSessionStart();
-
-    expect(decorations).toHaveLength(1);
-    expect(decorations[0]).toMatchObject({
-      color: "accent",
-      id: "codex-skills",
-      pattern: expect.any(RegExp),
-    });
-    const [decoration] = decorations;
-    expect([
-      "Use $alpha".match(decoration.pattern),
-      "Use $plugin:deploy".match(decoration.pattern),
-      "Use $alphabet".match(decoration.pattern),
-      "Use $PATH".match(decoration.pattern),
-    ]).toStrictEqual([["$alpha"], ["$plugin:deploy"], null, null]);
-  });
 });

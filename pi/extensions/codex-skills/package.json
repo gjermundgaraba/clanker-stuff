@@ -17,6 +17,7 @@
     "directory": "pi/extensions/codex-skills"
   },
   "files": [
+    "editor.ts",
     "index.ts",
     "mentions.ts",
     "README.md",

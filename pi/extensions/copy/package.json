@@ -1,12 +1,12 @@
 {
-  "name": "@clanker-stuff/decorated-editor",
+  "name": "@clanker-stuff/copy",
   "version": "0.1.0",
   "private": false,
-  "description": "Provides a shared custom editor for inline prompt decorations from Clanker extensions.",
+  "description": "Overrides /copy to copy the last assistant message and report the result as a notification.",
   "keywords": [
     "pi-package"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/decorated-editor#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/copy#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
   },
@@ -14,10 +14,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-    "directory": "pi/extensions/decorated-editor"
+    "directory": "pi/extensions/copy"
   },
   "files": [
-    "editor.ts",
+    "copy.ts",
     "index.ts",
     "README.md",
     "LICENSE"
