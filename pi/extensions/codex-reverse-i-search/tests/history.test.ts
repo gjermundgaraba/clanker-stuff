@@ -40,12 +40,8 @@ describe("prompt history", () => {
     ];
 
     expect(normalizeHistory(historyFromEntries(entries))).toStrictEqual([
-      {
-        folded: "build release",
-        text: "Build Release",
-        timestamp: 300,
-      },
-      { folded: "!!pnpm test", text: "!!pnpm test", timestamp: 200 },
+      { text: "Build Release", timestamp: 300 },
+      { text: "!!pnpm test", timestamp: 200 },
     ]);
   });
 
@@ -60,18 +56,14 @@ describe("prompt history", () => {
     });
 
     saveHistoryBatch(database, [
-      { folded: "first", text: "first", timestamp: 100 },
-      { folded: "second", text: "second", timestamp: 200 },
+      { text: "first", timestamp: 100 },
+      { text: "second", timestamp: 200 },
     ]);
-    saveHistoryItem(database, {
-      folded: "first",
-      text: "first",
-      timestamp: 300,
-    });
+    saveHistoryItem(database, { text: "first", timestamp: 300 });
 
     expect(loadHistory(database)).toStrictEqual([
-      { folded: "first", text: "first", timestamp: 300 },
-      { folded: "second", text: "second", timestamp: 200 },
+      { text: "first", timestamp: 300 },
+      { text: "second", timestamp: 200 },
     ]);
     expect(getDataVersion(database)).toBeTypeOf("number");
   });

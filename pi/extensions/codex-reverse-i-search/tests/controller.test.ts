@@ -104,33 +104,69 @@ describe("reverse-search controller", () => {
     expect(ctx.ui.getEditorText()).toBe("!!pnpm test");
   });
 
-  it("loads prompts persisted by another session", async () => {
+  it("deduplicates repeated prompts and moves them to the front", async () => {
+    const { ctx, host } = await createHarness();
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(200)
+      .mockReturnValueOnce(300);
+
+    await host.emitInput(
+      { source: "interactive", text: "duplicate alpha", type: "input" },
+      ctx
+    );
+    await host.emitInput(
+      { source: "interactive", text: "other alpha", type: "input" },
+      ctx
+    );
+    await host.emitInput(
+      { source: "interactive", text: "duplicate alpha", type: "input" },
+      ctx
+    );
+
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("alpha");
+    expect(ctx.ui.getEditorText()).toBe("duplicate alpha");
+    host.terminalInput("\u0012");
+    expect(ctx.ui.getEditorText()).toBe("other alpha");
+    host.terminalInput("\u0012");
+    expect(ctx.ui.getEditorText()).toBe("other alpha");
+  });
+
+  it("searches content near the end of a long prompt persisted by another session", async () => {
+    const prompt = `archived-${"x".repeat(4096)}-tail-marker`;
     const first = await createHarness();
     await first.host.emitInput(
-      { source: "interactive", text: "archived prompt", type: "input" },
+      { source: "interactive", text: prompt, type: "input" },
       first.ctx
     );
     await first.host.emitSessionShutdown(first.ctx);
 
     const second = await createHarness();
     await second.host.runShortcut("ctrl+r", second.ctx);
-    second.host.terminalInput("archived");
+    second.host.terminalInput("tail-marker");
 
-    expect(second.ctx.ui.getEditorText()).toBe("archived prompt");
+    expect(second.ctx.ui.getEditorText()).toBe(prompt);
   });
 
-  it("reloads history written by another live process", async () => {
+  it("does not mask an external write when recording local history", async () => {
     const first = await createHarness();
     const second = await createHarness();
 
+    await second.host.runShortcut("ctrl+r", second.ctx);
+    second.host.terminalInput("\u001B");
     await first.host.emitInput(
-      { source: "interactive", text: "concurrent prompt", type: "input" },
+      { source: "interactive", text: "external before local", type: "input" },
       first.ctx
     );
-    await second.host.runShortcut("ctrl+r", second.ctx);
-    second.host.terminalInput("concurrent");
+    await second.host.emitInput(
+      { source: "interactive", text: "second local prompt", type: "input" },
+      second.ctx
+    );
 
-    expect(second.ctx.ui.getEditorText()).toBe("concurrent prompt");
+    await second.host.runShortcut("ctrl+r", second.ctx);
+    second.host.terminalInput("external before local");
+    expect(second.ctx.ui.getEditorText()).toBe("external before local");
   });
 
   it("imports existing session files repeatedly and skips malformed lines", async () => {

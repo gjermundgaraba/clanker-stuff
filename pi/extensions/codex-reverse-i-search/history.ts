@@ -16,7 +16,6 @@ const UPSERT_HISTORY_SQL = `
 `;
 
 export interface HistoryItem {
-  folded: string;
   text: string;
   timestamp: number;
 }
@@ -51,7 +50,6 @@ const textFromEntry = (entry: SessionEntry): HistoryItem | undefined => {
   }
 
   return {
-    folded: trimmed.toLowerCase(),
     text: trimmed,
     timestamp,
   };
@@ -155,7 +153,6 @@ export const loadHistory = (database: DatabaseSync): HistoryItem[] =>
         throw new TypeError("SQLite returned an invalid history row");
       }
       return {
-        folded: row.text.toLowerCase(),
         text: row.text,
         timestamp: row.last_used_at,
       };

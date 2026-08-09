@@ -75,8 +75,9 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
       session.filteredQuery.length > 0 &&
       query.startsWith(session.filteredQuery);
     const candidates = canNarrow ? session.matches : getHistory();
-    session.matches = query
-      ? candidates.filter(({ folded }) => folded.includes(query))
+    const pattern = query ? new RegExp(RegExp.escape(query), "iu") : undefined;
+    session.matches = pattern
+      ? candidates.filter(({ text }) => pattern.test(text))
       : [];
     session.filteredQuery = query;
     session.selected = 0;

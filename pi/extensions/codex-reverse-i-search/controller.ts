@@ -21,7 +21,7 @@ import { createSearch, WIDGET_KEY } from "./search.js";
 
 export const createReverseSearch = () => {
   let database: DatabaseSync | undefined;
-  let databaseVersion = 0;
+  let databaseVersion: number | undefined;
   let history: HistoryItem[] = [];
   let importPromise: Promise<number> | undefined;
   let persistenceWarningShown = false;
@@ -63,7 +63,6 @@ export const createReverseSearch = () => {
     }
 
     const item = {
-      folded: trimmed.toLowerCase(),
       text: trimmed,
       timestamp: Date.now(),
     };
@@ -139,9 +138,6 @@ export const createReverseSearch = () => {
     try {
       database = openHistoryDatabase();
       saveHistoryBatch(database, history);
-      const nextVersion = getDataVersion(database);
-      history = loadHistory(database);
-      databaseVersion = nextVersion;
     } catch (error) {
       try {
         database?.close();

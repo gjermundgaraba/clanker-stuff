@@ -7,7 +7,6 @@ import { createSearch } from "../search.js";
 /* oxlint-disable vitest/max-expects -- interaction tests assert each state transition directly */
 
 const item = (text: string, timestamp: number): HistoryItem => ({
-  folded: text.toLowerCase(),
   text,
   timestamp,
 });
@@ -87,6 +86,16 @@ describe("reverse search", () => {
 
     host.terminalInput("\u001B[B");
     expect(ctx.ui.getEditorText()).toBe("Build Release");
+  });
+
+  it("treats regex syntax as literal search text", () => {
+    const { begin, ctx, host } = createHarness([
+      item("find [literal].* text", 100),
+    ]);
+
+    begin();
+    host.terminalInput("[literal].*");
+    expect(ctx.ui.getEditorText()).toBe("find [literal].* text");
   });
 
   it("broadens incremental results after backspace", () => {
