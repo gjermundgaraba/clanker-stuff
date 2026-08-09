@@ -1,10 +1,17 @@
+import path from "node:path";
+
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createCodexLifecycle } from "./lifecycle.js";
+import { CodexObservability } from "./observability.js";
 import { registerCheckpointRenderer } from "./renderer.js";
 
 export default function codexProviderExtension(pi: ExtensionAPI): void {
-  const codex = createCodexLifecycle(pi);
+  const codex = createCodexLifecycle(
+    pi,
+    new CodexObservability(path.join(getAgentDir(), "codex-provider.sqlite"))
+  );
 
   pi.registerProvider(codex.provider);
   registerCheckpointRenderer(pi);

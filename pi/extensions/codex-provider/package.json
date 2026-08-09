@@ -20,6 +20,7 @@
     "checkpoint.ts",
     "index.ts",
     "lifecycle.ts",
+    "observability.ts",
     "provider.ts",
     "renderer.ts",
     "replay.ts",

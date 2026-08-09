@@ -32,7 +32,6 @@ import { convertResponsesMessages } from "#pi-responses";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
-  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
   CHECKPOINT_PROTOCOL,
   CHECKPOINT_SCHEMA,
   REMOTE_USER_IMAGE_PLACEHOLDER,
@@ -52,9 +51,9 @@ import type {
   CheckpointAgentMessageItem,
   RealUserInputItem,
 } from "./checkpoint.js";
+import type { CodexObservability } from "./observability.js";
 import {
   ALLOWED_TOOL_CALL_PROVIDERS,
-  CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
   createCodexProviderRuntime,
   isCodexCompactionCurrentModelFallbackError,
 } from "./provider.js";
@@ -797,23 +796,6 @@ const setLifecycleStatus = (
   });
 };
 
-const hasTransportFallbackNotification = (message: unknown) =>
-  isRecord(message) &&
-  message.role === "assistant" &&
-  Array.isArray(message.diagnostics) &&
-  message.diagnostics.some((diagnostic) => {
-    if (!isRecord(diagnostic) || !isRecord(diagnostic.details)) {
-      return false;
-    }
-    const { configuredTransport } = diagnostic.details;
-    return (
-      diagnostic.type === CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE &&
-      (configuredTransport === "auto" ||
-        configuredTransport === "websocket" ||
-        configuredTransport === "websocket-cached")
-    );
-  });
-
 const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
   const operation = state.inFlight;
   if (operation?.kind !== "lifecycle") {
@@ -1400,8 +1382,6 @@ export const buildContextFrameDiagnostic = (options: {
       hash: hashJsonClone(options.framedSegment),
       messageCount: options.framedSegment.length,
     },
-    kind: "context-frame",
-    version: 1,
   } as const;
 };
 
@@ -1655,7 +1635,8 @@ const runContextHook = (
   state: LifecycleState,
   event: ContextEvent,
   ctx: ExtensionContext,
-  providerRuntime: CodexProviderRuntime
+  providerRuntime: CodexProviderRuntime,
+  observability: CodexObservability
 ): { readonly messages: ContextEvent["messages"] } | undefined => {
   state.candidate = undefined;
   state.frame = undefined;
@@ -1694,20 +1675,21 @@ const runContextHook = (
       let diagnosticRecorded = false;
       if (!state.notified.has(notificationKey)) {
         try {
-          pi.appendEntry(
-            CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
-            buildContextFrameDiagnostic({
-              baseline,
-              boundaryEntryId: activeCheckpoint.boundaryEntryId,
-              branchSha256: branchSha256(branch),
-              eventMessages: event.messages,
-              frameResult: framed.kind,
-              framedSegment,
-            })
+          const diagnostic = buildContextFrameDiagnostic({
+            baseline,
+            boundaryEntryId: activeCheckpoint.boundaryEntryId,
+            branchSha256: branchSha256(branch),
+            eventMessages: event.messages,
+            frameResult: framed.kind,
+            framedSegment,
+          });
+          diagnosticRecorded = observability.record(
+            ctx.sessionManager.getSessionId(),
+            "context-frame-failure",
+            diagnostic
           );
-          diagnosticRecorded = true;
         } catch {
-          // The request still fails closed if diagnostic persistence fails.
+          // The request still fails closed if diagnostic construction fails.
         }
       }
       abortUnsafeRequest(
@@ -1716,7 +1698,7 @@ const runContextHook = (
         notificationKey,
         `OpenAI checkpoint replay was blocked because request context could not be framed safely.${
           diagnosticRecorded
-            ? " A redacted diagnostic was saved with the session."
+            ? " A diagnostic was saved to the Codex provider database."
             : ""
         }`
       );
@@ -2530,11 +2512,14 @@ const restoreTransition = (state: LifecycleState, ctx: ExtensionContext) => {
   );
 };
 
-export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
+export const createCodexLifecycle = (
+  pi: Parameters<ExtensionFactory>[0],
+  observability: CodexObservability
+) => {
   const failurePolicy = parseCompactionFailurePolicy(
     process.env.CLANKER_CODEX_COMPACTION_FAILURE
   );
-  const providerRuntime = createCodexProviderRuntime();
+  const providerRuntime = createCodexProviderRuntime(observability);
   const state = createLifecycleState();
 
   return {
@@ -2627,7 +2612,14 @@ export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
       ctx: ExtensionContext
     ): ReturnType<typeof runContextHook> => {
       try {
-        return runContextHook(pi, state, event, ctx, providerRuntime);
+        return runContextHook(
+          pi,
+          state,
+          event,
+          ctx,
+          providerRuntime,
+          observability
+        );
       } catch {
         state.candidate = undefined;
         state.frame = undefined;
@@ -2641,12 +2633,23 @@ export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
       }
     },
     messageEnd: (event: MessageEndEvent, ctx: ExtensionContext): void => {
-      if (!hasTransportFallbackNotification(event.message)) {
+      const { message } = event;
+      if (
+        message.role !== "assistant" ||
+        message.provider !== "openai-codex" ||
+        message.api !== "openai-codex-responses" ||
+        message.stopReason === "aborted" ||
+        message.stopReason === "error" ||
+        message.stopReason === "pending" ||
+        !providerRuntime.consumeTransportFallback(
+          ctx.sessionManager.getSessionId()
+        )
+      ) {
         return;
       }
       notifyOnce(
         state,
-        CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+        "transport-fallback",
         ctx,
         "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
         "warning"
@@ -2691,6 +2694,8 @@ export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
         ? providerRuntime.getModelMetadata(supportedModel.id)
         : undefined;
       const contextUsage = ctx.getContextUsage();
+      const sessionId = ctx.sessionManager.getSessionId();
+      const observations = observability.list(sessionId);
       ctx.ui.notify(
         formatCodexProviderStatus({
           branch: ctx.sessionManager.getBranch(),
@@ -2709,7 +2714,10 @@ export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
             reasoning: ctx.thinkingLevel,
           },
           entries: ctx.sessionManager.getEntries(),
-          sessionId: ctx.sessionManager.getSessionId(),
+          observabilityError: observability.lastError,
+          observabilityPath: observability.path,
+          observations,
+          sessionId,
         }),
         "info"
       );
@@ -2719,6 +2727,7 @@ export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
     },
     shutdown: (ctx: ExtensionContext): void => {
       providerRuntime.closeSession(ctx.sessionManager.getSessionId());
+      observability.close();
       state.controller.abort();
       state.candidate = undefined;
       state.frame = undefined;
@@ -2731,6 +2740,9 @@ export const createCodexLifecycle = (pi: Parameters<ExtensionFactory>[0]) => {
       state.transitionRestored = false;
     },
     start: (ctx: ExtensionContext): void => {
+      if (ctx.sessionManager.getSessionFile() === undefined) {
+        observability.useMemory();
+      }
       providerRuntime.closeSession(ctx.sessionManager.getSessionId());
       state.transition = undefined;
       state.transitionRestored = false;

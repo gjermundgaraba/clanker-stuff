@@ -1,18 +1,20 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import {
-  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
   decideCheckpointCompatibility,
   resolveActiveCheckpointBoundary,
   resolveCheckpointCarrier,
 } from "./checkpoint.js";
 import type { Checkpoint, CheckpointIdentity } from "./checkpoint.js";
-import { CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE } from "./provider.js";
+import type { CodexObservation } from "./observability.js";
 import { estimateModelVisibleTokens } from "./replay.js";
 
 export interface CodexProviderStatusOptions {
   readonly branch: readonly SessionEntry[];
   readonly entries: readonly SessionEntry[];
+  readonly observations: readonly CodexObservation[];
+  readonly observabilityError?: string;
+  readonly observabilityPath: string;
   readonly sessionId: string;
   readonly current?: {
     readonly autoCompactTokens?: number;
@@ -27,21 +29,9 @@ export interface CodexProviderStatusOptions {
   };
 }
 
-interface ContextFrameDiagnostic {
-  readonly baselineMessages: number;
-  readonly eventMessages: number;
-  readonly frameResult: "ambiguous" | "missing";
-  readonly timestamp: string;
-}
-
 interface CheckpointRecord {
   readonly checkpoint: Checkpoint;
   readonly timestamp: string;
-}
-
-interface TransportFallbackDiagnostic {
-  readonly configuredTransport: "auto" | "websocket" | "websocket-cached";
-  readonly timestamp: number;
 }
 
 const phaseLabels: Record<Checkpoint["phase"], string> = {
@@ -68,6 +58,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isNonnegativeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
+const optionalString = (value: unknown) =>
+  typeof value === "string" ? value : undefined;
+
 const checkpoints = (entries: readonly SessionEntry[]) => {
   const unique = new Map<string, CheckpointRecord>();
   let invalidCarriers = 0;
@@ -89,62 +82,95 @@ const checkpoints = (entries: readonly SessionEntry[]) => {
   return { invalidCarriers, values: [...unique.values()] };
 };
 
-const contextFrameDiagnostics = (
-  entries: readonly SessionEntry[]
-): ContextFrameDiagnostic[] => {
-  const diagnostics: ContextFrameDiagnostic[] = [];
-  for (const entry of entries) {
+const observedContextFrameDiagnostics = (
+  observations: readonly CodexObservation[]
+) =>
+  observations.flatMap((observation) => {
+    const { data } = observation;
     if (
-      entry.type !== "custom" ||
-      entry.customType !== CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE ||
-      !isRecord(entry.data) ||
-      entry.data.kind !== "context-frame" ||
-      entry.data.version !== 1 ||
-      (entry.data.frameResult !== "ambiguous" &&
-        entry.data.frameResult !== "missing") ||
-      !isRecord(entry.data.baseline) ||
-      !isRecord(entry.data.event) ||
-      !isNonnegativeInteger(entry.data.baseline.messageCount) ||
-      !isNonnegativeInteger(entry.data.event.messageCount)
+      observation.kind !== "context-frame-failure" ||
+      !isRecord(data) ||
+      (data.frameResult !== "ambiguous" && data.frameResult !== "missing") ||
+      !isRecord(data.baseline) ||
+      !isRecord(data.event) ||
+      !isNonnegativeInteger(data.baseline.messageCount) ||
+      !isNonnegativeInteger(data.event.messageCount)
     ) {
-      continue;
+      return [];
     }
-    diagnostics.push({
-      baselineMessages: entry.data.baseline.messageCount,
-      eventMessages: entry.data.event.messageCount,
-      frameResult: entry.data.frameResult,
-      timestamp: entry.timestamp,
-    });
-  }
-  return diagnostics;
-};
+    return [
+      {
+        baselineMessages: data.baseline.messageCount,
+        eventMessages: data.event.messageCount,
+        frameResult: data.frameResult,
+        timestamp: observation.timestamp,
+      },
+    ];
+  });
 
-const transportFallbackDiagnostics = (
-  entries: readonly SessionEntry[]
-): TransportFallbackDiagnostic[] => {
-  const diagnostics: TransportFallbackDiagnostic[] = [];
-  for (const entry of entries) {
-    if (entry.type !== "message" || entry.message.role !== "assistant") {
-      continue;
+const observedTransportFallbackDiagnostics = (
+  observations: readonly CodexObservation[]
+) =>
+  observations.flatMap((observation) => {
+    const { data } = observation;
+    if (
+      (observation.kind !== "compaction" && observation.kind !== "request") ||
+      !isRecord(data) ||
+      !isRecord(data.transport) ||
+      data.transport.fellBackToSse !== true ||
+      (data.transport.configured !== "auto" &&
+        data.transport.configured !== "websocket" &&
+        data.transport.configured !== "websocket-cached")
+    ) {
+      return [];
     }
-    for (const diagnostic of entry.message.diagnostics ?? []) {
-      const configuredTransport = diagnostic.details?.configuredTransport;
-      if (
-        diagnostic.type === CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE &&
-        (configuredTransport === "auto" ||
-          configuredTransport === "websocket" ||
-          configuredTransport === "websocket-cached") &&
-        Number.isFinite(diagnostic.timestamp)
-      ) {
-        diagnostics.push({
-          configuredTransport,
-          timestamp: diagnostic.timestamp,
-        });
-      }
+    return [
+      {
+        configuredTransport: data.transport.configured,
+        timestamp: observation.timestamp,
+      },
+    ];
+  });
+
+const requestObservations = (observations: readonly CodexObservation[]) =>
+  observations.flatMap((observation) => {
+    const { data } = observation;
+    if (
+      observation.kind !== "request" ||
+      !isRecord(data) ||
+      !isRecord(data.request) ||
+      !isRecord(data.response) ||
+      (data.outcome !== "length" &&
+        data.outcome !== "stop" &&
+        data.outcome !== "toolUse") ||
+      typeof data.request.cacheEnabled !== "boolean" ||
+      !isNonnegativeInteger(data.response.cacheReadTokens) ||
+      !isNonnegativeInteger(data.response.cacheWriteTokens) ||
+      !isNonnegativeInteger(data.response.inputTokens)
+    ) {
+      return [];
     }
-  }
-  return diagnostics;
-};
+    const hashes = data.request.inputItemHashes;
+    return [
+      {
+        cacheEnabled: data.request.cacheEnabled,
+        cacheKeyHash: optionalString(data.request.cacheKeyHash),
+        cacheReadTokens: data.response.cacheReadTokens,
+        cacheWriteTokens: data.response.cacheWriteTokens,
+        inputItemHashes:
+          Array.isArray(hashes) &&
+          hashes.every((value) => typeof value === "string")
+            ? hashes
+            : undefined,
+        inputTokens: data.response.inputTokens,
+        instructionsHash: optionalString(data.request.instructionsHash),
+        model: optionalString(data.model),
+        stableRequestHash: optionalString(data.request.stableRequestHash),
+        timestamp: observation.timestamp,
+        toolsHash: optionalString(data.request.toolsHash),
+      },
+    ];
+  });
 
 const number = (value: number) => value.toLocaleString("en-US");
 
@@ -152,6 +178,118 @@ const timestamp = (value: number | string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "unknown time" : date.toISOString();
 };
+
+const elapsed = (milliseconds: number) => {
+  const seconds = Math.round(milliseconds / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  return `${Math.round(minutes / 60)}h`;
+};
+
+const commonPrefixLength = (
+  left: readonly string[],
+  right: readonly string[]
+) => {
+  let index = 0;
+  while (
+    index < left.length &&
+    index < right.length &&
+    left[index] === right[index]
+  ) {
+    index += 1;
+  }
+  return index;
+};
+
+const changed = (left: string | undefined, right: string | undefined) =>
+  left !== undefined && right !== undefined && left !== right;
+
+const cacheObservationLines = (
+  observations: readonly CodexObservation[]
+): string[] => {
+  const [latest, previous] = requestObservations(observations);
+  if (!latest) {
+    return ["  Latest: no successful requests recorded"];
+  }
+  const latestResult = latest.cacheReadTokens > 0 ? "hit" : "miss";
+  const key = latest.cacheKeyHash?.slice(0, 12) ?? "none";
+  const lines = [
+    `  Latest: ${latestResult} at ${timestamp(latest.timestamp)} · ${number(latest.inputTokens)} uncached input · ${number(latest.cacheReadTokens)} cache read · ${number(latest.cacheWriteTokens)} cache write · key ${key}`,
+  ];
+  if (!previous) {
+    lines.push(
+      "  Previous: none recorded",
+      latest.cacheEnabled
+        ? "  Assessment: no earlier request is available for comparison"
+        : "  Assessment: prompt caching was disabled for this request"
+    );
+    return lines;
+  }
+
+  const previousResult = previous.cacheReadTokens > 0 ? "hit" : "miss";
+  lines.push(
+    `  Previous: ${previousResult} ${elapsed(latest.timestamp - previous.timestamp)} earlier · ${number(previous.cacheReadTokens)} cache read`
+  );
+  const changes: string[] = [];
+  if (latest.model !== previous.model) {
+    changes.push("model changed");
+  }
+  if (changed(latest.cacheKeyHash, previous.cacheKeyHash)) {
+    changes.push("cache key changed");
+  }
+  if (changed(latest.instructionsHash, previous.instructionsHash)) {
+    changes.push("instructions changed");
+  }
+  if (changed(latest.toolsHash, previous.toolsHash)) {
+    changes.push("tools changed");
+  }
+  if (
+    changed(latest.stableRequestHash, previous.stableRequestHash) &&
+    changes.length === 0
+  ) {
+    changes.push("request settings changed");
+  }
+
+  const latestHashes = latest.inputItemHashes;
+  const previousHashes = previous.inputItemHashes;
+  if (latestHashes && previousHashes) {
+    const prefix = commonPrefixLength(previousHashes, latestHashes);
+    lines.push(
+      `  Input prefix: ${number(prefix)} matching items · ${number(previousHashes.length)} previous · ${number(latestHashes.length)} latest`
+    );
+    if (prefix < Math.min(previousHashes.length, latestHashes.length)) {
+      changes.push(`input changed at item ${number(prefix + 1)}`);
+    }
+  } else {
+    changes.push("request hashes unavailable");
+  }
+
+  if (!latest.cacheEnabled) {
+    lines.push("  Assessment: prompt caching was disabled for this request");
+  } else if (latestResult === "hit") {
+    lines.push("  Assessment: cache hit; comparison is informational");
+  } else if (changes.length > 0) {
+    lines.push(`  Assessment: ${changes.join("; ")}`);
+  } else {
+    lines.push(
+      "  Assessment: no client-visible cause; key, request settings, and prior input prefix match, so the cache was cold or missed server-side"
+    );
+  }
+  return lines;
+};
+
+const compactionFailures = (observations: readonly CodexObservation[]) =>
+  observations.filter(
+    (observation) =>
+      observation.kind === "compaction" &&
+      isRecord(observation.data) &&
+      observation.data.outcome !== "success"
+  );
 
 const tally = (values: readonly string[]) =>
   [...new Set(values)]
@@ -239,10 +377,10 @@ export const formatCodexProviderStatus = (
 ): string => {
   const branchCheckpoints = checkpoints(options.branch);
   const sessionCheckpoints = checkpoints(options.entries);
-  const branchFrames = contextFrameDiagnostics(options.branch);
-  const sessionFrames = contextFrameDiagnostics(options.entries);
-  const branchFallbacks = transportFallbackDiagnostics(options.branch);
-  const sessionFallbacks = transportFallbackDiagnostics(options.entries);
+  const { observations } = options;
+  const observedFrames = observedContextFrameDiagnostics(observations);
+  const observedFallbacks = observedTransportFallbackDiagnostics(observations);
+  const observedCompactionFailures = compactionFailures(observations);
   const active = resolveActiveCheckpointBoundary(options.branch);
   const model = options.current?.model;
   const reasoning = options.current?.reasoning;
@@ -266,12 +404,17 @@ export const formatCodexProviderStatus = (
     );
   }
 
-  const latestFrame = branchFrames.at(-1) ?? sessionFrames.at(-1);
-  const latestFallback = branchFallbacks.at(-1) ?? sessionFallbacks.at(-1);
-  const latestFrameScope =
-    branchFrames.length > 0 ? "current branch" : "session";
-  const latestFallbackScope =
-    branchFallbacks.length > 0 ? "current branch" : "session";
+  const [latestFrame] = observedFrames;
+  const [latestFallback] = observedFallbacks;
+  const observationCounts = {
+    compactions: observations.filter(
+      (observation) => observation.kind === "compaction"
+    ).length,
+    frames: observedFrames.length,
+    requests: observations.filter(
+      (observation) => observation.kind === "request"
+    ).length,
+  };
   return [
     "Codex provider status",
     `Session: ${options.sessionId}`,
@@ -284,9 +427,18 @@ export const formatCodexProviderStatus = (
     latestCheckpointLine(branchCheckpoints.values.at(-1)),
     recentLine(branchCheckpoints.values),
     aggregateLine(sessionCheckpoints.values),
+    "Cache",
+    ...cacheObservationLines(observations),
     "Reliability",
     `  Invalid checkpoint entries: ${branchCheckpoints.invalidCarriers} current branch · ${sessionCheckpoints.invalidCarriers} session`,
-    `  Replay blocks: ${branchFrames.length} current branch · ${sessionFrames.length} session${latestFrame ? ` · latest on ${latestFrameScope}: ${latestFrame.frameResult} at ${timestamp(latestFrame.timestamp)} (${latestFrame.baselineMessages} baseline / ${latestFrame.eventMessages} event messages)` : ""}`,
-    `  Transport fallbacks: ${branchFallbacks.length} current branch · ${sessionFallbacks.length} session${latestFallback ? ` · latest on ${latestFallbackScope}: ${latestFallback.configuredTransport} at ${timestamp(latestFallback.timestamp)}` : ""}`,
+    `  Replay blocks: ${observedFrames.length} session${latestFrame ? ` · latest in session: ${latestFrame.frameResult} at ${timestamp(latestFrame.timestamp)} (${latestFrame.baselineMessages} baseline / ${latestFrame.eventMessages} event messages)` : ""}`,
+    `  Transport fallbacks: ${observedFallbacks.length} session${latestFallback ? ` · latest in session: ${latestFallback.configuredTransport} at ${timestamp(latestFallback.timestamp)}` : ""}`,
+    `  Failed compaction requests: ${observedCompactionFailures.length} session`,
+    "Observability",
+    `  Database: ${options.observabilityPath}`,
+    `  Rows (session, 30 days): ${observationCounts.requests} requests · ${observationCounts.compactions} compactions · ${observationCounts.frames} replay blocks`,
+    ...(options.observabilityError
+      ? [`  Last database error: ${options.observabilityError}`]
+      : []),
   ].join("\n");
 };

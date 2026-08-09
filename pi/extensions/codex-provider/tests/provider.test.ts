@@ -5,20 +5,18 @@ import type {
   Context,
   Credential,
 } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
+import { CodexObservability } from "../observability.js";
 import {
-  CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-  createCodexProviderRuntime,
+  createCodexProviderRuntime as createProviderRuntime,
   isCodexCompactionCurrentModelFallbackError,
 } from "../provider.js";
-import { SPIKE_API_KEY, SPIKE_MODEL } from "./fixtures.js";
+import { responseEvents, SPIKE_API_KEY, SPIKE_MODEL, sse } from "./fixtures.js";
 
-const sse = (events: readonly unknown[]) =>
-  new Response(
-    events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
-    { headers: { "content-type": "text/event-stream" } }
-  );
+const defaultObservability = new CodexObservability(":memory:");
+const createCodexProviderRuntime = (observability = defaultObservability) =>
+  createProviderRuntime(observability);
 
 const interruptedSse = (firstEvent: unknown) => {
   const bytes = new TextEncoder().encode(
@@ -38,46 +36,6 @@ const interruptedSse = (firstEvent: unknown) => {
     }),
     { headers: { "content-type": "text/event-stream" } }
   );
-};
-
-const responseEvents = (id: string, text: string) => {
-  const message = {
-    content: [{ annotations: [], text, type: "output_text" }],
-    id: `msg_${id}`,
-    role: "assistant",
-    status: "completed",
-    type: "message",
-  };
-  return [
-    { response: { id, status: "in_progress" }, type: "response.created" },
-    {
-      item: { ...message, content: [], status: "in_progress" },
-      output_index: 0,
-      type: "response.output_item.added",
-    },
-    {
-      content_index: 0,
-      delta: text,
-      output_index: 0,
-      type: "response.output_text.delta",
-    },
-    { item: message, output_index: 0, type: "response.output_item.done" },
-    {
-      response: {
-        id,
-        output: [message],
-        status: "completed",
-        usage: {
-          input_tokens: 8,
-          input_tokens_details: { cached_tokens: 0 },
-          output_tokens: 2,
-          output_tokens_details: { reasoning_tokens: 0 },
-          total_tokens: 10,
-        },
-      },
-      type: "response.done",
-    },
-  ];
 };
 
 const incompleteResponseEvents = (id: string, text: string) => {
@@ -159,6 +117,10 @@ describe("Codex provider", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  afterAll(() => {
+    defaultObservability.close();
   });
 
   it("preserves Pi callbacks and builds a complete SSE request", async () => {
@@ -308,7 +270,8 @@ describe("Codex provider", () => {
   });
 
   it("keeps inline compaction on the active SSE transport", async () => {
-    const runtime = createCodexProviderRuntime();
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
     const requests: RequestInit[] = [];
     const websocket = vi.fn<() => never>(() => {
       throw new Error("unexpected WebSocket attempt");
@@ -348,14 +311,23 @@ describe("Codex provider", () => {
       .result();
 
     expect({
+      compaction: observability
+        .list("session-inline-sse")
+        .find((observation) => observation.kind === "compaction")?.data,
       requestKinds: requests.map((request) =>
         requestKind(readBody(request.body))
       ),
       websocketAttempts: websocket.mock.calls.length,
     }).toStrictEqual({
+      compaction: expect.objectContaining({
+        attempts: 1,
+        outcome: "success",
+        transport: expect.objectContaining({ transportUsed: "sse" }),
+      }),
       requestKinds: ["compaction", "turn"],
       websocketAttempts: 0,
     });
+    observability.close();
   });
 
   it("refreshes full model metadata and restores the projected catalog offline", async () => {
@@ -811,17 +783,11 @@ describe("Codex provider", () => {
       contents: [first, second].map((message) =>
         message.content.map((block) => ("text" in block ? block.text : ""))
       ),
-      diagnostics: second.diagnostics,
+      fallbackPending: runtime.consumeTransportFallback("session-concurrent"),
     }).toStrictEqual({
       closes: 0,
       contents: [["first"], ["second"]],
-      diagnostics: [
-        {
-          details: { configuredTransport: "auto" },
-          timestamp: expect.any(Number),
-          type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-        },
-      ],
+      fallbackPending: true,
     });
   });
 
@@ -930,34 +896,25 @@ describe("Codex provider", () => {
         controller.abort();
       }
       const output = await result;
-      const fallbackTimestamp = expect.any(Number);
-      const expectedDiagnostics = abort
-        ? undefined
-        : [
-            {
-              details: { configuredTransport: "websocket" },
-              timestamp: fallbackTimestamp,
-              type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-            },
-          ];
+      const fallbackPending = runtime.consumeTransportFallback(
+        `session-connect-${abort ? "abort" : "timeout"}`
+      );
 
       expect({
         closes,
-        diagnostics: output.diagnostics,
+        fallbackPending,
         sockets,
         stopReason: output.stopReason,
       }).toStrictEqual({
         closes: expectedCloses,
-        diagnostics: expectedDiagnostics,
+        fallbackPending: !abort,
         sockets: expectedSockets,
         stopReason: abort ? "aborted" : "stop",
       });
     }
   );
 
-  it("carries one sanitized fallback diagnostic to the next successful output", async () => {
-    let now = 100;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
+  it("keeps one pending notice while using sticky SSE", async () => {
     const secret = "secret-token-in-websocket-error";
     let socketAttempts = 0;
     const FailingWebSocket = function FailingWebSocket() {
@@ -980,7 +937,6 @@ describe("Codex provider", () => {
         sessionId: "session-sticky-fallback",
       })
       .result();
-    now = 200;
     const second = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -995,30 +951,26 @@ describe("Codex provider", () => {
         sessionId: "session-sticky-fallback",
       })
       .result();
+    const fallbackPending = runtime.consumeTransportFallback(
+      "session-sticky-fallback"
+    );
 
     expect({
-      firstDiagnostics: first.diagnostics,
+      fallbackPending,
       firstError: first.errorMessage,
-      secondDiagnostics: second.diagnostics,
+      noticeConsumed: runtime.consumeTransportFallback(
+        "session-sticky-fallback"
+      ),
       socketAttempts,
       stops: [first.stopReason, second.stopReason, third.stopReason],
-      thirdDiagnostics: third.diagnostics,
     }).toStrictEqual({
-      firstDiagnostics: undefined,
+      fallbackPending: true,
       firstError:
         "OpenAI Responses stream ended before a terminal response event",
-      secondDiagnostics: [
-        {
-          details: { configuredTransport: "auto" },
-          timestamp: 100,
-          type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-        },
-      ],
+      noticeConsumed: false,
       socketAttempts: 2,
       stops: ["error", "stop", "stop"],
-      thirdDiagnostics: undefined,
     });
-    expect(JSON.stringify(second.diagnostics)).not.toContain(secret);
   });
 
   it("surfaces a retryable WebSocket error without retrying after stream start", async () => {
@@ -1238,7 +1190,7 @@ describe("Codex provider", () => {
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
-    const message = await runtime.provider
+    await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch,
@@ -1247,24 +1199,87 @@ describe("Codex provider", () => {
       .result();
 
     expect({
-      diagnostics: message.diagnostics,
+      fallbackPending: runtime.consumeTransportFallback(sessionId),
       requestKinds: requests.map((request) =>
         requestKind(readBody(request.body))
       ),
       responseId: result.responseId,
       socketAttempts,
     }).toStrictEqual({
-      diagnostics: [
-        {
-          details: { configuredTransport: "auto" },
-          timestamp: expect.any(Number),
-          type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-        },
-      ],
+      fallbackPending: true,
       requestKinds: ["compaction", "turn"],
       responseId: "resp_compact_sse_fallback",
       socketAttempts: 3,
     });
+  });
+
+  it("records request fingerprints and pre-request compaction failures", async () => {
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const compactionSessionId = "session-pre-request-compaction";
+    await expect(
+      runtime.compact({
+        apiKey: SPIKE_API_KEY,
+        authoritativeEnvelope: { input: "malformed" },
+        context: context([]),
+        effectiveTokenLimit: 1000,
+        inputPrefix: [],
+        model: SPIKE_MODEL,
+        phase: "pre-sampling",
+        reason: "manual",
+        sessionId: compactionSessionId,
+        signal: new AbortController().signal,
+        thinkingLevel: "medium",
+      })
+    ).rejects.toThrow("Authoritative Codex input is malformed");
+    const secret = "request-content-must-not-be-recorded";
+    const requestContext = context([
+      { content: secret, role: "user", timestamp: Date.now() },
+    ]);
+
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, requestContext, {
+        apiKey: SPIKE_API_KEY,
+        cacheRetention: "none",
+        fetch: async () => sse(responseEvents("resp_observed", "ok")),
+        sessionId: "session-observed",
+        transport: "sse",
+      })
+      .result();
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, requestContext, {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => sse([]),
+        sessionId: "session-observed",
+        transport: "sse",
+      })
+      .result();
+
+    const rows = observability
+      .list("session-observed")
+      .filter((observation) => observation.kind === "request");
+    expect(observability.list(compactionSessionId)[0]?.data).toStrictEqual(
+      expect.objectContaining({
+        attempts: 0,
+        outcome: "error",
+      })
+    );
+    expect(rows.map((row) => row.data)).toMatchObject([
+      {
+        outcome: "error",
+        request: { stableRequestHash: expect.any(String) },
+      },
+      {
+        outcome: "stop",
+        request: {
+          cacheEnabled: false,
+          stableRequestHash: expect.any(String),
+        },
+      },
+    ]);
+    expect(JSON.stringify(rows)).toMatch(/"inputItemHashes":\["[\da-f]{16}"/u);
+    expect(JSON.stringify(rows)).not.toContain(secret);
+    observability.close();
   });
 
   it("replaces transformed payloads and retries only retryable compaction errors", async () => {

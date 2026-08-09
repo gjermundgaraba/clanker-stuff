@@ -19,10 +19,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
-  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
   resolveActiveCheckpointBoundary,
 } from "../checkpoint.js";
 import codexCompactionExtension from "../index.js";
+import { CodexObservability } from "../observability.js";
 import { FRAME_MARKER_PREFIX } from "../replay.js";
 import { createRealCodexSession } from "./agent-session.js";
 import { SPIKE_MODEL } from "./fixtures.js";
@@ -295,6 +295,7 @@ const workspace = async (prefix: string) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), prefix));
   const cwd = path.join(rootDir, "project");
   const sessionDir = path.join(rootDir, "sessions");
+  vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
   await mkdir(cwd, { recursive: true });
   return { cwd, rootDir, sessionDir };
 };
@@ -1007,7 +1008,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it("persists a redacted diagnostic when active replay cannot frame context", async () => {
+  it("records a diagnostic outside the session when active replay cannot frame context", async () => {
     const paths = await workspace("codex-active-frame-diagnostic-");
     const notifications: string[] = [];
     let ordinaryResponses = 0;
@@ -1022,7 +1023,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         : assistantResponse(`diagnostic-source-${(ordinaryResponses += 1)}`);
     });
     vi.stubGlobal("fetch", fetch);
-    const manager = SessionManager.inMemory(paths.cwd);
+    const manager = SessionManager.create(paths.cwd, paths.sessionDir);
     let replacementEnabled = false;
     const session = await createRealCodexSession({
       compaction: {
@@ -1047,30 +1048,25 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.compact();
       replacementEnabled = true;
       await session.prompt("must fail closed");
-      const diagnosticEntries = manager
-        .getBranch()
-        .filter(
-          (entry) =>
-            entry.type === "custom" &&
-            entry.customType === CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE
-        );
+      const observations = new CodexObservability(
+        path.join(paths.rootDir, "agent-config", "codex-provider.sqlite")
+      );
+      const frameObservations = observations
+        .list(manager.getSessionId())
+        .filter((observation) => observation.kind === "context-frame-failure");
+      observations.close();
 
       expect({
-        diagnosticKinds: diagnosticEntries.map((entry) =>
-          entry.type === "custom" &&
-          typeof entry.data === "object" &&
-          entry.data !== null &&
-          "kind" in entry.data
-            ? entry.data.kind
-            : undefined
-        ),
         fetches: fetch.mock.calls.length,
         notification: notifications.at(-1),
+        observationKinds: frameObservations.map(
+          (observation) => observation.kind
+        ),
       }).toStrictEqual({
-        diagnosticKinds: ["context-frame"],
         fetches: 3,
         notification:
-          "OpenAI checkpoint replay was blocked because request context could not be framed safely. A redacted diagnostic was saved with the session.",
+          "OpenAI checkpoint replay was blocked because request context could not be framed safely. A diagnostic was saved to the Codex provider database.",
+        observationKinds: ["context-frame-failure"],
       });
     } finally {
       session.dispose();
@@ -1128,13 +1124,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const serialized = JSON.stringify(replayInput);
 
       expect({
-        diagnostics: manager
-          .getBranch()
-          .filter(
-            (entry) =>
-              entry.type === "custom" &&
-              entry.customType === CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE
-          ).length,
         fetches: fetch.mock.calls.length,
         markerAbsent: !serialized.includes(FRAME_MARKER_PREFIX),
         notification: notifications.at(-1),
@@ -1143,7 +1132,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         ).length,
         requestTypes: requests.map((request) => inputItemTypes(request.input)),
       }).toStrictEqual({
-        diagnostics: 0,
         fetches: 4,
         markerAbsent: true,
         notification: undefined,
@@ -1209,11 +1197,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const branch = manager.getBranch();
 
       expect({
-        diagnostics: branch.filter(
-          (entry) =>
-            entry.type === "custom" &&
-            entry.customType === CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE
-        ).length,
         failedAssistants: branch.filter(
           (entry) =>
             entry.type === "message" &&
@@ -1225,7 +1208,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           .toReversed()
           .find((message) => message.role === "assistant")?.stopReason,
       }).toStrictEqual({
-        diagnostics: 0,
         failedAssistants: 1,
         fetches: 6,
         finalStopReason: "stop",

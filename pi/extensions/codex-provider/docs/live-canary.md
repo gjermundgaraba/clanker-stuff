@@ -17,7 +17,7 @@ SSE is the default transport. Three rounds use a small estimator window and synt
 1. Perform compaction and the following model response over SSE without constructing a WebSocket.
 2. Add exactly one strict schema-v1 threshold checkpoint with a unique response ID.
 3. Advance `windowNumber`, set `previousWindowId` to the prior `currentWindowId`, and issue a new current ID.
-4. Complete without a framing diagnostic or extension error.
+4. Complete without an extension error.
 5. Report every checkpoint through `/codex-provider` without appending a session entry.
 
 The parent then exits its session. A new Node process opens the JSONL session, sends two normal turns with a large window, and proves the newest opaque window replays without creating another checkpoint.
@@ -54,7 +54,7 @@ pnpm --dir pi/extensions/codex-provider test:live:mid-turn
 
 This mode calibrates natural text and performs two real tool loops. In each round the model must call `context_filler` exactly once. Its result fills at least 80% of the real context and crosses the local threshold, forcing compaction before the next model response. The model must then call `post_compaction_probe` exactly once; the tool rejects an early call by recording how many checkpoints existed when it ran. This proves the post-compaction request still contains the current tool schemas and system instructions. Both checkpoints must have phase `mid-turn`, and their windows must form one monotonic replacement chain.
 
-Before round two replays the active checkpoint, a canary extension injects one hidden custom message and deterministically changes its live top-level timestamp from the persisted timestamp. The provider request must still contain exactly one opaque compaction item and one copy of the sentinel text, and replay must complete without a context-frame diagnostic.
+Before round two replays the active checkpoint, a canary extension injects one hidden custom message and deterministically changes its live top-level timestamp from the persisted timestamp. The provider request must still contain exactly one opaque compaction item and one copy of the sentinel text, and replay must complete successfully.
 
 Expect roughly 460,000–600,000 provider-context tokens.
 
@@ -72,9 +72,9 @@ This is genuine WebSocket coverage for both compaction and normal turns. The run
 pnpm --dir pi/extensions/codex-provider test:live:fallback
 ```
 
-The runner injects a WebSocket constructor that always fails. Round one starts with inline compaction, whose private retry loop makes exactly three pre-output WebSocket attempts before activating provider-owned SSE fallback. The following successful assistant must contain exactly one pending `codex-provider.transport-fallback` diagnostic, proving that compaction-first fallback is visible without relying on Pi outer retry. The diagnostic may contain only `type`, `timestamp`, and `details.configuredTransport`; it must contain no `error`, `raw`, message, stack, body, header, URL, payload, or request-size data. The exact UI warning `OpenAI Codex WebSocket is unavailable; using SSE for this session.` must appear once. Every later compaction and normal turn in that runtime must stay on SSE without constructing another WebSocket, diagnostic, or warning.
+The runner injects a WebSocket constructor that always fails. Round one starts with inline compaction, whose private retry loop makes exactly three pre-output WebSocket attempts before activating provider-owned SSE fallback. The exact UI warning `OpenAI Codex WebSocket is unavailable; using SSE for this session.` must appear once after the following successful assistant. Every later compaction and normal turn in that runtime must stay on SSE without constructing another WebSocket or warning.
 
-In the fresh process, checkpoint replay transforms the finalized payload, so prewarm is skipped. Its first normal turn makes one failed WebSocket attempt, completes with the same single sanitized diagnostic and UI warning, and the new runtime stays on SSE without another diagnostic or warning for its second turn.
+In the fresh process, checkpoint replay transforms the finalized payload, so prewarm is skipped. Its first normal turn makes one failed WebSocket attempt and emits the same UI warning, and the new runtime stays on SSE without another warning for its second turn.
 
 ## Fresh-process branch isolation
 

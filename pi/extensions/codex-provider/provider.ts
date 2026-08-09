@@ -5,7 +5,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
 
 import {
-  appendAssistantMessageDiagnostic,
   calculateCost,
   clampThinkingLevel,
   createAssistantMessageEventStream,
@@ -36,8 +35,13 @@ import {
 } from "#pi-responses";
 import { buildBaseOptions } from "#pi-simple-options";
 
-import { canonicalJson, parseCompactionItem } from "./checkpoint.js";
+import {
+  canonicalJson,
+  parseCompactionItem,
+  sha256Canonical,
+} from "./checkpoint.js";
 import type { CanonicalCompactionItem } from "./checkpoint.js";
+import type { CodexObservability } from "./observability.js";
 import {
   estimateModelVisibleTokens,
   normalizeToolHistory,
@@ -55,8 +59,6 @@ const REQUEST_COMPRESSION_LEVEL = 3;
 const WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
 const WEBSOCKET_MAX_AGE_MS = 55 * 60_000;
-export const CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE =
-  "codex-provider.transport-fallback";
 export const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
   "openai",
   "openai-codex",
@@ -149,13 +151,6 @@ interface SessionRuntime {
   activeTransport?: OpenAICodexResponsesOptions["transport"];
   continuation?: ContinuationState;
   fallbackToSse: boolean;
-  pendingTransportFallback?: {
-    configuredTransport: Exclude<
-      OpenAICodexResponsesOptions["transport"],
-      "sse" | undefined
-    >;
-    timestamp: number;
-  };
   socket?: {
     busy: boolean;
     createdAt: number;
@@ -168,12 +163,34 @@ interface SessionRuntime {
     startedAt: number;
     state?: string;
   };
+  transportFallbackPending: boolean;
   window: {
     currentId: string;
     number: number;
     previousId?: string;
   };
 }
+
+interface RequestTrace {
+  connectionLimitRetries: number;
+  continuationMode?: "delta" | "full";
+  fellBackToSse: boolean;
+  missingContinuationRetries: number;
+  prewarmAttempted: boolean;
+  prewarmSucceeded: boolean;
+  socketAgeMs?: number;
+  socketReused: boolean;
+  transportUsed?: "sse" | "websocket";
+}
+
+const createRequestTrace = (): RequestTrace => ({
+  connectionLimitRetries: 0,
+  fellBackToSse: false,
+  missingContinuationRetries: 0,
+  prewarmAttempted: false,
+  prewarmSucceeded: false,
+  socketReused: false,
+});
 
 export interface CodexCompactionRequest {
   readonly apiKey: string;
@@ -741,23 +758,25 @@ const equalContinuationValue = (value: unknown) => {
     : canonicalJson(JSON.parse(serialized));
 };
 
-const continuationDelta = (
-  body: RequestBody,
-  continuation: ContinuationState
-): ResponsesInputItem[] | undefined => {
+const stableRequestValue = (value: RequestBody) => {
   const ignored = new Set([
     "client_metadata",
     "input",
     "previous_response_id",
     "stream_options",
   ]);
-  const stable = (value: RequestBody) =>
-    Object.fromEntries(
-      Object.entries(value).filter(([key]) => !ignored.has(key))
-    );
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => !ignored.has(key))
+  );
+};
+
+const continuationDelta = (
+  body: RequestBody,
+  continuation: ContinuationState
+): ResponsesInputItem[] | undefined => {
   if (
-    equalContinuationValue(stable(body)) !==
-    equalContinuationValue(stable(continuation.request))
+    equalContinuationValue(stableRequestValue(body)) !==
+    equalContinuationValue(stableRequestValue(continuation.request))
   ) {
     return undefined;
   }
@@ -772,6 +791,36 @@ const continuationDelta = (
   return equalContinuationValue(prefix) === equalContinuationValue(baseline)
     ? body.input.slice(baseline.length)
     : undefined;
+};
+
+const jsonWireValue = (value: unknown): unknown => {
+  const serialized = JSON.stringify(value);
+  return serialized === undefined ? undefined : JSON.parse(serialized);
+};
+
+const requestShapeObservation = (body: RequestBody) => {
+  const cacheEnabled =
+    typeof body.prompt_cache_key === "string" &&
+    body.prompt_cache_key.length > 0;
+  try {
+    return {
+      cacheEnabled,
+      cacheKeyHash:
+        typeof body.prompt_cache_key === "string"
+          ? sha256Canonical(body.prompt_cache_key)
+          : undefined,
+      inputItemHashes: body.input.map((item) =>
+        sha256Canonical(jsonWireValue(item)).slice(0, 16)
+      ),
+      instructionsHash: sha256Canonical(body.instructions),
+      stableRequestHash: sha256Canonical(
+        jsonWireValue(stableRequestValue(body))
+      ),
+      toolsHash: sha256Canonical(jsonWireValue(body.tools ?? [])),
+    };
+  } catch {
+    return { cacheEnabled, hashingFailed: true };
+  }
 };
 
 class CodexProviderError extends Error {
@@ -811,6 +860,13 @@ const RETRYABLE_WEBSOCKET_ERROR_CODES = new Set([
   "previous_response_not_found",
   "websocket_connection_limit_reached",
 ]);
+
+const requestErrorObservation = (error: unknown) => ({
+  code: error instanceof CodexProviderError ? error.code : undefined,
+  name: error instanceof Error ? error.name : "ThrownValue",
+  retryable: error instanceof CodexProviderError ? error.retryable : undefined,
+  status: error instanceof CodexProviderError ? error.status : undefined,
+});
 
 export const isCodexCompactionCurrentModelFallbackError = (error: unknown) =>
   error instanceof CodexProviderError && error.useCurrentModelFallback;
@@ -1476,6 +1532,7 @@ const websocketEvents = async function* websocketEvents(
   session: SessionRuntime,
   requestId: string,
   capture: ResponseCapture,
+  trace: RequestTrace,
   responsesLite = false,
   generate = true
 ) {
@@ -1488,6 +1545,8 @@ const websocketEvents = async function* websocketEvents(
       headers.set("x-openai-internal-codex-responses-lite", "true");
     }
     applyTurnHeaders(headers, fullBody, session);
+    const previousSocket = session.socket;
+    trace.transportUsed = "websocket";
     const socket = await connectSocket(
       resolveWebSocketUrl(model.baseUrl),
       headers,
@@ -1498,9 +1557,14 @@ const websocketEvents = async function* websocketEvents(
         "websocketConnectTimeoutMs"
       )
     );
+    if (session.socket) {
+      trace.socketReused ||= previousSocket?.value === socket;
+      trace.socketAgeMs = Date.now() - session.socket.createdAt;
+    }
     const delta = session.continuation
       ? continuationDelta(fullBody, session.continuation)
       : undefined;
+    trace.continuationMode = delta === undefined ? "full" : "delta";
     const requestBody =
       delta !== undefined && session.continuation !== undefined
         ? {
@@ -1572,6 +1636,7 @@ const websocketEvents = async function* websocketEvents(
         !retriedMissingContinuation
       ) {
         retriedMissingContinuation = true;
+        trace.missingContinuationRetries += 1;
         continue;
       }
       if (
@@ -1580,6 +1645,7 @@ const websocketEvents = async function* websocketEvents(
         !retriedConnectionLimit
       ) {
         retriedConnectionLimit = true;
+        trace.connectionLimitRetries += 1;
         continue;
       }
       throw error;
@@ -1589,20 +1655,12 @@ const websocketEvents = async function* websocketEvents(
 
 const createSession = (): SessionRuntime => ({
   fallbackToSse: false,
+  transportFallbackPending: false,
   window: { currentId: uuidv7(), number: 0 },
 });
 
-const activateSseFallback = (
-  session: SessionRuntime,
-  configuredTransport: Exclude<
-    OpenAICodexResponsesOptions["transport"],
-    "sse" | undefined
-  >
-) => {
-  session.pendingTransportFallback ??= {
-    configuredTransport,
-    timestamp: Date.now(),
-  };
+const activateSseFallback = (session: SessionRuntime) => {
+  session.transportFallbackPending = true;
   session.fallbackToSse = true;
 };
 
@@ -1655,7 +1713,9 @@ const applyServiceTier = (
     usage.cost.cacheWrite;
 };
 
-export const createCodexProviderRuntime = () => {
+export const createCodexProviderRuntime = (
+  observability: CodexObservability
+) => {
   const base = openaiCodexProvider();
   const fallback = [...base.getModels()];
   let models = fallback;
@@ -1760,6 +1820,7 @@ export const createCodexProviderRuntime = () => {
     session: SessionRuntime,
     requestId: string,
     capture: ResponseCapture,
+    trace: RequestTrace,
     responsesLite = false,
     redirect: "follow" | "manual" = "follow",
     fallbackAfterWebSocketFailure = true
@@ -1775,6 +1836,7 @@ export const createCodexProviderRuntime = () => {
           session,
           requestId,
           capture,
+          trace,
           responsesLite
         )) {
           emitted = true;
@@ -1790,10 +1852,13 @@ export const createCodexProviderRuntime = () => {
         ) {
           throw error;
         }
-        activateSseFallback(session, transport);
+        activateSseFallback(session);
+        trace.fellBackToSse = true;
       }
     }
     session.continuation = undefined;
+    trace.transportUsed = "sse";
+    trace.continuationMode = "full";
     for await (const event of sseEvents(
       model,
       body,
@@ -1832,66 +1897,75 @@ export const createCodexProviderRuntime = () => {
       signal: request.signal,
       transport: session.activeTransport ?? "auto",
     };
-    const built = buildRequestBody(
-      request.model,
-      request.context,
-      options,
-      metadataByModel.get(request.model.id),
-      runtimeSessionId,
-      session
-    );
-    const envelope = request.authoritativeEnvelope
-      ? cloneJson(request.authoritativeEnvelope)
-      : built.body;
-    let envelopeInput = built.body.input;
-    if (envelope.input !== undefined) {
-      if (!Array.isArray(envelope.input) || !envelope.input.every(isRecord)) {
-        throw new Error("Authoritative Codex input is malformed");
-      }
-      envelopeInput = envelope.input;
-    }
-    const source = [
-      ...request.inputPrefix,
-      ...(request.authoritativeInput ?? envelopeInput),
-    ];
-    if (source.some((item) => item.type === "compaction_trigger")) {
-      throw new Error("Compaction source already contains a trigger");
-    }
-    const instructions =
-      typeof envelope.instructions === "string"
-        ? envelope.instructions
-        : (request.context.systemPrompt ?? "");
-    const normalized = normalizeToolHistory(
-      omitUnsupportedUserImages(source, request.model.input.includes("image"))
-    );
-    const effectiveInput = shrinkTrailingOutputs(
-      normalized,
-      instructions,
-      request.effectiveTokenLimit
-    );
-    const estimatedSourceTokens = estimateModelVisibleTokens(
-      instructions,
-      effectiveInput
-    );
-    const body: RequestBody = {
-      ...built.body,
-      ...envelope,
-      client_metadata: {
-        ...(isRecord(envelope.client_metadata) ? envelope.client_metadata : {}),
-        ...requestMetadata(
-          runtimeSessionId,
-          session,
-          "compaction",
-          compactionMetadata(request)
-        ),
-      },
-      input: [...effectiveInput, { type: "compaction_trigger" }],
-      model: request.model.id,
-      previous_response_id: undefined,
-      store: false,
-      stream: true,
-    };
+    const startedAt = Date.now();
+    const trace = createRequestTrace();
+    let attempts = 0;
+    let compactionError: unknown;
+    let compactionResult: CodexCompactionResult | undefined;
+    let observedBody: RequestBody | undefined;
     try {
+      const built = buildRequestBody(
+        request.model,
+        request.context,
+        options,
+        metadataByModel.get(request.model.id),
+        runtimeSessionId,
+        session
+      );
+      const envelope = request.authoritativeEnvelope
+        ? cloneJson(request.authoritativeEnvelope)
+        : built.body;
+      let envelopeInput = built.body.input;
+      if (envelope.input !== undefined) {
+        if (!Array.isArray(envelope.input) || !envelope.input.every(isRecord)) {
+          throw new Error("Authoritative Codex input is malformed");
+        }
+        envelopeInput = envelope.input;
+      }
+      const source = [
+        ...request.inputPrefix,
+        ...(request.authoritativeInput ?? envelopeInput),
+      ];
+      if (source.some((item) => item.type === "compaction_trigger")) {
+        throw new Error("Compaction source already contains a trigger");
+      }
+      const instructions =
+        typeof envelope.instructions === "string"
+          ? envelope.instructions
+          : (request.context.systemPrompt ?? "");
+      const normalized = normalizeToolHistory(
+        omitUnsupportedUserImages(source, request.model.input.includes("image"))
+      );
+      const effectiveInput = shrinkTrailingOutputs(
+        normalized,
+        instructions,
+        request.effectiveTokenLimit
+      );
+      const estimatedSourceTokens = estimateModelVisibleTokens(
+        instructions,
+        effectiveInput
+      );
+      const body: RequestBody = {
+        ...built.body,
+        ...envelope,
+        client_metadata: {
+          ...(isRecord(envelope.client_metadata)
+            ? envelope.client_metadata
+            : {}),
+          ...requestMetadata(
+            runtimeSessionId,
+            session,
+            "compaction",
+            compactionMetadata(request)
+          ),
+        },
+        input: [...effectiveInput, { type: "compaction_trigger" }],
+        model: request.model.id,
+        previous_response_id: undefined,
+        store: false,
+        stream: true,
+      };
+      observedBody = body;
       const configuredWebsocketTransport =
         options.transport === "sse" ? undefined : (options.transport ?? "auto");
       const websocketAttempts =
@@ -1900,6 +1974,7 @@ export const createCodexProviderRuntime = () => {
           : 3;
       const maxAttempts = websocketAttempts + 3;
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        attempts += 1;
         const capture: ResponseCapture = {
           completed: false,
           outputItems: [],
@@ -1914,6 +1989,7 @@ export const createCodexProviderRuntime = () => {
             session,
             uuidv7(),
             capture,
+            trace,
             built.responsesLite,
             "manual",
             false
@@ -1950,12 +2026,13 @@ export const createCodexProviderRuntime = () => {
             );
           }
           calculateCost(request.model, capture.usage);
-          return {
+          compactionResult = {
             compaction: compactions[0],
             estimatedSourceTokens,
             responseId: capture.responseId,
             usage: capture.usage,
           };
+          return compactionResult;
         } catch (error) {
           if (
             request.signal.aborted ||
@@ -1968,7 +2045,8 @@ export const createCodexProviderRuntime = () => {
             attempt < websocketAttempts &&
             error instanceof WebSocketUnavailableError
           ) {
-            activateSseFallback(session, configuredWebsocketTransport);
+            activateSseFallback(session);
+            trace.fellBackToSse = true;
             attempt = websocketAttempts - 1;
             continue;
           }
@@ -1976,7 +2054,8 @@ export const createCodexProviderRuntime = () => {
             configuredWebsocketTransport !== undefined &&
             attempt + 1 === websocketAttempts
           ) {
-            activateSseFallback(session, configuredWebsocketTransport);
+            activateSseFallback(session);
+            trace.fellBackToSse = true;
             continue;
           }
           if (attempt === maxAttempts - 1) {
@@ -1990,7 +2069,46 @@ export const createCodexProviderRuntime = () => {
         }
       }
       throw new Error("Compaction retry loop ended unexpectedly");
+    } catch (error) {
+      compactionError = error;
+      throw error;
     } finally {
+      observability.record(request.sessionId, "compaction", {
+        attempts,
+        durationMs: Date.now() - startedAt,
+        error:
+          compactionError === undefined
+            ? undefined
+            : requestErrorObservation(compactionError),
+        model: request.model.id,
+        outcome:
+          compactionResult === undefined
+            ? request.signal.aborted
+              ? "aborted"
+              : "error"
+            : "success",
+        phase: request.phase,
+        reason: request.reason,
+        request:
+          observedBody === undefined
+            ? undefined
+            : requestShapeObservation(observedBody),
+        response:
+          compactionResult === undefined
+            ? undefined
+            : {
+                cacheReadTokens: compactionResult.usage.cacheRead,
+                cacheWriteTokens: compactionResult.usage.cacheWrite,
+                id: compactionResult.responseId,
+                inputTokens: compactionResult.usage.input,
+                outputTokens: compactionResult.usage.output,
+                totalTokens: compactionResult.usage.totalTokens,
+              },
+        transport: {
+          configured: options.transport ?? "auto",
+          ...trace,
+        },
+      });
       if (standalone) {
         closeSocket(session);
       }
@@ -2005,7 +2123,8 @@ export const createCodexProviderRuntime = () => {
     requestId: string,
     sessionId: string,
     responsesLite: boolean,
-    prewarmInput: readonly ResponsesInputItem[] | undefined
+    prewarmInput: readonly ResponsesInputItem[] | undefined,
+    trace: RequestTrace
   ) => {
     if (
       options?.transport === "sse" ||
@@ -2016,6 +2135,7 @@ export const createCodexProviderRuntime = () => {
     ) {
       return;
     }
+    trace.prewarmAttempted = true;
     if (session.turn) {
       session.turn.prewarmed = true;
     }
@@ -2039,11 +2159,13 @@ export const createCodexProviderRuntime = () => {
         session,
         requestId,
         capture,
+        createRequestTrace(),
         responsesLite,
         false
       )) {
         // Prewarm output is intentionally discarded.
       }
+      trace.prewarmSucceeded = capture.completed;
       session.continuation = undefined;
     } catch {
       // websocketEvents owns cleanup for the socket it acquired.
@@ -2065,15 +2187,19 @@ export const createCodexProviderRuntime = () => {
       timestamp: Date.now(),
       usage: initialUsage(),
     };
+    const sessionId =
+      options?.sessionId !== undefined && options.sessionId.length > 0
+        ? options.sessionId
+        : uuidv7();
+    const startedAt = Date.now();
+    const trace = createRequestTrace();
+    let observedBody: RequestBody | undefined;
+    let observedError: unknown;
     void (async () => {
       try {
         if (options?.apiKey === undefined || options.apiKey.length === 0) {
           throw new Error(`No API key for provider: ${model.provider}`);
         }
-        const sessionId =
-          options.sessionId !== undefined && options.sessionId.length > 0
-            ? options.sessionId
-            : uuidv7();
         const session = getSession(sessionId);
         const built = buildRequestBody(
           model,
@@ -2125,6 +2251,7 @@ export const createCodexProviderRuntime = () => {
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- validated Responses replacement payload boundary
           body = transformed as RequestBody;
         }
+        observedBody = body;
         const requestId = promptCacheKey(sessionId);
         const prewarmCompatible =
           transformed === undefined ||
@@ -2137,7 +2264,8 @@ export const createCodexProviderRuntime = () => {
           requestId,
           sessionId,
           built.responsesLite,
-          prewarmCompatible ? prewarmInput : undefined
+          prewarmCompatible ? prewarmInput : undefined,
+          trace
         );
         const capture: ResponseCapture = {
           completed: false,
@@ -2153,6 +2281,7 @@ export const createCodexProviderRuntime = () => {
             session,
             requestId,
             capture,
+            trace,
             built.responsesLite
           )) {
             if (!started) {
@@ -2179,16 +2308,6 @@ export const createCodexProviderRuntime = () => {
           throw new Error("Codex stream ended before completion");
         }
         successfulOutput(output);
-        if (session.pendingTransportFallback) {
-          const { configuredTransport, timestamp } =
-            session.pendingTransportFallback;
-          appendAssistantMessageDiagnostic(output, {
-            details: { configuredTransport },
-            timestamp,
-            type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-          });
-          session.pendingTransportFallback = undefined;
-        }
         events.push({
           message: output,
           reason: output.stopReason,
@@ -2196,6 +2315,7 @@ export const createCodexProviderRuntime = () => {
         });
         events.end();
       } catch (error) {
+        observedError = error;
         for (const block of output.content) {
           if (isRecord(block)) {
             delete block.customInput;
@@ -2211,6 +2331,37 @@ export const createCodexProviderRuntime = () => {
           type: "error",
         });
         events.end();
+      } finally {
+        observability.record(sessionId, "request", {
+          durationMs: Date.now() - startedAt,
+          error:
+            observedError === undefined
+              ? undefined
+              : requestErrorObservation(observedError),
+          model: model.id,
+          outcome: output.stopReason,
+          reasoning: options?.reasoningEffort,
+          request:
+            observedBody === undefined
+              ? undefined
+              : requestShapeObservation(observedBody),
+          response: {
+            cacheReadTokens: output.usage.cacheRead,
+            cacheWriteTokens: output.usage.cacheWrite,
+            id: output.responseId,
+            inputTokens: output.usage.input,
+            outputTokens: output.usage.output,
+            reasoningTokens: output.usage.reasoning,
+            totalTokens: output.usage.totalTokens,
+          },
+          serviceTier: observedBody?.service_tier,
+          transport: {
+            configured: options?.transport ?? "auto",
+            ...trace,
+          },
+          turnId: observedBody?.client_metadata?.turn_id,
+          windowId: observedBody?.client_metadata?.["x-codex-window-id"],
+        });
       }
     })();
     return events;
@@ -2299,6 +2450,14 @@ export const createCodexProviderRuntime = () => {
     },
     closeSession,
     compact,
+    consumeTransportFallback(sessionId: string) {
+      const session = sessions.get(sessionId);
+      const pending = session?.transportFallbackPending ?? false;
+      if (session) {
+        session.transportFallbackPending = false;
+      }
+      return pending;
+    },
     endTurn(sessionId: string) {
       const session = sessions.get(sessionId);
       if (session) {

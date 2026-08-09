@@ -3,12 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
-  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
   CHECKPOINT_PROTOCOL,
   CHECKPOINT_SCHEMA,
   sha256Canonical,
 } from "../checkpoint.js";
-import { CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE } from "../provider.js";
+import type { CodexObservation } from "../observability.js";
 import { formatCodexProviderStatus } from "../status.js";
 
 const sessionEntry = (
@@ -22,6 +21,39 @@ const sessionEntry = (
     timestamp: `2026-08-04T12:00:0${id.at(-1) ?? "0"}.000Z`,
     ...value,
   }) as SessionEntry;
+
+const EMPTY_OBSERVABILITY = {
+  observabilityPath: ":memory:",
+  observations: [] as const,
+};
+
+const requestObservation = (
+  timestamp: number,
+  cacheReadTokens: number,
+  inputItemHashes: string[],
+  fellBackToSse = false
+): CodexObservation => ({
+  data: {
+    model: "gpt-5.3-codex",
+    outcome: "stop",
+    request: {
+      cacheEnabled: true,
+      cacheKeyHash: "cache-key-hash",
+      inputItemHashes,
+      instructionsHash: "instructions-hash",
+      stableRequestHash: "stable-request-hash",
+      toolsHash: "tools-hash",
+    },
+    response: {
+      cacheReadTokens,
+      cacheWriteTokens: 0,
+      inputTokens: 100,
+    },
+    transport: { configured: "auto", fellBackToSse },
+  },
+  kind: "request",
+  timestamp,
+});
 
 const checkpoint = (
   responseId: string,
@@ -119,6 +151,7 @@ describe("Codex provider status", () => {
         reasoning: "high",
       },
       entries: [inline, duplicateLifecycle, active],
+      ...EMPTY_OBSERVABILITY,
       sessionId: "session-main",
     });
 
@@ -140,76 +173,75 @@ describe("Codex provider status", () => {
     }
   });
 
-  it("reports invalid active checkpoints and only redacted diagnostics", () => {
-    const frame = sessionEntry("1", {
-      customType: CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
-      data: {
-        baseline: { messageCount: 3 },
-        event: { messageCount: 4, secret: "EVENT_SECRET" },
-        frameResult: "missing",
-        kind: "context-frame",
-        version: 1,
-      },
-      type: "custom",
-    });
-    const fallback = sessionEntry(
-      "2",
-      {
-        message: {
-          diagnostics: [
-            {
-              details: {
-                configuredTransport: "websocket",
-                secret: "TRANSPORT_SECRET",
-              },
-              timestamp: Date.UTC(2026, 7, 4, 12, 0, 2),
-              type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-            },
-          ],
-          role: "assistant",
-        },
-        type: "message",
-      },
-      "1"
-    );
-    const invalid = sessionEntry(
-      "3",
-      {
-        customType: CHECKPOINT_CUSTOM_TYPE,
-        data: { secret: "CHECKPOINT_SECRET" },
-        type: "custom",
-      },
-      "2"
-    );
-    const obsoleteFrame = sessionEntry("4", {
-      customType: CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
-      data: {
-        baseline: { messageCount: 99 },
-        event: { messageCount: 99, secret: "VERSION_SECRET" },
-        frameResult: "ambiguous",
-        kind: "context-frame",
-        version: 2,
-      },
+  it("reports invalid active checkpoints without exposing payloads", () => {
+    const invalid = sessionEntry("1", {
+      customType: CHECKPOINT_CUSTOM_TYPE,
+      data: { secret: "CHECKPOINT_SECRET" },
       type: "custom",
     });
     const report = formatCodexProviderStatus({
-      branch: [frame, fallback, invalid],
-      entries: [frame, fallback, invalid, obsoleteFrame],
+      branch: [invalid],
+      entries: [invalid],
+      ...EMPTY_OBSERVABILITY,
       sessionId: "session-diagnostics",
     });
 
     for (const value of [
       "  Checkpoint: invalid · checkpoint entry",
       "  Invalid checkpoint entries: 1 current branch · 1 session",
-      "  Replay blocks: 1 current branch · 1 session · latest on current branch: missing",
-      "(3 baseline / 4 event messages)",
-      "  Transport fallbacks: 1 current branch · 1 session · latest on current branch: websocket",
+      "  Replay blocks: 0 session",
+      "  Transport fallbacks: 0 session",
     ]) {
       expect(report).toContain(value);
     }
-    expect(report).not.toMatch(
-      /EVENT_SECRET|TRANSPORT_SECRET|CHECKPOINT_SECRET|VERSION_SECRET/u
-    );
+    expect(report).not.toContain("CHECKPOINT_SECRET");
+  });
+
+  it("explains cache misses from SQLite request observations", () => {
+    const observations: CodexObservation[] = [
+      requestObservation(61_000, 0, ["a", "b", "c"], true),
+      requestObservation(1000, 100, ["a", "b"]),
+      {
+        data: {
+          baseline: { messageCount: 3 },
+          event: { messageCount: 4 },
+          frameResult: "missing",
+        },
+        kind: "context-frame-failure",
+        timestamp: 62_000,
+      },
+      {
+        data: {
+          outcome: "error",
+          transport: { configured: "websocket", fellBackToSse: true },
+        },
+        kind: "compaction",
+        timestamp: 63_000,
+      },
+    ];
+
+    const report = formatCodexProviderStatus({
+      branch: [],
+      entries: [],
+      observabilityPath: "/tmp/codex-provider.sqlite",
+      observations,
+      sessionId: "session-observed",
+    });
+
+    for (const value of [
+      "Cache",
+      "  Latest: miss",
+      "  Previous: hit 1m earlier",
+      "  Input prefix: 2 matching items · 2 previous · 3 latest",
+      "  Assessment: no client-visible cause",
+      "  Replay blocks: 1 session",
+      "  Transport fallbacks: 2 session",
+      "  Failed compaction requests: 1 session",
+      "  Database: /tmp/codex-provider.sqlite",
+      "  Rows (session, 30 days): 2 requests · 1 compactions · 1 replay blocks",
+    ]) {
+      expect(report).toContain(value);
+    }
   });
 
   it("separates the active branch from abandoned session history", () => {
@@ -246,6 +278,7 @@ describe("Codex provider status", () => {
     const report = formatCodexProviderStatus({
       branch: [root, branchCheckpoint],
       entries: [root, branchCheckpoint, abandonedCheckpoint],
+      ...EMPTY_OBSERVABILITY,
       sessionId: "session-branched",
     });
 
@@ -270,6 +303,7 @@ describe("Codex provider status", () => {
     const report = formatCodexProviderStatus({
       branch,
       entries: branch,
+      ...EMPTY_OBSERVABILITY,
       sessionId: "session-recent",
     });
     const recent = report
@@ -297,6 +331,7 @@ describe("Codex provider status", () => {
     const report = formatCodexProviderStatus({
       branch: [malformed],
       entries: [malformed],
+      ...EMPTY_OBSERVABILITY,
       sessionId: "session-malformed-carrier",
     });
 

@@ -12,4 +12,4 @@ OpenAI Codex requests compact and replay opaque checkpoints automatically; run `
 
 ## Configuration
 
-The provider replacement is always active. See [design](docs/design.md) for ownership and failure policy, and [live canaries](docs/live-canary.md) for paid release verification.
+The provider replacement is always active. Observations use `~/.pi/agent/codex-provider.sqlite` by default; with Pi stopped, reset them with `rm ~/.pi/agent/codex-provider.sqlite*` (or use the equivalent `$PI_CODING_AGENT_DIR` path). See [design](docs/design.md) for ownership and failure policy, and [live canaries](docs/live-canary.md) for paid release verification.

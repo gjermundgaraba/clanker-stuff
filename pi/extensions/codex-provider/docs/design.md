@@ -10,18 +10,23 @@ The implementation follows the pinned [Codex and Pi source baseline](codex-basel
 | --- | --- |
 | Provider registration and lifecycle hooks | [`lifecycle.ts`](../lifecycle.ts) |
 | Request bodies, models, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
+| Best-effort request and reliability observations | [`observability.ts`](../observability.ts) |
 | Strict persisted checkpoint format and active-branch resolution | [`checkpoint.ts`](../checkpoint.ts) |
 | Framing, retention, token estimates, and tool-history repair | [`replay.ts`](../replay.ts) |
 | Redacted checkpoint display | [`renderer.ts`](../renderer.ts) |
-| Read-only session diagnostics | [`status.ts`](../status.ts) |
+| Read-only provider status | [`status.ts`](../status.ts) |
 
 The provider runtime is not optional. Loading the extension replaces Pi's effective `openai-codex` provider for the process. The extension must resolve last so no later context, header, payload, provider, or compaction registration can invalidate its checks; see [local deployment](local-deployment.md).
 
 One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, exact continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. Session shutdown closes transport state.
 
-## Session diagnostics
+## Status and observability
 
-`/codex-provider` renders a read-only report from the current Pi context and existing session entries. It distinguishes the active branch from the complete session tree, summarizes valid checkpoint usage and estimated reduction, reports invalid checkpoint carriers and redacted framing or transport diagnostics, and checks the active checkpoint against the current provider identity. The report is shown through Pi's notification UI and is never appended to the session.
+`/codex-provider` renders a read-only report from the current Pi context, checkpoint entries, and the extension's SQLite observations. It distinguishes the active branch from the complete session tree, summarizes valid checkpoint usage and estimated reduction, compares the two latest request fingerprints and cache usage, reports replay blocks, transport fallbacks, and failed compaction requests, and checks the active checkpoint against the current provider identity. The report is shown through Pi's notification UI and is never appended to the session.
+
+Complete checkpoints remain in Pi's session JSONL because Pi and the extension need them to reconstruct context during branch navigation, reload, resume, and session sharing. Compact request, transport, framing-failure, and compaction-attempt observations are written best-effort to `codex-provider.sqlite` in Pi's agent directory. The database uses WAL, never waits on a busy writer, and deletes observations older than 30 days when opened. `--no-session` keeps observations in memory. Observation failure never delays or fails a model request.
+
+Framing and transport diagnostics are not appended to session JSONL, so they do not travel with copied or shared session files.
 
 The checkpoint entry renderer presents estimated before/after context size separately from provider-reported compaction usage. Its default view contains operational results only; Pi's expanded-entry view reveals checkpoint identifiers, hashes, protocol versions, limits, and retained-item counts. These values establish persistence and replay health, not semantic summary quality.
 
@@ -69,7 +74,7 @@ Both the readable summary and the original JSONL history remain plaintext on dis
 4. Earlier payload and header transformations are paired request-locally and never persisted.
 5. Compatible replay requires provider, API, canonical base URL, and non-conflicting `comp_hash`; model transitions compact explicitly instead of treating the model ID as the compatibility key.
 6. A stale generation, branch, leaf, model, request state, source hash, race, or unverifiable append aborts the pending request.
-7. Diagnostics contain shapes, counts, and hashes only, never message text, tool arguments, headers, credentials, URLs, or encrypted checkpoint content.
+7. Observations contain request hashes, 16-hex item hash prefixes, model/options, transport and retry outcomes, timings, identifiers, and usage; never message text, tool arguments, headers, credentials, URLs, or encrypted checkpoint content.
 
 The persisted-versus-live proof is detailed in [context alignment](context-alignment.md). Executable coverage lives in the [checkpoint](../tests/checkpoint.test.ts), [provider](../tests/provider.test.ts), [replay](../tests/replay.test.ts), and [lifecycle integration](../tests/lifecycle.integration.test.ts) tests.
 

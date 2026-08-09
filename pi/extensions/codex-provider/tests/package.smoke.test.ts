@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -14,7 +15,7 @@ import {
   DefaultResourceLoader,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import * as packageEntry from "../index.js";
@@ -58,10 +59,13 @@ describe("codex-provider package", () => {
       rmSync(tempRoot, { force: true, recursive: true });
       tempRoot = undefined;
     }
+    vi.unstubAllEnvs();
   });
 
   it("discovers only the combined default production extension", async () => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), "codex-package-source-"));
+    const agentDir = path.join(tempRoot, "agent");
+    vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
     const result = await loadPackage(PACKAGE_ROOT, tempRoot);
     const extension = result.extensions.find(
       ({ resolvedPath }) => resolvedPath === EXPECTED_ENTRY
@@ -82,6 +86,9 @@ describe("codex-provider package", () => {
       exports: ["default"],
       sensitiveHooks: [...SENSITIVE_HOOKS],
     });
+    expect(
+      existsSync(path.join(agentDir, "codex-provider.sqlite"))
+    ).toBeFalsy();
   });
 
   it("packs, installs, and loads with production peer resolution", async () => {
@@ -131,6 +138,7 @@ describe("codex-provider package", () => {
         "package/docs/local-deployment.md",
         "package/index.ts",
         "package/lifecycle.ts",
+        "package/observability.ts",
         "package/package.json",
         "package/provider.ts",
         "package/renderer.ts",

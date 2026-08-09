@@ -27,16 +27,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import type { Checkpoint } from "../checkpoint.ts";
-import {
-  CHECKPOINT_CUSTOM_TYPE,
-  CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE,
-  parseCheckpoint,
-} from "../checkpoint.ts";
+import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
-const CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE =
-  "codex-provider.transport-fallback";
 const TRANSPORT_FALLBACK_WARNING =
   "OpenAI Codex WebSocket is unavailable; using SSE for this session.";
 const TRUNCATED_OUTPUT_MESSAGE =
@@ -175,41 +169,6 @@ const assistantText = (message: AssistantMessage | undefined) =>
   message?.content
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("") ?? "";
-
-const assertTransportFallbackDiagnostic = (
-  message: AssistantMessage | undefined,
-  label: string
-) => {
-  assert(
-    message?.stopReason === "stop",
-    `${label}: assistant did not complete`
-  );
-  const diagnostics = message.diagnostics ?? [];
-  assert(
-    diagnostics.length === 1,
-    `${label}: expected exactly one transport fallback diagnostic`
-  );
-  const [diagnostic] = diagnostics;
-  assert(
-    diagnostic?.type === CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE &&
-      Number.isSafeInteger(diagnostic.timestamp) &&
-      diagnostic.timestamp > 0 &&
-      diagnostic.error === undefined &&
-      !("raw" in diagnostic) &&
-      isRecord(diagnostic.details),
-    `${label}: transport fallback diagnostic is invalid`
-  );
-  assert(
-    JSON.stringify(Object.keys(diagnostic).toSorted()) ===
-      JSON.stringify(["details", "timestamp", "type"]) &&
-      JSON.stringify(Object.keys(diagnostic.details).toSorted()) ===
-        JSON.stringify(["configuredTransport"]) &&
-      (diagnostic.details.configuredTransport === "auto" ||
-        diagnostic.details.configuredTransport === "websocket" ||
-        diagnostic.details.configuredTransport === "websocket-cached"),
-    `${label}: transport fallback diagnostic contains unapproved fields or values`
-  );
-};
 
 const rewrittenTrailingOutputCount = (requestBodyValue: unknown): number => {
   assert(isRecord(requestBodyValue), "Compaction request body is invalid");
@@ -601,7 +560,6 @@ const runFreshChild = async (branchMode: boolean) => {
         "Fresh-process checkpoint count is invalid"
       );
       await session.prompt("FRESH PROCESS RESUME ONE. Reply only RESUMED ONE.");
-      const firstAssistant = lastAssistant(session);
       const fallbackAfterFirst = transportProbe.websocketConstructions;
       await session.prompt("FRESH PROCESS RESUME TWO. Reply only RESUMED TWO.");
       const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
@@ -615,25 +573,13 @@ const runFreshChild = async (branchMode: boolean) => {
         lastAssistant(session)?.stopReason === "stop",
         "Fresh-process restart assistant did not complete"
       );
-      assert(
-        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length === 0,
-        "Fresh-process restart persisted a framing diagnostic"
-      );
       assert(extensionErrors.length === 0, "Extension errors were emitted");
       if (transportMode === "fallback") {
-        assertTransportFallbackDiagnostic(
-          firstAssistant,
-          "Fresh-process fallback"
-        );
         assert(
           notifications.filter(
             (notification) => notification === TRANSPORT_FALLBACK_WARNING
           ).length === 1,
           "Fresh-process fallback warning was not emitted exactly once"
-        );
-        assert(
-          (lastAssistant(session)?.diagnostics ?? []).length === 0,
-          "Fresh-process sticky SSE assistant emitted another diagnostic"
         );
         assert(
           fallbackAfterFirst === 1 &&
@@ -734,10 +680,6 @@ const runFreshChild = async (branchMode: boolean) => {
           (entry) => responseId(entry) === secondResponseId
         ),
       "Divergent branch was not independently restorable"
-    );
-    assert(
-      customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length === 0,
-      "Branch replay persisted a framing diagnostic"
     );
     assert(extensionErrors.length === 0, "Extension errors were emitted");
 
@@ -1397,9 +1339,8 @@ Environment:
         "Compatible replay included plaintext portable-summary state"
       );
       assert(
-        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length ===
-          0 && extensionErrors.length === 0,
-        "Portable canary emitted a diagnostic or extension error"
+        extensionErrors.length === 0,
+        "Portable canary emitted an extension error"
       );
       assertTransport(transportMode, transportProbe);
       console.log(
@@ -1439,9 +1380,8 @@ Environment:
         `Below-threshold tool loop created ${checkpoints.length} checkpoint(s)`
       );
       assert(
-        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length ===
-          0 && extensionErrors.length === 0,
-        "Threshold canary emitted a diagnostic or extension error"
+        extensionErrors.length === 0,
+        "Threshold canary emitted an extension error"
       );
       assertTransport(transportMode, transportProbe);
       console.log(
@@ -1551,9 +1491,8 @@ Environment:
         parsedCheckpoint(checkpoint);
       }
       assert(
-        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length ===
-          0 && extensionErrors.length === 0,
-        "Capability canary emitted a diagnostic or extension error"
+        extensionErrors.length === 0,
+        "Capability canary emitted an extension error"
       );
       assertTransport(transportMode, transportProbe);
       console.log(
@@ -1734,26 +1673,11 @@ Environment:
         lastAssistant(session)?.stopReason === "stop",
         `Round ${round}: assistant did not complete`
       );
-      assert(
-        customEntries(manager, CHECKPOINT_DIAGNOSTIC_CUSTOM_TYPE).length === 0,
-        `Round ${round}: framing diagnostic was persisted`
-      );
       if (transportMode === "fallback") {
         assert(
           transportProbe.websocketConstructions === 3,
           `Round ${round}: sticky SSE constructed another WebSocket after provider fallback`
         );
-        if (round === 1) {
-          assertTransportFallbackDiagnostic(
-            lastAssistant(session),
-            "Compaction-first fallback"
-          );
-        } else {
-          assert(
-            (lastAssistant(session)?.diagnostics ?? []).length === 0,
-            `Round ${round}: sticky SSE assistant emitted another diagnostic`
-          );
-        }
         assert(
           notifications.filter(
             (notification) => notification === TRANSPORT_FALLBACK_WARNING

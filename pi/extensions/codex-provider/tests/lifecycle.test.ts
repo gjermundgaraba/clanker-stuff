@@ -1,9 +1,8 @@
 import type {
   ExtensionContext,
-  MessageEndEvent,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
@@ -29,8 +28,8 @@ import {
   shouldCompactFinalizedInput,
 } from "../lifecycle.js";
 import type { LifecycleExecutionSuccess } from "../lifecycle.js";
-import { CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE } from "../provider.js";
-import { SPIKE_MODEL } from "./fixtures.js";
+import { CodexObservability } from "../observability.js";
+import { responseEvents, SPIKE_API_KEY, SPIKE_MODEL, sse } from "./fixtures.js";
 
 const userInput = (text: string) => ({
   content: [{ text, type: "input_text" as const }],
@@ -59,44 +58,64 @@ const entry = (
     ...value,
   }) as SessionEntry;
 
-const fallbackDiagnostic = {
-  details: {
-    configuredTransport: "auto",
-  },
-  type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
-};
-
-const fallbackAssistant = (overrides: Record<string, unknown> = {}) => ({
-  diagnostics: [fallbackDiagnostic],
-  role: "assistant",
-  stopReason: "stop",
-  ...overrides,
-});
-
-const createMessageEndHarness = () => {
-  const notifications: [string, string][] = [];
-  const ctx = {
-    ui: {
-      notify: (message: string, type: string) => {
-        notifications.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-  const { messageEnd } = createCodexLifecycle({} as never);
-  return {
-    messageEnd: (message: Record<string, unknown>) => {
-      messageEnd({ message } as unknown as MessageEndEvent, ctx);
-    },
-    notifications,
-  };
+// oxlint-disable-next-line eslint/prefer-arrow-callback -- WebSocket constructors must be constructable
+const FailingWebSocket = function FailingWebSocket() {
+  throw new Error("unavailable");
 };
 
 describe("transport fallback notification", () => {
-  it("warns once for the provider diagnostic", () => {
-    const { messageEnd, notifications } = createMessageEndHarness();
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
-    messageEnd(fallbackAssistant());
-    messageEnd(fallbackAssistant());
+  it("warns once after the next successful assistant message", async () => {
+    vi.stubGlobal("WebSocket", FailingWebSocket);
+    const notifications: [string, string][] = [];
+    const sessionId = "fallback-session";
+    const ctx = {
+      sessionManager: { getSessionId: () => sessionId },
+      ui: {
+        notify: (message: string, type: string) => {
+          notifications.push([message, type]);
+        },
+      },
+    } as unknown as ExtensionContext;
+    const observability = new CodexObservability(":memory:");
+    const lifecycle = createCodexLifecycle({} as never, observability);
+    const output = await lifecycle.provider
+      .streamSimple(
+        SPIKE_MODEL,
+        { messages: [], systemPrompt: "System truth" },
+        {
+          apiKey: SPIKE_API_KEY,
+          fetch: async () => sse(responseEvents("resp_fallback", "ok")),
+          sessionId,
+        }
+      )
+      .result();
+
+    lifecycle.messageEnd(
+      {
+        message: { ...output, stopReason: "error" },
+        type: "message_end",
+      },
+      ctx
+    );
+    lifecycle.messageEnd(
+      {
+        message: {
+          ...output,
+          api: "anthropic-messages",
+          model: "claude-test",
+          provider: "anthropic",
+        },
+        type: "message_end",
+      },
+      ctx
+    );
+    expect(notifications).toStrictEqual([]);
+    lifecycle.messageEnd({ message: output, type: "message_end" }, ctx);
+    lifecycle.messageEnd({ message: output, type: "message_end" }, ctx);
 
     expect(notifications).toStrictEqual([
       [
@@ -104,23 +123,24 @@ describe("transport fallback notification", () => {
         "warning",
       ],
     ]);
+    observability.close();
   });
+});
 
-  it("ignores malformed and spoofed fallback diagnostics", () => {
-    const { messageEnd, notifications } = createMessageEndHarness();
-
-    for (const diagnostic of [
-      { type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE },
-      {
-        details: { configuredTransport: "sse" },
-        type: CODEX_TRANSPORT_FALLBACK_DIAGNOSTIC_TYPE,
+describe("observability lifecycle", () => {
+  it("keeps observations in memory when Pi has no session file", () => {
+    const observability = new CodexObservability("persistent.sqlite");
+    const lifecycle = createCodexLifecycle({} as never, observability);
+    lifecycle.start({
+      sessionManager: {
+        getSessionFile: vi.fn<() => string | undefined>(),
+        getSessionId: () => "ephemeral-session",
       },
-      { details: fallbackDiagnostic.details, type: "unrelated" },
-    ]) {
-      messageEnd(fallbackAssistant({ diagnostics: [diagnostic] }));
-    }
+      ui: { notify: vi.fn<() => void>() },
+    } as unknown as ExtensionContext);
 
-    expect(notifications).toStrictEqual([]);
+    expect(observability.path).toBe(":memory:");
+    observability.close();
   });
 });
 
