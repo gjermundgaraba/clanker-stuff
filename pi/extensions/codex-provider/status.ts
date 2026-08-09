@@ -212,8 +212,10 @@ const changed = (left: string | undefined, right: string | undefined) =>
 const cacheObservationLines = (
   observations: readonly CodexObservation[]
 ): string[] => {
-  const [latest, previous] = requestObservations(observations);
-  if (!latest) {
+  const requests = requestObservations(observations);
+  const latest = requests.at(0);
+  const previous = requests.at(1);
+  if (latest === undefined) {
     return ["  Latest: no successful requests recorded"];
   }
   const latestResult = latest.cacheReadTokens > 0 ? "hit" : "miss";
@@ -221,7 +223,7 @@ const cacheObservationLines = (
   const lines = [
     `  Latest: ${latestResult} at ${timestamp(latest.timestamp)} · ${number(latest.inputTokens)} uncached input · ${number(latest.cacheReadTokens)} cache read · ${number(latest.cacheWriteTokens)} cache write · key ${key}`,
   ];
-  if (!previous) {
+  if (previous === undefined) {
     lines.push(
       "  Previous: none recorded",
       latest.cacheEnabled
@@ -404,8 +406,8 @@ export const formatCodexProviderStatus = (
     );
   }
 
-  const [latestFrame] = observedFrames;
-  const [latestFallback] = observedFallbacks;
+  const latestFrame = observedFrames.at(0);
+  const latestFallback = observedFallbacks.at(0);
   const observationCounts = {
     compactions: observations.filter(
       (observation) => observation.kind === "compaction"
@@ -431,14 +433,15 @@ export const formatCodexProviderStatus = (
     ...cacheObservationLines(observations),
     "Reliability",
     `  Invalid checkpoint entries: ${branchCheckpoints.invalidCarriers} current branch · ${sessionCheckpoints.invalidCarriers} session`,
-    `  Replay blocks: ${observedFrames.length} session${latestFrame ? ` · latest in session: ${latestFrame.frameResult} at ${timestamp(latestFrame.timestamp)} (${latestFrame.baselineMessages} baseline / ${latestFrame.eventMessages} event messages)` : ""}`,
-    `  Transport fallbacks: ${observedFallbacks.length} session${latestFallback ? ` · latest in session: ${latestFallback.configuredTransport} at ${timestamp(latestFallback.timestamp)}` : ""}`,
+    `  Replay blocks: ${observedFrames.length} session${latestFrame === undefined ? "" : ` · latest in session: ${latestFrame.frameResult} at ${timestamp(latestFrame.timestamp)} (${latestFrame.baselineMessages} baseline / ${latestFrame.eventMessages} event messages)`}`,
+    `  Transport fallbacks: ${observedFallbacks.length} session${latestFallback === undefined ? "" : ` · latest in session: ${latestFallback.configuredTransport} at ${timestamp(latestFallback.timestamp)}`}`,
     `  Failed compaction requests: ${observedCompactionFailures.length} session`,
     "Observability",
     `  Database: ${options.observabilityPath}`,
     `  Rows (session, 30 days): ${observationCounts.requests} requests · ${observationCounts.compactions} compactions · ${observationCounts.frames} replay blocks`,
-    ...(options.observabilityError
-      ? [`  Last database error: ${options.observabilityError}`]
-      : []),
+    ...(options.observabilityError === undefined ||
+    options.observabilityError.length === 0
+      ? []
+      : [`  Last database error: ${options.observabilityError}`]),
   ].join("\n");
 };

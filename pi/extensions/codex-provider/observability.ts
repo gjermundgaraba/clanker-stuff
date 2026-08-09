@@ -20,6 +20,11 @@ export interface CodexObservation {
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+const isObservationKind = (value: unknown): value is CodexObservationKind =>
+  value === "compaction" ||
+  value === "context-frame-failure" ||
+  value === "request";
+
 export class CodexObservability {
   #database?: DatabaseSync;
   #insert?: StatementSync;
@@ -97,16 +102,21 @@ export class CodexObservability {
            WHERE session_id = ?
            ORDER BY id DESC`
         )
-        .all(sessionId) as {
-        data: string;
-        kind: CodexObservationKind;
-        timestamp: number;
-      }[];
-      return rows.map((row) => ({
-        data: JSON.parse(row.data) as unknown,
-        kind: row.kind,
-        timestamp: row.timestamp,
-      }));
+        .all(sessionId);
+      return rows.map((row) => {
+        if (
+          typeof row.data !== "string" ||
+          !isObservationKind(row.kind) ||
+          typeof row.timestamp !== "number"
+        ) {
+          throw new TypeError("SQLite returned an invalid observation row");
+        }
+        return {
+          data: JSON.parse(row.data) as unknown,
+          kind: row.kind,
+          timestamp: row.timestamp,
+        };
+      });
     } catch (error) {
       this.#lastError = errorMessage(error);
       return [];
