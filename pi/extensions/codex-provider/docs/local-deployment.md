@@ -25,6 +25,6 @@ New checkpoints use only custom type `codex-provider.checkpoint`, schema `clanke
 
 Set `CLANKER_CODEX_COMPACTION_FAILURE` to `ask`, `fallback`, or `cancel` when the default interactive choice is unsuitable. Invalid values warn once and behave as `ask`. This changes only failure handling after readable summary generation; it does not disable provider ownership.
 
-Fail-closed alignment errors write a best-effort observation to `codex-provider.sqlite` in Pi's agent directory. It contains counts, hashes, message shapes, and the first mismatch location only; provide the session ID when reporting a failure.
+Fail-closed alignment errors write a best-effort observation to `data/codex-provider/codex-provider.sqlite` under Pi's agent directory. It contains counts, hashes, message shapes, and the first mismatch location only; provide the session ID when reporting a failure.
 
 Before and after any Pi or provider change, run the package tests and the [live multi-compaction canary](live-canary.md). See [design](design.md) for the runtime contract and [context alignment](context-alignment.md) for replay failure rules.

@@ -67,6 +67,9 @@ importers:
 
   pi/extensions/codex-provider:
     dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../packages/extension-paths
       '@earendil-works/pi-ai':
         specifier: 0.84.0
         version: 0.84.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -83,6 +86,9 @@ importers:
 
   pi/extensions/codex-reverse-i-search:
     dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../packages/extension-paths
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.0
         version: 0.84.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)

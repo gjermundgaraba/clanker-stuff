@@ -35,7 +35,7 @@ const extension = (pi: ExtensionAPI) => {
 };
 
 const getStorePath = (agentDir: string) =>
-  path.join(agentDir, "stash", "state.json");
+  path.join(agentDir, "data", "stash", "state.json");
 
 describe("stash", () => {
   const envRestorers: (() => void)[] = [];

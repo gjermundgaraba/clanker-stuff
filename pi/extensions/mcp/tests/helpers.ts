@@ -95,7 +95,7 @@ export const setupMcpTest = () => {
     const agentDir = path.join(state.homeDir, ".pi", "agent");
     process.env.PI_CODING_AGENT_DIR = agentDir;
     state.configPath = path.join(agentDir, "mcp.json");
-    state.dataDir = path.join(agentDir, "mcp");
+    state.dataDir = path.join(agentDir, "data", "mcp");
     state.localConfigPath = path.join(state.projectDir, ".pi", "mcp.json");
     state.hosts = [];
     state.httpFixtures = [];

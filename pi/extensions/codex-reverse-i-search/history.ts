@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 
@@ -77,9 +78,9 @@ export const normalizeHistory = (items: HistoryItem[]): HistoryItem[] => {
 };
 
 export const openHistoryDatabase = (): DatabaseSync => {
-  const agentDir = getAgentDir();
-  mkdirSync(agentDir, { recursive: true });
-  const database = new DatabaseSync(path.join(agentDir, DATABASE_NAME));
+  const { dataDir } = getExtensionStoragePaths("codex-reverse-i-search");
+  mkdirSync(dataDir, { recursive: true });
+  const database = new DatabaseSync(path.join(dataDir, DATABASE_NAME));
 
   try {
     database.exec(`

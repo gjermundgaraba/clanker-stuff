@@ -4,7 +4,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -91,38 +90,20 @@ describe("codex-provider package", () => {
       sensitiveHooks: [...SENSITIVE_HOOKS],
     });
     expect(
-      existsSync(path.join(agentDir, "codex-provider.sqlite"))
+      existsSync(
+        path.join(agentDir, "data", "codex-provider", "codex-provider.sqlite")
+      )
     ).toBeFalsy();
   });
 
   it("packs, installs, and loads with production peer resolution", async () => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), "codex-package-pack-"));
-    const packDir = path.join(tempRoot, "pack");
-    mkdirSync(packDir);
-    const rawPackOutput: unknown = JSON.parse(
-      execFileSync("npm", ["pack", "--json", "--pack-destination", packDir], {
-        cwd: PACKAGE_ROOT,
-        encoding: "utf-8",
-        env: NPM_ENV,
-      })
-    );
-    let packOutput: unknown;
-    if (Array.isArray(rawPackOutput)) {
-      [packOutput] = rawPackOutput;
-    } else if (rawPackOutput && typeof rawPackOutput === "object") {
-      [packOutput] = Object.values(rawPackOutput);
-    }
-    const filename =
-      packOutput &&
-      typeof packOutput === "object" &&
-      "filename" in packOutput &&
-      typeof packOutput.filename === "string"
-        ? packOutput.filename
-        : undefined;
-    if (!filename) {
-      throw new Error("npm pack did not produce a tarball");
-    }
-    const tarball = path.join(packDir, filename);
+    const tarball = path.join(tempRoot, "codex-provider.tgz");
+    execFileSync("pnpm", ["pack", "--out", tarball], {
+      cwd: PACKAGE_ROOT,
+      env: NPM_ENV,
+      stdio: "pipe",
+    });
     const entries = execFileSync("tar", ["-tzf", tarball], {
       encoding: "utf-8",
     })
@@ -158,6 +139,10 @@ describe("codex-provider package", () => {
         {
           dependencies: {
             "@clanker-stuff/codex-provider": `file:${tarball}`,
+            "@clanker-stuff/pi-extension-paths": `file:${path.resolve(
+              PACKAGE_ROOT,
+              "../../packages/extension-paths"
+            )}`,
             "@earendil-works/pi-ai": "0.84.0",
             "@earendil-works/pi-coding-agent": "0.84.0",
             "@earendil-works/pi-tui": "0.84.0",
@@ -188,6 +173,9 @@ describe("codex-provider package", () => {
         readFileSync(path.join(installedPackage, "package.json"), "utf-8")
       )
     ).toMatchObject({
+      dependencies: {
+        "@clanker-stuff/pi-extension-paths": "^0.1.0",
+      },
       name: "@clanker-stuff/codex-provider",
       peerDependencies: {
         "@earendil-works/pi-ai": "0.84.0",
@@ -209,6 +197,5 @@ describe("codex-provider package", () => {
       errors: [],
       extensions: ["index.ts"],
     });
-    expect(readdirSync(packDir)).toStrictEqual([filename]);
   }, 120_000);
 });

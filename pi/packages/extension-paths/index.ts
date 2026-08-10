@@ -21,11 +21,10 @@ export const getExtensionStoragePaths = (id: string): ExtensionStoragePaths => {
   }
 
   const agentDir = getAgentDir();
-  const dataDir = path.join(agentDir, id);
   return {
-    cacheDir: path.join(dataDir, "cache"),
+    cacheDir: path.join(agentDir, "cache", id),
     configFile: path.join(agentDir, `${id}.json`),
-    dataDir,
+    dataDir: path.join(agentDir, "data", id),
     project: (cwd) => ({
       configFile: path.join(path.resolve(cwd), CONFIG_DIR_NAME, `${id}.json`),
     }),

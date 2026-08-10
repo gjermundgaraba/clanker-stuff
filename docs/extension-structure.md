@@ -108,17 +108,17 @@ import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 const paths = getExtensionStoragePaths("footer");
 ```
 
-The package resolves this layout through Pi's `getAgentDir()` and `CONFIG_DIR_NAME` APIs:
+Pi does not prescribe extension-owned storage paths. The package applies this repository convention through Pi's `getAgentDir()` and `CONFIG_DIR_NAME` APIs:
 
 ```text
 <agent-dir>/
   <id>.json              # global config
-  <id>/                  # durable data
-    cache/  runs/  logs/
+  data/<id>/             # durable data
+    runs/  logs/
+  cache/<id>/            # disposable cache
 
 <project>/<config-dir>/  # normally .pi
   <id>.json              # trusted project config
-  <id>/                  # intentionally project-owned data
 ```
 
 Missing config reads must not create files. Read project config only after Pi trusts the project. Keep session-scoped state in Pi session entries, disposable work under the OS temporary directory, and bundled assets relative to `import.meta.url`. Do not write runtime files into `extensions/`, package source, or installation directories.

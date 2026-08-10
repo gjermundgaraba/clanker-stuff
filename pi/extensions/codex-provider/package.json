@@ -64,6 +64,9 @@
     "test:live:websocket": "node ./scripts/live-multi-compaction.ts --branch --websocket",
     "verify:provider": "pnpm -w check:all && pnpm run test:live:marathon && pnpm run eval:agents --repetitions 3 && pnpm run eval:agents --task compaction-resume"
   },
+  "dependencies": {
+    "@clanker-stuff/pi-extension-paths": "workspace:^"
+  },
   "devDependencies": {
     "vitest": "*"
   },

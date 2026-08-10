@@ -4,6 +4,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { zstdDecompressSync } from "node:zlib";
 
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type {
   AssistantMessage,
   FetchFunction,
@@ -1049,7 +1050,10 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       replacementEnabled = true;
       await session.prompt("must fail closed");
       const observations = new CodexObservability(
-        path.join(paths.rootDir, "agent-config", "codex-provider.sqlite")
+        path.join(
+          getExtensionStoragePaths("codex-provider").dataDir,
+          "codex-provider.sqlite"
+        )
       );
       const frameObservations = observations
         .list(manager.getSessionId())

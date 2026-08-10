@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { DatabaseSync, StatementSync } from "node:sqlite";
+import { StatementSync } from "node:sqlite";
 
 import type {
   ExtensionAPI,
@@ -12,6 +12,7 @@ import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
 import { createReverseSearch } from "../controller.js";
+import { openHistoryDatabase } from "../history.js";
 import { userEntry } from "./fixtures.js";
 
 const shutdowns: (() => Promise<void>)[] = [];
@@ -282,8 +283,7 @@ describe("reverse-search controller", () => {
     );
 
     const { ctx, host } = await createHarness();
-    const databasePath = path.join(agentDir, "codex-reverse-i-search.sqlite");
-    const blocker = new DatabaseSync(databasePath);
+    const blocker = openHistoryDatabase();
     blocker.exec(`
       CREATE TRIGGER block_history_import
       BEFORE INSERT ON history
@@ -304,9 +304,7 @@ describe("reverse-search controller", () => {
 
   it("reloads a concurrent write committed while history is loading", async () => {
     const { ctx, host } = await createHarness();
-    const writer = new DatabaseSync(
-      path.join(agentDir, "codex-reverse-i-search.sqlite")
-    );
+    const writer = openHistoryDatabase();
     const originalAll = StatementSync.prototype.all;
     let injectedWrite = false;
     const allSpy = vi

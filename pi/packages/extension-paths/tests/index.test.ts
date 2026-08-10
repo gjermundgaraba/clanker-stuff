@@ -17,9 +17,9 @@ describe(getExtensionStoragePaths, () => {
     const paths = getExtensionStoragePaths("example-extension");
 
     expect(paths).toMatchObject({
-      cacheDir: path.join(agentDir, "example-extension", "cache"),
+      cacheDir: path.join(agentDir, "cache", "example-extension"),
       configFile: path.join(agentDir, "example-extension.json"),
-      dataDir: path.join(agentDir, "example-extension"),
+      dataDir: path.join(agentDir, "data", "example-extension"),
     });
     expect(paths.project(projectDir)).toStrictEqual({
       configFile: path.join(projectDir, ".pi", "example-extension.json"),
