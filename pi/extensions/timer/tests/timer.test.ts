@@ -1,9 +1,8 @@
+import { BREATHING_DOT_INTERVAL_MS as TIMER_INTERVAL_MS } from "@clanker-stuff/pi-motion";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createTimer } from "../timer.js";
-
-const TIMER_INTERVAL_MS = 100;
 
 const setup = () => {
   const host = createExtensionHost(() => {});
@@ -26,10 +25,10 @@ describe("timer", () => {
     timer.start(ctx);
 
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 4);
-    expect(host.getStatus("timer")).toBe("0.4s");
+    expect(host.getStatus("timer")).toBe("● 0.5s");
 
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 6);
-    expect(host.getStatus("timer")).toBe("1.0s");
+    expect(host.getStatus("timer")).toBe("· 1.3s");
   });
 
   it("stops updating and shows final elapsed on agent_settled", () => {
@@ -37,7 +36,7 @@ describe("timer", () => {
     timer.start(ctx);
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 12);
     timer.stop(ctx);
-    expect(host.getStatus("timer")).toBe("1.2s");
+    expect(host.getStatus("timer")).toBe("● 1.6s");
 
     const callCountAfterEnd = vi.mocked(ctx.ui.setStatus).mock.calls.length;
     vi.advanceTimersByTime(1000);
@@ -50,11 +49,11 @@ describe("timer", () => {
     const { host, ctx, timer } = setup();
     timer.start(ctx);
 
-    vi.advanceTimersByTime(65_000);
-    expect(host.getStatus("timer")).toBe("1:05");
+    vi.advanceTimersByTime(TIMER_INTERVAL_MS * 500);
+    expect(host.getStatus("timer")).toBe("• 1:05");
 
-    vi.advanceTimersByTime(60_000);
-    expect(host.getStatus("timer")).toBe("2:05");
+    vi.advanceTimersByTime(TIMER_INTERVAL_MS * 462);
+    expect(host.getStatus("timer")).toBe("• 2:05");
   });
 
   it("keeps one timer across repeated agent_start events", () => {
@@ -63,11 +62,11 @@ describe("timer", () => {
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 20);
     timer.start(ctx);
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 4);
-    expect(host.getStatus("timer")).toBe("2.4s");
+    expect(host.getStatus("timer")).toBe("· 3.1s");
 
     timer.stop(ctx);
     timer.start(ctx);
-    expect(host.getStatus("timer")).toBe("0.0s");
+    expect(host.getStatus("timer")).toBe("· 0.0s");
   });
 
   it("clears the timer on session_shutdown", () => {

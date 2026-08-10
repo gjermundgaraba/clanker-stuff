@@ -2,6 +2,10 @@ import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import {
+  createIdentityTheme,
+  renderComponent,
+} from "../../../tests/harness/tui.js";
 import { parseExecSource } from "../code-mode/protocol.js";
 import {
   RESPONSES_LITE_HEADER,
@@ -40,6 +44,31 @@ describe("Codex code mode", () => {
     expect(runtime.prompt([definition])).toContain(
       "### `test`\nRuns a test operation.\n\nUsage: `await tools.test(input)`"
     );
+  });
+
+  it("renders semantic execution status transitions", () => {
+    const renderResult = new CodeModeRuntime()
+      .createTools([])
+      .find((tool) => tool.name === "exec")?.renderResult;
+    if (!renderResult) {
+      throw new Error("exec renderer is missing");
+    }
+
+    const render = (details: Record<string, unknown>) =>
+      renderComponent(
+        renderResult(
+          { content: [], details },
+          { expanded: false, isPartial: details.status === "running" },
+          createIdentityTheme(),
+          {} as never
+        )
+      )?.trimEnd();
+
+    expect(render({ status: "running" })).toBe("● running");
+    expect(render({ status: "yielded" })).toBe("◌ yielded");
+    expect(render({ status: "result" })).toBe("✓ completed");
+    expect(render({ status: "terminated" })).toBe("■ terminated");
+    expect(render({ scriptError: "boom", status: "result" })).toBe("✗ error");
   });
 
   it("rewrites Responses requests to the Lite envelope", () => {

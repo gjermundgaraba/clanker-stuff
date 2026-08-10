@@ -29,6 +29,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@clanker-stuff/pi-motion": "workspace:^"
+  },
   "devDependencies": {
     "vitest": "*"
   },

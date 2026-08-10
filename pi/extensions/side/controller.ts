@@ -1,3 +1,8 @@
+import {
+  BREATHING_DOT_FRAMES,
+  BREATHING_DOT_INTERVAL_MS,
+  STATIC_BREATHING_DOT_FRAME,
+} from "@clanker-stuff/pi-motion";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -19,11 +24,34 @@ interface ActiveSide {
   handle?: OverlayHandle;
   hidden: boolean;
   panel?: SidePanel;
+  statusFrame: number;
+  statusInterval?: ReturnType<typeof setInterval>;
   unread: boolean;
   unsubscribe?: () => void;
 }
 
+const clearStatusAnimation = (side: ActiveSide): void => {
+  clearInterval(side.statusInterval);
+  side.statusInterval = undefined;
+};
+
+const workingFrame = (side: ActiveSide) =>
+  side.conversation.state.isRunning
+    ? BREATHING_DOT_FRAMES[side.statusFrame]
+    : STATIC_BREATHING_DOT_FRAME;
+
 const updateStatus = (side: ActiveSide): void => {
+  const animated = side.conversation.state.isRunning;
+  if (animated && side.statusInterval === undefined) {
+    side.statusFrame = 0;
+    side.statusInterval = setInterval(() => {
+      side.statusFrame = (side.statusFrame + 1) % BREATHING_DOT_FRAMES.length;
+      updateStatus(side);
+    }, BREATHING_DOT_INTERVAL_MS);
+  } else if (!animated) {
+    clearStatusAnimation(side);
+  }
+
   let color: "accent" | "dim" | "success" | "warning" = "accent";
   let label = "active";
   if (side.conversation.state.isRunning) {
@@ -36,9 +64,11 @@ const updateStatus = (side: ActiveSide): void => {
     color = "dim";
     label = "hidden";
   }
+  const frame = workingFrame(side);
+  const { theme } = side.context.ui;
   side.context.ui.setStatus(
     SIDE_STATUS_KEY,
-    side.context.ui.theme.fg(color, `SIDE • ${label}`)
+    `${theme.fg(color, "SIDE ")}${theme.fg(frame.color, frame.marker)}${theme.fg(color, ` ${label}`)}`
   );
 };
 
@@ -97,6 +127,7 @@ export const createSideController = (pi: ExtensionAPI) => {
     }
     side.unsubscribe?.();
     side.unsubscribe = undefined;
+    clearStatusAnimation(side);
     side.finish?.();
     side.handle?.hide();
     side.context.ui.setStatus(SIDE_STATUS_KEY, undefined);
@@ -136,7 +167,7 @@ export const createSideController = (pi: ExtensionAPI) => {
     const openingGeneration = sessionGeneration;
     ctx.ui.setStatus(
       SIDE_STATUS_KEY,
-      ctx.ui.theme.fg("warning", "SIDE • opening")
+      ctx.ui.theme.fg("warning", "SIDE ● opening")
     );
 
     let conversation: SideSessionController;
@@ -164,6 +195,7 @@ export const createSideController = (pi: ExtensionAPI) => {
       conversation,
       disposed: false,
       hidden: false,
+      statusFrame: 0,
       unread: false,
     };
     active = side;
@@ -189,6 +221,10 @@ export const createSideController = (pi: ExtensionAPI) => {
           };
           side.panel = new SidePanel(tui, theme, keybindings, conversation, {
             getMainWorking: () => !ctx.isIdle(),
+            getWorkingMarker: () => {
+              const frame = workingFrame(side);
+              return theme.fg(frame.color, frame.marker);
+            },
             onClose: () => {
               side.finish?.();
             },

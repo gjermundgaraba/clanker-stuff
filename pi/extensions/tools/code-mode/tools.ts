@@ -459,18 +459,22 @@ const renderCodeModeResult = (
     ? details.traces.filter(isRuntimeToolTrace)
     : [];
   const container = new Container();
-  const status =
-    typeof details.status === "string" ? details.status : "completed";
-  container.addChild(
-    new Text(
-      theme.fg(
-        status === "running" || status === "yielded" ? "warning" : "success",
-        status
-      ),
-      0,
-      0
-    )
-  );
+  const { status } = details;
+  let statusColor: "error" | "success" | "warning" = "success";
+  let statusText = "✓ completed";
+  if (typeof details.scriptError === "string") {
+    statusColor = "error";
+    statusText = "✗ error";
+  } else if (status === "running") {
+    statusColor = "warning";
+    statusText = "● running";
+  } else if (status === "yielded") {
+    statusColor = "warning";
+    statusText = "◌ yielded";
+  } else if (status === "terminated") {
+    statusText = "■ terminated";
+  }
+  container.addChild(new Text(theme.fg(statusColor, statusText), 0, 0));
   for (const trace of traces) {
     const nested = tools.get(trace.name);
     const renderContext = {

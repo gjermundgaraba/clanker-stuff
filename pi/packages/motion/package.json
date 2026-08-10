@@ -1,12 +1,13 @@
 {
-  "name": "@clanker-stuff/timer",
+  "name": "@clanker-stuff/pi-motion",
   "version": "0.1.0",
   "private": false,
-  "description": "Tracks agent execution time and displays a live running timer in the status bar.",
+  "description": "Shares terminal motion recipes across Pi extensions.",
   "keywords": [
-    "pi-package"
+    "pi",
+    "pi-extension"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/timer#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/packages/motion#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
   },
@@ -14,11 +15,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-    "directory": "pi/extensions/timer"
+    "directory": "pi/packages/motion"
   },
   "files": [
     "index.ts",
-    "timer.ts",
     "README.md",
     "LICENSE"
   ],
@@ -27,21 +27,10 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
-    "@clanker-stuff/pi-motion": "workspace:^"
-  },
   "devDependencies": {
     "vitest": "*"
   },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
-  },
   "engines": {
     "node": ">=24"
-  },
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ]
   }
 }

@@ -1,5 +1,6 @@
+import { BREATHING_DOT_INTERVAL_MS } from "@clanker-stuff/pi-motion";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
@@ -35,6 +36,7 @@ const fakeConversation = (
 // Pending overlay stand-in for pi's ui.custom: runs the factory, exposes the
 // handle, and resolves only when the extension calls done().
 const createOverlayUi = () => {
+  let component: unknown;
   const handle = {
     focus: vi.fn<() => void>(),
     hide: vi.fn<() => void>(),
@@ -56,19 +58,49 @@ const createOverlayUi = () => {
     (factory: CustomFactory, options?: CustomOptions) => Promise<null>
   >((factory, options) => {
     const { promise, resolve } = Promise.withResolvers<null>();
-    factory(
+    component = factory(
       createMockTui(),
       createIdentityTheme(),
-      createKeybindings(),
+      createKeybindings({ "app.interrupt": ["\u001B"] }),
       resolve
     );
     options?.onHandle?.(handle);
     return promise;
   }) as unknown as ExtensionContext["ui"]["custom"];
-  return { custom, handle };
+  return {
+    get component() {
+      return component;
+    },
+    custom,
+    handle,
+  };
+};
+
+const openRunningSide = async () => {
+  vi.useFakeTimers();
+  const conversation = fakeConversation();
+  conversation.state.isRunning = true;
+  vi.mocked(createSideConversation).mockResolvedValueOnce(conversation);
+  const host = createExtensionHost(sideExtension);
+  await host.ready;
+  const overlay = createOverlayUi();
+  const ctx = host.createContext({
+    model: {} as never,
+    ui: { custom: overlay.custom },
+  });
+
+  await host.runCommand("side", "", ctx);
+  await vi.waitFor(() => {
+    expect(overlay.component).toBeDefined();
+  });
+  return { ctx, host, overlay };
 };
 
 describe("side controller", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("rejects /side outside interactive TUI mode", async () => {
     const host = createExtensionHost(sideExtension);
     await host.ready;
@@ -173,5 +205,26 @@ describe("side controller", () => {
       expect(conversation.dispose).toHaveBeenCalledWith();
     });
     expect(host.getStatus("side")).toBeUndefined();
+  });
+
+  it("animates activity in the panel and hidden status", async () => {
+    const { ctx, host, overlay } = await openRunningSide();
+    const panel = overlay.component as {
+      handleInput: (data: string) => void;
+      render: (width: number) => string[];
+    };
+    expect(panel.render(80).join("\n")).toContain("Side · working");
+
+    panel.handleInput("\u001B");
+    vi.advanceTimersByTime(BREATHING_DOT_INTERVAL_MS);
+    expect(host.getStatus("side")).toBe("SIDE • working");
+    expect(panel.render(80).join("\n")).toContain("Side • working");
+
+    await host.emitSessionShutdown(ctx);
+    const callsAfterShutdown = vi.mocked(ctx.ui.setStatus).mock.calls.length;
+    vi.advanceTimersByTime(500);
+    expect(vi.mocked(ctx.ui.setStatus)).toHaveBeenCalledTimes(
+      callsAfterShutdown
+    );
   });
 });

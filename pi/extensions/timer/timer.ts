@@ -1,6 +1,9 @@
+import {
+  BREATHING_DOT_FRAMES,
+  BREATHING_DOT_INTERVAL_MS,
+  STATIC_BREATHING_DOT_FRAME,
+} from "@clanker-stuff/pi-motion";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-const TIMER_INTERVAL_MS = 100;
 
 const formatElapsed = (ms: number): string => {
   const totalSeconds = ms / 1000;
@@ -17,19 +20,26 @@ export const createTimer = () => {
   let intervalId: ReturnType<typeof setInterval> | undefined;
 
   const clear = () => {
-    if (intervalId !== undefined) {
-      clearInterval(intervalId);
-      intervalId = undefined;
-    }
+    clearInterval(intervalId);
+    intervalId = undefined;
   };
 
   const updateStatus = (ctx: ExtensionContext) => {
-    if (startTime !== undefined) {
-      ctx.ui.setStatus(
-        "timer",
-        ctx.ui.theme.fg("dim", formatElapsed(Date.now() - startTime))
-      );
+    if (startTime === undefined) {
+      return;
     }
+    const elapsed = Date.now() - startTime;
+    const frame =
+      intervalId === undefined
+        ? STATIC_BREATHING_DOT_FRAME
+        : (BREATHING_DOT_FRAMES[
+            Math.floor(elapsed / BREATHING_DOT_INTERVAL_MS) %
+              BREATHING_DOT_FRAMES.length
+          ] ?? STATIC_BREATHING_DOT_FRAME);
+    ctx.ui.setStatus(
+      "timer",
+      `${ctx.ui.theme.fg(frame.color, frame.marker)} ${ctx.ui.theme.fg("dim", formatElapsed(elapsed))}`
+    );
   };
 
   return {
@@ -39,10 +49,10 @@ export const createTimer = () => {
         return;
       }
       startTime = Date.now();
-      updateStatus(ctx);
       intervalId = setInterval(() => {
         updateStatus(ctx);
-      }, TIMER_INTERVAL_MS);
+      }, BREATHING_DOT_INTERVAL_MS);
+      updateStatus(ctx);
     },
     stop(ctx: ExtensionContext) {
       clear();

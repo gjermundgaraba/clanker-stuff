@@ -11,7 +11,10 @@ const PI_PROVIDED = new Set([
   "@earendil-works/pi-tui",
   "typebox",
 ]);
-const SHARED_RUNTIME_PACKAGES = new Set(["@clanker-stuff/pi-extension-paths"]);
+const SHARED_RUNTIME_PACKAGES = new Set([
+  "@clanker-stuff/pi-extension-paths",
+  "@clanker-stuff/pi-motion",
+]);
 const EXPECTED_PI_PROVIDED_VERSION = "*";
 
 const ROOT_PACKAGE_NAME = "clanker-stuff";

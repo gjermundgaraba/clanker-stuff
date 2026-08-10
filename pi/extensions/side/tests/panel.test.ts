@@ -23,6 +23,7 @@ describe("side panel", () => {
       } as unknown as SideSessionController,
       {
         getMainWorking: () => false,
+        getWorkingMarker: () => "●",
         onClose: vi.fn<() => void>(),
         onFocus: vi.fn<() => void>(),
         onHide: vi.fn<() => void>(),

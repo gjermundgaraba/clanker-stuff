@@ -39,6 +39,10 @@ const SHARED_PACKAGES = [
     dir: "extension-paths",
     name: "@clanker-stuff/pi-extension-paths",
   },
+  {
+    dir: "motion",
+    name: "@clanker-stuff/pi-motion",
+  },
 ] as const;
 
 const EXTENSION_PACKAGES = [

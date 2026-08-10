@@ -36,6 +36,7 @@ const pad = (text: string, width: number): string =>
 
 interface SidePanelActions {
   getMainWorking: () => boolean;
+  getWorkingMarker: () => string;
   onClose: () => void;
   onFocus: () => void;
   onHide: () => void;
@@ -130,7 +131,9 @@ export class SidePanel implements Focusable {
     const border = (text: string) => this.theme.fg(borderColor, text);
     const row = (text: string) =>
       `${border("│")}${pad(` ${text}`, innerWidth)}${border("│")}`;
-    const sideState = this.conversation.state.isRunning ? "working" : "ready";
+    const sideState = this.conversation.state.isRunning
+      ? `${this.actions.getWorkingMarker()} working`
+      : "· ready";
     const mainState = this.actions.getMainWorking() ? "working" : "idle";
     const editorLines = this.editor
       .render(Math.max(10, innerWidth - 2))
@@ -146,7 +149,7 @@ export class SidePanel implements Focusable {
     const lines = [
       border(`╭${"─".repeat(innerWidth)}╮`),
       row(
-        `${this.theme.bold("Side")} · ${sideState} · ${this.focused ? "focused" : "main focused"}`
+        `${this.theme.bold("Side")} ${sideState} · ${this.focused ? "focused" : "main focused"}`
       ),
       row(this.theme.fg("dim", `Main ${mainState}`)),
       border(`├${"─".repeat(innerWidth)}┤`),
