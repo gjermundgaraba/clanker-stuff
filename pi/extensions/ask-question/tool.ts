@@ -58,35 +58,22 @@ const AskQuestionBaseQuestionProperties = {
   }),
 };
 
-const AskQuestionFreeTextQuestionSchema = Type.Object(
+const AskQuestionQuestionSchema = Type.Object(
   {
     ...AskQuestionBaseQuestionProperties,
-    type: Type.Literal("free_text", {
+    options: Type.Optional(
+      Type.Array(AskQuestionOptionSchema, {
+        description: "Options for single_select and multi_select questions.",
+        maxItems: MAX_OPTIONS,
+        minItems: MIN_OPTIONS,
+      })
+    ),
+    type: StringEnum(["free_text", "single_select", "multi_select"] as const, {
       description: QUESTION_TYPE_DESCRIPTION,
     }),
   },
   { additionalProperties: false }
 );
-
-const AskQuestionOptionQuestionSchema = Type.Object(
-  {
-    ...AskQuestionBaseQuestionProperties,
-    options: Type.Array(AskQuestionOptionSchema, {
-      description: "Options for single_select and multi_select questions.",
-      maxItems: MAX_OPTIONS,
-      minItems: MIN_OPTIONS,
-    }),
-    type: StringEnum(["single_select", "multi_select"] as const, {
-      description: QUESTION_TYPE_DESCRIPTION,
-    }),
-  },
-  { additionalProperties: false }
-);
-
-const AskQuestionQuestionSchema = Type.Union([
-  AskQuestionFreeTextQuestionSchema,
-  AskQuestionOptionQuestionSchema,
-]);
 
 export const AskQuestionParametersSchema = Type.Object(
   {
@@ -126,6 +113,9 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
     const { header, placeholder, question } = questionValue;
 
     if (questionValue.type === "free_text") {
+      if (questionValue.options !== undefined) {
+        throw new Error("Invalid ask_question input");
+      }
       questions.push({
         header,
         placeholder,
@@ -133,6 +123,9 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
         type: questionValue.type,
       });
       continue;
+    }
+    if (questionValue.options === undefined) {
+      throw new Error("Invalid ask_question input");
     }
 
     const seenOptionLabels = new Set<string>();

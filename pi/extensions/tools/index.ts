@@ -12,12 +12,19 @@ export default function toolsExtension(pi: ExtensionAPI): void {
       return Promise.resolve();
     },
   });
+  pi.registerCommand("tools", {
+    description: "Enable/disable tools",
+    handler: (_args, ctx) => runtime.openPicker(ctx),
+  });
 
   pi.on("session_start", (_event, ctx) => {
-    runtime.apply(ctx);
+    runtime.start(ctx);
   });
   pi.on("model_select", (_event, ctx) => {
     runtime.apply(ctx);
+  });
+  pi.on("session_tree", (_event, ctx) => {
+    runtime.restore(ctx);
   });
   pi.on("before_agent_start", (event, ctx) =>
     runtime.augmentSystemPrompt(event.systemPrompt, ctx)

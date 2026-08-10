@@ -162,6 +162,44 @@ describe("native harness routing", () => {
     ]);
   });
 
+  it("preserves tool choices across model changes", async () => {
+    const claude = createModel("claude-opus-5");
+    const host = createExtensionHost(extension, {
+      activeTools: ["read", "ask_question"],
+      allTools: [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls",
+        "ask_question",
+      ],
+      model: claude,
+    });
+    await host.emitSessionStart();
+    host.setActiveTools(
+      host.getActiveTools().filter((name) => name !== "Read")
+    );
+
+    const kimi = createModel("kimi-k3");
+    await host.emit(
+      "model_select",
+      {
+        model: kimi,
+        previousModel: claude,
+        source: "set",
+        type: "model_select",
+      },
+      host.createContext({ model: kimi })
+    );
+
+    expect(host.getActiveTools()).not.toContain("Read");
+    expect(host.getActiveTools()).toContain("ReadMediaFile");
+    expect(host.getActiveTools()).toContain("ask_question");
+  });
+
   it("restores a generic definition after a native-name collision", async () => {
     const grok = createModel("grok-4.5");
     const host = createExtensionHost(extension, {

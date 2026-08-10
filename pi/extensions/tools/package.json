@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/tools",
   "version": "0.1.0",
   "private": false,
-  "description": "Wraps pi's coding capabilities in the tool interfaces exposed by model labs' own coding harnesses.",
+  "description": "Adapts pi's coding tools to model-native interfaces and adds /tools for choosing active tools.",
   "keywords": [
     "pi-package"
   ],
@@ -20,10 +20,12 @@
     "index.ts",
     "operations.ts",
     "path.ts",
+    "picker.ts",
     "patch.ts",
     "process-output.ts",
     "process.ts",
     "runtime.ts",
+    "selection.ts",
     "code-mode",
     "profiles",
     "README.md",

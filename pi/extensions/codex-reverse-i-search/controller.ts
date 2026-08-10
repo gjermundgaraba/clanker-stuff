@@ -23,6 +23,7 @@ export const createReverseSearch = () => {
   let database: DatabaseSync | undefined;
   let databaseVersion: number | undefined;
   let history: HistoryItem[] = [];
+  let importAbort: AbortController | undefined;
   let importPromise: Promise<number> | undefined;
   let persistenceWarningShown = false;
   let unsubscribeInput: (() => void) | undefined;
@@ -98,13 +99,16 @@ export const createReverseSearch = () => {
       return;
     }
 
+    const abort = new AbortController();
     const pendingImport = importPersistentHistory(
       activeDatabase,
       ctx.sessionManager.getSessionDir(),
       (status) => {
         ctx.ui.setStatus(WIDGET_KEY, status);
-      }
+      },
+      abort.signal
     );
+    importAbort = abort;
     importPromise = pendingImport;
 
     try {
@@ -117,10 +121,13 @@ export const createReverseSearch = () => {
         "info"
       );
     } catch (error) {
-      const message = error instanceof Error ? `: ${error.message}` : "";
-      ctx.ui.notify(`Session history import failed${message}`, "error");
+      if (!abort.signal.aborted) {
+        const message = error instanceof Error ? `: ${error.message}` : "";
+        ctx.ui.notify(`Session history import failed${message}`, "error");
+      }
     } finally {
       ctx.ui.setStatus(WIDGET_KEY, undefined);
+      importAbort = undefined;
       importPromise = undefined;
     }
   };
@@ -163,6 +170,7 @@ export const createReverseSearch = () => {
   };
 
   const dispose = async (ctx: ExtensionContext) => {
+    importAbort?.abort();
     try {
       await importPromise;
     } catch {

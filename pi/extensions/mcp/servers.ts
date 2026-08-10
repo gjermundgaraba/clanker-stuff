@@ -47,10 +47,23 @@ interface LoadServerOptions {
 }
 
 export class McpServerPool {
+  private readonly loads = new Set<Promise<McpLoadResult>>();
   private readonly reconnects = new Map<string, Promise<ConnectedServer>>();
   private readonly servers = new Map<string, ConnectedServer>();
+  private readonly shutdown = new AbortController();
 
-  async loadServer(options: LoadServerOptions): Promise<McpLoadResult> {
+  loadServer(options: LoadServerOptions): Promise<McpLoadResult> {
+    const load = this.load(options);
+    this.loads.add(load);
+    return load.finally(() => {
+      this.loads.delete(load);
+    });
+  }
+
+  private async load(options: LoadServerOptions): Promise<McpLoadResult> {
+    if (this.shutdown.signal.aborted) {
+      throw new Error("MCP server pool is closed");
+    }
     const existing = this.servers.get(options.serverName);
     if (existing) {
       activateTools(options.pi, existing.toolNames);
@@ -79,17 +92,19 @@ export class McpServerPool {
       throw new Error(`MCP server ${options.serverName} has no connection`);
     }
 
-    const connection = await connectionFactory(
-      options.interactive,
-      options.signal
-    );
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, this.shutdown.signal])
+      : this.shutdown.signal;
+    const connection = await connectionFactory(options.interactive, signal);
     try {
+      signal.throwIfAborted();
       const result = await this.registerMcpTools(
         options.pi,
         options.serverName,
         connection.client,
-        options.signal
+        signal
       );
+      signal.throwIfAborted();
       this.servers.set(options.serverName, {
         ...connection,
         connectionFactory,
@@ -105,11 +120,16 @@ export class McpServerPool {
   }
 
   async closeAll(): Promise<void> {
-    const closeConnections = [...this.servers.values()].map(
-      ({ close }) => close
+    if (this.shutdown.signal.aborted) {
+      return;
+    }
+    this.shutdown.abort();
+    const closeConnections = [...this.servers.values()].map(({ close }) =>
+      close()
     );
+    const pending = [...this.loads, ...this.reconnects.values()];
     this.servers.clear();
-    await Promise.allSettled(closeConnections.map((close) => close()));
+    await Promise.allSettled([...closeConnections, ...pending]);
   }
 
   private async callTool(
@@ -167,13 +187,27 @@ export class McpServerPool {
     }
 
     const reconnect = (async () => {
-      const connection = await stale.connectionFactory(false);
-      const replacement = { ...stale, ...connection };
-      this.servers.set(serverName, replacement);
-      await stale.close().catch(() => {
-        // The replacement connection is already active.
-      });
-      return replacement;
+      const connection = await stale.connectionFactory(
+        false,
+        this.shutdown.signal
+      );
+      try {
+        this.shutdown.signal.throwIfAborted();
+        if (this.servers.get(serverName) !== stale) {
+          throw new Error(`MCP server ${serverName} is not connected`);
+        }
+        const replacement = { ...stale, ...connection };
+        this.servers.set(serverName, replacement);
+        await stale.close().catch(() => {
+          // The replacement connection is already active.
+        });
+        return replacement;
+      } catch (error) {
+        await connection.close().catch(() => {
+          // Preserve the reconnect error that triggered cleanup.
+        });
+        throw error;
+      }
     })();
     this.reconnects.set(serverName, reconnect);
     try {

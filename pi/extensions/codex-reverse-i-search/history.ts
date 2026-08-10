@@ -169,12 +169,17 @@ export const getDataVersion = (database: DatabaseSync): number => {
 export const importPersistentHistory = async (
   database: DatabaseSync,
   currentSessionDirectory: string,
-  onProgress: (status: string) => void
+  onProgress: (status: string) => void,
+  signal: AbortSignal
 ): Promise<number> => {
-  const defaultRoot = path.join(getAgentDir(), "sessions");
-  const sessions = await SessionManager.listAll((loaded, total) => {
+  signal.throwIfAborted();
+  const reportDiscovery = (loaded: number, total: number): void => {
+    signal.throwIfAborted();
     onProgress(`discovering history: ${loaded}/${total} files`);
-  });
+  };
+  const defaultRoot = path.join(getAgentDir(), "sessions");
+  const sessions = await SessionManager.listAll(reportDiscovery);
+  signal.throwIfAborted();
   if (
     currentSessionDirectory &&
     path.dirname(currentSessionDirectory) !== defaultRoot
@@ -182,11 +187,10 @@ export const importPersistentHistory = async (
     sessions.push(
       ...(await SessionManager.listAll(
         currentSessionDirectory,
-        (loaded, total) => {
-          onProgress(`discovering history: ${loaded}/${total} files`);
-        }
+        reportDiscovery
       ))
     );
+    signal.throwIfAborted();
   }
 
   let files = 0;
@@ -204,6 +208,7 @@ export const importPersistentHistory = async (
     onProgress(`importing history: ${index + 1}/${sessions.length} files`);
     // oxlint-disable-next-line no-await-in-loop -- keep the TUI responsive during import
     await yieldToEventLoop();
+    signal.throwIfAborted();
   }
   return files;
 };

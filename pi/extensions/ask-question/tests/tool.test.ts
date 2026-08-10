@@ -28,52 +28,19 @@ const singleQuestionParams = {
   ],
 };
 
-interface QuestionBranchSchema {
-  additionalProperties?: boolean;
-  properties?: {
-    type?: {
-      description?: string;
-      type?: string;
-      enum?: string[];
-    };
-    options?: unknown;
-  };
-}
-
-const getOptionQuestionTypeSchema = (): {
-  description?: string;
-  type?: string;
-  enum?: string[];
-} => {
-  const schema = AskQuestionParametersSchema as unknown as {
-    properties?: {
-      questions?: {
-        items?: {
-          anyOf?: QuestionBranchSchema[];
-        };
-      };
-    };
-  };
-
-  const branches = schema.properties?.questions?.items?.anyOf;
-  expect(branches).toBeDefined();
-
-  const optionQuestionBranch = branches?.find(
-    (branch) => branch.properties?.options !== undefined
-  );
-
-  expect(optionQuestionBranch).toBeDefined();
-  return optionQuestionBranch?.properties?.type ?? {};
-};
+const questionSchema = AskQuestionParametersSchema.properties.questions.items;
 
 describe("ask-question contract", () => {
-  it("emits a Google-safe string enum for option question types", () => {
-    expect(getOptionQuestionTypeSchema()).toMatchObject({
+  it("emits one Google-safe string enum for every question type", () => {
+    expect(questionSchema.properties.type).toMatchObject({
       description:
         "Question type. Prefer single_select or multi_select; use free_text only when multiple options doesn't make sense.",
-      enum: ["single_select", "multi_select"],
+      enum: ["free_text", "single_select", "multi_select"],
       type: "string",
     });
+    expect(JSON.stringify(AskQuestionParametersSchema)).not.toMatch(
+      /anyOf|oneOf|const/u
+    );
   });
 
   it("keeps the public schema strict", () => {
@@ -81,37 +48,29 @@ describe("ask-question contract", () => {
     const definition = host
       .getRegisteredTools()
       .get("ask_question")?.definition;
-    const schema = AskQuestionParametersSchema as unknown as {
-      additionalProperties?: boolean;
-      properties?: {
-        questions?: {
-          items?: {
-            anyOf?: QuestionBranchSchema[];
-          };
-        };
-      };
-    };
-
     expect(definition).toBeDefined();
-    expect(schema.additionalProperties === false).toBeTruthy();
-    expect(
-      schema.properties?.questions?.items?.anyOf?.every(
-        (branch) => branch.additionalProperties === false
-      )
-    ).toBeTruthy();
+    expect(AskQuestionParametersSchema).toHaveProperty(
+      "additionalProperties",
+      false
+    );
+    expect(questionSchema).toHaveProperty("additionalProperties", false);
   });
 
-  it("rejects invalid input with a generic schema error", () => {
+  it.each([
+    {
+      header: "Plan",
+      question: "Which plan do you want?",
+      type: "single_select",
+    },
+    {
+      header: "Notes",
+      options: [{ label: "Unexpected" }],
+      question: "Anything else?",
+      type: "free_text",
+    },
+  ])("rejects options that do not match the question type", (question) => {
     expect(() =>
-      parseQuestionsFromParameters({
-        questions: [
-          {
-            header: "Plan",
-            question: "Which plan do you want?",
-            type: "single_select",
-          },
-        ],
-      })
+      parseQuestionsFromParameters({ questions: [question] })
     ).toThrow("Invalid ask_question input");
   });
 

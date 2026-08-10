@@ -126,6 +126,18 @@ describe("usage controller", () => {
     await host.emitSessionShutdown(context);
   });
 
+  it("does not fetch usage automatically outside TUI mode", async () => {
+    stubDependencies({ value: 1000 });
+    const host = createExtensionHost(extension, { model: codexModel });
+    const context = host.createContext({ mode: "rpc", model: codexModel });
+
+    await host.emitSessionStart(context);
+    await host.emit("agent_settled", { type: "agent_settled" }, context);
+
+    expect(defaultFetchJson).not.toHaveBeenCalled();
+    await host.emitSessionShutdown(context);
+  });
+
   it("publishes loading, error, ready, and stale health", async () => {
     const nowRef = { value: 1000 };
     stubDependencies(nowRef);

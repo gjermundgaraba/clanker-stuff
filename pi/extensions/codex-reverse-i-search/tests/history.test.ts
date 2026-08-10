@@ -8,6 +8,7 @@ import { createTempDir } from "../../../tests/helpers/fs.js";
 import {
   getDataVersion,
   historyFromEntries,
+  importPersistentHistory,
   loadHistory,
   normalizeHistory,
   openHistoryDatabase,
@@ -43,6 +44,23 @@ describe("prompt history", () => {
       { text: "Build Release", timestamp: 300 },
       { text: "!!pnpm test", timestamp: 200 },
     ]);
+  });
+
+  it("stops an import that has been cancelled", async () => {
+    const agentDir = await createTempDir("reverse-i-search-history-");
+    const restoreAgentDir = patchEnv({ PI_CODING_AGENT_DIR: agentDir });
+    const database = openHistoryDatabase();
+    const abort = new AbortController();
+    abort.abort();
+    onTestFinished(async () => {
+      database.close();
+      restoreAgentDir();
+      await rm(agentDir, { force: true, recursive: true });
+    });
+
+    await expect(
+      importPersistentHistory(database, "", () => {}, abort.signal)
+    ).rejects.toThrow("This operation was aborted");
   });
 
   it("stores history by most recent use", async () => {

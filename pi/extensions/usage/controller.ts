@@ -297,6 +297,9 @@ export const createUsageController = (pi: ExtensionAPI) => {
       ctx.ui.notify(lines.join("\n\n"), "info");
     },
     start: (ctx: ExtensionContext): void => {
+      if (ctx.mode !== "tui") {
+        return;
+      }
       listenForReady();
       generation += 1;
       currentContext = ctx;
@@ -312,7 +315,9 @@ export const createUsageController = (pi: ExtensionAPI) => {
       ctx: ExtensionContext,
       model: { provider?: string } | undefined | null
     ): void => {
-      refresh(ctx, getActiveProvider(model));
+      if (ctx.mode === "tui") {
+        refresh(ctx, getActiveProvider(model));
+      }
     },
   };
 };

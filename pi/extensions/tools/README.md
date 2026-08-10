@@ -1,6 +1,6 @@
 # tools
 
-Wraps pi's coding capabilities in the tool interfaces exposed by model labs' own coding harnesses.
+Adapts pi's coding tools to model-native interfaces and adds /tools for choosing active tools.
 
 ## Install
 
@@ -10,4 +10,4 @@ pi install npm:@clanker-stuff/tools
 
 ## Usage
 
-Select a model; run `/code-mode` to toggle GPT-5.6 Codex models between `exec`/`wait` Code Mode and their direct tools.
+Run `/tools` to choose active tools; `/code-mode` toggles GPT-5.6 Codex models between Code Mode and direct tools.
