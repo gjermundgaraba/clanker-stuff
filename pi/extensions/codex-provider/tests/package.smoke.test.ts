@@ -115,6 +115,7 @@ describe("codex-provider package", () => {
         "package/LICENSE",
         "package/README.md",
         "package/checkpoint.ts",
+        "package/config.ts",
         "package/docs/codex-baseline.md",
         "package/docs/context-alignment.md",
         "package/docs/design.md",

@@ -18,6 +18,7 @@
   },
   "files": [
     "checkpoint.ts",
+    "config.ts",
     "index.ts",
     "lifecycle.ts",
     "observability.ts",

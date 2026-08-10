@@ -3,19 +3,20 @@ import path from "node:path";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { createFastModeConfigStore } from "./config.js";
 import { createCodexLifecycle } from "./lifecycle.js";
 import { CodexObservability } from "./observability.js";
 import { registerCheckpointRenderer } from "./renderer.js";
 
 export default function codexProviderExtension(pi: ExtensionAPI): void {
-  const { dataDir } = getExtensionStoragePaths("codex-provider");
+  const storage = getExtensionStoragePaths("codex-provider");
   const codex = createCodexLifecycle(
     pi,
-    new CodexObservability(path.join(dataDir, "codex-provider.sqlite"))
+    new CodexObservability(path.join(storage.dataDir, "codex-provider.sqlite")),
+    createFastModeConfigStore(storage.configFile)
   );
 
   pi.registerFlag("fast", {
-    default: false,
     description: "Start with OpenAI Codex fast mode enabled",
     type: "boolean",
   });
@@ -33,9 +34,9 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
     handler: (args, ctx) => codex.runCommand(args, ctx),
   });
 
-  pi.on("session_start", (_event, ctx) => {
-    codex.start(ctx);
-  });
+  pi.on("session_start", (event, ctx) =>
+    codex.start(ctx, event.reason === "startup")
+  );
   pi.on("model_select", (event, ctx) => {
     codex.modelSelect(event, ctx);
   });
