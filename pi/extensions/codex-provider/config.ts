@@ -15,11 +15,12 @@ const parseConfig = (value: unknown): boolean => {
     value === null ||
     Array.isArray(value) ||
     Object.keys(value).length !== 1 ||
-    typeof (value as { fast?: unknown }).fast !== "boolean"
+    !("fast" in value) ||
+    typeof value.fast !== "boolean"
   ) {
     throw new Error('config must be exactly { "fast": boolean }');
   }
-  return (value as { fast: boolean }).fast;
+  return value.fast;
 };
 
 export const createFastModeConfigStore = (configPath: string) => {
