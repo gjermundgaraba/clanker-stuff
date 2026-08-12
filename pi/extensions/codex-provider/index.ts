@@ -7,6 +7,7 @@ import { createFastModeConfigStore } from "./config.js";
 import { createCodexLifecycle } from "./lifecycle.js";
 import { CodexObservability } from "./observability.js";
 import { registerCheckpointRenderer } from "./renderer.js";
+import { registerCodexTools } from "./tools/register.js";
 
 export default function codexProviderExtension(pi: ExtensionAPI): void {
   const storage = getExtensionStoragePaths("codex-provider");
@@ -23,6 +24,7 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
 
   pi.registerProvider(codex.provider);
   registerCheckpointRenderer(pi);
+  registerCodexTools(pi);
 
   pi.registerCommand("fast", {
     description: "Toggle OpenAI Codex fast mode",

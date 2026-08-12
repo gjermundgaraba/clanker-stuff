@@ -3,15 +3,15 @@ import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 
-import { codeModeHostBinaryName, HOST_RELEASE } from "./host-assets.js";
-import { installCodeModeHost } from "./install-host.js";
+import { codeModeHostBinaryName, HOST_RELEASE } from "./host-assets.ts";
+import { installCodeModeHost } from "./install-host.ts";
 
 export const codeModeHostBinaryPath = (
   platform = process.platform,
   arch = process.arch
 ) =>
   path.join(
-    getExtensionStoragePaths("tools").cacheDir,
+    getExtensionStoragePaths("codex-provider").cacheDir,
     "code-mode",
     HOST_RELEASE,
     `${platform}-${arch}`,

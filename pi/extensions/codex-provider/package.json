@@ -26,6 +26,8 @@
     "renderer.ts",
     "replay.ts",
     "status.ts",
+    "code-mode",
+    "tools",
     "README.md",
     "LICENSE",
     "docs/codex-baseline.md",
@@ -47,13 +49,14 @@
     "eval:agents": "node ./scripts/evaluate-agents.ts",
     "eval:agents:dry": "node ./scripts/evaluate-agents.ts --dry-run",
     "eval:agents:smoke": "node ./scripts/evaluate-agents.ts --smoke",
+    "eval:code-mode": "node ./evals/code-mode-ab.ts",
     "test:live": "node ./scripts/live-multi-compaction.ts",
     "test:live:branch": "node ./scripts/live-multi-compaction.ts --branch",
     "test:live:capabilities": "node ./scripts/live-multi-compaction.ts --capabilities",
     "test:live:fallback": "node ./scripts/live-multi-compaction.ts --fallback",
     "test:live:fault": "node ./scripts/live-multi-compaction.ts --stream-fault --sse",
     "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
-    "test:live:native:installed": "node ./scripts/live-installed.ts",
+    "test:live:installed": "node ./scripts/live-installed.ts",
     "test:live:portable": "node ./scripts/live-multi-compaction.ts --portable",
     "test:live:real": "node ./scripts/live-multi-compaction.ts --real-window",
     "test:live:crash": "node ./scripts/live-chaos.ts --crash",
@@ -63,7 +66,7 @@
     "test:live:soak:websocket": "node ./scripts/live-multi-compaction.ts --soak --websocket",
     "test:live:threshold": "node ./scripts/live-multi-compaction.ts --threshold",
     "test:live:websocket": "node ./scripts/live-multi-compaction.ts --branch --websocket",
-    "verify:provider": "pnpm -w check:all && pnpm run test:live:marathon && pnpm run eval:agents --repetitions 3 && pnpm run eval:agents --task compaction-resume"
+    "verify:provider": "pnpm -w check:all && pnpm run test:live:marathon && pnpm run eval:agents --repetitions 3 && pnpm run eval:agents --task compaction-resume && pnpm run eval:code-mode --runs 3"
   },
   "dependencies": {
     "@clanker-stuff/pi-extension-paths": "workspace:^"
@@ -72,9 +75,10 @@
     "vitest": "*"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "0.84.0",
-    "@earendil-works/pi-coding-agent": "0.84.0",
-    "@earendil-works/pi-tui": "0.84.0"
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-tui": "0.84.1",
+    "typebox": "*"
   },
   "engines": {
     "node": ">=24"

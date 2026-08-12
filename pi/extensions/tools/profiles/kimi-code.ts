@@ -3,6 +3,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { prepareForegroundArguments } from "./arguments.js";
 import type { HarnessProfile } from "./types.js";
 
 const strict = { additionalProperties: false } as const;
@@ -152,22 +153,21 @@ export const kimiCodeProfile: HarnessProfile = {
     defineTool({
       name: "Bash",
       label: "Bash",
-      description: "Execute a shell command in the foreground or background.",
+      description: "Execute a shell command.",
       parameters: Type.Object(
         {
           command: Type.String(),
           cwd: Type.Optional(Type.String()),
           timeout: Type.Optional(Type.Integer({ minimum: 1 })),
-          run_in_background: Type.Optional(Type.Boolean()),
           description: Type.Optional(Type.String()),
           disable_timeout: Type.Optional(Type.Boolean()),
         },
         strict
       ),
+      prepareArguments: prepareForegroundArguments,
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.runShell(
           {
-            background: params.run_in_background,
             command: params.command,
             cwd: params.cwd,
             timeoutMs:

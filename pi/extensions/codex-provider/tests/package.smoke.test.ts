@@ -22,10 +22,19 @@ import * as packageEntry from "../index.js";
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXPECTED_ENTRY = path.join(PACKAGE_ROOT, "index.ts");
 const SENSITIVE_HOOKS = [
+  "before_agent_start",
   "context",
   "before_provider_headers",
   "before_provider_request",
   "session_before_compact",
+] as const;
+const CODEX_TOOLS = [
+  "exec_command",
+  "write_stdin",
+  "apply_patch",
+  "view_image",
+  "exec",
+  "wait",
 ] as const;
 const NPM_ENV = Object.fromEntries(
   Object.entries(process.env).filter(
@@ -71,7 +80,7 @@ describe("codex-provider package", () => {
     );
 
     expect({
-      commands: ["codex-provider", "fast"].filter((command) =>
+      commands: ["code-mode", "codex-provider", "fast"].filter((command) =>
         extension?.commands.has(command)
       ),
       entryRenderer: extension?.entryRenderers?.has(CHECKPOINT_CUSTOM_TYPE),
@@ -81,13 +90,15 @@ describe("codex-provider package", () => {
       sensitiveHooks: SENSITIVE_HOOKS.filter((hook) =>
         extension?.handlers.has(hook)
       ),
+      tools: CODEX_TOOLS.filter((tool) => extension?.tools.has(tool)),
     }).toStrictEqual({
-      commands: ["codex-provider", "fast"],
+      commands: ["code-mode", "codex-provider", "fast"],
       entryRenderer: true,
       errors: [],
       exports: ["default"],
       fastFlag: true,
       sensitiveHooks: [...SENSITIVE_HOOKS],
+      tools: [...CODEX_TOOLS],
     });
     expect(
       existsSync(
@@ -115,6 +126,20 @@ describe("codex-provider package", () => {
         "package/LICENSE",
         "package/README.md",
         "package/checkpoint.ts",
+        "package/code-mode/LICENSE.howaboua",
+        "package/code-mode/LICENSE.openai",
+        "package/code-mode/NOTICE",
+        "package/code-mode/UPSTREAM",
+        "package/code-mode/binary.ts",
+        "package/code-mode/delegate-runtime.ts",
+        "package/code-mode/host-assets.ts",
+        "package/code-mode/host-client.ts",
+        "package/code-mode/install-host.ts",
+        "package/code-mode/protocol.ts",
+        "package/code-mode/tools.ts",
+        "package/code-mode/trace-store.ts",
+        "package/code-mode/trace-values.ts",
+        "package/code-mode/types.ts",
         "package/config.ts",
         "package/docs/codex-baseline.md",
         "package/docs/context-alignment.md",
@@ -130,6 +155,14 @@ describe("codex-provider package", () => {
         "package/renderer.ts",
         "package/replay.ts",
         "package/status.ts",
+        "package/tools/controller.ts",
+        "package/tools/direct.ts",
+        "package/tools/patch.ts",
+        "package/tools/path.ts",
+        "package/tools/process-output.ts",
+        "package/tools/process.ts",
+        "package/tools/register.ts",
+        "package/tools/selection.ts",
       ].toSorted()
     );
     const installDir = path.join(tempRoot, "install");
@@ -144,9 +177,10 @@ describe("codex-provider package", () => {
               PACKAGE_ROOT,
               "../../packages/extension-paths"
             )}`,
-            "@earendil-works/pi-ai": "0.84.0",
-            "@earendil-works/pi-coding-agent": "0.84.0",
-            "@earendil-works/pi-tui": "0.84.0",
+            "@earendil-works/pi-ai": "0.84.1",
+            "@earendil-works/pi-coding-agent": "0.84.1",
+            "@earendil-works/pi-tui": "0.84.1",
+            typebox: "1.3.7",
           },
           private: true,
         },
@@ -179,9 +213,10 @@ describe("codex-provider package", () => {
       },
       name: "@clanker-stuff/codex-provider",
       peerDependencies: {
-        "@earendil-works/pi-ai": "0.84.0",
-        "@earendil-works/pi-coding-agent": "0.84.0",
-        "@earendil-works/pi-tui": "0.84.0",
+        "@earendil-works/pi-ai": "0.84.1",
+        "@earendil-works/pi-coding-agent": "0.84.1",
+        "@earendil-works/pi-tui": "0.84.1",
+        typebox: "*",
       },
       private: true,
     });

@@ -207,9 +207,6 @@ export const runtimeOutcome = (value: unknown): unknown => {
   return value.outcome.LiveCell ?? value.outcome.MissingCell;
 };
 
-export const isMissingRuntimeOutcome = (value: unknown): boolean =>
-  isRecord(value) && isRecord(value.outcome) && "MissingCell" in value.outcome;
-
 const parseDelegateRequest = (
   value: Record<string, unknown>
 ): DelegateRequestMessage => {

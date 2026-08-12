@@ -30,15 +30,15 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
+import { ensureCodeModeHostBinary } from "../code-mode/binary.ts";
+
 const DEFAULT_MODEL = "openai-codex/gpt-5.6-sol";
 const DEFAULT_THINKING = "high";
 const TASK_ID = "inventory-planner-v1";
 const TASK_PROMPT = `Implement the inventory planner described in SPEC.md.
 
 Inspect the existing source and tests, make the minimum correct changes, and run the tests. Do not modify SPEC.md or existing tests. Do not add dependencies or commit changes.`;
-const TOOLS_EXTENSION_PATH = fileURLToPath(
-  new URL("../index.ts", import.meta.url)
-);
+const EXTENSION_PATH = fileURLToPath(new URL("../index.ts", import.meta.url));
 const THINKING_LEVELS = [
   "off",
   "minimal",
@@ -777,7 +777,8 @@ const runPiVariant = async (
   modelRuntime: ModelRuntime,
   modelName: string,
   thinking: ThinkingLevel,
-  timeoutMs: number
+  timeoutMs: number,
+  agentDir: string
 ): Promise<VariantResult> => {
   createFixture(cwd);
   const metrics = emptyMetrics();
@@ -788,8 +789,13 @@ const runPiVariant = async (
   let errorMessage: string | undefined;
   let messages: readonly unknown[] = [];
   let firstResponseMs: number | null = null;
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
 
   try {
+    if (mode === "code") {
+      await ensureCodeModeHostBinary();
+    }
     const separator = modelName.indexOf("/");
     const provider = modelName.slice(0, separator);
     const id = modelName.slice(separator + 1);
@@ -798,14 +804,13 @@ const runPiVariant = async (
       throw new Error(`Model not found: ${modelName}`);
     }
 
-    const agentDir = path.join(cwd, ".pi-eval-agent");
     mkdirSync(agentDir, { recursive: true });
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
       retry: { enabled: true, maxRetries: 2 },
     });
     const resourceLoader = new DefaultResourceLoader({
-      additionalExtensionPaths: [TOOLS_EXTENSION_PATH],
+      additionalExtensionPaths: [EXTENSION_PATH],
       agentDir,
       cwd,
       noContextFiles: true,
@@ -899,6 +904,11 @@ const runPiVariant = async (
       } finally {
         session.dispose();
       }
+    }
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     }
   }
 
@@ -1049,6 +1059,7 @@ const main = async () => {
   }
 
   const modelRuntime = await ModelRuntime.create();
+  const piAgentDir = path.join(output, ".pi-eval-agent");
   const separator = modelName.indexOf("/");
   const provider = modelName.slice(0, separator);
   const id = modelName.slice(separator + 1);
@@ -1086,7 +1097,8 @@ const main = async () => {
               modelRuntime,
               modelName,
               thinking,
-              timeoutMinutes * 60_000
+              timeoutMinutes * 60_000,
+              piAgentDir
             )
       );
     }

@@ -19,14 +19,11 @@
   "files": [
     "index.ts",
     "operations.ts",
+    "ownership.ts",
     "path.ts",
     "picker.ts",
-    "patch.ts",
-    "process-output.ts",
-    "process.ts",
     "runtime.ts",
     "selection.ts",
-    "code-mode",
     "profiles",
     "README.md",
     "LICENSE"
@@ -35,9 +32,6 @@
   "exports": "./index.ts",
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {
-    "@clanker-stuff/pi-extension-paths": "workspace:^"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

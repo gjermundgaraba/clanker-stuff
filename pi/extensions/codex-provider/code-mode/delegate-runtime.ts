@@ -162,9 +162,6 @@ export class CodeModeDelegateRuntime {
         );
         this.traces.emitUpdate(cellId, context);
       },
-      refreshTrace: () => {
-        this.traces.emitUpdate(cellId, context);
-      },
       toolCallId: trace.id,
     };
     this.traces.emitUpdate(cellId, context);

@@ -1,12 +1,12 @@
 # Local deployment contract
 
-This package is approved only for a controlled Pi 0.84.0 installation where its resolved `index.ts` is the final enabled extension. The provider runtime is always on, and the audit rejects every other Pi SDK or executable version.
+This package is approved only for a controlled Pi 0.84.1 installation where its resolved `index.ts` is the final enabled extension. The provider runtime is always on, and the audit rejects every other Pi SDK or executable version.
 
 1. Add the package path as the last global `packages` entry in `PI_CODING_AGENT_DIR/settings.json`.
 2. From this repository, run `node pi/extensions/codex-provider/audit-local-order.ts [cwd]`.
 3. Restart or `/reload` Pi, then rerun the audit.
 
-The audit uses Pi's public `SettingsManager` and `DefaultResourceLoader`, includes trusted project settings, rejects extension diagnostics, resolves twice to verify reload stability, and requires this package's canonical `index.ts` exactly once and last. It compares both the imported SDK and the `pi` executable on `PATH` with `0.84.0`.
+The audit uses Pi's public `SettingsManager` and `DefaultResourceLoader`, includes trusted project settings, rejects extension diagnostics, resolves twice to verify reload stability, and requires this package's canonical `index.ts` exactly once and last. It compares both the imported SDK and the `pi` executable on `PATH` with `0.84.1`.
 
 Rerun the audit after:
 
@@ -27,4 +27,4 @@ Set `CLANKER_CODEX_COMPACTION_FAILURE` to `ask`, `fallback`, or `cancel` when th
 
 Fail-closed alignment errors write a best-effort observation to `data/codex-provider/codex-provider.sqlite` under Pi's agent directory. It contains counts, hashes, message shapes, and the first mismatch location only; provide the session ID when reporting a failure.
 
-Before and after any Pi or provider change, run the package tests and the [live multi-compaction canary](live-canary.md). See [design](design.md) for the runtime contract and [context alignment](context-alignment.md) for replay failure rules.
+Before and after any Pi or provider change, run the package tests and the [live multi-compaction canary](live-canary.md). After changing extension order, provider tools, Code Mode, or tool ownership, also run the installed-environment canary. See [design](design.md) for the runtime contract and [context alignment](context-alignment.md) for replay failure rules.

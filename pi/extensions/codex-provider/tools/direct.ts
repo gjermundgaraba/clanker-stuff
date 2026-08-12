@@ -1,10 +1,21 @@
 /* oxlint-disable eslint/sort-keys -- preserve native harness field order */
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentToolResult,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+  createReadToolDefinition,
+  defineTool,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import type { HarnessProfile } from "./types.js";
+import { applyPatch } from "./patch.js";
+import { resolvePath } from "./path.js";
+import type { ProcessResult } from "./process.js";
+import { ProcessManager } from "./process.js";
 
 const strict = { additionalProperties: false } as const;
+
 export const CODEX_MODEL_IDS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
@@ -27,24 +38,27 @@ change_line: ("+" | "-" | " ") /(.*)/ LF
 eof_line: "*** End of File" LF
 %import common.LF`;
 
-export const supportsGrammarTools = (
-  model: Parameters<HarnessProfile["matches"]>[0]
-) => {
-  const { compat } = model;
-  return (
-    typeof compat === "object" &&
-    compat !== null &&
-    "supportsOpenAIGrammarTools" in compat &&
-    compat.supportsOpenAIGrammarTools === true
-  );
-};
+export const isCodexToolsModel = (model: ExtensionContext["model"]) =>
+  model?.provider === "openai-codex" &&
+  model.api === "openai-codex-responses" &&
+  CODEX_MODEL_IDS.has(model.id) &&
+  model.compat !== undefined &&
+  "supportsOpenAIGrammarTools" in model.compat &&
+  model.compat.supportsOpenAIGrammarTools === true;
 
-export const isCodexModel = (
-  candidate: Parameters<HarnessProfile["matches"]>[0]
-) => CODEX_MODEL_IDS.has(candidate.id) && supportsGrammarTools(candidate);
+const textResult = (text: string, details: unknown = {}) => ({
+  content: [{ text, type: "text" as const }],
+  details,
+});
 
-export const codexProfile: HarnessProfile = {
-  createTools: (operations) => [
+const processResult = ({
+  output,
+  ...details
+}: ProcessResult): AgentToolResult<unknown> => textResult(output, details);
+
+export const createCodexDirectTools = () => {
+  const processes = new ProcessManager();
+  const definitions = [
     defineTool({
       name: "exec_command",
       label: "Execute Command",
@@ -58,14 +72,18 @@ export const codexProfile: HarnessProfile = {
         },
         strict
       ),
-      async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await operations.runProcess(
-          {
+      async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+        return processResult(
+          await processes.start({
             command: params.cmd,
-            workdir: params.workdir,
-            yieldMs: params.yield_time_ms,
-          },
-          { ctx, onUpdate, signal, toolCallId }
+            ctx,
+            cwd:
+              params.workdir === undefined
+                ? ctx.cwd
+                : resolvePath(params.workdir, ctx.cwd),
+            signal,
+            yieldMs: params.yield_time_ms ?? 10_000,
+          })
         );
       },
     }),
@@ -81,14 +99,14 @@ export const codexProfile: HarnessProfile = {
         },
         strict
       ),
-      async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await operations.continueProcess(
-          {
+      async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+        return processResult(
+          await processes.continue({
             chars: params.chars,
             sessionId: params.session_id,
-            yieldMs: params.yield_time_ms,
-          },
-          { ctx, onUpdate, signal, toolCallId }
+            signal,
+            yieldMs: params.yield_time_ms ?? 1000,
+          })
         );
       },
     }),
@@ -105,12 +123,10 @@ export const codexProfile: HarnessProfile = {
         type: "grammar",
         variants: { openai_lark: APPLY_PATCH_GRAMMAR },
       },
-      async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await operations.patch(params.patch, {
-          ctx,
-          onUpdate,
-          signal,
-          toolCallId,
+      async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+        const result = await applyPatch(params.patch, ctx.cwd, signal);
+        return textResult(result.output, {
+          changes: result.changes,
         });
       },
     }),
@@ -120,13 +136,18 @@ export const codexProfile: HarnessProfile = {
       description: "Attach a local image to the conversation.",
       parameters: Type.Object({ path: Type.String() }, strict),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await operations.read(
+        return await createReadToolDefinition(ctx.cwd).execute(
+          toolCallId,
           { path: params.path },
-          { ctx, onUpdate, signal, toolCallId }
+          signal,
+          onUpdate,
+          ctx
         );
       },
     }),
-  ],
-  id: "codex",
-  matches: isCodexModel,
+  ];
+  return {
+    definitions,
+    dispose: () => processes.dispose(),
+  };
 };

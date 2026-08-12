@@ -3,6 +3,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { prepareForegroundArguments } from "./arguments.js";
 import type { HarnessProfile } from "./types.js";
 
 const strict = { additionalProperties: false } as const;
@@ -158,14 +159,13 @@ export const claudeCodeProfile: HarnessProfile = {
           timeout: Type.Optional(
             Type.Integer({ maximum: 600_000, minimum: 1 })
           ),
-          run_in_background: Type.Optional(Type.Boolean()),
         },
         strict
       ),
+      prepareArguments: prepareForegroundArguments,
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.runShell(
           {
-            background: params.run_in_background,
             command: params.command,
             timeoutMs: params.timeout,
           },

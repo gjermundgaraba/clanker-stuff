@@ -2,6 +2,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { prepareForegroundArguments } from "./arguments.js";
 import type { HarnessProfile } from "./types.js";
 
 const strict = { additionalProperties: false } as const;
@@ -17,14 +18,13 @@ export const grokBuildProfile: HarnessProfile = {
           command: Type.String(),
           description: Type.String(),
           timeout: Type.Optional(Type.Integer({ minimum: 1 })),
-          is_background: Type.Optional(Type.Boolean()),
         },
         strict
       ),
+      prepareArguments: prepareForegroundArguments,
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.runShell(
           {
-            background: params.is_background,
             command: params.command,
             timeoutMs: params.timeout,
           },

@@ -9,7 +9,6 @@ import { CodeModeDelegateRuntime } from "./delegate-runtime.js";
 import {
   DEFAULT_CODE_MODE_EXEC_YIELD_MS,
   executionCellId,
-  isMissingRuntimeOutcome,
   parseExecSource,
   parseHostMessage,
   parseRuntimeResponse,
@@ -159,12 +158,7 @@ export class CodeModeHostClient {
       if (wrapped === undefined || wrapped === null) {
         throw new Error("Code-mode host returned an invalid wait outcome");
       }
-      return {
-        ...this.delegateRuntime.attach(parseRuntimeResponse(wrapped)),
-        ...(isMissingRuntimeOutcome(value)
-          ? { missingCell: true as const }
-          : {}),
-      };
+      return this.delegateRuntime.attach(parseRuntimeResponse(wrapped));
     });
   }
 
@@ -194,12 +188,7 @@ export class CodeModeHostClient {
           "Code-mode host returned an invalid termination outcome"
         );
       }
-      return {
-        ...this.delegateRuntime.attach(parseRuntimeResponse(wrapped)),
-        ...(isMissingRuntimeOutcome(value)
-          ? { missingCell: true as const }
-          : {}),
-      };
+      return this.delegateRuntime.attach(parseRuntimeResponse(wrapped));
     });
   }
 

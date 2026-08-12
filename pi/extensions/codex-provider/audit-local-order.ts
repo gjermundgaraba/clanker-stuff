@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const TARGET_PATH = realpathSync(path.join(import.meta.dirname, "index.ts"));
-const SUPPORTED_PI_VERSION = "0.84.0";
+const SUPPORTED_PI_VERSION = "0.84.1";
 
 export interface LocalOrderAuditResult {
   readonly count: number;

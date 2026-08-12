@@ -8,7 +8,7 @@ Follow the audited [local load-last deployment contract](docs/local-deployment.m
 
 ## Usage
 
-OpenAI Codex requests compact and replay opaque checkpoints automatically; run `/fast` to toggle priority service or `/codex-provider` to inspect provider and compaction status.
+OpenAI Codex requests compact and replay opaque checkpoints automatically; run `/code-mode` to toggle Code Mode, `/fast` to toggle priority service, or `/codex-provider` to inspect status.
 
 ## Configuration
 

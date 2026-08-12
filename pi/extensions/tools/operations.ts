@@ -14,10 +14,11 @@ import type {
   WriteToolInput,
 } from "@earendil-works/pi-coding-agent";
 import {
-  createLocalBashOperations,
+  createBashToolDefinition,
   createEditToolDefinition,
   createFindToolDefinition,
   createGrepToolDefinition,
+  createLocalBashOperations,
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
@@ -26,10 +27,7 @@ import {
   withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
 
-import { applyPatch } from "./patch.js";
 import { resolvePath } from "./path.js";
-import type { ProcessResult } from "./process.js";
-import { ProcessManager } from "./process.js";
 
 type ReplacementInput = Pick<EditToolInput, "path"> &
   EditToolInput["edits"][number] & { replaceAll?: boolean };
@@ -38,19 +36,9 @@ type GrepInput = GrepToolInput & {
   outputMode?: "content" | "count" | "files_with_matches";
 };
 type ShellInput = Pick<BashToolInput, "command"> & {
-  background?: boolean;
   cwd?: string;
   timeoutMs?: number;
 };
-type ProcessInput = Pick<BashToolInput, "command"> & {
-  workdir?: string;
-  yieldMs?: number;
-};
-interface ContinueProcessInput {
-  chars?: string;
-  sessionId: number;
-  yieldMs?: number;
-}
 type WriteInput = WriteToolInput & { mode?: "append" | "overwrite" };
 
 interface OperationContext {
@@ -66,11 +54,6 @@ const textResult = (text: string, details: unknown = {}) => ({
   content: [{ text, type: "text" as const }],
   details,
 });
-
-const processResult = ({
-  output,
-  ...details
-}: ProcessResult): OperationResult => textResult(output, details);
 
 const throwIfAborted = (signal: AbortSignal | undefined) => {
   if (signal?.aborted === true) {
@@ -247,28 +230,7 @@ const grepWithNativeOptions = async (
   });
 };
 
-/* oxlint-disable eslint/class-methods-use-this -- stateless methods share the process-owning operations API */
-export class ToolOperations {
-  private readonly processes = new ProcessManager();
-
-  async continueProcess(
-    input: ContinueProcessInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
-    return processResult(
-      await this.processes.continue({
-        chars: input.chars,
-        sessionId: input.sessionId,
-        signal: execution.signal,
-        yieldMs: input.yieldMs ?? 1000,
-      })
-    );
-  }
-
-  async dispose(): Promise<void> {
-    await this.processes.dispose();
-  }
-
+export const toolOperations = {
   async findFiles(
     input: FindToolInput,
     execution: OperationContext
@@ -278,7 +240,7 @@ export class ToolOperations {
       input,
       execution
     );
-  }
+  },
 
   async grep(
     input: GrepInput,
@@ -295,7 +257,7 @@ export class ToolOperations {
       input,
       execution
     );
-  }
+  },
 
   async list(
     input: LsToolInput,
@@ -306,15 +268,7 @@ export class ToolOperations {
       input,
       execution
     );
-  }
-
-  async patch(
-    patch: string,
-    execution: OperationContext
-  ): Promise<OperationResult> {
-    const result = await applyPatch(patch, execution.ctx.cwd, execution.signal);
-    return textResult(result.output, { changes: result.changes });
-  }
+  },
 
   async read(
     input: ReadToolInput,
@@ -325,7 +279,7 @@ export class ToolOperations {
       input,
       execution
     );
-  }
+  },
 
   async replace(
     input: ReplacementInput,
@@ -363,44 +317,26 @@ export class ToolOperations {
       },
       execution
     );
-  }
-
-  async runProcess(
-    input: ProcessInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
-    return processResult(
-      await this.processes.start({
-        command: input.command,
-        ctx: execution.ctx,
-        cwd:
-          input.workdir === undefined
-            ? execution.ctx.cwd
-            : resolvePath(input.workdir, execution.ctx.cwd),
-        signal: execution.signal,
-        yieldMs: input.yieldMs ?? 10_000,
-      })
-    );
-  }
+  },
 
   async runShell(
     input: ShellInput,
     execution: OperationContext
   ): Promise<OperationResult> {
-    return processResult(
-      await this.processes.start({
+    return await runDefinition(
+      createBashToolDefinition(
+        input.cwd === undefined
+          ? execution.ctx.cwd
+          : resolvePath(input.cwd, execution.ctx.cwd)
+      ),
+      {
         command: input.command,
-        ctx: execution.ctx,
-        cwd:
-          input.cwd === undefined
-            ? execution.ctx.cwd
-            : resolvePath(input.cwd, execution.ctx.cwd),
-        signal: execution.signal,
-        timeoutMs: input.timeoutMs,
-        yieldMs: input.background === true ? 0 : undefined,
-      })
+        timeout:
+          input.timeoutMs === undefined ? undefined : input.timeoutMs / 1000,
+      },
+      execution
     );
-  }
+  },
 
   async write(
     input: WriteInput,
@@ -424,6 +360,7 @@ export class ToolOperations {
       { content: input.content, path: input.path },
       execution
     );
-  }
-}
-/* oxlint-enable eslint/class-methods-use-this */
+  },
+};
+
+export type ToolOperations = typeof toolOperations;

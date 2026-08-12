@@ -15,12 +15,10 @@ export interface NestedTool {
 }
 
 export interface ToolExecutionContext {
-  cwd: string;
   extensionContext: ExtensionContext;
   toolCallId?: string;
   onUpdate?: (result: AgentToolResult<unknown>) => void;
   captureResult?: (result: RuntimeToolResult) => void;
-  refreshTrace?: () => void;
 }
 
 export interface RuntimeToolResult {
@@ -59,6 +57,5 @@ export type RuntimeResponse = (
 ) & {
   droppedTraceCount?: number;
   maxOutputTokens?: number;
-  missingCell?: true;
   traces?: RuntimeToolTrace[];
 };

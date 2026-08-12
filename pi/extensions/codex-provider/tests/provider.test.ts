@@ -7,6 +7,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
+import { CodeModeRuntime } from "../code-mode/tools.js";
 import { CodexObservability } from "../observability.js";
 import {
   createCodexProviderRuntime as createProviderRuntime,
@@ -93,6 +94,9 @@ const context = (messages: Context["messages"]): Context => ({
   systemPrompt: "System truth",
 });
 
+const CODE_MODE_TOOLS: NonNullable<Context["tools"]> =
+  new CodeModeRuntime().createTools([]);
+
 const readBody = (body: RequestInit["body"]) => {
   if (typeof body === "string") {
     return JSON.parse(body) as Record<string, unknown>;
@@ -140,8 +144,27 @@ describe("Codex provider", () => {
     const responses: number[] = [];
     const message = await runtime.provider
       .streamSimple(
-        SPIKE_MODEL,
-        context([{ content: "hello", role: "user", timestamp: 1 }]),
+        {
+          ...SPIKE_MODEL,
+          compat: { supportsOpenAIGrammarTools: true },
+          input: ["text", "image"],
+        },
+        {
+          ...context([
+            {
+              content: [
+                {
+                  data: "AA==",
+                  mimeType: "image/png",
+                  type: "image",
+                },
+              ],
+              role: "user",
+              timestamp: 1,
+            },
+          ]),
+          tools: CODE_MODE_TOOLS,
+        },
         {
           apiKey: SPIKE_API_KEY,
           fetch: async (_input, init) => {
@@ -161,6 +184,11 @@ describe("Codex provider", () => {
       .result();
 
     const body = readBody(requests[0]?.body);
+    const [standardMessage] = body.input as Record<string, unknown>[];
+    const [standardImage] = (standardMessage?.content ?? []) as Record<
+      string,
+      unknown
+    >[];
     expect({
       callbackCounts: [payloads.length, responses.length],
       clientMetadata: JSON.parse(
@@ -169,10 +197,20 @@ describe("Codex provider", () => {
         ]
       ),
       diagnostics: message.diagnostics,
+      header: new Headers(requests[0]?.headers).get(
+        "x-openai-internal-codex-responses-lite"
+      ),
       instructions: body.instructions,
       output: message.content,
       requestCount: requests.length,
+      standardImage,
       store: body.store,
+      tools: (body.tools as Record<string, unknown>[]).map(
+        ({ name, type }) => ({
+          name,
+          type,
+        })
+      ),
     }).toMatchObject({
       callbackCounts: [1, 1],
       clientMetadata: {
@@ -181,10 +219,20 @@ describe("Codex provider", () => {
         thread_id: "session-sse",
       },
       diagnostics: undefined,
+      header: null,
       instructions: "System truth",
       output: [{ text: "hello back", type: "text" }],
       requestCount: 1,
+      standardImage: {
+        detail: "auto",
+        image_url: "data:image/png;base64,AA==",
+        type: "input_image",
+      },
       store: false,
+      tools: [
+        { name: "exec", type: "custom" },
+        { name: "wait", type: "function" },
+      ],
     });
     expect(
       (body.client_metadata as Record<string, unknown>)["x-codex-turn-metadata"]
@@ -534,19 +582,29 @@ describe("Codex provider", () => {
       stored,
     });
     const liteRequests: RequestInit[] = [];
-    const [remoteModel] = runtime.provider.getModels();
+    const remoteModel = {
+      ...runtime.provider.getModels()[0],
+      compat: { supportsOpenAIGrammarTools: true },
+      input: ["text", "image"] as ("image" | "text")[],
+    };
     await runtime.provider
       .streamSimple(
         remoteModel,
         {
-          ...context([]),
-          tools: [
+          ...context([
             {
-              description: "Remote tool",
-              name: "remote_tool",
-              parameters: { properties: {}, type: "object" },
+              content: [
+                {
+                  data: "AA==",
+                  mimeType: "image/png",
+                  type: "image",
+                },
+              ],
+              role: "user",
+              timestamp: 1,
             },
-          ],
+          ]),
+          tools: CODE_MODE_TOOLS,
         },
         {
           apiKey: SPIKE_API_KEY,
@@ -561,10 +619,24 @@ describe("Codex provider", () => {
       .result();
     const liteBody = readBody(liteRequests[0]?.body);
     const liteHeaders = new Headers(liteRequests[0]?.headers);
+    const [litePrefix] = liteBody.input as Record<string, unknown>[];
+    if (!litePrefix) {
+      throw new Error("Responses Lite prefix was not serialized");
+    }
+    const liteMessage = (liteBody.input as Record<string, unknown>[]).at(2);
+    const [liteImage] = (liteMessage?.content ?? []) as Record<
+      string,
+      unknown
+    >[];
     expect({
       lite: {
+        additionalTools: (litePrefix.tools as Record<string, unknown>[]).map(
+          ({ name, type }) => ({ name, type })
+        ),
+        bodyTools: liteBody.tools,
         header: liteHeaders.get("x-openai-internal-codex-responses-lite"),
         instructions: liteBody.instructions,
+        liteImage,
         prefix: (liteBody.input as Record<string, unknown>[])
           .slice(0, 2)
           .map((item) => item.type),
@@ -580,8 +652,17 @@ describe("Codex provider", () => {
       window: runtime.getModelWindow(remoteModel),
     }).toMatchObject({
       lite: {
+        additionalTools: [
+          { name: "exec", type: "custom" },
+          { name: "wait", type: "function" },
+        ],
+        bodyTools: undefined,
         header: "true",
         instructions: "",
+        liteImage: {
+          image_url: "data:image/png;base64,AA==",
+          type: "input_image",
+        },
         prefix: ["additional_tools", "message"],
         reasoning: {
           context: "all_turns",
@@ -668,14 +749,20 @@ describe("Codex provider", () => {
       .streamSimple(
         remoteModel,
         {
-          ...context([{ content: "live", role: "user", timestamp: 1 }]),
-          tools: [
+          ...context([
             {
-              description: "Remote tool",
-              name: "remote_tool",
-              parameters: { properties: {}, type: "object" },
+              content: [
+                {
+                  data: "AA==",
+                  mimeType: "image/png",
+                  type: "image",
+                },
+              ],
+              role: "user",
+              timestamp: 1,
             },
-          ],
+          ]),
+          tools: CODE_MODE_TOOLS,
         },
         { apiKey: SPIKE_API_KEY, sessionId: "session-lite-ws" }
       )

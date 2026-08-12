@@ -49,7 +49,7 @@ export const createRealCodexSession = async (
     modelsPath: null,
   });
   const apiKey = options.apiKey ?? SPIKE_API_KEY;
-  const model = options.model ?? SPIKE_MODEL;
+  const model: Model<Api> = options.model ?? SPIKE_MODEL;
   modelRuntime.registerProvider(model.provider, {
     api: model.api,
     apiKey,
@@ -57,6 +57,7 @@ export const createRealCodexSession = async (
     models: [
       {
         api: model.api,
+        compat: model.compat,
         contextWindow: model.contextWindow,
         cost: model.cost,
         id: model.id,

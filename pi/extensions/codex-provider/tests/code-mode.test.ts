@@ -8,17 +8,12 @@ import {
 } from "../../../tests/harness/tui.js";
 import { parseExecSource } from "../code-mode/protocol.js";
 import {
-  RESPONSES_LITE_HEADER,
-  RESPONSES_LITE_WS_METADATA_KEY,
-  rewriteResponsesLiteRequest,
-} from "../code-mode/provider.js";
-import {
   CodeModeRuntime,
   toNestedTool,
   toPiContent,
 } from "../code-mode/tools.js";
-import extension from "../index.js";
-import { createModel } from "./fixtures.js";
+import { registerCodexTools } from "../tools/register.js";
+import { createToolsModel } from "./fixtures.js";
 
 describe("Codex code mode", () => {
   it("provides native-style runtime and nested tool instructions", () => {
@@ -43,6 +38,9 @@ describe("Codex code mode", () => {
     );
     expect(runtime.prompt([definition])).toContain(
       "### `test`\nRuns a test operation.\n\nUsage: `await tools.test(input)`"
+    );
+    expect(runtime.prompt([{ ...definition, name: "exec_command" }])).toContain(
+      "result.output"
     );
   });
 
@@ -71,63 +69,12 @@ describe("Codex code mode", () => {
     expect(render({ scriptError: "boom", status: "result" })).toBe("✗ error");
   });
 
-  it("rewrites Responses requests to the Lite envelope", () => {
-    const rewritten = rewriteResponsesLiteRequest({
-      input: [{ content: [], role: "user", type: "message" }],
-      instructions: "Use the harness.",
-      model: "gpt-5.6-sol",
-      tools: [{ name: "exec", type: "custom" }],
-    });
-
-    expect(rewritten).toMatchObject({
-      client_metadata: {
-        [RESPONSES_LITE_WS_METADATA_KEY]: "true",
-      },
-      input: [
-        {
-          role: "developer",
-          tools: [{ name: "exec", type: "custom" }],
-          type: "additional_tools",
-        },
-        {
-          content: [{ text: "Use the harness.", type: "input_text" }],
-          role: "developer",
-          type: "message",
-        },
-        { content: [], role: "user", type: "message" },
-      ],
-      model: "gpt-5.6-sol",
-      parallel_tool_calls: false,
-      reasoning: { context: "all_turns" },
-    });
-    expect(rewritten).not.toHaveProperty("instructions");
-    expect(rewritten).not.toHaveProperty("tools");
-  });
-
-  it("activates the provider and prompt hooks only with Code Mode", async () => {
-    const model = createModel("gpt-5.6-luna", true);
-    const host = createExtensionHost(extension, { model });
+  it("adds nested tool instructions only with Code Mode", async () => {
+    const model = createToolsModel("gpt-5.6-luna", true);
+    const host = createExtensionHost(registerCodexTools, { model });
     const ctx = host.createContext({ model });
     await host.emitSessionStart(ctx);
     await host.runCommand("code-mode", "", ctx);
-
-    const [request] = await host.emit(
-      "before_provider_request",
-      {
-        payload: { input: [], model: model.id, tools: [] },
-        type: "before_provider_request",
-      },
-      ctx
-    );
-    expect(request).toHaveProperty("input.0.type", "additional_tools");
-
-    const headers: Record<string, string | null> = {};
-    await host.emit(
-      "before_provider_headers",
-      { headers, type: "before_provider_headers" },
-      ctx
-    );
-    expect(headers[RESPONSES_LITE_HEADER]).toBe("true");
 
     const [prompt] = await host.emit(
       "before_agent_start",
@@ -164,31 +111,6 @@ describe("Codex code mode", () => {
       ctx
     );
     expect(duplicate).toBeUndefined();
-  });
-
-  it("leaves provider requests untouched in direct fallback mode", async () => {
-    const model = createModel("gpt-5.6-luna", true);
-    const host = createExtensionHost(extension, { model });
-    const ctx = host.createContext({ model });
-    await host.emitSessionStart(ctx);
-
-    const [request] = await host.emit(
-      "before_provider_request",
-      {
-        payload: { input: [], model: model.id, tools: [] },
-        type: "before_provider_request",
-      },
-      ctx
-    );
-    const headers: Record<string, string | null> = {};
-    await host.emit(
-      "before_provider_headers",
-      { headers, type: "before_provider_headers" },
-      ctx
-    );
-
-    expect(request).toBeUndefined();
-    expect(headers).not.toHaveProperty(RESPONSES_LITE_HEADER);
   });
 
   it("validates nested calls before invoking their definition", async () => {
@@ -251,7 +173,7 @@ describe("Codex code mode", () => {
     await expect(
       nested.invoke(
         { path: "/tmp/image.svg" },
-        { cwd: "/tmp", extensionContext: {} as never },
+        { extensionContext: {} as never },
         new AbortController().signal
       )
     ).rejects.toThrow("convert SVG to PNG first");

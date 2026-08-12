@@ -1,6 +1,6 @@
 # Codex provider design
 
-This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.0 installation. It owns normal Responses requests, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
+This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.1 installation. It owns normal Responses requests, Codex-native direct tools and Code Mode, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
 
 The implementation follows the pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
 
@@ -10,6 +10,8 @@ The implementation follows the pinned [Codex and Pi source baseline](codex-basel
 | --- | --- |
 | Provider registration and lifecycle hooks | [`lifecycle.ts`](../lifecycle.ts) |
 | Request bodies, models, service tiers, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
+| Direct tools, model gating, selection, and `/code-mode` | [`tools/`](../tools/) |
+| Code Mode host protocol and nested tool runtime | [`code-mode/`](../code-mode/) |
 | Best-effort request and reliability observations | [`observability.ts`](../observability.ts) |
 | Strict persisted checkpoint format and active-branch resolution | [`checkpoint.ts`](../checkpoint.ts) |
 | Framing, retention, token estimates, and tool-history repair | [`replay.ts`](../replay.ts) |
@@ -21,6 +23,10 @@ The provider runtime is not optional. Loading the extension replaces Pi's effect
 One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, exact continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. Session shutdown closes transport state.
 
 Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service tier for supported models across normal requests and native compaction. Live model metadata is authoritative; the pinned fallback catalog covers offline startup. The lightning status appears only when the selected model supports fast mode.
+
+Supported GPT-5.6 Codex models start with `exec_command`, `write_stdin`, `apply_patch`, and `view_image`; `/code-mode` replaces them with `exec` and `wait`. The provider owns those six names and suppresses Pi's seven built-ins while they are active, but leaves unrelated extension tools alone. When `@clanker-stuff/tools` is also loaded, `/tools` delegates those six choices back to this extension through a provider-neutral event contract. Tool choices follow the active session branch.
+
+Code Mode does not select a request envelope. `use_responses_lite` from native model metadata alone determines whether the same active tools and instructions use Responses Lite or the standard Responses envelope.
 
 ## Status and observability
 
@@ -64,7 +70,7 @@ Retained user text has a 64,000-token budget using the conservative local estima
 
 Lifecycle compaction runs Pi's readable summarizer beside native compaction. The Pi summary and opaque checkpoint are installed together only after source, branch, model, generation, request state, and persistence checks pass. Compatible Codex replay sends the opaque replacement; an incompatible provider can use the readable summary.
 
-`CLANKER_CODEX_COMPACTION_FAILURE=ask|fallback|cancel` controls a genuine native failure after a readable summary succeeds. The default `ask` offers fallback or cancellation only in a dialog-capable UI; headless operation, dismissal, abort, stale state, unsafe context, or failed persistence cancels. Custom `/compact` instructions affect Pi's history-summary request only, including Pi 0.84.0's existing split-turn limitation; they do not alter native compaction.
+`CLANKER_CODEX_COMPACTION_FAILURE=ask|fallback|cancel` controls a genuine native failure after a readable summary succeeds. The default `ask` offers fallback or cancellation only in a dialog-capable UI; headless operation, dismissal, abort, stale state, unsafe context, or failed persistence cancels. Custom `/compact` instructions affect Pi's history-summary request only, including Pi 0.84.1's existing split-turn limitation; they do not alter native compaction.
 
 Both the readable summary and the original JSONL history remain plaintext on disk. The opaque item is not secure deletion.
 
@@ -82,7 +88,7 @@ The persisted-versus-live proof is detailed in [context alignment](context-align
 
 ## Accepted limits
 
-- Pi 0.84.0 cannot atomically replace arbitrary raw provider history and append the matching checkpoint, so append and continuation are separately verified and fail closed.
+- Pi 0.84.1 cannot atomically replace arbitrary raw provider history and append the matching checkpoint, so append and continuation are separately verified and fail closed.
 - Pi exposes load-order chaining, not exclusive terminal ownership. This package is approved only under the audited local load-last contract.
 - Pi's effective prompt, tools, permissions, and messages remain authoritative. Codex application world-state sections that Pi does not expose are not fabricated.
 - Token accounting is a conservative UTF-8/4 estimate plus a fixed image estimate, not the server tokenizer.

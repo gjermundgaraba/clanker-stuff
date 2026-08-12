@@ -75,56 +75,23 @@ describe("native harness routing", () => {
     expect(host.getRegisteredTools().size).toBe(0);
   });
 
-  it("gates Codex on grammar-tool transport support", async () => {
-    const unsupported = createExtensionHost(extension, {
-      model: createModel("gpt-5.6-sol"),
-    });
-    await unsupported.emitSessionStart();
-    expect(unsupported.getRegisteredTools().size).toBe(0);
+  it.each([
+    ["claude-opus-5", "Bash", "run_in_background"],
+    ["grok-4.5", "run_terminal_cmd", "is_background"],
+    ["kimi-k3", "Bash", "run_in_background"],
+  ])("removes legacy %s background arguments", async (id, name, legacyKey) => {
+    const model = createModel(id);
+    const host = createExtensionHost(extension, { model });
+    await host.emitSessionStart();
+    const definition = host.getRegisteredTools().get(name)?.definition;
 
-    const supported = createExtensionHost(extension, {
-      model: createModel("gpt-5.6-sol", true),
-    });
-    await supported.emitSessionStart();
-    expect([...supported.getRegisteredTools().keys()]).toStrictEqual([
-      "exec_command",
-      "write_stdin",
-      "apply_patch",
-      "view_image",
-    ]);
-  });
-
-  it("toggles Codex Code Mode", async () => {
-    const model = createModel("gpt-5.6-sol", true);
-    const supported = createExtensionHost(extension, { model });
-    await supported.emitSessionStart();
-    const ctx = supported.createContext({
-      model,
-    });
-
-    expect(supported.getActiveTools()).toStrictEqual([
-      "exec_command",
-      "write_stdin",
-      "apply_patch",
-      "view_image",
-    ]);
-    await supported.runCommand("code-mode", "", ctx);
-    expect(supported.getActiveTools()).toStrictEqual(["exec", "wait"]);
     expect(
-      supported.getRegisteredTools().get("exec")?.definition.constrainedSampling
-    ).toMatchObject({ type: "grammar" });
-    expect(supported.getNotifications()).toContainEqual({
-      message: "Code Mode enabled",
-      type: "info",
-    });
-
-    await supported.runCommand("code-mode", "", ctx);
-    expect(supported.getActiveTools()).toStrictEqual([
-      "exec_command",
-      "write_stdin",
-      "apply_patch",
-      "view_image",
-    ]);
+      definition?.prepareArguments?.({
+        command: "true",
+        description: "check",
+        [legacyKey]: true,
+      })
+    ).toStrictEqual({ command: "true", description: "check" });
   });
 
   it("replaces colliding definitions when the model changes", async () => {

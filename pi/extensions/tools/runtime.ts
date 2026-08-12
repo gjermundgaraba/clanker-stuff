@@ -3,18 +3,12 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createGrepToolDefinition } from "@earendil-works/pi-coding-agent";
 
-import {
-  RESPONSES_LITE_HEADER,
-  rewriteResponsesLiteRequest,
-} from "./code-mode/provider.js";
-import { CodeModeRuntime } from "./code-mode/tools.js";
-import { ToolOperations } from "./operations.js";
+import { toolOperations } from "./operations.js";
+import { createToolOwners } from "./ownership.js";
 import { showToolsPicker } from "./picker.js";
-import { isCodexModel } from "./profiles/codex.js";
 import { HARNESS_PROFILES } from "./profiles/index.js";
 import { createToolSelection } from "./selection.js";
 
@@ -26,62 +20,61 @@ const resolveProfile = (model: Model<Api> | undefined) =>
 const PI_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "read", "write"];
 const PI_SCOPE = "pi";
 const HARNESS_SCOPE = "harness";
-const CODE_MODE_SCOPE = "code-mode";
 const EXTERNAL_SCOPE = "external";
 
 export const createToolsRuntime = (pi: ExtensionAPI) => {
-  const operations = new ToolOperations();
-  const codeMode = new CodeModeRuntime();
+  const owners = createToolOwners(pi);
   const selection = createToolSelection(pi);
-  let codeModeEnabled = false;
   const piToolNames = () =>
     pi
       .getAllTools()
       .map(({ name }) => name)
       .filter((name) => PI_TOOL_NAMES.includes(name));
-  let codeModeDefinitions: ToolDefinition[] = [];
   let currentManagedNames = new Set(PI_TOOL_NAMES);
   let currentScope = PI_SCOPE;
   const managedNames = new Set(PI_TOOL_NAMES);
   let profileNames = new Set<string>();
-  const visibleTools = () =>
+  const visibleTools = (ownerModel?: Model<Api>) =>
     pi
       .getAllTools()
-      .filter(
-        ({ name }) => !managedNames.has(name) || currentManagedNames.has(name)
+      .filter(({ name }) =>
+        owners.owns(name)
+          ? owners.isVisible(name, ownerModel)
+          : !owners.suppresses(name, ownerModel) &&
+            (!managedNames.has(name) || currentManagedNames.has(name))
       );
-  const isCodeModeActive = (model: Model<Api> | undefined) =>
-    codeModeEnabled && model !== undefined && isCodexModel(model);
-  const captureCurrentSelection = (tools = visibleTools()) => {
+  const captureCurrentSelection = (
+    ownerModel?: Model<Api>,
+    tools = visibleTools(ownerModel)
+  ) => {
     const activeNames = new Set(pi.getActiveTools());
     const visibleNames = tools.map(({ name }) => name);
-    selection.capture(currentScope, currentManagedNames, activeNames);
+    if (!owners.hasVisibleTools(ownerModel)) {
+      selection.capture(currentScope, currentManagedNames, activeNames);
+    }
     selection.capture(
       EXTERNAL_SCOPE,
-      visibleNames.filter((name) => !currentManagedNames.has(name)),
+      visibleNames.filter(
+        (name) => !currentManagedNames.has(name) && !owners.owns(name)
+      ),
       activeNames
     );
     return activeNames;
   };
 
-  const apply = (ctx: ExtensionContext, captureSelection = true) => {
+  const apply = (
+    ctx: ExtensionContext,
+    captureSelection = true,
+    previousModel?: Model<Api>
+  ) => {
     const activeNames = captureSelection
-      ? captureCurrentSelection()
+      ? captureCurrentSelection(previousModel)
       : new Set(pi.getActiveTools());
 
     const profile = resolveProfile(ctx.model);
-    const profileTools = profile ? [...profile.createTools(operations)] : [];
-    const useCodeMode = profile?.id === "codex" && isCodeModeActive(ctx.model);
-    codeModeDefinitions = useCodeMode ? profileTools : [];
-    const tools = useCodeMode
-      ? codeMode.createTools(profileTools)
-      : profileTools;
+    const tools = profile ? [...profile.createTools(toolOperations)] : [];
     const selectedNames = tools.map((tool) => tool.name);
     const selectedNameSet = new Set(selectedNames);
-    let nextScope = PI_SCOPE;
-    if (profile) {
-      nextScope = useCodeMode ? CODE_MODE_SCOPE : HARNESS_SCOPE;
-    }
 
     for (const name of selectedNames) {
       managedNames.add(name);
@@ -95,64 +88,48 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
     }
     profileNames = selectedNameSet;
     currentManagedNames = profile ? selectedNameSet : new Set(piToolNames());
-    currentScope = nextScope;
+    currentScope = profile ? HARNESS_SCOPE : PI_SCOPE;
     const unmanagedNames = pi
       .getAllTools()
       .map(({ name }) => name)
-      .filter((name) => !managedNames.has(name));
+      .filter((name) => !managedNames.has(name) && !owners.owns(name));
     const external = selection.enabled(
       EXTERNAL_SCOPE,
       unmanagedNames,
       activeNames
     );
-    const managed = selection.enabled(
-      currentScope,
-      currentManagedNames,
-      profile ? currentManagedNames : activeNames
-    );
+    const managed = selection
+      .enabled(
+        currentScope,
+        currentManagedNames,
+        profile ? currentManagedNames : activeNames
+      )
+      .filter((name) => !owners.suppresses(name, ctx.model));
+    const owned = owners.ownedActive(activeNames);
     pi.setActiveTools(
-      profile ? [...external, ...managed] : [...managed, ...external]
+      profile
+        ? [...external, ...managed, ...owned]
+        : [...managed, ...external, ...owned]
     );
   };
 
   return {
     apply,
-    applyProviderHeaders(
-      headers: Record<string, string | null>,
-      ctx: ExtensionContext
-    ) {
-      if (isCodeModeActive(ctx.model)) {
-        headers[RESPONSES_LITE_HEADER] = "true";
-      }
-    },
-    augmentSystemPrompt(systemPrompt: string, ctx: ExtensionContext) {
-      let result: { systemPrompt: string } | undefined;
-      if (isCodeModeActive(ctx.model) && codeModeDefinitions.length > 0) {
-        const section = codeMode.prompt(codeModeDefinitions);
-        if (!systemPrompt.includes(section)) {
-          result = {
-            systemPrompt: `${systemPrompt.trimEnd()}\n\n${section}`,
-          };
-        }
-      }
-      return result;
-    },
-    async dispose() {
-      await codeMode.shutdown();
-      await operations.dispose();
-    },
     async openPicker(ctx: ExtensionCommandContext): Promise<void> {
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/tools requires TUI mode", "error");
         return;
       }
       const tools = visibleTools();
-      const activeNames = captureCurrentSelection(tools);
+      const activeNames = captureCurrentSelection(undefined, tools);
       await showToolsPicker(ctx, tools, activeNames, (name, enabled) => {
         if (enabled) {
           activeNames.add(name);
         } else {
           activeNames.delete(name);
+        }
+        if (owners.setEnabled(name, enabled, ctx)) {
+          return;
         }
         selection.setEnabled(
           currentManagedNames.has(name) ? currentScope : EXTERNAL_SCOPE,
@@ -163,28 +140,30 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
         selection.persist();
       });
     },
+    prepareReload(ctx: ExtensionContext): void {
+      const suppressedNames = piToolNames().filter((name) =>
+        owners.suppresses(name, ctx.model)
+      );
+      const activeNames = new Set(pi.getActiveTools());
+      pi.setActiveTools([
+        ...selection.enabled(PI_SCOPE, suppressedNames, activeNames),
+        ...activeNames,
+      ]);
+    },
     restore(ctx: ExtensionContext): void {
       selection.restore(ctx);
       apply(ctx, false);
     },
-    rewriteProviderRequest(payload: unknown, ctx: ExtensionContext) {
-      return isCodeModeActive(ctx.model)
-        ? rewriteResponsesLiteRequest(payload)
-        : undefined;
-    },
     start(ctx: ExtensionContext): void {
       currentManagedNames = new Set(piToolNames());
+      selection.capture(
+        PI_SCOPE,
+        currentManagedNames,
+        new Set(pi.getActiveTools())
+      );
       captureCurrentSelection();
       selection.start(ctx);
       apply(ctx, false);
-    },
-    toggleCodeMode(ctx: ExtensionContext): void {
-      codeModeEnabled = !codeModeEnabled;
-      apply(ctx);
-      ctx.ui.notify(
-        `Code Mode ${codeModeEnabled ? "enabled" : "disabled"}`,
-        "info"
-      );
     },
   };
 };

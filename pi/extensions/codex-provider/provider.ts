@@ -38,6 +38,7 @@ import { buildBaseOptions } from "#pi-simple-options";
 import {
   canonicalJson,
   parseCompactionItem,
+  REMOTE_USER_IMAGE_PLACEHOLDER,
   sha256Canonical,
 } from "./checkpoint.js";
 import type { CanonicalCompactionItem } from "./checkpoint.js";
@@ -243,6 +244,51 @@ const isNonnegativeInteger = (value: unknown): value is number =>
 const isAborted = (signal: AbortSignal | undefined) => signal?.aborted ?? false;
 
 const cloneJson = <T>(value: T): T => structuredClone(value);
+
+const prepareLiteContent = (content: unknown): unknown => {
+  if (!Array.isArray(content)) {
+    return content;
+  }
+  return content.map((item: unknown) => {
+    if (!isRecord(item) || item.type !== "input_image") {
+      return item;
+    }
+    if (
+      typeof item.image_url === "string" &&
+      /^https?:\/\//iu.test(item.image_url)
+    ) {
+      return {
+        text: REMOTE_USER_IMAGE_PLACEHOLDER,
+        type: "input_text",
+      };
+    }
+    const { detail: _detail, ...image } = item;
+    return image;
+  });
+};
+
+const prepareLiteRequest = (body: RequestBody): RequestBody => ({
+  ...body,
+  input: body.input.map((item) => {
+    if (
+      "content" in item &&
+      (item.type === "message" ||
+        item.role === "user" ||
+        item.role === "developer" ||
+        item.role === "system")
+    ) {
+      return { ...item, content: prepareLiteContent(item.content) };
+    }
+    if (
+      (item.type === "function_call_output" ||
+        item.type === "custom_tool_call_output") &&
+      Array.isArray(item.output)
+    ) {
+      return { ...item, output: prepareLiteContent(item.output) };
+    }
+    return item;
+  }),
+});
 
 // Codex truncates by Unicode scalar value, not grapheme cluster.
 // oxlint-disable-next-line typescript/no-misused-spread -- spread matches Rust char iteration
@@ -1972,7 +2018,7 @@ export const createCodexProviderRuntime = (
         instructions,
         effectiveInput
       );
-      const body: RequestBody = {
+      let body: RequestBody = {
         ...built.body,
         ...envelope,
         client_metadata: {
@@ -1998,6 +2044,9 @@ export const createCodexProviderRuntime = (
         !supportsFastMode(request.model)
       ) {
         delete body.service_tier;
+      }
+      if (built.responsesLite) {
+        body = prepareLiteRequest(body);
       }
       observedBody = body;
       const configuredWebsocketTransport =
@@ -2271,6 +2320,9 @@ export const createCodexProviderRuntime = (
         if (isFastModeEnabled() && supportsFastMode(model)) {
           body.service_tier = "priority";
         }
+        if (built.responsesLite) {
+          body = prepareLiteRequest(body);
+        }
         const originalBodyJson = JSON.stringify(body);
         const previousTransport = session.activeTransport;
         session.activeTransport = session.fallbackToSse
@@ -2294,6 +2346,9 @@ export const createCodexProviderRuntime = (
           }
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- validated Responses replacement payload boundary
           body = transformed as RequestBody;
+          if (built.responsesLite) {
+            body = prepareLiteRequest(body);
+          }
         }
         observedBody = body;
         const requestId = promptCacheKey(sessionId);

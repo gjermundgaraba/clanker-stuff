@@ -113,7 +113,6 @@ export class CodeModeRuntime {
           const response = await client.execute(
             params.code,
             {
-              cwd: ctx.cwd,
               extensionContext: ctx,
               onUpdate,
               toolCallId: id,
@@ -147,7 +146,6 @@ export class CodeModeRuntime {
         execute: async (id, params, signal, onUpdate, ctx) => {
           const client = await this.getClient(signal);
           const executionContext = {
-            cwd: ctx.cwd,
             extensionContext: ctx,
             onUpdate,
             toolCallId: id,
@@ -259,10 +257,10 @@ export const toNestedTool = (definition: ToolDefinition): NestedTool => ({
 const usageFor = (name: string) => {
   switch (name) {
     case "exec_command": {
-      return "await tools.exec_command({ cmd: string, workdir?: string, yield_time_ms?: number })";
+      return "const result = await tools.exec_command({ cmd: string, workdir?: string, yield_time_ms?: number }); result.output";
     }
     case "write_stdin": {
-      return "await tools.write_stdin({ session_id: number, chars?: string, yield_time_ms?: number })";
+      return "const result = await tools.write_stdin({ session_id: number, chars?: string, yield_time_ms?: number }); result.output";
     }
     case "apply_patch": {
       return "await tools.apply_patch({ patch: string })";

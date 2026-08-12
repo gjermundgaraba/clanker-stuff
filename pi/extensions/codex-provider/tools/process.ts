@@ -1,8 +1,8 @@
+// ponytail: provider-local copy while codex-provider is private; share only when two published extensions qualify.
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { access } from "node:fs/promises";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
 import type {
   ExtensionContext,
@@ -12,7 +12,7 @@ import { getAgentDir, getShellConfig } from "@earendil-works/pi-coding-agent";
 
 import { ProcessOutput } from "./process-output.js";
 
-type ExitReason = "exit" | "killed" | "timeout";
+type ExitReason = "exit" | "killed";
 
 interface ShellResult {
   exitCode: number | null;
@@ -44,13 +44,12 @@ export interface ProcessResult {
   output: string;
   running: boolean;
   sessionId?: number;
-  status: "exited" | "killed" | "running" | "timed_out";
+  status: "exited" | "killed" | "running";
   truncation?: TruncationResult;
 }
 
 // ponytail: global cap; add per-profile limits or TTL eviction only if real workloads need them.
 const MAX_SESSIONS = 32;
-const MAX_TIMEOUT_MS = 2_147_483_647;
 const PROCESS_CLOSE_GRACE_MS = 1000;
 
 const throwIfAborted = (signal: AbortSignal | undefined) => {
@@ -123,18 +122,7 @@ const spawnShell = async (options: {
   ctx: ExtensionContext;
   cwd: string;
   onData: (chunk: Buffer) => void;
-  timeoutMs?: number;
 }): Promise<RunningShell> => {
-  if (
-    options.timeoutMs !== undefined &&
-    (!Number.isFinite(options.timeoutMs) ||
-      options.timeoutMs <= 0 ||
-      options.timeoutMs > MAX_TIMEOUT_MS)
-  ) {
-    throw new Error(
-      `Invalid timeout: must be between 1 and ${MAX_TIMEOUT_MS} milliseconds`
-    );
-  }
   try {
     await access(options.cwd);
   } catch {
@@ -192,7 +180,6 @@ const spawnShell = async (options: {
   };
   const finishAfterGrace = () => {
     grace ??= setTimeout(() => {
-      killProcessTree(child);
       finish();
     }, PROCESS_CLOSE_GRACE_MS);
   };
@@ -203,18 +190,6 @@ const spawnShell = async (options: {
     killProcessTree(child);
     finishAfterGrace();
   };
-  if (options.timeoutMs !== undefined) {
-    AbortSignal.timeout(options.timeoutMs).addEventListener(
-      "abort",
-      () => {
-        if (!settled) {
-          reason = "timeout";
-          kill();
-        }
-      },
-      { once: true }
-    );
-  }
   child.once("error", fail);
   child.once("exit", (code) => {
     exitCode = code;
@@ -254,9 +229,22 @@ const wait = async (
   signal?.addEventListener("abort", abort, { once: true });
   try {
     if (!session.status.exited) {
-      await (yieldMs === undefined
-        ? session.exitPromise
-        : Promise.race([session.exitPromise, delay(Math.max(0, yieldMs))]));
+      if (yieldMs === undefined) {
+        await session.exitPromise;
+      } else {
+        const elapsed = Promise.withResolvers<null>();
+        const timeout = setTimeout(
+          () => {
+            elapsed.resolve(null);
+          },
+          Math.max(0, yieldMs)
+        );
+        try {
+          await Promise.race([session.exitPromise, elapsed.promise]);
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
     }
   } finally {
     signal?.removeEventListener("abort", abort);
@@ -281,10 +269,7 @@ const formatOutput = async (
   const snapshot = await drainOutput(session, exited);
   let processStatus: ProcessResult["status"] = "running";
   let status = "Process is still running.";
-  if (reason === "timeout") {
-    processStatus = "timed_out";
-    status = "Process timed out.";
-  } else if (reason === "killed") {
+  if (reason === "killed") {
     processStatus = "killed";
     status = "Process was killed.";
   } else if (exited) {
@@ -330,7 +315,6 @@ export class ProcessManager {
     ctx: ExtensionContext;
     cwd: string;
     signal?: AbortSignal;
-    timeoutMs?: number;
     yieldMs?: number;
   }): Promise<ProcessResult> {
     throwIfAborted(options.signal);

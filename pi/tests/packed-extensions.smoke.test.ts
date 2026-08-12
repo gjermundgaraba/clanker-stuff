@@ -115,14 +115,9 @@ const EXTENSION_PACKAGES = [
     tools: [],
   },
   {
-    commands: ["code-mode", "tools"],
+    commands: ["tools"],
     dir: "tools",
-    handlers: [
-      "model_select",
-      "session_shutdown",
-      "session_start",
-      "session_tree",
-    ],
+    handlers: ["model_select", "session_start", "session_tree"],
     name: "@clanker-stuff/tools",
     shortcuts: [],
     tools: [],

@@ -62,3 +62,15 @@ Results include pass/fail, protected-file integrity, elapsed time, first-respons
 `results.json` is atomically refreshed after every arm, so completed results survive a later fixture, grading, diff, or reporting failure. Raw prompts, tool arguments, tool output, assistant text, stderr, sessions, and authentication data are not retained in results.
 
 The harness does not claim perfect parity: Pi and Codex CLI have different system prompts and tool implementations. Interpret repeated task pass rates and resource metrics together; do not compare exact text.
+
+## Code Mode A/B
+
+The provider-local benchmark compares direct Codex tools, `/code-mode`, and native `codex exec` on the same fixture:
+
+```bash
+pnpm eval:code-mode --runs 3
+```
+
+Use `--prepare-only` for a no-model-call fixture check. Results include hidden-test outcomes, active tools, elapsed and first-response times, token usage, cost, and each workspace diff.
+
+Elapsed and first-response timing starts with the task prompt. Fixture creation, session setup, and Code Mode host download or installation are excluded; starting the installed host process and executing tools remain measured.

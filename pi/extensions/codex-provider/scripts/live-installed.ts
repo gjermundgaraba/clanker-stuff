@@ -13,7 +13,7 @@ import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
 import { auditLocalOrder } from "../audit-local-order.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
 
-const SUPPORTED_PI_VERSION = "0.84.0";
+const SUPPORTED_PI_VERSION = "0.84.1";
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0
@@ -54,7 +54,11 @@ const resolveInstalledPiCli = () => {
 const eventType = (event: unknown) =>
   isRecord(event) && typeof event.type === "string" ? event.type : undefined;
 
-const waitForNotify = (client: RpcClient, timeoutMs = 10_000) => {
+const waitForNotify = (
+  client: RpcClient,
+  messagePrefix: string,
+  timeoutMs = 10_000
+) => {
   const result = Promise.withResolvers<Record<string, unknown>>();
   const unsubscribe = client.onEvent((event) => {
     const candidate: unknown = event;
@@ -63,15 +67,13 @@ const waitForNotify = (client: RpcClient, timeoutMs = 10_000) => {
       candidate.type === "extension_ui_request" &&
       candidate.method === "notify" &&
       typeof candidate.message === "string" &&
-      candidate.message.startsWith("Codex provider status\n")
+      candidate.message.startsWith(messagePrefix)
     ) {
       result.resolve(candidate);
     }
   });
   const timeout = setTimeout(() => {
-    result.reject(
-      new Error("Timed out waiting for /codex-provider notification")
-    );
+    result.reject(new Error(`Timed out waiting for ${messagePrefix}`));
   }, timeoutMs);
   return result.promise.finally(() => {
     clearTimeout(timeout);
@@ -83,6 +85,26 @@ const toolNames = (events: readonly JsonAgentSessionEvent[]) =>
   events.flatMap((event) =>
     event.type === "tool_execution_start" ? [event.toolName] : []
   );
+
+const isLiveModel = (
+  model:
+    | { readonly api: string; readonly id: string; readonly provider: string }
+    | undefined
+) =>
+  model?.provider === "openai-codex" &&
+  model.api === "openai-codex-responses" &&
+  model.id === LIVE_MODEL;
+
+const requireCommands = (
+  commands: Awaited<ReturnType<RpcClient["getCommands"]>>
+) => {
+  for (const name of ["code-mode", "codex-provider", "tools"]) {
+    assert(
+      commands.some((command) => command.name === name),
+      `Installed /${name} command is unavailable`
+    );
+  }
+};
 
 const clientOptions = ({
   agentDir,
@@ -102,8 +124,6 @@ const clientOptions = ({
       "--session-dir",
       sessionDir,
       ...(sessionFile === undefined ? [] : ["--session", sessionFile]),
-      "--tools",
-      "read,write",
       "--approve",
       "--offline",
       "--thinking",
@@ -149,10 +169,6 @@ const run = async () => {
     cwd,
     piVersion: SUPPORTED_PI_VERSION,
   });
-  assert(
-    audit.count > 1,
-    "Installed-environment canary requires at least one other configured extension"
-  );
 
   const extensionErrors: unknown[] = [];
   let client = clientOptions({ agentDir, cliPath, cwd, sessionDir });
@@ -167,9 +183,8 @@ const run = async () => {
     const initialState = await client.getState();
     assert(initialState.model, "Installed Pi did not select a model");
     assert(
-      initialState.model.provider === "openai-codex" &&
-        initialState.model.id === LIVE_MODEL,
-      `Installed Pi selected ${initialState.model.provider}/${initialState.model.id}`
+      isLiveModel(initialState.model),
+      `Installed Pi selected ${initialState.model.provider}/${initialState.model.id} with API ${initialState.model.api}`
     );
     const availableModels = await client.getAvailableModels();
     const declaredModel = availableModels.find(
@@ -182,11 +197,7 @@ const run = async () => {
         initialState.model.contextWindow === declaredModel?.contextWindow,
       "Installed canary is not using the model's native declared context window"
     );
-    const commands = await client.getCommands();
-    assert(
-      commands.some(({ name }) => name === "codex-provider"),
-      "Installed codex-provider command is unavailable"
-    );
+    requireCommands(await client.getCommands());
 
     await client.promptAndWait(
       "Create a unique recall token in the exact format OPAQUE- followed by 12 uppercase hexadecimal characters. Reply only with that token.",
@@ -203,13 +214,16 @@ const run = async () => {
     );
 
     const initialEvents = await client.promptAndWait(
-      "Remember the opaque token from the previous turn without repeating it. Read source.txt with the read tool, then write its exact contents to result.txt with the write tool. Reply exactly INITIAL_OK followed by the environment code from the project instructions.",
+      "Remember the opaque token from the previous turn without repeating it. Call exec_command exactly once to run `cat source.txt`. Then call apply_patch exactly once to create result.txt whose only line is the command output. Do not call any other tool. Reply exactly INITIAL_OK followed by the environment code from the project instructions.",
       undefined,
       180_000
     );
     const initialTools = toolNames(initialEvents);
-    assert(initialTools.includes("read"), "Initial turn did not use read");
-    assert(initialTools.includes("write"), "Initial turn did not use write");
+    deepStrictEqual(
+      initialTools,
+      ["exec_command", "apply_patch"],
+      "Initial turn did not use only the direct Codex tools"
+    );
     const copied = await readFile(path.join(cwd, "result.txt"), "utf-8");
     assert(
       copied.trim() === sentinel,
@@ -222,6 +236,28 @@ const run = async () => {
         initialText.includes("REAL-INSTALLED-PI") &&
         !initialText.includes(recallToken),
       "Initial turn did not load the project context"
+    );
+
+    const codeModeEnabled = waitForNotify(client, "Code Mode enabled");
+    await client.prompt("/code-mode");
+    await codeModeEnabled;
+    const codeModeEvents = await client.promptAndWait(
+      `Call exec exactly once and do not call any other top-level tool. In that JavaScript call, first await tools.exec_command with command "true" and ignore its result, then await tools.apply_patch to create code-mode.txt whose only line is exactly ${sentinel}. Reply exactly CODE_MODE_OK.`,
+      undefined,
+      180_000
+    );
+    deepStrictEqual(
+      toolNames(codeModeEvents),
+      ["exec"],
+      "Code Mode turn did not use only exec"
+    );
+    const codeModeCopy = await readFile(
+      path.join(cwd, "code-mode.txt"),
+      "utf-8"
+    );
+    assert(
+      codeModeCopy.trim() === sentinel,
+      "Code Mode nested tools did not copy the sentinel safely"
     );
 
     await client.compact(
@@ -254,7 +290,7 @@ const run = async () => {
     );
 
     const beforeStatus = await client.getEntries();
-    const notified = waitForNotify(client);
+    const notified = waitForNotify(client, "Codex provider status\n");
     await client.prompt("/codex-provider");
     await notified;
     const afterStatus = await client.getEntries();
@@ -277,6 +313,7 @@ const run = async () => {
     unsubscribe();
     await client.stop();
     await Promise.all([
+      rm(path.join(cwd, "code-mode.txt")),
       rm(path.join(cwd, "source.txt")),
       rm(path.join(cwd, "result.txt")),
     ]);
@@ -291,9 +328,8 @@ const run = async () => {
     await client.start();
     const reopenedState = await client.getState();
     assert(
-      reopenedState.model?.provider === "openai-codex" &&
-        reopenedState.model.id === LIVE_MODEL &&
-        reopenedState.model.contextWindow === initialState.model.contextWindow,
+      isLiveModel(reopenedState.model) &&
+        reopenedState.model?.contextWindow === initialState.model.contextWindow,
       "Fresh Pi process did not restore the requested native model"
     );
     const reopened = await client.getEntries();
@@ -303,14 +339,15 @@ const run = async () => {
       "Fresh process did not reopen the exact checkpoint branch"
     );
     const resumeEvents = await client.promptAndWait(
-      "Without reading any file, use the write tool to create resumed.txt containing only the assistant-generated opaque token from before compaction. Then reply exactly RESUME_OK.",
+      "Without reading any file, call apply_patch exactly once to create resumed.txt containing only the assistant-generated opaque token from before compaction. Do not call another tool. Then reply exactly RESUME_OK.",
       undefined,
       180_000
     );
     const resumeTools = toolNames(resumeEvents);
-    assert(
-      resumeTools.includes("write") && !resumeTools.includes("read"),
-      "Resume did not use write without rereading the sentinel"
+    deepStrictEqual(
+      resumeTools,
+      ["apply_patch"],
+      "Resume did not use only the direct apply_patch tool"
     );
     const resumed = await readFile(path.join(cwd, "resumed.txt"), "utf-8");
     assert(
@@ -348,9 +385,9 @@ const run = async () => {
 
 if (import.meta.main) {
   if (process.argv.includes("--help")) {
-    console.log(`Usage: pnpm run test:live:native:installed
+    console.log(`Usage: pnpm run test:live:installed
 
-Runs a paid happy-path canary through the system-installed Pi 0.84.0, actual
+Runs a paid happy-path canary through the system-installed Pi 0.84.1, actual
 configured environment, native model context window, and isolated temp project.`);
   } else {
     try {

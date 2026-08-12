@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 export const sse = (events: readonly unknown[]) =>
   new Response(
@@ -74,3 +74,15 @@ export const SPIKE_MODEL = {
   provider: "openai-codex",
   reasoning: true,
 } satisfies Model<"openai-codex-responses">;
+
+export const createToolsModel = (
+  id: string,
+  grammar = false,
+  overrides: { api?: Api; provider?: string } = {}
+): Model<Api> => ({
+  ...SPIKE_MODEL,
+  compat: grammar ? { supportsOpenAIGrammarTools: true } : undefined,
+  id,
+  name: id,
+  ...overrides,
+});

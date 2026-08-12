@@ -22,7 +22,7 @@ import {
   codeModeHostBinaryName,
   hostAssetUrl,
   resolveCodeModeHostAsset,
-} from "./host-assets.js";
+} from "./host-assets.ts";
 
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const INSTALL_LOCK_POLL_MS = 200;
@@ -57,7 +57,9 @@ export const installCodeModeHost = async ({
     return;
   }
 
-  const temporary = mkdtempSync(path.join(tmpdir(), "pi-tools-code-mode-"));
+  const temporary = mkdtempSync(
+    path.join(tmpdir(), "pi-codex-provider-code-mode-")
+  );
   const staged = `${destination}.${process.pid}.tmp`;
   try {
     const url = hostAssetUrl(assetName);
