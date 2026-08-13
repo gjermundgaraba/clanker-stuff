@@ -19,7 +19,9 @@ const controller = vi.hoisted(() => ({
   messageStart: vi.fn<(event: MessageStartEvent) => void>(),
   runCommand: vi.fn<(args: string, ctx: ExtensionContext) => Promise<void>>(),
   sendStatus: vi.fn<(message: string) => boolean>(() => true),
+  sessionBeforeTree: vi.fn<(oldLeafId: string | null) => void>(),
   sessionStart: vi.fn<(ctx: ExtensionContext) => void>(),
+  sessionTree: vi.fn<(ctx: ExtensionContext) => void>(),
   settled: vi.fn<() => void>(),
   shutdown: vi.fn<() => void>(),
   toggle: vi.fn<(ctx: ExtensionContext) => Promise<void>>(),
@@ -43,6 +45,12 @@ describe("voice registration", () => {
     await host.runCommand("voice", "status", ctx);
     await host.runShortcut("ctrl+shift+v", ctx);
     await host.emitSessionStart(ctx);
+    await host.emit(
+      "session_before_tree",
+      { preparation: { oldLeafId: null }, type: "session_before_tree" },
+      ctx
+    );
+    await host.emitSessionTree(ctx);
     await host.emit(
       "before_agent_start",
       { systemPrompt: "base", type: "before_agent_start" },
@@ -73,7 +81,9 @@ describe("voice registration", () => {
       messageStart: controller.messageStart.mock.calls.length,
       runCommand: controller.runCommand.mock.calls,
       sendStatus: controller.sendStatus.mock.calls,
+      sessionBeforeTree: controller.sessionBeforeTree.mock.calls,
       sessionStart: controller.sessionStart.mock.calls,
+      sessionTree: controller.sessionTree.mock.calls,
       settled: controller.settled.mock.calls.length,
       shutdown: controller.shutdown.mock.calls.length,
       toggle: controller.toggle.mock.calls,
@@ -85,7 +95,9 @@ describe("voice registration", () => {
       messageStart: 1,
       runCommand: [["status", ctx]],
       sendStatus: [["Progress update."]],
+      sessionBeforeTree: [[null]],
       sessionStart: [[ctx]],
+      sessionTree: [[ctx]],
       settled: 1,
       shutdown: 1,
       toggle: [[ctx]],

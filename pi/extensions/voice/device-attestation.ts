@@ -1,15 +1,18 @@
 /* eslint-disable no-use-before-define, complexity, func-style */
 
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { promisify } from "node:util";
 
 const DEFAULT_CODEX_APP_PATH = "/Applications/ChatGPT.app";
 const DEFAULT_BUNDLE_IDENTIFIER = "com.openai.codex";
 const ATTESTATION_TOKEN_VERSION = "v1";
 const PROCESS_APP_SESSION_ID = randomUUID();
 const requireNative = createRequire(import.meta.url);
+// oxlint-disable-next-line typescript/strict-void-return -- Node exposes a promisify implementation for execFile
+const execFileAsync = promisify(execFile);
 const MACOS_SIGNALS_SCRIPT = `
 ObjC.import('AppKit')
 ObjC.import('Foundation')
@@ -24,6 +27,7 @@ JSON.stringify({
   scale: Number(screen.backingScaleFactor),
 })
 `;
+let defaultSignalsPromise: Promise<DeviceAttestationSignals> | undefined;
 
 interface DeviceCheckResult {
   supported?: boolean;
@@ -116,7 +120,7 @@ export async function createCodexDesktopAttestationHeader(
     bundleIdentifier: options.bundleIdentifier ?? DEFAULT_BUNDLE_IDENTIFIER,
     latencyMs,
     nativeToken: result.tokenBase64,
-    signals: options.signals ?? defaultSignals(),
+    signals: options.signals ?? (await defaultSignals()),
   });
   return JSON.stringify({ s: 0, t: token, v: 1 });
 }
@@ -145,7 +149,7 @@ function loadDeviceCheckAddon(addonPath: string): DeviceCheckAddon {
   return addon;
 }
 
-function defaultSignals(): DeviceAttestationSignals {
+async function resolveDefaultSignals(): Promise<DeviceAttestationSignals> {
   const resolved = Intl.DateTimeFormat().resolvedOptions();
   const fallbackLocale = boundedText(
     resolved.locale.length > 0 ? resolved.locale : "unknown",
@@ -160,13 +164,12 @@ function defaultSignals(): DeviceAttestationSignals {
     scale?: unknown;
   } = {};
   try {
-    const parsed: unknown = JSON.parse(
-      execFileSync(
-        "/usr/bin/osascript",
-        ["-l", "JavaScript", "-e", MACOS_SIGNALS_SCRIPT],
-        { encoding: "utf-8", timeout: 2000 }
-      )
+    const { stdout } = await execFileAsync(
+      "/usr/bin/osascript",
+      ["-l", "JavaScript", "-e", MACOS_SIGNALS_SCRIPT],
+      { encoding: "utf-8", timeout: 2000 }
     );
+    const parsed: unknown = JSON.parse(stdout);
     if (isRecord(parsed)) {
       macos = parsed;
     }
@@ -202,6 +205,11 @@ function defaultSignals(): DeviceAttestationSignals {
     timezone: boundedText(timezone.length > 0 ? timezone : "unknown", 64),
   };
 }
+
+const defaultSignals = (): Promise<DeviceAttestationSignals> => {
+  defaultSignalsPromise ??= resolveDefaultSignals();
+  return defaultSignalsPromise;
+};
 
 function cborSignals(signals: DeviceAttestationSignals): Buffer {
   const fields = [

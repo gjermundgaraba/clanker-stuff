@@ -25,6 +25,12 @@ export default function voiceExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     voice.sessionStart(ctx);
   });
+  pi.on("session_before_tree", (event) => {
+    voice.sessionBeforeTree(event.preparation.oldLeafId);
+  });
+  pi.on("session_tree", (_event, ctx) => {
+    voice.sessionTree(ctx);
+  });
   pi.on("before_agent_start", (event) => voice.beforeAgentStart(event));
   pi.on("turn_end", (event) => {
     voice.turnEnd(event);

@@ -24,6 +24,7 @@ const MAX_DELEGATION_CHARS = 16_000;
 const MAX_SDP_CHARS = 1_000_000;
 const MAX_SEEN_DELEGATIONS = 1000;
 const MAX_SIDEBAND_BYTES = 1_000_000;
+const CALL_REQUEST_TIMEOUT_MS = 30_000;
 
 export const VOICE_MODEL = "gpt-live-1-codex";
 export const VOICE_NAME = "maple";
@@ -593,7 +594,10 @@ class RealtimeControl {
         body: JSON.stringify(body),
         headers: { ...headers, "Content-Type": "application/json" },
         method: "POST",
-        signal: abort.signal,
+        signal: AbortSignal.any([
+          abort.signal,
+          AbortSignal.timeout(CALL_REQUEST_TIMEOUT_MS),
+        ]),
       });
       this.assertCurrentCall(abort);
       if (!response.ok) {

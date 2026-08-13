@@ -4,6 +4,7 @@ import { CallLifecycle } from "./call-lifecycle.js";
 import { BrowserMediaSession } from "./media-session.js";
 
 const CALL_START_TIMEOUT_MS = 25_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 const RECONNECT_MIN_MS = 2000;
 const RECONNECT_MAX_MS = 30_000;
 
@@ -24,9 +25,9 @@ let muted = false;
 let reconnectTimer = 0;
 let reconnectDelayMs = RECONNECT_MIN_MS;
 let renewing = false;
+let renewalController;
 let detail = "Starting.";
 let researchConfig = {};
-const researchRecorders = [];
 
 function send(message) {
   window.piVoice.send(message);
@@ -38,42 +39,47 @@ function trace(kind, data) {
   }
 }
 
-async function recordChunk(blob, capturePoint, mimeType) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCodePoint(byte);
-  }
-  trace("media-chunk", {
-    capturePoint,
-    data: btoa(binary),
-    mimeType,
-  });
-}
-
-function captureStream(stream, capturePoint) {
-  if (!researchConfig.trace || typeof MediaRecorder !== "function") {
-    return;
-  }
-  const options = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-    ? { mimeType: "audio/webm;codecs=opus" }
-    : undefined;
-  const recorder = new MediaRecorder(stream, options);
-  recorder.addEventListener("dataavailable", (event) => {
-    if (event.data.size === 0) {
-      return;
-    }
-    void recordChunk(event.data, capturePoint, recorder.mimeType);
-  });
-  recorder.start(1000);
-  researchRecorders.push(recorder);
-}
-
-function request(method, offer) {
+function request(method, offer, signal) {
   nextRequestId += 1;
   const id = nextRequestId;
   return new Promise((resolve, reject) => {
-    pendingRequests.set(id, { reject, resolve });
+    const cleanup = () => {
+      const pending = pendingRequests.get(id);
+      if (!pending) {
+        return;
+      }
+      clearTimeout(pending.timeout);
+      signal?.removeEventListener("abort", pending.onAbort);
+      pendingRequests.delete(id);
+    };
+    const rejectAndCleanup = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => {
+      rejectAndCleanup(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new Error("Voice request cancelled.")
+      );
+    };
+    const timeout = setTimeout(() => {
+      rejectAndCleanup(new Error(`Voice ${method} request timed out.`));
+    }, REQUEST_TIMEOUT_MS);
+    pendingRequests.set(id, {
+      onAbort,
+      reject: rejectAndCleanup,
+      resolve: (value) => {
+        cleanup();
+        resolve(value);
+      },
+      timeout,
+    });
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     send({
       id,
       method,
@@ -118,27 +124,7 @@ async function openMicrophone() {
     await context.audioWorklet.addModule(
       new URL("realtime-buffered-audio-worklet.js", import.meta.url)
     );
-    let sourceStream = permissionStream;
-    let syntheticSource;
-    if (researchConfig.audioBase64) {
-      const bytes = Uint8Array.from(atob(researchConfig.audioBase64), (value) =>
-        value.codePointAt(0)
-      );
-      const buffer = await context.decodeAudioData(bytes.buffer);
-      const syntheticDestination = context.createMediaStreamDestination();
-      syntheticSource = context.createBufferSource();
-      syntheticSource.buffer = buffer;
-      syntheticSource.connect(syntheticDestination);
-      syntheticSource.start(
-        context.currentTime + researchConfig.audioDelayMs / 1000
-      );
-      sourceStream = syntheticDestination.stream;
-      trace("synthetic-audio-scheduled", {
-        delayMs: researchConfig.audioDelayMs,
-        duration: buffer.duration,
-      });
-    }
-    const source = context.createMediaStreamSource(sourceStream);
+    const source = context.createMediaStreamSource(permissionStream);
     const worklet = new AudioWorkletNode(context, "pi-voice-buffered-audio", {
       channelCount: 1,
       channelCountMode: "explicit",
@@ -149,18 +135,11 @@ async function openMicrophone() {
     source.connect(worklet);
     worklet.connect(destination);
     await context.resume();
-    captureStream(sourceStream, "mic-source");
-    captureStream(destination.stream, "mic-sent");
-
     return {
       close() {
         source.disconnect();
         worklet.disconnect();
-        syntheticSource?.stop();
-        for (const track of new Set([
-          ...permissionStream.getTracks(),
-          ...sourceStream.getTracks(),
-        ])) {
+        for (const track of permissionStream.getTracks()) {
           track.stop();
         }
         for (const track of destination.stream.getTracks()) {
@@ -229,6 +208,7 @@ async function startCall() {
   if (lifecycle.state !== "closed") {
     return;
   }
+  trace("call-start", {});
   cancelReconnect();
   const attempt = lifecycle.beginStart();
   let candidate;
@@ -253,13 +233,13 @@ async function startCall() {
         nextMicrophone.release();
       },
       onEvent: handleMediaEvent,
-      onRemoteStream: (stream) => {
-        captureStream(stream, "remote-output");
-      },
       stream: sessionStream,
     });
     const offer = await lifecycle.wait(attempt, candidate.createOffer());
-    const answer = await lifecycle.wait(attempt, request("offer", offer));
+    const answer = await lifecycle.wait(
+      attempt,
+      request("offer", offer, attempt.signal)
+    );
     await lifecycle.wait(attempt, candidate.acceptAnswer(answer));
     await lifecycle.wait(attempt, candidate.waitUntilConfigured());
 
@@ -270,6 +250,9 @@ async function startCall() {
     reconnectDelayMs = RECONNECT_MIN_MS;
     setDetail("Listening. Click to pause.");
   } catch (error) {
+    trace("call-error", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     candidate?.close();
     lifecycle.fail(attempt, error);
     cleanupMedia();
@@ -291,11 +274,24 @@ async function runCutover() {
   if (renewing || lifecycle.state !== "active" || !session || !microphone) {
     return;
   }
+  const originSession = session;
+  const originMicrophone = microphone;
+  const controller = new AbortController();
+  renewalController = controller;
+  const isCurrent = () =>
+    lifecycle.state === "active" &&
+    session === originSession &&
+    microphone === originMicrophone;
+  const requireCurrent = () => {
+    if (!isCurrent()) {
+      throw new Error("Voice renewal was cancelled.");
+    }
+  };
   renewing = true;
   let warm;
   let warmStream;
   try {
-    warmStream = microphone.createStream(false);
+    warmStream = originMicrophone.createStream(false);
     const warmAudio = document.createElement("audio");
     warmAudio.autoplay = true;
     warmAudio.muted = true;
@@ -306,22 +302,22 @@ async function runCutover() {
           handleMediaEvent(event);
         }
       },
-      onRemoteStream: (stream) => {
-        captureStream(stream, "remote-output");
-      },
       stream: warmStream,
     });
     warm = warmSession;
     const offer = await warmSession.createOffer();
-    const answer = await request("renew_offer", offer);
+    requireCurrent();
+    const answer = await request("renew_offer", offer, controller.signal);
     await warmSession.acceptAnswer(answer);
     await warmSession.waitUntilConfigured();
+    requireCurrent();
 
     const [warmTrack] = warmStream.getAudioTracks();
     if (!warmTrack) {
       throw new Error("Replacement call has no microphone track.");
     }
-    await request("renew_commit");
+    await request("renew_commit", undefined, controller.signal);
+    requireCurrent();
     warmTrack.enabled = !muted;
     warmAudio.muted = false;
     const previousSession = session;
@@ -345,11 +341,16 @@ async function runCutover() {
       `Renewal failed: ${error instanceof Error ? error.message : String(error)}`
     );
   } finally {
+    controller.abort(new Error("Voice renewal finished."));
+    if (renewalController === controller) {
+      renewalController = undefined;
+    }
     renewing = false;
   }
 }
 
 function cleanupMedia() {
+  renewalController?.abort(new Error("Voice call closed."));
   session?.close();
   session = undefined;
   for (const track of sessionStream?.getTracks() ?? []) {
@@ -388,10 +389,8 @@ orb.addEventListener("click", () => {
 });
 
 window.addEventListener("beforeunload", () => {
-  for (const recorder of researchRecorders) {
-    if (recorder.state !== "inactive") {
-      recorder.stop();
-    }
+  for (const pending of pendingRequests.values()) {
+    pending.reject(new Error("Voice window closed."));
   }
   cancelReconnect();
   if (lifecycle.state !== "closed") {
@@ -411,7 +410,6 @@ window.piVoice.onMessage((message) => {
     if (!pending) {
       return;
     }
-    pendingRequests.delete(message.id);
     if (message.ok) {
       pending.resolve(message.value);
     } else {

@@ -38,6 +38,7 @@ export const createVoiceController = (pi: ExtensionAPI) => {
   const trace = createVoiceTrace();
   let context: ExtensionContext | undefined;
   let media: MediaProcess | undefined;
+  let pendingTreeBranch: { leafId: string | null } | undefined;
   let persistedTranscript: TranscriptEntry[] = [];
   let persistedTranscriptSignature = "[]";
   let runtimeState: RuntimeState = "stopped";
@@ -74,6 +75,8 @@ export const createVoiceController = (pi: ExtensionAPI) => {
     runtimeState = state;
     if (state === "failed" || state === "stopped") {
       setVoiceToolsActive(false);
+    } else if (state === "active" || state === "paused") {
+      setVoiceToolsActive(true);
     }
     if (context !== undefined) {
       updateStatus(context);
@@ -102,20 +105,27 @@ export const createVoiceController = (pi: ExtensionAPI) => {
     });
   };
 
-  const persistContinuity = (): void => {
+  const persistContinuity = (branchId?: string | null): void => {
     const entries = voice?.recentTranscript() ?? persistedTranscript;
     const signature = JSON.stringify(entries);
     persistedTranscript = entries;
     if (signature === persistedTranscriptSignature) {
       return;
     }
-    pi.appendEntry(CONTINUITY_ENTRY, { entries });
+    pi.appendEntry(CONTINUITY_ENTRY, {
+      ...(branchId === undefined ? {} : { branchId }),
+      entries,
+    });
     persistedTranscriptSignature = signature;
   };
 
-  const stop = (options: { flushTail?: boolean } = {}): void => {
+  const stop = (
+    options: { flushTail?: boolean; persist?: boolean } = {}
+  ): void => {
     startupGeneration += 1;
-    persistContinuity();
+    if (options.persist !== false) {
+      persistContinuity();
+    }
     const transcriptTail =
       options.flushTail === false ? [] : (voice?.takeTranscriptTail() ?? []);
     coordinator.reset();
@@ -259,6 +269,35 @@ export const createVoiceController = (pi: ExtensionAPI) => {
     }
   };
 
+  const restoreContinuity = (ctx: ExtensionContext): void => {
+    const branch = ctx.sessionManager.getBranch();
+    const branchDepth = new Map(
+      branch.map(({ id }, index) => [id, index] as const)
+    );
+    let continuityData: Record<string, unknown> | undefined;
+    let continuityDepth = Number.NEGATIVE_INFINITY;
+    for (const entry of ctx.sessionManager.getEntries()) {
+      if (entry.type !== "custom" || entry.customType !== CONTINUITY_ENTRY) {
+        continue;
+      }
+      const data = isRecord(entry.data) ? entry.data : undefined;
+      let depth: number | undefined;
+      if (!data || !("branchId" in data)) {
+        depth = branchDepth.get(entry.id);
+      } else if (data.branchId === null) {
+        depth = branch.length === 0 ? -1 : undefined;
+      } else if (typeof data.branchId === "string") {
+        depth = branchDepth.get(data.branchId);
+      }
+      if (depth !== undefined && depth >= continuityDepth) {
+        continuityData = data;
+        continuityDepth = depth;
+      }
+    }
+    persistedTranscript = parsePersistedTranscript(continuityData?.entries);
+    persistedTranscriptSignature = JSON.stringify(persistedTranscript);
+  };
+
   return {
     beforeAgentStart: (
       event: BeforeAgentStartEvent
@@ -311,28 +350,31 @@ export const createVoiceController = (pi: ExtensionAPI) => {
       ctx.ui.notify("Usage: /voice [start|stop|status]", "warning");
     },
     sendStatus: (message: string): boolean => coordinator.sendStatus(message),
+    sessionBeforeTree: (oldLeafId: string | null): void => {
+      persistContinuity(oldLeafId);
+      pendingTreeBranch = { leafId: oldLeafId };
+    },
     sessionStart: (ctx: ExtensionContext): void => {
+      pendingTreeBranch = undefined;
       context = ctx;
-      const continuityEntry = ctx.sessionManager
-        .getBranch()
-        .toReversed()
-        .find(
-          (entry) =>
-            entry.type === "custom" && entry.customType === CONTINUITY_ENTRY
-        );
-      const data =
-        continuityEntry?.type === "custom" && isRecord(continuityEntry.data)
-          ? continuityEntry.data
-          : undefined;
-      persistedTranscript = parsePersistedTranscript(data?.entries);
-      persistedTranscriptSignature = JSON.stringify(persistedTranscript);
+      restoreContinuity(ctx);
       setVoiceToolsActive(false);
       updateStatus(ctx);
+    },
+    sessionTree: (ctx: ExtensionContext): void => {
+      if (pendingTreeBranch) {
+        persistContinuity(pendingTreeBranch.leafId);
+        pendingTreeBranch = undefined;
+      }
+      stop({ flushTail: false, persist: false });
+      context = ctx;
+      restoreContinuity(ctx);
     },
     settled: (): void => {
       coordinator.settled();
     },
     shutdown: (): void => {
+      pendingTreeBranch = undefined;
       stop({ flushTail: false });
       context = undefined;
     },

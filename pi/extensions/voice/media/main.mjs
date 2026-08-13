@@ -1,6 +1,5 @@
 /* eslint-disable promise/prefer-await-to-callbacks */
 
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
@@ -19,12 +18,7 @@ ipcMain.handle("voice:research-config", (event) => {
   if (!trustedSender(event)) {
     return {};
   }
-  const audioPath = process.env.PI_VOICE_RESEARCH_AUDIO;
   return {
-    audioBase64: audioPath
-      ? readFileSync(audioPath).toString("base64")
-      : undefined,
-    audioDelayMs: Number(process.env.PI_VOICE_RESEARCH_AUDIO_DELAY_MS ?? 3000),
     trace: Boolean(process.env.PI_VOICE_TRACE_DIR),
   };
 });
