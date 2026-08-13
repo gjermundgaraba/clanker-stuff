@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
+import {
+  createSyntheticSourceInfo,
+  parseSkillBlock,
+} from "@earendil-works/pi-coding-agent";
 import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
@@ -35,6 +38,7 @@ const createMentionHost = (commands: ExtensionHostOptions["commands"] = []) =>
       pi.registerMessageRenderer("codex-skills", mentions.render);
       pi.on("session_start", (_event, ctx) => mentions.install(ctx));
       pi.on("before_agent_start", (event, ctx) => mentions.inject(event, ctx));
+      pi.on("input", (event, ctx) => mentions.injectStreaming(event, ctx));
     },
     { commands }
   );
@@ -88,7 +92,7 @@ describe("skill mentions", () => {
     ]);
 
     const host = createMentionHost();
-    const content = `<skill>\n<name>alpha</name>\n<path>${alphaPath}</path>\nAlpha instructions.\n</skill>\n\n<skill>\n<name>beta</name>\n<path>${betaPath}</path>\nBeta instructions.\n</skill>\n\n<skill>\n<name>plugin:deploy</name>\n<path>${pluginPath}</path>\nPlugin deploy instructions.\n</skill>`;
+    const content = `<skill name="alpha" location="${alphaPath}">\nReferences are relative to ${directory}.\n\nAlpha instructions.\n</skill>\n\n<skill name="beta" location="${betaPath}">\nReferences are relative to ${directory}.\n\nBeta instructions.\n</skill>\n\n<skill name="plugin:deploy" location="${pluginPath}">\nReferences are relative to ${directory}.\n\nPlugin deploy instructions.\n</skill>`;
     const details = {
       skills: [
         { body: "Alpha instructions.", name: "alpha", path: alphaPath },
@@ -223,5 +227,101 @@ describe("skill mentions", () => {
       prefix: "$plugin:d",
     });
     expect(shellSuggestions).toBeNull();
+  });
+
+  it("injects skills into queued steering and follow-up input", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "codex-skills-"));
+    onTestFinished(() => rm(directory, { force: true, recursive: true }));
+    const filePath = path.join(directory, "alpha.md");
+    await writeFile(filePath, "---\nname: alpha\n---\nAlpha instructions.\n");
+    const skill = {
+      baseDir: directory,
+      description: "alpha",
+      disableModelInvocation: false,
+      filePath,
+      name: "alpha",
+      sourceInfo: SOURCE_INFO,
+    };
+    const host = createMentionHost();
+    const ctx = host.createContext();
+    await host.emit(
+      "before_agent_start",
+      {
+        prompt: "initial prompt",
+        systemPrompt: "",
+        systemPromptOptions: { cwd: directory, skills: [skill] },
+        type: "before_agent_start",
+      } satisfies BeforeAgentStartEvent,
+      ctx
+    );
+
+    const results = await Promise.all(
+      (["steer", "followUp"] as const).map((streamingBehavior) =>
+        host.emitInput(
+          {
+            source: "interactive",
+            streamingBehavior,
+            text: "Use $alpha now",
+            type: "input",
+          },
+          ctx
+        )
+      )
+    );
+    for (const result of results) {
+      expect(result).toMatchObject({
+        action: "transform",
+        text: expect.stringContaining(
+          `References are relative to ${directory}.\n\nAlpha instructions.`
+        ),
+      });
+      expect(result).toMatchObject({
+        text: expect.stringMatching(/<\/skill>\n\nUse \$alpha now$/u),
+      });
+    }
+  });
+
+  it("keeps quoted skill paths inside the skill block", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), 'codex-skills-"quoted"-')
+    );
+    onTestFinished(() => rm(directory, { force: true, recursive: true }));
+    const filePath = path.join(directory, 'alpha"&<.md');
+    await writeFile(filePath, "Alpha instructions.\n");
+    const host = createMentionHost();
+    const [result] = await host.emit(
+      "before_agent_start",
+      {
+        prompt: "Use $alpha",
+        systemPrompt: "",
+        systemPromptOptions: {
+          cwd: directory,
+          skills: [
+            {
+              baseDir: directory,
+              description: "alpha",
+              disableModelInvocation: false,
+              filePath,
+              name: "alpha",
+              sourceInfo: SOURCE_INFO,
+            },
+          ],
+        },
+        type: "before_agent_start",
+      } satisfies BeforeAgentStartEvent,
+      host.createContext()
+    );
+    const content = (
+      result as { message?: { content?: unknown } } | null | undefined
+    )?.message?.content;
+    if (typeof content !== "string") {
+      throw new TypeError("Expected an injected skill block");
+    }
+
+    expect(parseSkillBlock(content)).toMatchObject({
+      content: expect.stringContaining("Alpha instructions."),
+      userMessage: undefined,
+    });
+    expect(content).toContain("&quot;");
   });
 });

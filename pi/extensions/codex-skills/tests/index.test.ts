@@ -2,6 +2,8 @@ import type {
   BeforeAgentStartEvent,
   BeforeAgentStartEventResult,
   ExtensionContext,
+  InputEvent,
+  InputEventResult,
   MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -16,6 +18,14 @@ const mentions = vi.hoisted(() => ({
       ctx: ExtensionContext
     ) => Promise<BeforeAgentStartEventResult>
   >(async () => await Promise.resolve({})),
+  injectStreaming: vi.fn<
+    (
+      event: InputEvent,
+      ctx: ExtensionContext
+    ) => Promise<InputEventResult | undefined>
+  >(async () => {
+    await Promise.resolve();
+  }),
   install: vi.fn<(ctx: ExtensionContext) => void>(),
   render: vi.fn<MessageRenderer>(),
 }));
@@ -37,9 +47,20 @@ describe("codex-skills registration", () => {
 
     await host.emitSessionStart(ctx);
     await host.emit("before_agent_start", event, ctx);
+    const input = {
+      source: "interactive",
+      streamingBehavior: "steer",
+      text: "Use $alpha",
+      type: "input",
+    } satisfies InputEvent;
+    await host.emit("input", input, ctx);
 
     expect(host.getMessageRenderer("codex-skills")).toBe(mentions.render);
     expect(mentions.install).toHaveBeenCalledExactlyOnceWith(ctx);
     expect(mentions.inject).toHaveBeenCalledExactlyOnceWith(event, ctx);
+    expect(mentions.injectStreaming).toHaveBeenCalledExactlyOnceWith(
+      input,
+      ctx
+    );
   });
 });

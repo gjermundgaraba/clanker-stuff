@@ -3,8 +3,11 @@ import { readFile } from "node:fs/promises";
 import type {
   BeforeAgentStartEvent,
   BeforeAgentStartEventResult,
+  BuildSystemPromptOptions,
   ExtensionAPI,
   ExtensionContext,
+  InputEvent,
+  InputEventResult,
   MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -33,10 +36,21 @@ const COMMON_ENV_VARS = new Set([
   "USER",
   "XDG_CONFIG_HOME",
 ]);
+const escapeSkillText = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\r", "&#13;")
+    .replaceAll("\n", "&#10;");
+const escapeSkillAttribute = (value: string): string =>
+  escapeSkillText(value).replaceAll('"', "&quot;");
 
 export interface InjectedSkillsDetails {
   skills: { body: string; name: string; path: string }[];
 }
+
+type Skill = NonNullable<BuildSystemPromptOptions["skills"]>[number];
 
 const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
   message,
@@ -70,6 +84,8 @@ const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
 };
 
 export const createSkillMentions = (pi: ExtensionAPI) => {
+  let activeSkills: Skill[] = [];
+
   const getSkills = () =>
     pi
       .getCommands()
@@ -84,8 +100,9 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       );
 
   const install = (ctx: ExtensionContext): void => {
-    const skillNames = getSkills().map((skill) => skill.name);
-    installSkillMentionEditor(ctx, skillNames);
+    installSkillMentionEditor(ctx, () =>
+      getSkills().map((skill) => skill.name)
+    );
 
     ctx.ui.addAutocompleteProvider((current) => ({
       applyCompletion: current.applyCompletion.bind(current),
@@ -126,23 +143,24 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     }));
   };
 
-  const inject = async (
-    event: BeforeAgentStartEvent,
+  const loadMentionedSkills = async (
+    text: string,
+    skills: Skill[],
     ctx: ExtensionContext
-  ): Promise<BeforeAgentStartEventResult | undefined> => {
+  ) => {
     const mentionedNames = new Set<string>();
-    for (const match of event.prompt.matchAll(SKILL_MENTION)) {
+    for (const match of text.matchAll(SKILL_MENTION)) {
       const { name } = match.groups ?? {};
       if (name && !COMMON_ENV_VARS.has(name)) {
         mentionedNames.add(name);
       }
     }
     if (mentionedNames.size === 0) {
-      return undefined;
+      return [];
     }
 
     const loadedBlocks = await Promise.all(
-      (event.systemPromptOptions.skills ?? [])
+      skills
         .filter((skill) => mentionedNames.has(skill.name))
         .map(async (skill) => {
           try {
@@ -150,7 +168,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
             const body = stripFrontmatter(contents).trim();
             return {
               body,
-              content: `<skill>\n<name>${skill.name}</name>\n<path>${skill.filePath}</path>\n${body}\n</skill>`,
+              content: `<skill name="${skill.name}" location="${escapeSkillAttribute(skill.filePath)}">\nReferences are relative to ${escapeSkillText(skill.baseDir)}.\n\n${body}\n</skill>`,
               name: skill.name,
               path: skill.filePath,
             };
@@ -163,7 +181,15 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
           }
         })
     );
-    const blocks = loadedBlocks.filter((block) => block !== null);
+    return loadedBlocks.filter((block) => block !== null);
+  };
+
+  const inject = async (
+    event: BeforeAgentStartEvent,
+    ctx: ExtensionContext
+  ): Promise<BeforeAgentStartEventResult | undefined> => {
+    activeSkills = event.systemPromptOptions.skills ?? [];
+    const blocks = await loadMentionedSkills(event.prompt, activeSkills, ctx);
     if (blocks.length === 0) {
       return undefined;
     }
@@ -184,5 +210,22 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     };
   };
 
-  return { inject, install, render: renderInjectedSkills };
+  const injectStreaming = async (
+    event: InputEvent,
+    ctx: ExtensionContext
+  ): Promise<InputEventResult | undefined> => {
+    if (event.streamingBehavior === undefined) {
+      return undefined;
+    }
+    const blocks = await loadMentionedSkills(event.text, activeSkills, ctx);
+    return blocks.length === 0
+      ? undefined
+      : {
+          action: "transform",
+          images: event.images,
+          text: `${blocks.map((block) => block.content).join("\n\n")}\n\n${event.text}`,
+        };
+  };
+
+  return { inject, injectStreaming, install, render: renderInjectedSkills };
 };

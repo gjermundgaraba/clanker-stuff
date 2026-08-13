@@ -47,7 +47,7 @@ describe("skill mention editor", () => {
         color === "accent" ? `<accent>${text}</accent>` : text,
     } as Theme;
     const ctx = host.createContext({ ui: { theme } });
-    installSkillMentionEditor(ctx, ["alpha", "plugin:deploy"]);
+    installSkillMentionEditor(ctx, () => ["alpha", "plugin:deploy"]);
 
     const editor = createEditor(host);
     editor.setText("Use $alpha, $plugin:deploy, and not $alphabet or $PATH");
@@ -78,11 +78,33 @@ describe("skill mention editor", () => {
       setText: vi.fn<(text: string) => void>(),
     } satisfies EditorComponent;
     context.ui.setEditorComponent(() => previousEditor);
-    installSkillMentionEditor(context, ["alpha"]);
+    installSkillMentionEditor(context, () => ["alpha"]);
 
     const editor = createEditor(host);
 
     expect(editor).toBe(previousEditor);
     expect(editor.render(40)).toStrictEqual(["Use <accent>$alpha</accent>"]);
+  });
+
+  it("reads live skill names on every render", () => {
+    const host = createExtensionHost(() => {});
+    const theme = {
+      ...createIdentityTheme(),
+      fg: (color: string, text: string) =>
+        color === "accent" ? `<accent>${text}</accent>` : text,
+    } as Theme;
+    const ctx = host.createContext({ ui: { theme } });
+    let names = ["alpha"];
+    installSkillMentionEditor(ctx, () => names);
+    const editor = createEditor(host);
+    editor.setText("Use $alpha and $beta");
+
+    expect(editor.render(80).join("\n")).toContain(
+      "Use <accent>$alpha</accent> and $beta"
+    );
+    names = ["beta"];
+    expect(editor.render(80).join("\n")).toContain(
+      "Use $alpha and <accent>$beta</accent>"
+    );
   });
 });
