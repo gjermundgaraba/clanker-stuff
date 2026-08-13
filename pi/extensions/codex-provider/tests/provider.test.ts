@@ -410,6 +410,32 @@ describe("Codex provider", () => {
     });
   });
 
+  it("does not retry a server delay beyond the configured bound", async () => {
+    let attempts = 0;
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          attempts += 1;
+          return Response.json(
+            { error: { code: "rate_limit", message: "rate limited" } },
+            {
+              headers: { "retry-after-ms": "999999" },
+              status: 429,
+            }
+          );
+        },
+        maxRetries: 2,
+        sessionId: "session-retry-delay-bound",
+        transport: "sse",
+      })
+      .result();
+
+    expect(attempts).toBe(1);
+    expect(message.errorMessage).toContain("retry delay");
+    expect(message.stopReason).toBe("error");
+  });
+
   it("returns incomplete responses as length stops", async () => {
     const runtime = createCodexProviderRuntime();
     const message = await runtime.provider
@@ -1697,8 +1723,8 @@ describe("Codex provider", () => {
     },
     {
       body: { error: { code: "teapot", message: "teapot" } },
-      expectedAttempts: 3,
-      expectedFallback: true,
+      expectedAttempts: 1,
+      expectedFallback: false,
       label: "unexpected HTTP status",
       status: 418,
     },
@@ -1729,6 +1755,19 @@ describe("Codex provider", () => {
       label: "HTTP 429 usage not included",
       status: 429,
     },
+    ...[
+      "credit_balance_exhausted",
+      "insufficient_quota",
+      "organization_spend_limit_exceeded",
+      "organization_usage_limit_exceeded",
+      "project_spend_limit_exceeded",
+    ].map((code) => ({
+      body: { error: { code, message: code } },
+      expectedAttempts: 1,
+      expectedFallback: false,
+      label: `HTTP 429 ${code}`,
+      status: 429,
+    })),
     {
       body: { error: { code: "invalid_image", message: "invalid image" } },
       expectedAttempts: 1,

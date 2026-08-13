@@ -918,6 +918,14 @@ const RETRYABLE_WEBSOCKET_ERROR_CODES = new Set([
   "previous_response_not_found",
   "websocket_connection_limit_reached",
 ]);
+const TERMINAL_QUOTA_ERROR_CODES = new Set([
+  "credit_balance_exhausted",
+  "insufficient_quota",
+  "organization_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "usage_not_included",
+]);
 
 const requestErrorObservation = (error: unknown) => ({
   code: error instanceof CodexProviderError ? error.code : undefined,
@@ -933,11 +941,7 @@ const responseFailureClassification = (code: string | undefined) => {
   if (code === "context_length_exceeded") {
     return { retryable: false, useCurrentModelFallback: true };
   }
-  if (
-    code === "insufficient_quota" ||
-    code === "usage_not_included" ||
-    code === "cyber_policy"
-  ) {
+  if (TERMINAL_QUOTA_ERROR_CODES.has(code ?? "") || code === "cyber_policy") {
     return { retryable: false, useCurrentModelFallback: false };
   }
   if (code === "invalid_prompt" || code === "bio_policy") {
@@ -1162,10 +1166,12 @@ const responseErrorClassification = (
     };
   }
   if (status === 429) {
+    if (TERMINAL_QUOTA_ERROR_CODES.has(code ?? "")) {
+      return { retryable: false, useCurrentModelFallback: false };
+    }
     return {
-      retryable:
-        code !== "usage_limit_reached" && code !== "usage_not_included",
-      useCurrentModelFallback: code !== "usage_not_included",
+      retryable: code !== "usage_limit_reached",
+      useCurrentModelFallback: true,
     };
   }
   if (
@@ -1174,7 +1180,16 @@ const responseErrorClassification = (
   ) {
     return { retryable: false, useCurrentModelFallback: true };
   }
-  return { retryable: true, useCurrentModelFallback: true };
+  if (status >= 400 && status < 500) {
+    return {
+      retryable: status === 408 || status === 409 || status === 425,
+      useCurrentModelFallback: false,
+    };
+  }
+  return {
+    retryable: status >= 500,
+    useCurrentModelFallback: status >= 500,
+  };
 };
 
 const responseError = (status: number, text: string) => {
@@ -1562,8 +1577,12 @@ const sseEvents = async function* sseEvents(
       }
       const wait = retryDelay(response, attempt);
       const cap = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
-      if (cap > 0 && wait > cap) {
-        throw new Error(
+      if (
+        !Number.isSafeInteger(wait) ||
+        wait > 2_147_483_647 ||
+        (cap > 0 && wait > cap)
+      ) {
+        throw new CodexProviderError(
           `Server requested ${Math.ceil(wait / 1000)}s retry delay (max: ${Math.ceil(cap / 1000)}s)`
         );
       }
