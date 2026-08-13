@@ -6,14 +6,7 @@ set -u
 inbox="${PI_SHELL_RESUME_HISTORY_DIR:-}"
 [ -n "$inbox" ] && [ -d "$inbox" ] || exit 0
 
-json=$(cat)
-reason=$(jq -r '.reason // empty' <<<"$json")
-case "$reason" in
-  prompt_input_exit | other) ;;
-  *) exit 0 ;;
-esac
-
-sid=$(jq -r '.session_id // empty' <<<"$json")
+sid=$(jq -r '.session_id // empty')
 # sid lands verbatim in shell history; reject anything but a plain id.
 [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 

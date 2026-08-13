@@ -17,7 +17,6 @@ import { createTempDir } from "../../../tests/helpers/fs.js";
 import {
   enqueueResumeCommand,
   formatResumeCommand,
-  getDefaultSessionDirectory,
   INBOX_ENV,
   recordResumeCommand,
 } from "../resume-command.js";
@@ -53,7 +52,7 @@ describe("resume command", () => {
 
   it("queues the current persisted session when pi quits", async () => {
     const { cwd, inbox } = await setup();
-    const sessionDir = getDefaultSessionDirectory(cwd);
+    const sessionDir = path.join(tempRoot ?? "", "sessions");
     const sessionFile = path.join(sessionDir, "session.jsonl");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(sessionFile, "{}\n");
@@ -73,11 +72,11 @@ describe("resume command", () => {
     expect(messages).toHaveLength(1);
     await expect(
       readFile(path.join(inbox, messages[0]), "utf-8")
-    ).resolves.toBe("pi --session full-session-id\n");
+    ).resolves.toBe(`pi --session ${sessionFile}\n`);
   });
 
-  it("quotes a custom session directory", async () => {
-    const { cwd } = await setup();
+  it("quotes a custom session file", async () => {
+    await setup();
     const sessionDir = path.join(tempRoot ?? "", "custom pi's sessions");
     const sessionFile = path.join(sessionDir, "session.jsonl");
     await mkdir(sessionDir);
@@ -85,19 +84,14 @@ describe("resume command", () => {
 
     expect(
       formatResumeCommand({
-        cwd,
-        sessionDir,
         sessionFile,
-        sessionId: "full-session-id",
       })
-    ).toBe(
-      `pi --session-dir '${sessionDir.replaceAll("'", String.raw`'\''`)}' --session full-session-id`
-    );
+    ).toBe(`pi --session '${sessionFile.replaceAll("'", String.raw`'\''`)}'`);
   });
 
   it("does not queue history for replacement sessions or non-TUI modes", async () => {
     const { cwd, inbox } = await setup();
-    const sessionDir = getDefaultSessionDirectory(cwd);
+    const sessionDir = path.join(tempRoot ?? "", "sessions");
     const sessionFile = path.join(sessionDir, "session.jsonl");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(sessionFile, "{}\n");
@@ -126,7 +120,6 @@ describe("resume command", () => {
     const ctx = host.createContext({
       cwd,
       sessionManager: {
-        getSessionDir: () => getDefaultSessionDirectory(cwd),
         getSessionFile: () => path.join(cwd, "missing-session.jsonl"),
         getSessionId: () => "full-session-id",
       } as never,

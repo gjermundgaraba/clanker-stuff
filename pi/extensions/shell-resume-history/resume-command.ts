@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
   SessionShutdownEvent,
@@ -18,26 +17,12 @@ const quoteShellArgument = (value: string): string => {
   return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 };
 
-export const getDefaultSessionDirectory = (cwd: string): string => {
-  const resolvedCwd = path.resolve(cwd);
-  const safePath = `--${resolvedCwd
-    .replace(/^[/\\]/u, "")
-    .replaceAll(/[/\\:]/gu, "-")}--`;
-  return path.join(path.resolve(getAgentDir()), "sessions", safePath);
-};
-
 export interface ResumeCommandSession {
-  cwd: string;
-  sessionDir: string;
   sessionFile: string | undefined;
-  sessionId: string;
 }
 
 export const formatResumeCommand = ({
-  cwd,
-  sessionDir,
   sessionFile,
-  sessionId,
 }: ResumeCommandSession): string | undefined => {
   if (
     sessionFile === undefined ||
@@ -47,12 +32,7 @@ export const formatResumeCommand = ({
     return undefined;
   }
 
-  const args = ["pi"];
-  if (path.resolve(sessionDir) !== getDefaultSessionDirectory(cwd)) {
-    args.push("--session-dir", quoteShellArgument(sessionDir));
-  }
-  args.push("--session", quoteShellArgument(sessionId));
-  return args.join(" ");
+  return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
 };
 
 export const enqueueResumeCommand = async (
@@ -90,10 +70,7 @@ export const recordResumeCommand = async (
 
   const { sessionManager } = ctx;
   const command = formatResumeCommand({
-    cwd: ctx.cwd,
-    sessionDir: sessionManager.getSessionDir(),
     sessionFile: sessionManager.getSessionFile(),
-    sessionId: sessionManager.getSessionId(),
   });
   if (command === undefined) {
     return;

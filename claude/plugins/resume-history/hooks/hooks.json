@@ -2,6 +2,7 @@
   "hooks": {
     "SessionEnd": [
       {
+        "matcher": "prompt_input_exit|other",
         "hooks": [
           {
             "type": "command",
