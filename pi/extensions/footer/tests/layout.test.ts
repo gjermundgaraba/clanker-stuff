@@ -204,4 +204,27 @@ describe("normalization", () => {
       ).lines.join("\n")
     ).not.toContain("must not render");
   });
+
+  it("strips terminal controls from rich widget text and icons", () => {
+    const injected = live(
+      "example.injected",
+      "\u001B]52;c;secret\u0007visible",
+      {
+        icon: { glyphs: "\u001B[31m!" },
+      }
+    );
+    const rendered = renderFooterState(
+      {
+        builtins: new Map(),
+        config,
+        nativeStatuses: new Map(),
+        rich: new Map([[injected.snapshot.id, injected]]),
+      },
+      80,
+      theme
+    ).lines.join("\n");
+
+    expect(rendered).toContain("visible");
+    expect(rendered).not.toContain("\u001B");
+  });
 });

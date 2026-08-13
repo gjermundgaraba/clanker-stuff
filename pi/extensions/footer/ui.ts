@@ -2,6 +2,7 @@
 
 import type {
   ExtensionCommandContext,
+  KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -21,8 +22,6 @@ import type { FooterSource } from "./widgets.js";
 const GROUPS = ["left", "center", "right"] as const;
 const ICONS: FooterConfig["iconFamily"][] = ["ascii", "unicode", "nerd"];
 const PREVIEW_WIDTHS = ["current", "80", "40"] as const;
-const AGGREGATE_IDS = new Set(["footer.widgets", "footer.statuses"]);
-
 export interface FooterEditorWidget {
   defaultEnabled?: boolean;
   id: string;
@@ -87,6 +86,13 @@ const chipsFor = (
     for (const group of GROUPS) {
       row[group].forEach((id, index) => {
         if (id === "footer.widgets" || id === "footer.statuses") {
+          chips.push({
+            group,
+            id,
+            index,
+            kind: "placed",
+            row: rowIndex,
+          });
           const members = widgets
             .filter(
               (widget) =>
@@ -155,7 +161,7 @@ const pickerItems = (
       ...Object.keys(config.widgets),
     ]),
   ]
-    .filter((id) => !AGGREGATE_IDS.has(id) && !placed.has(id))
+    .filter((id) => !placed.has(id))
     .map((id) => ({
       available: live.has(id),
       id,
@@ -201,11 +207,16 @@ const place = (
 };
 
 const direction = (
-  data: string
+  data: string,
+  keybindings?: Pick<KeybindingsManager, "matches">
 ): "down" | "left" | "right" | "up" | undefined =>
-  matchesKey(data, Key.down) || data === "j"
+  keybindings?.matches(data, "tui.select.down") === true ||
+  matchesKey(data, Key.down) ||
+  data === "j"
     ? "down"
-    : matchesKey(data, Key.up) || data === "k"
+    : keybindings?.matches(data, "tui.select.up") === true ||
+        matchesKey(data, Key.up) ||
+        data === "k"
       ? "up"
       : matchesKey(data, Key.left) || data === "h"
         ? "left"
@@ -213,8 +224,13 @@ const direction = (
           ? "right"
           : undefined;
 
-const isApply = (data: string): boolean =>
-  matchesKey(data, Key.enter) || matchesKey(data, Key.space);
+const isApply = (
+  data: string,
+  keybindings?: Pick<KeybindingsManager, "matches">
+): boolean =>
+  keybindings?.matches(data, "tui.select.confirm") === true ||
+  matchesKey(data, Key.enter) ||
+  matchesKey(data, Key.space);
 
 const line = (text: string, width: number): string =>
   truncateToWidth(text, Math.max(1, width), "…");
@@ -289,6 +305,7 @@ const joinColumns = (columns: readonly string[][], width: number): string[] => {
 export class FooterEditor {
   private readonly done: (value: null) => void;
   private readonly options: FooterEditorOptions;
+  private readonly keybindings?: Pick<KeybindingsManager, "matches">;
   private readonly theme: Theme;
   private readonly requestRender: () => void;
   private original: FooterConfig;
@@ -297,6 +314,7 @@ export class FooterEditor {
   private previewWidth = 0;
   private picker?: {
     group: (typeof GROUPS)[number];
+    items: SelectItem[];
     list: SelectList;
     row: number;
   };
@@ -304,17 +322,21 @@ export class FooterEditor {
   private invalidConfirmation = false;
   private sourceInvalid: boolean;
   private status = "";
+  private saveQueue = Promise.resolve();
+  private saveVersion = 0;
 
   constructor(
     theme: Theme,
     requestRender: () => void,
     done: (value: null) => void,
-    options: FooterEditorOptions
+    options: FooterEditorOptions,
+    keybindings?: Pick<KeybindingsManager, "matches">
   ) {
     this.theme = theme;
     this.requestRender = requestRender;
     this.done = done;
     this.options = options;
+    this.keybindings = keybindings;
     this.original = cloneFooterConfig(options.loaded.config);
     this.working = cloneFooterConfig(options.loaded.config);
     this.sourceInvalid =
@@ -335,7 +357,10 @@ export class FooterEditor {
       this.requestRender();
       return;
     }
-    if (matchesKey(data, Key.escape)) {
+    if (
+      this.keybindings?.matches(data, "tui.select.cancel") === true ||
+      matchesKey(data, Key.escape)
+    ) {
       if (this.grabbed) {
         this.working = this.grabbed.backup;
         this.grabbed = undefined;
@@ -345,12 +370,19 @@ export class FooterEditor {
       }
       return;
     }
+    const movement = direction(data, this.keybindings);
+    const apply = isApply(data, this.keybindings);
+    if (movement !== undefined || apply) {
+      this.handleLayout(data, movement, apply);
+      this.requestRender();
+      return;
+    }
     if (this.grabbed === undefined && this.handleShortcut(data)) {
       this.requestRender();
       return;
     }
 
-    this.handleLayout(data, direction(data));
+    this.handleLayout(data, undefined, false);
     this.requestRender();
   }
 
@@ -541,7 +573,8 @@ export class FooterEditor {
 
   private handleLayout(
     data: string,
-    movement: ReturnType<typeof direction>
+    movement: ReturnType<typeof direction>,
+    apply: boolean
   ): void {
     const chips = this.chips();
     const selected = chips[this.selected];
@@ -569,7 +602,7 @@ export class FooterEditor {
       this.changed();
       return;
     }
-    if (!isApply(data)) {
+    if (!apply) {
       return;
     }
     if (this.grabbed !== undefined) {
@@ -608,14 +641,26 @@ export class FooterEditor {
     if (this.picker === undefined) {
       return;
     }
+    if (
+      this.keybindings?.matches(data, "tui.select.up") === true ||
+      this.keybindings?.matches(data, "tui.select.down") === true ||
+      this.keybindings?.matches(data, "tui.select.confirm") === true ||
+      this.keybindings?.matches(data, "tui.select.cancel") === true
+    ) {
+      this.picker.list.handleInput(data);
+      return;
+    }
     const movement = direction(data);
-    this.picker.list.handleInput(
-      movement === "left" || movement === "up"
-        ? "\u001B[A"
-        : movement === "right" || movement === "down"
-          ? "\u001B[B"
-          : data
-    );
+    if (movement !== undefined) {
+      const selected = this.picker.list.getSelectedItem();
+      const index = Math.max(0, this.picker.items.indexOf(selected!));
+      const offset = movement === "left" || movement === "up" ? -1 : 1;
+      this.picker.list.setSelectedIndex(
+        (index + offset + this.picker.items.length) % this.picker.items.length
+      );
+      return;
+    }
+    this.picker.list.handleInput(data);
   }
 
   private openPicker(
@@ -650,7 +695,7 @@ export class FooterEditor {
       this.status = "";
       this.changed();
     };
-    this.picker = { group, list, row };
+    this.picker = { group, items: choices, list, row };
   }
 
   private moveGrabbed(
@@ -757,19 +802,40 @@ export class FooterEditor {
       this.requestRender();
       return;
     }
+    const snapshot = cloneFooterConfig(this.working);
+    this.saveVersion += 1;
+    const version = this.saveVersion;
     this.status = "Saving…";
-    void this.options
-      .onSave(cloneFooterConfig(this.working))
-      .then(() => {
-        this.original = cloneFooterConfig(this.working);
+    const previousSave = this.saveQueue;
+    const save = async () => {
+      try {
+        await previousSave;
+      } catch {
+        // A failed save must not block later explicit saves.
+      }
+      await this.options.onSave(snapshot);
+    };
+    const savePromise = save();
+    this.saveQueue = savePromise;
+    const settle = async () => {
+      try {
+        await savePromise;
+        this.original = cloneFooterConfig(snapshot);
         this.sourceInvalid = false;
-        this.status = "Saved.";
+        if (version === this.saveVersion) {
+          this.status = sameConfig(this.working, snapshot)
+            ? "Saved."
+            : "Saved; newer changes are unsaved.";
+        }
         this.requestRender();
-      })
-      .catch((error: unknown) => {
-        this.status = `Save failed: ${error instanceof Error ? error.message : String(error)}`;
+      } catch (error) {
+        if (version === this.saveVersion) {
+          this.status = `Save failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
         this.requestRender();
-      });
+      }
+    };
+    void settle();
   }
 }
 
@@ -778,14 +844,15 @@ export const showFooterEditor = async (
   options: FooterEditorOptions
 ): Promise<void> => {
   await ctx.ui.custom<null>(
-    (tui, theme, _keybindings, done) => {
+    (tui, theme, keybindings, done) => {
       const editor = new FooterEditor(
         theme,
         () => {
           tui.requestRender();
         },
         done,
-        options
+        options,
+        keybindings
       );
       return editor;
     },
@@ -807,19 +874,25 @@ export const showFooterTextView = async (
   getLines: () => string[]
 ): Promise<void> => {
   await ctx.ui.custom<null>(
-    (tui, theme, _keybindings, done) => {
+    (tui, theme, keybindings, done) => {
       let offset = 0;
       return {
         // oxlint-disable-next-line eslint/no-empty-function -- no resources
         dispose() {},
         handleInput(data: string) {
-          if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter)) {
+          if (
+            keybindings.matches(data, "tui.select.cancel") ||
+            keybindings.matches(data, "tui.select.confirm")
+          ) {
             done(null);
             return;
           }
-          if (matchesKey(data, Key.up) || data === "k") {
+          if (keybindings.matches(data, "tui.select.up") || data === "k") {
             offset = Math.max(0, offset - 1);
-          } else if (matchesKey(data, Key.down) || data === "j") {
+          } else if (
+            keybindings.matches(data, "tui.select.down") ||
+            data === "j"
+          ) {
             offset += 1;
           }
           tui.requestRender();

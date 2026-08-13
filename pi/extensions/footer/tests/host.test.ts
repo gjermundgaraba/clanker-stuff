@@ -10,6 +10,7 @@ import {
   createFooterConfigStore,
   DEFAULT_CONFIG,
 } from "../config.js";
+import type { FooterConfig } from "../config.js";
 import { readGitStatus } from "../git.js";
 import extension from "../index.js";
 import { FOOTER_READY_EVENT, FOOTER_WIDGET_EVENT } from "../protocol.js";
@@ -25,10 +26,55 @@ type FooterFactory = Exclude<
 type FooterComponent = ReturnType<FooterFactory>;
 
 describe("footer host", () => {
+  it("does not initialize footer state outside TUI mode", async () => {
+    const load = vi.fn<() => Promise<{ config: FooterConfig }>>(async () => ({
+      config: cloneFooterConfig(DEFAULT_CONFIG),
+    }));
+    vi.mocked(createFooterConfigStore).mockReturnValue({
+      load,
+      path: "/tmp/footer.json",
+      save: async () => {
+        await Promise.resolve();
+      },
+    });
+    const host = createExtensionHost(extension);
+    const context = host.createContext({ mode: "json" });
+
+    await host.emitSessionStart(context);
+
+    expect(load).not.toHaveBeenCalled();
+    expect(context.ui.setFooter).not.toHaveBeenCalled();
+    expect(readGitStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not collect Git status when both Git widgets are hidden", async () => {
+    const config = cloneFooterConfig(DEFAULT_CONFIG);
+    for (const row of config.rows) {
+      row.left = row.left.filter((id) => id !== "footer.git");
+    }
+    config.widgets["footer.git"] = { enabled: false };
+    config.widgets["footer.git.details"] = { enabled: false };
+    vi.mocked(createFooterConfigStore).mockReturnValue({
+      load: async () => ({ config }),
+      path: "/tmp/footer.json",
+      save: async () => {},
+    });
+    vi.mocked(readGitStatus).mockClear();
+    const host = createExtensionHost(extension);
+    const context = host.createContext();
+
+    await host.emitSessionStart(context);
+    await host.emitTurnEnd(undefined, context);
+
+    expect(readGitStatus).not.toHaveBeenCalled();
+  });
+
   it("renders live native/rich state and refreshes totals post-persistence", async () => {
+    const config = cloneFooterConfig(DEFAULT_CONFIG);
+    config.rows[1]?.right.push("footer.session");
     vi.mocked(createFooterConfigStore).mockReturnValue({
       load: async () => ({
-        config: cloneFooterConfig(DEFAULT_CONFIG),
+        config,
       }),
       path: "/tmp/footer.json",
       save: async () => {
@@ -144,7 +190,7 @@ describe("footer host", () => {
       { type: "session_info_changed" },
       context
     );
-    expect(getEntries).toHaveBeenCalledTimes(6);
+    expect(getEntries).toHaveBeenCalledTimes(5);
 
     await host.emit(
       "model_select",

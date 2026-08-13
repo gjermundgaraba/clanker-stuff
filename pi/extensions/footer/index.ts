@@ -23,9 +23,6 @@ export default function footerExtension(pi: ExtensionAPI): void {
   pi.on("turn_end", (_event, ctx) => {
     host.turnEnd(ctx);
   });
-  pi.on("agent_settled", (_event, ctx) => {
-    host.refreshTotals(ctx);
-  });
   pi.on("session_tree", (_event, ctx) => {
     host.refreshTotals(ctx);
   });

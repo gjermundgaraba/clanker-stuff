@@ -153,7 +153,7 @@ export const sanitizeNativeStatus = (value: string): string => {
 
 const renderSpan = (span: FooterSpan, theme: FooterTheme): string => {
   const tone: FooterTone = span.tone ?? "text";
-  const text = theme.fg(tone, span.text);
+  const text = theme.fg(tone, sanitizePlainText(span.text));
   return span.bold === true ? theme.bold(text) : text;
 };
 
@@ -195,7 +195,9 @@ const renderLiveWidget = (
 
   const widgetIcon =
     widget.snapshot.icon === false ? undefined : widget.snapshot.icon;
-  const icon = widgetIcon ? iconGlyph(widgetIcon, family) : "";
+  const icon = widgetIcon
+    ? sanitizePlainText(iconGlyph(widgetIcon, family))
+    : "";
   const renderedIcon =
     icon.length === 0 ? "" : `${theme.fg(widgetIcon?.tone ?? "dim", icon)} `;
   const health =

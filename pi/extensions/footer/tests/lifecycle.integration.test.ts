@@ -75,9 +75,13 @@ describe("footer AgentSession lifecycle", () => {
 
     harness = await createAgentSessionHarness({
       extensionFactories: [footerExtension, producer],
+      mode: "tui",
       uiContext: {
         notify: () => {
           // Keeps the real reload lifecycle bound without installing a TUI.
+        },
+        setFooter: () => {
+          // The ready-event probe does not need to render the footer.
         },
       } as unknown as ExtensionUIContext,
     });
@@ -127,9 +131,9 @@ describe("footer AgentSession lifecycle", () => {
 
     await harness.prompt("count this completed turn");
 
-    const assistant = [...harness.messages()]
-      .toReversed()
-      .find((message) => message.role === "assistant");
+    const assistant = harness
+      .messages()
+      .findLast((message) => message.role === "assistant");
     if (assistant?.role !== "assistant") {
       throw new Error("expected assistant message");
     }

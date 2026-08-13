@@ -77,13 +77,22 @@ const sessionCanRender = (config: FooterConfig): boolean =>
     )
   );
 
+const gitCanRender = (config: FooterConfig): boolean =>
+  config.enabled &&
+  ["footer.git", "footer.git.details"].some(
+    (id) =>
+      config.widgets[id]?.enabled !== false &&
+      config.rows.some((row) =>
+        [row.left, row.center, row.right].some((group) => group.includes(id))
+      )
+  );
+
 export const createFooterHost = (pi: ExtensionAPI) => {
   const configStore = createFooterConfigStore();
   let runtime: HostRuntime | undefined;
   let branchUnsubscribe: (() => void) | undefined;
   let protocolUnsubscribe: (() => void) | undefined;
   let sessionTimer: ReturnType<typeof setInterval> | undefined;
-  let intentionalFooterDisposal = false;
 
   const addCollectorError = (active: HostRuntime, value: unknown): void => {
     const message = summary(
@@ -136,6 +145,9 @@ export const createFooterHost = (pi: ExtensionAPI) => {
   };
 
   const refreshSessionTotals = (active: HostRuntime): void => {
+    if (!sessionCanRender(active.config)) {
+      return;
+    }
     try {
       active.session = collectSessionTotals(active.context);
     } catch (error) {
@@ -146,6 +158,9 @@ export const createFooterHost = (pi: ExtensionAPI) => {
 
   const refreshGit = (active: HostRuntime): void => {
     const generation = ++active.gitGeneration;
+    if (!gitCanRender(active.config)) {
+      return;
+    }
     const { cwd } = active.context;
     void readGitStatus(pi, cwd)
       .then((status) => {
@@ -185,7 +200,6 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     if (active.lifecycle === "replaced" || active.lifecycle === "stopped") {
       return;
     }
-    intentionalFooterDisposal = true;
     active.lifecycle = "active";
     active.context.ui.setFooter((tui, theme, footerData) => {
       disposeBranchSubscription();
@@ -196,17 +210,11 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       branchUnsubscribe = footerData.onBranchChange(() => {
         refreshGit(active);
       });
-      intentionalFooterDisposal = false;
-
       return {
         dispose() {
           disposeBranchSubscription();
           active.requestRender = undefined;
-          if (
-            runtime === active &&
-            active.lifecycle === "active" &&
-            !intentionalFooterDisposal
-          ) {
+          if (runtime === active && active.lifecycle === "active") {
             active.lifecycle = "replaced";
             active.context.ui.notify(
               "Footer was replaced by another extension; run /footer doctor",
@@ -240,7 +248,6 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         },
       };
     });
-    intentionalFooterDisposal = false;
     syncTimer(active);
   };
 
@@ -248,17 +255,23 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     if (active.lifecycle !== "active") {
       return;
     }
-    intentionalFooterDisposal = true;
     active.lifecycle = "disabled";
     disposeBranchSubscription();
     active.context.ui.setFooter(undefined);
     active.requestRender = undefined;
-    intentionalFooterDisposal = false;
     syncTimer(active);
   };
 
   const applyConfig = (active: HostRuntime, config: FooterConfig): void => {
+    const gitWasRenderable = gitCanRender(active.config);
+    const sessionWasRenderable = sessionCanRender(active.config);
     active.config = cloneFooterConfig(config);
+    if (gitWasRenderable !== gitCanRender(active.config)) {
+      refreshGit(active);
+    }
+    if (!sessionWasRenderable && sessionCanRender(active.config)) {
+      refreshSessionTotals(active);
+    }
     if (active.lifecycle === "replaced" || active.lifecycle === "stopped") {
       return;
     }
@@ -320,9 +333,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     stopTimer();
     disposeBranchSubscription();
     if (ownedFooter) {
-      intentionalFooterDisposal = true;
       active.context.ui.setFooter(undefined);
-      intentionalFooterDisposal = false;
     }
     active.requestRender = undefined;
     active.footerData = undefined;
@@ -371,8 +382,6 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       handleWidgetMessage
     );
   };
-
-  listenForProtocolMessages();
 
   const updateContext = (ctx: ExtensionContext): HostRuntime | undefined => {
     if (runtime) {
@@ -460,8 +469,11 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       protocolUnsubscribe = undefined;
     },
     start: async (ctx: ExtensionContext): Promise<void> => {
-      listenForProtocolMessages();
       stopRuntime();
+      if (ctx.mode !== "tui") {
+        return;
+      }
+      listenForProtocolMessages();
       const loaded = await configStore.load();
       const active: HostRuntime = {
         builtins: new Map(),
@@ -488,14 +500,16 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       if (loaded.error !== undefined && loaded.error.length > 0) {
         ctx.ui.notify(`${loaded.error}; using Default in memory`, "warning");
       }
-      try {
-        active.session = collectSessionTotals(ctx);
-      } catch (error) {
-        addCollectorError(active, error);
+      if (sessionCanRender(active.config)) {
+        try {
+          active.session = collectSessionTotals(ctx);
+        } catch (error) {
+          addCollectorError(active, error);
+        }
       }
       rebuildBuiltins(active);
 
-      if (ctx.mode === "tui" && active.config.enabled) {
+      if (active.config.enabled) {
         installFooter(active);
       } else {
         active.lifecycle = "disabled";
@@ -505,10 +519,8 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         protocol: FOOTER_PROTOCOL_VERSION,
         type: "ready",
       });
-      if (ctx.mode === "tui") {
-        refreshGit(active);
-        syncTimer(active);
-      }
+      refreshGit(active);
+      syncTimer(active);
     },
     turnEnd: (ctx: ExtensionContext): void => {
       const active = updateContext(ctx);
