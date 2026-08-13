@@ -57,9 +57,9 @@ export default function (pi: ExtensionAPI) {
     const activeHarness = harness;
     activeHarness.setResponses([
       (context) => {
-        const lastUserMessage = [...context.messages]
-          .toReversed()
-          .find((message) => message.role === "user");
+        const lastUserMessage = context.messages.findLast(
+          (message) => message.role === "user"
+        );
 
         return fauxAssistantMessage(
           typeof lastUserMessage?.content === "string"

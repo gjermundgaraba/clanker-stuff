@@ -264,6 +264,7 @@ export const createExtensionHost = (
       } as unknown as ExtensionContext["modelRegistry"],
       sessionManager: {
         getBranch,
+        getEntries: () => [...entries],
         getLeafId: () => leafId,
         getSessionFile: vi.fn<() => string | undefined>(),
         getSessionId: () => "test-session",

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import { patchEnv } from "../helpers/env.js";
@@ -16,7 +16,6 @@ export interface ExtensionSmokeHarnessOptions {
   uiContext?: ExtensionUIContext;
   models?: FauxModelDefinition[];
   withConfiguredAuth?: boolean;
-  configFiles?: Record<string, string>;
 }
 
 type ProviderMessageContent =
@@ -52,9 +51,9 @@ const extractTextContent = (content: ProviderMessageContent): string => {
 const lastUserTextFromPayload = (payload: unknown): string => {
   const messages = (payload as ProviderPayloadWithMessages | undefined)
     ?.messages;
-  const content = [...(messages ?? [])]
-    .toReversed()
-    .find((message) => message.role === "user")?.content;
+  const content = (messages ?? []).findLast(
+    (message) => message.role === "user"
+  )?.content;
 
   return extractTextContent(content);
 };
@@ -111,14 +110,6 @@ export const createExtensionSmokeHarness = async (
         );
       })
     );
-
-    if (options.configFiles) {
-      const configDir = path.join(homeDir, ".pi", "agent", "extensions");
-      mkdirSync(configDir, { recursive: true });
-      for (const [fileName, content] of Object.entries(options.configFiles)) {
-        writeFileSync(path.join(configDir, fileName), content, "utf-8");
-      }
-    }
 
     harness = await createAgentSessionHarness({
       cwd: projectDir,

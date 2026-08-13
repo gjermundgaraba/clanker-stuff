@@ -30,9 +30,9 @@ describe("agent-session harness", () => {
 
     harness.setResponses([
       (context) => {
-        const lastUserMessage = [...context.messages]
-          .toReversed()
-          .find((message) => message.role === "user");
+        const lastUserMessage = context.messages.findLast(
+          (message) => message.role === "user"
+        );
         return fauxAssistantMessage(
           typeof lastUserMessage?.content === "string"
             ? `seen:${lastUserMessage.content}`
@@ -43,12 +43,12 @@ describe("agent-session harness", () => {
 
     await harness.prompt("hello world");
 
-    const assistant = [...harness.messages()]
-      .toReversed()
-      .find((message) => message.role === "assistant");
-    const user = [...harness.messages()]
-      .toReversed()
-      .find((message) => message.role === "user");
+    const assistant = harness
+      .messages()
+      .findLast((message) => message.role === "assistant");
+    const user = harness
+      .messages()
+      .findLast((message) => message.role === "user");
     expect(assistant?.role).toBe("assistant");
     expect(JSON.stringify(user)).toContain("[ext] hello world");
     expect(harness.getPendingResponseCount()).toBe(0);
@@ -105,9 +105,9 @@ describe("agent-session harness", () => {
     });
     harness.setResponses([
       (context) => {
-        const lastUserMessage = [...context.messages]
-          .toReversed()
-          .find((message) => message.role === "user");
+        const lastUserMessage = context.messages.findLast(
+          (message) => message.role === "user"
+        );
         return fauxAssistantMessage(
           typeof lastUserMessage?.content === "string"
             ? `seen:${lastUserMessage.content}`
@@ -118,9 +118,9 @@ describe("agent-session harness", () => {
 
     await harness.prompt("question");
 
-    const assistant = [...harness.messages()]
-      .toReversed()
-      .find((message) => message.role === "assistant");
+    const assistant = harness
+      .messages()
+      .findLast((message) => message.role === "assistant");
     expect(JSON.stringify(assistant)).toContain("seen:[wrapped] question");
   });
 
@@ -163,9 +163,9 @@ describe("agent-session harness", () => {
 
     await harness.prompt("question");
 
-    const assistant = [...harness.messages()]
-      .toReversed()
-      .find((message) => message.role === "assistant");
+    const assistant = harness
+      .messages()
+      .findLast((message) => message.role === "assistant");
     expect(JSON.stringify(assistant)).toContain("reply");
   });
 
