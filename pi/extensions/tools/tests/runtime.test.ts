@@ -58,6 +58,12 @@ describe("native harness routing", () => {
         "additionalProperties",
         false
       );
+      expect(tool.definition.parameters).not.toHaveProperty(
+        "properties.run_in_background"
+      );
+      expect(tool.definition.parameters).not.toHaveProperty(
+        "properties.is_background"
+      );
     }
   });
 

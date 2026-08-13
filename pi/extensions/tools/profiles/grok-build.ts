@@ -101,11 +101,9 @@ export const grokBuildProfile: HarnessProfile = {
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.grep(
           {
-            context: Math.max(
-              params["-A"] ?? 0,
-              params["-B"] ?? 0,
-              params["-C"] ?? 0
-            ),
+            afterContext: params["-A"],
+            beforeContext: params["-B"],
+            context: params["-C"],
             glob: params.glob,
             ignoreCase: params["-i"],
             limit: params.head_limit,
