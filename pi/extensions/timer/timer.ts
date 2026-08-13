@@ -28,7 +28,7 @@ export const createTimer = () => {
     if (startTime === undefined) {
       return;
     }
-    const elapsed = Date.now() - startTime;
+    const elapsed = performance.now() - startTime;
     const frame =
       intervalId === undefined
         ? STATIC_BREATHING_DOT_FRAME
@@ -45,10 +45,10 @@ export const createTimer = () => {
   return {
     dispose: clear,
     start(ctx: ExtensionContext) {
-      if (startTime !== undefined) {
+      if (ctx.mode !== "tui" || startTime !== undefined) {
         return;
       }
-      startTime = Date.now();
+      startTime = performance.now();
       intervalId = setInterval(() => {
         updateStatus(ctx);
       }, BREATHING_DOT_INTERVAL_MS);

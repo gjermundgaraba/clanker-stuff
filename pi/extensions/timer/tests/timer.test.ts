@@ -31,6 +31,19 @@ describe("timer", () => {
     expect(host.getStatus("timer")).toBe("· 1.3s");
   });
 
+  it("does no status work outside TUI mode", () => {
+    const { ctx, timer } = setup();
+    const printContext = {
+      ...ctx,
+      mode: "json" as const,
+    };
+
+    timer.start(printContext);
+    vi.advanceTimersByTime(TIMER_INTERVAL_MS * 10);
+
+    expect(ctx.ui.setStatus).not.toHaveBeenCalled();
+  });
+
   it("stops updating and shows final elapsed on agent_settled", () => {
     const { host, ctx, timer } = setup();
     timer.start(ctx);

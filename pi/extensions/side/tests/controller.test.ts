@@ -1,4 +1,3 @@
-import { BREATHING_DOT_INTERVAL_MS } from "@clanker-stuff/pi-motion";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -207,24 +206,19 @@ describe("side controller", () => {
     expect(host.getStatus("side")).toBeUndefined();
   });
 
-  it("animates activity in the panel and hidden status", async () => {
+  it("shows static activity in the panel and hidden status", async () => {
     const { ctx, host, overlay } = await openRunningSide();
     const panel = overlay.component as {
       handleInput: (data: string) => void;
       render: (width: number) => string[];
     };
-    expect(panel.render(80).join("\n")).toContain("Side · working");
+    expect(panel.render(80).join("\n")).toContain("Side ● working");
 
     panel.handleInput("\u001B");
-    vi.advanceTimersByTime(BREATHING_DOT_INTERVAL_MS);
-    expect(host.getStatus("side")).toBe("SIDE • working");
-    expect(panel.render(80).join("\n")).toContain("Side • working");
+    expect(host.getStatus("side")).toBe("SIDE ● working");
+    expect(panel.render(80).join("\n")).toContain("Side ● working");
 
     await host.emitSessionShutdown(ctx);
-    const callsAfterShutdown = vi.mocked(ctx.ui.setStatus).mock.calls.length;
-    vi.advanceTimersByTime(500);
-    expect(vi.mocked(ctx.ui.setStatus)).toHaveBeenCalledTimes(
-      callsAfterShutdown
-    );
+    expect(host.getStatus("side")).toBeUndefined();
   });
 });
