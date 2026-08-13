@@ -39,24 +39,6 @@ export interface FreeTextQuestion {
 
 export type Question = OptionQuestion | FreeTextQuestion;
 
-export type CompletedQuestionState =
-  | {
-      type: "single_select";
-      question: SingleSelectQuestion;
-      state: QuestionState & { selectedIndex: number };
-    }
-  | {
-      type: "multi_select";
-      question: MultiSelectQuestion;
-      state: QuestionState;
-      selectedIndexes: number[];
-    }
-  | {
-      type: "free_text";
-      question: FreeTextQuestion;
-      state: QuestionState & { freeText: string };
-    };
-
 export type AnswerEntry =
   | {
       type: "single_select";
@@ -162,124 +144,61 @@ export const createQuestionSessions = (
     },
   }));
 
-const hasCompletedFreeTextState = (
-  state: QuestionState
-): state is QuestionState & { freeText: string } =>
-  typeof state.freeText === "string" && state.freeText.length > 0;
-
-const hasSelectedIndexState = (
-  state: QuestionState
-): state is QuestionState & { selectedIndex: number } =>
-  typeof state.selectedIndex === "number";
-
-const getCompletedQuestionState = (
+export const buildAnswerEntry = (
   question: Question,
   state: QuestionState
-): CompletedQuestionState | undefined => {
+): AnswerEntry | undefined => {
   if (question.type === "free_text") {
-    if (!hasCompletedFreeTextState(state)) {
-      return undefined;
-    }
-
-    return { question, state, type: "free_text" };
-  }
-
-  if (question.type === "single_select") {
-    if (!hasSelectedIndexState(state)) {
-      return undefined;
-    }
-
-    if (!isOtherOption(question.options[state.selectedIndex])) {
-      return { question, state, type: "single_select" };
-    }
-
-    const text = state.textByOptionIndex[state.selectedIndex];
-    return typeof text === "string" && text.length > 0
-      ? { question, state, type: "single_select" }
+    return typeof state.freeText === "string" && state.freeText.length > 0
+      ? {
+          answer: { text: state.freeText },
+          type: "free_text",
+        }
       : undefined;
   }
 
   const selectedIndexes = getSelectedOptionIndexes(question, state);
-  if (selectedIndexes.length === 0) {
+  if (
+    selectedIndexes.length === 0 ||
+    selectedIndexes.some((index) => {
+      const text = state.textByOptionIndex[index];
+      return (
+        isOtherOption(question.options[index]) &&
+        (text === undefined || text.length === 0)
+      );
+    })
+  ) {
     return undefined;
   }
-
-  const allSelectedOptionsComplete = selectedIndexes.every((selectedIndex) => {
-    if (!isOtherOption(question.options[selectedIndex])) {
-      return true;
-    }
-
-    const text = state.textByOptionIndex[selectedIndex];
-    return typeof text === "string" && text.length > 0;
+  const answers = selectedIndexes.map((index) => {
+    const option = question.options[index];
+    const note = state.textByOptionIndex[index];
+    return note !== undefined && note.length > 0
+      ? {
+          label: option.label,
+          note,
+        }
+      : {
+          label: option.label,
+        };
   });
+  if (question.type === "single_select") {
+    return {
+      answer: answers[0],
+      type: "single_select",
+    };
+  }
 
-  return allSelectedOptionsComplete
-    ? { question, selectedIndexes, state, type: "multi_select" }
-    : undefined;
+  return {
+    answer: answers,
+    type: "multi_select",
+  };
 };
 
 export const isQuestionComplete = (
   question: Question,
   state: QuestionState
-): boolean => getCompletedQuestionState(question, state) !== undefined;
-
-export const buildAnswerEntry = (
-  question: Question,
-  state: QuestionState
-): AnswerEntry | undefined => {
-  const completed = getCompletedQuestionState(question, state);
-  if (!completed) {
-    return undefined;
-  }
-
-  if (completed.type === "single_select") {
-    const { question: completedQuestion, state: completedState } = completed;
-    const option = completedQuestion.options[completedState.selectedIndex];
-    const note = completedState.textByOptionIndex[completedState.selectedIndex];
-
-    return {
-      answer:
-        typeof note === "string" && note !== ""
-          ? {
-              label: option.label,
-              note,
-            }
-          : {
-              label: option.label,
-            },
-      type: "single_select",
-    };
-  }
-
-  if (completed.type === "multi_select") {
-    const {
-      question: completedQuestion,
-      state: completedState,
-      selectedIndexes,
-    } = completed;
-    return {
-      answer: selectedIndexes.map((index) => {
-        const option = completedQuestion.options[index];
-        const note = completedState.textByOptionIndex[index];
-
-        return typeof note === "string" && note !== ""
-          ? {
-              label: option.label,
-              note,
-            }
-          : {
-              label: option.label,
-            };
-      }),
-      type: "multi_select",
-    };
-  }
-
-  return {
-    answer: { text: completed.state.freeText },
-    type: "free_text",
-  };
-};
+): boolean => buildAnswerEntry(question, state) !== undefined;
 
 export const answerEntryToText = (entry: AnswerEntry): string => {
   if (entry.type === "free_text") {
@@ -288,7 +207,7 @@ export const answerEntryToText = (entry: AnswerEntry): string => {
 
   if (entry.type === "single_select") {
     const noteText =
-      typeof entry.answer.note === "string" && entry.answer.note !== ""
+      entry.answer.note !== undefined && entry.answer.note !== ""
         ? ` (note: ${entry.answer.note})`
         : "";
     return `${entry.answer.label}${noteText}`;
@@ -297,7 +216,7 @@ export const answerEntryToText = (entry: AnswerEntry): string => {
   return entry.answer
     .map((selection) => {
       const noteText =
-        typeof selection.note === "string" && selection.note !== ""
+        selection.note !== undefined && selection.note !== ""
           ? ` (note: ${selection.note})`
           : "";
       return `${selection.label}${noteText}`;

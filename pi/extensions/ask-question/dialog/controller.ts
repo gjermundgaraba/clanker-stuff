@@ -19,6 +19,26 @@ import type { DecodedIntent } from "./input.js";
 import { renderPrompt } from "./render.js";
 import type { EditMode, PromptView } from "./render.js";
 
+export const MAX_ANSWER_BYTES = 1000;
+export const MAX_ANSWER_LINES = 50;
+
+export const boundAnswerText = (value: string): string => {
+  let bytes = 0;
+  let lines = 1;
+  let result = "";
+  for (const char of value) {
+    const charBytes = Buffer.byteLength(char);
+    const nextLines = lines + (char === "\n" ? 1 : 0);
+    if (bytes + charBytes > MAX_ANSWER_BYTES || nextLines > MAX_ANSWER_LINES) {
+      break;
+    }
+    result += char;
+    bytes += charBytes;
+    lines = nextLines;
+  }
+  return result;
+};
+
 const createInlineEditor = (tui: TUI, theme: Pick<Theme, "fg">): Editor =>
   new Editor(tui, {
     borderColor: (text: string) => theme.fg("accent", text),
@@ -124,16 +144,17 @@ export const runAskQuestionPrompt = async (
           return;
         }
 
+        const bounded = boundAnswerText(value);
         const { state } = questionSessions[editMode.questionIndex];
 
         if (editMode.kind === "option_text") {
           state.textByOptionIndex[editMode.optionIndex] =
-            value.length === 0 ? undefined : value;
+            bounded.length === 0 ? undefined : bounded;
           closeEditor();
           return;
         }
 
-        state.freeText = value;
+        state.freeText = bounded;
         closeEditor();
       };
 
@@ -145,7 +166,7 @@ export const runAskQuestionPrompt = async (
         hint = "";
         activeEditor = createInlineEditor(tui, theme);
         activeEditor.focused = surfaceFocused;
-        activeEditor.setText(initialText);
+        activeEditor.setText(boundAnswerText(initialText));
         activeEditor.onSubmit = handleEditorSave;
         tui.requestRender();
       };
@@ -216,7 +237,16 @@ export const runAskQuestionPrompt = async (
         if (hint !== "") {
           hint = "";
         }
-        activeEditor.handleInput(data);
+        const editor = activeEditor;
+        editor.handleInput(data);
+        if (activeEditor !== editor) {
+          return;
+        }
+        const value = editor.getText();
+        const bounded = boundAnswerText(value);
+        if (bounded !== value) {
+          hint = `Answer limited to ${MAX_ANSWER_BYTES} bytes and ${MAX_ANSWER_LINES} lines`;
+        }
         tui.requestRender();
       };
 

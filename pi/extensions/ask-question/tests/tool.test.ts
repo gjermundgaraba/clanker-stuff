@@ -5,6 +5,7 @@ import { createCustomUiDriver } from "../../../tests/harness/tui.js";
 import askQuestion from "../index.js";
 import {
   AskQuestionParametersSchema,
+  buildSuccessToolResult,
   buildSummaryContent,
   parseQuestionsFromParameters,
 } from "../tool.js";
@@ -196,6 +197,60 @@ describe("ask-question contract", () => {
     ]);
   });
 
+  it("rejects blank display strings and strips terminal controls", () => {
+    expect(() =>
+      parseQuestionsFromParameters({
+        questions: [
+          {
+            header: "\u001B]52;c;secret\u0007",
+            question: "   ",
+            type: "free_text",
+          },
+        ],
+      })
+    ).toThrow("Question headers and prompts must not be blank");
+
+    expect(
+      parseQuestionsFromParameters({
+        questions: [
+          {
+            header: "Pl\u001B]52;c;secret\u0007an",
+            question: "Which\u009B plan?",
+            type: "free_text",
+          },
+        ],
+      })
+    ).toMatchObject([
+      {
+        header: "Pl]52;c;secretan",
+        question: "Which plan?",
+      },
+    ]);
+
+    const [sanitized] = parseQuestionsFromParameters({
+      questions: [
+        {
+          header: "Pl\ran",
+          options: [{ details: "Why\tthis", label: "Ye\ts" }],
+          placeholder: "Pick\r\tone",
+          question: "Line one\nLine\rtwo\t?",
+          type: "single_select",
+        },
+      ],
+    });
+    expect(sanitized).toMatchObject({
+      header: "Plan",
+      placeholder: "Pickone",
+      question: "Line one\nLinetwo?",
+    });
+    const firstOption =
+      sanitized?.type === "single_select" ? sanitized.options[0] : undefined;
+    expect(firstOption).toMatchObject({
+      details: "Whythis",
+      label: "Yes",
+    });
+  });
+
   it("builds summaries from aligned answers", () => {
     const questions = parseQuestionsFromParameters({
       questions: [
@@ -230,6 +285,34 @@ describe("ask-question contract", () => {
         "- [Plan] Which plan do you want? -> Alpha",
         "- [Notes] Anything else to add? -> Need examples",
       ].join("\n")
+    );
+  });
+
+  it("bounds final tool text to pi's output contract", () => {
+    const question = parseQuestionsFromParameters({
+      questions: [
+        {
+          header: "Notes",
+          question: "Anything else?",
+          type: "free_text",
+        },
+      ],
+    });
+    const result = buildSuccessToolResult(question, {
+      answers: [
+        {
+          answer: { text: "line\n".repeat(3000) },
+          type: "free_text",
+        },
+      ],
+      cancelled: false,
+    });
+
+    expect(
+      Buffer.byteLength(result.content[0]?.text ?? "")
+    ).toBeLessThanOrEqual(50_000);
+    expect(result.content[0]?.text.split("\n").length).toBeLessThanOrEqual(
+      2000
     );
   });
 });

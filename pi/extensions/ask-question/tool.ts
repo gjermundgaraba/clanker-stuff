@@ -3,6 +3,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -20,6 +21,10 @@ export const MAX_QUESTIONS = 5;
 const MIN_OPTIONS = 1;
 const MAX_OPTIONS = 5;
 const MAX_PLACEHOLDER = 120;
+const MAX_HEADER = 64;
+const MAX_QUESTION = 1000;
+const MAX_OPTION_LABEL = 256;
+const MAX_OPTION_DETAILS = 2000;
 
 const QUESTION_TYPE_DESCRIPTION =
   "Question type. Prefer single_select or multi_select; use free_text only when multiple options doesn't make sense.";
@@ -30,11 +35,13 @@ const AskQuestionOptionSchema = Type.Object(
       Type.String({
         description:
           "Optional rationale shown on demand. Explain suggested defaults here.",
+        maxLength: MAX_OPTION_DETAILS,
       })
     ),
     label: Type.String({
       description:
         "User-visible option label. Add '(Suggested)' for likely defaults.",
+      maxLength: MAX_OPTION_LABEL,
       minLength: 1,
     }),
   },
@@ -44,6 +51,7 @@ const AskQuestionOptionSchema = Type.Object(
 const AskQuestionBaseQuestionProperties = {
   header: Type.String({
     description: "Short tab header",
+    maxLength: MAX_HEADER,
     minLength: 1,
   }),
   placeholder: Type.Optional(
@@ -54,6 +62,7 @@ const AskQuestionBaseQuestionProperties = {
   ),
   question: Type.String({
     description: "Full question prompt",
+    maxLength: MAX_QUESTION,
     minLength: 1,
   }),
 };
@@ -102,6 +111,12 @@ export interface AskQuestionCancelledDetails {
 const EXPLICIT_OTHER_OPTION_ERROR =
   "Do not include an 'Other' option; the UI provides it automatically";
 
+const DISPLAY_CONTROL_PATTERN =
+  // oxlint-disable-next-line eslint/no-control-regex -- terminal controls are the intended match.
+  /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/gu;
+const sanitizeDisplayText = (value: string): string =>
+  value.replaceAll(DISPLAY_CONTROL_PATTERN, "");
+
 export const parseQuestionsFromParameters = (params: unknown): Question[] => {
   if (!Value.Check(AskQuestionParametersSchema, params)) {
     throw new Error("Invalid ask_question input");
@@ -110,7 +125,15 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
   const questions: Question[] = [];
 
   for (const questionValue of params.questions) {
-    const { header, placeholder, question } = questionValue;
+    const header = sanitizeDisplayText(questionValue.header).trim();
+    const question = sanitizeDisplayText(questionValue.question).trim();
+    const placeholder =
+      questionValue.placeholder === undefined
+        ? undefined
+        : sanitizeDisplayText(questionValue.placeholder);
+    if (header === "" || question === "") {
+      throw new Error("Question headers and prompts must not be blank");
+    }
 
     if (questionValue.type === "free_text") {
       if (questionValue.options !== undefined) {
@@ -131,8 +154,11 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
     const seenOptionLabels = new Set<string>();
     const options: QuestionOption[] = questionValue.options.map(
       (optionValue) => {
-        const { details } = optionValue;
-        const label = optionValue.label.trim();
+        const details =
+          optionValue.details === undefined
+            ? undefined
+            : sanitizeDisplayText(optionValue.details);
+        const label = sanitizeDisplayText(optionValue.label).trim();
         const normalizedLabel = label.toLowerCase();
         if (label === "") {
           throw new Error("Option labels must not be blank");
@@ -229,7 +255,8 @@ export const buildSuccessToolResult = (
   return {
     content: [
       {
-        text: buildSummaryContent(questions, flow.answers),
+        text: truncateHead(buildSummaryContent(questions, flow.answers))
+          .content,
         type: "text",
       },
     ],

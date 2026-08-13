@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { Editor } from "@earendil-works/pi-tui";
+import { describe, expect, it, vi } from "vitest";
 
 import { createKeybindings } from "../../../../tests/harness/tui.js";
+import {
+  MAX_ANSWER_BYTES,
+  MAX_ANSWER_LINES,
+  boundAnswerText,
+} from "../../dialog/controller.js";
 import {
   KEY_ENTER,
   KEY_SPACE,
@@ -46,6 +52,48 @@ const allQuestionTypesParams = {
 };
 
 describe("ask-question dialog controller", () => {
+  it("bounds answers by UTF-8 bytes and lines", () => {
+    const bytes = boundAnswerText("🦄".repeat(MAX_ANSWER_BYTES));
+    const lines = boundAnswerText(
+      Array.from({ length: MAX_ANSWER_LINES + 5 }, () => "x").join("\n")
+    );
+
+    expect(Buffer.byteLength(bytes)).toBe(MAX_ANSWER_BYTES);
+    expect(lines.split("\n")).toHaveLength(MAX_ANSWER_LINES);
+  });
+
+  it("keeps the editor caret stable while bounding the saved answer", async () => {
+    const setText = vi.spyOn(Editor.prototype, "setText");
+    const { result } = await executeTool(
+      {
+        questions: [
+          {
+            header: "Notes",
+            question: "Anything else to add?",
+            type: "free_text" as const,
+          },
+        ],
+      },
+      {
+        customKeys: [
+          KEY_ENTER,
+          "a".repeat(MAX_ANSWER_BYTES),
+          "\u0002",
+          "b",
+          KEY_ENTER,
+          KEY_TAB,
+          KEY_ENTER,
+        ],
+      }
+    );
+
+    const details = expectSuccessResult(result);
+    expect(setText).toHaveBeenCalledOnce();
+    expect(details.answers[0]).toMatchObject({
+      answer: { text: `${"a".repeat(MAX_ANSWER_BYTES - 1)}b` },
+    });
+  });
+
   it("supports all question types in one flow", async () => {
     const { result } = await executeTool(allQuestionTypesParams, {
       customKeys: [

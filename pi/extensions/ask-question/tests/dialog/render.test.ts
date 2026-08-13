@@ -1,4 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -203,5 +204,34 @@ describe("ask-question dialog rendering", () => {
     expect(rendered.slice(1, rendered.indexOf("")).join(" ")).toContain(
       "Submit"
     );
+  });
+
+  it("bounds lines when a prefix is wider than the viewport", () => {
+    const question: Question = {
+      header: "Notes",
+      question: "Anything else?",
+      type: "free_text",
+    };
+    const sessions = createQuestionSessions([question]);
+    const [session] = sessions;
+    if (!session) {
+      throw new Error("expected question session");
+    }
+    session.state.freeText = "answer";
+
+    const rendered = renderPrompt(
+      {
+        currentTab: 0,
+        editMode: { kind: "none" },
+        helpText: createHelpText(createKeybindings()),
+        hint: "",
+        sessions,
+        theme: createIdentityTheme(),
+      },
+      8
+    );
+
+    expect(rendered.every((line) => visibleWidth(line) <= 8)).toBeTruthy();
+    expect(rendered.join("\n")).toContain("answer");
   });
 });

@@ -73,8 +73,15 @@ const wrapWithPrefix = (
     return [truncateLine(prefix.trimEnd(), width)];
   }
 
-  const indent = " ".repeat(Math.max(0, visibleWidth(prefix)));
-  const available = Math.max(1, width - visibleWidth(prefix));
+  const prefixWidth = visibleWidth(prefix);
+  if (prefixWidth >= width) {
+    return [
+      truncateLine(prefix.trimEnd(), width),
+      ...wrapTextWithAnsi(text, width).map((line) => truncateLine(line, width)),
+    ];
+  }
+  const indent = " ".repeat(prefixWidth);
+  const available = width - prefixWidth;
   return wrapTextWithAnsi(text, available).map((line, index) =>
     truncateLine(`${index === 0 ? prefix : indent}${line}`, width)
   );
