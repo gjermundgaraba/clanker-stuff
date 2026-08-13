@@ -439,10 +439,12 @@ const createFixture = (cwd: string) => {
 const evaluate = (cwd: string): Evaluation => {
   const protectedFilesIntact = PROTECTED_FILES.every(
     (relativePath) =>
+      existsSync(path.join(cwd, relativePath)) &&
       readFileSync(path.join(cwd, relativePath), "utf-8") ===
-      FIXTURE_FILES[relativePath]
+        FIXTURE_FILES[relativePath]
   );
   const hiddenPath = path.join(cwd, "test/eval-hidden.test.js");
+  mkdirSync(path.dirname(hiddenPath), { recursive: true });
   writeFileSync(hiddenPath, HIDDEN_TEST);
   const result = command(process.execPath, ["--test"], cwd, 60_000);
   rmSync(hiddenPath, { force: true });
@@ -738,10 +740,17 @@ const runNativeVariant = async (
   if (timedOut) {
     errorMessage = `Timed out after ${timeoutMs} ms`;
   } else if (exitCode !== 0 && errorMessage === undefined) {
-    errorMessage =
-      events.findLast((event) => event.type === "error")?.message ??
-      stderr.trim() ??
-      `codex exec exited with code ${exitCode ?? "unknown"}`;
+    const eventMessage = events.findLast(
+      (event) => event.type === "error"
+    )?.message;
+    const stderrMessage = stderr.trim();
+    if (eventMessage !== undefined && eventMessage.length > 0) {
+      errorMessage = eventMessage;
+    } else if (stderrMessage.length > 0) {
+      errorMessage = stderrMessage;
+    } else {
+      errorMessage = `codex exec exited with code ${exitCode ?? "unknown"}`;
+    }
   }
 
   const evaluation = evaluate(cwd);

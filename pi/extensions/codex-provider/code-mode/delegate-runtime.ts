@@ -89,7 +89,20 @@ export class CodeModeDelegateRuntime {
     }
     const controller = new AbortController();
     this.controllers.set(message.id, controller);
-    void this.invoke(message, controller);
+    const run = async () => {
+      try {
+        await this.invoke(message, controller);
+      } catch (error) {
+        if (!this.controllers.delete(message.id)) {
+          return;
+        }
+        this.respond(message.id, {
+          message: error instanceof Error ? error.message : String(error),
+          status: "error",
+        });
+      }
+    };
+    void run();
   }
 
   attach(response: RuntimeResponse): RuntimeResponse {

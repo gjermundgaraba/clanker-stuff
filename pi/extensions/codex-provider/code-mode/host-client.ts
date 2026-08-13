@@ -25,6 +25,7 @@ import type {
 const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 const MAX_QUEUED_WRITE_BYTES = 128 * 1024 * 1024;
 const DEFAULT_SHUTDOWN_GRACE_MS = 250;
+const STARTUP_TIMEOUT_MS = 10_000;
 
 interface Pending {
   context?: ToolExecutionContext;
@@ -52,17 +53,34 @@ export class CodeModeHostClient {
     this.binary = binary;
   }
 
-  async start(): Promise<void> {
-    if (this.ready) {
-      await this.ready;
-      return;
+  async start(signal?: AbortSignal): Promise<void> {
+    if (!this.ready) {
+      const timeoutAbort = new AbortController();
+      const timeoutError = new Error("Code-mode host did not start in time");
+      this.ready = Promise.race([
+        this.startProcess(),
+        delay(STARTUP_TIMEOUT_MS, undefined, {
+          ref: false,
+          signal: timeoutAbort.signal,
+        }).then(() => {
+          this.failAll(timeoutError);
+          throw timeoutError;
+        }),
+      ]).finally(() => {
+        timeoutAbort.abort();
+      });
     }
-    const ready = this.startProcess();
-    this.ready = ready;
+    const { ready } = this;
     try {
-      await ready;
+      await abortable(ready, signal);
     } catch (error) {
+      if (signal?.aborted === true) {
+        throw error;
+      }
       this.failAll(error instanceof Error ? error : new Error(String(error)));
+      if (this.ready === ready) {
+        this.ready = undefined;
+      }
       throw error;
     }
   }
@@ -74,7 +92,7 @@ export class CodeModeHostClient {
     tools: NestedTool[]
   ): Promise<RuntimeResponse> {
     throwIfAborted(signal);
-    await this.start();
+    await this.start(signal);
     throwIfAborted(signal);
     const { code, maxOutputTokens, yieldTimeMs } = parseExecSource(source);
     const id = ++this.requestId;
@@ -140,7 +158,7 @@ export class CodeModeHostClient {
     signal?: AbortSignal
   ): Promise<RuntimeResponse> {
     throwIfAborted(signal);
-    await this.start();
+    await this.start(signal);
     throwIfAborted(signal);
     this.delegateRuntime.updateCellContext(cellId, context);
     const id = ++this.requestId;
@@ -168,7 +186,7 @@ export class CodeModeHostClient {
     signal?: AbortSignal
   ): Promise<RuntimeResponse> {
     throwIfAborted(signal);
-    await this.start();
+    await this.start(signal);
     throwIfAborted(signal);
     this.delegateRuntime.updateCellContext(cellId, context);
     const id = ++this.requestId;
@@ -208,7 +226,6 @@ export class CodeModeHostClient {
     } catch {
       // Process teardown below is authoritative.
     }
-    child.kill();
     this.failAll(new Error("Code-mode host shut down"));
   }
 
@@ -466,5 +483,25 @@ const abortError = () => {
 const throwIfAborted = (signal?: AbortSignal) => {
   if (signal?.aborted === true) {
     throw abortError();
+  }
+};
+
+const abortable = async <T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined
+): Promise<T> => {
+  throwIfAborted(signal);
+  if (!signal) {
+    return await promise;
+  }
+  const aborted = Promise.withResolvers<T>();
+  const onAbort = () => {
+    aborted.reject(abortError());
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    return await Promise.race([promise, aborted.promise]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
   }
 };

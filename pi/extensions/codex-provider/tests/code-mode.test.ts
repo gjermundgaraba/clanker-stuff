@@ -1,11 +1,16 @@
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { Type } from "typebox";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
   createIdentityTheme,
   renderComponent,
 } from "../../../tests/harness/tui.js";
+import { CodeModeHostClient } from "../code-mode/host-client.js";
 import { parseExecSource } from "../code-mode/protocol.js";
 import {
   CodeModeRuntime,
@@ -16,6 +21,29 @@ import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 
 describe("Codex code mode", () => {
+  it.skipIf(process.platform === "win32")(
+    "aborts a host startup that never handshakes",
+    async () => {
+      const directory = await mkdtemp(path.join(tmpdir(), "code-mode-host-"));
+      onTestFinished(() => rm(directory, { force: true, recursive: true }));
+      const executable = path.join(directory, "host");
+      await writeFile(
+        executable,
+        "#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n",
+        "utf-8"
+      );
+      await chmod(executable, 0o755);
+      const client = new CodeModeHostClient(executable);
+      const controller = new AbortController();
+
+      const starting = client.start(controller.signal);
+      controller.abort();
+
+      await expect(starting).rejects.toMatchObject({ name: "AbortError" });
+      await client.shutdown();
+    }
+  );
+
   it("provides native-style runtime and nested tool instructions", () => {
     const runtime = new CodeModeRuntime();
     const definition = {

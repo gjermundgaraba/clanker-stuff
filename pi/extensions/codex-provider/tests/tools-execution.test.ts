@@ -3,11 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { afterEach, describe, expect, it } from "vitest";
+import * as codingAgent from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
+
+vi.mock(import("@earendil-works/pi-coding-agent"), { spy: true });
 
 const tempDirectories: string[] = [];
 
@@ -225,6 +228,21 @@ describe("profile execution", () => {
 
     expect(textContent(finished)).toContain("got:hello");
     expect(textContent(finished)).toContain("Process exited with code 0");
+  });
+
+  it("rejects shells that reserve stdin for command transport", async () => {
+    vi.spyOn(codingAgent, "getShellConfig").mockReturnValueOnce({
+      args: ["-s"],
+      commandTransport: "stdin",
+      shell: process.execPath,
+    });
+    const model = createToolsModel("gpt-5.6-luna", true);
+    const host = createExtensionHost(registerCodexTools, { model });
+    await host.emitSessionStart();
+
+    await expect(
+      host.runTool("exec_command", { cmd: "printf unreachable" })
+    ).rejects.toThrow("Shell stdin command transport is not supported");
   });
 
   it.skipIf(process.platform === "win32")(

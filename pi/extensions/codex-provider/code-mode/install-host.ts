@@ -57,11 +57,12 @@ export const installCodeModeHost = async ({
     return;
   }
 
-  const temporary = mkdtempSync(
-    path.join(tmpdir(), "pi-codex-provider-code-mode-")
-  );
+  let temporary: string | undefined;
   const staged = `${destination}.${process.pid}.tmp`;
   try {
+    temporary = mkdtempSync(
+      path.join(tmpdir(), "pi-codex-provider-code-mode-")
+    );
     const url = hostAssetUrl(assetName);
     let bytes: Buffer;
     try {
@@ -123,7 +124,9 @@ export const installCodeModeHost = async ({
     renameSync(staged, destination);
   } finally {
     rmSync(staged, { force: true });
-    rmSync(temporary, { force: true, recursive: true });
+    if (temporary !== undefined) {
+      rmSync(temporary, { force: true, recursive: true });
+    }
     rmSync(lockPath, { force: true, recursive: true });
   }
 };
