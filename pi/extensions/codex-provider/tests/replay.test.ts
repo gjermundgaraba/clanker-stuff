@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { RETAINED_USER_IMAGE_PLACEHOLDER } from "../checkpoint.js";
 import {
   CONTEXT_WINDOW_TRUNCATED_OUTPUT_MESSAGE,
+  FIXED_IMAGE_BYTE_ESTIMATE,
   NON_VISION_USER_IMAGE_PLACEHOLDER,
   buildCheckpointReplacement,
   buildTransientCheckpointReplacement,
@@ -399,6 +400,11 @@ describe("replacement and token policy", () => {
       compaction(),
       2
     );
+    const budgetedImageResult = buildTransientCheckpointReplacement(
+      [imageOnly],
+      compaction(),
+      Math.ceil(FIXED_IMAGE_BYTE_ESTIMATE / 4)
+    );
     const hugeImageResult = buildCheckpointReplacement(
       [user([image(`data:image/png;base64,${"A".repeat(2_000_000)}`)])],
       compaction(),
@@ -413,6 +419,7 @@ describe("replacement and token policy", () => {
 
     expect({
       boundary,
+      budgetedImageResult,
       imageOnly: imageResult,
       persistedImageData:
         JSON.stringify(imageResult).includes("data:image/png"),
@@ -422,6 +429,7 @@ describe("replacement and token policy", () => {
       zeroBudget,
     }).toStrictEqual({
       boundary: [textUser("new"), compaction()],
+      budgetedImageResult: [imageOnly, compaction()],
       imageOnly: [
         textUser("old"),
         textUser(RETAINED_USER_IMAGE_PLACEHOLDER),
@@ -429,7 +437,7 @@ describe("replacement and token policy", () => {
         compaction(),
       ],
       persistedImageData: false,
-      transientImageResult: [imageOnly, textUser("new"), compaction()],
+      transientImageResult: [textUser("new"), compaction()],
       unicode: "…15 tokens truncated…ext\n",
       unicodeTokens: 8,
       zeroBudget: "",

@@ -18,6 +18,7 @@ import type {
 export const CONTEXT_WINDOW_TRUNCATED_OUTPUT_MESSAGE =
   "Output exceeded the available model context and was truncated";
 export const FIXED_IMAGE_BYTE_ESTIMATE = 7373;
+const FIXED_IMAGE_TOKEN_ESTIMATE = Math.ceil(FIXED_IMAGE_BYTE_ESTIMATE / 4);
 export const NON_VISION_USER_IMAGE_PLACEHOLDER =
   "(image omitted: model does not support images)";
 export const FRAME_MARKER_PREFIX = "[codex-provider:frame:";
@@ -397,9 +398,10 @@ export const truncateMiddleToTokenBudget = (
 const userMessageTextTokens = (item: RealUserInputItem) => {
   let tokens = 0;
   for (const content of item.content) {
-    if (content.type === "input_text") {
-      tokens += tokensForUtf8(content.text);
-    }
+    tokens +=
+      content.type === "input_text"
+        ? tokensForUtf8(content.text)
+        : FIXED_IMAGE_TOKEN_ESTIMATE;
   }
   return Math.max(1, tokens);
 };
@@ -412,7 +414,10 @@ const truncateUserMessage = (
   const content: RealUserContentItem[] = [];
   for (const contentItem of item.content) {
     if (contentItem.type === "input_image") {
-      content.push(contentItem);
+      if (remaining >= FIXED_IMAGE_TOKEN_ESTIMATE) {
+        content.push(contentItem);
+        remaining -= FIXED_IMAGE_TOKEN_ESTIMATE;
+      }
       continue;
     }
     if (remaining === 0) {
