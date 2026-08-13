@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -16,32 +17,29 @@ import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
 const MAX_STASHES = 10;
 
 interface StashStore {
-  entries: Record<string, string[]>;
+  entries: string[];
 }
 
-const getStorePath = () =>
-  path.join(getExtensionStoragePaths("stash").dataDir, "state.json");
+const getStorePath = (cwd: string) =>
+  path.join(
+    getExtensionStoragePaths("stash").dataDir,
+    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`
+  );
 
-const emptyStore = (): StashStore => ({ entries: {} });
+const emptyStore = (): StashStore => ({ entries: [] });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const parseStore = (data: unknown): StashStore => {
-  if (!isRecord(data) || !isRecord(data.entries)) {
+  if (
+    !isRecord(data) ||
+    !Array.isArray(data.entries) ||
+    !data.entries.every((item) => typeof item === "string")
+  ) {
     return emptyStore();
   }
-
-  const parsed = emptyStore();
-  for (const [key, value] of Object.entries(data.entries)) {
-    if (
-      Array.isArray(value) &&
-      value.every((item) => typeof item === "string")
-    ) {
-      parsed.entries[key] = value;
-    }
-  }
-  return parsed;
+  return { entries: data.entries };
 };
 
 const readStore = async (filePath: string): Promise<StashStore> => {
@@ -63,15 +61,6 @@ const readStore = async (filePath: string): Promise<StashStore> => {
   }
 };
 
-const writeStore = async (filePath: string, store: StashStore) => {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2)}`;
-  await writeFile(tempPath, `${JSON.stringify(store, null, 2)}\n`, "utf-8");
-  await rename(tempPath, filePath);
-};
-
 const copyStashedText = async (ctx: ExtensionContext, text: string) => {
   try {
     await copyToClipboard(text);
@@ -85,6 +74,7 @@ export const createStash = () => {
   const stack: string[] = [];
   let pendingRestore = false;
   let cancelPendingCopy: (() => void) | undefined;
+  let pendingSave = Promise.resolve();
 
   const trimStack = () => {
     stack.splice(0, Math.max(0, stack.length - MAX_STASHES));
@@ -92,9 +82,8 @@ export const createStash = () => {
 
   const loadStack = async (ctx: ExtensionContext) => {
     try {
-      const store = await readStore(getStorePath());
-      const storedStack = store.entries[ctx.cwd] ?? [];
-      stack.splice(0, stack.length, ...storedStack);
+      const store = await readStore(getStorePath(ctx.cwd));
+      stack.splice(0, stack.length, ...store.entries);
       trimStack();
     } catch {
       stack.splice(0);
@@ -103,21 +92,23 @@ export const createStash = () => {
   };
 
   const saveStack = async (ctx: ExtensionContext) => {
-    try {
-      const filePath = getStorePath();
-      await withFileMutationQueue(filePath, async () => {
-        const store = await readStore(filePath);
-        if (stack.length === 0) {
-          const { [ctx.cwd]: _removed, ...rest } = store.entries;
-          store.entries = rest;
-        } else {
-          store.entries[ctx.cwd] = [...stack];
-        }
-        await writeStore(filePath, store);
-      });
-    } catch {
+    const filePath = getStorePath(ctx.cwd);
+    const snapshot: StashStore = { entries: [...stack] };
+    /* oxlint-disable promise/prefer-await-to-then -- pendingSave must retain the handled promise for dispose */
+    pendingSave = withFileMutationQueue(filePath, async () => {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      const tempPath = `${filePath}.tmp-${randomUUID()}`;
+      await writeFile(
+        tempPath,
+        `${JSON.stringify(snapshot, null, 2)}\n`,
+        "utf-8"
+      );
+      await rename(tempPath, filePath);
+    }).catch(() => {
       ctx.ui.notify("Failed to persist stash.", "warning");
-    }
+    });
+    /* oxlint-enable promise/prefer-await-to-then */
+    await pendingSave;
   };
 
   const clearPendingCopy = (ctx: ExtensionContext) => {
@@ -198,7 +189,7 @@ export const createStash = () => {
     event: InputEvent,
     ctx: ExtensionContext
   ): InputEventResult => {
-    if (event.source !== "interactive") {
+    if (event.source !== "interactive" || ctx.mode !== "tui" || !ctx.hasUI) {
       return { action: "continue" };
     }
 
@@ -227,7 +218,10 @@ export const createStash = () => {
 
   return {
     commitRestore,
-    dispose: clearPendingCopy,
+    dispose: async (ctx: ExtensionContext) => {
+      clearPendingCopy(ctx);
+      await pendingSave;
+    },
     pop,
     prepareRestore,
     start: loadStack,

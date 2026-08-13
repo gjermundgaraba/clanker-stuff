@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
@@ -34,30 +35,37 @@ const extension = (pi: ExtensionAPI) => {
   pi.on("session_shutdown", (_event, ctx) => stash.dispose(ctx));
 };
 
-const getStorePath = (agentDir: string) =>
-  path.join(agentDir, "data", "stash", "state.json");
+const getStorePath = (agentDir: string, cwd: string) =>
+  path.join(
+    agentDir,
+    "data",
+    "stash",
+    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`
+  );
 
 describe("stash", () => {
   const envRestorers: (() => void)[] = [];
+  let agentDir: string;
 
   const useAgentDir = async () => {
-    const agentDir = await createTempDir("stash-agent-");
-    envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: agentDir }));
-    return agentDir;
+    const directory = await createTempDir("stash-agent-");
+    envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: directory }));
+    return directory;
   };
 
-  const readStore = async (agentDir: string) =>
-    JSON.parse(await readFile(getStorePath(agentDir), "utf-8")) as {
-      entries: Record<string, string[]>;
+  const readStore = async (directory: string, cwd: string) =>
+    JSON.parse(await readFile(getStorePath(directory, cwd), "utf-8")) as {
+      entries: string[];
     };
 
-  const createHarness = async (options: { cwd?: string } = {}) => {
-    if (!process.env.PI_CODING_AGENT_DIR) {
-      await useAgentDir();
-    }
-
+  const createHarness = async (
+    options: { cwd?: string; mode?: "json" | "rpc" | "tui" } = {}
+  ) => {
     const host = createExtensionHost(extension);
-    const ctx = host.createContext({ cwd: options.cwd ?? process.cwd() });
+    const ctx = host.createContext({
+      cwd: options.cwd ?? process.cwd(),
+      mode: options.mode ?? "tui",
+    });
     await host.emitSessionStart(ctx);
 
     return {
@@ -89,6 +97,10 @@ describe("stash", () => {
     };
   };
 
+  beforeEach(async () => {
+    agentDir = await useAgentDir();
+  });
+
   afterEach(() => {
     for (const restore of envRestorers.splice(0).toReversed()) {
       restore();
@@ -111,7 +123,6 @@ describe("stash", () => {
   });
 
   it("persists stashed text across extension instances", async () => {
-    await useAgentDir();
     const cwd = await createTempDir("stash-cwd-");
     const first = await createHarness({ cwd });
 
@@ -124,7 +135,6 @@ describe("stash", () => {
   });
 
   it("caps persisted and in-memory stashes to the ten newest entries", async () => {
-    const agentDir = await useAgentDir();
     const cwd = await createTempDir("stash-cwd-");
     const harness = await createHarness({ cwd });
 
@@ -137,8 +147,8 @@ describe("stash", () => {
       message: "Stashed (10). Press c to copy to clipboard.",
       type: "info",
     });
-    const store = await readStore(agentDir);
-    expect(store.entries[cwd]).toStrictEqual(
+    const store = await readStore(agentDir, cwd);
+    expect(store.entries).toStrictEqual(
       Array.from({ length: 10 }, (_, index) => `draft ${index + 3}`)
     );
 
@@ -156,26 +166,23 @@ describe("stash", () => {
     });
   });
 
-  it("deletes the cwd record when the stack is emptied", async () => {
-    const agentDir = await useAgentDir();
+  it("persists an empty cwd stack when the stack is emptied", async () => {
     const cwd = await createTempDir("stash-cwd-");
     const harness = await createHarness({ cwd });
 
     await harness.stash("draft message");
     await harness.popStash();
 
-    const store = await readStore(agentDir);
-    expect(store.entries).not.toHaveProperty(cwd);
+    const store = await readStore(agentDir, cwd);
+    expect(store).toStrictEqual({ entries: [] });
   });
 
   it("treats malformed persisted stash as empty", async () => {
-    const agentDir = await useAgentDir();
-    const storePath = getStorePath(agentDir);
+    const cwd = await createTempDir("stash-cwd-");
+    const storePath = getStorePath(agentDir, cwd);
     await mkdir(path.dirname(storePath), { recursive: true });
     await writeFile(storePath, "{", "utf-8");
-    const harness = await createHarness({
-      cwd: await createTempDir("stash-cwd-"),
-    });
+    const harness = await createHarness({ cwd });
 
     await harness.popStash();
 
@@ -186,12 +193,12 @@ describe("stash", () => {
   });
 
   it("keeps in-memory stash behavior when persistence fails", async () => {
-    const agentDir = path.join(
+    const invalidAgentDir = path.join(
       await createTempDir("stash-agent-parent-"),
       "file"
     );
-    await writeFile(agentDir, "not a directory", "utf-8");
-    envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: agentDir }));
+    await writeFile(invalidAgentDir, "not a directory", "utf-8");
+    envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: invalidAgentDir }));
     const harness = await createHarness({
       cwd: await createTempDir("stash-cwd-"),
     });
@@ -318,6 +325,32 @@ describe("stash", () => {
     expect(harness.editorText()).toBe("");
   });
 
+  it("does not restore interactive input outside TUI mode", async () => {
+    const cwd = await createTempDir("stash-cwd-");
+    const interactive = await createHarness({ cwd });
+    await interactive.stash("draft message");
+
+    const printMode = await createHarness({ cwd, mode: "json" });
+    await printMode.input("send message", "interactive");
+
+    expect(printMode.editorText()).toBe("");
+    const store = await readStore(agentDir, cwd);
+    expect(store.entries).toStrictEqual(["draft message"]);
+  });
+
+  it("waits for an in-flight save during shutdown", async () => {
+    const cwd = await createTempDir("stash-cwd-");
+    const harness = await createHarness({ cwd });
+    harness.ctx.ui.setEditorText("draft message");
+
+    const saving = harness.host.runShortcut("ctrl+s", harness.ctx);
+    await harness.host.emitSessionShutdown(harness.ctx);
+    await saving;
+
+    const store = await readStore(agentDir, cwd);
+    expect(store.entries).toStrictEqual(["draft message"]);
+  });
+
   it("does not stash blank editor text", async () => {
     const harness = await createHarness();
 
@@ -357,7 +390,6 @@ describe("stash", () => {
   });
 
   it("persists stack changes when Ctrl+S pops on an empty editor", async () => {
-    const agentDir = await useAgentDir();
     const cwd = await createTempDir("stash-cwd-");
     const harness = await createHarness({ cwd });
 
@@ -366,13 +398,13 @@ describe("stash", () => {
 
     harness.ctx.ui.setEditorText("");
     await harness.host.runShortcut("ctrl+s", harness.ctx);
-    const afterFirstPop = await readStore(agentDir);
-    expect(afterFirstPop.entries[cwd]).toStrictEqual(["first"]);
+    const afterFirstPop = await readStore(agentDir, cwd);
+    expect(afterFirstPop.entries).toStrictEqual(["first"]);
 
     harness.ctx.ui.setEditorText("");
     await harness.host.runShortcut("ctrl+s", harness.ctx);
-    const afterSecondPop = await readStore(agentDir);
-    expect(afterSecondPop.entries).not.toHaveProperty(cwd);
+    const afterSecondPop = await readStore(agentDir, cwd);
+    expect(afterSecondPop.entries).toStrictEqual([]);
   });
 
   it("pops stashed text in LIFO order across repeated /pop-stash calls", async () => {

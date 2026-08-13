@@ -12,7 +12,9 @@ const stash = vi.hoisted(() => ({
   commitRestore: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
     async () => await Promise.resolve()
   ),
-  dispose: vi.fn<(ctx: ExtensionContext) => void>(),
+  dispose: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
+    async () => await Promise.resolve()
+  ),
   pop: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
     async () => await Promise.resolve()
   ),
