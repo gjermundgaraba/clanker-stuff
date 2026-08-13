@@ -5,10 +5,7 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import type {
-  OAuthClientProvider,
-  Transport,
-} from "@modelcontextprotocol/client";
+import type { Transport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 import type { HttpServerConfig, McpConfig } from "./config.js";
@@ -16,7 +13,6 @@ import {
   PersistentMcpOAuthProvider,
   startOAuthCallbackServer,
 } from "./oauth.js";
-import type { OAuthCallbackServer } from "./oauth.js";
 
 export interface McpClientConnection {
   client: Client;
@@ -46,28 +42,42 @@ export const errorMessage = (error: unknown): string => {
 const authorizeHttpProvider = async (
   serverName: string,
   serverUrl: URL,
-  authProvider: OAuthClientProvider,
-  callbackServer: OAuthCallbackServer | undefined,
+  authProvider: {
+    notifyAuthorizationUrl: () => void;
+    provider: PersistentMcpOAuthProvider;
+  },
   interactive: boolean,
   signal?: AbortSignal
 ): Promise<void> => {
-  const result = await auth(authProvider, { serverUrl });
+  const result = await auth(authProvider.provider, { serverUrl });
   if (result === "AUTHORIZED") {
     return;
   }
-  if (!interactive || !callbackServer) {
+  if (!interactive) {
     throw new UnauthorizedError(
       `MCP server ${serverName} requires interactive OAuth authorization`
     );
   }
 
-  const code = await callbackServer.waitForCode(signal);
-  const finishResult = await auth(authProvider, {
-    authorizationCode: code,
-    serverUrl,
-  });
-  if (finishResult !== "AUTHORIZED") {
-    throw new UnauthorizedError("Failed to authorize MCP server");
+  const callbackServer = await startOAuthCallbackServer(
+    authProvider.provider.redirectUrl,
+    authProvider.provider.expectedState
+  );
+  try {
+    authProvider.notifyAuthorizationUrl();
+    const { code, iss } = await callbackServer.waitForCode(signal);
+    const finishResult = await auth(authProvider.provider, {
+      authorizationCode: code,
+      iss,
+      serverUrl,
+    });
+    if (finishResult !== "AUTHORIZED") {
+      throw new UnauthorizedError("Failed to authorize MCP server");
+    }
+  } finally {
+    await callbackServer.close().catch(() => {
+      // Best-effort cleanup after the authorization attempt.
+    });
   }
 };
 
@@ -76,11 +86,17 @@ const createHttpAuthProvider = (
   serverConfig: HttpServerConfig,
   ui: Pick<ExtensionCommandContext["ui"], "notify">,
   interactive: boolean
-): PersistentMcpOAuthProvider | undefined => {
+):
+  | {
+      notifyAuthorizationUrl: () => void;
+      provider: PersistentMcpOAuthProvider;
+    }
+  | undefined => {
   if (!serverConfig.oauth) {
     return undefined;
   }
-  return new PersistentMcpOAuthProvider(
+  let authorizationUrl: URL | undefined;
+  const provider = new PersistentMcpOAuthProvider(
     serverName,
     serverConfig.oauth,
     (url) => {
@@ -89,12 +105,23 @@ const createHttpAuthProvider = (
           `MCP server ${serverName} requires interactive OAuth authorization`
         );
       }
-      ui.notify(
-        `Authorize MCP server ${serverName}:\n${url.toString()}\nWaiting for OAuth authorization...`,
-        "info"
-      );
+      authorizationUrl = url;
     }
   );
+  return {
+    notifyAuthorizationUrl: () => {
+      if (!authorizationUrl) {
+        throw new UnauthorizedError(
+          `MCP server ${serverName} did not provide an OAuth authorization URL`
+        );
+      }
+      ui.notify(
+        `Authorize MCP server ${serverName}:\n${authorizationUrl.toString()}\nWaiting for OAuth authorization...`,
+        "info"
+      );
+    },
+    provider,
+  };
 };
 
 export const connectToServer = async (
@@ -124,34 +151,20 @@ export const connectToServer = async (
     ui,
     interactive
   );
-  let callbackServer: OAuthCallbackServer | undefined;
-  try {
-    if (authProvider) {
-      if (interactive) {
-        callbackServer = await startOAuthCallbackServer(
-          authProvider.redirectUrl,
-          authProvider.expectedState
-        );
-      }
-      await authorizeHttpProvider(
-        serverName,
-        serverUrl,
-        authProvider,
-        callbackServer,
-        interactive,
-        signal
-      );
-    }
-
-    const transport = new StreamableHTTPClientTransport(serverUrl, {
+  if (authProvider) {
+    await authorizeHttpProvider(
+      serverName,
+      serverUrl,
       authProvider,
-      requestInit: { headers: serverConfig.headers ?? {} },
-    });
-    await client.connect(transport, signal ? { signal } : undefined);
-    return { client, close: () => client.close(), transport };
-  } finally {
-    await callbackServer?.close().catch(() => {
-      // Best-effort cleanup after the authorization attempt.
-    });
+      interactive,
+      signal
+    );
   }
+
+  const transport = new StreamableHTTPClientTransport(serverUrl, {
+    authProvider: authProvider?.provider,
+    requestInit: { headers: serverConfig.headers ?? {} },
+  });
+  await client.connect(transport, signal ? { signal } : undefined);
+  return { client, close: () => client.close(), transport };
 };

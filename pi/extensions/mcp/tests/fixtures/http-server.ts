@@ -31,20 +31,26 @@ const readJson = async (req: IncomingMessage): Promise<unknown> => {
 
 export const startMcpHttpFixture = async (
   oauth = false,
-  expireSessionOnce = false
+  expireSessionOnce = false,
+  pauseInitialization = false
 ) => {
   const mcpHandler = createMcpHandler(() => createFixtureMcpServer());
+  const initializationGate = Promise.withResolvers<null>();
+  const initializationStarted = Promise.withResolvers<null>();
   let initializationCount = 0;
   let sessionExpired = false;
   const handleMcpRequest = toNodeHandler({
     async fetch(request, options) {
-      if (!expireSessionOnce) {
-        return mcpHandler.fetch(request, options);
-      }
-
       const body =
-        request.method === "POST" ? await request.clone().json() : undefined;
+        (expireSessionOnce || pauseInitialization) && request.method === "POST"
+          ? await request.clone().json()
+          : undefined;
+      if (pauseInitialization && isInitializeRequest(body)) {
+        initializationStarted.resolve(null);
+        await initializationGate.promise;
+      }
       if (
+        expireSessionOnce &&
         !sessionExpired &&
         request.headers.has("mcp-session-id") &&
         isJSONRPCRequest(body) &&
@@ -172,6 +178,8 @@ export const startMcpHttpFixture = async (
       await once(server, "close");
     },
     getInitializationCount: () => initializationCount,
+    releaseInitialization: () => initializationGate.resolve(null),
     url: `${issuer}/mcp`,
+    waitForInitialization: () => initializationStarted.promise,
   };
 };

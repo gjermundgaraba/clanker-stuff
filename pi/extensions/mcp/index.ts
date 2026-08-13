@@ -11,5 +11,6 @@ export default function mcp(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", (_event, ctx) => loader.restore(ctx));
+  pi.on("session_tree", (_event, ctx) => loader.restore(ctx));
   pi.on("session_shutdown", () => loader.dispose());
 }

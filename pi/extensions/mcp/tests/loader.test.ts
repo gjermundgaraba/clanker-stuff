@@ -5,6 +5,39 @@ import mcp from "../index.js";
 import { MCP_MANAGER_SERVER_NAME } from "../manager.js";
 import { createCustomStub, fixtureServer, setupMcpTest } from "./helpers.js";
 
+const createBranchSession = () => {
+  const timestamp = new Date().toISOString();
+  return {
+    entries: [
+      {
+        id: "root",
+        message: { content: "root", role: "user", timestamp: 1 },
+        parentId: null,
+        timestamp,
+        type: "message",
+      },
+      {
+        customType: "mcp-server-loaded",
+        data: { serverName: "alpha" },
+        id: "alpha-load",
+        parentId: "root",
+        timestamp,
+        type: "custom",
+      },
+      {
+        customType: "mcp-server-loaded",
+        data: { serverName: "beta" },
+        id: "beta-load",
+        parentId: "root",
+        timestamp,
+        type: "custom",
+      },
+    ] satisfies SessionEntry[],
+    hasUI: false,
+    leafId: "alpha-load",
+  };
+};
+
 describe("mcp loader", () => {
   const t = setupMcpTest();
 
@@ -191,6 +224,47 @@ describe("mcp loader", () => {
 
     expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
     expect(host.getActiveTools()).toContain("mcp_github__search");
+  });
+
+  it("reconciles loaded tools when switching session branches", async () => {
+    await t.writeConfig({
+      mcpServers: {
+        alpha: fixtureServer(),
+        beta: fixtureServer(),
+      },
+    });
+    const host = t.createExtensionHost(mcp, createBranchSession());
+
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toContain("mcp_alpha__search");
+
+    host.setLeafId("beta-load");
+    await host.emitSessionTree();
+
+    expect(host.getActiveTools()).not.toContain("mcp_alpha__search");
+    expect(host.getActiveTools()).toContain("mcp_beta__search");
+  });
+
+  it("does not reactivate tools from an obsolete concurrent restore", async () => {
+    const alphaFixture = await t.startHttpFixture(false, false, true);
+    const betaFixture = await t.startHttpFixture();
+    await t.writeConfig({
+      mcpServers: {
+        alpha: { type: "http", url: alphaFixture.url },
+        beta: { type: "http", url: betaFixture.url },
+      },
+    });
+    const host = t.createExtensionHost(mcp, createBranchSession());
+
+    const alphaRestore = host.emitSessionStart();
+    await alphaFixture.waitForInitialization();
+    host.setLeafId("beta-load");
+    await host.emitSessionTree();
+    alphaFixture.releaseInitialization();
+    await alphaRestore;
+
+    expect(host.getActiveTools()).not.toContain("mcp_alpha__search");
+    expect(host.getActiveTools()).toContain("mcp_beta__search");
   });
 
   it("restores persisted manager tools on session_start without config", async () => {

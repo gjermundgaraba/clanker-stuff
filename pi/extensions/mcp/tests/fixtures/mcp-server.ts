@@ -28,17 +28,31 @@ export const createFixtureMcpServer = (scenario = "normal"): McpServer => {
       description: "Search the fixture",
       inputSchema: z.object({ query: z.string() }),
     },
-    async ({ query }): Promise<CallToolResult> => ({
-      content: [
-        {
-          text:
-            scenario === "large"
-              ? "result\n".repeat(20_000)
-              : `result: ${query}`,
-          type: "text",
-        },
-      ],
-    })
+    async ({ query }): Promise<CallToolResult> => {
+      let text = `result: ${query}`;
+      if (scenario === "oversize") {
+        text = "😀".repeat(300_000);
+      } else if (scenario === "large") {
+        text = "result\n".repeat(20_000);
+      } else if (scenario === "error") {
+        text = "failure\n".repeat(20_000);
+      }
+      return {
+        content: [
+          { text, type: "text" },
+          ...(scenario === "error"
+            ? [
+                {
+                  data: "aW1hZ2U=",
+                  mimeType: "image/png",
+                  type: "image" as const,
+                },
+              ]
+            : []),
+        ],
+        ...(scenario === "error" ? { isError: true } : {}),
+      };
+    }
   );
   return server;
 };

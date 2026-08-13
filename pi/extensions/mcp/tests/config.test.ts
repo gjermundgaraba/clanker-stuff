@@ -186,6 +186,8 @@ describe(loadMcpConfig, () => {
     process.env.MCP_TEST_COMMAND = "/usr/bin/test-mcp";
     process.env.MCP_TEST_TOKEN = "secret-token";
     process.env.MCP_TEST_BASE_URL = "https://api.example.com";
+    process.env.MCP_TEST_CLIENT_ID = "oauth-client";
+    process.env.MCP_TEST_CLIENT_SECRET = "oauth-secret";
     await t.writeConfig({
       mcpServers: {
         local: {
@@ -197,6 +199,12 @@ describe(loadMcpConfig, () => {
         remote: {
           headers: {
             Authorization: `Bearer ${envVarRef("MCP_TEST_TOKEN")}`,
+          },
+          oauth: {
+            authServerMetadataUrl: `${envVarRef("MCP_TEST_BASE_URL")}/metadata`,
+            clientId: envVarRef("MCP_TEST_CLIENT_ID"),
+            clientSecret: envVarRef("MCP_TEST_CLIENT_SECRET"),
+            scopes: `tools:${envVarRef("MCP_TEST_CLIENT_ID")}`,
           },
           type: "http",
           url: `${envVarRef("MCP_TEST_BASE_URL")}/mcp`,
@@ -214,6 +222,12 @@ describe(loadMcpConfig, () => {
         },
         remote: {
           headers: { Authorization: "Bearer secret-token" },
+          oauth: {
+            authServerMetadataUrl: "https://api.example.com/metadata",
+            clientId: "oauth-client",
+            clientSecret: "oauth-secret",
+            scopes: "tools:oauth-client",
+          },
           type: "http",
           url: "https://api.example.com/mcp",
         },
@@ -223,6 +237,8 @@ describe(loadMcpConfig, () => {
     Reflect.deleteProperty(process.env, "MCP_TEST_COMMAND");
     Reflect.deleteProperty(process.env, "MCP_TEST_TOKEN");
     Reflect.deleteProperty(process.env, "MCP_TEST_BASE_URL");
+    Reflect.deleteProperty(process.env, "MCP_TEST_CLIENT_ID");
+    Reflect.deleteProperty(process.env, "MCP_TEST_CLIENT_SECRET");
   });
 
   it("reports missing environment variables", async () => {

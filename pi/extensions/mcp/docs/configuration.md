@@ -41,3 +41,5 @@ The name `mcp-manager` is reserved and cannot be added. A manually configured co
 Project-local `.pi/mcp.json` files are executable configuration. A server entry can define `stdio` commands that run local programs, and HTTP servers can receive context and tool arguments sent by the agent.
 
 Pi's project trust gate prevents this extension from reading or modifying `.pi/mcp.json` in an untrusted project. Review the file before trusting an unfamiliar repository. Manager mutations preserve `${VAR}` placeholders and use atomic writes, but tool arguments are still stored in the pi session; prefer environment placeholders over literal secrets. Previously loaded servers reconnect without opening a browser; run `/mcp` explicitly when interactive OAuth is required.
+
+Truncated MCP tool output is persisted with private permissions. Each file is limited to 1 MiB, and the newest 10 files are retained up to 5 MiB total. Older output paths shown in session history can therefore expire.

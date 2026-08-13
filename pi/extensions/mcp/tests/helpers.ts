@@ -121,8 +121,16 @@ export const setupMcpTest = () => {
     return host;
   };
 
-  const startHttpFixture = async (oauth = false, expireSessionOnce = false) => {
-    const fixture = await startMcpHttpFixture(oauth, expireSessionOnce);
+  const startHttpFixture = async (
+    oauth = false,
+    expireSessionOnce = false,
+    pauseInitialization = false
+  ) => {
+    const fixture = await startMcpHttpFixture(
+      oauth,
+      expireSessionOnce,
+      pauseInitialization
+    );
     state.httpFixtures.push(fixture);
     return fixture;
   };

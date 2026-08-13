@@ -1,18 +1,26 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import {
   SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import type { Client, Transport } from "@modelcontextprotocol/client";
+import type {
+  CallToolResult,
+  Client,
+  Transport,
+} from "@modelcontextprotocol/client";
 
 import {
   activateTools,
-  contentToText,
-  mcpResultIsError,
   mcpResultToPiContent,
   normalizeToolArguments,
   toGeneratedToolName,
@@ -46,21 +54,185 @@ interface LoadServerOptions {
   signal?: AbortSignal;
 }
 
+const MAX_PERSISTED_OUTPUT_BYTES = 1024 * 1024;
+const MAX_PERSISTED_OUTPUT_COUNT = 10;
+const MAX_PERSISTED_OUTPUT_TOTAL_BYTES = 5 * 1024 * 1024;
+const PERSISTED_OUTPUT_TRUNCATION_NOTICE = Buffer.from(
+  "\n\n[MCP persisted output truncated]\n"
+);
+
+const waitForLoad = async (
+  load: Promise<McpLoadResult>,
+  signal?: AbortSignal
+): Promise<void> => {
+  if (!signal) {
+    await load.catch(() => null);
+    return;
+  }
+
+  signal.throwIfAborted();
+  const aborted = Promise.withResolvers<never>();
+  const onAbort = () => {
+    aborted.reject(signal.reason);
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    await Promise.race([load.catch(() => null), aborted.promise]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+};
+
+const persistOverflow = async (
+  serverName: string,
+  toolName: string,
+  content: string
+): Promise<string> => {
+  const directory = path.resolve(
+    getExtensionStoragePaths("mcp").dataDir,
+    "results"
+  );
+  const filePath = path.join(
+    directory,
+    `${Date.now()}-${randomUUID()}-${toGeneratedToolName(serverName, toolName)}.txt`
+  );
+  const tempPath = `${filePath}.${randomUUID()}.tmp`;
+  const fullOutput = Buffer.from(content);
+  let persistedOutput = fullOutput;
+  if (fullOutput.length > MAX_PERSISTED_OUTPUT_BYTES) {
+    let end =
+      MAX_PERSISTED_OUTPUT_BYTES - PERSISTED_OUTPUT_TRUNCATION_NOTICE.length;
+    // oxlint-disable-next-line no-bitwise -- UTF-8 continuation bytes start with 10
+    while ((fullOutput[end] & 0xc0) === 0x80) {
+      end -= 1;
+    }
+    persistedOutput = Buffer.concat([
+      fullOutput.subarray(0, end),
+      PERSISTED_OUTPUT_TRUNCATION_NOTICE,
+    ]);
+  }
+
+  await withFileMutationQueue(directory, async () => {
+    await mkdir(directory, { mode: 0o700, recursive: true });
+    try {
+      await writeFile(tempPath, persistedOutput, { mode: 0o600 });
+      await rename(tempPath, filePath);
+    } finally {
+      await rm(tempPath, { force: true });
+    }
+
+    const entries = await readdir(directory, { withFileTypes: true });
+    const files = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".txt"))
+        .map(async (entry) => {
+          const candidatePath = path.join(directory, entry.name);
+          try {
+            const metadata = await stat(candidatePath, { bigint: true });
+            return {
+              modifiedAt: metadata.mtimeNs,
+              name: entry.name,
+              path: candidatePath,
+              size: Number(metadata.size),
+            };
+          } catch (error) {
+            if (
+              typeof error === "object" &&
+              error !== null &&
+              "code" in error &&
+              error.code === "ENOENT"
+            ) {
+              return null;
+            }
+            throw error;
+          }
+        })
+    );
+    const existingFiles = files.filter((file) => file !== null);
+    existingFiles.sort((left, right) => {
+      if (left.path === filePath) {
+        return -1;
+      }
+      if (right.path === filePath) {
+        return 1;
+      }
+      if (left.modifiedAt === right.modifiedAt) {
+        return right.name.localeCompare(left.name);
+      }
+      return left.modifiedAt > right.modifiedAt ? -1 : 1;
+    });
+
+    let retainedBytes = 0;
+    let pruning = false;
+    for (const [index, file] of existingFiles.entries()) {
+      if (
+        !pruning &&
+        index < MAX_PERSISTED_OUTPUT_COUNT &&
+        retainedBytes + file.size <= MAX_PERSISTED_OUTPUT_TOTAL_BYTES
+      ) {
+        retainedBytes += file.size;
+      } else {
+        pruning = true;
+        // oxlint-disable-next-line no-await-in-loop -- pruning shares the directory mutation queue
+        await rm(file.path, { force: true });
+      }
+    }
+  });
+  return filePath;
+};
+
 export class McpServerPool {
-  private readonly loads = new Set<Promise<McpLoadResult>>();
+  private readonly loads = new Map<string, Promise<McpLoadResult>>();
   private readonly reconnects = new Map<string, Promise<ConnectedServer>>();
   private readonly servers = new Map<string, ConnectedServer>();
   private readonly shutdown = new AbortController();
 
-  loadServer(options: LoadServerOptions): Promise<McpLoadResult> {
+  async loadServer(options: LoadServerOptions): Promise<McpLoadResult> {
+    for (;;) {
+      const existing = this.loads.get(options.serverName);
+      if (!existing) {
+        break;
+      }
+      // oxlint-disable-next-line no-await-in-loop -- each caller waits for the keyed load ahead of it
+      await waitForLoad(existing, options.signal);
+    }
+
     const load = this.load(options);
-    this.loads.add(load);
-    return load.finally(() => {
-      this.loads.delete(load);
-    });
+    this.loads.set(options.serverName, load);
+    try {
+      return await load;
+    } finally {
+      if (this.loads.get(options.serverName) === load) {
+        this.loads.delete(options.serverName);
+      }
+    }
+  }
+
+  reconcileActiveServers(
+    pi: ExtensionAPI,
+    desiredServerNames: readonly string[]
+  ): void {
+    const desired = new Set(desiredServerNames);
+    const managed = new Set(
+      [...this.servers.values()].flatMap(({ toolNames }) => toolNames)
+    );
+    const desiredTools = new Set(
+      [...this.servers.entries()].flatMap(([name, server]) =>
+        desired.has(name) ? server.toolNames : []
+      )
+    );
+    pi.setActiveTools([
+      ...pi
+        .getActiveTools()
+        .filter((name) => !managed.has(name) || desiredTools.has(name)),
+      ...[...desiredTools].filter(
+        (name) => !pi.getActiveTools().includes(name)
+      ),
+    ]);
   }
 
   private async load(options: LoadServerOptions): Promise<McpLoadResult> {
+    options.signal?.throwIfAborted();
     if (this.shutdown.signal.aborted) {
       throw new Error("MCP server pool is closed");
     }
@@ -127,7 +299,7 @@ export class McpServerPool {
     const closeConnections = [...this.servers.values()].map(({ close }) =>
       close()
     );
-    const pending = [...this.loads, ...this.reconnects.values()];
+    const pending = [...this.loads.values(), ...this.reconnects.values()];
     this.servers.clear();
     await Promise.allSettled([...closeConnections, ...pending]);
   }
@@ -137,7 +309,7 @@ export class McpServerPool {
     toolName: string,
     args: unknown,
     signal?: AbortSignal
-  ): Promise<unknown> {
+  ): Promise<CallToolResult> {
     const connection = this.servers.get(serverName);
     if (!connection) {
       throw new Error(`MCP server ${serverName} is not connected`);
@@ -230,7 +402,6 @@ export class McpServerPool {
     const occupiedNames = new Set(pi.getAllTools().map(({ name }) => name));
     const generatedNames = new Set<string>();
     const callTool = this.callTool.bind(this);
-
     const generatedTools: ToolDefinition[] = tools.map((tool) => {
       const generatedToolName = toGeneratedToolName(serverName, tool.name);
       if (
@@ -253,18 +424,33 @@ export class McpServerPool {
             params,
             executeSignal
           );
-          if (mcpResultIsError(result)) {
+          let converted = mcpResultToPiContent(result);
+          let outputPath: string | undefined;
+          if (converted.truncated) {
+            outputPath = await persistOverflow(
+              serverName,
+              tool.name,
+              converted.fullText
+            );
+            converted = mcpResultToPiContent(result, outputPath);
+          }
+          if (result.isError === true) {
+            // oxlint-disable-next-line unicorn/prefer-type-error -- this reports a remote tool failure, not invalid argument types
             throw new Error(
-              `MCP tool ${tool.name} from server ${serverName} returned an error: ${contentToText(result)}`
+              `MCP tool ${tool.name} from server ${serverName} returned an error: ${converted.content
+                .map((item) =>
+                  item.type === "text" ? item.text : `[image:${item.mimeType}]`
+                )
+                .join("\n")}`
             );
           }
-          const converted = mcpResultToPiContent(result);
           return {
             content: converted.content,
             details: {
               serverName,
               toolName: tool.name,
               truncated: converted.truncated,
+              ...(outputPath === undefined ? {} : { outputPath }),
             },
           };
         },

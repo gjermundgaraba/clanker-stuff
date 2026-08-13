@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, readFile, rename, writeFile, chmod } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 
@@ -99,7 +99,7 @@ export const startOAuthCallbackServer = async (
     promise: codePromise,
     resolve: resolveCode,
     reject: rejectCode,
-  } = Promise.withResolvers<string>();
+  } = Promise.withResolvers<OAuthCallbackResult>();
 
   const server = createServer((req, res) => {
     const requestUrl = new URL(req.url ?? "/", redirectUrl.origin);
@@ -108,17 +108,17 @@ export const startOAuthCallbackServer = async (
       return;
     }
 
-    const error = requestUrl.searchParams.get("error");
-    if (error !== null && error !== "") {
-      res.writeHead(400).end("OAuth failed. You can close this tab.");
-      rejectCode(new Error(`MCP OAuth failed: ${error}`));
-      return;
-    }
-
     const state = requestUrl.searchParams.get("state");
     if (state !== expectedState) {
       res.writeHead(400).end("Invalid OAuth state.");
       rejectCode(new Error("MCP OAuth callback state mismatch"));
+      return;
+    }
+
+    const error = requestUrl.searchParams.get("error");
+    if (error !== null && error !== "") {
+      res.writeHead(400).end("OAuth failed. You can close this tab.");
+      rejectCode(new Error(`MCP OAuth failed: ${error}`));
       return;
     }
 
@@ -132,7 +132,10 @@ export const startOAuthCallbackServer = async (
     res
       .writeHead(200, { "Content-Type": "text/plain" })
       .end("MCP authorization complete. You can close this tab.");
-    resolveCode(code);
+    resolveCode({
+      code,
+      iss: requestUrl.searchParams.get("iss") ?? undefined,
+    });
   });
 
   // Real callers still observe this promise; this only prevents an unhandled rejection.
@@ -170,9 +173,16 @@ const writeOAuthState = async (state: StoredOAuthState): Promise<void> => {
   const filePath = getOAuthStatePath();
   await mkdir(path.dirname(filePath), { mode: 0o700, recursive: true });
   const tempPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
-  await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
-  await chmod(tempPath, 0o600);
-  await rename(tempPath, filePath);
+  try {
+    await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf-8",
+      flag: "wx",
+      mode: 0o600,
+    });
+    await rename(tempPath, filePath);
+  } finally {
+    await rm(tempPath, { force: true });
+  }
 };
 
 const readOAuthState = async (): Promise<StoredOAuthState> => {
@@ -362,6 +372,11 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
 }
 
 export interface OAuthCallbackServer {
-  waitForCode: (signal?: AbortSignal) => Promise<string>;
+  waitForCode: (signal?: AbortSignal) => Promise<OAuthCallbackResult>;
   close: () => Promise<void>;
+}
+
+export interface OAuthCallbackResult {
+  code: string;
+  iss?: string;
 }

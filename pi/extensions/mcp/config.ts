@@ -102,10 +102,7 @@ const mergeMcpConfig = (
 const expandEnv = (value: string): string => {
   const pattern =
     /\$\{(?<name>[A-Za-z_][A-Za-z0-9_]*)(?::-(?<fallback>[^}]*))?\}/gu;
-  return value.replaceAll(pattern, (match: string) => {
-    pattern.lastIndex = 0;
-    const executed = pattern.exec(match);
-    const name = executed?.groups?.name;
+  return value.replaceAll(pattern, (match, name: string, fallback?: string) => {
     if (typeof name !== "string" || name === "") {
       throw new Error(`invalid MCP config env placeholder: ${match}`);
     }
@@ -113,7 +110,6 @@ const expandEnv = (value: string): string => {
     if (envValue !== undefined) {
       return envValue;
     }
-    const fallback = executed?.groups?.fallback;
     if (typeof fallback === "string") {
       return fallback;
     }
@@ -279,11 +275,20 @@ const expandMcpConfig = (config: McpConfig): McpConfig => {
     }
 
     const headers = expandEnvRecord(server.headers);
+    const oauth =
+      server.oauth === undefined
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(server.oauth).map(([key, value]) => [
+              key,
+              typeof value === "string" ? expandEnv(value) : value,
+            ])
+          );
     mcpServers[name] = {
       type: server.type,
       url: expandEnv(server.url),
       ...(headers === undefined ? {} : { headers }),
-      ...(server.oauth === undefined ? {} : { oauth: server.oauth }),
+      ...(oauth === undefined ? {} : { oauth }),
     };
   }
   return { mcpServers };

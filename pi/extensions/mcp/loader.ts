@@ -111,6 +111,8 @@ const listAvailableServers = async (
 
 export const createMcpLoader = (pi: ExtensionAPI) => {
   const serverPool = new McpServerPool();
+  let restoreGeneration = 0;
+  let desiredServerNames: readonly string[] = [];
 
   const loadNamedServer = async (
     ctx: ExtensionContext,
@@ -211,8 +213,16 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       }
     },
     restore: async (ctx: ExtensionContext): Promise<void> => {
+      restoreGeneration += 1;
+      const generation = restoreGeneration;
       const names = loadedServerNames(ctx.sessionManager.getBranch());
+      desiredServerNames = names;
+      serverPool.reconcileActiveServers(pi, names);
       for (const serverName of names) {
+        if (generation !== restoreGeneration) {
+          serverPool.reconcileActiveServers(pi, desiredServerNames);
+          return;
+        }
         try {
           // oxlint-disable-next-line no-await-in-loop -- registrations mutate shared tool state
           await loadNamedServer(ctx, serverName, {
@@ -223,6 +233,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
           // The explicit /mcp command remains the interactive recovery path.
         }
       }
+      serverPool.reconcileActiveServers(pi, desiredServerNames);
     },
   };
 };

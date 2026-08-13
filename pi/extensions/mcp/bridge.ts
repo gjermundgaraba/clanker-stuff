@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
+import type { CallToolResult } from "@modelcontextprotocol/client";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
 
@@ -61,16 +62,11 @@ export const normalizeToolArguments = (
   args: unknown
 ): Record<string, unknown> => (isRecord(args) ? args : {});
 
-export const mcpResultIsError = (result: unknown): boolean =>
-  isRecord(result) && result.isError === true;
-
 export const mcpResultToPiContent = (
-  result: unknown
-): { content: PiToolContent[]; truncated: boolean } => {
-  const items =
-    isRecord(result) && Array.isArray(result.content)
-      ? result.content
-      : [result];
+  result: CallToolResult,
+  overflowPath?: string
+): { content: PiToolContent[]; fullText: string; truncated: boolean } => {
+  const items = result.content;
   const text: string[] = [];
   const images: PiToolContent[] = [];
 
@@ -92,21 +88,18 @@ export const mcpResultToPiContent = (
       text.push(safeJson(item));
     }
   }
+  if (result.structuredContent !== undefined) {
+    text.push(safeJson(result.structuredContent));
+  }
 
-  const truncated = truncateHead(text.join("\n"));
+  const fullText = text.join("\n");
+  const truncated = truncateHead(fullText);
   const notice = truncated.truncated
-    ? `\n\n[MCP output truncated: kept ${formatSize(truncated.outputBytes)} of ${formatSize(truncated.totalBytes)}]`
+    ? `\n\n[MCP output truncated: kept ${formatSize(truncated.outputBytes)} of ${formatSize(truncated.totalBytes)}${overflowPath === undefined ? "" : `; persisted output: ${overflowPath}`}]`
     : "";
   const content: PiToolContent[] = [
     { text: `${truncated.content}${notice}`, type: "text" },
     ...images,
   ];
-  return { content, truncated: truncated.truncated };
+  return { content, fullText, truncated: truncated.truncated };
 };
-
-export const contentToText = (result: unknown): string =>
-  mcpResultToPiContent(result)
-    .content.map((item) =>
-      item.type === "text" ? item.text : `[image:${item.mimeType}]`
-    )
-    .join("\n");
