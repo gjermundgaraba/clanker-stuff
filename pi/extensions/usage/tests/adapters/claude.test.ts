@@ -71,4 +71,27 @@ describe("claude usage", () => {
     expect(options?.headers?.Authorization).toBe("Bearer claude-token");
     expect(options?.headers?.["anthropic-beta"]).toBe("oauth-2025-04-20");
   });
+
+  it("does not treat an Anthropic API key as subscription OAuth", async () => {
+    const fetchJson = vi.fn<FetchJson>();
+    const result = await fetchClaudeUsage({
+      authClient: {
+        getProviderAuth: async () => ({
+          auth: { apiKey: "api-key" },
+          source: "Environment",
+        }),
+      },
+      fetchJson,
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({
+      error: {
+        kind: "unavailable",
+        message: expect.stringContaining("requires OAuth login"),
+      },
+      ok: false,
+    });
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
 });

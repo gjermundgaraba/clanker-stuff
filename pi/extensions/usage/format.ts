@@ -19,6 +19,9 @@ const orderWindows = (windows: UsageWindow[]): UsageWindow[] =>
     (left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id]
   );
 
+export const sanitizeUsageText = (value: string): string =>
+  value.replaceAll(/\p{Cc}/gu, "");
+
 export const formatResetDuration = (
   resetsAt: string,
   nowMs: number = Date.now()
@@ -84,7 +87,7 @@ export const formatDetail = (
   const plan =
     snapshot.planLabel === undefined || snapshot.planLabel.length === 0
       ? ""
-      : ` (${snapshot.planLabel})`;
+      : ` (${sanitizeUsageText(snapshot.planLabel)})`;
   lines.push(`${title}${plan}`);
 
   for (const window of orderWindows(snapshot.windows)) {
@@ -93,7 +96,7 @@ export const formatDetail = (
         ? "resets unknown"
         : `resets in ${formatResetDuration(window.resetsAt, nowMs)}`;
     lines.push(
-      `${window.label}  ${Math.round(window.remainingPercent)}% left  ${reset}`
+      `${sanitizeUsageText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`
     );
   }
 
@@ -107,7 +110,7 @@ export const formatDetail = (
 export const formatProviderError = (
   provider: SupportedProvider,
   message: string
-): string => `usage: ${provider}: ${message}`;
+): string => `usage: ${provider}: ${sanitizeUsageText(message)}`;
 
 export const formatRefreshFailed = (
   provider: SupportedProvider,
@@ -115,4 +118,4 @@ export const formatRefreshFailed = (
   fetchedAt: number,
   nowMs: number = Date.now()
 ): string =>
-  `usage: ${provider}: refresh failed (${message}); showing cached data from ${formatAge(fetchedAt, nowMs)}`;
+  `usage: ${provider}: refresh failed (${sanitizeUsageText(message)}); showing cached data from ${formatAge(fetchedAt, nowMs)}`;

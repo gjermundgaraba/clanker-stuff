@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import { resolveAccessToken } from "../auth.js";
+import { resolveOAuthAccess } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
@@ -55,7 +55,7 @@ export const fetchClaudeUsage = async (
   deps: AdapterDeps
 ): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
-  const auth = await resolveAccessToken(deps.authClient, "anthropic");
+  const auth = await resolveOAuthAccess(deps.authClient, "anthropic");
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }

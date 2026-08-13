@@ -192,4 +192,55 @@ describe("xai fetch", () => {
       },
     });
   });
+
+  it("starts independent billing requests concurrently", async () => {
+    const monthlyGate = Promise.withResolvers<null>();
+    const authClient: ProviderAuthClient = {
+      getProviderAuth: async () => ({
+        auth: { apiKey: "oauth-token" },
+        source: "OAuth",
+      }),
+    };
+    const fetchJson = vi.fn<FetchJson>(async (url) => {
+      if (!url.includes("format=credits")) {
+        await monthlyGate.promise;
+      }
+      return {
+        json: { config: { monthlyLimit: 100, used: 0 } },
+        ok: true,
+      };
+    });
+
+    const result = fetchXaiUsage({ authClient, fetchJson, now: () => 1 });
+    await vi.waitFor(() => {
+      expect(fetchJson).toHaveBeenCalledTimes(2);
+    });
+    monthlyGate.resolve(null);
+
+    await expect(result).resolves.toMatchObject({ ok: true });
+  });
+
+  it("returns a monthly failure without waiting for credits", async () => {
+    const creditsGate = Promise.withResolvers<never>();
+    const authClient: ProviderAuthClient = {
+      getProviderAuth: async () => ({
+        auth: { apiKey: "oauth-token" },
+        source: "OAuth",
+      }),
+    };
+    const fetchJson = vi.fn<FetchJson>(async (url) => {
+      if (url.includes("format=credits")) {
+        return creditsGate.promise;
+      }
+      return { message: "HTTP 500", ok: false };
+    });
+
+    const result = await fetchXaiUsage({ authClient, fetchJson, now: () => 1 });
+
+    expect(result).toStrictEqual({
+      error: { kind: "failure", message: "HTTP 500" },
+      ok: false,
+    });
+    creditsGate.reject(new Error("credits failed after monthly returned"));
+  });
 });

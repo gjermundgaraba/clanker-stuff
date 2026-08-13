@@ -142,23 +142,30 @@ export const fetchXaiUsage = async (
     "x-xai-token-auth": "xai-grok-cli",
   };
 
-  const monthly = await deps.fetchJson(BILLING_URL, {
+  const monthlyPromise = deps.fetchJson(BILLING_URL, {
     headers,
     timeoutMs: USAGE_HTTP_TIMEOUT_MS,
   });
+  const weeklyPromise = (async () => {
+    try {
+      return await deps.fetchJson(CREDITS_URL, {
+        headers,
+        timeoutMs: USAGE_HTTP_TIMEOUT_MS,
+      });
+    } catch {
+      return null;
+    }
+  })();
+  const monthly = await monthlyPromise;
 
   if (!monthly.ok) {
     return usageFailure(monthly.message);
   }
 
-  const weekly = await deps.fetchJson(CREDITS_URL, {
-    headers,
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
-
+  const weekly = await weeklyPromise;
   return parseXaiUsagePayloads(
     monthly.json,
-    weekly.ok ? weekly.json : undefined,
+    weekly !== null && weekly.ok ? weekly.json : undefined,
     now()
   );
 };

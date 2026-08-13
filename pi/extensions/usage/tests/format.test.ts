@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDetail, formatResetDuration } from "../format.js";
+import {
+  formatDetail,
+  formatProviderError,
+  formatResetDuration,
+} from "../format.js";
 import type { UsageSnapshot } from "../providers.js";
 
 const now = Date.parse("2026-07-21T12:00:00.000Z");
@@ -48,5 +52,27 @@ describe("detail formatting", () => {
     expect(text).toContain("5h  68% left  resets in 2h");
     expect(text).toContain("7d  66% left  resets in 3d");
     expect(text).toContain("credits  12.5");
+  });
+
+  it("strips terminal controls from provider-controlled text", () => {
+    const snapshot = codexSnapshot();
+    snapshot.planLabel = "plus\nforged\tlabel\u001B]52;c;secret\u0007";
+    const [firstWindow] = snapshot.windows;
+    if (!firstWindow) {
+      throw new Error("expected usage window");
+    }
+    firstWindow.label = "5h\nforged\twindow\u009B";
+
+    const detail = formatDetail(snapshot, now);
+    const error = formatProviderError(
+      "openai-codex",
+      "bad\nforged\terror\u001B]8;;https://secret\u0007link"
+    );
+
+    expect(`${detail}\n${error}`).not.toContain("\u001B");
+    expect(`${detail}\n${error}`).not.toContain("\u009B");
+    expect(detail.split("\n")).toHaveLength(4);
+    expect(error).not.toContain("\n");
+    expect(`${detail}\n${error}`).not.toContain("\t");
   });
 });

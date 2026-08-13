@@ -20,7 +20,6 @@ describe("providers", () => {
       "Claude",
       "Codex",
       "Copilot",
-      "Gemini",
       "MiniMax",
       "MiniMax CN",
       "Kimi",

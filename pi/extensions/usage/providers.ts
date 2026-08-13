@@ -2,7 +2,6 @@ export const SUPPORTED_PROVIDERS = [
   "anthropic",
   "openai-codex",
   "github-copilot",
-  "google-gemini-cli",
   "minimax",
   "minimax-cn",
   "kimi-coding",
@@ -68,7 +67,6 @@ export const getActiveProvider = (
 const PROVIDER_DISPLAY_NAMES = {
   anthropic: "Claude",
   "github-copilot": "Copilot",
-  "google-gemini-cli": "Gemini",
   "kimi-coding": "Kimi",
   minimax: "MiniMax",
   "minimax-cn": "MiniMax CN",

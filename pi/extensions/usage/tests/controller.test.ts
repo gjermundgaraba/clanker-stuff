@@ -38,6 +38,12 @@ const codexModel: Model<Api> = {
   provider: "openai-codex",
   reasoning: true,
 };
+const claudeModel: Model<Api> = {
+  ...codexModel,
+  id: "claude-sonnet",
+  name: "Claude Sonnet",
+  provider: "anthropic",
+};
 
 const authClient: ProviderAuthClient = {
   getProviderAuth: async () => ({
@@ -136,6 +142,70 @@ describe("usage controller", () => {
 
     expect(defaultFetchJson).not.toHaveBeenCalled();
     await host.emitSessionShutdown(context);
+  });
+
+  it("does not let a stale command refresh overwrite a model switch", async () => {
+    stubDependencies({ value: 1000 });
+    const codex = Promise.withResolvers<{
+      json: unknown;
+      ok: true;
+    }>();
+    const claude = Promise.withResolvers<{
+      json: unknown;
+      ok: true;
+    }>();
+    vi.mocked(defaultFetchJson).mockImplementation(async (url) => {
+      if (url.includes("/wham/usage")) {
+        return await codex.promise;
+      }
+      if (url.includes("anthropic.com")) {
+        return await claude.promise;
+      }
+      return { message: "unavailable", ok: false };
+    });
+    const host = createExtensionHost(extension, { model: codexModel });
+    const codexContext = host.createContext({ model: codexModel });
+
+    const command = host.runCommand("usage", "", codexContext);
+    await vi.waitFor(() => {
+      expect(defaultFetchJson).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object)
+      );
+    });
+    const claudeContext = host.createContext({ model: claudeModel });
+    await host.emit(
+      "model_select",
+      {
+        model: claudeModel,
+        previousModel: codexModel,
+        source: "set",
+        type: "model_select",
+      },
+      claudeContext
+    );
+    claude.resolve({
+      json: {
+        five_hour: { utilization: 10 },
+      },
+      ok: true,
+    });
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toContain("Claude");
+    });
+
+    codex.resolve({
+      json: {
+        rate_limit: {
+          primary_window: { used_percent: 90 },
+        },
+      },
+      ok: true,
+    });
+    await command;
+
+    expect(host.getStatus("usage")).toContain("Claude");
+    await host.emitSessionShutdown(claudeContext);
   });
 
   it("publishes loading, error, ready, and stale health", async () => {

@@ -253,6 +253,23 @@ describe("codexbar history parsing", () => {
     expect(result.error.kind).toBe("unavailable");
   });
 
+  it("returns unavailable when rendered timestamps are invalid", () => {
+    const invalid = { capturedAt: "not-a-date", usedPercent: 10 };
+    const result = parseCodexBarHistory(
+      sampleHistory({
+        monthly: [invalid],
+        session: [invalid],
+        weekly: [invalid],
+      }),
+      NOW
+    );
+
+    expect(result).toMatchObject({
+      error: { kind: "unavailable" },
+      ok: false,
+    });
+  });
+
   it("returns unavailable when capturedAt is older than 2 hours", () => {
     const stale = Date.parse("2026-08-06T22:00:00Z");
     const now = stale + 3 * 60 * 60_000;
@@ -281,6 +298,33 @@ describe("codexbar history parsing", () => {
     );
 
     expect(result.ok).toBeTruthy();
+  });
+
+  it("does not use an unrendered window to make rendered data look fresh", () => {
+    const result = parseCodexBarHistory(
+      {
+        unscoped: [
+          window("session", [
+            {
+              capturedAt: "2026-08-06T18:00:00Z",
+              usedPercent: 25,
+            },
+          ]),
+          window("unrendered", [
+            {
+              capturedAt: "2026-08-06T22:29:00Z",
+              usedPercent: 1,
+            },
+          ]),
+        ],
+      },
+      NOW
+    );
+
+    expect(result).toMatchObject({
+      error: { kind: "unavailable" },
+      ok: false,
+    });
   });
 });
 

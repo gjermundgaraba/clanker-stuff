@@ -7,7 +7,6 @@ import type {
 import { fetchClaudeUsage } from "./adapters/claude.js";
 import { fetchCodexUsage } from "./adapters/codex.js";
 import { fetchCopilotUsage } from "./adapters/copilot.js";
-import { fetchGeminiUsage } from "./adapters/gemini.js";
 import { fetchKimiUsage } from "./adapters/kimi.js";
 import { fetchMinimaxUsage } from "./adapters/minimax.js";
 import { runCodexBarUsage } from "./adapters/opencode.js";
@@ -72,7 +71,6 @@ export const createUsageController = (pi: ExtensionAPI) => {
   const usageFetchers = {
     anthropic: fromHttpAdapter(fetchClaudeUsage),
     "github-copilot": fromHttpAdapter(fetchCopilotUsage),
-    "google-gemini-cli": fromHttpAdapter(fetchGeminiUsage),
     "kimi-coding": fromHttpAdapter(fetchKimiUsage),
     minimax: fromHttpAdapter((adapterDeps) =>
       fetchMinimaxUsage(adapterDeps, "minimax")
@@ -171,8 +169,10 @@ export const createUsageController = (pi: ExtensionAPI) => {
 
   const refresh = (
     ctx: ExtensionContext,
-    provider: SupportedProvider | undefined
+    provider: SupportedProvider | undefined,
+    force = false
   ): void => {
+    generation += 1;
     currentContext = ctx;
     activeProvider = provider;
     currentMessage = undefined;
@@ -189,7 +189,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
     publish();
     const refreshGeneration = generation;
     void (async () => {
-      const result = await getOrFetch(provider, ctx, false);
+      const result = await getOrFetch(provider, ctx, force);
       if (refreshGeneration !== generation || activeProvider !== provider) {
         return;
       }
@@ -244,8 +244,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
         ctx.ui.notify(parsed.message, "info");
         return;
       }
-      currentContext = ctx;
-      const active = getActiveProvider(ctx.model);
+      refresh(ctx, getActiveProvider(ctx.model), parsed.refresh);
       const results = await Promise.all(
         SUPPORTED_PROVIDERS.map(async (provider) => ({
           provider,
@@ -283,17 +282,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
               : formatProviderError(provider, result.error.message)
           );
         }
-        if (provider === active) {
-          currentUsage = snapshot;
-          if (result.ok) {
-            currentHealth = "ready";
-          } else {
-            currentHealth = snapshot ? "stale" : "error";
-          }
-          currentMessage = result.ok ? undefined : result.error.message;
-        }
       }
-      publish();
       ctx.ui.notify(lines.join("\n\n"), "info");
     },
     start: (ctx: ExtensionContext): void => {
@@ -301,8 +290,6 @@ export const createUsageController = (pi: ExtensionAPI) => {
         return;
       }
       listenForReady();
-      generation += 1;
-      currentContext = ctx;
       refresh(ctx, getActiveProvider(ctx.model));
       stopTimer();
       refreshTimer = setInterval(() => {

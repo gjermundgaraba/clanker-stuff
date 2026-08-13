@@ -7,6 +7,8 @@ The usage extension reads credentials already configured for pi and uses them on
 | Anthropic      | Anthropic OAuth usage API |
 | GitHub Copilot | GitHub Copilot usage API  |
 | Kimi           | Moonshot usage API        |
+| MiniMax        | MiniMax usage API         |
+| MiniMax CN     | MiniMax usage API         |
 | OpenAI Codex   | OpenAI usage API          |
 | OpenCode       | CodexBar history file     |
 | xAI            | xAI management API        |

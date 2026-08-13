@@ -63,7 +63,7 @@ const mapHistoryWindow = (
   id: UsageWindowId
 ): UsageWindow | undefined => {
   const latest = window?.entries.at(-1);
-  if (latest === undefined) {
+  if (latest === undefined || Number.isNaN(Date.parse(latest.capturedAt))) {
     return undefined;
   }
   return makeUsageWindow(
@@ -127,15 +127,21 @@ export const parseCodexBarHistory = (
     byName.set(window.name, window);
   }
 
-  const mapped = HISTORY_WINDOW_MAP.map(({ name, id }) =>
-    mapHistoryWindow(byName.get(name), id)
-  ).filter(isDefined);
+  const renderedWindows = HISTORY_WINDOW_MAP.map(({ name, id }) => ({
+    history: byName.get(name),
+    id,
+  }));
+  const mapped = renderedWindows
+    .map(({ history, id }) => mapHistoryWindow(history, id))
+    .filter(isDefined);
 
   if (mapped.length === 0) {
     return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
   }
 
-  const captured = latestCapturedAt(windows);
+  const captured = latestCapturedAt(
+    renderedWindows.flatMap(({ history }) => (history ? [history] : []))
+  );
   if (captured !== undefined && nowMs - captured > STALE_AFTER_MS) {
     return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
   }
