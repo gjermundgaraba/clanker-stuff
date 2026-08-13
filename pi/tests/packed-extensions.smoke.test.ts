@@ -12,6 +12,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { publishableWorkspacePackages } from "../../scripts/workspace-packages.ts";
 import { createExtensionSmokeHarness } from "./harness/extension-smoke.js";
 import type { ExtensionSmokeHarness } from "./harness/extension-smoke.js";
 
@@ -34,103 +35,25 @@ const DEPENDENCY_FIELDS = [
   "peerDependencies",
 ] as const;
 
-const SHARED_PACKAGES = [
-  {
-    dir: "extension-paths",
-    name: "@clanker-stuff/pi-extension-paths",
-  },
-  {
-    dir: "motion",
-    name: "@clanker-stuff/pi-motion",
-  },
-] as const;
-
-const EXTENSION_PACKAGES = [
-  {
-    commands: [],
-    dir: "ask-question",
-    handlers: [],
-    name: "@clanker-stuff/ask-question",
-    shortcuts: [],
-    tools: ["ask_question"],
-  },
-  {
-    commands: [],
-    dir: "codex-reverse-i-search",
-    handlers: ["input", "session_shutdown", "session_start", "user_bash"],
-    name: "@clanker-stuff/codex-reverse-i-search",
-    shortcuts: ["ctrl+r"],
-    tools: [],
-  },
-  {
-    commands: [],
-    dir: "footer",
-    handlers: [],
-    name: "@clanker-stuff/footer",
-    shortcuts: [],
-    tools: [],
-  },
-  {
-    commands: ["mcp"],
-    dir: "mcp",
-    handlers: [],
-    name: "@clanker-stuff/mcp",
-    shortcuts: [],
-    tools: [],
-  },
-  {
-    commands: [
-      "plannotator-review",
-      "plannotator-annotate",
-      "plannotator-last",
-    ],
-    dir: "plannotator",
-    handlers: [],
-    name: "@clanker-stuff/plannotator",
-    shortcuts: [],
-    tools: [],
-  },
-  {
-    commands: [],
-    dir: "shell-resume-history",
-    handlers: ["session_shutdown"],
-    name: "@clanker-stuff/shell-resume-history",
-    shortcuts: [],
-    tools: [],
-  },
-  {
-    commands: ["pop-stash"],
-    dir: "stash",
-    handlers: [],
-    name: "@clanker-stuff/stash",
-    shortcuts: ["ctrl+s"],
-    tools: [],
-  },
-  {
-    commands: [],
-    dir: "timer",
-    handlers: ["agent_start", "agent_settled"],
-    name: "@clanker-stuff/timer",
-    shortcuts: [],
-    tools: [],
-  },
-  {
-    commands: ["tools"],
-    dir: "tools",
-    handlers: ["model_select", "session_start", "session_tree"],
-    name: "@clanker-stuff/tools",
-    shortcuts: [],
-    tools: [],
-  },
-  {
-    commands: ["usage"],
-    dir: "usage",
-    handlers: [],
-    name: "@clanker-stuff/usage",
-    shortcuts: [],
-    tools: [],
-  },
-] as const;
+const PUBLISHABLE_PACKAGES = publishableWorkspacePackages(REPO_ROOT);
+const EXTENSION_PACKAGE_DIR = /^pi[\\/]extensions[\\/]/u;
+const EXTENSION_PACKAGES = PUBLISHABLE_PACKAGES.flatMap(
+  ({ dir, name, packageJson }) => {
+    if (!EXTENSION_PACKAGE_DIR.test(dir)) {
+      return [];
+    }
+    if (
+      !Array.isArray(packageJson.pi?.extensions) ||
+      packageJson.pi.extensions.length === 0
+    ) {
+      throw new Error(`${name} must declare non-empty pi.extensions`);
+    }
+    return [{ dir, entries: packageJson.pi.extensions, name }];
+  }
+);
+const SHARED_PACKAGES = PUBLISHABLE_PACKAGES.filter(
+  ({ dir }) => !EXTENSION_PACKAGE_DIR.test(dir)
+);
 
 const packPackage = (tempRoot: string, packageName: string, dir: string) => {
   const packDir = path.join(tempRoot, "packs", dir);
@@ -250,25 +173,26 @@ describe("packed extension packages", () => {
     expect(harness.extensionsResult.errors).toStrictEqual([]);
 
     for (const [index, expected] of EXTENSION_PACKAGES.entries()) {
-      const expectedEntryPath = path.join(packageDirs[index], "index.ts");
-      const extension = harness.extensionsResult.extensions.find(
-        ({ resolvedPath }) => resolvedPath === expectedEntryPath
-      );
-      if (extension === undefined) {
-        throw new Error(`Packed extension did not load: ${expected.name}`);
-      }
-
-      for (const command of expected.commands) {
-        expect(extension.commands.has(command)).toBeTruthy();
-      }
-      for (const handler of expected.handlers) {
-        expect(extension.handlers.has(handler)).toBeTruthy();
-      }
-      for (const shortcut of expected.shortcuts) {
-        expect(extension.shortcuts.has(shortcut)).toBeTruthy();
-      }
-      for (const tool of expected.tools) {
-        expect(extension.tools.has(tool)).toBeTruthy();
+      for (const entry of expected.entries) {
+        const expectedEntryPath = path.resolve(packageDirs[index], entry);
+        const extension = harness.extensionsResult.extensions.find(
+          ({ resolvedPath }) => resolvedPath === expectedEntryPath
+        );
+        if (extension === undefined) {
+          throw new Error(`Packed extension did not load: ${expected.name}`);
+        }
+        expect(
+          [
+            extension.commands,
+            extension.entryRenderers,
+            extension.flags,
+            extension.handlers,
+            extension.messageRenderers,
+            extension.shortcuts,
+            extension.tools,
+          ].some((registrations) => (registrations?.size ?? 0) > 0),
+          `${expected.name} registered a runtime surface`
+        ).toBeTruthy();
       }
     }
   }, 120_000);

@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-const CHECK_READMES_PATH = path.join(import.meta.dirname, "check-readmes.mjs");
+const CHECK_READMES_PATH = path.join(import.meta.dirname, "check-readmes.ts");
 const DESCRIPTION = "Adds a sample extension.";
 const PACKAGE_NAME = "@clanker-stuff/sample";
 const tempDirs: string[] = [];
@@ -52,16 +52,16 @@ const createFixture = (usage: string, finalNewline = true) => {
 const validateFixture = (root: string) =>
   spawnSync(process.execPath, [CHECK_READMES_PATH], {
     cwd: root,
-    encoding: "utf8",
+    encoding: "utf-8",
   });
 
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    rmSync(dir, { force: true, recursive: true });
-  }
-});
-
 describe("README validation", () => {
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
   it.each([
     ["one prose line", "Run `/sample` to use the extension.", true],
     [

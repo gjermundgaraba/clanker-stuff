@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const CHECK_PACKAGE_READINESS_PATH = path.join(
   import.meta.dirname,
-  "check-package-readiness.mjs"
+  "check-package-readiness.ts"
 );
 const tempDirs: string[] = [];
 
@@ -69,16 +69,16 @@ const createFixture = (valid: boolean, extension = true) => {
 const validateFixture = (root: string) =>
   spawnSync(process.execPath, [CHECK_PACKAGE_READINESS_PATH], {
     cwd: root,
-    encoding: "utf8",
+    encoding: "utf-8",
   });
 
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    rmSync(dir, { force: true, recursive: true });
-  }
-});
-
 describe("package readiness", () => {
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
   it("applies common extension integrity checks to private packages", () => {
     const valid = validateFixture(createFixture(true));
     const invalid = validateFixture(createFixture(false));

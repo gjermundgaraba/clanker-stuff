@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, globSync, readFileSync } from "node:fs";
+import path from "node:path";
 
-import { readWorkspacePackages } from "./workspace-packages.mjs";
+import { readWorkspacePackages } from "./workspace-packages.ts";
 
 const PI_PROVIDED = new Set([
   "@earendil-works/pi-ai",
@@ -27,42 +27,28 @@ const BUGS_URL = "https://github.com/gjermundgaraba/clanker-stuff/issues";
 const HOMEPAGE_PREFIX =
   "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
 
-function collectRuntimeTsFiles(dir) {
-  const files = [];
-  function walk(current) {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name === "tests") continue;
-      if (entry.name.startsWith(".")) continue;
-      const fullPath = join(current, entry.name);
-      if (entry.isDirectory()) {
-        walk(fullPath);
+const collectRuntimeTsFiles = (directory: string): string[] =>
+  globSync("**/*.ts", {
+    cwd: directory,
+    exclude: ["**/.*", "**/node_modules/**", "**/tests/**", "**/*.test.ts"],
+  }).map((file) => path.join(directory, file));
+
+const matchesPackageSpecifier = (specifier: string, packageName: string) =>
+  specifier === packageName || specifier.startsWith(`${packageName}/`);
+
+const importedPiProvidedPackages = (directory: string): Set<string> => {
+  const imported = new Set<string>();
+  const importRe =
+    /\b(?:import|export)\b[\s\S]*?\bfrom\s*["'](?<specifier>[^"']+)["']/gu;
+  for (const file of collectRuntimeTsFiles(directory)) {
+    const text = readFileSync(file, "utf-8");
+    for (const match of text.matchAll(importRe)) {
+      const specifier = match.groups?.specifier;
+      if (specifier === undefined) {
         continue;
       }
-      if (!entry.isFile()) continue;
-      if (!entry.name.endsWith(".ts")) continue;
-      if (entry.name.endsWith(".test.ts")) continue;
-      if (entry.name.endsWith(".integration.test.ts")) continue;
-      if (entry.name.endsWith(".smoke.test.ts")) continue;
-      files.push(fullPath);
-    }
-  }
-  walk(dir);
-  return files;
-}
-
-function matchesPackageSpecifier(spec, packageName) {
-  return spec === packageName || spec.startsWith(`${packageName}/`);
-}
-
-function importedPiProvidedPackages(dir) {
-  const imported = new Set();
-  const importRe = /\b(?:import|export)\b[\s\S]*?\bfrom\s*["']([^"']+)["']/g;
-  for (const file of collectRuntimeTsFiles(dir)) {
-    const text = readFileSync(file, "utf8");
-    for (const match of text.matchAll(importRe)) {
-      const spec = match[1];
       for (const packageName of PI_PROVIDED) {
-        if (matchesPackageSpecifier(spec, packageName)) {
+        if (matchesPackageSpecifier(specifier, packageName)) {
           imported.add(packageName);
           break;
         }
@@ -70,29 +56,28 @@ function importedPiProvidedPackages(dir) {
     }
   }
   return imported;
-}
+};
 
-function pathExistsForEntry(packageDir, entry) {
-  if (entry.includes("*") || entry.includes("?")) return true;
-  return existsSync(join(packageDir, entry));
-}
+const pathExistsForEntry = (packageDirectory: string, entry: string) =>
+  entry.includes("*") ||
+  entry.includes("?") ||
+  existsSync(path.join(packageDirectory, entry));
 
-function hasIndexExport(pkg) {
-  return pkg.exports === "./index.ts";
-}
-
-const errors = [];
-const workspacePackages = readWorkspacePackages();
+const errors: string[] = [];
 const rootLicensePath = "LICENSE";
 const rootLicense = existsSync(rootLicensePath)
-  ? readFileSync(rootLicensePath, "utf8")
+  ? readFileSync(rootLicensePath, "utf-8")
   : undefined;
 
 if (rootLicense === undefined) {
   errors.push("LICENSE: root MIT license file is missing");
 }
 
-for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
+for (const {
+  dir,
+  packageJson: pkg,
+  packageJsonPath,
+} of readWorkspacePackages()) {
   const label = packageJsonPath;
   const isRoot = pkg.name === ROOT_PACKAGE_NAME;
 
@@ -101,9 +86,12 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   }
 
   if (isRoot) {
-    if (pkg.private !== true)
+    if (pkg.private !== true) {
       errors.push(`${label}: root package must stay private`);
-    if (!pkg.packageManager?.startsWith(EXPECTED_PACKAGE_MANAGER_PREFIX)) {
+    }
+    if (
+      pkg.packageManager?.startsWith(EXPECTED_PACKAGE_MANAGER_PREFIX) !== true
+    ) {
       errors.push(
         `${label}: expected packageManager to start with ${EXPECTED_PACKAGE_MANAGER_PREFIX}`
       );
@@ -111,30 +99,37 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     continue;
   }
 
-  if (!pkg.version) errors.push(`${label}: missing version`);
-  if (!pkg.description) errors.push(`${label}: missing description`);
+  if (pkg.version === undefined || pkg.version.length === 0) {
+    errors.push(`${label}: missing version`);
+  }
+  if (pkg.description === undefined || pkg.description.length === 0) {
+    errors.push(`${label}: missing description`);
+  }
   if (pkg.license !== EXPECTED_LICENSE) {
     errors.push(`${label}: expected license ${EXPECTED_LICENSE}`);
   }
-  const packageLicensePath = join(dir, "LICENSE");
+  const packageLicensePath = path.join(dir, "LICENSE");
   if (!existsSync(packageLicensePath)) {
     errors.push(`${label}: missing LICENSE`);
   } else if (
     rootLicense !== undefined &&
-    readFileSync(packageLicensePath, "utf8") !== rootLicense
+    readFileSync(packageLicensePath, "utf-8") !== rootLicense
   ) {
     errors.push(`${label}: LICENSE must match the root LICENSE`);
   }
-  if (!existsSync(join(dir, "README.md")))
+  if (!existsSync(path.join(dir, "README.md"))) {
     errors.push(`${label}: missing README.md`);
-  if (!hasIndexExport(pkg))
+  }
+  if (pkg.exports !== "./index.ts") {
     errors.push(`${label}: expected exports to be ./index.ts`);
+  }
   if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
     errors.push(`${label}: missing files allowlist`);
   } else {
     for (const entry of pkg.files) {
-      if (!pathExistsForEntry(dir, entry))
+      if (!pathExistsForEntry(dir, entry)) {
         errors.push(`${label}: files entry does not exist: ${entry}`);
+      }
     }
   }
   const isExtensionPackage = dir.startsWith("pi/extensions/");
@@ -145,7 +140,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
       );
     }
     if (
-      !pkg.pi ||
+      pkg.pi === undefined ||
       !Array.isArray(pkg.pi.extensions) ||
       pkg.pi.extensions.length === 0
     ) {
@@ -196,7 +191,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
         `${label}: ${name} belongs in peerDependencies, not dependencies`
       );
     }
-    if (typeof version === "string" && version === "workspace:*") {
+    if (version === "workspace:*") {
       errors.push(
         `${label}: use workspace:^ instead of workspace:* for ${name}`
       );
@@ -213,7 +208,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
         `${label}: ${name} peer dependency should use "${EXPECTED_PI_PROVIDED_VERSION}"`
       );
     }
-    if (typeof version === "string" && version === "workspace:*") {
+    if (version === "workspace:*") {
       errors.push(
         `${label}: use workspace:^ instead of workspace:* for ${name}`
       );
@@ -235,7 +230,9 @@ if (errors.length > 0) {
   console.error(
     `Package readiness check failed with ${errors.length} issue${errors.length === 1 ? "" : "s"}:`
   );
-  for (const error of errors) console.error(`- ${error}`);
+  for (const error of errors) {
+    console.error(`- ${error}`);
+  }
   process.exit(1);
 }
 

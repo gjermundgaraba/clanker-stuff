@@ -39,7 +39,6 @@ export default defineConfig({
   extends: [core, vitest],
   ignorePatterns: [
     ...coreIgnore,
-    "scripts/**",
     "**/skills/plannotator-review/scripts/*.ts",
     "pi/extensions/voice/docs/research/**",
   ],

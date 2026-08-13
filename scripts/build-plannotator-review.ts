@@ -1,12 +1,6 @@
 #!/usr/bin/env node
 
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -17,7 +11,7 @@ const OUTPUT_DIRECTORIES = [
   "codex/plugins/plannotator/skills/plannotator-review/scripts",
 ];
 const check = process.argv.includes("--check");
-const stale = [];
+const stale: string[] = [];
 
 for (const directory of OUTPUT_DIRECTORIES) {
   const outputDirectory = path.join(ROOT, directory);
@@ -27,7 +21,6 @@ for (const directory of OUTPUT_DIRECTORIES) {
   for (const file of FILES) {
     const source = path.join(SOURCE_DIRECTORY, file);
     const output = path.join(outputDirectory, file);
-    const obsolete = output.replace(/\.ts$/u, ".mjs");
     if (check) {
       if (
         !existsSync(output) ||
@@ -35,12 +28,8 @@ for (const directory of OUTPUT_DIRECTORIES) {
       ) {
         stale.push(path.relative(ROOT, output));
       }
-      if (existsSync(obsolete)) {
-        stale.push(path.relative(ROOT, obsolete));
-      }
     } else {
       copyFileSync(source, output);
-      rmSync(obsolete, { force: true });
     }
   }
 }

@@ -81,4 +81,4 @@ Keep detailed configuration, behavior, security notes, and examples in a package
 
 ## Enforcement
 
-README validation must check the canonical title, summary, installation command, required section order, allowed optional section, and 30-line limit. Keep this repository-specific validation in `scripts/check-readmes.mjs`; general Markdown linters do not understand package metadata or this exact template.
+README validation must check the canonical title, summary, installation command, required section order, allowed optional section, and 30-line limit. Keep this repository-specific validation in `scripts/check-readmes.ts`; general Markdown linters do not understand package metadata or this exact template.

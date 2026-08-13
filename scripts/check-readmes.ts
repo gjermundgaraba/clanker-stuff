@@ -1,16 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import { publishableWorkspacePackages } from "./workspace-packages.mjs";
+import { publishableWorkspacePackages } from "./workspace-packages.ts";
 
 const CODE_FENCE = "```";
 const MAX_README_LINES = 30;
-const OPTIONAL_SECTION_NAMES = ["Requirements", "Configuration"];
-const OPTIONAL_SECTION_PATTERN = OPTIONAL_SECTION_NAMES.join("|");
-const PACKAGE_TAIL_PATTERN = new RegExp(
-  `^(?<usage>[\\s\\S]+?)(?:\\n\\n## (?<optionalSection>${OPTIONAL_SECTION_PATTERN})\\n\\n(?<optionalBody>[\\s\\S]+))?$`,
-  "u"
-);
+const PACKAGE_TAIL_PATTERN =
+  /^(?<usage>[\s\S]+?)(?:\n\n## (?<optionalSection>Requirements|Configuration)\n\n(?<optionalBody>[\s\S]+))?$/u;
 const MARKDOWN_BLOCK_START =
   /^(?:#{1,6}\s|[-+*]\s|\d+[.)]\s|>\s?|`{3}|~{3}|\|| {4}|\t)/u;
 const PLUGIN_CATALOGS = [
@@ -21,21 +17,21 @@ const PLUGIN_CATALOGS = [
 const repoRoot = process.cwd();
 const packages = publishableWorkspacePackages()
   .filter(
-    ({ dir, packageJson }) =>
+    ({ packageJson }) =>
       Array.isArray(packageJson.pi?.extensions) &&
       packageJson.pi.extensions.length > 0
   )
-  .sort((left, right) => left.dir.localeCompare(right.dir));
-const errors = [];
+  .toSorted((left, right) => left.dir.localeCompare(right.dir));
+const errors: string[] = [];
 
-const countPhysicalLines = (text) => {
+const countPhysicalLines = (text: string) => {
   const withoutFinalNewline = text.endsWith("\n") ? text.slice(0, -1) : text;
   return withoutFinalNewline === ""
     ? 0
     : withoutFinalNewline.split("\n").length;
 };
 
-const isValidUsage = (usage) => {
+const isValidUsage = (usage: string) => {
   const lines = usage.split("\n");
   const isBulletList =
     lines.length <= 3 && lines.every((line) => /^- \S/u.test(line));
@@ -47,10 +43,8 @@ const isValidUsage = (usage) => {
 };
 
 const rootReadmePath = path.join(repoRoot, "README.md");
-if (!existsSync(rootReadmePath)) {
-  errors.push("README.md is missing.");
-} else {
-  const rootReadme = readFileSync(rootReadmePath, "utf8");
+if (existsSync(rootReadmePath)) {
+  const rootReadme = readFileSync(rootReadmePath, "utf-8");
   const expectedRows = packages.map(
     ({ dir, packageJson }) =>
       `| [\`${packageJson.name}\`](${dir}) | ${packageJson.description} |`
@@ -93,18 +87,26 @@ if (!existsSync(rootReadmePath)) {
       continue;
     }
 
-    const expectedEntries = readdirSync(absoluteDirectory, {
+    const expectedEntries: [string, string][] = readdirSync(absoluteDirectory, {
       withFileTypes: true,
     })
       .filter((entry) => entry.isDirectory())
-      .map((entry) => [entry.name, `${directory}/${entry.name}`])
-      .sort(([left], [right]) => left.localeCompare(right));
+      .map((entry): [string, string] => [
+        entry.name,
+        `${directory}/${entry.name}`,
+      ])
+      .toSorted(([left], [right]) => left.localeCompare(right));
     const section = rootReadme
       .split(`## ${heading}\n\n`)[1]
       ?.split("\n\n## ")[0];
     const actualEntries = [
-      ...(section?.matchAll(/^\| \[`([^`]+)`\]\(([^)]+)\) \| .+ \|$/gmu) ?? []),
-    ].map((match) => [match[1], match[2]]);
+      ...(section?.matchAll(
+        /^\| \[`(?<name>[^`]+)`\]\((?<target>[^)]+)\) \| .+ \|$/gmu
+      ) ?? []),
+    ].flatMap((match) => {
+      const { name, target } = match.groups ?? {};
+      return name === undefined || target === undefined ? [] : [[name, target]];
+    });
 
     if (JSON.stringify(actualEntries) !== JSON.stringify(expectedEntries)) {
       errors.push(
@@ -112,6 +114,8 @@ if (!existsSync(rootReadmePath)) {
       );
     }
   }
+} else {
+  errors.push("README.md is missing.");
 }
 
 for (const { dir, packageJson } of packages) {
@@ -120,11 +124,11 @@ for (const { dir, packageJson } of packages) {
   const packageName = packageJson.name?.trim();
   const title = path.basename(dir);
 
-  if (!description) {
+  if (description === undefined || description.length === 0) {
     errors.push(`${dir}/package.json is missing a non-empty description.`);
     continue;
   }
-  if (!packageName) {
+  if (packageName === undefined || packageName.length === 0) {
     errors.push(`${dir}/package.json is missing a non-empty name.`);
     continue;
   }
@@ -133,7 +137,7 @@ for (const { dir, packageJson } of packages) {
     continue;
   }
 
-  const actual = readFileSync(readmePath, "utf8");
+  const actual = readFileSync(readmePath, "utf-8");
   const lineCount = countPhysicalLines(actual);
   if (lineCount > MAX_README_LINES) {
     errors.push(
@@ -160,15 +164,17 @@ for (const { dir, packageJson } of packages) {
     continue;
   }
 
-  const { optionalBody, optionalSection, usage } = tailMatch.groups;
-  if (!isValidUsage(usage)) {
+  const { optionalBody, optionalSection, usage } = tailMatch.groups ?? {};
+  if (usage === undefined || !isValidUsage(usage)) {
     errors.push(
       `${dir}/README.md Usage must be one prose line or up to three short bullets.`
     );
   }
   if (
     optionalSection !== undefined &&
-    (optionalBody.trim() === "" || /^#{1,6}\s/mu.test(optionalBody))
+    (optionalBody === undefined ||
+      optionalBody.trim() === "" ||
+      /^#{1,6}\s/mu.test(optionalBody))
   ) {
     errors.push(
       `${dir}/README.md ${optionalSection} section must contain text without subsections.`

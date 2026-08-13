@@ -81,7 +81,7 @@ Use a package-local subprocess seam only when that boundary is already justified
 - `*.integration.test.ts` — integration
 - `*.smoke.test.ts` — smoke
 
-Enforced package-level higher-layer coverage requirements live in `scripts/check-tests.mjs`.
+Enforced package-level higher-layer coverage requirements live in `scripts/check-tests.ts`.
 
 ## Repo rules
 
