@@ -142,6 +142,10 @@ export const createReverseSearch = () => {
       historyFromEntries(ctx.sessionManager.getBranch())
     );
 
+    if (ctx.sessionManager.getSessionDir() === "") {
+      return;
+    }
+
     try {
       database = openHistoryDatabase();
       saveHistoryBatch(database, history);

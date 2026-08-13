@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
@@ -21,22 +22,38 @@ export interface HistoryItem {
   timestamp: number;
 }
 
-const textFromEntry = (entry: SessionEntry): HistoryItem | undefined => {
-  if (entry.type !== "message") {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const textFromEntry = (entry: unknown): HistoryItem | undefined => {
+  if (
+    !isRecord(entry) ||
+    entry.type !== "message" ||
+    !isRecord(entry.message)
+  ) {
     return undefined;
   }
 
   const { message } = entry;
   let text: string | undefined;
   if (message.role === "user") {
-    text =
-      typeof message.content === "string"
-        ? message.content
-        : message.content
-            .filter((block) => block.type === "text")
-            .map((block) => block.text)
-            .join("");
-  } else if (message.role === "bashExecution") {
+    if (typeof message.content === "string") {
+      text = message.content;
+    } else if (Array.isArray(message.content)) {
+      text = message.content
+        .flatMap((block) =>
+          isRecord(block) &&
+          block.type === "text" &&
+          typeof block.text === "string"
+            ? [block.text]
+            : []
+        )
+        .join("");
+    }
+  } else if (
+    message.role === "bashExecution" &&
+    typeof message.command === "string"
+  ) {
     text = `${message.excludeFromContext === true ? "!!" : "!"}${message.command}`;
   }
 
@@ -45,7 +62,14 @@ const textFromEntry = (entry: SessionEntry): HistoryItem | undefined => {
     return undefined;
   }
 
-  const timestamp = message.timestamp ?? Date.parse(entry.timestamp);
+  let timestamp = Number.NaN;
+  const { timestamp: messageTimestamp } = message;
+  const { timestamp: entryTimestamp } = entry;
+  if (typeof messageTimestamp === "number") {
+    timestamp = messageTimestamp;
+  } else if (typeof entryTimestamp === "string") {
+    timestamp = Date.parse(entryTimestamp);
+  }
   if (!Number.isFinite(timestamp)) {
     return undefined;
   }
@@ -167,6 +191,20 @@ export const getDataVersion = (database: DatabaseSync): number => {
   return version;
 };
 
+const historyFromJsonl = (text: string): HistoryItem[] =>
+  text.split(/\r?\n/u).flatMap((line) => {
+    if (line.trim() === "") {
+      return [];
+    }
+    try {
+      const parsed: unknown = JSON.parse(line);
+      const item = textFromEntry(parsed);
+      return item ? [item] : [];
+    } catch {
+      return [];
+    }
+  });
+
 export const importPersistentHistory = async (
   database: DatabaseSync,
   currentSessionDirectory: string,
@@ -196,16 +234,16 @@ export const importPersistentHistory = async (
 
   let files = 0;
   for (const [index, session] of sessions.entries()) {
-    let entries: SessionEntry[] | undefined;
+    let entries: HistoryItem[];
     try {
-      entries = SessionManager.open(session.path).getEntries();
+      // oxlint-disable-next-line no-await-in-loop -- imports are intentionally sequential to bound memory
+      entries = historyFromJsonl(await readFile(session.path, "utf-8"));
     } catch {
       // A concurrently deleted or malformed session should not fail the import.
+      continue;
     }
-    if (entries) {
-      saveHistoryBatch(database, historyFromEntries(entries));
-      files += 1;
-    }
+    saveHistoryBatch(database, entries);
+    files += 1;
     onProgress(`importing history: ${index + 1}/${sessions.length} files`);
     // oxlint-disable-next-line no-await-in-loop -- keep the TUI responsive during import
     await yieldToEventLoop();

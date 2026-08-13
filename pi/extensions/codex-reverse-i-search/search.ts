@@ -11,6 +11,9 @@ import {
 import type { HistoryItem } from "./history.js";
 
 export const WIDGET_KEY = "codex-reverse-i-search";
+const graphemeSegmenter = new Intl.Segmenter(undefined, {
+  granularity: "grapheme",
+});
 
 interface SearchSession {
   draft: string;
@@ -75,7 +78,9 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
       session.filteredQuery.length > 0 &&
       query.startsWith(session.filteredQuery);
     const candidates = canNarrow ? session.matches : getHistory();
-    const pattern = query ? new RegExp(RegExp.escape(query), "iu") : undefined;
+    const pattern = session.query
+      ? new RegExp(RegExp.escape(session.query), "iu")
+      : undefined;
     session.matches = pattern
       ? candidates.filter(({ text }) => pattern.test(text))
       : [];
@@ -162,7 +167,11 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
       return { consume: true };
     }
     if (matchesKey(data, "backspace") || matchesKey(data, "ctrl+h")) {
-      session.query = session.query.replace(/.$/su, "");
+      let lastGraphemeStart = 0;
+      for (const grapheme of graphemeSegmenter.segment(session.query)) {
+        lastGraphemeStart = grapheme.index;
+      }
+      session.query = session.query.slice(0, lastGraphemeStart);
       refresh();
       return { consume: true };
     }
@@ -180,7 +189,7 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
     handleInput,
     isOpen: () => session !== undefined,
     reset: () => {
-      session = undefined;
+      close(true);
     },
   };
 };

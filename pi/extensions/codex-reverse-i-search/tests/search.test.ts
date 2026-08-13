@@ -20,6 +20,7 @@ const createHarness = (history: HistoryItem[]) => {
     begin: () => search.begin(ctx.ui),
     ctx,
     host,
+    reset: search.reset,
   };
 };
 
@@ -88,6 +89,15 @@ describe("reverse search", () => {
     expect(ctx.ui.getEditorText()).toBe("Build Release");
   });
 
+  it("matches Unicode text changed by lowercasing", () => {
+    const { begin, ctx, host } = createHarness([item("İstanbul", 100)]);
+
+    begin();
+    host.terminalInput("İ");
+
+    expect(ctx.ui.getEditorText()).toBe("İstanbul");
+  });
+
   it("treats regex syntax as literal search text", () => {
     const { begin, ctx, host } = createHarness([
       item("find [literal].* text", 100),
@@ -113,16 +123,33 @@ describe("reverse search", () => {
     expect(ctx.ui.getEditorText()).toBe("alpha release");
   });
 
-  it("removes one Unicode code point on backspace", () => {
-    const { begin, ctx, host } = createHarness([item("ship 🚀 now", 100)]);
+  it("removes one Unicode grapheme on backspace", () => {
+    const family = "👨‍👩‍👧‍👦";
+    const { begin, ctx, host } = createHarness([
+      item(`ship ${family} now`, 100),
+    ]);
     ctx.ui.setEditorText("draft");
 
     begin();
-    host.terminalInput("🚀");
-    expect(ctx.ui.getEditorText()).toBe("ship 🚀 now");
+    host.terminalInput(family);
+    expect(ctx.ui.getEditorText()).toBe(`ship ${family} now`);
 
     host.terminalInput("\u007F");
     expect(ctx.ui.getEditorText()).toBe("draft");
+  });
+
+  it("restores the draft when reset", () => {
+    const { begin, ctx, host, reset } = createHarness([
+      item("Known prompt", 100),
+    ]);
+    ctx.ui.setEditorText("unfinished draft");
+
+    begin();
+    host.terminalInput("known");
+    reset();
+
+    expect(ctx.ui.getEditorText()).toBe("unfinished draft");
+    expect(host.getWidget("codex-reverse-i-search")).toBeUndefined();
   });
 
   it("accepts bracketed paste without leaking terminal sequences", () => {

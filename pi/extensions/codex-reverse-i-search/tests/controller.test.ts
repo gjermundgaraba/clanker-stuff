@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { StatementSync } from "node:sqlite";
 
@@ -12,7 +12,7 @@ import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
 import { createReverseSearch } from "../controller.js";
-import { openHistoryDatabase } from "../history.js";
+import { loadHistory, openHistoryDatabase } from "../history.js";
 import { userEntry } from "./fixtures.js";
 
 const shutdowns: (() => Promise<void>)[] = [];
@@ -105,6 +105,27 @@ describe("reverse-search controller", () => {
     expect(ctx.ui.getEditorText()).toBe("!!pnpm test");
   });
 
+  it("keeps no-session history in memory only", async () => {
+    const { ctx, host } = await createHarness();
+    Object.assign(ctx.sessionManager, { getSessionDir: () => "" });
+    await host.emitSessionShutdown(ctx);
+    await host.emitSessionStart(ctx);
+
+    await host.emitInput(
+      { source: "interactive", text: "ephemeral prompt", type: "input" },
+      ctx
+    );
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("ephemeral");
+
+    expect(ctx.ui.getEditorText()).toBe("ephemeral prompt");
+    const database = openHistoryDatabase();
+    expect(loadHistory(database)).not.toContainEqual(
+      expect.objectContaining({ text: "ephemeral prompt" })
+    );
+    database.close();
+  });
+
   it("deduplicates repeated prompts and moves them to the front", async () => {
     const { ctx, host } = await createHarness();
     vi.spyOn(Date, "now")
@@ -172,35 +193,33 @@ describe("reverse-search controller", () => {
 
   it("imports existing session files repeatedly and skips malformed lines", async () => {
     const sessionDirectory = path.join(agentDir, "sessions", "project");
+    const sessionPath = path.join(sessionDirectory, "legacy.jsonl");
     await mkdir(sessionDirectory, { recursive: true });
-    await writeFile(
-      path.join(sessionDirectory, "legacy.jsonl"),
-      [
-        JSON.stringify({
-          cwd: "/project",
-          id: "session",
-          timestamp: new Date(50).toISOString(),
-          type: "session",
-          version: 3,
-        }),
-        JSON.stringify(userEntry("old", null, "legacy prompt", 100)),
-        "{not json",
-        JSON.stringify(userEntry("new", "old", "legacy prompt", 200)),
-        JSON.stringify({
-          id: "bash",
-          message: {
-            command: "pnpm test",
-            excludeFromContext: true,
-            role: "bashExecution",
-            timestamp: 300,
-          },
-          parentId: "new",
-          timestamp: new Date(300).toISOString(),
-          type: "message",
-        }),
-      ].join("\n"),
-      "utf-8"
-    );
+    const original = [
+      JSON.stringify({
+        cwd: "/project",
+        id: "session",
+        timestamp: new Date(50).toISOString(),
+        type: "session",
+        version: 3,
+      }),
+      JSON.stringify(userEntry("old", null, "legacy prompt", 100)),
+      "{not json",
+      JSON.stringify(userEntry("new", "old", "legacy prompt", 200)),
+      JSON.stringify({
+        id: "bash",
+        message: {
+          command: "pnpm test",
+          excludeFromContext: true,
+          role: "bashExecution",
+          timestamp: 300,
+        },
+        parentId: "new",
+        timestamp: new Date(300).toISOString(),
+        type: "message",
+      }),
+    ].join("\n");
+    await writeFile(sessionPath, original, "utf-8");
 
     const { ctx, host } = await createHarness();
     await host.runCommand("reverse-i-search-import", "", ctx);
@@ -220,6 +239,7 @@ describe("reverse-search controller", () => {
         .getNotifications()
         .filter(({ message }) => message.startsWith("Imported 2 history"))
     ).toHaveLength(2);
+    await expect(readFile(sessionPath, "utf-8")).resolves.toBe(original);
   });
 
   it("imports newly selected custom session directories", async () => {
