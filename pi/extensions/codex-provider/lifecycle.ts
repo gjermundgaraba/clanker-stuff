@@ -155,7 +155,6 @@ type ActiveNativeCheckpoint = Extract<
 
 interface RequestFrame {
   readonly activeCheckpoint?: ActiveNativeCheckpoint;
-  readonly branchSha256: string;
   readonly fallbackAssistantIds: Readonly<Record<string, string>>;
   readonly generation: number;
   readonly leafId: string | null;
@@ -167,7 +166,6 @@ interface RequestFrame {
 
 interface UnframedCandidate {
   readonly activeCheckpoint?: undefined;
-  readonly branchSha256: string;
   readonly generation: number;
   readonly leafId: string | null;
   readonly modelIdentity: string;
@@ -1563,7 +1561,6 @@ const captureUnframedCandidate = (
 ) => {
   const requestSnapshot = snapshotLifecycleRequestState(pi, ctx);
   state.candidate = {
-    branchSha256: branchSha256(branch),
     generation: state.generation,
     leafId: ctx.sessionManager.getLeafId(),
     modelIdentity: modelIdentity(model),
@@ -1758,7 +1755,6 @@ const runContextHook = (
   }
   state.frame = {
     ...(activeCheckpoint ? { activeCheckpoint } : {}),
-    branchSha256: branchSha256(branch),
     fallbackAssistantIds,
     generation: state.generation,
     leafId: ctx.sessionManager.getLeafId(),
@@ -2024,7 +2020,6 @@ const runInlineCompactionOperation = async (
   } = options;
   const sourceSha256 = sha256Canonical(authoritativeInput);
   const operationKey = sha256Canonical({
-    branch: request.branchSha256,
     discriminator,
     envelope: hashJsonClone(authoritativeEnvelope),
     requestState: request.requestStateSha256,
@@ -2087,7 +2082,6 @@ const runInlineCompactionOperation = async (
           model,
         });
       }
-      const currentBranch = ctx.sessionManager.getBranch();
       if (!execution.ok) {
         return { kind: "remote" };
       }
@@ -2095,7 +2089,6 @@ const runInlineCompactionOperation = async (
         signal.aborted ||
         state.generation !== request.generation ||
         ctx.sessionManager.getLeafId() !== request.leafId ||
-        branchSha256(currentBranch) !== request.branchSha256 ||
         !isSupportedLifecycleModel(ctx.model) ||
         modelIdentity(ctx.model) !== request.modelIdentity ||
         !current() ||
@@ -2180,32 +2173,29 @@ const runUnframedCandidateHook = async (
     abortUnsafeRequest(
       state,
       ctx,
-      `candidate-state:${candidate.branchSha256}`,
+      `candidate-state:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was blocked because the finalized request is unsafe."
     );
     return payload;
   }
-  const branch = ctx.sessionManager.getBranch();
-  if (
-    ctx.sessionManager.getLeafId() !== candidate.leafId ||
-    branchSha256(branch) !== candidate.branchSha256
-  ) {
+  if (ctx.sessionManager.getLeafId() !== candidate.leafId) {
     state.candidate = undefined;
     abortUnsafeRequest(
       state,
       ctx,
-      `candidate-branch:${candidate.branchSha256}`,
+      `candidate-branch:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was blocked because session context changed after context preparation."
     );
     return payload;
   }
+  const branch = ctx.sessionManager.getBranch();
   const envelope = parseFinalizedResponsesEnvelope(payload, model);
   if (!envelope) {
     state.candidate = undefined;
     abortUnsafeRequest(
       state,
       ctx,
-      `candidate-payload:${candidate.branchSha256}`,
+      `candidate-payload:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was blocked because the finalized request is unsafe."
     );
     return payload;
@@ -2240,7 +2230,7 @@ const runUnframedCandidateHook = async (
     abortUnsafeRequest(
       state,
       ctx,
-      `candidate-concurrent:${candidate.branchSha256}`,
+      `candidate-concurrent:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was cancelled because another compaction is active."
     );
     return payload;
@@ -2317,11 +2307,7 @@ const runBeforeProviderRequestHook = async (
     );
     return payload;
   }
-  const branch = ctx.sessionManager.getBranch();
-  if (
-    ctx.sessionManager.getLeafId() !== frame.leafId ||
-    branchSha256(branch) !== frame.branchSha256
-  ) {
+  if (ctx.sessionManager.getLeafId() !== frame.leafId) {
     state.frame = undefined;
     abortUnsafeRequest(
       state,
@@ -2331,6 +2317,7 @@ const runBeforeProviderRequestHook = async (
     );
     return payload;
   }
+  const branch = ctx.sessionManager.getBranch();
   const prepared = prepareFinalizedReplay(
     payload,
     ctx.model,

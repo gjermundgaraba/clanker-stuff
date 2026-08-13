@@ -159,11 +159,9 @@ const assertCheckpoint = (
 };
 
 const lastAssistant = (session: AgentSession): AssistantMessage | undefined =>
-  session.messages
-    .toReversed()
-    .find(
-      (message): message is AssistantMessage => message.role === "assistant"
-    );
+  session.messages.findLast(
+    (message): message is AssistantMessage => message.role === "assistant"
+  );
 
 const assistantText = (message: AssistantMessage | undefined) =>
   message?.content

@@ -1208,9 +1208,9 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
             entry.message.stopReason === "error"
         ).length,
         fetches: fetch.mock.calls.length,
-        finalStopReason: session.messages
-          .toReversed()
-          .find((message) => message.role === "assistant")?.stopReason,
+        finalStopReason: session.messages.findLast(
+          (message) => message.role === "assistant"
+        )?.stopReason,
       }).toStrictEqual({
         failedAssistants: 1,
         fetches: 6,
