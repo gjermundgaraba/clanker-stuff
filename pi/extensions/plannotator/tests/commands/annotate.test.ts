@@ -33,6 +33,24 @@ describe("plannotator-annotate", () => {
     expect(host.getNotifications().at(-1)).toMatchObject({ type: "error" });
   });
 
+  it("finds targets after supported value and boolean flags", async () => {
+    const { ctx, host, pending } = setup();
+    await host.runCommand(
+      "plannotator-annotate",
+      "--result-file /tmp/result.json --require-approval docs/plan.md",
+      ctx
+    );
+
+    expect(pending[0]?.args).toStrictEqual([
+      "annotate",
+      "--result-file",
+      "/tmp/result.json",
+      "--require-approval",
+      "docs/plan.md",
+      "--json",
+    ]);
+  });
+
   it.each([
     { decision: "approved" },
     { decision: "dismissed" },

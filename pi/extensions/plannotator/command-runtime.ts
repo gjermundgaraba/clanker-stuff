@@ -1,7 +1,11 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { CliProcess, CliStarter } from "./cli.js";
 import { processFailure, startCli } from "./cli.js";
+
+const SHUTDOWN_TIMEOUT_MS = 2500;
 
 interface ActiveRun {
   cancelled: boolean;
@@ -121,9 +125,32 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
     ctx: ExtensionCommandContext,
     options: LaunchOptions
   ): void => {
+    let pendingStderr = "";
+    let streamedStderr = "";
+    const streamStderrLines = (chunk: string, flush = false): void => {
+      pendingStderr += chunk;
+      const lines = pendingStderr.split("\n");
+      pendingStderr = lines.pop() ?? "";
+      if (flush && pendingStderr !== "") {
+        lines.push(pendingStderr);
+        pendingStderr = "";
+      }
+      for (const line of lines) {
+        const message = line.trim();
+        if (message !== "") {
+          ctx.ui.notify(message, "info");
+        }
+        streamedStderr += `${line}\n`;
+      }
+    };
+
     let cliProcess: CliProcess;
     try {
-      cliProcess = starter(args, { cwd: ctx.cwd, stdin: options.stdin });
+      cliProcess = starter(args, {
+        cwd: ctx.cwd,
+        onStderr: streamStderrLines,
+        stdin: options.stdin,
+      });
     } catch (error) {
       notifyError(ctx, options.failureLabel, error);
       return;
@@ -137,6 +164,7 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
     activeRuns.add(run);
 
     const settleRun = async (): Promise<void> => {
+      let flushPendingStderrOnError = true;
       try {
         const completion = await cliProcess.completion;
         if (run.cancelled || completion.kind === "cancelled") {
@@ -146,11 +174,21 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
           throw new Error(`terminated by ${completion.signal}`);
         }
         if (completion.code !== 0) {
-          throw processFailure(completion);
+          flushPendingStderrOnError = false;
+          throw processFailure({
+            ...completion,
+            stderr: completion.stderr.startsWith(streamedStderr)
+              ? completion.stderr.slice(streamedStderr.length)
+              : completion.stderr,
+          });
         }
+        streamStderrLines("", true);
         options.onOutput(completion.stdout);
       } catch (error) {
         if (!run.cancelled) {
+          if (flushPendingStderrOnError) {
+            streamStderrLines("", true);
+          }
           notifyError(ctx, options.failureLabel, error);
         }
       } finally {
@@ -184,7 +222,10 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
         // Completion handling below owns process cleanup errors.
       }
     }
-    await Promise.allSettled(runs.map((run) => run.settled));
+    await Promise.race([
+      Promise.allSettled(runs.map((run) => run.settled)),
+      delay(SHUTDOWN_TIMEOUT_MS, undefined, { ref: false }),
+    ]);
   };
 
   return { launch, parseArguments, shutdown };

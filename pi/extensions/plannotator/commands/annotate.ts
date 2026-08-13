@@ -19,15 +19,16 @@ export const createAnnotateHandler =
       return;
     }
 
+    let target: string | undefined;
     let tokens: string[];
     try {
       tokens = normalizeAnnotationArguments(parsed, new Set(["--json"]));
+      target = findAnnotationTarget(tokens);
     } catch (error) {
       notifyError(ctx, "Invalid Plannotator arguments", error);
       return;
     }
 
-    const target = findAnnotationTarget(tokens);
     if (target === undefined) {
       ctx.ui.notify(
         "Usage: /plannotator-annotate <file | folder | URL> [--markdown] [--no-jina] [--gate]",

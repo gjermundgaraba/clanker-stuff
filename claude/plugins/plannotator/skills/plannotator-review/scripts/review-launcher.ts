@@ -401,6 +401,9 @@ const startInstalledPlannotator: CliStarter = (args, options) =>
   startCli("plannotator", args, {
     ...options,
     env: { ...process.env, ...options.env, PLANNOTATOR_CWD: options.cwd },
+    onStderr: (chunk) => {
+      process.stderr.write(chunk);
+    },
   });
 
 const runCli = async (): Promise<void> => {
@@ -422,7 +425,6 @@ const runCli = async (): Promise<void> => {
   try {
     const result = await review.completion;
     if (result.kind === "exited") {
-      process.stderr.write(result.stderr);
       process.stdout.write(result.stdout);
       process.exitCode = result.code;
     } else if (result.kind === "signaled") {

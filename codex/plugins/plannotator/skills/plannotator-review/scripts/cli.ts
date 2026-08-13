@@ -18,6 +18,7 @@ export interface CliProcess {
 export interface CliStartOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  onStderr?: (chunk: string) => void;
   stdin?: string;
 }
 
@@ -54,6 +55,7 @@ export const startCli = (
   let cancelled = false;
   let stdout = "";
   let stderr = "";
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
 
   const {
     promise: completion,
@@ -65,6 +67,7 @@ export const startCli = (
   });
   child.stderr.on("data", (chunk: string) => {
     stderr += chunk;
+    options.onStderr?.(chunk);
   });
   child.once("error", reject);
   child.stdin.once("error", reject);
@@ -72,6 +75,10 @@ export const startCli = (
     child.stdin.end(options.stdin);
   });
   child.once("close", (code, signal) => {
+    if (killTimer !== undefined) {
+      clearTimeout(killTimer);
+      killTimer = undefined;
+    }
     if (cancelled) {
       resolve({ kind: "cancelled" });
       return;
@@ -91,7 +98,13 @@ export const startCli = (
     cancel() {
       cancelled = true;
       if (child.exitCode === null && child.signalCode === null) {
-        child.kill();
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill("SIGKILL");
+          }
+        }, 1000);
+        killTimer.unref();
       }
     },
     completion,

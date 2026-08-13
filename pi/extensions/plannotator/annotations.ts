@@ -1,3 +1,5 @@
+import { parseArgs } from "node:util";
+
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -13,13 +15,6 @@ const AnnotationOutcomeSchema = Type.Union([
 
 export type AnnotationOutcome = Static<typeof AnnotationOutcomeSchema>;
 
-const ANNOTATION_FLAGS_WITHOUT_VALUES = new Set([
-  "--gate",
-  "--markdown",
-  "--no-jina",
-  "--render-html",
-]);
-
 export const normalizeAnnotationArguments = (
   tokens: string[],
   controlledFlags: Set<string>
@@ -31,21 +26,22 @@ export const normalizeAnnotationArguments = (
 };
 
 export const findAnnotationTarget = (tokens: string[]): string | undefined => {
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (ANNOTATION_FLAGS_WITHOUT_VALUES.has(token)) {
-      continue;
-    }
-    if (token === "--browser") {
-      index += 1;
-      continue;
-    }
-    if (token.startsWith("--browser=")) {
-      continue;
-    }
-    return token;
-  }
-  return undefined;
+  const { positionals } = parseArgs({
+    allowPositionals: true,
+    args: tokens,
+    options: {
+      browser: { type: "string" },
+      gate: { type: "boolean" },
+      json: { type: "boolean" },
+      markdown: { type: "boolean" },
+      "no-jina": { type: "boolean" },
+      "render-html": { type: "boolean" },
+      "require-approval": { type: "boolean" },
+      "result-file": { type: "string" },
+    },
+    strict: true,
+  });
+  return positionals[0];
 };
 
 export const parseAnnotationOutcome = (stdout: string): AnnotationOutcome => {
