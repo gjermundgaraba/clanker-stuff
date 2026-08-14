@@ -187,6 +187,10 @@ export class McpServerPool {
   private readonly servers = new Map<string, ConnectedServer>();
   private readonly shutdown = new AbortController();
 
+  hasServer(serverName: string): boolean {
+    return this.servers.has(serverName);
+  }
+
   async loadServer(options: LoadServerOptions): Promise<McpLoadResult> {
     for (;;) {
       const existing = this.loads.get(options.serverName);

@@ -154,7 +154,7 @@ export const setupMcpTest = () => {
       ),
       ui: {
         select: vi.fn<() => Promise<string>>(
-          async () => MCP_MANAGER_SERVER_NAME
+          async () => `○ ${MCP_MANAGER_SERVER_NAME}`
         ),
       },
     });

@@ -38,7 +38,7 @@ describe("mcp oauth", () => {
         },
       },
     });
-    const select = vi.fn<() => Promise<string>>(async () => "remote");
+    const select = vi.fn<() => Promise<string>>(async () => "○ remote");
     const authorization = Promise.withResolvers<Response>();
     const notify = vi.fn<(message: string) => void>((message) => {
       if (!message.startsWith("Authorize MCP server remote:")) {

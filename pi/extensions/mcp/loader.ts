@@ -188,9 +188,25 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
         ctx.ui.notify(available.error, "error");
       }
 
-      const serverNames = available.servers.map(({ name }) => name);
-      const serverName = await ctx.ui.select("MCP server", serverNames);
-      if (serverName === undefined || serverName === "") {
+      const branchServerNames = new Set(
+        loadedServerNames(ctx.sessionManager.getBranch())
+      );
+      const serverOptions = available.servers.map(({ name }) => {
+        const active =
+          branchServerNames.has(name) && serverPool.hasServer(name);
+        return {
+          label: active ? `● ${name} (active)` : `○ ${name}`,
+          name,
+        };
+      });
+      const selected = await ctx.ui.select(
+        "MCP server",
+        serverOptions.map(({ label }) => label)
+      );
+      const serverName = serverOptions.find(
+        ({ label }) => label === selected
+      )?.name;
+      if (serverName === undefined) {
         return;
       }
 

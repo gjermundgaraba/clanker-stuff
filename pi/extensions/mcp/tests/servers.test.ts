@@ -301,7 +301,7 @@ describe("mcp server pool", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "remote"),
+        select: vi.fn<() => Promise<string>>(async () => "○ remote"),
       },
     });
 
@@ -327,7 +327,7 @@ describe("mcp server pool", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "remote"),
+        select: vi.fn<() => Promise<string>>(async () => "○ remote"),
       },
     });
 
@@ -351,7 +351,7 @@ describe("mcp server pool", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
     await host.runCommand("mcp", "", ctx);
@@ -390,7 +390,7 @@ describe("mcp server pool", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
     await host.runCommand("mcp", "", ctx);
@@ -445,7 +445,7 @@ describe("mcp server pool", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
     await host.runCommand("mcp", "", ctx);
@@ -474,7 +474,7 @@ describe("mcp server pool", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
     await host.runCommand("mcp", "", ctx);
@@ -505,7 +505,7 @@ describe("mcp server pool", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
 

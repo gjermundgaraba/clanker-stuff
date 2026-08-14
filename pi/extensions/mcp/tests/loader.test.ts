@@ -66,9 +66,9 @@ describe("mcp loader", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(select).toHaveBeenCalledWith("MCP server", [
-      MCP_MANAGER_SERVER_NAME,
-      "github",
-      "local",
+      `○ ${MCP_MANAGER_SERVER_NAME}`,
+      "○ github",
+      "○ local",
     ]);
     expect(host.getRegisteredTools().size).toBe(0);
   });
@@ -77,7 +77,7 @@ describe("mcp loader", () => {
     await t.writeLocalConfig({
       mcpServers: { project: fixtureServer() },
     });
-    const select = vi.fn<() => Promise<string>>(async () => "project");
+    const select = vi.fn<() => Promise<string>>(async () => "○ project");
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       cwd: t.projectDir,
@@ -87,8 +87,8 @@ describe("mcp loader", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(select).toHaveBeenCalledWith("MCP server", [
-      MCP_MANAGER_SERVER_NAME,
-      "project",
+      `○ ${MCP_MANAGER_SERVER_NAME}`,
+      "○ project",
     ]);
     expect(host.getRegisteredTools().has("mcp_project__search")).toBeTruthy();
   });
@@ -100,7 +100,7 @@ describe("mcp loader", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
 
@@ -121,6 +121,25 @@ describe("mcp loader", () => {
     });
   });
 
+  it("marks successfully loaded servers as active", async () => {
+    await t.writeConfig({
+      mcpServers: { github: fixtureServer() },
+    });
+    const select = vi
+      .fn<() => Promise<string | undefined>>()
+      .mockResolvedValueOnce("○ github");
+    const host = t.createExtensionHost(mcp, { hasUI: false });
+    const ctx = host.createContext({ ui: { select } });
+
+    await host.runCommand("mcp", "", ctx);
+    await host.runCommand("mcp", "", ctx);
+
+    expect(select).toHaveBeenLastCalledWith("MCP server", [
+      `○ ${MCP_MANAGER_SERVER_NAME}`,
+      "● github (active)",
+    ]);
+  });
+
   it("uses custom UI while loading a selected server when interactive", async () => {
     await t.writeConfig({
       mcpServers: { github: fixtureServer() },
@@ -130,7 +149,7 @@ describe("mcp loader", () => {
     const ctx = host.createContext({
       ui: {
         custom,
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
 
@@ -149,7 +168,7 @@ describe("mcp loader", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(select).toHaveBeenCalledWith("MCP server", [
-      MCP_MANAGER_SERVER_NAME,
+      `○ ${MCP_MANAGER_SERVER_NAME}`,
     ]);
     expect(host.getNotifications()).toStrictEqual([]);
   });
@@ -163,7 +182,7 @@ describe("mcp loader", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(select).toHaveBeenCalledWith("MCP server", [
-      MCP_MANAGER_SERVER_NAME,
+      `○ ${MCP_MANAGER_SERVER_NAME}`,
     ]);
     expect(host.getNotifications()).toContainEqual({
       message: expect.stringContaining("Failed to load MCP config:"),
@@ -178,7 +197,7 @@ describe("mcp loader", () => {
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
       ui: {
-        select: vi.fn<() => Promise<string>>(async () => "github"),
+        select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
 
