@@ -5,7 +5,7 @@ import type {
   MessageStartEvent,
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -27,12 +27,20 @@ const controller = vi.hoisted(() => ({
   toggle: vi.fn<(ctx: ExtensionContext) => Promise<void>>(),
   turnEnd: vi.fn<(event: TurnEndEvent) => void>(),
 }));
+const createController = vi.hoisted(() => vi.fn<() => void>());
 
 vi.mock(import("../controller.js"), () => ({
-  createVoiceController: () => controller,
+  createVoiceController: () => {
+    createController();
+    return controller;
+  },
 }));
 
 describe("voice registration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("registers the command, shortcut, and tools, and delegates to the controller", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();
@@ -41,6 +49,8 @@ describe("voice registration", () => {
       message: { role: "user" },
       type: "message_start",
     };
+
+    expect(host.getRegisteredTools().has("speak_to_user")).toBeFalsy();
 
     await host.runCommand("voice", "status", ctx);
     await host.runShortcut("ctrl+shift+v", ctx);
@@ -103,5 +113,17 @@ describe("voice registration", () => {
       toggle: [[ctx]],
       turnEnd: 1,
     });
+  });
+
+  it("does not finish loading after shutdown", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+    await host.emitSessionStart(ctx);
+
+    const toggle = host.runShortcut("ctrl+shift+v", ctx);
+    await host.emitSessionShutdown(ctx);
+    await toggle;
+
+    expect(createController).not.toHaveBeenCalled();
   });
 });

@@ -656,6 +656,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       uiContext: {
         notify: (message: string, type?: string) =>
           notifications.push({ message, type }),
+        setStatus: () => null,
       } as unknown as ExtensionUIContext,
     });
 

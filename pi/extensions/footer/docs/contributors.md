@@ -30,7 +30,9 @@ The status appears in `footer.statuses` by default and can be placed individuall
 
 ## Import-free event protocol
 
-Listen for `clanker-footer:ready`, retain its fresh `instanceId`, and publish complete snapshots to `clanker-footer:widget`:
+Listen for `clanker-footer:ready`, request the current host state through `clanker-footer:ready-request`, retain the fresh `instanceId`, and publish complete snapshots to `clanker-footer:widget`:
+
+First-party TypeScript extensions can import the matching constants and types from `@clanker-stuff/footer-protocol`; the literal form below keeps third-party integration dependency-free.
 
 ```ts
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -63,6 +65,10 @@ export default function (pi: ExtensionAPI) {
       instanceId,
       widget,
     });
+  });
+  pi.events.emit("clanker-footer:ready-request", {
+    protocol: 1,
+    type: "ready-request",
   });
 
   pi.on("session_shutdown", () => {

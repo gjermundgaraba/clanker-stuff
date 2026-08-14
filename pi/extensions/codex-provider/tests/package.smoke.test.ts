@@ -125,6 +125,7 @@ describe("codex-provider package", () => {
       [
         "package/LICENSE",
         "package/README.md",
+        "package/checkpoint-marker.ts",
         "package/checkpoint.ts",
         "package/code-mode/LICENSE.howaboua",
         "package/code-mode/LICENSE.openai",
@@ -140,7 +141,7 @@ describe("codex-provider package", () => {
         "package/code-mode/trace-store.ts",
         "package/code-mode/trace-values.ts",
         "package/code-mode/types.ts",
-        "package/config.ts",
+        "package/fast-mode.ts",
         "package/docs/codex-baseline.md",
         "package/docs/context-alignment.md",
         "package/docs/design.md",
@@ -148,12 +149,15 @@ describe("codex-provider package", () => {
         "package/docs/live-canary.md",
         "package/docs/local-deployment.md",
         "package/index.ts",
+        "package/lazy-provider.ts",
         "package/lifecycle.ts",
+        "package/model-catalog.ts",
         "package/observability.ts",
         "package/package.json",
         "package/provider.ts",
         "package/renderer.ts",
         "package/replay.ts",
+        "package/runtime.ts",
         "package/status.ts",
         "package/tools/controller.ts",
         "package/tools/direct.ts",
@@ -173,6 +177,10 @@ describe("codex-provider package", () => {
         {
           dependencies: {
             "@clanker-stuff/codex-provider": `file:${tarball}`,
+            "@clanker-stuff/lazy-singleton": `file:${path.resolve(
+              PACKAGE_ROOT,
+              "../../packages/lazy-singleton"
+            )}`,
             "@clanker-stuff/pi-extension-paths": `file:${path.resolve(
               PACKAGE_ROOT,
               "../../packages/extension-paths"
@@ -209,6 +217,7 @@ describe("codex-provider package", () => {
       )
     ).toMatchObject({
       dependencies: {
+        "@clanker-stuff/lazy-singleton": "^0.1.0",
         "@clanker-stuff/pi-extension-paths": "^0.1.0",
       },
       name: "@clanker-stuff/codex-provider",

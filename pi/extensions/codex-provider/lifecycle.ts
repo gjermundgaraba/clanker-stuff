@@ -51,7 +51,7 @@ import type {
   CheckpointAgentMessageItem,
   RealUserInputItem,
 } from "./checkpoint.js";
-import type { createFastModeConfigStore } from "./config.js";
+import type { CodexModelCatalog } from "./model-catalog.js";
 import type { CodexObservability } from "./observability.js";
 import {
   ALLOWED_TOOL_CALL_PROVIDERS,
@@ -2503,27 +2503,18 @@ const restoreTransition = (state: LifecycleState, ctx: ExtensionContext) => {
 export const createCodexLifecycle = (
   pi: Parameters<ExtensionFactory>[0],
   observability: CodexObservability,
-  fastModeConfig?: ReturnType<typeof createFastModeConfigStore>
+  isFastModeEnabled: () => boolean = () => false,
+  catalog?: CodexModelCatalog
 ) => {
-  let fastModeEnabled = false;
   const failurePolicy = parseCompactionFailurePolicy(
     process.env.CLANKER_CODEX_COMPACTION_FAILURE
   );
   const providerRuntime = createCodexProviderRuntime(
     observability,
-    () => fastModeEnabled
+    isFastModeEnabled,
+    catalog
   );
   const state = createLifecycleState();
-  const refreshFastStatus = (ctx: ExtensionContext): void => {
-    ctx.ui.setStatus(
-      "codex-fast",
-      fastModeEnabled &&
-        isSupportedLifecycleModel(ctx.model) &&
-        providerRuntime.supportsFastMode(ctx.model)
-        ? ctx.ui.theme.fg("warning", "⚡")
-        : undefined
-    );
-  };
 
   return {
     beforeAgentStart: (ctx: ExtensionContext): void => {
@@ -2660,7 +2651,7 @@ export const createCodexLifecycle = (
     },
     modelSelect: (
       event: Extract<ExtensionEvent, { type: "model_select" }>,
-      ctx: ExtensionContext
+      _ctx: ExtensionContext
     ): void => {
       resetGeneration(state);
       state.transition =
@@ -2681,7 +2672,6 @@ export const createCodexLifecycle = (
         state.transition !== undefined ||
         event.source !== "restore" ||
         !isSupportedLifecycleModel(event.model);
-      refreshFastStatus(ctx);
     },
     provider: providerRuntime.provider,
     runCommand: async (
@@ -2744,10 +2734,7 @@ export const createCodexLifecycle = (
       state.transition = undefined;
       state.transitionRestored = false;
     },
-    start: async (
-      ctx: ExtensionContext,
-      useStartupFlag = true
-    ): Promise<void> => {
+    start: (ctx: ExtensionContext): void => {
       if (ctx.sessionManager.getSessionFile() === undefined) {
         observability.useMemory();
       }
@@ -2755,20 +2742,6 @@ export const createCodexLifecycle = (
       state.transition = undefined;
       state.transitionRestored = false;
       resetGeneration(state);
-      fastModeEnabled = false;
-      if (useStartupFlag && pi.getFlag("fast") === true) {
-        fastModeEnabled = true;
-      } else if (fastModeConfig) {
-        try {
-          fastModeEnabled = await fastModeConfig.load();
-        } catch (error) {
-          ctx.ui.notify(
-            `Failed to load ${fastModeConfig.path}; Codex fast mode is disabled: ${error instanceof Error ? error.message : String(error)}`,
-            "warning"
-          );
-        }
-      }
-      refreshFastStatus(ctx);
       if (failurePolicy.invalid && !state.failurePolicyWarned) {
         state.failurePolicyWarned = true;
         ctx.ui.notify(
@@ -2776,25 +2749,6 @@ export const createCodexLifecycle = (
           "warning"
         );
       }
-    },
-    toggleFastMode: async (ctx: ExtensionContext): Promise<void> => {
-      const enabled = !fastModeEnabled;
-      if (fastModeConfig) {
-        try {
-          await fastModeConfig.save(enabled);
-        } catch (error) {
-          ctx.ui.notify(
-            `Failed to save ${fastModeConfig.path}; Codex fast mode was not changed: ${error instanceof Error ? error.message : String(error)}`,
-            "error"
-          );
-          return;
-        }
-      }
-      fastModeEnabled = enabled;
-      refreshFastStatus(ctx);
-      ctx.ui.notify(
-        `Codex fast mode ${fastModeEnabled ? "enabled" : "disabled"}`
-      );
     },
   };
 };

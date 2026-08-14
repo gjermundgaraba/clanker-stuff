@@ -3,7 +3,7 @@ import type {
   InputEvent,
   UserBashEvent,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -20,12 +20,20 @@ const search = vi.hoisted(() => ({
   recordInput: vi.fn<(event: InputEvent, ctx: ExtensionContext) => void>(),
   start: vi.fn<(ctx: ExtensionContext) => void>(),
 }));
+const createSearch = vi.hoisted(() => vi.fn<() => void>());
 
 vi.mock(import("../controller.js"), () => ({
-  createReverseSearch: () => search,
+  createReverseSearch: () => {
+    createSearch();
+    return search;
+  },
 }));
 
 describe("codex-reverse-i-search registration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("registers and delegates reverse-search behavior", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();
@@ -66,5 +74,17 @@ describe("codex-reverse-i-search registration", () => {
       recordInput: [[input, ctx]],
       start: [[ctx]],
     });
+  });
+
+  it("does not finish loading after shutdown", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+    await host.emitSessionStart(ctx);
+
+    const shortcut = host.runShortcut("ctrl+r", ctx);
+    await host.emitSessionShutdown(ctx);
+    await shortcut;
+
+    expect(createSearch).not.toHaveBeenCalled();
   });
 });

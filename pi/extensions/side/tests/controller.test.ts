@@ -131,7 +131,7 @@ describe("side controller", () => {
     });
   });
 
-  it("tears down on session shutdown and allows reopening", async () => {
+  it("tears down on session shutdown", async () => {
     const conversation = fakeConversation();
     vi.mocked(createSideConversation).mockResolvedValue(conversation);
     const host = createExtensionHost(sideExtension);
@@ -149,11 +149,6 @@ describe("side controller", () => {
     expect(conversation.dispose).toHaveBeenCalledWith();
     expect(handle.hide).toHaveBeenCalledWith();
     expect(host.getStatus("side")).toBeUndefined();
-
-    await host.runCommand("side", "", ctx);
-    await vi.waitFor(() => {
-      expect(createSideConversation).toHaveBeenCalledTimes(2);
-    });
   });
 
   it("opens a fresh side while the previous teardown is still disposing", async () => {

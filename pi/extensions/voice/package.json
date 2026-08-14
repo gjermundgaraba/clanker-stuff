@@ -25,6 +25,7 @@
     "media",
     "media-process.ts",
     "realtime.ts",
+    "runtime.ts",
     "stream.ts",
     "tools.ts",
     "trace.ts",
@@ -38,6 +39,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/lazy-singleton": "workspace:^",
     "electron": "43.2.0",
     "ws": "^8.21.1"
   },

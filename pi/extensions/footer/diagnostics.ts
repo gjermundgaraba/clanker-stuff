@@ -1,24 +1,14 @@
-/* oxlint-disable typescript/no-misused-spread -- summaries use protocol-defined code points */
-
+import { FOOTER_PROTOCOL_VERSION } from "@clanker-stuff/footer-protocol";
+import type { FooterContent } from "@clanker-stuff/footer-protocol";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import { hasTerminalControl } from "./config.js";
 import type { FooterConfig } from "./config.js";
 import type { HostRuntime } from "./host.js";
 import { sanitizeNativeStatus } from "./layout.js";
-import { FOOTER_PROTOCOL_VERSION } from "./protocol.js";
-import type { FooterContent } from "./protocol.js";
+import { summary } from "./summary.js";
 import type { FooterEditorWidget } from "./ui.js";
 import type { LiveWidget } from "./widgets.js";
-
-export const summary = (value: string): string =>
-  [...value]
-    .slice(0, 512)
-    .map((char) => {
-      const code = char.codePointAt(0) ?? 0;
-      return code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : char;
-    })
-    .join("");
 
 const duplicatePlacements = (config: FooterConfig): string[] => {
   const seen = new Set<string>();

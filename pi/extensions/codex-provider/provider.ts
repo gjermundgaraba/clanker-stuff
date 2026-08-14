@@ -1,6 +1,5 @@
 /* oxlint-disable eslint/no-use-before-define, eslint/complexity, eslint/func-style, eslint/no-nested-ternary, eslint/no-await-in-loop, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then -- Responses transport parsing, ordered retries, and socket event queues are bounded protocol state machines */
 
-import { arch, platform, release } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
 
@@ -13,13 +12,11 @@ import {
 import type {
   AssistantMessage,
   Context,
-  Credential,
   Model,
   OpenAICodexResponsesOptions,
   Provider,
   ProviderEnv,
   ProviderHeaders,
-  RefreshModelsContext,
   SimpleStreamOptions,
   StreamFunction,
   Tool,
@@ -27,7 +24,6 @@ import type {
 } from "@earendil-works/pi-ai";
 
 import { createGrammarToolInputProperties } from "#pi-constrained-sampling";
-import { openaiCodexProvider } from "#pi-openai-codex";
 import {
   convertResponsesMessages,
   convertResponsesTools,
@@ -42,6 +38,13 @@ import {
   sha256Canonical,
 } from "./checkpoint.js";
 import type { CanonicalCompactionItem } from "./checkpoint.js";
+import {
+  createCodexHeaders,
+  createCodexModelCatalog,
+  modelSupportsServiceTier,
+  resolveCodexResponsesUrl,
+} from "./model-catalog.js";
+import type { CodexModelCatalog, CodexModelMetadata } from "./model-catalog.js";
 import type { CodexObservability } from "./observability.js";
 import {
   estimateModelVisibleTokens,
@@ -51,23 +54,12 @@ import {
 } from "./replay.js";
 import type { ResponsesInputItem } from "./replay.js";
 
-const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
-const MODEL_CACHE_TTL_MS = 300_000;
-const MODEL_CLIENT_VERSION = "0.0.0";
 const REQUEST_COMPRESSION_LEVEL = 3;
 const WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
 const WEBSOCKET_MAX_AGE_MS = 55 * 60_000;
-// ponytail: offline model catalogs omit service tiers; live metadata replaces this fallback.
-const FAST_MODE_FALLBACK_MODELS = new Set([
-  "gpt-5.4",
-  "gpt-5.5",
-  "gpt-5.6-luna",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-]);
 export const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
   "openai",
   "openai-codex",
@@ -76,31 +68,6 @@ export const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
 
 type SupportedModel = Model<"openai-codex-responses">;
 type JsonRecord = Record<string, unknown>;
-
-export interface CodexModelMetadata extends JsonRecord {
-  readonly auto_compact_token_limit?: number;
-  readonly base_instructions?: string;
-  readonly comp_hash?: string;
-  readonly context_window?: number;
-  readonly default_reasoning_level?: string;
-  readonly default_reasoning_summary?: "auto" | "concise" | "detailed" | "none";
-  readonly default_service_tier?: string;
-  readonly default_verbosity?: "high" | "low" | "medium";
-  readonly display_name: string;
-  readonly effective_context_window_percent: number;
-  readonly input_modalities?: readonly string[];
-  readonly max_context_window?: number;
-  readonly priority: number;
-  readonly service_tiers?: readonly unknown[];
-  readonly slug: string;
-  readonly supported_in_api: boolean;
-  readonly supported_reasoning_levels?: readonly unknown[];
-  readonly support_verbosity: boolean;
-  readonly supports_reasoning_summary_parameter?: boolean;
-  readonly supports_parallel_tool_calls: boolean;
-  readonly use_responses_lite: boolean;
-  readonly visibility: string;
-}
 
 interface RequestBody extends JsonRecord {
   client_metadata?: Record<string, string>;
@@ -230,17 +197,6 @@ export interface CodexCompactionResult {
 const isRecord = (value: unknown): value is JsonRecord =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-const modelSupportsServiceTier = (
-  metadata: CodexModelMetadata,
-  serviceTier: string
-) =>
-  (metadata.service_tiers ?? []).some(
-    (tier) => isRecord(tier) && tier.id === serviceTier
-  );
-
-const isNonnegativeInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-
 const isAborted = (signal: AbortSignal | undefined) => signal?.aborted ?? false;
 
 const cloneJson = <T>(value: T): T => structuredClone(value);
@@ -307,69 +263,10 @@ const normalizeTimeout = (
   return Math.floor(value);
 };
 
-const resolveResponsesUrl = (baseUrl?: string) => {
-  const candidate = baseUrl?.trim();
-  const normalized = (
-    candidate === undefined || candidate.length === 0
-      ? DEFAULT_BASE_URL
-      : candidate
-  ).replace(/\/+$/u, "");
-  if (normalized.endsWith("/codex/responses")) {
-    return normalized;
-  }
-  if (normalized.endsWith("/codex")) {
-    return `${normalized}/responses`;
-  }
-  return `${normalized}/codex/responses`;
-};
-
-const resolveModelsUrl = (baseUrl?: string) => {
-  const responseUrl = new URL(resolveResponsesUrl(baseUrl));
-  responseUrl.pathname = responseUrl.pathname.replace(
-    /\/responses$/u,
-    "/models"
-  );
-  responseUrl.searchParams.set("client_version", MODEL_CLIENT_VERSION);
-  return responseUrl.toString();
-};
-
 const resolveWebSocketUrl = (baseUrl?: string) => {
-  const url = new URL(resolveResponsesUrl(baseUrl));
+  const url = new URL(resolveCodexResponsesUrl(baseUrl));
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
-};
-
-const extractAccountId = (token: string) => {
-  try {
-    const payload: unknown = JSON.parse(
-      Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf-8")
-    );
-    if (!isRecord(payload)) {
-      throw new Error("invalid token payload");
-    }
-    const auth = payload["https://api.openai.com/auth"];
-    if (!isRecord(auth) || typeof auth.chatgpt_account_id !== "string") {
-      throw new Error("missing account id");
-    }
-    return auth.chatgpt_account_id;
-  } catch {
-    throw new Error("Failed to extract accountId from OpenAI credential");
-  }
-};
-
-const applyHeaders = (
-  target: Headers,
-  ...sources: readonly (Readonly<ProviderHeaders> | undefined)[]
-) => {
-  for (const source of sources) {
-    for (const [name, value] of Object.entries(source ?? {})) {
-      if (value === null) {
-        target.delete(name);
-      } else {
-        target.set(name, value);
-      }
-    }
-  }
 };
 
 const headersRecord = (headers: Headers) =>
@@ -384,15 +281,7 @@ const buildBaseHeaders = (
   if (apiKey === undefined || apiKey.length === 0) {
     throw new Error("OpenAI Codex authentication is unavailable");
   }
-  const headers = new Headers();
-  applyHeaders(headers, model.headers, options?.headers);
-  headers.set("authorization", `Bearer ${apiKey}`);
-  headers.set("chatgpt-account-id", extractAccountId(apiKey));
-  headers.set("originator", "pi");
-  headers.set("user-agent", `pi (${platform()} ${release()}; ${arch()})`);
-  headers.set("session-id", requestId);
-  headers.set("x-client-request-id", requestId);
-  return headers;
+  return createCodexHeaders(model, apiKey, requestId, options?.headers);
 };
 
 const splitDeferredTools = (context: Context, enabled: boolean) => {
@@ -432,194 +321,6 @@ const splitDeferredTools = (context: Context, enabled: boolean) => {
     }
   }
   return { deferred, immediate };
-};
-
-const reasoningLevels = (metadata: CodexModelMetadata) =>
-  (metadata.supported_reasoning_levels ?? []).flatMap((value) => {
-    if (typeof value === "string") {
-      return [value];
-    }
-    return isRecord(value) && typeof value.effort === "string"
-      ? [value.effort]
-      : [];
-  });
-
-const parseModelMetadata = (value: unknown): CodexModelMetadata => {
-  if (!isRecord(value)) {
-    throw new Error("Codex model metadata must be an object");
-  }
-  const { display_name: displayName, slug, visibility } = value;
-  if (typeof displayName !== "string" || displayName.length === 0) {
-    throw new Error("Codex model metadata display_name is invalid");
-  }
-  if (typeof slug !== "string" || slug.length === 0) {
-    throw new Error("Codex model metadata slug is invalid");
-  }
-  if (typeof visibility !== "string" || visibility.length === 0) {
-    throw new Error("Codex model metadata visibility is invalid");
-  }
-  const {
-    priority,
-    supported_in_api: supportedInApi,
-    support_verbosity: supportVerbosity,
-    supports_parallel_tool_calls: supportsParallelToolCalls,
-  } = value;
-  if (
-    typeof supportedInApi !== "boolean" ||
-    typeof supportVerbosity !== "boolean" ||
-    typeof supportsParallelToolCalls !== "boolean" ||
-    typeof priority !== "number" ||
-    !Number.isSafeInteger(priority)
-  ) {
-    throw new TypeError("Codex model metadata capabilities are invalid");
-  }
-  for (const key of [
-    "auto_compact_token_limit",
-    "context_window",
-    "max_context_window",
-  ] as const) {
-    if (
-      value[key] !== undefined &&
-      value[key] !== null &&
-      !isNonnegativeInteger(value[key])
-    ) {
-      throw new Error(`Codex model metadata ${key} is invalid`);
-    }
-  }
-  const autoCompactTokenLimit =
-    typeof value.auto_compact_token_limit === "number"
-      ? value.auto_compact_token_limit
-      : undefined;
-  const contextWindow =
-    typeof value.context_window === "number" ? value.context_window : undefined;
-  const maxContextWindow =
-    typeof value.max_context_window === "number"
-      ? value.max_context_window
-      : undefined;
-  const percent = value.effective_context_window_percent ?? 95;
-  if (
-    typeof percent !== "number" ||
-    !Number.isSafeInteger(percent) ||
-    percent <= 0 ||
-    percent > 100
-  ) {
-    throw new Error("Codex model effective context percentage is invalid");
-  }
-  return {
-    ...value,
-    auto_compact_token_limit: autoCompactTokenLimit,
-    context_window: contextWindow,
-    display_name: displayName,
-    effective_context_window_percent: percent,
-    max_context_window: maxContextWindow,
-    priority,
-    slug,
-    support_verbosity: supportVerbosity,
-    supported_in_api: supportedInApi,
-    supports_parallel_tool_calls: supportsParallelToolCalls,
-    use_responses_lite: value.use_responses_lite === true,
-    visibility,
-  };
-};
-
-const projectModel = (
-  metadata: CodexModelMetadata,
-  fallback: readonly SupportedModel[],
-  baseUrl: string
-): SupportedModel => {
-  const existing = fallback.find((model) => model.id === metadata.slug);
-  const levels = reasoningLevels(metadata);
-  const hasRemoteReasoningLevels =
-    metadata.supported_reasoning_levels !== undefined;
-  const thinkingLevelMap: Record<string, string | null> = Object.fromEntries(
-    levels.flatMap((level) => {
-      const piLevel = level === "ultra" ? "max" : level;
-      return ["minimal", "low", "medium", "high", "xhigh", "max"].includes(
-        piLevel
-      )
-        ? [[piLevel, level]]
-        : [];
-    })
-  );
-  if (hasRemoteReasoningLevels) {
-    for (const level of ["off", "minimal", "low", "medium", "high"] as const) {
-      thinkingLevelMap[level] ??= null;
-    }
-  }
-  const contextWindow =
-    metadata.context_window ??
-    metadata.max_context_window ??
-    existing?.contextWindow ??
-    128_000;
-  const modalities = metadata.input_modalities?.filter(
-    (input): input is "image" | "text" => input === "text" || input === "image"
-  );
-  return {
-    api: "openai-codex-responses",
-    baseUrl: existing?.baseUrl ?? baseUrl,
-    compat: existing?.compat,
-    contextWindow,
-    cost: existing?.cost ?? {
-      cacheRead: 0,
-      cacheWrite: 0,
-      input: 0,
-      output: 0,
-    },
-    id: metadata.slug,
-    input:
-      modalities !== undefined && modalities.length > 0
-        ? modalities
-        : (existing?.input ?? ["text", "image"]),
-    maxTokens: existing?.maxTokens ?? Math.min(contextWindow, 128_000),
-    name: metadata.display_name,
-    provider: "openai-codex",
-    reasoning: hasRemoteReasoningLevels
-      ? levels.length > 0
-      : existing?.reasoning === true,
-    ...(Object.keys(thinkingLevelMap).length > 0 ? { thinkingLevelMap } : {}),
-  };
-};
-
-const modelWindow = (
-  model: SupportedModel,
-  metadata: CodexModelMetadata | undefined
-):
-  | {
-      readonly autoCompactTokens: number;
-      readonly effectiveWindowTokens: number;
-    }
-  | undefined => {
-  const contextWindow =
-    metadata?.context_window ??
-    metadata?.max_context_window ??
-    model.contextWindow;
-  if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0) {
-    return undefined;
-  }
-  const contextLimit = Math.floor(contextWindow * 0.9);
-  return {
-    autoCompactTokens:
-      metadata?.auto_compact_token_limit === undefined
-        ? contextLimit
-        : Math.min(metadata.auto_compact_token_limit, contextLimit),
-    effectiveWindowTokens: Math.floor(
-      (contextWindow * (metadata?.effective_context_window_percent ?? 95)) / 100
-    ),
-  };
-};
-
-const credentialApiKey = async (
-  credential: Credential | undefined,
-  base: Provider<"openai-codex-responses">
-): Promise<string | undefined> => {
-  if (credential === undefined) {
-    return undefined;
-  }
-  if (credential.type === "api_key") {
-    return credential.key;
-  }
-  const auth = await base.auth.oauth?.toAuth(credential);
-  return auth?.apiKey ?? undefined;
 };
 
 const initialUsage = (): Usage => ({
@@ -1542,7 +1243,7 @@ const sseEvents = async function* sseEvents(
       }
       let response: Response;
       try {
-        response = await fetch(resolveResponsesUrl(model.baseUrl), {
+        response = await fetch(resolveCodexResponsesUrl(model.baseUrl), {
           body: compressed ?? bodyJson,
           headers,
           method: "POST",
@@ -1805,20 +1506,11 @@ const applyServiceTier = (
 
 export const createCodexProviderRuntime = (
   observability: CodexObservability,
-  isFastModeEnabled: () => boolean = () => false
+  isFastModeEnabled: () => boolean = () => false,
+  catalog: CodexModelCatalog = createCodexModelCatalog()
 ) => {
-  const base = openaiCodexProvider();
-  const fallback = [...base.getModels()];
-  let models = fallback;
-  let metadataByModel = new Map<string, CodexModelMetadata>();
+  const { base } = catalog;
   const sessions = new Map<string, SessionRuntime>();
-
-  const supportsFastMode = (model: SupportedModel) => {
-    const metadata = metadataByModel.get(model.id);
-    return metadata === undefined
-      ? FAST_MODE_FALLBACK_MODELS.has(model.id)
-      : modelSupportsServiceTier(metadata, "priority");
-  };
 
   const getSession = (sessionId: string) => {
     let session = sessions.get(sessionId);
@@ -1827,88 +1519,6 @@ export const createCodexProviderRuntime = (
       sessions.set(sessionId, session);
     }
     return session;
-  };
-
-  const refreshModels = async (context: RefreshModelsContext) => {
-    const { stored } = context;
-    // Stored projections omit private request metadata; skip offline restore.
-    if (!context.allowNetwork || context.signal.aborted) {
-      return;
-    }
-    const now = Date.now();
-    if (
-      context.force !== true &&
-      metadataByModel.size > 0 &&
-      stored?.checkedAt !== undefined &&
-      now - stored.checkedAt < MODEL_CACHE_TTL_MS
-    ) {
-      return;
-    }
-    const apiKey = await credentialApiKey(context.credential, base);
-    if (apiKey === undefined || apiKey.length === 0) {
-      return;
-    }
-    const [authModel] = fallback;
-    if (authModel === undefined) {
-      throw new Error("Pi's static Codex model catalog is empty");
-    }
-    const headers = buildBaseHeaders(authModel, { apiKey }, uuidv7());
-    if (
-      metadataByModel.size > 0 &&
-      stored?.etag !== undefined &&
-      stored.etag.length > 0
-    ) {
-      headers.set("if-none-match", stored.etag);
-    }
-    const response = await fetch(resolveModelsUrl(base.baseUrl), {
-      headers,
-      signal: context.signal,
-    });
-    if (context.signal.aborted) {
-      return;
-    }
-    if (response.status === 304 && metadataByModel.size > 0) {
-      await context.publish({
-        persist: { ...stored, checkedAt: now, models },
-      });
-      return;
-    }
-    if (!response.ok) {
-      throw new Error(`Codex model refresh failed (${response.status})`);
-    }
-    const payload: unknown = await response.json();
-    if (!isRecord(payload) || !Array.isArray(payload.models)) {
-      throw new Error("Codex model response is malformed");
-    }
-    const nextMetadata = new Map<string, CodexModelMetadata>();
-    for (const value of payload.models) {
-      const metadata = parseModelMetadata(value);
-      if (metadata.visibility === "list" && !nextMetadata.has(metadata.slug)) {
-        nextMetadata.set(metadata.slug, metadata);
-      }
-    }
-    if (nextMetadata.size === 0) {
-      throw new Error("Codex model response contains no usable models");
-    }
-    const nextModels = [...nextMetadata.values()]
-      .toSorted((left, right) => left.priority - right.priority)
-      .map((metadata) =>
-        projectModel(metadata, fallback, base.baseUrl ?? DEFAULT_BASE_URL)
-      );
-    if (context.signal.aborted) {
-      return;
-    }
-    await context.publish({
-      persist: {
-        checkedAt: now,
-        etag: response.headers.get("etag") ?? undefined,
-        models: nextModels,
-      },
-      update: () => {
-        metadataByModel = nextMetadata;
-        models = nextModels;
-      },
-    });
   };
 
   const normalEvents = async function* normalEvents(
@@ -1992,7 +1602,7 @@ export const createCodexProviderRuntime = (
       maxRetries: 0,
       reasoningEffort: request.thinkingLevel,
       serviceTier:
-        isFastModeEnabled() && supportsFastMode(request.model)
+        isFastModeEnabled() && catalog.supportsFastMode(request.model)
           ? "priority"
           : undefined,
       sessionId: runtimeSessionId,
@@ -2010,7 +1620,7 @@ export const createCodexProviderRuntime = (
         request.model,
         request.context,
         options,
-        metadataByModel.get(request.model.id),
+        catalog.getModelMetadata(request.model.id),
         runtimeSessionId,
         session
       );
@@ -2070,7 +1680,7 @@ export const createCodexProviderRuntime = (
       if (
         request.codexReason !== undefined &&
         body.service_tier === "priority" &&
-        !supportsFastMode(request.model)
+        !catalog.supportsFastMode(request.model)
       ) {
         delete body.service_tier;
       }
@@ -2324,7 +1934,7 @@ export const createCodexProviderRuntime = (
           model,
           context,
           options,
-          metadataByModel.get(model.id),
+          catalog.getModelMetadata(model.id),
           sessionId,
           session
         );
@@ -2346,7 +1956,7 @@ export const createCodexProviderRuntime = (
           ? built.body.input.slice(0, litePrefixLength)
           : [];
         let { body } = built;
-        if (isFastModeEnabled() && supportsFastMode(model)) {
+        if (isFastModeEnabled() && catalog.supportsFastMode(model)) {
           body.service_tier = "priority";
         }
         if (built.responsesLite) {
@@ -2542,31 +2152,10 @@ export const createCodexProviderRuntime = (
     return events;
   };
 
-  const filterModels = base.filterModels?.bind(base);
   const provider: Provider<"openai-codex-responses"> = {
     ...base,
-    auth: {
-      ...base.auth,
-      apiKey: {
-        name: "OpenAI Codex access token",
-        resolve: async ({ credential }) =>
-          credential === undefined
-            ? undefined
-            : {
-                auth: { apiKey: credential.key },
-                env: credential.env,
-                source: "stored credential",
-              },
-      },
-    },
-    ...(filterModels === undefined
-      ? {}
-      : {
-          filterModels: (values, credential) =>
-            filterModels(values, credential),
-        }),
-    getModels: () => models,
-    refreshModels,
+    getModels: catalog.getModels,
+    refreshModels: catalog.refreshModels,
     stream,
     streamSimple,
   };
@@ -2593,10 +2182,10 @@ export const createCodexProviderRuntime = (
       }
     },
     getModelMetadata(modelId: string) {
-      return metadataByModel.get(modelId);
+      return catalog.getModelMetadata(modelId);
     },
     getModelWindow(model: SupportedModel) {
-      return modelWindow(model, metadataByModel.get(model.id));
+      return catalog.getModelWindow(model);
     },
     getWindow(sessionId: string) {
       return { ...getSession(sessionId).window };
@@ -2630,7 +2219,7 @@ export const createCodexProviderRuntime = (
     },
     provider,
     streamPortableSummary,
-    supportsFastMode,
+    supportsFastMode: catalog.supportsFastMode,
   };
 };
 

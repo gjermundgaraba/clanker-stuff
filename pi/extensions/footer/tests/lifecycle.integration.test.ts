@@ -1,3 +1,4 @@
+import { FOOTER_READY_EVENT } from "@clanker-stuff/footer-protocol";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type {
   ExtensionFactory,
@@ -19,7 +20,6 @@ import {
 import type { FooterConfigStore } from "../config.js";
 import { readGitStatus } from "../git.js";
 import footerExtension from "../index.js";
-import { FOOTER_READY_EVENT } from "../protocol.js";
 import { formatTokenCount } from "../widgets.js";
 
 vi.mock(import("../config.js"), { spy: true });

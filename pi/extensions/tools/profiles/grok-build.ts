@@ -128,6 +128,5 @@ export const grokBuildProfile: HarnessProfile = {
       },
     }),
   ],
-  id: "grok-build",
   matches: (model) => model.id === "grok-4.5",
 };

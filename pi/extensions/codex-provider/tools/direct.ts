@@ -1,4 +1,5 @@
 /* oxlint-disable eslint/sort-keys -- preserve native harness field order */
+import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import type {
   AgentToolResult,
   ExtensionContext,
@@ -9,10 +10,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { applyPatch } from "./patch.js";
 import { resolvePath } from "./path.js";
-import type { ProcessResult } from "./process.js";
-import { ProcessManager } from "./process.js";
+import type { ProcessManager, ProcessResult } from "./process.js";
 
 const strict = { additionalProperties: false } as const;
 
@@ -57,7 +56,18 @@ const processResult = ({
 }: ProcessResult): AgentToolResult<unknown> => textResult(output, details);
 
 export const createCodexDirectTools = () => {
-  const processes = new ProcessManager();
+  const processes = createLazySingleton<ProcessManager>(async (signal) => {
+    const { ProcessManager } = await import("./process.js");
+    signal.throwIfAborted();
+    return new ProcessManager();
+  });
+  const processManager = async (): Promise<ProcessManager> => {
+    const manager = await processes.load();
+    if (manager === undefined) {
+      throw new Error("Process manager is disposed");
+    }
+    return manager;
+  };
   const definitions = [
     defineTool({
       name: "exec_command",
@@ -73,8 +83,9 @@ export const createCodexDirectTools = () => {
         strict
       ),
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+        const manager = await processManager();
         return processResult(
-          await processes.start({
+          await manager.start({
             command: params.cmd,
             ctx,
             cwd:
@@ -100,8 +111,9 @@ export const createCodexDirectTools = () => {
         strict
       ),
       async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+        const manager = await processManager();
         return processResult(
-          await processes.continue({
+          await manager.continue({
             chars: params.chars,
             sessionId: params.session_id,
             signal,
@@ -124,6 +136,7 @@ export const createCodexDirectTools = () => {
         variants: { openai_lark: APPLY_PATCH_GRAMMAR },
       },
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+        const { applyPatch } = await import("./patch.js");
         const result = await applyPatch(params.patch, ctx.cwd, signal);
         return textResult(result.output, {
           changes: result.changes,
@@ -148,6 +161,6 @@ export const createCodexDirectTools = () => {
   ];
   return {
     definitions,
-    dispose: () => processes.dispose(),
+    dispose: () => processes.stop((manager) => manager.dispose()),
   };
 };

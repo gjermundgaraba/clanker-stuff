@@ -1,3 +1,9 @@
+import {
+  FOOTER_PROTOCOL_VERSION,
+  FOOTER_READY_EVENT,
+  FOOTER_READY_REQUEST_EVENT,
+  FOOTER_WIDGET_EVENT,
+} from "@clanker-stuff/footer-protocol";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
@@ -10,9 +16,6 @@ import extension from "../index.js";
 
 vi.mock(import("../auth.js"), { spy: true });
 vi.mock(import("../http.js"), { spy: true });
-
-const FOOTER_READY_EVENT = "clanker-footer:ready";
-const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
 
 const makeJwt = (): string => {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString(
@@ -77,10 +80,12 @@ describe("usage controller", () => {
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {
       messages.push(value);
     });
-    host.events.emit(FOOTER_READY_EVENT, {
-      instanceId: "host-1",
-      protocol: 1,
-      type: "ready",
+    host.events.on(FOOTER_READY_REQUEST_EVENT, () => {
+      host.events.emit(FOOTER_READY_EVENT, {
+        instanceId: "host-1",
+        protocol: FOOTER_PROTOCOL_VERSION,
+        type: "ready",
+      });
     });
 
     const context = host.createContext({ model: codexModel });
@@ -240,10 +245,12 @@ describe("usage controller", () => {
         });
       }
     });
-    host.events.emit(FOOTER_READY_EVENT, {
-      instanceId: "host-1",
-      protocol: 1,
-      type: "ready",
+    host.events.on(FOOTER_READY_REQUEST_EVENT, () => {
+      host.events.emit(FOOTER_READY_EVENT, {
+        instanceId: "host-1",
+        protocol: FOOTER_PROTOCOL_VERSION,
+        type: "ready",
+      });
     });
     const context = host.createContext({ model: codexModel });
 

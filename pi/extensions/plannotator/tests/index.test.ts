@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -17,9 +17,13 @@ const runtime = vi.hoisted(() => ({
   parseArguments: vi.fn<() => string[]>(() => []),
   shutdown: vi.fn<() => Promise<void>>(async () => await Promise.resolve()),
 }));
+const createRuntime = vi.hoisted(() => vi.fn<() => void>());
 
 vi.mock(import("../command-runtime.js"), () => ({
-  createCommandRuntime: () => runtime,
+  createCommandRuntime: () => {
+    createRuntime();
+    return runtime;
+  },
   startPlannotatorCli: vi.fn<() => never>(),
 }));
 vi.mock(import("../commands/review.js"), () => ({
@@ -33,6 +37,10 @@ vi.mock(import("../commands/last.js"), () => ({
 }));
 
 describe("plannotator registration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("registers the three commands and delegates to their handlers", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();
@@ -56,7 +64,18 @@ describe("plannotator registration", () => {
       annotate: [["annotate args", ctx]],
       last: [["last args", ctx]],
       review: [["review args", ctx]],
-      shutdown: [[expect.anything(), ctx]],
+      shutdown: [[]],
     });
+  });
+
+  it("does not finish loading after shutdown", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+
+    const command = host.runCommand("plannotator-review", "", ctx);
+    await host.emitSessionShutdown(ctx);
+    await command;
+
+    expect(createRuntime).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,13 @@
 /* oxlint-disable eslint/complexity, eslint/no-control-regex, eslint/no-nested-ternary, typescript/no-non-null-assertion -- bounded layout and terminal sanitizing are clearer as direct state machines */
 
+import type {
+  FooterContent,
+  FooterIconFamily,
+  FooterSpan,
+  FooterTone,
+  FooterTruncation,
+  FooterWidgetIcon,
+} from "@clanker-stuff/footer-protocol";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
   sliceByColumn,
@@ -9,14 +17,6 @@ import {
 
 import { hasTerminalControl } from "./config.js";
 import type { FooterConfig } from "./config.js";
-import type {
-  FooterContent,
-  FooterIconFamily,
-  FooterSpan,
-  FooterTone,
-  FooterTruncation,
-  FooterWidgetIcon,
-} from "./protocol.js";
 import type { LiveWidget } from "./widgets.js";
 
 export interface RenderableWidget {

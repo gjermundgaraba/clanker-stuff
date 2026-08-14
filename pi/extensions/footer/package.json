@@ -23,7 +23,8 @@
     "git.ts",
     "host.ts",
     "layout.ts",
-    "protocol.ts",
+    "protocol-validation.ts",
+    "summary.ts",
     "ui.ts",
     "widgets.ts",
     "README.md",
@@ -36,6 +37,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^"
   },
   "devDependencies": {

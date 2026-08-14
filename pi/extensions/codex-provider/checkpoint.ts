@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-export const CHECKPOINT_CUSTOM_TYPE = "codex-provider.checkpoint";
+import { CHECKPOINT_CUSTOM_TYPE } from "./checkpoint-marker.js";
+
+export { CHECKPOINT_CUSTOM_TYPE } from "./checkpoint-marker.js";
+
 export const CHECKPOINT_PROTOCOL = "openai-responses-compaction-v2";
 export const CHECKPOINT_SCHEMA = "clanker.codex-provider/checkpoint";
 export const RETAINED_USER_TOKEN_BUDGET = 64_000;

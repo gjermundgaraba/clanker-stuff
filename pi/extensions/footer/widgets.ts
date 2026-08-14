@@ -3,17 +3,17 @@ import os from "node:os";
 import path from "node:path";
 
 import type {
+  FooterContent,
+  FooterSpan,
+  FooterTone,
+  FooterWidgetSnapshot,
+} from "@clanker-stuff/footer-protocol";
+import type {
   ExtensionContext,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
 import type { GitStatus } from "./git.js";
-import type {
-  FooterContent,
-  FooterSpan,
-  FooterTone,
-  FooterWidgetSnapshot,
-} from "./protocol.js";
 
 export type FooterSource = "builtin" | "native" | "rich";
 

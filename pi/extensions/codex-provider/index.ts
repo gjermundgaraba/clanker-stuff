@@ -1,70 +1,59 @@
-import path from "node:path";
-
-import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { createFastModeConfigStore } from "./config.js";
-import { createCodexLifecycle } from "./lifecycle.js";
-import { CodexObservability } from "./observability.js";
+import { createLazyCodexProvider } from "./lazy-provider.js";
 import { registerCheckpointRenderer } from "./renderer.js";
+import { createCodexRuntime } from "./runtime.js";
 import { registerCodexTools } from "./tools/register.js";
 
 export default function codexProviderExtension(pi: ExtensionAPI): void {
-  const storage = getExtensionStoragePaths("codex-provider");
-  const codex = createCodexLifecycle(
-    pi,
-    new CodexObservability(path.join(storage.dataDir, "codex-provider.sqlite")),
-    createFastModeConfigStore(storage.configFile)
-  );
+  const runtime = createCodexRuntime(pi);
 
   pi.registerFlag("fast", {
     description: "Start with OpenAI Codex fast mode enabled",
     type: "boolean",
   });
 
-  pi.registerProvider(codex.provider);
+  pi.registerProvider(
+    createLazyCodexProvider(runtime.catalog, runtime.loadProvider)
+  );
   registerCheckpointRenderer(pi);
   registerCodexTools(pi);
 
   pi.registerCommand("fast", {
     description: "Toggle OpenAI Codex fast mode",
-    handler: (_args, ctx) => codex.toggleFastMode(ctx),
+    handler: (_args, ctx) => runtime.fast(ctx),
   });
 
   pi.registerCommand("codex-provider", {
     description: "Show Codex provider and compaction status",
-    handler: (args, ctx) => codex.runCommand(args, ctx),
+    handler: (args, ctx) => runtime.command(args, ctx),
   });
 
   pi.on("session_start", (event, ctx) =>
-    codex.start(ctx, event.reason === "startup")
+    runtime.sessionStart(ctx, event.reason === "startup")
   );
   pi.on("model_select", (event, ctx) => {
-    codex.modelSelect(event, ctx);
+    runtime.modelSelect(event, ctx);
   });
-  pi.on("before_agent_start", (_event, ctx) => {
-    codex.beforeAgentStart(ctx);
-  });
+  pi.on("before_agent_start", (_event, ctx) => runtime.beforeAgentStart(ctx));
   pi.on("agent_settled", (_event, ctx) => {
-    codex.settled(ctx);
+    runtime.agentSettled(ctx);
   });
   pi.on("message_end", (event, ctx) => {
-    codex.messageEnd(event, ctx);
+    runtime.messageEnd(event, ctx);
   });
-  pi.on("session_shutdown", (_event, ctx) => {
-    codex.shutdown(ctx);
-  });
+  pi.on("session_shutdown", (_event, ctx) => runtime.shutdown(ctx));
   pi.on("session_before_compact", (event, ctx) =>
-    codex.beforeCompact(event, ctx)
+    runtime.beforeCompact(event, ctx)
   );
   pi.on("session_compact", (event, ctx) => {
-    codex.compact(event, ctx);
+    runtime.sessionCompact(event, ctx);
   });
-  pi.on("context", (event, ctx) => codex.context(event, ctx));
+  pi.on("context", (event, ctx) => runtime.context(event, ctx));
   pi.on("before_provider_request", (event, ctx) =>
-    codex.beforeProviderRequest(event, ctx)
+    runtime.beforeProviderRequest(event, ctx)
   );
-  pi.on("before_provider_headers", (event, ctx) => {
-    codex.beforeProviderHeaders(event, ctx);
-  });
+  pi.on("before_provider_headers", (event, ctx) =>
+    runtime.beforeProviderHeaders(event, ctx)
+  );
 }

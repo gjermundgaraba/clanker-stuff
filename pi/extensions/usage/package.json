@@ -25,6 +25,7 @@
     "http.ts",
     "index.ts",
     "providers.ts",
+    "runtime.ts",
     "widgets.ts",
     "README.md",
     "LICENSE",
@@ -34,6 +35,10 @@
   "exports": "./index.ts",
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/footer-protocol": "workspace:^",
+    "@clanker-stuff/lazy-singleton": "workspace:^"
   },
   "devDependencies": {
     "vitest": "*"

@@ -1,80 +1,16 @@
 /* oxlint-disable eslint/complexity -- one validation pass preserves stable protocol error classes */
 
+import { FOOTER_PROTOCOL_VERSION } from "@clanker-stuff/footer-protocol";
+import type {
+  FooterContent,
+  FooterSpan,
+  FooterWidgetHealth,
+  FooterWidgetIcon,
+  FooterWidgetMessage,
+  FooterWidgetSnapshot,
+} from "@clanker-stuff/footer-protocol";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-
-export const FOOTER_PROTOCOL_VERSION = 1 as const;
-export const FOOTER_READY_EVENT = "clanker-footer:ready";
-export const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
-
-export type FooterTone =
-  | "text"
-  | "dim"
-  | "muted"
-  | "accent"
-  | "success"
-  | "warning"
-  | "error";
-
-export interface FooterSpan {
-  text: string;
-  tone?: FooterTone;
-  bold?: boolean;
-}
-
-export type FooterContent = readonly FooterSpan[];
-
-export type FooterIconFamily = "ascii" | "unicode" | "nerd";
-
-export interface FooterWidgetIcon {
-  glyphs: string | Partial<Record<FooterIconFamily, string>>;
-  tone?: FooterTone;
-}
-
-export interface FooterWidgetDisplayDefaults {
-  enabled?: boolean;
-}
-
-export type FooterTruncation = "start" | "middle" | "end";
-
-export type FooterWidgetHealthState = "loading" | "ready" | "stale" | "error";
-
-export interface FooterWidgetHealth {
-  state: FooterWidgetHealthState;
-  message?: string;
-  updatedAt?: number;
-}
-
-export interface FooterWidgetSnapshot {
-  id: string;
-  label: string;
-  content: FooterContent;
-  icon?: FooterWidgetIcon | false;
-  defaults?: FooterWidgetDisplayDefaults;
-  health?: FooterWidgetHealth;
-  consumesStatusKeys?: readonly string[];
-  truncate?: FooterTruncation;
-}
-
-export interface FooterReadyMessage {
-  protocol: 1;
-  type: "ready";
-  instanceId: string;
-}
-
-export type FooterWidgetMessage =
-  | {
-      protocol: 1;
-      type: "upsert";
-      instanceId: string;
-      widget: FooterWidgetSnapshot;
-    }
-  | {
-      protocol: 1;
-      type: "remove";
-      instanceId: string;
-      id: string;
-    };
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
@@ -393,7 +329,7 @@ export const validateFooterWidgetMessage = (
       value: {
         id: value.id,
         instanceId: value.instanceId,
-        protocol: 1,
+        protocol: FOOTER_PROTOCOL_VERSION,
         type: "remove",
       },
     };
@@ -407,7 +343,7 @@ export const validateFooterWidgetMessage = (
       ok: true,
       value: {
         instanceId: value.instanceId,
-        protocol: 1,
+        protocol: FOOTER_PROTOCOL_VERSION,
         type: "upsert",
         widget: widget.value,
       },

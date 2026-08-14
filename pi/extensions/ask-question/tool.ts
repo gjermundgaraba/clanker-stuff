@@ -8,7 +8,6 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import { runAskQuestionPrompt } from "./dialog/controller.js";
 import type {
   AnswerEntry,
   AskQuestionFlowResult,
@@ -311,6 +310,7 @@ export const executeAskQuestion = async (
   });
 
   try {
+    const { runAskQuestionPrompt } = await import("./dialog/controller.js");
     const flow = await runAskQuestionPrompt(ctx, questions, signal);
 
     if (flow.cancelled) {

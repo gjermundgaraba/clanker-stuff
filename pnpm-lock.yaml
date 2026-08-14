@@ -70,6 +70,9 @@ importers:
 
   pi/extensions/codex-provider:
     dependencies:
+      '@clanker-stuff/lazy-singleton':
+        specifier: workspace:^
+        version: link:../../packages/lazy-singleton
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../packages/extension-paths
@@ -92,6 +95,9 @@ importers:
 
   pi/extensions/codex-reverse-i-search:
     dependencies:
+      '@clanker-stuff/lazy-singleton':
+        specifier: workspace:^
+        version: link:../../packages/lazy-singleton
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../packages/extension-paths
@@ -121,6 +127,9 @@ importers:
 
   pi/extensions/footer:
     dependencies:
+      '@clanker-stuff/footer-protocol':
+        specifier: workspace:^
+        version: link:../../packages/footer-protocol
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../packages/extension-paths
@@ -143,6 +152,9 @@ importers:
 
   pi/extensions/mcp:
     dependencies:
+      '@clanker-stuff/lazy-singleton':
+        specifier: workspace:^
+        version: link:../../packages/lazy-singleton
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../packages/extension-paths
@@ -174,6 +186,9 @@ importers:
 
   pi/extensions/plannotator:
     dependencies:
+      '@clanker-stuff/lazy-singleton':
+        specifier: workspace:^
+        version: link:../../packages/lazy-singleton
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -197,6 +212,9 @@ importers:
 
   pi/extensions/side:
     dependencies:
+      '@clanker-stuff/lazy-singleton':
+        specifier: workspace:^
+        version: link:../../packages/lazy-singleton
       '@clanker-stuff/pi-motion':
         specifier: workspace:^
         version: link:../../packages/motion
@@ -260,6 +278,12 @@ importers:
 
   pi/extensions/usage:
     dependencies:
+      '@clanker-stuff/footer-protocol':
+        specifier: workspace:^
+        version: link:../../packages/footer-protocol
+      '@clanker-stuff/lazy-singleton':
+        specifier: workspace:^
+        version: link:../../packages/lazy-singleton
       '@earendil-works/pi-ai':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -276,6 +300,9 @@ importers:
 
   pi/extensions/voice:
     dependencies:
+      '@clanker-stuff/lazy-singleton':
+        specifier: workspace:^
+        version: link:../../packages/lazy-singleton
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -304,6 +331,18 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+    devDependencies:
+      vitest:
+        specifier: '*'
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+
+  pi/packages/footer-protocol:
+    devDependencies:
+      vitest:
+        specifier: '*'
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+
+  pi/packages/lazy-singleton:
     devDependencies:
       vitest:
         specifier: '*'

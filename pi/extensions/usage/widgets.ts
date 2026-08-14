@@ -1,5 +1,10 @@
 /* oxlint-disable eslint/no-nested-ternary -- snapshot content keeps its fallback states adjacent */
 
+import type {
+  FooterWidgetHealthState,
+  FooterWidgetSnapshot,
+} from "@clanker-stuff/footer-protocol";
+
 import { formatResetDuration } from "./format.js";
 import { providerDisplayName } from "./providers.js";
 import type { UsageSnapshot, UsageWindow } from "./providers.js";
@@ -8,40 +13,6 @@ const ACTIVE_WIDGET_ID = "clanker.usage.active";
 const DETAILS_WIDGET_ID = "clanker.usage.details";
 
 export const STATUS_KEY = "usage";
-
-export type HealthState = "loading" | "ready" | "stale" | "error";
-type Tone =
-  | "text"
-  | "dim"
-  | "muted"
-  | "accent"
-  | "success"
-  | "warning"
-  | "error";
-
-export interface RichSnapshot {
-  id: string;
-  label: string;
-  content: { text: string; tone?: Tone }[];
-  consumesStatusKeys?: string[];
-  defaults?: {
-    enabled?: boolean;
-  };
-  health?: {
-    state: HealthState;
-    message?: string;
-    updatedAt?: number;
-  };
-  icon?: {
-    glyphs: {
-      ascii: string;
-      nerd: string;
-      unicode: string;
-    };
-    tone?: Tone;
-  };
-  truncate?: "start" | "middle" | "end";
-}
 
 const richText = (value: string, maximum: number): string => {
   let result = "";
@@ -60,7 +31,7 @@ const richText = (value: string, maximum: number): string => {
 const usedPercent = (window: UsageWindow): number =>
   Math.min(100, Math.max(0, 100 - window.remainingPercent));
 
-const toneFor = (percent: number): Tone => {
+const toneFor = (percent: number): "error" | "text" | "warning" => {
   if (percent >= 90) {
     return "error";
   }
@@ -88,10 +59,10 @@ const providerLabel = (snapshot: UsageSnapshot): string =>
     : providerDisplayName(snapshot.provider);
 
 const health = (
-  state: HealthState,
+  state: FooterWidgetHealthState,
   now: number,
   message?: string
-): RichSnapshot["health"] => ({
+): FooterWidgetSnapshot["health"] => ({
   ...(message !== undefined && message.length > 0
     ? { message: richText(message, 512) }
     : {}),
@@ -101,10 +72,10 @@ const health = (
 
 export const activeSnapshot = (
   snapshot: UsageSnapshot | undefined,
-  state: HealthState,
+  state: FooterWidgetHealthState,
   now: number,
   message?: string
-): RichSnapshot => {
+): FooterWidgetSnapshot => {
   const window = snapshot ? selectActiveWindow(snapshot) : undefined;
   const percent = window ? usedPercent(window) : 0;
   const rounded = `${Math.round(percent)}%`;
@@ -144,10 +115,10 @@ export const activeSnapshot = (
 
 export const detailsSnapshot = (
   snapshot: UsageSnapshot | undefined,
-  state: HealthState,
+  state: FooterWidgetHealthState,
   now: number,
   message?: string
-): RichSnapshot => {
+): FooterWidgetSnapshot => {
   const active = snapshot ? selectActiveWindow(snapshot) : undefined;
   // ponytail: eight rich detail windows stay within protocol text bounds; /usage still shows all.
   const windows =
@@ -172,7 +143,7 @@ export const detailsSnapshot = (
 
 export const fallbackText = (
   snapshot: UsageSnapshot | undefined,
-  state: HealthState
+  state: FooterWidgetHealthState
 ): string => {
   const window = snapshot ? selectActiveWindow(snapshot) : undefined;
   if (snapshot && window) {

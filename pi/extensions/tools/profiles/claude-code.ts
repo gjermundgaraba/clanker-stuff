@@ -11,6 +11,11 @@ const CLAUDE_CODE_MODEL_IDS = new Set([
   "claude-sonnet-5",
   "claude-opus-5",
   "claude-fable-5",
+  "glm-5.2",
+  "glm-5p2",
+  "accounts/fireworks/models/glm-5p2",
+  "accounts/fireworks/routers/glm-5p2-fast",
+  "zai-org/GLM-5.2",
 ]);
 
 export const claudeCodeProfile: HarnessProfile = {
@@ -172,6 +177,5 @@ export const claudeCodeProfile: HarnessProfile = {
       },
     }),
   ],
-  id: "claude-code",
   matches: (model) => CLAUDE_CODE_MODEL_IDS.has(model.id),
 };

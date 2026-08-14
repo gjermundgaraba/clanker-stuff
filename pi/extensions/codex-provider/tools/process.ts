@@ -307,6 +307,7 @@ const identifySession = (
 });
 
 export class ProcessManager {
+  private disposed = false;
   private nextSessionId = 1;
   private readonly sessions = new Map<number, ProcessSession>();
 
@@ -317,6 +318,9 @@ export class ProcessManager {
     signal?: AbortSignal;
     yieldMs?: number;
   }): Promise<ProcessResult> {
+    if (this.disposed) {
+      throw new Error("Process manager is disposed");
+    }
     throwIfAborted(options.signal);
     const output = { current: new ProcessOutput() };
     let process: RunningShell;
@@ -330,6 +334,16 @@ export class ProcessManager {
     } catch (error) {
       await output.current.discard();
       throw error;
+    }
+    if (this.disposed) {
+      process.kill();
+      try {
+        await process.completion;
+      } catch {
+        // Disposal only needs the process to settle.
+      }
+      await output.current.discard();
+      throw new Error("Process manager is disposed");
     }
     const status: ProcessSession["status"] = {
       exitCode: null,
@@ -359,10 +373,14 @@ export class ProcessManager {
       process,
       status,
     };
+    const sessionId = this.nextSessionId;
+    this.nextSessionId += 1;
+    this.sessions.set(sessionId, session);
 
     try {
       await wait(session, options.yieldMs, options.signal);
     } catch (error) {
+      this.sessions.delete(sessionId);
       process.kill();
       await exitPromise;
       await output.current.discard();
@@ -370,13 +388,11 @@ export class ProcessManager {
     }
     const result = await formatOutput(session);
     if (!result.running) {
+      this.sessions.delete(sessionId);
       return result;
     }
-
-    const sessionId = this.nextSessionId;
-    this.nextSessionId += 1;
-    if (this.sessions.size >= MAX_SESSIONS) {
-      const entries = [...this.sessions];
+    if (this.sessions.size > MAX_SESSIONS) {
+      const entries = [...this.sessions].filter(([id]) => id !== sessionId);
       const candidate =
         entries.find(([, storedSession]) => storedSession.status.exited) ??
         entries[0];
@@ -386,7 +402,6 @@ export class ProcessManager {
       await candidateSession.exitPromise;
       await candidateSession.output.current.discard();
     }
-    this.sessions.set(sessionId, session);
     return identifySession(result, sessionId);
   }
 
@@ -396,6 +411,9 @@ export class ProcessManager {
     signal?: AbortSignal;
     yieldMs: number;
   }): Promise<ProcessResult> {
+    if (this.disposed) {
+      throw new Error("Process manager is disposed");
+    }
     const session = this.sessions.get(options.sessionId);
     if (!session) {
       throw new Error(`Unknown process session: ${options.sessionId}`);
@@ -424,6 +442,7 @@ export class ProcessManager {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
     for (const session of sessions) {

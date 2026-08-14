@@ -21,6 +21,7 @@
     "cli.ts",
     "command-runtime.ts",
     "commands",
+    "host.ts",
     "index.ts",
     "LICENSE",
     "README.md",
@@ -30,6 +31,9 @@
   "exports": "./index.ts",
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/lazy-singleton": "workspace:^"
   },
   "devDependencies": {
     "vitest": "*"

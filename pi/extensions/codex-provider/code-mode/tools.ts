@@ -8,8 +8,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
-import { ensureCodeModeHostBinary } from "./binary.js";
-import { CodeModeHostClient } from "./host-client.js";
+import type { CodeModeHostClient } from "./host-client.js";
 import {
   DEFAULT_CODE_MODE_OUTPUT_TOKENS,
   MAX_CODE_MODE_OUTPUT_TOKENS,
@@ -216,6 +215,8 @@ export class CodeModeRuntime {
   }
 
   private async createClient(signal: AbortSignal | undefined) {
+    const [{ ensureCodeModeHostBinary }, { CodeModeHostClient }] =
+      await Promise.all([import("./binary.js"), import("./host-client.js")]);
     const binary = await ensureCodeModeHostBinary(signal);
     return new CodeModeHostClient(binary);
   }

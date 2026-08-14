@@ -8,7 +8,6 @@ import { createGrepToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { toolOperations } from "./operations.js";
 import { createToolOwners } from "./ownership.js";
-import { showToolsPicker } from "./picker.js";
 import { HARNESS_PROFILES } from "./profiles/index.js";
 import { createToolSelection } from "./selection.js";
 
@@ -66,7 +65,7 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
     ctx: ExtensionContext,
     captureSelection = true,
     previousModel?: Model<Api>
-  ) => {
+  ): void => {
     const activeNames = captureSelection
       ? captureCurrentSelection(previousModel)
       : new Set(pi.getActiveTools());
@@ -122,6 +121,7 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
       }
       const tools = visibleTools();
       const activeNames = captureCurrentSelection(undefined, tools);
+      const { showToolsPicker } = await import("./picker.js");
       await showToolsPicker(ctx, tools, activeNames, (name, enabled) => {
         if (enabled) {
           activeNames.add(name);

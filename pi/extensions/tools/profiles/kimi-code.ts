@@ -178,6 +178,5 @@ export const kimiCodeProfile: HarnessProfile = {
       },
     }),
   ],
-  id: "kimi-code",
   matches: (model) => model.id === "kimi-k3",
 };

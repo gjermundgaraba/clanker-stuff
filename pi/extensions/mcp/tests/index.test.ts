@@ -2,7 +2,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import mcp from "../index.js";
@@ -16,12 +16,20 @@ const loader = vi.hoisted(() => ({
     async () => await Promise.resolve()
   ),
 }));
+const createLoader = vi.hoisted(() => vi.fn<() => void>());
 
 vi.mock(import("../loader.js"), () => ({
-  createMcpLoader: () => loader,
+  createMcpLoader: () => {
+    createLoader();
+    return loader;
+  },
 }));
 
 describe("mcp registration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("registers /mcp and delegates lifecycle to the loader", async () => {
     const host = createExtensionHost(mcp);
     const ctx = host.createContext();
@@ -42,5 +50,18 @@ describe("mcp registration", () => {
       pickAndLoad: [[ctx]],
       restore: [[ctx]],
     });
+  });
+
+  it("does not open the picker after shutdown wins the first-load race", async () => {
+    const host = createExtensionHost(mcp);
+    const ctx = host.createContext();
+
+    const command = host.runCommand("mcp", "", ctx);
+    await host.emitSessionShutdown(ctx);
+    await command;
+
+    expect(createLoader).not.toHaveBeenCalled();
+    expect(loader.dispose).not.toHaveBeenCalled();
+    expect(loader.pickAndLoad).not.toHaveBeenCalled();
   });
 });

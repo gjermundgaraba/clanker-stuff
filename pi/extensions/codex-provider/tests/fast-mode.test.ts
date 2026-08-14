@@ -8,9 +8,11 @@ import {
 import os from "node:os";
 import path from "node:path";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createFastModeState } from "../fast-mode.js";
 import extension from "../index.js";
 import { SPIKE_MODEL } from "./fixtures.js";
 
@@ -99,5 +101,133 @@ describe("Codex fast mode", () => {
 
     await host.emitSessionStart(ctx, "new");
     expect(host.getStatus("codex-fast")).toBeUndefined();
+  });
+
+  it("keeps a pre-load /fast opt-out after the lifecycle loads", async () => {
+    const host = createHost({ fast: true });
+    const ctx = host.createContext();
+
+    await host.emitSessionStart(ctx);
+    await host.runCommand("fast", "", ctx);
+    expect(host.getStatus("codex-fast")).toBeUndefined();
+
+    await host.runCommand("codex-provider", "", ctx);
+
+    expect(host.getStatus("codex-fast")).toBeUndefined();
+    expect(
+      JSON.parse(
+        readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")
+      )
+    ).toStrictEqual({ fast: false });
+  });
+
+  it("serializes startup loading before toggles", async () => {
+    const loading = Promise.withResolvers<boolean>();
+    const save = vi.fn<(enabled: boolean) => Promise<void>>(
+      async () => await Promise.resolve()
+    );
+    let api: ExtensionAPI | undefined;
+    const host = createExtensionHost((pi) => {
+      api = pi;
+    });
+    if (api === undefined) {
+      throw new Error("Extension API was not initialized");
+    }
+    const state = createFastModeState(api, {
+      load: () => loading.promise,
+      path: "test-fast.json",
+      save,
+    });
+    const ctx = host.createContext();
+
+    const start = state.start(ctx, false);
+    const toggle = state.toggle(ctx);
+    expect(save).not.toHaveBeenCalled();
+
+    loading.resolve(true);
+    await Promise.all([start, toggle]);
+
+    expect({
+      enabled: state.isEnabled(),
+      notifications: host.getNotifications(),
+      saves: save.mock.calls,
+    }).toStrictEqual({
+      enabled: false,
+      notifications: [{ message: "Codex fast mode disabled", type: undefined }],
+      saves: [[false]],
+    });
+  });
+
+  it("does not update state or UI when shutdown wins an in-flight operation", async () => {
+    const loading = Promise.withResolvers<boolean>();
+    const saving = Promise.withResolvers<null>();
+    const load = vi.fn<() => Promise<boolean>>(() => loading.promise);
+    const save = vi.fn<(enabled: boolean) => Promise<void>>(async () => {
+      await saving.promise;
+    });
+    let api: ExtensionAPI | undefined;
+    const host = createExtensionHost((pi) => {
+      api = pi;
+    });
+    if (api === undefined) {
+      throw new Error("Extension API was not initialized");
+    }
+    const state = createFastModeState(api, {
+      load,
+      path: "test-fast.json",
+      save,
+    });
+    const ctx = host.createContext();
+
+    const start = state.start(ctx, false);
+    await vi.waitFor(() => {
+      expect(load).toHaveBeenCalledOnce();
+    });
+    state.stop();
+    loading.reject(new Error("late load failure"));
+    await start;
+
+    expect({
+      enabled: state.isEnabled(),
+      notifications: host.getNotifications(),
+      saves: save.mock.calls,
+    }).toStrictEqual({
+      enabled: false,
+      notifications: [],
+      saves: [],
+    });
+  });
+
+  it("does not commit an in-flight toggle after shutdown", async () => {
+    const saving = Promise.withResolvers<null>();
+    const save = vi.fn<(enabled: boolean) => Promise<void>>(async () => {
+      await saving.promise;
+    });
+    let api: ExtensionAPI | undefined;
+    const host = createExtensionHost((pi) => {
+      api = pi;
+    });
+    if (api === undefined) {
+      throw new Error("Extension API was not initialized");
+    }
+    const state = createFastModeState(api, {
+      load: async () => false,
+      path: "test-fast.json",
+      save,
+    });
+    const ctx = host.createContext();
+
+    const toggle = state.toggle(ctx);
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenCalledWith(true);
+    });
+    state.stop();
+    saving.resolve(null);
+    await toggle;
+
+    expect({
+      enabled: state.isEnabled(),
+      notifications: host.getNotifications(),
+    }).toStrictEqual({ enabled: false, notifications: [] });
   });
 });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   validateFooterWidgetMessage,
   validateFooterWidgetSnapshot,
-} from "../protocol.js";
+} from "../protocol-validation.js";
 
 describe("protocol validation", () => {
   const snapshot = {

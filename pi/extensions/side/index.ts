@@ -1,21 +1,20 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Key } from "@earendil-works/pi-tui";
 
-import { createSideController } from "./controller.js";
+import { createSideRuntime } from "./runtime.js";
 
 export default function sideExtension(pi: ExtensionAPI): void {
-  const side = createSideController(pi);
+  const runtime = createSideRuntime(pi);
 
   pi.registerCommand("side", {
     description: "Open or restore a concurrent multi-turn side conversation",
-    handler: (args, ctx) => side.launch(args, ctx),
+    handler: (args, ctx) => runtime.launch(args, ctx),
   });
 
-  pi.registerShortcut(Key.ctrl("/"), {
+  pi.registerShortcut("ctrl+/", {
     description: "Open side or toggle focus between side and main",
-    handler: (ctx) => side.toggle(ctx),
+    handler: (ctx) => runtime.toggle(ctx),
   });
 
-  pi.on("session_tree", (_event, ctx) => side.closeOnTreeChange(ctx));
-  pi.on("session_shutdown", () => side.dispose());
+  pi.on("session_tree", (_event, ctx) => runtime.closeOnTreeChange(ctx));
+  pi.on("session_shutdown", () => runtime.shutdown());
 }

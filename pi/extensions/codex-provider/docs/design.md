@@ -8,8 +8,10 @@ The implementation follows the pinned [Codex and Pi source baseline](codex-basel
 
 | Responsibility | Implementation |
 | --- | --- |
-| Provider registration and lifecycle hooks | [`lifecycle.ts`](../lifecycle.ts) |
-| Request bodies, models, service tiers, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
+| Provider registration, lazy loading, and hook routing | [`index.ts`](../index.ts), [`runtime.ts`](../runtime.ts), [`lazy-provider.ts`](../lazy-provider.ts) |
+| Session lifecycle, compaction hooks, and fast mode | [`lifecycle.ts`](../lifecycle.ts), [`fast-mode.ts`](../fast-mode.ts) |
+| Request bodies, service tiers, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
+| Model catalog, `/models` refresh, and Codex request headers | [`model-catalog.ts`](../model-catalog.ts) |
 | Direct tools, model gating, selection, and `/code-mode` | [`tools/`](../tools/) |
 | Code Mode host protocol and nested tool runtime | [`code-mode/`](../code-mode/) |
 | Best-effort request and reliability observations | [`observability.ts`](../observability.ts) |

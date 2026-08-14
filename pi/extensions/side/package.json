@@ -20,6 +20,7 @@
     "controller.ts",
     "index.ts",
     "panel.ts",
+    "runtime.ts",
     "session.ts",
     "README.md",
     "LICENSE"
@@ -30,6 +31,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-motion": "workspace:^"
   },
   "devDependencies": {

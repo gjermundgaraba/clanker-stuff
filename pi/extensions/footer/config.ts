@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { FooterIconFamily } from "@clanker-stuff/footer-protocol";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-
-import type { FooterIconFamily } from "./protocol.js";
 
 export interface FooterRowConfig {
   left: string[];

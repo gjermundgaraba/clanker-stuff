@@ -1,17 +1,21 @@
+import {
+  FOOTER_PROTOCOL_VERSION,
+  FOOTER_READY_EVENT,
+  FOOTER_READY_REQUEST_EVENT,
+  FOOTER_WIDGET_EVENT,
+  isFooterReadyMessage,
+} from "@clanker-stuff/footer-protocol";
+import type {
+  FooterWidgetHealthState,
+  FooterWidgetSnapshot,
+} from "@clanker-stuff/footer-protocol";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { fetchClaudeUsage } from "./adapters/claude.js";
-import { fetchCodexUsage } from "./adapters/codex.js";
-import { fetchCopilotUsage } from "./adapters/copilot.js";
-import { fetchKimiUsage } from "./adapters/kimi.js";
-import { fetchMinimaxUsage } from "./adapters/minimax.js";
-import { runCodexBarUsage } from "./adapters/opencode.js";
 import type { AdapterDeps } from "./adapters/util.js";
-import { fetchXaiUsage } from "./adapters/xai.js";
 import { providerAuthClientFromContext } from "./auth.js";
 import { UsageCache } from "./cache.js";
 import {
@@ -32,10 +36,7 @@ import {
   fallbackText,
   STATUS_KEY,
 } from "./widgets.js";
-import type { HealthState, RichSnapshot } from "./widgets.js";
 
-const FOOTER_READY_EVENT = "clanker-footer:ready";
-const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
 const REFRESH_INTERVAL_MS = 5 * 60_000;
 const NO_AVAILABLE_PROVIDERS_MESSAGE =
   "usage: no supported providers are available (log in to a supported provider; opencode-go also requires CodexBar to be running)";
@@ -43,8 +44,8 @@ const NO_AVAILABLE_PROVIDERS_MESSAGE =
 // Wrapped so tests can control time by spying on Date.now.
 const now = (): number => Date.now();
 
-type HttpUsageFetcher = (deps: AdapterDeps) => Promise<UsageFetchResult>;
 type UsageFetcher = (ctx: ExtensionContext) => Promise<UsageFetchResult>;
+type HttpUsageFetcher = (deps: AdapterDeps) => Promise<UsageFetchResult>;
 
 const parseUsageArgs = (
   args: string
@@ -69,34 +70,54 @@ export const createUsageController = (pi: ExtensionAPI) => {
         now,
       });
   const usageFetchers = {
-    anthropic: fromHttpAdapter(fetchClaudeUsage),
-    "github-copilot": fromHttpAdapter(fetchCopilotUsage),
-    "kimi-coding": fromHttpAdapter(fetchKimiUsage),
-    minimax: fromHttpAdapter((adapterDeps) =>
-      fetchMinimaxUsage(adapterDeps, "minimax")
-    ),
-    "minimax-cn": fromHttpAdapter((adapterDeps) =>
-      fetchMinimaxUsage(adapterDeps, "minimax-cn")
-    ),
-    "openai-codex": fromHttpAdapter(fetchCodexUsage),
-    "opencode-go": () => runCodexBarUsage({ now }),
-    xai: fromHttpAdapter(fetchXaiUsage),
+    anthropic: fromHttpAdapter(async (deps) => {
+      const { fetchClaudeUsage } = await import("./adapters/claude.js");
+      return await fetchClaudeUsage(deps);
+    }),
+    "github-copilot": fromHttpAdapter(async (deps) => {
+      const { fetchCopilotUsage } = await import("./adapters/copilot.js");
+      return await fetchCopilotUsage(deps);
+    }),
+    "kimi-coding": fromHttpAdapter(async (deps) => {
+      const { fetchKimiUsage } = await import("./adapters/kimi.js");
+      return await fetchKimiUsage(deps);
+    }),
+    minimax: fromHttpAdapter(async (deps) => {
+      const { fetchMinimaxUsage } = await import("./adapters/minimax.js");
+      return await fetchMinimaxUsage(deps, "minimax");
+    }),
+    "minimax-cn": fromHttpAdapter(async (deps) => {
+      const { fetchMinimaxUsage } = await import("./adapters/minimax.js");
+      return await fetchMinimaxUsage(deps, "minimax-cn");
+    }),
+    "openai-codex": fromHttpAdapter(async (deps) => {
+      const { fetchCodexUsage } = await import("./adapters/codex.js");
+      return await fetchCodexUsage(deps);
+    }),
+    "opencode-go": async () => {
+      const { runCodexBarUsage } = await import("./adapters/opencode.js");
+      return await runCodexBarUsage({ now });
+    },
+    xai: fromHttpAdapter(async (deps) => {
+      const { fetchXaiUsage } = await import("./adapters/xai.js");
+      return await fetchXaiUsage(deps);
+    }),
   } satisfies Record<SupportedProvider, UsageFetcher>;
 
   let generation = 0;
   let activeProvider: SupportedProvider | undefined;
   let currentContext: ExtensionContext | undefined;
-  let currentHealth: HealthState = "loading";
+  let currentHealth: FooterWidgetHealthState = "loading";
   let currentMessage: string | undefined;
   let currentUsage: UsageSnapshot | undefined;
   let instanceId: string | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let readyUnsubscribe: (() => void) | undefined;
-  const published = new Map<string, RichSnapshot>();
+  const published = new Map<string, FooterWidgetSnapshot>();
 
   const emit = (
     type: "upsert" | "remove",
-    value: RichSnapshot | string
+    value: FooterWidgetSnapshot | string
   ): void => {
     if (instanceId === undefined) {
       return;
@@ -106,15 +127,15 @@ export const createUsageController = (pi: ExtensionAPI) => {
       type === "upsert"
         ? {
             instanceId,
-            protocol: 1,
+            protocol: FOOTER_PROTOCOL_VERSION,
             type,
             widget: value,
           }
-        : { id: value, instanceId, protocol: 1, type }
+        : { id: value, instanceId, protocol: FOOTER_PROTOCOL_VERSION, type }
     );
   };
 
-  const publishSnapshot = (snapshot: RichSnapshot): void => {
+  const publishSnapshot = (snapshot: FooterWidgetSnapshot): void => {
     published.set(snapshot.id, snapshot);
     emit("upsert", snapshot);
   };
@@ -136,17 +157,11 @@ export const createUsageController = (pi: ExtensionAPI) => {
   };
 
   const listenForReady = (): void => {
-    readyUnsubscribe ??= pi.events.on(FOOTER_READY_EVENT, (value) => {
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        !("protocol" in value) ||
-        value.protocol !== 1 ||
-        !("type" in value) ||
-        value.type !== "ready" ||
-        !("instanceId" in value) ||
-        typeof value.instanceId !== "string"
-      ) {
+    if (readyUnsubscribe !== undefined) {
+      return;
+    }
+    readyUnsubscribe = pi.events.on(FOOTER_READY_EVENT, (value) => {
+      if (!isFooterReadyMessage(value)) {
         return;
       }
       const { instanceId: readyInstanceId } = value;
@@ -157,6 +172,10 @@ export const createUsageController = (pi: ExtensionAPI) => {
       for (const snapshot of published.values()) {
         emit("upsert", snapshot);
       }
+    });
+    pi.events.emit(FOOTER_READY_REQUEST_EVENT, {
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "ready-request",
     });
   };
 

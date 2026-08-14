@@ -103,6 +103,7 @@ describe("voice controller", () => {
 
   it("reports unavailable speech without an active call", async () => {
     const host = createExtensionHost(extension);
+    await host.runCommand("voice", "status", host.createContext());
     const result = await host.runTool("speak_to_user", {
       message: "The tests need your approval.",
     });
@@ -115,6 +116,7 @@ describe("voice controller", () => {
 
   it("reports unavailable voice ending without an active call", async () => {
     const host = createExtensionHost(extension);
+    await host.runCommand("voice", "status", host.createContext());
     const result = await host.runTool("end_realtime_voice_call", {});
 
     expect(result).toMatchObject({
@@ -125,6 +127,7 @@ describe("voice controller", () => {
 
   it("keeps a visual result available when no voice handoff is active", async () => {
     const host = createExtensionHost(extension);
+    await host.runCommand("voice", "status", host.createContext());
     const result = await host.runTool("present_voice_result", {
       markdown: "# Detailed result",
       spokenSummary: "The detailed result is in the terminal.",

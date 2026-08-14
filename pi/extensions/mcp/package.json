@@ -21,9 +21,11 @@
     "config.ts",
     "connection.ts",
     "index.ts",
+    "loaded-servers.ts",
     "loader.ts",
     "manager.ts",
     "oauth.ts",
+    "runtime.ts",
     "servers.ts",
     "README.md",
     "LICENSE",
@@ -35,6 +37,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/core": "^2.0.0",

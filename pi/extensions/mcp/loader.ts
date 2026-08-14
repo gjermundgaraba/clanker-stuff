@@ -2,7 +2,6 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-  SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 
@@ -13,6 +12,7 @@ import {
   removeMcpServer,
 } from "./config.js";
 import { errorMessage } from "./connection.js";
+import { loadedServerNames } from "./loaded-servers.js";
 import {
   createMcpManagerConnection,
   MCP_MANAGER_SERVER_NAME,
@@ -56,27 +56,6 @@ const loadServerWithSpinner = async <T>(
     throw result.error;
   }
   return result.value;
-};
-
-const loadedServerNames = (branch: readonly SessionEntry[]): string[] => {
-  const names = new Set<string>();
-  for (const entry of branch) {
-    if (entry.type !== "custom" || entry.customType !== "mcp-server-loaded") {
-      continue;
-    }
-    const { data } = entry;
-    if (
-      typeof data !== "object" ||
-      data === null ||
-      !("serverName" in data) ||
-      typeof data.serverName !== "string" ||
-      data.serverName === ""
-    ) {
-      continue;
-    }
-    names.add(data.serverName);
-  }
-  return [...names];
 };
 
 const configOptions = (ctx: ExtensionContext) => ({

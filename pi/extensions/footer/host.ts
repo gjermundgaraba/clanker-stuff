@@ -2,6 +2,13 @@
 
 import { randomUUID } from "node:crypto";
 
+import {
+  FOOTER_PROTOCOL_VERSION,
+  FOOTER_READY_EVENT,
+  FOOTER_READY_REQUEST_EVENT,
+  FOOTER_WIDGET_EVENT,
+  isFooterReadyRequestMessage,
+} from "@clanker-stuff/footer-protocol";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -11,23 +18,12 @@ import type {
 
 import { cloneFooterConfig, createFooterConfigStore } from "./config.js";
 import type { FooterConfig, LoadedFooterConfig } from "./config.js";
-import {
-  doctorLines,
-  editorWidgets,
-  inspectLines,
-  summary,
-} from "./diagnostics.js";
 import type { GitStatus } from "./git.js";
 import { readGitStatus, sameGitStatus } from "./git.js";
 import { renderFooterState } from "./layout.js";
 import type { FooterLayoutResult, FooterRenderState } from "./layout.js";
-import {
-  FOOTER_PROTOCOL_VERSION,
-  FOOTER_READY_EVENT,
-  FOOTER_WIDGET_EVENT,
-  validateFooterWidgetMessage,
-} from "./protocol.js";
-import { showFooterEditor, showFooterTextView } from "./ui.js";
+import { validateFooterWidgetMessage } from "./protocol-validation.js";
+import { summary } from "./summary.js";
 import { buildBuiltinWidgets, collectSessionTotals } from "./widgets.js";
 import type { LiveWidget, SessionTotals } from "./widgets.js";
 
@@ -92,7 +88,9 @@ export const createFooterHost = (pi: ExtensionAPI) => {
   let runtime: HostRuntime | undefined;
   let branchUnsubscribe: (() => void) | undefined;
   let protocolUnsubscribe: (() => void) | undefined;
+  let readyRequestUnsubscribe: (() => void) | undefined;
   let sessionTimer: ReturnType<typeof setInterval> | undefined;
+  let startGeneration = 0;
 
   const addCollectorError = (active: HostRuntime, value: unknown): void => {
     const message = summary(
@@ -376,10 +374,26 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     active.requestRender?.();
   };
 
+  const emitReady = (active: HostRuntime): void => {
+    pi.events.emit(FOOTER_READY_EVENT, {
+      instanceId: active.instanceId,
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "ready",
+    });
+  };
+
   const listenForProtocolMessages = (): void => {
     protocolUnsubscribe ??= pi.events.on(
       FOOTER_WIDGET_EVENT,
       handleWidgetMessage
+    );
+    readyRequestUnsubscribe ??= pi.events.on(
+      FOOTER_READY_REQUEST_EVENT,
+      (value) => {
+        if (runtime !== undefined && isFooterReadyRequestMessage(value)) {
+          emitReady(runtime);
+        }
+      }
     );
   };
 
@@ -418,6 +432,14 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       }
       active.context = ctx;
       const command = args.trim();
+      if (command !== "" && command !== "inspect" && command !== "doctor") {
+        ctx.ui.notify("usage: /footer [inspect|doctor]", "info");
+        return;
+      }
+      const [
+        { doctorLines, editorWidgets, inspectLines },
+        { showFooterEditor, showFooterTextView },
+      ] = await Promise.all([import("./diagnostics.js"), import("./ui.js")]);
       if (command === "inspect") {
         await showFooterTextView(ctx, "Footer inspect", () =>
           inspectLines(active, Date.now())
@@ -428,10 +450,6 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         await showFooterTextView(ctx, "Footer doctor", () =>
           doctorLines(active, configStore.path)
         );
-        return;
-      }
-      if (command !== "") {
-        ctx.ui.notify("usage: /footer [inspect|doctor]", "info");
         return;
       }
 
@@ -464,17 +482,24 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       });
     },
     shutdown: (): void => {
+      startGeneration += 1;
       stopRuntime();
       protocolUnsubscribe?.();
       protocolUnsubscribe = undefined;
+      readyRequestUnsubscribe?.();
+      readyRequestUnsubscribe = undefined;
     },
     start: async (ctx: ExtensionContext): Promise<void> => {
+      const generation = ++startGeneration;
       stopRuntime();
       if (ctx.mode !== "tui") {
         return;
       }
-      listenForProtocolMessages();
       const loaded = await configStore.load();
+      if (generation !== startGeneration) {
+        return;
+      }
+      listenForProtocolMessages();
       const active: HostRuntime = {
         builtins: new Map(),
         collectorErrors: [],
@@ -514,11 +539,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       } else {
         active.lifecycle = "disabled";
       }
-      pi.events.emit(FOOTER_READY_EVENT, {
-        instanceId: active.instanceId,
-        protocol: FOOTER_PROTOCOL_VERSION,
-        type: "ready",
-      });
+      emitReady(active);
       refreshGit(active);
       syncTimer(active);
     },

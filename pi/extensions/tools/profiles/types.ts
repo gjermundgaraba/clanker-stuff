@@ -4,7 +4,6 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ToolOperations } from "../operations.js";
 
 export interface HarnessProfile {
-  readonly id: string;
   readonly createTools: (
     operations: ToolOperations
   ) => readonly ToolDefinition[];

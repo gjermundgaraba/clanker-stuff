@@ -30,7 +30,7 @@ Each session creates a runtime containing:
 
 Lifecycle states are `starting`, `active`, `disabled`, `replaced`, and `stopped`. Intentional disable or shutdown must not be mistaken for replacement. Session shutdown clears timers, subscriptions, captured context, and registry state.
 
-The host registers its widget-event listener during extension setup. At session start it creates the runtime, installs the footer when enabled in TUI mode, then emits ready. This makes producer-first and host-first extension ordering equivalent.
+At session start the host installs its protocol listeners, creates the runtime, installs the footer when enabled in TUI mode, then emits ready. The ready/request handshake makes producer-first and host-first extension ordering equivalent.
 
 ## Data sources
 
@@ -53,14 +53,21 @@ Two reserved aggregates expand during layout:
 
 ## Rich protocol
 
-Protocol version 1 is import-free:
+Protocol version 1 is available from `@clanker-stuff/footer-protocol` and remains import-free for contributors that do not want a package dependency:
 
 ```ts
 const FOOTER_READY_EVENT = "clanker-footer:ready";
+const FOOTER_READY_REQUEST_EVENT = "clanker-footer:ready-request";
 const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
 ```
 
-The host emits:
+Contributors that load after session start emit:
+
+```ts
+{ protocol: 1, type: "ready-request" }
+```
+
+The active host responds, and also announces each new runtime, with:
 
 ```ts
 interface FooterReadyMessage {

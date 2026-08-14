@@ -11,10 +11,6 @@ const PI_PROVIDED = new Set([
   "@earendil-works/pi-tui",
   "typebox",
 ]);
-const SHARED_RUNTIME_PACKAGES = new Set([
-  "@clanker-stuff/pi-extension-paths",
-  "@clanker-stuff/pi-motion",
-]);
 const EXPECTED_PI_PROVIDED_VERSION = "*";
 
 const ROOT_PACKAGE_NAME = "clanker-stuff";
@@ -64,6 +60,12 @@ const pathExistsForEntry = (packageDirectory: string, entry: string) =>
   existsSync(path.join(packageDirectory, entry));
 
 const errors: string[] = [];
+const workspacePackages = readWorkspacePackages();
+const sharedRuntimePackages = new Set(
+  workspacePackages
+    .filter(({ dir }) => dir.startsWith("pi/packages/"))
+    .map(({ name }) => name)
+);
 const rootLicensePath = "LICENSE";
 const rootLicense = existsSync(rootLicensePath)
   ? readFileSync(rootLicensePath, "utf-8")
@@ -73,11 +75,7 @@ if (rootLicense === undefined) {
   errors.push("LICENSE: root MIT license file is missing");
 }
 
-for (const {
-  dir,
-  packageJson: pkg,
-  packageJsonPath,
-} of readWorkspacePackages()) {
+for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   const label = packageJsonPath;
   const isRoot = pkg.name === ROOT_PACKAGE_NAME;
 
@@ -182,7 +180,7 @@ for (const {
   for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
     if (
       name.startsWith("@clanker-stuff/") &&
-      !SHARED_RUNTIME_PACKAGES.has(name)
+      !sharedRuntimePackages.has(name)
     ) {
       errors.push(`${label}: unapproved shared runtime dependency ${name}`);
     }

@@ -2,7 +2,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -14,12 +14,20 @@ const controller = vi.hoisted(() => ({
   start: vi.fn<(ctx: ExtensionContext) => void>(),
   trackModel: vi.fn<(ctx: ExtensionContext, model: unknown) => void>(),
 }));
+const createController = vi.hoisted(() => vi.fn<() => void>());
 
 vi.mock(import("../controller.js"), () => ({
-  createUsageController: () => controller,
+  createUsageController: () => {
+    createController();
+    return controller;
+  },
 }));
 
 describe("usage registration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("registers /usage and delegates lifecycle to the controller", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();
@@ -48,5 +56,37 @@ describe("usage registration", () => {
         [ctx, ctx.model],
       ],
     });
+  });
+
+  it("does not finish loading after shutdown", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+
+    const command = host.runCommand("usage", "", ctx);
+    await host.emitSessionShutdown(ctx);
+    await command;
+
+    expect(createController).not.toHaveBeenCalled();
+  });
+
+  it("reports background startup failures", async () => {
+    createController.mockImplementationOnce(() => {
+      throw new Error("load failed");
+    });
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+
+    await host.emitSessionStart(ctx);
+    await vi.waitFor(() => {
+      expect(host.getNotifications()).toContainEqual({
+        message: "Usage failed to initialize: load failed",
+        type: "error",
+      });
+    });
+    await host.runCommand("usage", "", ctx);
+    await host.emitSessionShutdown(ctx);
+
+    expect(createController).toHaveBeenCalledTimes(2);
+    expect(controller.runCommand).toHaveBeenCalledOnce();
   });
 });

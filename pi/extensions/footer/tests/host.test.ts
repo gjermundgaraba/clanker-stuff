@@ -1,5 +1,12 @@
 /* oxlint-disable vitest/max-expects -- one host lifecycle is the behavior under test */
 
+import {
+  FOOTER_PROTOCOL_VERSION,
+  FOOTER_READY_EVENT,
+  FOOTER_READY_REQUEST_EVENT,
+  FOOTER_WIDGET_EVENT,
+} from "@clanker-stuff/footer-protocol";
+import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,8 +20,6 @@ import {
 import type { FooterConfig } from "../config.js";
 import { readGitStatus } from "../git.js";
 import extension from "../index.js";
-import { FOOTER_READY_EVENT, FOOTER_WIDGET_EVENT } from "../protocol.js";
-import type { FooterWidgetSnapshot } from "../protocol.js";
 
 vi.mock(import("../config.js"), { spy: true });
 vi.mock(import("../git.js"), { spy: true });
@@ -26,6 +31,55 @@ type FooterFactory = Exclude<
 type FooterComponent = ReturnType<FooterFactory>;
 
 describe("footer host", () => {
+  it("answers late ready requests for the active runtime", async () => {
+    vi.mocked(createFooterConfigStore).mockReturnValue({
+      load: async () => ({ config: cloneFooterConfig(DEFAULT_CONFIG) }),
+      path: "/tmp/footer.json",
+      save: async () => {},
+    });
+    vi.mocked(readGitStatus).mockResolvedValue(null);
+    const host = createExtensionHost(extension);
+    const ready: string[] = [];
+    host.events.on(FOOTER_READY_EVENT, (value) => {
+      ready.push((value as { instanceId: string }).instanceId);
+    });
+    const context = host.createContext();
+
+    await host.emitSessionStart(context);
+    host.events.emit(FOOTER_READY_REQUEST_EVENT, {
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "ready-request",
+    });
+
+    expect(ready).toHaveLength(2);
+    expect(new Set(ready).size).toBe(1);
+    await host.emitSessionShutdown(context);
+  });
+
+  it("does not finish an in-flight start after shutdown", async () => {
+    const pending = Promise.withResolvers<{ config: FooterConfig }>();
+    const load = vi.fn<() => Promise<{ config: FooterConfig }>>(
+      () => pending.promise
+    );
+    vi.mocked(createFooterConfigStore).mockReturnValue({
+      load,
+      path: "/tmp/footer.json",
+      save: async () => {},
+    });
+    const host = createExtensionHost(extension);
+    const context = host.createContext();
+
+    const start = host.emitSessionStart(context);
+    await vi.waitFor(() => {
+      expect(load).toHaveBeenCalledOnce();
+    });
+    await host.emitSessionShutdown(context);
+    pending.resolve({ config: cloneFooterConfig(DEFAULT_CONFIG) });
+    await start;
+
+    expect(context.ui.setFooter).not.toHaveBeenCalled();
+  });
+
   it("does not initialize footer state outside TUI mode", async () => {
     const load = vi.fn<() => Promise<{ config: FooterConfig }>>(async () => ({
       config: cloneFooterConfig(DEFAULT_CONFIG),

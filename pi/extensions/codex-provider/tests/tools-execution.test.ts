@@ -299,6 +299,33 @@ describe("profile execution", () => {
     ).rejects.toThrow(`Unknown process session: ${sessionId}`);
   });
 
+  it.skipIf(process.platform === "win32")(
+    "kills a process still inside its initial yield during shutdown",
+    async () => {
+      const cwd = await createTempDirectory();
+      const marker = path.join(cwd, "leaked.txt");
+      const model = createToolsModel("gpt-5.6-luna", true);
+      const host = createExtensionHost(registerCodexTools, { model });
+      const ctx = host.createContext({ cwd, model });
+      await host.emitSessionStart(ctx);
+
+      const running = host.runTool(
+        "exec_command",
+        {
+          cmd: `node -e ${JSON.stringify(`setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "leaked"), 1000)`)}`,
+          yield_time_ms: 10_000,
+        },
+        ctx
+      );
+      await delay(100);
+      await host.emitSessionShutdown(ctx);
+      await running;
+      await delay(1100);
+
+      await expect(readFile(marker, "utf-8")).rejects.toThrow("ENOENT");
+    }
+  );
+
   it("bounds process output and preserves the full stream", async () => {
     const model = createToolsModel("gpt-5.6-luna", true);
     const host = createExtensionHost(registerCodexTools, { model });
