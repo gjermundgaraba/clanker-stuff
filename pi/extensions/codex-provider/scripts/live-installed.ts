@@ -13,7 +13,7 @@ import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
 import { auditLocalOrder } from "../audit-local-order.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
 
-const SUPPORTED_PI_VERSION = "0.84.1";
+const SUPPORTED_PI_VERSION = "0.84.2";
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0
@@ -387,7 +387,7 @@ if (import.meta.main) {
   if (process.argv.includes("--help")) {
     console.log(`Usage: pnpm run test:live:installed
 
-Runs a paid happy-path canary through the system-installed Pi 0.84.1, actual
+Runs a paid happy-path canary through the system-installed Pi 0.84.2, actual
 configured environment, native model context window, and isolated temp project.`);
   } else {
     try {
