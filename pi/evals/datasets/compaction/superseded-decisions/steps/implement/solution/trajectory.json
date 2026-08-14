@@ -1,0 +1,31 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "oracle",
+  "agent": { "name": "oracle", "version": "1" },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "system",
+      "message": "first compaction",
+      "extra": {
+        "event_type": "context_compaction",
+        "mechanism": "oracle",
+        "segment": 4,
+        "state": "succeeded"
+      }
+    },
+    {
+      "step_id": 2,
+      "source": "system",
+      "message": "second compaction",
+      "extra": {
+        "event_type": "context_compaction",
+        "mechanism": "oracle",
+        "segment": 9,
+        "state": "succeeded"
+      }
+    },
+    { "step_id": 3, "source": "user", "message": "implement" },
+    { "step_id": 4, "source": "agent", "message": "done" }
+  ]
+}

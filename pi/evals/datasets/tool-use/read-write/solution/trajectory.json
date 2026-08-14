@@ -1,0 +1,27 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "oracle",
+  "agent": { "name": "oracle", "version": "1" },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "agent",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "read-1",
+          "function_name": "read",
+          "arguments": { "path": "/app/clue.txt" }
+        },
+        {
+          "tool_call_id": "write-1",
+          "function_name": "write",
+          "arguments": {
+            "path": "/app/answer.txt",
+            "content": "CITRINE-47-EMBER\n"
+          }
+        }
+      ]
+    }
+  ]
+}

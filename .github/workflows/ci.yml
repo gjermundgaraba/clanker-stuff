@@ -19,3 +19,13 @@ jobs:
           node-version: "26"
       - run: vp install --frozen-lockfile
       - run: vp run ready
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --project pi/evals --frozen
+      - run: uv run --project pi/evals python -m unittest discover -s pi/evals/tests -v
+      - run: pi/evals/scripts/build-runtime.sh
+      - run: |
+          for config in pi/evals/jobs/*.yaml; do
+            uv run --project pi/evals harbor job start --config "$config" --print-config >/dev/null
+          done
+      - run: uv run harbor job start --config jobs/smoke.yaml --job-name ci-smoke --yes
+        working-directory: pi/evals

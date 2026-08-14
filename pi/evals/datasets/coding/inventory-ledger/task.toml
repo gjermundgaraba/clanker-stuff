@@ -1,0 +1,26 @@
+schema_version = "1.4"
+
+[task]
+name = "pi-evals/inventory-ledger"
+description = "Implement and validate a small newline-delimited inventory ledger."
+keywords = ["coding", "javascript", "parsing"]
+
+[metadata]
+difficulty = "medium"
+category = "programming"
+tags = ["coding", "node"]
+
+[agent]
+timeout_sec = 600.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+docker_image = "clanker-pi-evals:node24"
+workdir = "/app"
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0

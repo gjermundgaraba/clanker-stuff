@@ -1,5 +1,8 @@
 # Dependencies and build output
 node_modules/
+.venv/
+__pycache__/
+*.py[cod]
 dist/
 coverage/
 *.tsbuildinfo
@@ -28,3 +31,4 @@ coverage/
 .github/hooks/
 .opencode/
 .pi/
+.harbor/

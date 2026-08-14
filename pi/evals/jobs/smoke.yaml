@@ -1,0 +1,20 @@
+job_name: pi-evals-smoke
+jobs_dir: .harbor/jobs
+n_attempts: 1
+
+orchestrator:
+  type: local
+  n_concurrent_trials: 3
+  quiet: false
+
+environment:
+  type: docker
+  delete: true
+
+agents:
+  - name: oracle
+
+datasets:
+  - path: datasets/coding
+  - path: datasets/tool-use
+  - path: datasets/compaction

@@ -1,0 +1,8 @@
+{
+  "name": "debugging-continuity-eval",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
