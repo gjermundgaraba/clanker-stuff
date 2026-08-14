@@ -13,6 +13,9 @@ SPEC.loader.exec_module(judge)
 
 
 class LongMemEvalJudgeTest(TestCase):
+    def test_defaults_to_sol(self) -> None:
+        self.assertEqual(judge.MODEL, "gpt-5.6-sol")
+
     def test_uses_task_specific_rubrics(self) -> None:
         temporal = judge.prompt_for(
             "temporal-reasoning", "when?", "18 days", "19 days", abstention=False

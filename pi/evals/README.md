@@ -37,8 +37,8 @@ The generator pins the cleaned LongMemEval-S and oracle files by immutable revis
 ```bash
 uv run python scripts/prepare-longmemeval.py
 
-# One 64K question across all six arms.
-uv run harbor job start --config jobs/longmemeval.yaml \
+# One 64K question with exactly one pre-query compaction per on arm.
+uv run harbor job start --config jobs/longmemeval-64k-single-compaction.yaml \
   --path datasets-generated/longmemeval/64k/00 \
   --job-name longmemeval-calibration --yes
 
@@ -46,20 +46,14 @@ uv run harbor job start --config jobs/longmemeval.yaml \
 uv run harbor job start --config jobs/longmemeval.yaml --yes
 ```
 
-The in-task `exact_normalized` score is a deterministic lower bound, not the official semantic metric. Apply LongMemEval's pinned GPT-4o rubric after a job with an API key; results are cached beside the job:
-
-```bash
-OPENAI_API_KEY=... ./scripts/judge-longmemeval.py .harbor/jobs/longmemeval
-```
-
-For local calibration without an API key, the same rubric can use Codex OAuth. This score is deliberately labeled `QA judge`, not official LongMemEval:
+The in-task `exact_normalized` score is a deterministic lower bound. Apply LongMemEval's task-specific semantic rubric with `gpt-5.6-sol`; results are cached beside the job and deliberately labeled `QA judge`, not official LongMemEval:
 
 ```bash
 ./scripts/judge-longmemeval.py .harbor/jobs/longmemeval \
-  --backend codex --model gpt-5.6-terra --workers 4
+  --backend codex --model gpt-5.6-sol --workers 4
 ```
 
-`scripts/report.py` automatically uses cached judge labels, preferring the official OpenAI judge if both backends exist.
+`scripts/report.py` automatically uses cached judge labels.
 
 This is a compaction-oriented derivative because official LongMemEval sends history and question in one request. Do not publish its numbers as unmodified LongMemEval-S results.
 

@@ -32,15 +32,11 @@ def _quality(rewards: dict[str, Any]) -> float:
 
 def _judge_labels(job_dir: Path) -> dict[str, tuple[float, str]]:
     labels = {}
-    paths = sorted(
-        job_dir.glob("longmemeval-judge-*.jsonl"),
-        key=lambda path: ("-openai-" in path.name, path.name),
-    )
+    paths = sorted(job_dir.glob("longmemeval-judge-*.jsonl"))
     for path in paths:
         for line in path.read_text(encoding="utf-8").splitlines():
             item = json.loads(line)
-            source = "official_qa" if item.get("judge_backend") == "openai" else "qa_judge"
-            labels[item["trial"]] = (float(bool(item["label"])), source)
+            labels[item["trial"]] = (float(bool(item["label"])), "qa_judge")
     return labels
 
 

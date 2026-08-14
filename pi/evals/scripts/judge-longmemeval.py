@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply LongMemEval's official GPT-4o answer rubric to a Harbor job."""
+"""Apply LongMemEval's answer rubric to a Harbor job."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from statistics import fmean
 from threading import Lock
 from typing import Any
 
-MODEL = "gpt-4o-2024-08-06"
+MODEL = "gpt-5.6-sol"
 
 
 def prompt_for(
@@ -202,7 +202,7 @@ def _inputs(job_dir: Path, evals_dir: Path) -> list[dict[str, Any]]:
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("job_dir", type=Path)
-    parser.add_argument("--backend", choices=("openai", "codex"), default="openai")
+    parser.add_argument("--backend", choices=("openai", "codex"), default="codex")
     parser.add_argument("--model", default=MODEL)
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
@@ -259,7 +259,7 @@ def main() -> None:
     grouped: dict[tuple[str, str], list[bool]] = {}
     for item in results:
         grouped.setdefault((item["agent"], item["tier"]), []).append(item["label"])
-    score_name = "Official QA" if args.backend == "openai" else "QA judge"
+    score_name = "QA judge"
     print(f"| Agent | Tier | N | {score_name} |")
     print("| --- | --- | ---: | ---: |")
     for (agent, tier), labels in sorted(grouped.items()):
