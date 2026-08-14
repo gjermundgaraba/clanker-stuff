@@ -2,11 +2,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from pi_evals.codex import load_codex_compactions
+from pi_evals.codex import _redirect_prompt, load_codex_compactions
 from pi_evals.pi import convert_pi_events, load_pi_events
 
 
 class PiTrajectoryTest(TestCase):
+    def test_redirects_codex_prompt_through_stdin(self) -> None:
+        command = "codex exec -- - 2>&1 </dev/null | tee /logs/agent/codex.txt"
+        self.assertEqual(
+            _redirect_prompt(command, "/tmp/instruction.md"),
+            "codex exec -- - 2>&1 < /tmp/instruction.md | tee /logs/agent/codex.txt",
+        )
+
     def test_converts_messages_tools_compaction_and_usage(self) -> None:
         events = [
             {"index": 0, "timestamp": 1_000, "type": "harbor_instruction"},

@@ -510,13 +510,20 @@ class PiEval(Pi):
                 "type": "harbor_instruction",
             }
         )
+        prompt_path = (_REMOTE_PI_HOME / "instruction.md").as_posix()
+        await self._upload_config_text(
+            environment,
+            content=instruction,
+            remote_path=prompt_path,
+            filename="instruction.md",
+        )
         reset = f": > {_REMOTE_EVENT_LOG.as_posix()}; " if not self._resume else ""
         command = (
             "set -o pipefail; "
             f"{reset}: > {_REMOTE_STDERR_LOG.as_posix()}; "
             f"printf '%s\\n' {shlex.quote(marker)} >> {_REMOTE_EVENT_LOG.as_posix()}; "
-            f"pi {shlex.join(args)} {shlex.quote(instruction)} "
-            f"2>> {_REMOTE_STDERR_LOG.as_posix()} </dev/null | "
+            f"pi {shlex.join(args)} "
+            f"2>> {_REMOTE_STDERR_LOG.as_posix()} < {prompt_path} | "
             f"stdbuf -oL tee -a {_REMOTE_EVENT_LOG.as_posix()} >/dev/null"
         )
         await self.exec_as_agent(environment, command=command, env=env)

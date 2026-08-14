@@ -19,4 +19,6 @@ RUN apt-get update \
     @earendil-works/pi-coding-agent@0.84.1 \
     @openai/codex@0.147.0
 COPY --from=extension /out /opt/codex-provider
+COPY pi/evals/runtime/mem2act.mjs /usr/local/bin/mem2act
+RUN chmod 755 /usr/local/bin/mem2act
 WORKDIR /app

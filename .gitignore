@@ -32,3 +32,5 @@ coverage/
 .opencode/
 .pi/
 .harbor/
+pi/evals/.cache/
+pi/evals/datasets-generated/

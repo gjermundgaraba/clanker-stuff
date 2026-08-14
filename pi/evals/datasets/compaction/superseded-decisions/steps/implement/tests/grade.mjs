@@ -20,11 +20,30 @@ try {
   trajectory = JSON.parse(readFileSync("/logs/agent/trajectory.json", "utf-8"));
 } catch {}
 const steps = Array.isArray(trajectory.steps) ? trajectory.steps : [];
-const expectedMechanism = {
-  "codex-cli": "codex-cli",
-  "pi-builtin": "pi-builtin",
-  "pi-codex-provider": "codex-provider",
-}[trajectory.agent?.name];
+const policies = {
+  "codex-cli-off": {
+    compactionExpected: false,
+    mechanism: "codex-cli",
+  },
+  "codex-cli-on": { compactionExpected: true, mechanism: "codex-cli" },
+  "pi-provider-off": {
+    compactionExpected: false,
+    mechanism: "codex-provider",
+  },
+  "pi-provider-on": {
+    compactionExpected: true,
+    mechanism: "codex-provider",
+  },
+  "pi-vanilla-off": {
+    compactionExpected: false,
+    mechanism: "pi-builtin",
+  },
+  "pi-vanilla-on": { compactionExpected: true, mechanism: "pi-builtin" },
+};
+const oracle = trajectory.agent?.name === "oracle";
+const policy = oracle
+  ? { compactionExpected: true, mechanism: "oracle" }
+  : policies[trajectory.agent?.name];
 const compactionAttempts = steps
   .map((step, index) => ({ index, extra: step.extra }))
   .filter(({ extra }) => extra?.event_type === "context_compaction");
@@ -39,22 +58,31 @@ const secondBoundary = compactions.find(
 );
 const boundary = Boolean(firstBoundary && secondBoundary);
 const mechanism =
-  trajectory.agent?.name === "oracle" ||
-  compactions.every(
-    ({ extra }) =>
-      extra.mechanism === expectedMechanism &&
-      (expectedMechanism !== "codex-provider" ||
-        extra.protocol === "openai-responses-compaction-v2")
-  );
+  oracle ||
+  (policy?.compactionExpected === false
+    ? compactionAttempts.length === 0
+    : compactions.length > 0 &&
+      compactions.every(
+        ({ extra }) =>
+          extra.mechanism === policy?.mechanism &&
+          (policy?.mechanism !== "codex-provider" ||
+            extra.protocol === "openai-responses-compaction-v2")
+      ));
+const finalInstructionIndex = steps.findLastIndex(
+  (step) => step.source === "user"
+);
 const continued = steps.some(
-  (step, index) =>
-    index > (secondBoundary?.index ?? steps.length) && step.source === "agent"
+  (step, index) => index > finalInstructionIndex && step.source === "agent"
 );
 const valid =
-  boundary &&
-  compactions.length === compactionAttempts.length &&
-  mechanism &&
-  continued;
+  Boolean(policy) &&
+  (policy.compactionExpected
+    ? boundary &&
+      compactionAttempts.length > 0 &&
+      compactions.length === compactionAttempts.length &&
+      mechanism &&
+      continued
+    : compactionAttempts.length === 0 && continued);
 
 const probe = (fn) => {
   try {

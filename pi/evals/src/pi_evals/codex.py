@@ -10,6 +10,17 @@ from harbor.models.agent.context import AgentContext
 from harbor.models.trajectories import Agent, Observation, ObservationResult, Step
 from harbor.utils.trajectory_utils import format_trajectory_json
 
+
+_REMOTE_PROMPT_PATH = "/tmp/codex-eval-instruction.md"
+
+
+def _redirect_prompt(command: str, prompt_path: str) -> str:
+    marker = "2>&1 </dev/null | tee"
+    if marker not in command:
+        raise ValueError("Codex command no longer has the expected stdin redirection")
+    return command.replace(marker, f"2>&1 < {prompt_path} | tee", 1)
+
+
 def load_codex_compactions(session_dir: Path) -> list[dict[str, Any]]:
     """Read persisted Codex replacement events, the durable success evidence."""
 
@@ -48,6 +59,7 @@ class CodexEval(Codex):
     def __init__(self, *args: Any, agent_label: str = "codex-cli", **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._agent_label = agent_label
+        self._prompt_path: str | None = None
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
@@ -63,6 +75,44 @@ class CodexEval(Codex):
                 "codex --version"
             ),
         )
+
+    @override
+    async def exec_as_agent(
+        self,
+        environment: BaseEnvironment,
+        command: str,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        timeout_sec: int | None = None,
+    ) -> Any:
+        if self._prompt_path is not None and "codex exec " in command:
+            command = _redirect_prompt(command, self._prompt_path)
+        return await super().exec_as_agent(
+            environment,
+            command,
+            env=env,
+            cwd=cwd,
+            timeout_sec=timeout_sec,
+        )
+
+    @override
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        await self._upload_config_text(
+            environment,
+            content=self.render_instruction(instruction),
+            remote_path=_REMOTE_PROMPT_PATH,
+            filename="instruction.md",
+        )
+        self._prompt_path = _REMOTE_PROMPT_PATH
+        try:
+            await super().run("-", environment, context)
+        finally:
+            self._prompt_path = None
 
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:

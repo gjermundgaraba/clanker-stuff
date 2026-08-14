@@ -1,6 +1,6 @@
-job_name: compaction-matrix
+job_name: longmemeval
 jobs_dir: .harbor/jobs
-n_attempts: 3
+n_attempts: 1
 
 orchestrator:
   type: local
@@ -85,4 +85,6 @@ agents:
         model_auto_compact_token_limit: 45000
 
 datasets:
-  - path: datasets/compaction
+  - path: datasets-generated/longmemeval/32k
+  - path: datasets-generated/longmemeval/64k
+  - path: datasets-generated/longmemeval/115k
