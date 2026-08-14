@@ -11,6 +11,7 @@ JOB_PATH = EVALS_DIR / "jobs/compaction-matrix.yaml"
 LONGMEM_CONTROLLED_JOB_PATH = (
     EVALS_DIR / "jobs/longmemeval-64k-single-compaction.yaml"
 )
+LONGMEM_115K_JOB_PATH = EVALS_DIR / "jobs/longmemeval-115k-single-compaction.yaml"
 GRADERS = {
     "debugging-continuity": [6],
     "decision-continuity": [6],
@@ -147,6 +148,12 @@ class CompactionPolicyTest(TestCase):
         self.assertEqual(job.count("datasets-generated/longmemeval/64k"), 1)
         self.assertNotIn("datasets-generated/longmemeval/32k", job)
         self.assertNotIn("datasets-generated/longmemeval/115k", job)
+
+    def test_longmemeval_115k_job_uses_its_calibrated_boundary(self) -> None:
+        job = LONGMEM_115K_JOB_PATH.read_text(encoding="utf-8")
+        self.assertEqual(job.count("reserveTokens: 168800"), 2)
+        self.assertEqual(job.count("model_auto_compact_token_limit: 115900"), 1)
+        self.assertEqual(job.count("datasets-generated/longmemeval/115k"), 1)
 
     def test_all_graders_accept_each_arm_policy(self) -> None:
         for dataset, segments in GRADERS.items():

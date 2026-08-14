@@ -44,6 +44,9 @@ uv run harbor job start --config jobs/longmemeval-64k-single-compaction.yaml \
 
 # Full 90-task matrix.
 uv run harbor job start --config jobs/longmemeval.yaml --yes
+
+# Controlled 115K confirmation matrix.
+uv run harbor job start --config jobs/longmemeval-115k-single-compaction.yaml --yes
 ```
 
 The in-task `exact_normalized` score is a deterministic lower bound. Apply LongMemEval's task-specific semantic rubric with `gpt-5.6-sol`; results are cached beside the job and deliberately labeled `QA judge`, not official LongMemEval:
@@ -57,7 +60,9 @@ The in-task `exact_normalized` score is a deterministic lower bound. Apply LongM
 
 This is a compaction-oriented derivative because official LongMemEval sends history and question in one request. Do not publish its numbers as unmodified LongMemEval-S results.
 
-The evaluation protocol is fixed before the breadth screen. Round 1 runs all 30 seeded questions once; only valid trials contribute to its headline quality estimate. A task advances to five fresh attempts per arm when any platform's valid on/off pair disagrees, along with the first three seed-ordered tasks where every valid arm is correct; repeats remain separate from Round 1 and are capped at the first 12 qualifying tasks. Invalid slots are rerun at most twice and otherwise reported as not evaluable. A task advances to 115K when a platform's five-attempt absolute on/off gap is at least 0.6 with at least four valid trials in both arms; confirm the top five seed-order-tiebroken tasks plus two concordant controls using exactly one calibrated pre-query compaction.
+The evaluation protocol is fixed before the breadth screen. Round 1 runs all 30 seeded questions once; only valid trials contribute to its headline quality estimate. A task advances to five fresh attempts per arm when any platform's valid on/off pair disagrees, along with the first three seed-ordered tasks where every valid arm is correct; repeats remain separate from Round 1 and are capped at 12 discordant tasks, selected as the first two per question type in seed order, backfilled in global seed order if a type has fewer than two.
+
+Deviation (2026-08-14): the cap was predeclared as the literal first 12 qualifying tasks in seed order. After Round 1 labels were seen, we found the generator's seed order groups ordinals by question type (00-04 knowledge-update through 25-29 temporal-reasoning), so the literal rule — selecting 00 01 03 04 06 07 08 09 10 11 12 13 from the 25 discordant tasks — would have excluded single-session-preference, single-session-user, and temporal-reasoning entirely, making them ineligible for the per-type summaries and the 115K confirm tier. The stratified rule above was fixed before any Round 2 trial ran; beyond the predeclared discordance trigger it conditions only on question type and seed order, never on outcome direction, magnitude, or platform, and its budget is identical. Amended selection: 00 01 06 07 10 11 15 16 21 22 25 26; controls (rule unchanged): 02 05 20. Invalid slots are rerun at most twice and otherwise reported as not evaluable. A task advances to 115K when a platform's five-attempt absolute on/off gap is at least 0.6 with at least four valid trials in both arms; confirm the top five seed-order-tiebroken tasks plus two concordant controls using exactly one calibrated pre-query compaction.
 
 ## Mem2Act tool-memory track
 
