@@ -30,13 +30,17 @@ def _quality(rewards: dict[str, Any]) -> float:
     return 0.0
 
 
-def _judge_labels(job_dir: Path) -> dict[str, tuple[float, str]]:
+def _judge_labels(job_dir: Path) -> dict[str, tuple[float, str, str | None]]:
     labels = {}
     paths = sorted(job_dir.glob("longmemeval-judge-*.jsonl"))
     for path in paths:
         for line in path.read_text(encoding="utf-8").splitlines():
             item = json.loads(line)
-            labels[item["trial"]] = (float(bool(item["label"])), "qa_judge")
+            labels[item["trial"]] = (
+                float(bool(item["label"])),
+                "qa_judge",
+                item.get("question_type"),
+            )
     return labels
 
 
@@ -56,8 +60,8 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
             "agent_label", config["agent"].get("name", "unknown")
         )
         arm = ARM.fullmatch(label)
-        quality, quality_source = judged.get(
-            result_path.parent.name, (_quality(rewards), "verifier")
+        quality, quality_source, question_type = judged.get(
+            result_path.parent.name, (_quality(rewards), "verifier", None)
         )
         output.append(
             {
@@ -72,11 +76,89 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
                 "platform": arm.group(1) if arm else label,
                 "quality": quality,
                 "quality_source": quality_source,
+                "question_type": question_type,
                 "task": str(result["task_name"]).removeprefix("pi-evals/"),
                 "valid": rewards.get("valid_experiment", 1),
             }
         )
     return output
+
+
+def longmemeval_type_summaries(
+    values: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in values:
+        if row.get("question_type") and row["mode"]:
+            grouped[(row["platform"], row["question_type"])][row["mode"]].append(
+                row
+            )
+
+    output = []
+    for (platform, question_type), modes in sorted(grouped.items()):
+        valid = {
+            mode: [row for row in modes[mode] if row["valid"]]
+            for mode in ("off", "on")
+        }
+        if not modes["off"] or not modes["on"]:
+            continue
+        output.append(
+            {
+                "delta": (
+                    fmean(row["quality"] for row in valid["on"])
+                    - fmean(row["quality"] for row in valid["off"])
+                    if valid["off"] and valid["on"]
+                    else float("nan")
+                ),
+                "off_quality": (
+                    fmean(row["quality"] for row in valid["off"])
+                    if valid["off"]
+                    else float("nan")
+                ),
+                "off_valid": fmean(row["valid"] for row in modes["off"]),
+                "on_quality": (
+                    fmean(row["quality"] for row in valid["on"])
+                    if valid["on"]
+                    else float("nan")
+                ),
+                "on_valid": fmean(row["valid"] for row in modes["on"]),
+                "platform": platform,
+                "question_type": question_type,
+                "tasks": len({row["task"] for row in modes["off"] + modes["on"]}),
+            }
+        )
+    return output
+
+
+def paired_flips(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in values:
+        if row["mode"]:
+            grouped[(row["platform"], row["task"])][row["mode"]].append(row)
+    counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for (platform, _task), modes in grouped.items():
+        if len(modes["off"]) != 1 or len(modes["on"]) != 1:
+            continue
+        off, on = modes["off"][0], modes["on"][0]
+        if not off["valid"] or not on["valid"]:
+            continue
+        key = (int(bool(off["quality"])), int(bool(on["quality"])))
+        counts[platform][f"{key[0]}{key[1]}"] += 1
+    return [
+        {
+            "both_correct": modes["11"],
+            "both_wrong": modes["00"],
+            "off_only": modes["10"],
+            "on_only": modes["01"],
+            "pairs": sum(modes.values()),
+            "platform": platform,
+        }
+        for platform, modes in sorted(counts.items())
+    ]
 
 
 def matched_deltas(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -147,6 +229,28 @@ def main() -> None:
             "{quality:+.3f} | {compactions:+.2f} | {input:+.0f} | {cache:+.0f} | "
             "{output:+.0f} | ${cost:+.4f} | {latency:+.1f} |".format(**row)
         )
+
+    summaries = longmemeval_type_summaries(values)
+    if summaries:
+        print("\nLongMemEval valid-trial quality by question type:\n")
+        print("| Platform | Type | Tasks | Valid off/on | Quality off/on | Delta |")
+        print("| --- | --- | ---: | ---: | ---: | ---: |")
+        for row in summaries:
+            print(
+                "| {platform} | {question_type} | {tasks} | {off_valid:.0%}/{on_valid:.0%} | "
+                "{off_quality:.3f}/{on_quality:.3f} | {delta:+.3f} |".format(**row)
+            )
+
+    flips = paired_flips(values)
+    if flips:
+        print("\nSingle-attempt paired task outcomes (off/on):\n")
+        print("| Platform | Valid pairs | Both correct | Off only | On only | Both wrong |")
+        print("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for row in flips:
+            print(
+                "| {platform} | {pairs} | {both_correct} | {off_only} | "
+                "{on_only} | {both_wrong} |".format(**row)
+            )
 
 
 if __name__ == "__main__":

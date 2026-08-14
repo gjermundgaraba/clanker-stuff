@@ -101,3 +101,23 @@ class ReportTest(TestCase):
 
         self.assertEqual(delta["on_valid"], 0)
         self.assertTrue(math.isnan(delta["quality"]))
+
+    def test_summarizes_longmemeval_types_and_paired_flips(self) -> None:
+        values = []
+        for mode, quality in (("off", 1), ("on", 0)):
+            values.append(
+                {
+                    "mode": mode,
+                    "platform": "pi-vanilla",
+                    "quality": quality,
+                    "question_type": "knowledge-update",
+                    "task": "example",
+                    "valid": 1,
+                }
+            )
+
+        summary = report.longmemeval_type_summaries(values)[0]
+        flips = report.paired_flips(values)[0]
+
+        self.assertEqual(summary["delta"], -1)
+        self.assertEqual(flips["off_only"], 1)
