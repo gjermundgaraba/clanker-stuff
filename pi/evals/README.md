@@ -57,6 +57,8 @@ The in-task `exact_normalized` score is a deterministic lower bound. Apply LongM
 
 This is a compaction-oriented derivative because official LongMemEval sends history and question in one request. Do not publish its numbers as unmodified LongMemEval-S results.
 
+The evaluation protocol is fixed before the breadth screen. Round 1 runs all 30 seeded questions once; only valid trials contribute to its headline quality estimate. A task advances to five fresh attempts per arm when any platform's valid on/off pair disagrees, along with the first three seed-ordered tasks where every valid arm is correct; repeats remain separate from Round 1 and are capped at the first 12 qualifying tasks. Invalid slots are rerun at most twice and otherwise reported as not evaluable. A task advances to 115K when a platform's five-attempt absolute on/off gap is at least 0.6 with at least four valid trials in both arms; confirm the top five seed-order-tiebroken tasks plus two concordant controls using exactly one calibrated pre-query compaction.
+
 ## Mem2Act tool-memory track
 
 Mem2Act preparation downloads pinned upstream files but never vendors them because the upstream repository has no license file despite its README claiming MIT. Exactly 323/400 questions resolve to one raw source session; 77 unresolved questions are excluded rather than replaced with answer-leaking evolution metadata. Sample mode selects 40 deterministic, stratified tasks.

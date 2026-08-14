@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -65,3 +66,38 @@ class ReportTest(TestCase):
             self.assertEqual(delta["quality"], -0.5)
             self.assertEqual(delta["input"], -3)
             self.assertEqual(delta["compactions"], 1)
+
+    def test_matched_delta_excludes_invalid_quality(self) -> None:
+        values = [
+            {
+                "cache": 0,
+                "compactions": 0,
+                "cost": 0,
+                "input": 0,
+                "latency": 0,
+                "mode": "off",
+                "output": 0,
+                "platform": "pi-vanilla",
+                "quality": 1,
+                "task": "example",
+                "valid": 1,
+            },
+            {
+                "cache": 0,
+                "compactions": 1,
+                "cost": 0,
+                "input": 0,
+                "latency": 0,
+                "mode": "on",
+                "output": 0,
+                "platform": "pi-vanilla",
+                "quality": 0,
+                "task": "example",
+                "valid": 0,
+            },
+        ]
+
+        delta = report.matched_deltas(values)[0]
+
+        self.assertEqual(delta["on_valid"], 0)
+        self.assertTrue(math.isnan(delta["quality"]))

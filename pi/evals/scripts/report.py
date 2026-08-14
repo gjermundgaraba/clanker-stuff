@@ -91,6 +91,10 @@ def matched_deltas(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for (platform, task), modes in sorted(grouped.items()):
         if not modes["on"] or not modes["off"]:
             continue
+        valid_modes = {
+            mode: [row for row in modes[mode] if row["valid"]]
+            for mode in ("off", "on")
+        }
         item: dict[str, Any] = {
             "platform": platform,
             "task": task,
@@ -100,8 +104,14 @@ def matched_deltas(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "on_valid": fmean(float(row["valid"]) for row in modes["on"]),
         }
         for metric in METRICS:
-            item[metric] = fmean(float(row[metric]) for row in modes["on"]) - fmean(
-                float(row[metric]) for row in modes["off"]
+            metric_modes = (
+                valid_modes if metric in {"quality", "compactions"} else modes
+            )
+            item[metric] = (
+                fmean(float(row[metric]) for row in metric_modes["on"])
+                - fmean(float(row[metric]) for row in metric_modes["off"])
+                if metric_modes["on"] and metric_modes["off"]
+                else float("nan")
             )
         output.append(item)
     return output
