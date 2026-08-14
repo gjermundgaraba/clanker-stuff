@@ -70,7 +70,7 @@ describe("local order audit", () => {
     const result = await auditLocalOrder({
       agentDir,
       cwd,
-      piVersion: "0.84.1",
+      piVersion: "0.84.2",
     });
     expect({
       count: result.count,
@@ -84,8 +84,8 @@ describe("local order audit", () => {
       count: 3,
       finalPath: path.join(PACKAGE_ROOT, "index.ts"),
       orderedFiles: ["configured.ts", "index.ts", "index.ts"],
-      piVersion: "0.84.1",
-      sdkVersion: "0.84.1",
+      piVersion: "0.84.2",
+      sdkVersion: "0.84.2",
     });
 
     await expect(

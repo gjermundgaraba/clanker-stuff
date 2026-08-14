@@ -1,6 +1,6 @@
 # Codex provider design
 
-This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.1 installation. It owns normal Responses requests, Codex-native direct tools and Code Mode, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
+This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.2 installation. It owns normal Responses requests, Codex-native direct tools and Code Mode, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
 
 The implementation follows the pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
 
@@ -70,7 +70,7 @@ Retained user text has a 64,000-token budget using the conservative local estima
 
 Lifecycle compaction runs Pi's readable summarizer beside native compaction. The Pi summary and opaque checkpoint are installed together only after source, branch, model, generation, request state, and persistence checks pass. Compatible Codex replay sends the opaque replacement; an incompatible provider can use the readable summary.
 
-`CLANKER_CODEX_COMPACTION_FAILURE=ask|fallback|cancel` controls a genuine native failure after a readable summary succeeds. The default `ask` offers fallback or cancellation only in a dialog-capable UI; headless operation, dismissal, abort, stale state, unsafe context, or failed persistence cancels. Custom `/compact` instructions affect Pi's history-summary request only, including Pi 0.84.1's existing split-turn limitation; they do not alter native compaction.
+`CLANKER_CODEX_COMPACTION_FAILURE=ask|fallback|cancel` controls a genuine native failure after a readable summary succeeds. The default `ask` offers fallback or cancellation only in a dialog-capable UI; headless operation, dismissal, abort, stale state, unsafe context, or failed persistence cancels. Custom `/compact` instructions affect Pi's history-summary request only, including Pi 0.84.2's existing split-turn limitation; they do not alter native compaction.
 
 Both the readable summary and the original JSONL history remain plaintext on disk. The opaque item is not secure deletion.
 
@@ -88,7 +88,7 @@ The persisted-versus-live proof is detailed in [context alignment](context-align
 
 ## Accepted limits
 
-- Pi 0.84.1 cannot atomically replace arbitrary raw provider history and append the matching checkpoint, so append and continuation are separately verified and fail closed.
+- Pi 0.84.2 cannot atomically replace arbitrary raw provider history and append the matching checkpoint, so append and continuation are separately verified and fail closed.
 - Pi exposes load-order chaining, not exclusive terminal ownership. This package is approved only under the audited local load-last contract.
 - Pi's effective prompt, tools, permissions, and messages remain authoritative. Codex application world-state sections that Pi does not expose are not fabricated.
 - Token accounting is a conservative UTF-8/4 estimate plus a fixed image estimate, not the server tokenizer.
