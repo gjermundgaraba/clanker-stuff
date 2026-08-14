@@ -169,7 +169,7 @@ describe("Codex provider", () => {
           apiKey: SPIKE_API_KEY,
           fetch: async (_input, init) => {
             requests.push(init ?? {});
-            return sse(responseEvents("resp_sse", "hello back"));
+            return sse(responseEvents("resp_sse", "hello back", false));
           },
           onPayload: (payload) => {
             payloads.push(payload);
@@ -197,6 +197,7 @@ describe("Codex provider", () => {
         ]
       ),
       diagnostics: message.diagnostics,
+      endTurn: message.endTurn,
       header: new Headers(requests[0]?.headers).get(
         "x-openai-internal-codex-responses-lite"
       ),
@@ -219,6 +220,7 @@ describe("Codex provider", () => {
         thread_id: "session-sse",
       },
       diagnostics: undefined,
+      endTurn: false,
       header: null,
       instructions: "System truth",
       output: [{ text: "hello back", type: "text" }],
@@ -871,7 +873,7 @@ describe("Codex provider", () => {
                       },
                     ]
                   : []),
-                ...responseEvents(id, `answer ${responseNumber}`),
+                ...responseEvents(id, `answer ${responseNumber}`, false),
               ];
         for (const event of events) {
           queueMicrotask(() =>
@@ -927,6 +929,7 @@ describe("Codex provider", () => {
     const prewarm = frames.find((frame) => frame.generate === false);
     expect({
       delta: (generated[1]?.input as unknown[])?.length,
+      endTurns: [first.endTurn, second.endTurn],
       firstDelta: (generated[0]?.input as unknown[])?.length,
       firstPreviousResponseId: generated[0]?.previous_response_id,
       previousResponseIds: generated
@@ -943,6 +946,7 @@ describe("Codex provider", () => {
       ),
     }).toStrictEqual({
       delta: 1,
+      endTurns: [false, false],
       firstDelta: 1,
       firstPreviousResponseId: undefined,
       previousResponseIds: ["resp_ws_2", "resp_ws_3"],

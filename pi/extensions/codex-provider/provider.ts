@@ -953,7 +953,17 @@ const responseFailureClassification = (code: string | undefined) => {
   return { retryable: true, useCurrentModelFallback: false };
 };
 
-const mapCodexEvent = (event: JsonRecord) => {
+const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
+  if (
+    output !== undefined &&
+    (event.type === "response.completed" ||
+      event.type === "response.done" ||
+      event.type === "response.incomplete") &&
+    isRecord(event.response) &&
+    typeof event.response.end_turn === "boolean"
+  ) {
+    output.endTurn = event.response.end_turn;
+  }
   if (event.type === "error") {
     const nested = isRecord(event.error) ? event.error : undefined;
     const status =
@@ -2408,7 +2418,7 @@ export const createCodexProviderRuntime = (
             }
             // Pi's public processor does not export its event union.
             // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- validated Responses wire event boundary
-            yield mapCodexEvent(event) as never;
+            yield mapCodexEvent(event, output) as never;
           }
         };
         await processResponsesStream(source(), output, events, model, {

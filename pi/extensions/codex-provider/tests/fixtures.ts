@@ -6,7 +6,7 @@ export const sse = (events: readonly unknown[]) =>
     { headers: { "content-type": "text/event-stream" } }
   );
 
-export const responseEvents = (id: string, text: string) => {
+export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
   const message = {
     content: [{ annotations: [], text, type: "output_text" }],
     id: `msg_${id}`,
@@ -30,6 +30,7 @@ export const responseEvents = (id: string, text: string) => {
     { item: message, output_index: 0, type: "response.output_item.done" },
     {
       response: {
+        end_turn: endTurn,
         id,
         output: [message],
         status: "completed",
