@@ -1,10 +1,10 @@
-job_name: mem2act
+job_name: longmemeval-handoff-115k
 jobs_dir: .harbor/jobs
 n_attempts: 3
 
 orchestrator:
   type: local
-  n_concurrent_trials: 4
+  n_concurrent_trials: 6
   quiet: false
 
 environment:
@@ -14,32 +14,39 @@ environment:
 agents:
   - import_path: pi_evals.pi:PiEval
     model_name: openai-codex/gpt-5.6-terra
+    resume_trajectory: true
     kwargs:
-      agent_label: pi-vanilla
+      agent_label: pi-vanilla-on
       thinking: medium
       settings:
         compaction:
-          enabled: false
+          enabled: true
+          reserveTokens: 168800
+          keepRecentTokens: 1000
 
   - import_path: pi_evals.pi:PiEval
     model_name: openai-codex/gpt-5.6-terra
+    resume_trajectory: true
     kwargs:
-      agent_label: pi-provider
+      agent_label: pi-provider-on
       thinking: medium
       extensions:
         - /opt/codex-provider/index.ts
       settings:
         compaction:
-          enabled: false
+          enabled: true
+          reserveTokens: 168800
+          keepRecentTokens: 1000
 
   - import_path: pi_evals.codex:CodexEval
     model_name: openai/gpt-5.6-terra
+    resume_trajectory: true
     kwargs:
-      agent_label: codex-cli
+      agent_label: codex-cli-on
       version: 0.147.0
       reasoning_effort: medium
       config:
-        model_auto_compact_token_limit: 1000000000
+        model_auto_compact_token_limit: 115900
 
 datasets:
-  - path: datasets-generated/mem2act
+  - path: datasets-generated/longmemeval/handoff/115k

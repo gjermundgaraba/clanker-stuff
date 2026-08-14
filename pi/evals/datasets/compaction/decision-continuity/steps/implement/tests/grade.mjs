@@ -54,14 +54,14 @@ const compactionIndex = steps.findIndex(
   (step) =>
     step.extra?.event_type === "context_compaction" &&
     step.extra?.state === "succeeded" &&
-    step.extra?.segment >= 5 &&
-    step.extra?.segment <= 7
+    step.extra?.compacted_after_segment >= 5 &&
+    step.extra?.compacted_after_segment <= 7
 );
 const mechanism =
   oracle ||
   (policy?.compactionExpected === false
     ? compactionAttempts.length === 0
-    : compactions.length > 0 &&
+    : compactions.length === 1 &&
       compactions.every(
         ({ extra }) =>
           extra.mechanism === policy?.mechanism &&
@@ -78,7 +78,7 @@ const valid =
   Boolean(policy) &&
   (policy.compactionExpected
     ? compactionIndex >= 0 &&
-      compactionAttempts.length > 0 &&
+      compactionAttempts.length === 1 &&
       compactions.length === compactionAttempts.length &&
       mechanism &&
       continued

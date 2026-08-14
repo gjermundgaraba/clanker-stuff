@@ -15,7 +15,9 @@ LEVELS = ("L1", "L2", "L3", "L4")
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
+        if not line:
+            continue
         try:
             value = json.loads(line)
         except json.JSONDecodeError as error:
@@ -167,12 +169,9 @@ def typed_leaves(value: Any, path: str = "") -> set[tuple[str, str, str]]:
 
 
 def score_call(predicted: dict[str, Any] | None, gold: dict[str, Any]) -> dict[str, float]:
-    tool_ok = bool(predicted) and predicted.get("tool", predicted.get("name")) == gold["name"]
-    if not tool_ok:
-        return {"tool_accuracy": 0.0, "exact_tool_accuracy": 0.0, "parameter_f1": 0.0}
-    predicted_arguments = predicted.get("arguments")
+    predicted_arguments = predicted.get("arguments") if predicted else None
     if not isinstance(predicted_arguments, dict):
-        return {"tool_accuracy": 1.0, "exact_tool_accuracy": 0.0, "parameter_f1": 0.0}
+        return {"exact_arguments": 0.0, "parameter_f1": 0.0}
     actual = typed_leaves(predicted_arguments)
     expected = typed_leaves(gold["arguments"])
     if not actual and not expected:
@@ -184,11 +183,7 @@ def score_call(predicted: dict[str, Any] | None, gold: dict[str, Any]) -> dict[s
         json.dumps(predicted_arguments, sort_keys=True, separators=(",", ":"))
         == json.dumps(gold["arguments"], sort_keys=True, separators=(",", ":"))
     )
-    return {
-        "tool_accuracy": 1.0,
-        "exact_tool_accuracy": exact,
-        "parameter_f1": parameter_f1,
-    }
+    return {"exact_arguments": exact, "parameter_f1": parameter_f1}
 
 
 def _grader(gold: dict[str, Any]) -> str:
@@ -215,24 +210,21 @@ function leaves(value, path = "", result = new Set()) {{
 }}
 let predicted = null;
 if (existsSync("/app/.mem2act-calls.jsonl")) {{
-  for (const line of readFileSync("/app/.mem2act-calls.jsonl", "utf8").trim().split("\\n")) {{
-    try {{ predicted = JSON.parse(line); }} catch {{}}
-  }}
+  const lines = readFileSync("/app/.mem2act-calls.jsonl", "utf8").trim().split("\\n");
+  if (lines.length === 1) try {{ predicted = JSON.parse(lines[0]); }} catch {{}}
 }}
-const toolAccuracy = Number(predicted?.tool === gold.name);
 let parameterF1 = 0;
-let exactToolAccuracy = 0;
-if (toolAccuracy && predicted.arguments && !Array.isArray(predicted.arguments) && typeof predicted.arguments === "object") {{
+let exactArguments = 0;
+if (predicted?.arguments && !Array.isArray(predicted.arguments) && typeof predicted.arguments === "object") {{
   const actual = leaves(predicted.arguments);
-  const expected = leaves(gold.arguments);
+  const expected = leaves(gold);
   const overlap = [...actual].filter((leaf) => expected.has(leaf)).length;
   parameterF1 = actual.size + expected.size === 0 ? 1 : 2 * overlap / (actual.size + expected.size);
-  exactToolAccuracy = Number(JSON.stringify(canonical(predicted.arguments)) === JSON.stringify(canonical(gold.arguments)));
+  exactArguments = Number(JSON.stringify(canonical(predicted.arguments)) === JSON.stringify(canonical(gold)));
 }}
 writeFileSync("/logs/verifier/reward.json", JSON.stringify({{
-  reward: exactToolAccuracy,
-  tool_accuracy: toolAccuracy,
-  exact_tool_accuracy: exactToolAccuracy,
+  reward: exactArguments,
+  exact_arguments: exactArguments,
   parameter_f1: parameterF1,
 }}));
 '''
@@ -253,12 +245,12 @@ def write_tasks(
 
 [task]
 name = "pi-evals/mem2act-{qa['qa_id']}"
-description = "Recover a tool call from raw conversation memory."
-keywords = ["memory", "tool-use"]
+description = "Ground arguments for a known tool from raw conversation memory."
+keywords = ["memory", "argument-grounding"]
 
 [metadata]
 category = "mem2act"
-tags = ["memory", "tool-use"]
+tags = ["memory", "argument-grounding"]
 
 [agent]
 timeout_sec = 300.0
@@ -281,7 +273,7 @@ gpus = 0
         (task / "instruction.md").write_text(
             "Use the raw conversation memory below to answer the current query. "
             "Inspect the public tool schema with `mem2act describe`, then make exactly "
-            "one call with `mem2act call --tool NAME --arguments JSON`.\n\n"
+            "one call with `mem2act call --arguments JSON`.\n\n"
             f"Raw memory:\n```json\n{memory}\n```\n\nCurrent query:\n{qa['query']}\n",
             encoding="utf-8",
         )
@@ -296,12 +288,7 @@ gpus = 0
             encoding="utf-8",
         )
         (task / "tests" / "grade.mjs").write_text(
-            _grader(
-                {
-                    "name": qa["tool_call"]["name"],
-                    "arguments": qa["tool_call"]["arguments"],
-                }
-            ),
+            _grader(qa["tool_call"]["arguments"]),
             encoding="utf-8",
         )
         test_script = task / "tests" / "test.sh"

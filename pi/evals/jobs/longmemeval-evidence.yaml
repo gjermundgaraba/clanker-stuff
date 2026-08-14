@@ -1,10 +1,10 @@
-job_name: mem2act
+job_name: longmemeval-evidence
 jobs_dir: .harbor/jobs
 n_attempts: 3
 
 orchestrator:
   type: local
-  n_concurrent_trials: 4
+  n_concurrent_trials: 6
   quiet: false
 
 environment:
@@ -14,8 +14,9 @@ environment:
 agents:
   - import_path: pi_evals.pi:PiEval
     model_name: openai-codex/gpt-5.6-terra
+    resume_trajectory: true
     kwargs:
-      agent_label: pi-vanilla
+      agent_label: pi-vanilla-off
       thinking: medium
       settings:
         compaction:
@@ -23,8 +24,9 @@ agents:
 
   - import_path: pi_evals.pi:PiEval
     model_name: openai-codex/gpt-5.6-terra
+    resume_trajectory: true
     kwargs:
-      agent_label: pi-provider
+      agent_label: pi-provider-off
       thinking: medium
       extensions:
         - /opt/codex-provider/index.ts
@@ -34,12 +36,13 @@ agents:
 
   - import_path: pi_evals.codex:CodexEval
     model_name: openai/gpt-5.6-terra
+    resume_trajectory: true
     kwargs:
-      agent_label: codex-cli
+      agent_label: codex-cli-off
       version: 0.147.0
       reasoning_effort: medium
       config:
         model_auto_compact_token_limit: 1000000000
 
 datasets:
-  - path: datasets-generated/mem2act
+  - path: datasets-generated/longmemeval/evidence

@@ -10,8 +10,13 @@ from pathlib import Path
 from statistics import fmean
 from typing import Any
 
-ARM = re.compile(r"^(pi-vanilla|pi-provider|codex-cli)-(off|on)$")
+ARM = re.compile(r"^(.+)-(off|on)$")
 METRICS = ("quality", "input", "cache", "output", "cost", "latency", "compactions")
+CONDITION_TIERS = {
+    "evidence": {None},
+    "full": {"64k", "115k"},
+    "handoff": {"115k"},
+}
 
 
 def _agent_result(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -23,24 +28,44 @@ def _agent_result(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _quality(rewards: dict[str, Any]) -> float:
-    for key in ("official_qa", "quality", "exact_tool_accuracy", "reward"):
+    for key in ("official_qa", "quality", "exact_arguments", "reward"):
         value = rewards.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return float(value)
     return 0.0
 
 
-def _judge_labels(job_dir: Path) -> dict[str, tuple[float, str, str | None]]:
+def _judge_labels(
+    job_dir: Path,
+) -> dict[str, tuple[float, str, str, str, str | None]]:
     labels = {}
     paths = sorted(job_dir.glob("longmemeval-judge-*.jsonl"))
     for path in paths:
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").split("\n"):
+            if not line:
+                continue
             item = json.loads(line)
-            labels[item["trial"]] = (
-                float(bool(item["label"])),
-                "qa_judge",
-                item.get("question_type"),
-            )
+            try:
+                condition = item["condition"]
+                tier = item["tier"]
+                if (
+                    condition not in CONDITION_TIERS
+                    or tier not in CONDITION_TIERS[condition]
+                ):
+                    raise ValueError(
+                        f"{path}: invalid LongMemEval condition/tier: {condition}/{tier}"
+                    )
+                labels[item["trial"]] = (
+                    float(bool(item["label"])),
+                    "qa_judge",
+                    item["question_type"],
+                    condition,
+                    tier,
+                )
+            except KeyError as error:
+                raise ValueError(
+                    f"{path}: obsolete judge row missing {error.args[0]}"
+                ) from error
     return labels
 
 
@@ -60,14 +85,15 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
             "agent_label", config["agent"].get("name", "unknown")
         )
         arm = ARM.fullmatch(label)
-        quality, quality_source, question_type = judged.get(
-            result_path.parent.name, (_quality(rewards), "verifier", None)
+        quality, quality_source, question_type, condition, tier = judged.get(
+            result_path.parent.name, (_quality(rewards), "verifier", None, None, None)
         )
         output.append(
             {
                 "agent": label,
                 "cache": sum(item.get("n_cache_tokens") or 0 for item in usage),
                 "compactions": rewards.get("compaction_count", 0),
+                "condition": condition,
                 "cost": sum(item.get("cost_usd") or 0 for item in usage),
                 "input": sum(item.get("n_input_tokens") or 0 for item in usage),
                 "latency": (finished - started).total_seconds(),
@@ -78,6 +104,7 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
                 "quality_source": quality_source,
                 "question_type": question_type,
                 "task": str(result["task_name"]).removeprefix("pi-evals/"),
+                "tier": tier,
                 "valid": rewards.get("valid_experiment", 1),
             }
         )
@@ -87,46 +114,41 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
 def longmemeval_type_summaries(
     values: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = defaultdict(
-        lambda: defaultdict(list)
+    grouped: dict[tuple[str, str | None, str, str, str], list[dict[str, Any]]] = (
+        defaultdict(list)
     )
     for row in values:
-        if row.get("question_type") and row["mode"]:
-            grouped[(row["platform"], row["question_type"])][row["mode"]].append(
-                row
-            )
+        if row.get("question_type"):
+            grouped[
+                (
+                    row["condition"],
+                    row["tier"],
+                    row["platform"],
+                    row["question_type"],
+                    row["mode"] or "base",
+                )
+            ].append(row)
 
     output = []
-    for (platform, question_type), modes in sorted(grouped.items()):
-        valid = {
-            mode: [row for row in modes[mode] if row["valid"]]
-            for mode in ("off", "on")
-        }
-        if not modes["off"] or not modes["on"]:
-            continue
+    for (condition, tier, platform, question_type, mode), rows in sorted(
+        grouped.items()
+    ):
+        valid = [row for row in rows if row["valid"]]
         output.append(
             {
-                "delta": (
-                    fmean(row["quality"] for row in valid["on"])
-                    - fmean(row["quality"] for row in valid["off"])
-                    if valid["off"] and valid["on"]
-                    else float("nan")
-                ),
-                "off_quality": (
-                    fmean(row["quality"] for row in valid["off"])
-                    if valid["off"]
-                    else float("nan")
-                ),
-                "off_valid": fmean(row["valid"] for row in modes["off"]),
-                "on_quality": (
-                    fmean(row["quality"] for row in valid["on"])
-                    if valid["on"]
-                    else float("nan")
-                ),
-                "on_valid": fmean(row["valid"] for row in modes["on"]),
+                "condition": condition,
+                "mode": mode,
+                "n": len(rows),
                 "platform": platform,
+                "quality": (
+                    fmean(row["quality"] for row in valid)
+                    if valid
+                    else float("nan")
+                ),
                 "question_type": question_type,
-                "tasks": len({row["task"] for row in modes["off"] + modes["on"]}),
+                "tasks": len({row["task"] for row in rows}),
+                "tier": tier,
+                "valid": fmean(row["valid"] for row in rows),
             }
         )
     return output
@@ -216,29 +238,34 @@ def main() -> None:
         )
 
     deltas = matched_deltas(values)
-    if not deltas:
-        return
-    print("\nMatched-arm mean deltas (on minus off; not per-attempt paired estimates):\n")
-    print(
-        "| Platform | Task | N off/on | Valid off/on | Quality | Compactions | Input | Cache | Output | Cost | Seconds |"
-    )
-    print("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
-    for row in deltas:
+    if deltas:
         print(
-            "| {platform} | {task} | {off_n}/{on_n} | {off_valid:.0%}/{on_valid:.0%} | "
-            "{quality:+.3f} | {compactions:+.2f} | {input:+.0f} | {cache:+.0f} | "
-            "{output:+.0f} | ${cost:+.4f} | {latency:+.1f} |".format(**row)
+            "\nMatched-arm mean deltas (on minus off; not per-attempt paired estimates):\n"
         )
+        print(
+            "| Platform | Task | N off/on | Valid off/on | Quality | Compactions | Input | Cache | Output | Cost | Seconds |"
+        )
+        print(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        )
+        for row in deltas:
+            print(
+                "| {platform} | {task} | {off_n}/{on_n} | {off_valid:.0%}/{on_valid:.0%} | "
+                "{quality:+.3f} | {compactions:+.2f} | {input:+.0f} | {cache:+.0f} | "
+                "{output:+.0f} | ${cost:+.4f} | {latency:+.1f} |".format(**row)
+            )
 
     summaries = longmemeval_type_summaries(values)
     if summaries:
         print("\nLongMemEval valid-trial quality by question type:\n")
-        print("| Platform | Type | Tasks | Valid off/on | Quality off/on | Delta |")
-        print("| --- | --- | ---: | ---: | ---: | ---: |")
+        print(
+            "| Condition | Tier | Platform | Arm | Type | Tasks | N | Valid | Quality |"
+        )
+        print("| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
         for row in summaries:
             print(
-                "| {platform} | {question_type} | {tasks} | {off_valid:.0%}/{on_valid:.0%} | "
-                "{off_quality:.3f}/{on_quality:.3f} | {delta:+.3f} |".format(**row)
+                "| {condition} | {tier} | {platform} | {mode} | {question_type} | "
+                "{tasks} | {n} | {valid:.0%} | {quality:.3f} |".format(**row)
             )
 
     flips = paired_flips(values)

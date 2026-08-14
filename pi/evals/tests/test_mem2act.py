@@ -10,6 +10,7 @@ from unittest import TestCase
 from harbor.models.task.task import Task
 
 from pi_evals.mem2act import (
+    read_jsonl,
     resolve_records,
     score_call,
     stratified_sample,
@@ -47,6 +48,16 @@ def session(identifier: str, source: str = "source-1") -> dict:
 
 
 class Mem2ActTest(TestCase):
+    def test_jsonl_preserves_unicode_line_separators(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "data.jsonl"
+            record = {"content": "before\u2028after"}
+            path.write_text(
+                json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+
+            self.assertEqual(read_jsonl(path), [record])
+
     def test_resolves_only_one_complete_session_and_stratifies(self) -> None:
         records = [qa("qa-empty", "L1"), qa("qa-one", "L2"), qa("qa-many", "L3")]
         records[0]["source_conversation_ids"] = []
@@ -73,13 +84,18 @@ class Mem2ActTest(TestCase):
         gold = {"name": "lookup", "arguments": {"a/b": 1, "flag": True}}
         self.assertIn(("/a~1b", "number", "1"), typed_leaves(gold["arguments"]))
         self.assertEqual(
-            score_call({"tool": "other", "arguments": gold["arguments"]}, gold),
-            {"tool_accuracy": 0.0, "exact_tool_accuracy": 0.0, "parameter_f1": 0.0},
+            score_call(None, gold),
+            {"exact_arguments": 0.0, "parameter_f1": 0.0},
         )
-        score = score_call({"tool": "lookup", "arguments": {"a/b": True, "flag": True}}, gold)
-        self.assertEqual(score["tool_accuracy"], 1.0)
-        self.assertEqual(score["exact_tool_accuracy"], 0.0)
+        score = score_call(
+            {"tool": "lookup", "arguments": {"a/b": True, "flag": True}}, gold
+        )
+        self.assertEqual(score["exact_arguments"], 0.0)
         self.assertEqual(score["parameter_f1"], 0.5)
+        self.assertEqual(
+            score_call({"tool": "ignored", "arguments": gold["arguments"]}, gold),
+            {"exact_arguments": 1.0, "parameter_f1": 1.0},
+        )
 
     def test_generated_public_files_do_not_expose_private_qa_fields(self) -> None:
         with TemporaryDirectory() as directory:
@@ -99,10 +115,43 @@ class Mem2ActTest(TestCase):
             self.assertNotIn('"count":3', instruction)
             grader = (task / "tests" / "grade.mjs").read_text(encoding="utf-8")
             self.assertIn('"count":3', grader)
+            self.assertIn("exact_arguments", grader)
             self.assertNotIn("PRIVATE_GROUNDING", grader)
             self.assertNotIn("PRIVATE_EVOLUTION", grader)
             self.assertTrue(Task.is_valid_dir(task))
             self.assertEqual(Task(task).name, "pi-evals/mem2act-qa-one")
+
+    def test_generated_grader_rejects_multiple_or_malformed_calls(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "tasks"
+            write_tasks([(qa("qa-one", "L1"), session("session-one"))], output)
+            calls = root / "calls.jsonl"
+            reward = root / "reward.json"
+            grader = root / "grade.mjs"
+            grader.write_text(
+                (output / "qa-one" / "tests" / "grade.mjs")
+                .read_text(encoding="utf-8")
+                .replace('"/app/.mem2act-calls.jsonl"', json.dumps(str(calls)))
+                .replace('"/logs/verifier/reward.json"', json.dumps(str(reward))),
+                encoding="utf-8",
+            )
+            valid = json.dumps(
+                {
+                    "arguments": qa("qa-one", "L1")["tool_call"]["arguments"],
+                    "tool": "secret.tool",
+                }
+            )
+            for contents, expected in (
+                (f"{valid}\n", 1),
+                (f"{valid}\n{valid}\n", 0),
+                ("not-json\n", 0),
+            ):
+                calls.write_text(contents, encoding="utf-8")
+                subprocess.run(["node", grader], check=True)
+                score = json.loads(reward.read_text(encoding="utf-8"))
+                self.assertEqual(score["exact_arguments"], expected)
+                self.assertEqual(score["parameter_f1"], expected)
 
     def test_runtime_describes_schema_and_appends_call(self) -> None:
         runtime = Path(__file__).parents[1] / "runtime" / "mem2act.mjs"
@@ -110,7 +159,7 @@ class Mem2ActTest(TestCase):
             root = Path(directory)
             schema = root / "schema.json"
             calls = root / "calls.jsonl"
-            schema.write_text('{"z":1,"a":2}', encoding="utf-8")
+            schema.write_text('{"name":"lookup","z":1,"a":2}', encoding="utf-8")
             environment = {
                 **os.environ,
                 "MEM2ACT_SCHEMA_PATH": str(schema),
@@ -129,8 +178,6 @@ class Mem2ActTest(TestCase):
                     "node",
                     runtime,
                     "call",
-                    "--tool",
-                    "lookup",
                     "--arguments",
                     '{"z":1,"nested":{"b":2,"a":1}}',
                 ],
@@ -140,7 +187,9 @@ class Mem2ActTest(TestCase):
                 env=environment,
             )
 
-            self.assertEqual(json.loads(described.stdout), {"a": 2, "z": 1})
+            self.assertEqual(
+                json.loads(described.stdout), {"a": 2, "name": "lookup", "z": 1}
+            )
             self.assertEqual(
                 json.loads(calls.read_text(encoding="utf-8")),
                 {

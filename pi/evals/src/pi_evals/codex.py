@@ -14,6 +14,10 @@ from harbor.utils.trajectory_utils import format_trajectory_json
 _REMOTE_PROMPT_PATH = "/tmp/codex-eval-instruction.md"
 
 
+def _usage_delta[T: int | float](current: T | None, previous: T | None) -> T | None:
+    return current - previous if current is not None and previous is not None else current
+
+
 def _redirect_prompt(command: str, prompt_path: str) -> str:
     marker = "2>&1 </dev/null | tee"
     if marker not in command:
@@ -24,30 +28,33 @@ def _redirect_prompt(command: str, prompt_path: str) -> str:
 def load_codex_compactions(session_dir: Path) -> list[dict[str, Any]]:
     """Read persisted Codex replacement events, the durable success evidence."""
 
-    segment = -1
+    completed_segment = -1
     compactions: list[dict[str, Any]] = []
     for path in sorted(session_dir.glob("rollout-*.jsonl")):
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
+            if not line:
+                continue
             try:
                 event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+            except json.JSONDecodeError as error:
+                raise ValueError(f"{path}:{number}: invalid JSON") from error
+            if not isinstance(event, dict):
+                raise ValueError(f"{path}:{number}: expected an object")
             payload = event.get("payload")
             if (
                 event.get("type") == "event_msg"
                 and isinstance(payload, dict)
                 and payload.get("type") == "user_message"
             ):
-                segment += 1
+                completed_segment += 1
             elif event.get("type") == "compacted" and isinstance(payload, dict):
                 compactions.append(
                     {
+                        "compacted_after_segment": completed_segment,
                         "event_type": "context_compaction",
                         "mechanism": "codex-cli",
-                        "segment": segment,
                         "state": "succeeded",
                         "timestamp": event.get("timestamp"),
-                        "window_number": payload.get("window_number"),
                     }
                 )
     return compactions
@@ -60,6 +67,28 @@ class CodexEval(Codex):
         super().__init__(*args, **kwargs)
         self._agent_label = agent_label
         self._prompt_path: str | None = None
+        self._usage_session_id: str | None = None
+        self._cumulative_usage: tuple[
+            int | None, int | None, int | None, float | None
+        ] | None = None
+
+    def _normalize_context_usage(
+        self, context: AgentContext, session_id: str
+    ) -> None:
+        current = (
+            context.n_input_tokens,
+            context.n_cache_tokens,
+            context.n_output_tokens,
+            context.cost_usd,
+        )
+        previous = self._cumulative_usage
+        if self._usage_session_id == session_id and previous is not None:
+            context.n_input_tokens = _usage_delta(current[0], previous[0])
+            context.n_cache_tokens = _usage_delta(current[1], previous[1])
+            context.n_output_tokens = _usage_delta(current[2], previous[2])
+            context.cost_usd = _usage_delta(current[3], previous[3])
+        self._usage_session_id = session_id
+        self._cumulative_usage = current
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
@@ -123,6 +152,9 @@ class CodexEval(Codex):
             return
 
         value = json.loads(trajectory_path.read_text(encoding="utf-8"))
+        session_id = value.get("session_id")
+        if isinstance(session_id, str):
+            self._normalize_context_usage(context, session_id)
         steps = value.get("steps")
         if not isinstance(steps, list):
             return

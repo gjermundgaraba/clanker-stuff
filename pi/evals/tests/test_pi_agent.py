@@ -1,8 +1,12 @@
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
-from pi_evals.codex import _redirect_prompt, load_codex_compactions
+from harbor.agents.installed.codex import Codex
+from harbor.models.agent.context import AgentContext
+from pi_evals.codex import CodexEval, _redirect_prompt, load_codex_compactions
 from pi_evals.pi import convert_pi_events, load_pi_events
 
 
@@ -65,7 +69,7 @@ class PiTrajectoryTest(TestCase):
         trajectory = convert_pi_events(
             events,
             ["read the clue", "finish"],
-            agent_version="0.84.1",
+            agent_version="0.84.2",
             model_name="provider/model-1",
         )
 
@@ -98,7 +102,7 @@ class PiTrajectoryTest(TestCase):
                 },
             ],
             ["continue"],
-            agent_version="0.84.1",
+            agent_version="0.84.2",
             model_name="provider/model-1",
         )
 
@@ -106,7 +110,7 @@ class PiTrajectoryTest(TestCase):
         self.assertEqual(trajectory.final_metrics.extra["compaction_attempts"], 1)
         self.assertEqual(trajectory.final_metrics.extra["compactions"], 0)
 
-    def test_reads_codex_persisted_compactions_at_their_segment(self) -> None:
+    def test_reads_codex_persisted_compaction_boundary(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "rollout-2026-01-01T00-00-00-id.jsonl"
             path.write_text(
@@ -114,7 +118,14 @@ class PiTrajectoryTest(TestCase):
                     [
                         '{"type":"event_msg","payload":{"type":"user_message"}}',
                         '{"type":"event_msg","payload":{"type":"user_message"}}',
-                        '{"timestamp":"2026-01-01T00:00:01Z","type":"compacted","payload":{"window_number":1}}',
+                        json.dumps(
+                            {
+                                "timestamp": "2026-01-01T00:00:01Z",
+                                "type": "compacted",
+                                "payload": {"message": "before\u2028after"},
+                            },
+                            ensure_ascii=False,
+                        ),
                         '{"type":"event_msg","payload":{"type":"context_compacted"}}',
                     ]
                 ),
@@ -125,18 +136,84 @@ class PiTrajectoryTest(TestCase):
                 load_codex_compactions(Path(directory)),
                 [
                     {
+                        "compacted_after_segment": 1,
                         "event_type": "context_compaction",
                         "mechanism": "codex-cli",
-                        "segment": 1,
                         "state": "succeeded",
                         "timestamp": "2026-01-01T00:00:01Z",
-                        "window_number": 1,
                     }
                 ],
             )
 
-    def test_load_ignores_non_json_output(self) -> None:
+    def test_codex_resumed_usage_is_reported_per_step(self) -> None:
+        with TemporaryDirectory() as directory:
+            logs_dir = Path(directory)
+            (logs_dir / "sessions/2026/01/01").mkdir(parents=True)
+            adapter = CodexEval(
+                logs_dir=logs_dir,
+                model_name="openai/gpt-5",
+                version="0.147.0",
+            )
+            snapshots = iter(
+                [
+                    ("session-1", (100, 60, 20, 1.25)),
+                    ("session-1", (160, 90, 35, 2.0)),
+                    ("session-2", (40, 10, 8, 0.5)),
+                ]
+            )
+
+            def populate(context: AgentContext) -> None:
+                session_id, usage = next(snapshots)
+                (
+                    context.n_input_tokens,
+                    context.n_cache_tokens,
+                    context.n_output_tokens,
+                    context.cost_usd,
+                ) = usage
+                (logs_dir / "trajectory.json").write_text(
+                    json.dumps({"session_id": session_id, "steps": []}),
+                    encoding="utf-8",
+                )
+
+            contexts = [AgentContext() for _ in range(3)]
+            with patch.object(Codex, "populate_context_post_run", side_effect=populate):
+                for context in contexts:
+                    adapter.populate_context_post_run(context)
+
+            self.assertEqual(
+                [
+                    (
+                        context.n_input_tokens,
+                        context.n_cache_tokens,
+                        context.n_output_tokens,
+                        context.cost_usd,
+                    )
+                    for context in contexts
+                ],
+                [
+                    (100, 60, 20, 1.25),
+                    (60, 30, 15, 0.75),
+                    (40, 10, 8, 0.5),
+                ],
+            )
+
+    def test_load_is_strict_and_preserves_unicode_line_separators(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "events.jsonl"
-            path.write_text('warning\n{"type":"session","id":"ok"}\n', encoding="utf-8")
-            self.assertEqual(load_pi_events(path), [{"type": "session", "id": "ok"}])
+            compaction = {
+                "type": "compaction_end",
+                "result": {"summary": "before\u2028after"},
+            }
+            path.write_text(
+                '{"type":"session","id":"ok"}\n'
+                + json.dumps(compaction, ensure_ascii=False)
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                load_pi_events(path),
+                [{"type": "session", "id": "ok"}, compaction],
+            )
+            path.write_text("warning\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid JSON"):
+                load_pi_events(path)

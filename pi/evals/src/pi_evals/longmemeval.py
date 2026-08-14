@@ -5,9 +5,12 @@ import json
 import os
 import shutil
 import urllib.request
+from bisect import bisect_left
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
+from itertools import pairwise
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 HF_REVISION = "98d7416c24c778c2fee6e6f3006e7a073259d48f"
 HF_BASE_URL = (
@@ -22,14 +25,14 @@ SOURCE_FILES = {
         "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
     ),
 }
-TIER_BUDGETS = (32_000, 64_000, 115_000)
-HISTORY_CHUNK_TOKENS = 12_000
+PROTOCOL_VERSION = 2
+TIER_STEPS = {64_000: 6, 115_000: 10}
+CONDITIONS = ("full", "evidence", "handoff")
 SELECTION_SEED = "clanker-stuff-longmemeval-v1"
 HISTORY_PREFIX = (
     "The following dated chats are part of the user's prior conversation history. "
     "Retain all history blocks for the final question. Do not inspect or edit files. "
-    "Reply only with "
-    "`HISTORY-RECORDED`."
+    "Reply only with `HISTORY-RECORDED`."
 )
 
 
@@ -75,41 +78,79 @@ def select_records(
     return selected
 
 
+def _chronological_indices(
+    record: dict[str, Any], indices: Iterable[int]
+) -> tuple[int, ...]:
+    return tuple(
+        sorted(indices, key=lambda index: (record["haystack_dates"][index], index))
+    )
+
+
 def _session_text(record: dict[str, Any], index: int) -> str:
     turns = "\n".join(
         f"{turn['role']}: {str(turn['content']).strip()}"
         for turn in record["haystack_sessions"][index]
     )
-    return (
-        f"\n\n### Session {index + 1}\n"
-        f"Date: {record['haystack_dates'][index]}\n{turns}"
-    )
+    return f"\n\n### Prior chat\nDate: {record['haystack_dates'][index]}\n{turns}"
 
 
 def history_instruction(record: dict[str, Any], indices: Iterable[int]) -> str:
-    return HISTORY_PREFIX + "".join(_session_text(record, index) for index in indices)
+    ordered = _chronological_indices(record, indices)
+    return HISTORY_PREFIX + "".join(_session_text(record, index) for index in ordered)
+
+
+def _balanced_groups(
+    record: dict[str, Any],
+    indices: Iterable[int],
+    encoder: Any,
+    chunk_count: int,
+) -> tuple[tuple[int, ...], ...]:
+    ordered = _chronological_indices(record, indices)
+    if chunk_count < 1:
+        raise ValueError("history chunk count must be positive")
+    if len(ordered) < chunk_count:
+        raise ValueError(
+            f"cannot split {len(ordered)} history sessions into {chunk_count} chunks"
+        )
+
+    cumulative = [0]
+    for index in ordered:
+        cumulative.append(
+            cumulative[-1] + len(encoder.encode(_session_text(record, index)))
+        )
+
+    cuts = []
+    previous = 0
+    total = cumulative[-1]
+    for chunk_index in range(1, chunk_count):
+        target = total * chunk_index / chunk_count
+        minimum = previous + 1
+        maximum = len(ordered) - (chunk_count - chunk_index)
+        insertion = bisect_left(cumulative, target, minimum, maximum + 1)
+        candidates = {
+            min(maximum, max(minimum, insertion)),
+            min(maximum, max(minimum, insertion - 1)),
+        }
+        cut = min(candidates, key=lambda value: (abs(cumulative[value] - target), value))
+        cuts.append(cut)
+        previous = cut
+
+    boundaries = (0, *cuts, len(ordered))
+    return tuple(
+        ordered[start:end] for start, end in pairwise(boundaries)
+    )
 
 
 def history_chunks(
     record: dict[str, Any],
     indices: Iterable[int],
     encoder: Any,
-    max_tokens: int = HISTORY_CHUNK_TOKENS,
+    chunk_count: int,
 ) -> tuple[str, ...]:
-    groups: list[list[int]] = []
-    group: list[int] = []
-    group_tokens = 0
-    for index in indices:
-        size = len(encoder.encode(_session_text(record, index)))
-        if group and group_tokens + size > max_tokens:
-            groups.append(group)
-            group = []
-            group_tokens = 0
-        group.append(index)
-        group_tokens += size
-    if group:
-        groups.append(group)
-    return tuple(history_instruction(record, group_indices) for group_indices in groups)
+    return tuple(
+        history_instruction(record, group)
+        for group in _balanced_groups(record, indices, encoder, chunk_count)
+    )
 
 
 def query_instruction(record: dict[str, Any]) -> str:
@@ -125,7 +166,7 @@ def tier_indices(
     record: dict[str, Any],
     evidence_session_ids: Iterable[str],
     encoder: Any,
-    budgets: Iterable[int] = TIER_BUDGETS,
+    tier_steps: Mapping[int, int] = TIER_STEPS,
 ) -> dict[int, tuple[int, ...]]:
     session_ids = record["haystack_session_ids"]
     evidence = set(evidence_session_ids)
@@ -138,15 +179,24 @@ def tier_indices(
     }
     selected = set(required)
     output = {}
+    tiers = sorted(tier_steps.items())
 
-    def rendered_tokens(indices: set[int]) -> int:
-        return sum(
-            len(encoder.encode(instruction))
-            for instruction in history_chunks(record, sorted(indices), encoder)
-        ) + len(encoder.encode(query_instruction(record)))
+    def rendered_tokens(indices: set[int], history_steps: int) -> int:
+        history = 0
+        if indices:
+            history = sum(
+                len(encoder.encode(instruction))
+                for instruction in history_chunks(
+                    record,
+                    indices,
+                    encoder,
+                    min(history_steps, len(indices)),
+                )
+            )
+        return history + len(encoder.encode(query_instruction(record)))
 
-    for budget in budgets:
-        if rendered_tokens(selected) > budget:
+    for budget, history_steps in tiers:
+        if rendered_tokens(selected, history_steps) > budget:
             raise ValueError(f"evidence alone exceeds the {budget}-token tier")
         filler_indices = sorted(
             (index for index in range(len(session_ids)) if index not in required),
@@ -155,14 +205,16 @@ def tier_indices(
             ),
         )
         for index in filler_indices:
+            if index in selected:
+                continue
             candidate = selected | {index}
-            if index not in selected and rendered_tokens(candidate) <= budget:
+            if rendered_tokens(candidate, history_steps) <= budget:
                 selected.add(index)
-        indices = tuple(sorted(selected))
-        actual = rendered_tokens(selected)
-        if actual > budget:
-            raise ValueError(f"rendered history exceeds the {budget}-token tier")
-        output[budget] = indices
+        if len(selected) < history_steps:
+            raise ValueError(
+                f"{budget}-token tier has fewer sessions than its {history_steps} steps"
+            )
+        output[budget] = _chronological_indices(record, selected)
     return output
 
 
@@ -203,30 +255,45 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _task_toml(ordinal: int, tier: int, history_count: int) -> str:
-    history_steps = "".join(
+def _task_toml(
+    ordinal: int,
+    condition: str,
+    tier: str | None,
+    step_names: Sequence[str],
+    expected_compaction_after_segment: int | None,
+) -> str:
+    suffix = f"-{tier}" if tier else ""
+    metadata = f'condition = "{condition}"\n'
+    if tier:
+        metadata += f'tier = "{tier}"\n'
+    if expected_compaction_after_segment is not None:
+        metadata += (
+            "expected_compaction_after_segment = "
+            f"{expected_compaction_after_segment}\n"
+        )
+    steps = "".join(
         f'''\n[[steps]]
-name = "history-{index:02d}"
+name = "{name}"
 [steps.agent]
 timeout_sec = 600.0
 [steps.verifier]
 timeout_sec = 60.0
 '''
-        for index in range(1, history_count + 1)
+        for name in step_names
     )
     return f'''schema_version = "1.4"
 multi_step_reward_strategy = "final"
 
 [task]
-name = "pi-evals/longmemeval-{tier // 1000}k-{ordinal:02d}"
-description = "Retain a long dated chat history and answer one memory question."
+name = "pi-evals/longmemeval-{condition}{suffix}-{ordinal:02d}"
+description = "Answer one memory question from a supplied dated chat history."
 keywords = ["long-context", "memory", "multi-step"]
 
 [metadata]
 difficulty = "hard"
 category = "context-management"
 tags = ["long-context", "memory"]
-
+{metadata}
 [environment]
 docker_image = "clanker-pi-evals:node24"
 workdir = "/app"
@@ -235,7 +302,7 @@ cpus = 2
 memory_mb = 2048
 storage_mb = 10240
 gpus = 0
-{history_steps}
+{steps}
 
 [[steps]]
 name = "query"
@@ -284,48 +351,46 @@ const attempts = steps.filter(
   (step) => step.extra?.event_type === "context_compaction"
 );
 const compactions = attempts.filter((step) => step.extra?.state === "succeeded");
-const boundary = steps.some(
-  (step, index) =>
-    index > 0 &&
-    index < queryIndex &&
-    step.extra?.event_type === "context_compaction" &&
-    step.extra?.state === "succeeded"
+const compactionExpected = Boolean(
+  policy?.expected && gold.condition !== "evidence"
 );
-const mechanism =
+const boundary = Boolean(
+  compactionExpected &&
+    compactions[0]?.extra?.compacted_after_segment ===
+      gold.expected_compaction_after_segment
+);
+const mechanism = Boolean(
   agentName === "oracle" ||
-  Boolean(
-    policy &&
-      compactions.every(
-        (step) =>
-          step.extra?.mechanism === policy.mechanism &&
+    (policy &&
+      (!compactionExpected ||
+        (compactions[0]?.extra?.mechanism === policy.mechanism &&
           (policy.mechanism !== "codex-provider" ||
-            step.extra?.protocol === "openai-responses-compaction-v2")
-      )
-  );
+            compactions[0]?.extra?.protocol ===
+              "openai-responses-compaction-v2"))))
+);
 const normalize = (value) =>
   String(value).normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\\s+/gu, " ");
 const agentResponse = Number(hypothesis.trim().length > 0);
 const exactNormalized = Number(agentResponse && normalize(hypothesis) === normalize(gold.answer));
+const controlled = compactionExpected
+  ? attempts.length === 1 && compactions.length === 1 && boundary && mechanism
+  : attempts.length === 0;
 const validExperiment = Number(
-  agentName === "oracle" ||
-    (policy &&
-      agentResponse &&
-      answerIndex > queryIndex &&
-      (policy.expected
-        ? attempts.length > 0 &&
-          attempts.length === compactions.length &&
-          boundary &&
-          mechanism
-        : attempts.length === 0))
+  (agentName === "oracle" || policy) &&
+    agentResponse &&
+    answerIndex > queryIndex &&
+    controlled
 );
 writeFileSync(
   "/logs/verifier/reward.json",
   JSON.stringify({
     agent_response: agentResponse,
+    compaction_after_segment:
+      compactions[0]?.extra?.compacted_after_segment ?? -1,
     compaction_attempts: attempts.length,
     compaction_boundary: Number(boundary),
     compaction_count: compactions.length,
-    compaction_expected: Number(policy?.expected ?? false),
+    compaction_expected: Number(compactionExpected),
     compaction_failures: attempts.length - compactions.length,
     continuation: agentResponse,
     exact_normalized: exactNormalized,
@@ -337,6 +402,78 @@ writeFileSync(
 '''
 
 
+def _write_task(
+    task: Path,
+    *,
+    ordinal: int,
+    condition: str,
+    tier: str | None,
+    steps: Sequence[tuple[str, str]],
+    expected_compaction_after_segment: int | None,
+    record: dict[str, Any],
+    gold: dict[str, Any],
+) -> None:
+    shutil.rmtree(task, ignore_errors=True)
+    (task / "environment").mkdir(parents=True, exist_ok=True)
+    _write(
+        task / "task.toml",
+        _task_toml(
+            ordinal,
+            condition,
+            tier,
+            [name for name, _instruction in steps],
+            expected_compaction_after_segment,
+        ),
+    )
+    for name, instruction in steps:
+        step = task / f"steps/{name}"
+        _write(step / "instruction.md", instruction)
+        _write(step / "solution/solve.sh", "#!/usr/bin/env bash\ntrue\n")
+        _write(
+            step / "tests/test.sh",
+            "#!/usr/bin/env bash\necho 1 > /logs/verifier/reward.txt\n",
+        )
+
+    query = task / "steps/query"
+    _write(query / "instruction.md", query_instruction(record))
+    _write(
+        query / "solution/solve.sh",
+        "#!/usr/bin/env bash\nset -eu\nmkdir -p /logs/agent\n"
+        "node -e 'const g=require(\"/tests/gold.json\");"
+        "require(\"fs\").writeFileSync(\"/logs/agent/trajectory.json\","
+        "JSON.stringify({schema_version:\"ATIF-v1.7\",session_id:\"oracle\","
+        "agent:{name:\"oracle\",version:\"1\"},steps:[{step_id:1,source:\"user\","
+        "message:\"query\"},{step_id:2,source:\"agent\",message:String(g.answer)}]}))'\n",
+    )
+    _write(
+        query / "tests/gold.json",
+        json.dumps(
+            {
+                "abstention": record["question_id"].endswith("_abs"),
+                "answer": gold["answer"],
+                "condition": condition,
+                "expected_compaction_after_segment": (
+                    expected_compaction_after_segment
+                ),
+                "question": gold["question"],
+                "question_id": record["question_id"],
+                "question_type": gold["question_type"],
+                "tier": tier,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+    )
+    _write(query / "tests/grade.mjs", _grader())
+    _write(
+        query / "tests/test.sh",
+        "#!/usr/bin/env bash\nset -eu\nnode /tests/grade.mjs\n",
+    )
+    for script in task.rglob("*.sh"):
+        script.chmod(0o755)
+
+
 def generate_tasks(
     records: Iterable[dict[str, Any]],
     oracle_records: Iterable[dict[str, Any]],
@@ -346,6 +483,7 @@ def generate_tasks(
 ) -> int:
     source = {record["question_id"]: record for record in records}
     oracle = {record["question_id"]: record for record in oracle_records}
+    shutil.rmtree(output_dir, ignore_errors=True)
     count = 0
 
     for ordinal, question_id in enumerate(question_ids):
@@ -358,9 +496,8 @@ def generate_tasks(
         if set(record["answer_session_ids"]) != set(evidence_ids):
             raise ValueError(f"source/oracle evidence IDs differ for {question_id}")
         source_sessions = {
-            session_id: (date, session)
-            for date, session_id, session in zip(
-                record["haystack_dates"],
+            session_id: session
+            for session_id, session in zip(
                 record["haystack_session_ids"],
                 record["haystack_sessions"],
                 strict=True,
@@ -368,66 +505,81 @@ def generate_tasks(
         }
         oracle_sessions = {
             session_id: session
-            for _date, session_id, session in zip(
-                gold["haystack_dates"],
+            for session_id, session in zip(
                 gold["haystack_session_ids"],
                 gold["haystack_sessions"],
                 strict=True,
             )
         }
         for evidence_id in evidence_ids:
-            source_evidence = source_sessions.get(evidence_id)
-            if source_evidence is None or source_evidence[1] != oracle_sessions.get(
-                evidence_id
-            ):
+            if source_sessions.get(evidence_id) != oracle_sessions.get(evidence_id):
                 raise ValueError(
                     f"source/oracle evidence differs for {question_id}: {evidence_id}"
                 )
-        tiers = tier_indices(record, evidence_ids, encoder)
 
-        for budget, indices in tiers.items():
-            chunks = history_chunks(record, indices, encoder)
-            task = output_dir / f"{budget // 1000}k" / f"{ordinal:02d}"
-            shutil.rmtree(task, ignore_errors=True)
-            (task / "environment").mkdir(parents=True, exist_ok=True)
-            _write(task / "task.toml", _task_toml(ordinal, budget, len(chunks)))
-            for index, instruction in enumerate(chunks, start=1):
-                step = task / f"steps/history-{index:02d}"
-                _write(step / "instruction.md", instruction)
-                _write(step / "solution/solve.sh", "#!/usr/bin/env bash\ntrue\n")
-                _write(
-                    step / "tests/test.sh",
-                    "#!/usr/bin/env bash\necho 1 > /logs/verifier/reward.txt\n",
-                )
-            _write(task / "steps/query/instruction.md", query_instruction(record))
-            _write(
-                task / "steps/query/solution/solve.sh",
-                "#!/usr/bin/env bash\nset -eu\nmkdir -p /logs/agent\nnode -e 'const g=require(\"/tests/gold.json\");require(\"fs\").writeFileSync(\"/logs/agent/trajectory.json\",JSON.stringify({schema_version:\"ATIF-v1.7\",session_id:\"oracle\",agent:{name:\"oracle\",version:\"1\"},steps:[{step_id:1,source:\"user\",message:\"query\"},{step_id:2,source:\"agent\",message:String(g.answer)}]}))'\n",
+        selected = tier_indices(record, evidence_ids, encoder)
+        full_chunks = {
+            budget: history_chunks(
+                record,
+                indices,
+                encoder,
+                TIER_STEPS[budget],
             )
-            _write(
-                task / "steps/query/tests/gold.json",
-                json.dumps(
-                    {
-                        "abstention": question_id.endswith("_abs"),
-                        "answer": gold["answer"],
-                        "question": gold["question"],
-                        "question_id": question_id,
-                        "question_type": gold["question_type"],
-                        "tier": f"{budget // 1000}k",
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                + "\n",
+            for budget, indices in selected.items()
+        }
+        for budget, chunks in full_chunks.items():
+            tier = f"{budget // 1000}k"
+            steps = [
+                (f"history-{index:02d}", instruction)
+                for index, instruction in enumerate(chunks, start=1)
+            ]
+            _write_task(
+                output_dir / "full" / tier / f"{ordinal:02d}",
+                ordinal=ordinal,
+                condition="full",
+                tier=tier,
+                steps=steps,
+                expected_compaction_after_segment=len(chunks) - 1,
+                record=record,
+                gold=gold,
             )
-            _write(task / "steps/query/tests/grade.mjs", _grader())
-            _write(
-                task / "steps/query/tests/test.sh",
-                "#!/usr/bin/env bash\nset -eu\nnode /tests/grade.mjs\n",
-            )
-            for script in task.rglob("*.sh"):
-                script.chmod(0o755)
             count += 1
+
+        evidence_indices = tuple(
+            index
+            for index, session_id in enumerate(record["haystack_session_ids"])
+            if session_id in set(evidence_ids)
+        )
+        evidence_instruction = history_instruction(record, evidence_indices)
+        _write_task(
+            output_dir / "evidence" / f"{ordinal:02d}",
+            ordinal=ordinal,
+            condition="evidence",
+            tier=None,
+            steps=(("evidence", evidence_instruction),),
+            expected_compaction_after_segment=None,
+            record=record,
+            gold=gold,
+        )
+        count += 1
+
+        handoff_chunks = full_chunks[115_000]
+        handoff_steps = [
+            (f"history-{index:02d}", instruction)
+            for index, instruction in enumerate(handoff_chunks, start=1)
+        ]
+        handoff_steps.append(("evidence", evidence_instruction))
+        _write_task(
+            output_dir / "handoff" / "115k" / f"{ordinal:02d}",
+            ordinal=ordinal,
+            condition="handoff",
+            tier="115k",
+            steps=handoff_steps,
+            expected_compaction_after_segment=len(handoff_chunks) - 1,
+            record=record,
+            gold=gold,
+        )
+        count += 1
     return count
 
 
@@ -437,10 +589,16 @@ def prepare(manifest_path: Path, output_dir: Path, cache_dir: Path | None = None
     ) / "pi-evals/longmemeval"
     paths = download_sources(cache_dir)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("history_chunk_tokens") != HISTORY_CHUNK_TOKENS:
-        raise ValueError("LongMemEval manifest history chunk size does not match")
-    if manifest.get("tier_budgets") != list(TIER_BUDGETS):
-        raise ValueError("LongMemEval manifest tier budgets do not match")
+    expected_tiers = {
+        "64k": {"history_steps": 6, "token_budget": 64_000},
+        "115k": {"history_steps": 10, "token_budget": 115_000},
+    }
+    if manifest.get("protocol_version") != PROTOCOL_VERSION:
+        raise ValueError("LongMemEval manifest protocol version does not match")
+    if manifest.get("tiers") != expected_tiers:
+        raise ValueError("LongMemEval manifest tiers do not match")
+    if manifest.get("conditions") != list(CONDITIONS):
+        raise ValueError("LongMemEval manifest conditions do not match")
     records = json.loads(paths["longmemeval_s_cleaned.json"].read_text(encoding="utf-8"))
     oracle = json.loads(paths["longmemeval_oracle.json"].read_text(encoding="utf-8"))
     expected = [

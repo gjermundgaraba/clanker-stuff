@@ -50,13 +50,14 @@ const attempts = steps
   .filter(({ extra }) => extra?.event_type === "context_compaction");
 const compactions = attempts.filter(({ extra }) => extra.state === "succeeded");
 const boundary = compactions.find(
-  ({ extra }) => extra.segment >= 5 && extra.segment <= 7
+  ({ extra }) =>
+    extra.compacted_after_segment >= 5 && extra.compacted_after_segment <= 7
 );
 const mechanism =
   oracle ||
   (policy?.compactionExpected === false
     ? attempts.length === 0
-    : compactions.length > 0 &&
+    : compactions.length === 1 &&
       compactions.every(
         ({ extra }) =>
           extra.mechanism === policy?.mechanism &&
@@ -73,7 +74,7 @@ const valid =
   Boolean(policy) &&
   (policy.compactionExpected
     ? Boolean(boundary) &&
-      attempts.length > 0 &&
+      attempts.length === 1 &&
       compactions.length === attempts.length &&
       mechanism &&
       continued

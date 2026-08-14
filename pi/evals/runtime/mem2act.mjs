@@ -18,9 +18,7 @@ const parseJson = (text) => {
 
 const fail = (message) => {
   console.error(message);
-  console.error(
-    "usage: mem2act describe | mem2act call --tool NAME --arguments JSON"
-  );
+  console.error("usage: mem2act describe | mem2act call --arguments JSON");
   process.exit(2);
 };
 
@@ -28,28 +26,20 @@ const [command, ...args] = process.argv.slice(2);
 if (command === "describe" && args.length === 0) {
   console.log(JSON.stringify(parseJson(readFileSync(schemaPath, "utf-8"))));
 } else if (command === "call") {
-  let tool;
   let argumentsJson;
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
     const value = args[index + 1];
-    if (!["--tool", "--arguments"].includes(flag) || value === undefined) {
+    if (flag !== "--arguments" || value === undefined) {
       fail(`invalid argument: ${flag ?? "<missing>"}`);
     }
-    if (flag === "--tool") {
-      if (tool !== undefined) {
-        fail(`duplicate argument: ${flag}`);
-      }
-      tool = value;
-    } else {
-      if (argumentsJson !== undefined) {
-        fail(`duplicate argument: ${flag}`);
-      }
-      argumentsJson = value;
+    if (argumentsJson !== undefined) {
+      fail(`duplicate argument: ${flag}`);
     }
+    argumentsJson = value;
   }
-  if (tool === undefined || tool.length === 0 || argumentsJson === undefined) {
-    fail("--tool and --arguments are required");
+  if (argumentsJson === undefined) {
+    fail("--arguments is required");
   }
   let parameters = null;
   try {
@@ -63,6 +53,17 @@ if (command === "describe" && args.length === 0) {
     typeof parameters !== "object"
   ) {
     fail("--arguments must be a JSON object");
+  }
+  const schema = parseJson(readFileSync(schemaPath, "utf-8"));
+  const tool =
+    schema !== null &&
+    !Array.isArray(schema) &&
+    typeof schema === "object" &&
+    "name" in schema
+      ? schema.name
+      : null;
+  if (typeof tool !== "string" || tool.length === 0) {
+    fail("tool schema must have a name");
   }
   const call = { arguments: parameters, tool };
   appendFileSync(callsPath, `${JSON.stringify(call)}\n`, "utf-8");

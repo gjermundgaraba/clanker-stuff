@@ -9,9 +9,11 @@ from unittest import TestCase
 EVALS_DIR = Path(__file__).parents[1]
 JOB_PATH = EVALS_DIR / "jobs/compaction-matrix.yaml"
 LONGMEM_CONTROLLED_JOB_PATH = (
-    EVALS_DIR / "jobs/longmemeval-64k-single-compaction.yaml"
+    EVALS_DIR / "jobs/longmemeval-64k.yaml"
 )
-LONGMEM_115K_JOB_PATH = EVALS_DIR / "jobs/longmemeval-115k-single-compaction.yaml"
+LONGMEM_115K_JOB_PATH = EVALS_DIR / "jobs/longmemeval-115k.yaml"
+LONGMEM_EVIDENCE_JOB_PATH = EVALS_DIR / "jobs/longmemeval-evidence.yaml"
+LONGMEM_HANDOFF_JOB_PATH = EVALS_DIR / "jobs/longmemeval-handoff-115k.yaml"
 GRADERS = {
     "debugging-continuity": [6],
     "decision-continuity": [6],
@@ -110,7 +112,10 @@ class CompactionPolicyTest(TestCase):
             ("codex-cli-off", "codex-cli-on"),
         ]:
             effort = "reasoning_effort" if off.startswith("codex") else "thinking"
-            for field in ["model_name", "version", effort]:
+            fields = ["model_name", effort]
+            if off.startswith("codex"):
+                fields.append("version")
+            for field in fields:
                 pattern = rf"{field}: (\S+)"
                 self.assertEqual(
                     re.search(pattern, blocks[off]).group(1),
@@ -143,17 +148,44 @@ class CompactionPolicyTest(TestCase):
 
     def test_longmemeval_controlled_job_targets_one_64k_boundary(self) -> None:
         job = LONGMEM_CONTROLLED_JOB_PATH.read_text(encoding="utf-8")
+        self.assertIn("n_attempts: 3", job)
         self.assertEqual(job.count("reserveTokens: 209000"), 2)
         self.assertEqual(job.count("model_auto_compact_token_limit: 75000"), 1)
-        self.assertEqual(job.count("datasets-generated/longmemeval/64k"), 1)
-        self.assertNotIn("datasets-generated/longmemeval/32k", job)
-        self.assertNotIn("datasets-generated/longmemeval/115k", job)
+        self.assertEqual(job.count("datasets-generated/longmemeval/full/64k"), 1)
+        self.assertNotIn("longmemeval/full/115k", job)
 
     def test_longmemeval_115k_job_uses_its_calibrated_boundary(self) -> None:
         job = LONGMEM_115K_JOB_PATH.read_text(encoding="utf-8")
+        self.assertIn("n_attempts: 3", job)
         self.assertEqual(job.count("reserveTokens: 168800"), 2)
         self.assertEqual(job.count("model_auto_compact_token_limit: 115900"), 1)
-        self.assertEqual(job.count("datasets-generated/longmemeval/115k"), 1)
+        self.assertEqual(job.count("datasets-generated/longmemeval/full/115k"), 1)
+
+    def test_longmemeval_diagnostics_have_exact_reproducible_arms(self) -> None:
+        self.assertEqual(
+            {path.name for path in (EVALS_DIR / "jobs").glob("longmemeval*.yaml")},
+            {
+                "longmemeval-64k.yaml",
+                "longmemeval-115k.yaml",
+                "longmemeval-evidence.yaml",
+                "longmemeval-handoff-115k.yaml",
+            },
+        )
+        evidence = LONGMEM_EVIDENCE_JOB_PATH.read_text(encoding="utf-8")
+        self.assertEqual(evidence.count("agent_label:"), 3)
+        self.assertEqual(evidence.count("-off"), 3)
+        self.assertNotIn("-on", evidence)
+        self.assertIn("datasets-generated/longmemeval/evidence", evidence)
+
+        handoff = LONGMEM_HANDOFF_JOB_PATH.read_text(encoding="utf-8")
+        self.assertEqual(handoff.count("agent_label:"), 3)
+        self.assertEqual(handoff.count("-on"), 3)
+        self.assertNotIn("-off", handoff)
+        self.assertEqual(handoff.count("reserveTokens: 168800"), 2)
+        self.assertEqual(
+            handoff.count("model_auto_compact_token_limit: 115900"), 1
+        )
+        self.assertIn("datasets-generated/longmemeval/handoff/115k", handoff)
 
     def test_all_graders_accept_each_arm_policy(self) -> None:
         for dataset, segments in GRADERS.items():
@@ -170,7 +202,7 @@ class CompactionPolicyTest(TestCase):
                                     if mechanism == "codex-provider"
                                     else None
                                 ),
-                                "segment": segment,
+                                "compacted_after_segment": segment,
                                 "state": "succeeded",
                             }
                             for segment in segments
@@ -201,7 +233,7 @@ class CompactionPolicyTest(TestCase):
                 {
                     "event_type": "context_compaction",
                     "mechanism": "pi-builtin",
-                    "segment": 6,
+                    "compacted_after_segment": 6,
                     "state": "succeeded",
                 }
             ],
@@ -215,18 +247,33 @@ class CompactionPolicyTest(TestCase):
                 {
                     "event_type": "context_compaction",
                     "mechanism": "pi-builtin",
-                    "segment": 5,
+                    "compacted_after_segment": 5,
                     "state": "failed",
                 },
                 {
                     "event_type": "context_compaction",
                     "mechanism": "pi-builtin",
-                    "segment": 6,
+                    "compacted_after_segment": 6,
                     "state": "succeeded",
                 },
             ],
         )
         self.assertEqual(failed_attempt["valid_experiment"], 0)
+
+        duplicate_success = self._grade(
+            "decision-continuity",
+            "pi-vanilla-on",
+            [
+                {
+                    "compacted_after_segment": segment,
+                    "event_type": "context_compaction",
+                    "mechanism": "pi-builtin",
+                    "state": "succeeded",
+                }
+                for segment in (5, 6)
+            ],
+        )
+        self.assertEqual(duplicate_success["valid_experiment"], 0)
 
         bad_protocol = self._grade(
             "decision-continuity",
@@ -235,7 +282,7 @@ class CompactionPolicyTest(TestCase):
                 {
                     "event_type": "context_compaction",
                     "mechanism": "codex-provider",
-                    "segment": 6,
+                    "compacted_after_segment": 6,
                     "state": "succeeded",
                 }
             ],
@@ -255,7 +302,7 @@ class CompactionPolicyTest(TestCase):
                     {
                         "event_type": "context_compaction",
                         "mechanism": "oracle",
-                        "segment": segment,
+                        "compacted_after_segment": segment,
                         "state": "succeeded",
                     }
                     for segment in segments

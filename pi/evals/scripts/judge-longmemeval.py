@@ -21,6 +21,26 @@ from threading import Lock
 from typing import Any
 
 MODEL = "gpt-5.6-sol"
+CONDITION_TIERS = {
+    "evidence": {None},
+    "full": {"64k", "115k"},
+    "handoff": {"115k"},
+}
+
+
+def _condition_tier(item: dict[str, Any]) -> tuple[str, str | None]:
+    condition = item["condition"]
+    tier = item["tier"]
+    if condition not in CONDITION_TIERS or tier not in CONDITION_TIERS[condition]:
+        raise ValueError(f"invalid LongMemEval condition/tier: {condition}/{tier}")
+    return condition, tier
+
+
+def _cache_key(
+    trial: str, prompt_sha256: str, metadata: dict[str, Any]
+) -> tuple[str, str, str, str | None]:
+    condition, tier = _condition_tier(metadata)
+    return trial, prompt_sha256, condition, tier
 
 
 def prompt_for(
@@ -172,7 +192,7 @@ def _inputs(job_dir: Path, evals_dir: Path) -> list[dict[str, Any]]:
     items = []
     for trial in sorted(job_dir.iterdir()):
         config_path = trial / "config.json"
-        if not config_path.exists():
+        if not config_path.exists() or not (trial / "result.json").exists():
             continue
         config = json.loads(config_path.read_text())
         task_path = Path(config["task"]["path"])
@@ -182,8 +202,12 @@ def _inputs(job_dir: Path, evals_dir: Path) -> list[dict[str, Any]]:
         hypotheses = list(trial.glob("steps/*/verifier/hypothesis.txt"))
         if len(gold_paths) != 1:
             continue
+        if len(hypotheses) != 1:
+            raise ValueError(
+                f"{trial}: expected exactly one hypothesis artifact, found "
+                f"{len(hypotheses)}"
+            )
         gold = json.loads(gold_paths[0].read_text())
-        hypothesis = hypotheses[0].read_text().strip() if len(hypotheses) == 1 else ""
         label = config["agent"].get("kwargs", {}).get(
             "agent_label", config["agent"].get("name", "unknown")
         )
@@ -191,7 +215,7 @@ def _inputs(job_dir: Path, evals_dir: Path) -> list[dict[str, Any]]:
             {
                 "agent": label,
                 "gold": gold,
-                "hypothesis": hypothesis,
+                "hypothesis": hypotheses[0].read_text().strip(),
                 "task": task_path.name,
                 "trial": trial.name,
             }
@@ -212,17 +236,21 @@ def main() -> None:
     evals_dir = Path(__file__).resolve().parents[1]
     judge_name = f"{args.backend}-{args.model}".replace("/", "-")
     output_path = args.job_dir / f"longmemeval-judge-{judge_name}.jsonl"
-    cached: dict[str, dict[str, Any]] = {}
+    cached: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
     if output_path.exists():
-        for line in output_path.read_text().splitlines():
+        for line in output_path.read_text().split("\n"):
+            if not line:
+                continue
             item = json.loads(line)
-            cached[item["trial"]] = item
+            try:
+                key = _cache_key(item["trial"], item["prompt_sha256"], item)
+            except KeyError as error:
+                raise ValueError(f"obsolete judge cache row missing {error.args[0]}") from error
+            cached[key] = item
     lock = Lock()
 
     def judge(item: dict[str, Any]) -> dict[str, Any]:
-        if item["trial"] in cached:
-            return cached[item["trial"]]
-        gold = item.pop("gold")
+        gold = item["gold"]
         prompt = prompt_for(
             gold["question_type"],
             gold["question"],
@@ -230,22 +258,28 @@ def main() -> None:
             item["hypothesis"],
             abstention=bool(gold["abstention"]),
         )
+        prompt_sha256 = hashlib.sha256(prompt.encode()).hexdigest()
+        cache_key = _cache_key(item["trial"], prompt_sha256, gold)
+        if cache_key in cached:
+            return cached[cache_key]
+        condition, tier = _condition_tier(gold)
         response = (
             _post(prompt, api_key=api_key, model=args.model)
             if args.backend == "openai"
             else _codex(prompt, model=args.model)
         )
         result = {
-            **item,
+            **{key: value for key, value in item.items() if key != "gold"},
             "abstention": bool(gold["abstention"]),
+            "condition": condition,
             "judge_backend": args.backend,
             "judge_model": args.model,
             "judge_response": response,
             "label": "yes" in response.lower(),
-            "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+            "prompt_sha256": prompt_sha256,
             "question_id": gold["question_id"],
             "question_type": gold["question_type"],
-            "tier": gold["tier"],
+            "tier": tier,
         }
         with lock:
             with output_path.open("a") as stream:
@@ -256,14 +290,23 @@ def main() -> None:
         results = list(pool.map(judge, _inputs(args.job_dir, evals_dir)))
     if not results:
         raise SystemExit("no generated LongMemEval trials found")
-    grouped: dict[tuple[str, str], list[bool]] = {}
+    output_path.write_text(
+        "".join(json.dumps(item, sort_keys=True) + "\n" for item in results),
+        encoding="utf-8",
+    )
+    grouped: dict[tuple[str, str | None, str], list[bool]] = {}
     for item in results:
-        grouped.setdefault((item["agent"], item["tier"]), []).append(item["label"])
+        grouped.setdefault(
+            (item["condition"], item["tier"], item["agent"]), []
+        ).append(item["label"])
     score_name = "QA judge"
-    print(f"| Agent | Tier | N | {score_name} |")
-    print("| --- | --- | ---: | ---: |")
-    for (agent, tier), labels in sorted(grouped.items()):
-        print(f"| {agent} | {tier} | {len(labels)} | {fmean(labels):.3f} |")
+    print(f"| Condition | Tier | Agent | N | {score_name} |")
+    print("| --- | --- | --- | ---: | ---: |")
+    for (condition, tier, agent), labels in sorted(grouped.items()):
+        print(
+            f"| {condition} | {tier} | {agent} | {len(labels)} | "
+            f"{fmean(labels):.3f} |"
+        )
 
 
 if __name__ == "__main__":

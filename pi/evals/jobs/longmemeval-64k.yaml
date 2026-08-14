@@ -1,10 +1,10 @@
-job_name: longmemeval-115k-single-compaction
+job_name: longmemeval-64k
 jobs_dir: .harbor/jobs
-n_attempts: 1
+n_attempts: 3
 
 orchestrator:
   type: local
-  n_concurrent_trials: 4
+  n_concurrent_trials: 6
   quiet: false
 
 environment:
@@ -17,7 +17,6 @@ agents:
     resume_trajectory: true
     kwargs:
       agent_label: pi-vanilla-off
-      version: 0.84.1
       thinking: medium
       settings:
         compaction:
@@ -28,12 +27,11 @@ agents:
     resume_trajectory: true
     kwargs:
       agent_label: pi-vanilla-on
-      version: 0.84.1
       thinking: medium
       settings:
         compaction:
           enabled: true
-          reserveTokens: 168800
+          reserveTokens: 209000
           keepRecentTokens: 1000
 
   - import_path: pi_evals.pi:PiEval
@@ -41,7 +39,6 @@ agents:
     resume_trajectory: true
     kwargs:
       agent_label: pi-provider-off
-      version: 0.84.1
       thinking: medium
       extensions:
         - /opt/codex-provider/index.ts
@@ -54,14 +51,13 @@ agents:
     resume_trajectory: true
     kwargs:
       agent_label: pi-provider-on
-      version: 0.84.1
       thinking: medium
       extensions:
         - /opt/codex-provider/index.ts
       settings:
         compaction:
           enabled: true
-          reserveTokens: 168800
+          reserveTokens: 209000
           keepRecentTokens: 1000
 
   - import_path: pi_evals.codex:CodexEval
@@ -82,7 +78,7 @@ agents:
       version: 0.147.0
       reasoning_effort: medium
       config:
-        model_auto_compact_token_limit: 115900
+        model_auto_compact_token_limit: 75000
 
 datasets:
-  - path: datasets-generated/longmemeval/115k
+  - path: datasets-generated/longmemeval/full/64k

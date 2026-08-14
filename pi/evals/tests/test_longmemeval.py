@@ -1,4 +1,6 @@
+import copy
 import json
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -21,18 +23,24 @@ class CharacterEncoder:
 
 def record(question_id: str, question_type: str, abstention: bool = False) -> dict:
     suffix = "_abs" if abstention else ""
+    session_ids = [f"filler-{index:02d}" for index in range(11)] + ["evidence"]
     return {
         "answer": "Blue",
         "answer_session_ids": ["evidence"],
-        "haystack_dates": ["2026-01-01", "2026-01-02", "2026-01-03"],
-        "haystack_session_ids": ["filler-a", "evidence", "filler-b"],
+        "haystack_dates": [f"2026-01-{index + 1:02d}" for index in range(12)],
+        "haystack_session_ids": session_ids,
         "haystack_sessions": [
-            [{"role": "user", "content": "a" * 30}],
-            [{"role": "user", "content": "blue", "has_answer": True}],
-            [{"role": "assistant", "content": "b" * 30}],
+            [
+                {
+                    "content": "blue" if session_id == "evidence" else "x" * 30,
+                    "has_answer": session_id == "evidence",
+                    "role": "user",
+                }
+            ]
+            for session_id in session_ids
         ],
         "question": "What color?",
-        "question_date": "2026-01-04",
+        "question_date": "2026-02-01",
         "question_id": question_id + suffix,
         "question_type": question_type,
     }
@@ -42,15 +50,16 @@ class LongMemEvalTest(TestCase):
     def test_selects_five_per_type_and_one_available_abstention(self) -> None:
         records = []
         for question_type in ("a", "b"):
-            records.extend(record(f"{question_type}{index}", question_type) for index in range(6))
+            records.extend(
+                record(f"{question_type}{index}", question_type) for index in range(6)
+            )
         records.append(record("a0", "a", abstention=True))
 
         selected = select_records(records)
-        reversed_selection = select_records(reversed(records))
 
         self.assertEqual(
             [row["question_id"] for row in selected],
-            [row["question_id"] for row in reversed_selection],
+            [row["question_id"] for row in select_records(reversed(records))],
         )
         self.assertEqual({row["question_type"] for row in selected}, {"a", "b"})
         self.assertEqual(sum(row["question_id"].endswith("_abs") for row in selected), 1)
@@ -58,42 +67,132 @@ class LongMemEvalTest(TestCase):
 
     def test_tiers_are_nested_and_retain_evidence(self) -> None:
         item = record("q", "type")
-        tiers = tier_indices(item, ["evidence"], CharacterEncoder(), (430, 500, 600))
+        tiers = tier_indices(
+            item,
+            ["evidence"],
+            CharacterEncoder(),
+            {1_000: 2, 2_000: 3},
+        )
 
-        small, medium, large = map(set, tiers.values())
-        self.assertLessEqual(small, medium)
-        self.assertLessEqual(medium, large)
-        self.assertIn(1, small)
+        small, large = map(set, tiers.values())
+        self.assertLessEqual(small, large)
+        self.assertIn(11, small)
 
-    def test_history_is_split_at_session_boundaries(self) -> None:
+    def test_history_uses_exact_balanced_session_chunks(self) -> None:
         item = record("q", "type")
-        chunks = history_chunks(item, range(3), CharacterEncoder(), max_tokens=120)
+        chunks = history_chunks(item, range(12), CharacterEncoder(), chunk_count=6)
 
-        self.assertEqual(len(chunks), 2)
+        self.assertEqual(len(chunks), 6)
         self.assertTrue(all("HISTORY-RECORDED" in chunk for chunk in chunks))
-        self.assertEqual(sum(chunk.count("### Session") for chunk in chunks), 3)
+        self.assertEqual(sum(chunk.count("### Prior chat") for chunk in chunks), 12)
 
-    def test_generated_public_instructions_hide_gold_metadata(self) -> None:
+    def test_generates_four_non_leaking_conditions_with_exact_boundaries(self) -> None:
         item = record("secret-qid", "secret-type")
+        oracle = copy.deepcopy(item)
+        oracle["haystack_dates"] = ["1999-01-01"] * 12
         with TemporaryDirectory() as directory:
             output = Path(directory)
-            generate_tasks([item], [item], [item["question_id"]], output, CharacterEncoder())
+            self.assertEqual(
+                generate_tasks(
+                    [item],
+                    [oracle],
+                    [item["question_id"]],
+                    output,
+                    CharacterEncoder(),
+                ),
+                4,
+            )
             instructions = "\n".join(
-                path.read_text(encoding="utf-8") for path in output.rglob("instruction.md")
+                path.read_text(encoding="utf-8")
+                for path in output.rglob("instruction.md")
             )
-            gold = json.loads(next(output.rglob("gold.json")).read_text(encoding="utf-8"))
-            generated = list(output.glob("*/*"))
-            harbor_valid = bool(generated) and all(
-                Task.is_valid_dir(task) for task in generated
+            tasks = list(output.rglob("task.toml"))
+            gold = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in output.rglob("gold.json")
+            ]
+            full_64k = (output / "full/64k/00/task.toml").read_text(encoding="utf-8")
+            full_115k = (output / "full/115k/00/task.toml").read_text(
+                encoding="utf-8"
             )
-            task_toml = next(output.rglob("task.toml")).read_text(encoding="utf-8")
+            handoff = (output / "handoff/115k/00/task.toml").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertEqual(len(tasks), 4)
+            self.assertTrue(all(Task.is_valid_dir(path.parent) for path in tasks))
 
         self.assertNotIn("secret-qid", instructions)
         self.assertNotIn("secret-type", instructions)
         self.assertNotIn("has_answer", instructions)
         self.assertNotIn("evidence", instructions)
-        self.assertEqual(gold["question_id"], "secret-qid")
-        self.assertEqual(gold["question_type"], "secret-type")
-        self.assertIn("blue", history_instruction(item, [1]).lower())
-        self.assertIn('name = "history-01"', task_toml)
-        self.assertTrue(harbor_valid)
+        self.assertNotIn("1999-01-01", instructions)
+        self.assertEqual({row["condition"] for row in gold}, {"full", "evidence", "handoff"})
+        self.assertIn('name = "history-06"', full_64k)
+        self.assertNotIn('name = "history-07"', full_64k)
+        self.assertIn("expected_compaction_after_segment = 5", full_64k)
+        self.assertIn('name = "history-10"', full_115k)
+        self.assertIn("expected_compaction_after_segment = 9", full_115k)
+        self.assertIn('name = "evidence"', handoff)
+        self.assertIn("expected_compaction_after_segment = 9", handoff)
+        self.assertIn("blue", history_instruction(item, [11]).lower())
+
+    def test_grader_requires_one_success_at_the_exact_boundary(self) -> None:
+        item = record("q", "type")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            generated = root / "generated"
+            generate_tasks([item], [item], ["q"], generated, CharacterEncoder())
+            task = generated / "full/64k/00/steps/query"
+            tests = root / "tests"
+            logs = root / "logs"
+            tests.mkdir()
+            (logs / "agent").mkdir(parents=True)
+            (logs / "verifier").mkdir()
+            (tests / "gold.json").write_text(
+                (task / "tests/gold.json").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            grader = (task / "tests/grade.mjs").read_text(encoding="utf-8")
+            grader = grader.replace('"/tests/', f'"{tests.as_posix()}/').replace(
+                '"/logs/', f'"{logs.as_posix()}/'
+            )
+            runnable = root / "grade.mjs"
+            runnable.write_text(grader, encoding="utf-8")
+
+            def grade(
+                boundaries: list[int], label: str = "pi-vanilla-on"
+            ) -> dict[str, int]:
+                steps = [
+                    {
+                        "extra": {
+                            "compacted_after_segment": boundary,
+                            "event_type": "context_compaction",
+                            "mechanism": "pi-builtin",
+                            "state": "succeeded",
+                        },
+                        "source": "system",
+                    }
+                    for boundary in boundaries
+                ]
+                steps.extend(
+                    [
+                        {"source": "user"},
+                        {"message": "Blue", "source": "agent"},
+                    ]
+                )
+                (logs / "agent/trajectory.json").write_text(
+                    json.dumps({"agent": {"name": label}, "steps": steps}),
+                    encoding="utf-8",
+                )
+                subprocess.run(["node", runnable], check=True)
+                return json.loads(
+                    (logs / "verifier/reward.json").read_text(encoding="utf-8")
+                )
+
+            self.assertEqual(grade([5])["valid_experiment"], 1)
+            self.assertEqual(grade([4])["valid_experiment"], 0)
+            self.assertEqual(grade([5, 5])["valid_experiment"], 0)
+            off = grade([], "pi-vanilla-off")
+            self.assertEqual(off["valid_experiment"], 1)
+            self.assertEqual(off["compaction_after_segment"], -1)

@@ -10,7 +10,7 @@
       "extra": {
         "event_type": "context_compaction",
         "mechanism": "oracle",
-        "segment": 7,
+        "compacted_after_segment": 7,
         "state": "succeeded"
       }
     },

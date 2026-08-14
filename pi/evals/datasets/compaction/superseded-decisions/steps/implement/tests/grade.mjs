@@ -51,17 +51,19 @@ const compactions = compactionAttempts.filter(
   ({ extra }) => extra.state === "succeeded"
 );
 const firstBoundary = compactions.find(
-  ({ extra }) => extra.segment >= 2 && extra.segment <= 4
+  ({ extra }) =>
+    extra.compacted_after_segment >= 2 && extra.compacted_after_segment <= 4
 );
 const secondBoundary = compactions.find(
-  ({ extra }) => extra.segment >= 7 && extra.segment <= 9
+  ({ extra }) =>
+    extra.compacted_after_segment >= 7 && extra.compacted_after_segment <= 9
 );
 const boundary = Boolean(firstBoundary && secondBoundary);
 const mechanism =
   oracle ||
   (policy?.compactionExpected === false
     ? compactionAttempts.length === 0
-    : compactions.length > 0 &&
+    : compactions.length === 2 &&
       compactions.every(
         ({ extra }) =>
           extra.mechanism === policy?.mechanism &&
@@ -78,7 +80,7 @@ const valid =
   Boolean(policy) &&
   (policy.compactionExpected
     ? boundary &&
-      compactionAttempts.length > 0 &&
+      compactionAttempts.length === 2 &&
       compactions.length === compactionAttempts.length &&
       mechanism &&
       continued

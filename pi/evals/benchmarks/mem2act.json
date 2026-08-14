@@ -21,7 +21,6 @@
   "resolved_count": 323,
   "sample_size": 40,
   "sample_seed": "mem2act-v1",
-  "sample_level_counts": { "L1": 18, "L2": 18, "L3": 2, "L4": 2 },
   "sample_qa_ids": [
     "qa_201",
     "qa_117",

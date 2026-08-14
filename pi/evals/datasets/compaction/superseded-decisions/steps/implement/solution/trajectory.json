@@ -10,7 +10,7 @@
       "extra": {
         "event_type": "context_compaction",
         "mechanism": "oracle",
-        "segment": 4,
+        "compacted_after_segment": 4,
         "state": "succeeded"
       }
     },
@@ -21,7 +21,7 @@
       "extra": {
         "event_type": "context_compaction",
         "mechanism": "oracle",
-        "segment": 9,
+        "compacted_after_segment": 9,
         "state": "succeeded"
       }
     },

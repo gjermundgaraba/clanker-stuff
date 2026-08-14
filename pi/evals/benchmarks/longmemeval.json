@@ -9,8 +9,18 @@
   },
   "license": "MIT",
   "oracle_dates": "independently timestamped; evidence is matched by session ID and content",
-  "history_chunk_tokens": 12000,
-  "tier_budgets": [32000, 64000, 115000],
+  "protocol_version": 2,
+  "conditions": ["full", "evidence", "handoff"],
+  "tiers": {
+    "64k": {
+      "history_steps": 6,
+      "token_budget": 64000
+    },
+    "115k": {
+      "history_steps": 10,
+      "token_budget": 115000
+    }
+  },
   "selection_seed": "clanker-stuff-longmemeval-v1",
   "question_ids": [
     "f685340e_abs",

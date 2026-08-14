@@ -224,7 +224,10 @@ def convert_pi_events(
                         )
                     ]
                 ),
-                extra={**compaction_extra, "segment": segment},
+                extra={
+                    **compaction_extra,
+                    "compacted_after_segment": segment,
+                },
             )
             continue
         if event_type == "message_end":
@@ -353,13 +356,16 @@ def load_pi_events(path: Path) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     if not path.exists():
         return events
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
+        if not line:
+            continue
         try:
             event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event, dict):
-            events.append(event)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{path}:{number}: invalid JSON") from error
+        if not isinstance(event, dict):
+            raise ValueError(f"{path}:{number}: expected an object")
+        events.append(event)
     return events
 
 
@@ -395,20 +401,18 @@ class PiEval(Pi):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
-        installed = await self.exec_as_agent(environment, command="pi --version")
-        if installed.return_code != 0 or (
-            self._version and self.parse_version(installed.stdout or "") != self._version
-        ):
-            version_spec = f"@{self._version}" if self._version else "@latest"
-            await self.exec_as_agent(
-                environment,
-                command=(
-                    "set -euo pipefail; "
-                    "test \"$(node --version | cut -d. -f1)\" = v24; "
-                    f"npm install -g --ignore-scripts {self._package_name()}{version_spec}; "
-                    "pi --version"
-                ),
+        installed = await self.exec_as_agent(
+            environment,
+            command='test "$(node --version | cut -d. -f1)" = v24 && pi --version',
+        )
+        installed_version = self.parse_version(installed.stdout or "")
+        if installed.return_code != 0 or not installed_version:
+            raise RuntimeError("evaluation image does not contain a working Pi runtime")
+        if self._version and installed_version != self._version:
+            raise RuntimeError(
+                f"evaluation image has Pi {installed_version}, expected {self._version}"
             )
+        self._version = installed_version
         await self.exec_as_root(
             environment,
             command=f"mkdir -p {_REMOTE_PI_HOME.as_posix()} {_REMOTE_SESSION_DIR.as_posix()}",
