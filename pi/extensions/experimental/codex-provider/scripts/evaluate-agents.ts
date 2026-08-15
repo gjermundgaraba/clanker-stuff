@@ -786,7 +786,7 @@ const smoke = () => {
 };
 
 const help = () => {
-  console.log(`Usage: node pi/extensions/codex-provider/scripts/evaluate-agents.ts [options]
+  console.log(`Usage: node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts [options]
 
 Options:
   --model <id>             Exact model ID for all runners (default: gpt-5.6-sol)

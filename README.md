@@ -20,6 +20,14 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex.
 | [`@clanker-stuff/usage`](pi/extensions/usage) | Shows subscription usage for supported providers and contributes quota widgets to cooperative footers. |
 | [`@clanker-stuff/voice`](pi/extensions/voice) | Adds Codex-style realtime voice conversations backed by the current pi session. |
 
+## Experimental
+
+| Extension | Description |
+| --- | --- |
+| [`@clanker-stuff/codex-provider`](pi/extensions/experimental/codex-provider) | Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, transport, compaction, and durable checkpoint replay. |
+
+Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.
+
 ## Claude Code plugins
 
 | Plugin | Description |

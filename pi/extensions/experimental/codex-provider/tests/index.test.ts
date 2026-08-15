@@ -2,7 +2,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import extension from "../index.js";
 import { createCodexLifecycle } from "../lifecycle.js";

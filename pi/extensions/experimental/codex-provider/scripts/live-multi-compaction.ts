@@ -748,7 +748,7 @@ const main = async () => {
   );
   if (process.argv.includes("--help")) {
     console.log(`Usage:
-  node pi/extensions/codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--portable|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
+  node pi/extensions/experimental/codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--portable|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
 
 Environment:
   CODEX_COMPACTION_LIVE_MODEL          Model ID (default: gpt-5.6-sol)

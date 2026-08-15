@@ -6,7 +6,7 @@
   "keywords": [
     "pi-package"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/codex-provider#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/codex-provider#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
   },
@@ -14,7 +14,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-    "directory": "pi/extensions/codex-provider"
+    "directory": "pi/extensions/experimental/codex-provider"
   },
   "files": [
     "checkpoint.ts",

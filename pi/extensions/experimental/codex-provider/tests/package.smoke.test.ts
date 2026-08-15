@@ -179,11 +179,11 @@ describe("codex-provider package", () => {
             "@clanker-stuff/codex-provider": `file:${tarball}`,
             "@clanker-stuff/lazy-singleton": `file:${path.resolve(
               PACKAGE_ROOT,
-              "../../packages/lazy-singleton"
+              "../../../packages/lazy-singleton"
             )}`,
             "@clanker-stuff/pi-extension-paths": `file:${path.resolve(
               PACKAGE_ROOT,
-              "../../packages/extension-paths"
+              "../../../packages/extension-paths"
             )}`,
             "@earendil-works/pi-ai": "0.84.2",
             "@earendil-works/pi-coding-agent": "0.84.2",

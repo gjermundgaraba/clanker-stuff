@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import * as codingAgent from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 

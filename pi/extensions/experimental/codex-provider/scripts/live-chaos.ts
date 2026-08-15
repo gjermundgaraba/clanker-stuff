@@ -356,7 +356,7 @@ const main = async () => {
     await runCrash();
   } else {
     console.log(`Usage:
-  node pi/extensions/codex-provider/scripts/live-chaos.ts --rpc|--crash`);
+  node pi/extensions/experimental/codex-provider/scripts/live-chaos.ts --rpc|--crash`);
   }
 };
 

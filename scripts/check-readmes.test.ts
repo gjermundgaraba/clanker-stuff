@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -8,9 +14,17 @@ import { afterEach, describe, expect, it } from "vitest";
 const CHECK_READMES_PATH = path.join(import.meta.dirname, "check-readmes.ts");
 const DESCRIPTION = "Adds a sample extension.";
 const PACKAGE_NAME = "@clanker-stuff/sample";
+const EXPERIMENTAL_DESCRIPTION = "Previews an unstable extension.";
+const EXPERIMENTAL_PACKAGE_NAME = "@clanker-stuff/preview";
+const EXPERIMENTAL_NOTICE =
+  "Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.";
 const tempDirs: string[] = [];
 
-const createFixture = (usage: string, finalNewline = true) => {
+const createFixture = (
+  usage: string,
+  finalNewline = true,
+  experimental = false
+) => {
   const root = mkdtempSync(path.join(tmpdir(), "check-readmes-test-"));
   tempDirs.push(root);
   const packageDir = path.join(root, "sample");
@@ -20,7 +34,7 @@ const createFixture = (usage: string, finalNewline = true) => {
 
   writeFileSync(
     path.join(root, "pnpm-workspace.yaml"),
-    'packages:\n  - "."\n  - "sample"\n'
+    'packages:\n  - "."\n  - "sample"\n  - "pi/extensions/experimental/*"\n'
   );
   writeFileSync(
     path.join(root, "package.json"),
@@ -35,9 +49,28 @@ const createFixture = (usage: string, finalNewline = true) => {
       private: false,
     })
   );
+  if (experimental) {
+    const experimentalDir = path.join(
+      root,
+      "pi/extensions/experimental/preview"
+    );
+    mkdirSync(experimentalDir, { recursive: true });
+    writeFileSync(
+      path.join(experimentalDir, "package.json"),
+      JSON.stringify({
+        description: EXPERIMENTAL_DESCRIPTION,
+        name: EXPERIMENTAL_PACKAGE_NAME,
+        pi: { extensions: ["./index.ts"] },
+        private: true,
+      })
+    );
+  }
+  const experimentalSection = experimental
+    ? `\n\n## Experimental\n\n| Extension | Description |\n| --- | --- |\n| [\`${EXPERIMENTAL_PACKAGE_NAME}\`](pi/extensions/experimental/preview) | ${EXPERIMENTAL_DESCRIPTION} |\n\n${EXPERIMENTAL_NOTICE}`
+    : "";
   writeFileSync(
     path.join(root, "README.md"),
-    `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Development\n\nRequires Node.js 24 or newer. Run \`pnpm check:all\`.\n\n## License\n\n[MIT](LICENSE)\n`
+    `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |${experimentalSection}\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Development\n\nRequires Node.js 24 or newer. Run \`pnpm check:all\`.\n\n## License\n\n[MIT](LICENSE)\n`
   );
 
   const packageReadme = `# sample\n\n${DESCRIPTION}\n\n## Install\n\n\`\`\`bash\npi install npm:${PACKAGE_NAME}\n\`\`\`\n\n## Usage\n\n${usage}`;
@@ -87,6 +120,32 @@ describe("README validation", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(
       "Usage must be one prose line or up to three short bullets."
+    );
+  });
+
+  it("accepts an experimental extension catalog", () => {
+    const result = validateFixture(createFixture("Run `/sample`.", true, true));
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
+  it("rejects a missing experimental extension catalog", () => {
+    const root = createFixture("Run `/sample`.", true, true);
+    const readmePath = path.join(root, "README.md");
+    writeFileSync(
+      readmePath,
+      readFileSync(readmePath, "utf-8").replace(
+        /\n\n## Experimental[\s\S]*?\n\n## Claude Code plugins/u,
+        "\n\n## Claude Code plugins"
+      )
+    );
+
+    const result = validateFixture(root);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "Experimental sections must list every extension"
     );
   });
 });

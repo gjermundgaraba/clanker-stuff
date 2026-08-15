@@ -66,12 +66,13 @@ The root `README.md` should contain:
 
 1. The repository title and a one-paragraph description.
 2. A `Pi extensions` table with one row for every publishable package that declares `pi.extensions`.
-3. Links from package names to their package directories.
-4. Descriptions sourced from each package's `package.json`.
-5. A `Claude Code plugins` table linking each Claude plugin directory.
-6. A `Codex plugins` table linking each Codex plugin directory.
-7. A one-line `Development` section naming the Node.js requirement and validation command.
-8. A `License` section linking to the root license.
+3. An `Experimental` section, present only while `pi/extensions/experimental/` contains extension packages, with one row per experimental package using the same table columns, followed by the fixed notice line: "Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice."
+4. Links from package names to their package directories.
+5. Descriptions sourced from each package's `package.json`.
+6. A `Claude Code plugins` table linking each Claude plugin directory.
+7. A `Codex plugins` table linking each Codex plugin directory.
+8. A one-line `Development` section naming the Node.js requirement and validation command.
+9. A `License` section linking to the root license.
 
 List only publishable packages that declare pi extensions in the extension table.
 
@@ -81,4 +82,4 @@ Keep detailed configuration, behavior, security notes, and examples in a package
 
 ## Enforcement
 
-README validation must check the canonical title, summary, installation command, required section order, allowed optional section, and 30-line limit. Keep this repository-specific validation in `scripts/check-readmes.ts`; general Markdown linters do not understand package metadata or this exact template.
+README validation must check the canonical title, summary, installation command, required section order, allowed optional section, 30-line limit, and the conditional root `Experimental` section. Keep this repository-specific validation in `scripts/check-readmes.ts`; general Markdown linters do not understand package metadata or this exact template.

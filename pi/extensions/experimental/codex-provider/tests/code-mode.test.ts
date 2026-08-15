@@ -5,11 +5,11 @@ import path from "node:path";
 import { Type } from "typebox";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import {
   createIdentityTheme,
   renderComponent,
-} from "../../../tests/harness/tui.js";
+} from "../../../../tests/harness/tui.js";
 import { CodeModeHostClient } from "../code-mode/host-client.js";
 import { parseExecSource } from "../code-mode/protocol.js";
 import {

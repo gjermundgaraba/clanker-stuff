@@ -2,8 +2,8 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import toolsExtension from "../../tools/index.js";
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import toolsExtension from "../../../tools/index.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 

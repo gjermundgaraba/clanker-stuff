@@ -11,7 +11,7 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createFastModeState } from "../fast-mode.js";
 import extension from "../index.js";
 import { SPIKE_MODEL } from "./fixtures.js";

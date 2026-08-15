@@ -13,7 +13,7 @@ Every arm receives the same model ID, reasoning level, task prompts, timeout, an
 Run the structural smoke test before any paid evaluation:
 
 ```bash
-node pi/extensions/codex-provider/scripts/evaluate-agents.ts --smoke
+node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts --smoke
 ```
 
 It checks the three CLIs, proves each untouched fixture fails, and proves each reference solution passes. It does not contact a model.
@@ -21,7 +21,7 @@ It checks the three CLIs, proves each untouched fixture fails, and proves each r
 Run the complete scheduling and reporting path without model calls:
 
 ```bash
-node pi/extensions/codex-provider/scripts/evaluate-agents.ts --dry-run --repetitions 2
+node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts --dry-run --repetitions 2
 ```
 
 ## Paid evaluation
@@ -29,7 +29,7 @@ node pi/extensions/codex-provider/scripts/evaluate-agents.ts --dry-run --repetit
 The default suite makes six agent runs per repetition: two tasks across three runners.
 
 ```bash
-node pi/extensions/codex-provider/scripts/evaluate-agents.ts \
+node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts \
   --model gpt-5.6-sol \
   --reasoning high \
   --repetitions 3 \
@@ -45,7 +45,7 @@ Use `--task inventory-ledger` or `--task http-retry` for a smaller run. Each rep
 `compaction-resume` is excluded by default. It sends five resumed continuity turns totaling roughly 300,000 prompt tokens, followed by an implementation turn. This is intended to cross normal compaction thresholds and can be expensive.
 
 ```bash
-node pi/extensions/codex-provider/scripts/evaluate-agents.ts \
+node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts \
   --task compaction-resume \
   --model gpt-5.6-sol \
   --reasoning high

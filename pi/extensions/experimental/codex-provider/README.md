@@ -2,6 +2,8 @@
 
 Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, transport, compaction, and durable checkpoint replay.
 
+> [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
+
 ## Install
 
 Follow the audited [local load-last deployment contract](docs/local-deployment.md); npm installation is not supported.

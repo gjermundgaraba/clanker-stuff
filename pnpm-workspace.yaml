@@ -2,6 +2,7 @@ packages:
   - "."
   - "pi/packages/*"
   - "pi/extensions/*"
+  - "pi/extensions/experimental/*"
 
 overrides:
   "@earendil-works/pi-agent-core": "0.84.2"

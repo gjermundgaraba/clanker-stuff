@@ -1,6 +1,6 @@
 # Extension structure
 
-Every pi extension uses the same entrypoint contract and grows directories only when the code earns them. Source stays at the package root; these packages load TypeScript directly, so a `src/` directory adds no useful boundary.
+Every pi extension uses the same entrypoint contract and grows directories only when the code earns them. Stable extensions live directly under `pi/extensions/`; experimental extensions live under `pi/extensions/experimental/`. Source stays at the package root; these packages load TypeScript directly, so a `src/` directory adds no useful boundary.
 
 ```text
 <name>/
@@ -133,10 +133,12 @@ Do not create package-wide catch-all tests such as `mcp.test.ts`. Put shared set
 
 ## Package and repository boundaries
 
-Every directory under `pi/extensions/` must be a workspace package with `package.json`, `README.md`, and `LICENSE`. Its package export and `pi.extensions` entry both point to `./index.ts`. Expose another package path only for an intentional shared protocol; internal test seams are not public API.
+Every extension package directory under `pi/extensions/` or `pi/extensions/experimental/` must be a workspace package with `package.json`, `README.md`, and `LICENSE`. Its package export and `pi.extensions` entry both point to `./index.ts`. Expose another package path only for an intentional shared protocol; internal test seams are not public API.
+
+Stable extension packages set `private` to `false`. Experimental extension packages set it to `true`, carry an explicit instability warning in their README, and keep the eventual stable package name. Promote one by moving it directly under `pi/extensions/`, correcting the relative depth of imports that reach outside the package, removing the warning, making its package metadata publishable, and running `pnpm check:all`.
 
 Shared runtime libraries belong under `pi/packages/` and must be real workspace dependencies. Add one only when at least two published extensions need the same behavior; do not create generic common or utilities packages.
 
 `package.json` `files` must include every runtime source file and asset plus `README.md` and `LICENSE`. Do not publish tests, research, audits, or development scripts unless they are required at runtime.
 
-Standalone Pi skills belong under `pi/skills/`. Prototypes and executable Pi research belong under `pi/lab/`, not beside workspace extensions. A directory that looks like an extension must not be invisible to workspace validation.
+Standalone Pi skills belong under `pi/skills/`. Functional but unstable extension packages belong under `pi/extensions/experimental/`; prototypes and executable Pi research belong under `pi/lab/`. A directory that looks like an extension must not be invisible to workspace validation.

@@ -9,7 +9,7 @@ Except for the installed-environment RPC run, the runners do not load project co
 Run from the repository root:
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live
+pnpm --dir pi/extensions/experimental/codex-provider test:live
 ```
 
 SSE is the default transport. Three rounds use a small estimator window and synthetic prompts. Every round must:
@@ -25,7 +25,7 @@ The parent then exits its session. A new Node process opens the JSONL session, s
 ## Portable lifecycle run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:portable
+pnpm --dir pi/extensions/experimental/codex-provider test:live:portable
 ```
 
 This SSE-only mode performs a real lifecycle `/compact` with custom instructions. It requires one readable Pi summary beside one native schema-v1 checkpoint, verifies that the custom marker enters only the summary, and confirms the compatible request contains the opaque replacement instead of the readable summary. The model must recall a generated value that the custom instructions deliberately omitted from the portable summary, proving that omission did not alter native checkpoint recall.
@@ -35,7 +35,7 @@ Retries can increase usage and cost. The retained JSONL artifact stores the read
 ## Real-window SSE run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:real
+pnpm --dir pi/extensions/experimental/codex-provider test:live:real
 ```
 
 This mode uses the model's declared context window. It calibrates a high-token-density payload, then performs two SSE compactions. Before each compaction, a fill turn must reach at least 90% of the server context without crossing the local byte estimate. The following turn must compact from provider-reported usage, and the checkpoint must report at least 90% side-input usage.
@@ -49,7 +49,7 @@ Expect roughly 1.4–1.6 million provider-context tokens across calibration, fil
 ## Mid-turn tool-loop run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:mid-turn
+pnpm --dir pi/extensions/experimental/codex-provider test:live:mid-turn
 ```
 
 This mode calibrates natural text and performs two real tool loops. In each round the model must call `context_filler` exactly once. Its result fills at least 80% of the real context and crosses the local threshold, forcing compaction before the next model response. The model must then call `post_compaction_probe` exactly once; the tool rejects an early call by recording how many checkpoints existed when it ran. This proves the post-compaction request still contains the current tool schemas and system instructions. Both checkpoints must have phase `mid-turn`, and their windows must form one monotonic replacement chain.
@@ -61,7 +61,7 @@ Expect roughly 460,000–600,000 provider-context tokens.
 ## WebSocket run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:websocket
+pnpm --dir pi/extensions/experimental/codex-provider test:live:websocket
 ```
 
 This is genuine WebSocket coverage for both compaction and normal turns. The runner counts WebSocket constructions and fails if any `/responses` request uses SSE. It performs repeated schema-v1 replacements, then proves branch isolation in a fresh process over WebSocket. Before disposal, the harness uses Pi's public reload lifecycle so `session_shutdown` closes cached sockets immediately.
@@ -69,7 +69,7 @@ This is genuine WebSocket coverage for both compaction and normal turns. The run
 ## Forced fallback run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:fallback
+pnpm --dir pi/extensions/experimental/codex-provider test:live:fallback
 ```
 
 The runner injects a WebSocket constructor that always fails. Round one starts with inline compaction, whose private retry loop makes exactly three pre-output WebSocket attempts before activating provider-owned SSE fallback. The exact UI warning `OpenAI Codex WebSocket is unavailable; using SSE for this session.` must appear once after the following successful assistant. Every later compaction and normal turn in that runtime must stay on SSE without constructing another WebSocket or warning.
@@ -79,7 +79,7 @@ In the fresh process, checkpoint replay transforms the finalized payload, so pre
 ## Fresh-process branch isolation
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:branch
+pnpm --dir pi/extensions/experimental/codex-provider test:live:branch
 ```
 
 The parent creates at least two checkpoints and exits its session. A spawned Node process then:
@@ -92,7 +92,7 @@ The parent creates at least two checkpoints and exits its session. A spawned Nod
 ## Capability run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:capabilities
+pnpm --dir pi/extensions/experimental/codex-provider test:live:capabilities
 ```
 
 This sends a real inline PNG and requires the model to identify its color, exercises Pi's strict JSON-schema tool path with an exact object, compacts that mixed image/tool history, and switches to a second available Codex model for the final response. The durable checkpoint must omit the inline image bytes while the transient post-compaction request remains usable.
@@ -102,7 +102,7 @@ The default switch is from `gpt-5.6-sol` to `gpt-5.6-terra`. Set `CODEX_COMPACTI
 ## Below-threshold metadata run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:threshold
+pnpm --dir pi/extensions/experimental/codex-provider test:live:threshold
 ```
 
 This performs one small real tool loop using the model's declared context window and live remote metadata. Both model calls must complete without creating a checkpoint. It guards nullable or missing auto-compaction metadata from turning the effective threshold into zero.
@@ -110,8 +110,8 @@ This performs one small real tool loop using the model's declared context window
 ## Ten-round soak runs
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:soak:sse
-pnpm --dir pi/extensions/codex-provider test:live:soak:websocket
+pnpm --dir pi/extensions/experimental/codex-provider test:live:soak:sse
+pnpm --dir pi/extensions/experimental/codex-provider test:live:soak:websocket
 ```
 
 Each soak performs ten sequential compactions, verifies unique response IDs and one monotonic schema-v1 window chain, then reopens the session in a fresh Node process for two replay turns. The WebSocket soak additionally requires one reused connection and zero SSE requests. Set `CODEX_COMPACTION_LIVE_ROUNDS` to increase the run beyond ten rounds.
@@ -121,7 +121,7 @@ A ten-round soak processes at least about 375,000 input tokens through compactio
 ## Client stream-fault run
 
 ```bash
-node pi/extensions/codex-provider/scripts/live-multi-compaction.ts --stream-fault --sse
+node pi/extensions/experimental/codex-provider/scripts/live-multi-compaction.ts --stream-fault --sse
 ```
 
 This mode interrupts the first real `/responses` compaction response body inside the client after the HTTP request succeeds. It identifies compaction structurally by the trailing `compaction_trigger`, matching the provider protocol rather than assuming a separate endpoint. The provider must retry, persist exactly two schema-v1 checkpoints across two rounds, and replay them in a fresh process. The runner requires exactly one injected fault and at least one extra compaction request.
@@ -129,7 +129,7 @@ This mode interrupts the first real `/responses` compaction response body inside
 ## Concurrent RPC run
 
 ```bash
-node pi/extensions/codex-provider/scripts/live-chaos.ts --rpc
+node pi/extensions/experimental/codex-provider/scripts/live-chaos.ts --rpc
 ```
 
 This launches Pi's real RPC process and sends two `compact` commands without awaiting either one. Both overlapping compactions must cancel without persisting a partial entry. A following recovery compaction must persist one schema-v1 lifecycle checkpoint and remain usable on the next prompt. The isolated artifacts are retained, but their copied `auth.json` is removed before exit.
@@ -137,7 +137,7 @@ This launches Pi's real RPC process and sends two `compact` commands without awa
 ## Crash/restart run
 
 ```bash
-node pi/extensions/codex-provider/scripts/live-chaos.ts --crash
+node pi/extensions/experimental/codex-provider/scripts/live-chaos.ts --crash
 ```
 
 This launches the normal SSE runner, polls its JSONL artifact, and sends `SIGKILL` as soon as the first complete checkpoint line is readable. A fresh Node process then opens that exact session and proves the durable checkpoint can serve two normal turns without being replaced.
@@ -157,7 +157,7 @@ This canary makes paid model requests, depends on the installed Pi environment a
 ## Mixed marathon run
 
 ```bash
-pnpm --dir pi/extensions/codex-provider test:live:marathon
+pnpm --dir pi/extensions/experimental/codex-provider test:live:marathon
 ```
 
 The marathon deliberately composes existing canaries: a ten-round SSE soak, WebSocket branch isolation, two real-window mid-turn tool loops, client stream-fault recovery, concurrent RPC recovery, and checkpoint-boundary `SIGKILL` recovery. It consumes roughly one million or more provider-context tokens; retries increase that total.

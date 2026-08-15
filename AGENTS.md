@@ -1,6 +1,6 @@
 # AGENTS
 
-This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extensions live under `pi/extensions/`; host plugins live under `claude/plugins/` and `codex/plugins/`.
+This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extensions live under `pi/extensions/`, with unstable ones under `pi/extensions/experimental/`; host plugins live under `claude/plugins/` and `codex/plugins/`.
 
 ## General instructions
 

@@ -22,6 +22,7 @@ const REPOSITORY_URL =
 const BUGS_URL = "https://github.com/gjermundgaraba/clanker-stuff/issues";
 const HOMEPAGE_PREFIX =
   "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
+const EXPERIMENTAL_README_WARNING = "**Experimental:**";
 
 const collectRuntimeTsFiles = (directory: string): string[] =>
   globSync("**/*.ts", {
@@ -131,6 +132,9 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
   }
   const isExtensionPackage = dir.startsWith("pi/extensions/");
+  const isExperimentalExtensionPackage = dir.startsWith(
+    "pi/extensions/experimental/"
+  );
   if (isExtensionPackage) {
     if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {
       errors.push(
@@ -149,6 +153,22 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
           errors.push(`${label}: pi.extensions entry does not exist: ${entry}`);
         }
       }
+    }
+    if (pkg.private !== isExperimentalExtensionPackage) {
+      errors.push(
+        `${label}: ${isExperimentalExtensionPackage ? "experimental" : "stable"} extension packages must set private: ${isExperimentalExtensionPackage}`
+      );
+    }
+    if (
+      isExperimentalExtensionPackage &&
+      existsSync(path.join(dir, "README.md")) &&
+      !readFileSync(path.join(dir, "README.md"), "utf-8").includes(
+        EXPERIMENTAL_README_WARNING
+      )
+    ) {
+      errors.push(
+        `${label}: experimental extension README must include ${EXPERIMENTAL_README_WARNING}`
+      );
     }
   }
 

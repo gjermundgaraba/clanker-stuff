@@ -1,7 +1,7 @@
 /* oxlint-disable eslint/class-methods-use-this -- process manager test double delegates to shared spies */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCodexDirectTools } from "../tools/direct.js";
 import type { ProcessManager, ProcessResult } from "../tools/process.js";
 

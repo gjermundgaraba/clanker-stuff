@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import { publishableWorkspacePackages } from "./workspace-packages.ts";
+import { readWorkspacePackages } from "./workspace-packages.ts";
 
 const CODE_FENCE = "```";
 const MAX_README_LINES = 30;
@@ -13,15 +13,23 @@ const PLUGIN_CATALOGS = [
   { directory: "claude/plugins", heading: "Claude Code plugins" },
   { directory: "codex/plugins", heading: "Codex plugins" },
 ];
+const EXPERIMENTAL_NOTICE =
+  "Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.";
 
 const repoRoot = process.cwd();
-const packages = publishableWorkspacePackages()
+const extensionPackages = readWorkspacePackages()
   .filter(
     ({ packageJson }) =>
       Array.isArray(packageJson.pi?.extensions) &&
       packageJson.pi.extensions.length > 0
   )
   .toSorted((left, right) => left.dir.localeCompare(right.dir));
+const packages = extensionPackages.filter(
+  ({ packageJson }) => packageJson.private === false
+);
+const experimentalPackages = extensionPackages.filter(({ dir }) =>
+  dir.startsWith("pi/extensions/experimental/")
+);
 const errors: string[] = [];
 
 const countPhysicalLines = (text: string) => {
@@ -49,13 +57,33 @@ if (existsSync(rootReadmePath)) {
     ({ dir, packageJson }) =>
       `| [\`${packageJson.name}\`](${dir}) | ${packageJson.description} |`
   );
-  const expectedCatalog = [
-    "## Pi extensions",
-    "",
-    "| Extension | Description |",
-    "| --- | --- |",
-    ...expectedRows,
-  ].join("\n");
+  const expectedBeforeClaude = [
+    [
+      "## Pi extensions",
+      "",
+      "| Extension | Description |",
+      "| --- | --- |",
+      ...expectedRows,
+    ],
+    ...(experimentalPackages.length === 0
+      ? []
+      : [
+          [
+            "## Experimental",
+            "",
+            "| Extension | Description |",
+            "| --- | --- |",
+            ...experimentalPackages.map(
+              ({ dir, packageJson }) =>
+                `| [\`${packageJson.name}\`](${dir}) | ${packageJson.description} |`
+            ),
+            "",
+            EXPERIMENTAL_NOTICE,
+          ],
+        ]),
+  ]
+    .map((section) => section.join("\n"))
+    .join("\n\n");
   const rootHeadings = rootReadme
     .split("\n")
     .filter((line) => /^#{1,6}\s/u.test(line));
@@ -63,19 +91,27 @@ if (existsSync(rootReadmePath)) {
   if (!rootReadme.startsWith("# clanker stuff\n\n")) {
     errors.push("README.md must start with the repository title.");
   }
-  if (!rootReadme.includes(`${expectedCatalog}\n\n## Claude Code plugins\n`)) {
+  if (
+    !rootReadme.includes(`${expectedBeforeClaude}\n\n## Claude Code plugins\n`)
+  ) {
     errors.push(
-      "README.md Pi extensions table must list every extension exactly once in directory order using canonical package metadata."
+      "README.md Pi extensions and Experimental sections must list every extension exactly once in directory order using canonical package metadata, with the fixed experimental instability notice."
     );
   }
+  const expectedRootHeadings = [
+    "# clanker stuff",
+    "## Pi extensions",
+    ...(experimentalPackages.length === 0 ? [] : ["## Experimental"]),
+    "## Claude Code plugins",
+    "## Codex plugins",
+    "## Development",
+    "## License",
+  ];
   if (
-    rootHeadings.length !== 6 ||
-    rootHeadings[0] !== "# clanker stuff" ||
-    rootHeadings[1] !== "## Pi extensions" ||
-    rootHeadings[2] !== "## Claude Code plugins" ||
-    rootHeadings[3] !== "## Codex plugins" ||
-    rootHeadings[4] !== "## Development" ||
-    rootHeadings[5] !== "## License"
+    rootHeadings.length !== expectedRootHeadings.length ||
+    rootHeadings.some(
+      (heading, index) => heading !== expectedRootHeadings[index]
+    )
   ) {
     errors.push("README.md contains an unexpected or misordered heading.");
   }
