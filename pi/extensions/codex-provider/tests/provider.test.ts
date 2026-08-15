@@ -5,6 +5,7 @@ import type {
   Context,
   Credential,
 } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { CodeModeRuntime } from "../code-mode/tools.js";
@@ -123,8 +124,8 @@ const markProtocolRetryPayload = (payload: unknown) => ({
 const FAST_MODEL = {
   ...SPIKE_MODEL,
   cost: { cacheRead: 0, cacheWrite: 0, input: 1, output: 2 },
-  id: "gpt-5.5",
-  name: "GPT-5.5",
+  id: "gpt-5.6-sol",
+  name: "GPT-5.6 Sol",
 };
 
 describe("Codex provider", () => {
@@ -135,6 +136,57 @@ describe("Codex provider", () => {
 
   afterAll(() => {
     defaultObservability.close();
+  });
+
+  it("exposes, filters, and executes only GPT-5.6 models", async () => {
+    const runtime = createCodexProviderRuntime();
+    const unsupportedModel = {
+      ...SPIKE_MODEL,
+      id: "gpt-5.5",
+      name: "GPT-5.5",
+    };
+    const filtered = runtime.provider.filterModels?.(
+      [SPIKE_MODEL, unsupportedModel],
+      { key: SPIKE_API_KEY, type: "api_key" }
+    );
+    const fetch = vi.fn<() => Promise<Response>>(async () =>
+      sse(responseEvents("unsupported", "unexpected"))
+    );
+    vi.stubGlobal("fetch", fetch);
+    const message = await runtime.provider
+      .streamSimple(unsupportedModel, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId: "session-unsupported-model",
+        transport: "sse",
+      })
+      .result();
+    await expect(
+      runtime.compact({
+        apiKey: SPIKE_API_KEY,
+        context: context([]),
+        effectiveTokenLimit: 1000,
+        inputPrefix: [],
+        model: unsupportedModel,
+        phase: "standalone",
+        reason: "manual",
+        sessionId: "session-unsupported-compaction",
+        signal: new AbortController().signal,
+        thinkingLevel: "medium",
+      })
+    ).rejects.toThrow("Codex provider supports only GPT-5.6 models: gpt-5.5");
+
+    const listedModels = runtime.provider.getModels();
+    expect(filtered?.map((model) => model.id)).toStrictEqual([SPIKE_MODEL.id]);
+    expect(listedModels.map((model) => model.id)).toStrictEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+    ]);
+    expect(message).toMatchObject({
+      errorMessage: "Codex provider supports only GPT-5.6 models: gpt-5.5",
+      stopReason: "error",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("preserves Pi callbacks and builds a complete SSE request", async () => {
@@ -241,6 +293,71 @@ describe("Codex provider", () => {
     ).toStrictEqual(expect.any(String));
   });
 
+  it("places deferred tools using the model's supported mode", async () => {
+    const toolCallId = "call_base|fc_base";
+    const dynamicContext: Context = {
+      ...context([
+        {
+          ...fauxAssistantMessage(
+            fauxToolCall("exec", {}, { id: toolCallId }),
+            { stopReason: "toolUse", timestamp: 1 }
+          ),
+          api: SPIKE_MODEL.api,
+          model: SPIKE_MODEL.id,
+          provider: SPIKE_MODEL.provider,
+        },
+        {
+          addedToolNames: ["wait"],
+          content: [{ text: "loaded", type: "text" }],
+          isError: false,
+          role: "toolResult",
+          timestamp: 2,
+          toolCallId,
+          toolName: "exec",
+        },
+      ]),
+      tools: CODE_MODE_TOOLS,
+    };
+    const [additionalTools, toolSearchOnly] = await Promise.all(
+      [
+        { supportsAdditionalTools: true, supportsToolSearch: true },
+        { supportsToolSearch: true },
+      ].map(async (compat, index) => {
+        let body: RequestInit["body"];
+        await createCodexProviderRuntime()
+          .provider.streamSimple({ ...SPIKE_MODEL, compat }, dynamicContext, {
+            apiKey: SPIKE_API_KEY,
+            fetch: async (_input, init) => {
+              body = init?.body;
+              return sse(responseEvents(`resp_deferred_${index}`, "done"));
+            },
+            sessionId: `session-deferred-${index}`,
+            transport: "sse",
+          })
+          .result();
+        return readBody(body);
+      })
+    );
+
+    expect(additionalTools).toMatchObject({
+      input: [
+        { type: "function_call" },
+        { type: "function_call_output" },
+        { tools: [{ name: "wait" }], type: "additional_tools" },
+      ],
+      tools: [{ name: "exec" }],
+    });
+    expect(toolSearchOnly).toMatchObject({
+      input: [
+        { type: "function_call" },
+        { type: "function_call_output" },
+        { type: "tool_search_call" },
+        { tools: [{ name: "wait" }], type: "tool_search_output" },
+      ],
+      tools: [{ name: "exec" }],
+    });
+  });
+
   it("applies fast mode to turns and compaction with priority pricing", async () => {
     const requests: Record<string, unknown>[] = [];
     const runtime = createCodexProviderRuntime(
@@ -285,8 +402,8 @@ describe("Codex provider", () => {
       serviceTiers: ["priority", "priority"],
       supportsFastMode: true,
     });
-    expect(compaction.usage.cost.total).toBeCloseTo(3e-5);
-    expect(message.usage.cost.total).toBeCloseTo(3e-5);
+    expect(compaction.usage.cost.total).toBeCloseTo(2.4e-5, 10);
+    expect(message.usage.cost.total).toBeCloseTo(2.4e-5, 10);
   });
 
   it("removes priority from transition compaction on an unsupported model", async () => {
@@ -346,7 +463,7 @@ describe("Codex provider", () => {
     });
 
     expect(request?.service_tier).toBeUndefined();
-    expect(result.usage.cost.total).toBeCloseTo(3e-5);
+    expect(result.usage.cost.total).toBeCloseTo(2.4e-5, 10);
   });
 
   it("does not retry SSE after the first emitted event", async () => {
@@ -563,7 +680,7 @@ describe("Codex provider", () => {
                 effective_context_window_percent: 95,
                 priority: 1,
                 service_tiers: [{ id: "priority" }],
-                slug: "remote-codex",
+                slug: "gpt-5.6-remote",
                 support_verbosity: true,
                 supported_in_api: true,
                 supported_reasoning_levels: [
@@ -585,6 +702,15 @@ describe("Codex provider", () => {
                 support_verbosity: true,
                 supported_in_api: true,
                 supported_reasoning_levels: [],
+                supports_parallel_tool_calls: true,
+                visibility: "list",
+              },
+              {
+                display_name: "Unsupported GPT-5.5",
+                priority: 3,
+                slug: "gpt-5.5",
+                support_verbosity: true,
+                supported_in_api: true,
                 supports_parallel_tool_calls: true,
                 visibility: "list",
               },
@@ -670,13 +796,17 @@ describe("Codex provider", () => {
           .map((item) => item.type),
         reasoning: liteBody.reasoning,
       },
-      metadata: runtime.getModelMetadata("remote-codex")?.comp_hash,
+      metadata: runtime.getModelMetadata("gpt-5.6-remote")?.comp_hash,
       model: runtime.provider.getModels()[0],
       request: requests[0]?.url,
       restoredRemoteCatalog: restored.provider
         .getModels()
-        .some((model) => model.id === "remote-codex"),
+        .some((model) => model.id === "gpt-5.6-remote"),
       supportsFastMode: runtime.supportsFastMode(remoteModel),
+      unsupportedMetadata: runtime.getModelMetadata("gpt-5.5"),
+      unsupportedModel: runtime.provider
+        .getModels()
+        .some((model) => model.id === "gpt-5.5"),
       window: runtime.getModelWindow(remoteModel),
     }).toMatchObject({
       lite: {
@@ -699,10 +829,12 @@ describe("Codex provider", () => {
         },
       },
       metadata: "comp-a",
-      model: { contextWindow: 200_000, id: "remote-codex" },
+      model: { contextWindow: 200_000, id: "gpt-5.6-remote" },
       request: expect.stringContaining("/codex/models?client_version="),
       restoredRemoteCatalog: false,
       supportsFastMode: true,
+      unsupportedMetadata: undefined,
+      unsupportedModel: false,
       window: {
         autoCompactTokens: 150_000,
         effectiveWindowTokens: 190_000,

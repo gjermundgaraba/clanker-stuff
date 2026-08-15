@@ -16,7 +16,7 @@ import { createFastModeState } from "../fast-mode.js";
 import extension from "../index.js";
 import { SPIKE_MODEL } from "./fixtures.js";
 
-const FAST_MODEL = { ...SPIKE_MODEL, id: "gpt-5.5", name: "GPT-5.5" };
+const FAST_MODEL = { ...SPIKE_MODEL, id: "gpt-5.6-sol", name: "GPT-5.6 Sol" };
 
 describe("Codex fast mode", () => {
   let agentDir: string;

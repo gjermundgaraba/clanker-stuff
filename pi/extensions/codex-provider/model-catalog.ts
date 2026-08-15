@@ -62,15 +62,21 @@ export interface CodexModelMetadata extends JsonRecord {
 }
 
 const FALLBACK_FAST_MODELS = new Set([
-  "gpt-5.4",
-  "gpt-5.5",
   "gpt-5.6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ]);
+const FALLBACK_MODEL_PRIORITY = new Map([
+  ["gpt-5.6-sol", 1],
+  ["gpt-5.6-terra", 2],
+  ["gpt-5.6-luna", 3],
+]);
 
 const isRecord = (value: unknown): value is JsonRecord =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+
+export const isSupportedCodexModelId = (modelId: string): boolean =>
+  modelId.startsWith("gpt-5.6-");
 
 export const modelSupportsServiceTier = (
   metadata: CodexModelMetadata,
@@ -349,11 +355,21 @@ const credentialApiKey = async (
 
 export const createCodexModelCatalog = () => {
   const builtin = openaiCodexProvider();
+  const fallback = builtin
+    .getModels()
+    .filter((model) => isSupportedCodexModelId(model.id))
+    .toSorted(
+      (left, right) =>
+        (FALLBACK_MODEL_PRIORITY.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (FALLBACK_MODEL_PRIORITY.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+    );
   const base: CodexProvider = {
     ...builtin,
     auth: { ...builtin.auth, apiKey: storedApiKeyAuth },
+    filterModels: (models) =>
+      models.filter((model) => isSupportedCodexModelId(model.id)),
+    getModels: () => fallback,
   };
-  const fallback = [...base.getModels()];
   let models = fallback;
   let metadataByModel = new Map<string, CodexModelMetadata>();
 
@@ -378,7 +394,7 @@ export const createCodexModelCatalog = () => {
     }
     const [authModel] = fallback;
     if (authModel === undefined) {
-      throw new Error("Pi's static Codex model catalog is empty");
+      throw new Error("Pi's static Codex model catalog has no GPT-5.6 models");
     }
     const headers = createCodexHeaders(authModel, apiKey, uuidv7());
     if (
@@ -411,12 +427,16 @@ export const createCodexModelCatalog = () => {
     const nextMetadata = new Map<string, CodexModelMetadata>();
     for (const value of payload.models) {
       const metadata = parseModelMetadata(value);
-      if (metadata.visibility === "list" && !nextMetadata.has(metadata.slug)) {
+      if (
+        metadata.visibility === "list" &&
+        isSupportedCodexModelId(metadata.slug) &&
+        !nextMetadata.has(metadata.slug)
+      ) {
         nextMetadata.set(metadata.slug, metadata);
       }
     }
     if (nextMetadata.size === 0) {
-      throw new Error("Codex model response contains no usable models");
+      throw new Error("Codex model response contains no usable GPT-5.6 models");
     }
     const nextModels = [...nextMetadata.values()]
       .toSorted((left, right) => left.priority - right.priority)

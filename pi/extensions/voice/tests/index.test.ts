@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
+import { VOICE_TOOL_NAMES } from "../tools.js";
 
 const controller = vi.hoisted(() => ({
   beforeAgentStart: vi.fn<
@@ -84,6 +85,14 @@ describe("voice registration", () => {
       host.getRegisteredTools().get("end_realtime_voice_call")?.definition
         .description
     ).toContain("clearly signs off");
+    for (const name of VOICE_TOOL_NAMES) {
+      expect(
+        host.getRegisteredTools().get(name)?.definition.constrainedSampling
+      ).toStrictEqual({
+        strict: "prefer",
+        type: "json_schema",
+      });
+    }
     expect({
       beforeAgentStart: controller.beforeAgentStart.mock.calls.length,
       endActiveCall: controller.endActiveCall.mock.calls.length,

@@ -5,6 +5,7 @@ import { Type } from "typebox";
 
 const MAX_PRESENTATION_CHARS = 50_000;
 const MAX_SPEECH_CHARS = 400;
+const STRICT_SAMPLING = { strict: "prefer", type: "json_schema" } as const;
 
 export const VOICE_TOOL_NAMES = [
   "speak_to_user",
@@ -28,6 +29,7 @@ export const registerVoiceTools = (
   deps: VoiceToolDeps
 ): void => {
   pi.registerTool({
+    constrainedSampling: STRICT_SAMPLING,
     description:
       "Send one meaningful progress update to the active realtime voice handoff. Use only for a verified finding, material progress, a newly identified blocker, or a decision that matters while work continues. Never use for acknowledgements, generic checking or waiting updates, or the final result; the final assistant response is delivered automatically.",
     async execute(_toolCallId, params) {
@@ -67,6 +69,7 @@ export const registerVoiceTools = (
   });
 
   pi.registerTool({
+    constrainedSampling: STRICT_SAMPLING,
     description:
       "Display substantial Markdown in the pi terminal and send only a concise spoken summary as the final response to the active realtime voice handoff. Use for reports, code, links, comparisons, plans, or other output that is better inspected than heard.",
     async execute(_toolCallId, params) {
@@ -132,6 +135,7 @@ export const registerVoiceTools = (
   });
 
   pi.registerTool({
+    constrainedSampling: STRICT_SAMPLING,
     description:
       "End the current realtime voice chat. Call when the user explicitly asks to end voice or clearly signs off with wording such as goodbye, talk to you later, or that is all for now. Do not call for a bare stop, a request to pause or be quiet, a request to stop only the current task, or a polite acknowledgement. This does not stop pi or ongoing work.",
     async execute() {

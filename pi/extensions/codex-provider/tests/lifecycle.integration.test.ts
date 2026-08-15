@@ -1943,13 +1943,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const previousModel = {
       ...SPIKE_MODEL,
       contextWindow: 20_000,
-      id: "codex-previous",
+      id: "gpt-5.6-previous",
       name: "Previous Codex",
     };
     const currentModel = {
       ...SPIKE_MODEL,
       contextWindow: 4000,
-      id: "codex-current",
+      id: "gpt-5.6-current",
       name: "Current Codex",
     };
     const requests: Record<string, unknown>[] = [];
@@ -2004,13 +2004,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           inputItemTypes(request.input).includes("compaction_trigger")
         ),
       }).toStrictEqual({
-        checkpointModel: "codex-current",
+        checkpointModel: "gpt-5.6-current",
         checkpointResponse: "resp_current-fallback",
         models: [
-          "codex-previous",
-          "codex-previous",
-          "codex-current",
-          "codex-current",
+          "gpt-5.6-previous",
+          "gpt-5.6-previous",
+          "gpt-5.6-current",
+          "gpt-5.6-current",
         ],
         reasons: ["model_downshift", "model_downshift"],
         triggers: [false, true, true, false],
@@ -3849,7 +3849,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         } else if (change === "model") {
           await session.setModel({
             ...SPIKE_MODEL,
-            id: "codex-delayed-choice-other",
+            id: "gpt-5.6-delayed-choice-other",
             name: "Delayed Choice Other",
           });
         } else if (change === "session") {

@@ -41,6 +41,7 @@ import type { CanonicalCompactionItem } from "./checkpoint.js";
 import {
   createCodexHeaders,
   createCodexModelCatalog,
+  isSupportedCodexModelId,
   modelSupportsServiceTier,
   resolveCodexResponsesUrl,
 } from "./model-catalog.js";
@@ -385,6 +386,9 @@ const buildRequestBody = (
   session: SessionRuntime,
   kind: "prewarm" | "turn" = "turn"
 ) => {
+  if (!isSupportedCodexModelId(model.id)) {
+    throw new Error(`Codex provider supports only GPT-5.6 models: ${model.id}`);
+  }
   const grammarToolInputProperties = createGrammarToolInputProperties(
     context.tools,
     model.compat?.supportsOpenAIGrammarTools ?? false
@@ -392,9 +396,15 @@ const buildRequestBody = (
   const supportsStrictMode = model.compat?.supportsStrictMode ?? true;
   const supportsOpenAIGrammarTools =
     model.compat?.supportsOpenAIGrammarTools ?? false;
+  const deferredToolsMode =
+    model.compat?.supportsAdditionalTools === true
+      ? "additional-tools"
+      : model.compat?.supportsToolSearch === true
+        ? "tool-search"
+        : undefined;
   const placement = splitDeferredTools(
     context,
-    model.compat?.supportsToolSearch ?? false
+    deferredToolsMode !== undefined
   );
   const toolOptions = {
     strict: null,
@@ -407,6 +417,7 @@ const buildRequestBody = (
     ALLOWED_TOOL_CALL_PROVIDERS,
     {
       deferredTools: placement.deferred,
+      deferredToolsMode,
       grammarToolInputProperties,
       includeSystemPrompt: false,
       toolOptions,
@@ -1471,25 +1482,8 @@ function successfulOutput(
   }
 }
 
-const serviceTierMultiplier = (
-  modelId: string,
-  tier: string | null | undefined
-) => {
-  if (tier === "flex") {
-    return 0.5;
-  }
-  if (tier === "priority") {
-    return modelId === "gpt-5.5" ? 2.5 : 2;
-  }
-  return 1;
-};
-
-const applyServiceTier = (
-  usage: Usage,
-  tier: string | null | undefined,
-  model: SupportedModel
-) => {
-  const multiplier = serviceTierMultiplier(model.id, tier);
+const applyServiceTier = (usage: Usage, tier: string | null | undefined) => {
+  const multiplier = tier === "flex" ? 0.5 : tier === "priority" ? 2 : 1;
   if (multiplier === 1) {
     return;
   }
@@ -1752,8 +1746,7 @@ export const createCodexProviderRuntime = (
             capture.usage,
             capture.serviceTier === "default"
               ? body.service_tier
-              : (capture.serviceTier ?? body.service_tier),
-            request.model
+              : (capture.serviceTier ?? body.service_tier)
           );
           compactionResult = {
             compaction: compactions[0],
@@ -2032,9 +2025,7 @@ export const createCodexProviderRuntime = (
           }
         };
         await processResponsesStream(source(), output, events, model, {
-          applyServiceTierPricing: (usage, tier) => {
-            applyServiceTier(usage, tier, model);
-          },
+          applyServiceTierPricing: applyServiceTier,
           grammarToolInputProperties: built.grammarToolInputProperties,
           resolveServiceTier: (responseTier, requestTier) =>
             responseTier === "default"

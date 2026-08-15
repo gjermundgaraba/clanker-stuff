@@ -8,6 +8,7 @@ import {
 
 export default function askQuestion(pi: ExtensionAPI) {
   pi.registerTool({
+    constrainedSampling: { strict: "prefer", type: "json_schema" },
     description:
       "Ask one or more structured clarification questions and return machine-readable answers.",
     execute: (_toolCallId, params, signal, _onUpdate, ctx) =>

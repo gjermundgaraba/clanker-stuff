@@ -68,7 +68,7 @@ export const SPIKE_MODEL = {
     input: 0,
     output: 0,
   },
-  id: "phase-zero-codex",
+  id: "gpt-5.6-phase-zero",
   input: ["text"],
   maxTokens: 16_384,
   name: "Phase Zero Codex",
