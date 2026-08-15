@@ -22,10 +22,25 @@ from harbor.models.trajectories import (
     Trajectory,
 )
 
+from pi_evals.auth import require_auth_file
+
 _REMOTE_PI_HOME = PurePosixPath("/tmp/pi-eval")
 _REMOTE_EVENT_LOG = PurePosixPath("/logs/agent/pi-events.jsonl")
 _REMOTE_STDERR_LOG = PurePosixPath("/logs/agent/pi-stderr.log")
 _REMOTE_SESSION_DIR = PurePosixPath("/logs/agent/pi/sessions")
+_PI_EVENT_GUARD = (
+    "let buffer='',completed=false,failed=false;"
+    "const check=line=>{if(!line)return;try{const e=JSON.parse(line);"
+    "if(e.type==='message_end'&&e.message?.role==='assistant'){completed=true;"
+    "if(['error','aborted'].includes(e.message.stopReason))failed=true;}"
+    "}catch{failed=true}};"
+    "process.stdin.setEncoding('utf8');"
+    "process.stdin.on('data',chunk=>{buffer+=chunk;let end;"
+    "while((end=buffer.indexOf('\\n'))>=0){check(buffer.slice(0,end));"
+    "buffer=buffer.slice(end+1);}});"
+    "process.stdin.on('end',()=>{check(buffer);"
+    "process.exitCode=completed&&!failed?0:1;});"
+)
 
 
 def _number(value: Any) -> int:
@@ -399,6 +414,19 @@ class PiEval(Pi):
     def name() -> str:
         return "pi-eval"
 
+    def _resolve_auth_json_path(self, provider: str) -> Path:
+        path = self._auth_json_path
+        if path is None and (configured := self._get_env("PI_EVAL_AUTH_JSON_PATH")):
+            path = Path(configured)
+        return require_auth_file(
+            path or Path.home() / ".pi" / "agent" / "auth.json",
+            (
+                (provider, "access"),
+                (provider, "refresh"),
+                (provider, "key"),
+            ),
+        )
+
     @override
     async def install(self, environment: BaseEnvironment) -> None:
         installed = await self.exec_as_agent(
@@ -417,17 +445,13 @@ class PiEval(Pi):
             environment,
             command=f"mkdir -p {_REMOTE_PI_HOME.as_posix()} {_REMOTE_SESSION_DIR.as_posix()}",
         )
-        auth_path = self._auth_json_path
-        if auth_path is None and (configured := self._get_env("PI_EVAL_AUTH_JSON_PATH")):
-            auth_path = Path(configured).expanduser()
-        if auth_path is not None:
-            if not auth_path.is_file():
-                raise FileNotFoundError(f"Pi auth file not found: {auth_path}")
-            await environment.upload_file(auth_path, (_REMOTE_PI_HOME / "auth.json").as_posix())
-            await self.exec_as_root(
-                environment,
-                command=f"chmod 600 {(_REMOTE_PI_HOME / 'auth.json').as_posix()}",
-            )
+        provider = self.model_name.split("/", 1)[0] if self.model_name else ""
+        auth_path = self._resolve_auth_json_path(provider)
+        await environment.upload_file(auth_path, (_REMOTE_PI_HOME / "auth.json").as_posix())
+        await self.exec_as_root(
+            environment,
+            command=f"chmod 600 {(_REMOTE_PI_HOME / 'auth.json').as_posix()}",
+        )
         if self._settings:
             await self._upload_config_text(
                 environment,
@@ -528,7 +552,8 @@ class PiEval(Pi):
             f"printf '%s\\n' {shlex.quote(marker)} >> {_REMOTE_EVENT_LOG.as_posix()}; "
             f"pi {shlex.join(args)} "
             f"2>> {_REMOTE_STDERR_LOG.as_posix()} < {prompt_path} | "
-            f"stdbuf -oL tee -a {_REMOTE_EVENT_LOG.as_posix()} >/dev/null"
+            f"stdbuf -oL tee -a {_REMOTE_EVENT_LOG.as_posix()} | "
+            f"node -e {shlex.quote(_PI_EVENT_GUARD)}"
         )
         await self.exec_as_agent(environment, command=command, env=env)
 

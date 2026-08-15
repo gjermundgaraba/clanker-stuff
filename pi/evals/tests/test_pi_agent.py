@@ -1,16 +1,104 @@
 import json
+import os
 from pathlib import Path
+import subprocess
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
 from harbor.agents.installed.codex import Codex
 from harbor.models.agent.context import AgentContext
+from pi_evals.auth import require_auth_file
 from pi_evals.codex import CodexEval, _redirect_prompt, load_codex_compactions
-from pi_evals.pi import convert_pi_events, load_pi_events
+from pi_evals.pi import _PI_EVENT_GUARD, PiEval, convert_pi_events, load_pi_events
 
 
 class PiTrajectoryTest(TestCase):
+    def test_pi_event_guard_rejects_provider_errors(self) -> None:
+        def run(event: dict[str, object]) -> int:
+            return subprocess.run(
+                ["node", "-e", _PI_EVENT_GUARD],
+                check=False,
+                input=f"{json.dumps(event, ensure_ascii=False)}\n",
+                text=True,
+            ).returncode
+
+        self.assertEqual(
+            run(
+                {
+                    "type": "message_end",
+                    "message": {"role": "assistant", "stopReason": "stop"},
+                }
+            ),
+            0,
+        )
+        self.assertEqual(
+            run(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "stopReason": "stop",
+                        "content": [{"type": "text", "text": "a\u2028b"}],
+                    },
+                }
+            ),
+            0,
+        )
+        self.assertNotEqual(
+            run(
+                {
+                    "type": "message_end",
+                    "message": {"role": "assistant", "stopReason": "error"},
+                }
+            ),
+            0,
+        )
+        self.assertNotEqual(run({"type": "agent_end"}), 0)
+
+    def test_uses_standard_auth_files_without_shell_state(self) -> None:
+        with TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"HOME": directory}, clear=True
+        ):
+            home = Path(directory)
+            pi_auth = home / ".pi/agent/auth.json"
+            codex_auth = home / ".codex/auth.json"
+            pi_auth.parent.mkdir(parents=True)
+            codex_auth.parent.mkdir(parents=True)
+            pi_auth.write_text(
+                json.dumps({"openai-codex": {"access": "pi-token"}}),
+                encoding="utf-8",
+            )
+            codex_auth.write_text(
+                json.dumps({"tokens": {"access_token": "codex-token"}}),
+                encoding="utf-8",
+            )
+            pi = PiEval(logs_dir=home, model_name="openai-codex/gpt-5.6-terra")
+            codex = CodexEval(logs_dir=home, model_name="openai/gpt-5.6-terra")
+
+            self.assertEqual(pi._resolve_auth_json_path("openai-codex"), pi_auth)
+            self.assertEqual(codex._resolve_auth_json_path(), codex_auth)
+
+    def test_explicit_auth_path_wins_and_empty_credentials_fail(self) -> None:
+        with TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"HOME": directory}, clear=True
+        ):
+            path = Path(directory) / "explicit.json"
+            path.write_text(
+                json.dumps({"openai-codex": {"refresh": "token"}}),
+                encoding="utf-8",
+            )
+            pi = PiEval(
+                logs_dir=Path(directory),
+                model_name="openai-codex/gpt-5.6-terra",
+                auth_json_path=path,
+            )
+            self.assertEqual(pi._resolve_auth_json_path("openai-codex"), path)
+
+            path.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "no usable credential"):
+                require_auth_file(path, (("tokens", "access_token"),))
+
     def test_redirects_codex_prompt_through_stdin(self) -> None:
         command = "codex exec -- - 2>&1 </dev/null | tee /logs/agent/codex.txt"
         self.assertEqual(

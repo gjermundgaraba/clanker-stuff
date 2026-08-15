@@ -10,6 +10,8 @@ from harbor.models.agent.context import AgentContext
 from harbor.models.trajectories import Agent, Observation, ObservationResult, Step
 from harbor.utils.trajectory_utils import format_trajectory_json
 
+from pi_evals.auth import require_auth_file
+
 
 _REMOTE_PROMPT_PATH = "/tmp/codex-eval-instruction.md"
 
@@ -71,6 +73,17 @@ class CodexEval(Codex):
         self._cumulative_usage: tuple[
             int | None, int | None, int | None, float | None
         ] | None = None
+
+    @override
+    def _resolve_auth_json_path(self) -> Path:
+        return require_auth_file(
+            super()._resolve_auth_json_path() or Path.home() / ".codex" / "auth.json",
+            (
+                ("OPENAI_API_KEY",),
+                ("tokens", "access_token"),
+                ("tokens", "refresh_token"),
+            ),
+        )
 
     def _normalize_context_usage(
         self, context: AgentContext, session_id: str

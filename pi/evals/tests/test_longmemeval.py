@@ -161,7 +161,10 @@ class LongMemEvalTest(TestCase):
             runnable.write_text(grader, encoding="utf-8")
 
             def grade(
-                boundaries: list[int], label: str = "pi-vanilla-on"
+                boundaries: list[int],
+                label: str = "pi-vanilla-on",
+                *,
+                agent_error: bool = False,
             ) -> dict[str, int]:
                 steps = [
                     {
@@ -175,6 +178,14 @@ class LongMemEvalTest(TestCase):
                     }
                     for boundary in boundaries
                 ]
+                if agent_error:
+                    steps.append(
+                        {
+                            "extra": {"stop_reason": "error"},
+                            "message": "",
+                            "source": "agent",
+                        }
+                    )
                 steps.extend(
                     [
                         {"source": "user"},
@@ -196,3 +207,6 @@ class LongMemEvalTest(TestCase):
             off = grade([], "pi-vanilla-off")
             self.assertEqual(off["valid_experiment"], 1)
             self.assertEqual(off["compaction_after_segment"], -1)
+            failed = grade([5], agent_error=True)
+            self.assertEqual(failed["agent_failures"], 1)
+            self.assertEqual(failed["valid_experiment"], 0)

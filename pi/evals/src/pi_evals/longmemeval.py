@@ -351,6 +351,11 @@ const attempts = steps.filter(
   (step) => step.extra?.event_type === "context_compaction"
 );
 const compactions = attempts.filter((step) => step.extra?.state === "succeeded");
+const agentFailures = steps.filter(
+  (step) =>
+    step.source === "agent" &&
+    ["error", "aborted"].includes(step.extra?.stop_reason)
+);
 const compactionExpected = Boolean(
   policy?.expected && gold.condition !== "evidence"
 );
@@ -379,12 +384,14 @@ const validExperiment = Number(
   (agentName === "oracle" || policy) &&
     agentResponse &&
     answerIndex > queryIndex &&
+    agentFailures.length === 0 &&
     controlled
 );
 writeFileSync(
   "/logs/verifier/reward.json",
   JSON.stringify({
     agent_response: agentResponse,
+    agent_failures: agentFailures.length,
     compaction_after_segment:
       compactions[0]?.extra?.compacted_after_segment ?? -1,
     compaction_attempts: attempts.length,
