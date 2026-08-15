@@ -12,5 +12,6 @@ The usage extension reads credentials already configured for pi and uses them on
 | OpenAI Codex   | OpenAI usage API          |
 | OpenCode       | CodexBar history file     |
 | xAI            | xAI management API        |
+| Z.ai           | Z.ai monitor usage API    |
 
 Provider APIs and response formats are not stable public contracts, so a provider can temporarily stop working after an upstream change. `/usage refresh` bypasses the local cache when checking a failure.

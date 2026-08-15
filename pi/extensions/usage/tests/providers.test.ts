@@ -24,6 +24,7 @@ describe("providers", () => {
       "MiniMax CN",
       "Kimi",
       "Grok",
+      "GLM",
       "OpenCode Go",
     ]);
   });

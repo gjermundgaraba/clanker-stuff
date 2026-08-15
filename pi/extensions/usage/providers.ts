@@ -6,6 +6,7 @@ export const SUPPORTED_PROVIDERS = [
   "minimax-cn",
   "kimi-coding",
   "xai",
+  "zai",
   "opencode-go",
 ] as const;
 
@@ -73,6 +74,7 @@ const PROVIDER_DISPLAY_NAMES = {
   "openai-codex": "Codex",
   "opencode-go": "OpenCode Go",
   xai: "Grok",
+  zai: "GLM",
 } satisfies Record<SupportedProvider, string>;
 
 export const providerDisplayName = (provider: SupportedProvider): string =>

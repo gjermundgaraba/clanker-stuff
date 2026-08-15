@@ -102,6 +102,10 @@ export const createUsageController = (pi: ExtensionAPI) => {
       const { fetchXaiUsage } = await import("./adapters/xai.js");
       return await fetchXaiUsage(deps);
     }),
+    zai: fromHttpAdapter(async (deps) => {
+      const { fetchZaiUsage } = await import("./adapters/zai.js");
+      return await fetchZaiUsage(deps);
+    }),
   } satisfies Record<SupportedProvider, UsageFetcher>;
 
   let generation = 0;
