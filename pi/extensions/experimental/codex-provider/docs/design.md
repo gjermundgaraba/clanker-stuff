@@ -26,6 +26,8 @@ One provider session exists per Pi session. A user turn gets fresh turn identity
 
 Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service tier for supported models across normal requests and native compaction. Live model metadata is authoritative; the pinned fallback catalog covers offline startup. The lightning status appears only when the selected model supports fast mode.
 
+Remote reasoning presets are intersected with Pi's known thinking levels instead of being forwarded as request values. Only the Codex Responses wire efforts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` reach transport. The Codex application preset `ultra` is not exposed as Pi `max`: full Ultra behavior also requires proactive multi-agent policy, which this extension does not implement.
+
 Supported GPT-5.6 Codex models start with `exec_command`, `write_stdin`, `apply_patch`, and `view_image`; `/code-mode` replaces them with `exec` and `wait`. The provider owns those six names and suppresses Pi's seven built-ins while they are active, but leaves unrelated extension tools alone. When `@clanker-stuff/tools` is also loaded, `/tools` delegates those six choices back to this extension through a provider-neutral event contract. Tool choices follow the active session branch.
 
 Code Mode does not select a request envelope. `use_responses_lite` from native model metadata alone determines whether the same active tools and instructions use Responses Lite or the standard Responses envelope.

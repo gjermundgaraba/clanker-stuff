@@ -7,6 +7,8 @@ import type {
   ApiKeyAuth,
   Credential,
   Model,
+  ModelThinkingLevel,
+  OpenAICodexResponsesOptions,
   Provider,
   ProviderHeaders,
   RefreshModelsContext,
@@ -21,6 +23,27 @@ const MODEL_CLIENT_VERSION = "0.0.0";
 type JsonRecord = Record<string, unknown>;
 type SupportedModel = Model<"openai-codex-responses">;
 type CodexProvider = Provider<"openai-codex-responses">;
+
+type CodexWireReasoningEffort = NonNullable<
+  OpenAICodexResponsesOptions["reasoningEffort"]
+>;
+const PI_CODEX_REASONING_EFFORTS = {
+  high: "high",
+  low: "low",
+  max: "max",
+  medium: "medium",
+  minimal: "minimal",
+  off: "none",
+  xhigh: "xhigh",
+} as const satisfies Record<ModelThinkingLevel, CodexWireReasoningEffort>;
+const CODEX_WIRE_REASONING_EFFORT_SET: ReadonlySet<string> = new Set(
+  Object.values(PI_CODEX_REASONING_EFFORTS)
+);
+
+export const isCodexWireReasoningEffort = (
+  value: unknown
+): value is CodexWireReasoningEffort =>
+  typeof value === "string" && CODEX_WIRE_REASONING_EFFORT_SET.has(value);
 
 const storedApiKeyAuth: ApiKeyAuth = {
   name: "OpenAI Codex access token",
@@ -259,24 +282,21 @@ const projectModel = (
   baseUrl: string
 ): SupportedModel => {
   const existing = fallback.find((model) => model.id === metadata.slug);
-  const levels = reasoningLevels(metadata);
+  const supportedReasoningEfforts = reasoningLevels(metadata).filter(
+    isCodexWireReasoningEffort
+  );
   const hasRemoteReasoningLevels =
     metadata.supported_reasoning_levels !== undefined;
-  const thinkingLevelMap: Record<string, string | null> = Object.fromEntries(
-    levels.flatMap((level) => {
-      const piLevel = level === "ultra" ? "max" : level;
-      return ["minimal", "low", "medium", "high", "xhigh", "max"].includes(
-        piLevel
+  const thinkingLevelMap = hasRemoteReasoningLevels
+    ? Object.fromEntries(
+        Object.entries(PI_CODEX_REASONING_EFFORTS).map(
+          ([piLevel, wireEffort]) => [
+            piLevel,
+            supportedReasoningEfforts.includes(wireEffort) ? wireEffort : null,
+          ]
+        )
       )
-        ? [[piLevel, level]]
-        : [];
-    })
-  );
-  if (hasRemoteReasoningLevels) {
-    for (const level of ["off", "minimal", "low", "medium", "high"] as const) {
-      thinkingLevelMap[level] ??= null;
-    }
-  }
+    : existing?.thinkingLevelMap;
   const contextWindow =
     metadata.context_window ??
     metadata.max_context_window ??
@@ -305,9 +325,9 @@ const projectModel = (
     name: metadata.display_name,
     provider: "openai-codex",
     reasoning: hasRemoteReasoningLevels
-      ? levels.length > 0
+      ? supportedReasoningEfforts.some((level) => level !== "none")
       : existing?.reasoning === true,
-    ...(Object.keys(thinkingLevelMap).length > 0 ? { thinkingLevelMap } : {}),
+    ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
   };
 };
 

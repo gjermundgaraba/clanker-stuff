@@ -41,6 +41,7 @@ import type { CanonicalCompactionItem } from "./checkpoint.js";
 import {
   createCodexHeaders,
   createCodexModelCatalog,
+  isCodexWireReasoningEffort,
   isSupportedCodexModelId,
   modelSupportsServiceTier,
   resolveCodexResponsesUrl,
@@ -197,6 +198,22 @@ export interface CodexCompactionResult {
 
 const isRecord = (value: unknown): value is JsonRecord =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+
+const validateRequestReasoningEffort = (body: RequestBody): void => {
+  const { reasoning } = body;
+  if (reasoning === undefined) {
+    return;
+  }
+  if (!isRecord(reasoning)) {
+    throw new TypeError("Codex payload reasoning must be an object");
+  }
+  const { effort } = reasoning;
+  if (effort !== undefined && !isCodexWireReasoningEffort(effort)) {
+    throw new Error(
+      `Unsupported Codex Responses reasoning effort: ${JSON.stringify(effort)}`
+    );
+  }
+};
 
 const isAborted = (signal: AbortSignal | undefined) => signal?.aborted ?? false;
 
@@ -487,17 +504,21 @@ const buildRequestBody = (
   ) {
     body.service_tier = serviceTier;
   }
+  const remoteDefaultReasoningEffort = metadata?.default_reasoning_level;
   const reasoningEffort =
-    options?.reasoningEffort ?? metadata?.default_reasoning_level;
+    options?.reasoningEffort ??
+    (isCodexWireReasoningEffort(remoteDefaultReasoningEffort)
+      ? remoteDefaultReasoningEffort
+      : undefined);
   if (reasoningEffort !== undefined && reasoningEffort.length > 0) {
     const thinkingLevelMap: Readonly<
       Record<string, string | null | undefined>
     > = model.thinkingLevelMap ?? {};
-    const effort =
+    const mappedEffort =
       reasoningEffort === "none"
         ? (model.thinkingLevelMap?.off ?? "none")
         : (thinkingLevelMap[reasoningEffort] ?? reasoningEffort);
-    if (effort !== null) {
+    if (mappedEffort !== null) {
       const configuredSummary =
         options?.reasoningSummary ?? metadata?.default_reasoning_summary;
       const summary =
@@ -509,7 +530,7 @@ const buildRequestBody = (
           : (configuredSummary ?? "auto");
       body.reasoning = {
         ...(lite ? { context: "all_turns" } : {}),
-        effort,
+        effort: mappedEffort,
         ...(summary === undefined ? {} : { summary }),
       };
     }
@@ -1681,6 +1702,7 @@ export const createCodexProviderRuntime = (
       if (built.responsesLite) {
         body = prepareLiteRequest(body);
       }
+      validateRequestReasoningEffort(body);
       observedBody = body;
       const configuredWebsocketTransport =
         options.transport === "sse" ? undefined : (options.transport ?? "auto");
@@ -1982,6 +2004,7 @@ export const createCodexProviderRuntime = (
             body = prepareLiteRequest(body);
           }
         }
+        validateRequestReasoningEffort(body);
         observedBody = body;
         const requestId = promptCacheKey(sessionId);
         const prewarmCompatible =

@@ -189,6 +189,46 @@ describe("Codex provider", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      errorMessage: 'Unsupported Codex Responses reasoning effort: "ultra"',
+      label: "non-wire effort",
+      reasoning: { effort: "ultra" },
+    },
+    {
+      errorMessage: "Codex payload reasoning must be an object",
+      label: "null reasoning",
+      reasoning: null,
+    },
+    {
+      errorMessage: "Unsupported Codex Responses reasoning effort: null",
+      label: "null effort",
+      reasoning: { effort: null },
+    },
+  ])(
+    "rejects $label injected by a payload transform",
+    async ({ errorMessage, reasoning }) => {
+      const fetch = vi.fn<() => Promise<Response>>(async () =>
+        sse(responseEvents("invalid-transformed-effort", "unexpected"))
+      );
+      const message = await createCodexProviderRuntime()
+        .provider.streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch,
+          onPayload: (payload) => ({
+            ...(payload as Record<string, unknown>),
+            reasoning,
+          }),
+          sessionId: "session-invalid-transformed-effort",
+          transport: "sse",
+        })
+        .result();
+
+      expect(message).toMatchObject({ errorMessage, stopReason: "error" });
+      expect(fetch).not.toHaveBeenCalled();
+    }
+  );
+
   it("preserves Pi callbacks and builds a complete SSE request", async () => {
     const runtime = createCodexProviderRuntime();
     const payloads: unknown[] = [];
@@ -685,7 +725,9 @@ describe("Codex provider", () => {
                 supported_in_api: true,
                 supported_reasoning_levels: [
                   { description: "Balanced", effort: "medium" },
+                  { description: "Maximum", effort: "max" },
                   { description: "Deepest", effort: "ultra" },
+                  { description: "Future", effort: "future" },
                 ],
                 supports_parallel_tool_calls: true,
                 supports_reasoning_summary_parameter: true,
@@ -696,12 +738,15 @@ describe("Codex provider", () => {
                 auto_compact_token_limit: null,
                 comp_hash: "comp-null-limit",
                 context_window: 272_000,
-                display_name: "No Reasoning",
+                default_reasoning_level: "ultra",
+                display_name: "Application Preset Only",
                 priority: 2,
                 slug: SPIKE_MODEL.id,
                 support_verbosity: true,
                 supported_in_api: true,
-                supported_reasoning_levels: [],
+                supported_reasoning_levels: [
+                  { description: "Application Ultra", effort: "ultra" },
+                ],
                 supports_parallel_tool_calls: true,
                 visibility: "list",
               },
@@ -766,6 +811,7 @@ describe("Codex provider", () => {
             liteRequests.push(init ?? {});
             return sse(responseEvents("resp_lite", "lite"));
           },
+          reasoning: "max",
           sessionId: "session-lite",
           transport: "sse",
         }
@@ -824,7 +870,7 @@ describe("Codex provider", () => {
         prefix: ["additional_tools", "message"],
         reasoning: {
           context: "all_turns",
-          effort: "medium",
+          effort: "max",
           summary: "concise",
         },
       },
@@ -840,25 +886,14 @@ describe("Codex provider", () => {
         effectiveWindowTokens: 190_000,
       },
     });
-    expect(remoteModel.thinkingLevelMap).toMatchObject({
+    expect(remoteModel.thinkingLevelMap).toStrictEqual({
       high: null,
       low: null,
-      max: "ultra",
+      max: "max",
       medium: "medium",
       minimal: null,
       off: null,
-    });
-    expect(
-      runtime.provider.getModels().find((model) => model.id === SPIKE_MODEL.id)
-    ).toMatchObject({
-      reasoning: false,
-      thinkingLevelMap: {
-        high: null,
-        low: null,
-        medium: null,
-        minimal: null,
-        off: null,
-      },
+      xhigh: null,
     });
     const nullLimitModel = runtime.provider
       .getModels()
@@ -866,10 +901,39 @@ describe("Codex provider", () => {
     if (!nullLimitModel) {
       throw new Error("Null-limit model was not projected");
     }
-    expect(runtime.getModelWindow(nullLimitModel)).toStrictEqual({
-      autoCompactTokens: 244_800,
-      effectiveWindowTokens: 258_400,
+    expect({
+      reasoning: nullLimitModel.reasoning,
+      thinkingLevelMap: nullLimitModel.thinkingLevelMap,
+      window: runtime.getModelWindow(nullLimitModel),
+    }).toStrictEqual({
+      reasoning: false,
+      thinkingLevelMap: {
+        high: null,
+        low: null,
+        max: null,
+        medium: null,
+        minimal: null,
+        off: null,
+        xhigh: null,
+      },
+      window: {
+        autoCompactTokens: 244_800,
+        effectiveWindowTokens: 258_400,
+      },
     });
+    const defaultRequests: RequestInit[] = [];
+    await runtime.provider
+      .streamSimple(nullLimitModel, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async (_input, init) => {
+          defaultRequests.push(init ?? {});
+          return sse(responseEvents("unsupported-default", "accepted"));
+        },
+        sessionId: "session-unsupported-default",
+        transport: "sse",
+      })
+      .result();
+    expect(readBody(defaultRequests[0]?.body).reasoning).toBeUndefined();
 
     const liteFrames: Record<string, unknown>[] = [];
     const LiteWebSocket = function LiteWebSocket() {
