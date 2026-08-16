@@ -27,12 +27,16 @@ type ModelSelectEvent = Extract<ExtensionEvent, { type: "model_select" }>;
 const isCodexModel = (model: Model<string> | undefined): boolean =>
   model?.provider === "openai-codex" && model.api === "openai-codex-responses";
 
-export const createCodexRuntime = (pi: ExtensionAPI) => {
+export const createCodexRuntime = (
+  pi: ExtensionAPI,
+  setFastFooterActive: (active: boolean) => void
+) => {
   const storage = getExtensionStoragePaths("codex-provider");
   const catalog = createCodexModelCatalog();
   const fastMode = createFastModeState(
     pi,
-    createFastModeConfigStore(storage.configFile)
+    createFastModeConfigStore(storage.configFile),
+    setFastFooterActive
   );
   let pendingModelSelection:
     | { ctx: ExtensionContext; event: ModelSelectEvent }

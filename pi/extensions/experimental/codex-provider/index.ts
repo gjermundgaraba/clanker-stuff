@@ -1,12 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { createCodexFooter } from "./footer.js";
 import { createLazyCodexProvider } from "./lazy-provider.js";
 import { registerCheckpointRenderer } from "./renderer.js";
 import { createCodexRuntime } from "./runtime.js";
 import { registerCodexTools } from "./tools/register.js";
 
 export default function codexProviderExtension(pi: ExtensionAPI): void {
-  const runtime = createCodexRuntime(pi);
+  const footer = createCodexFooter(pi);
+  const runtime = createCodexRuntime(pi, footer.setFastMode);
 
   pi.registerFlag("fast", {
     description: "Start with OpenAI Codex fast mode enabled",
@@ -17,7 +19,7 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
     createLazyCodexProvider(runtime.catalog, runtime.loadProvider)
   );
   registerCheckpointRenderer(pi);
-  registerCodexTools(pi);
+  registerCodexTools(pi, footer.setCodeMode);
 
   pi.registerCommand("fast", {
     description: "Toggle OpenAI Codex fast mode",
@@ -43,6 +45,9 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
     runtime.messageEnd(event, ctx);
   });
   pi.on("session_shutdown", (_event, ctx) => runtime.shutdown(ctx));
+  pi.on("session_shutdown", () => {
+    footer.dispose();
+  });
   pi.on("session_before_compact", (event, ctx) =>
     runtime.beforeCompact(event, ctx)
   );

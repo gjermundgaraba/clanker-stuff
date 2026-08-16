@@ -148,6 +148,7 @@ describe("codex-provider package", () => {
         "package/docs/evaluation.md",
         "package/docs/live-canary.md",
         "package/docs/local-deployment.md",
+        "package/footer.ts",
         "package/index.ts",
         "package/lazy-provider.ts",
         "package/lifecycle.ts",
@@ -177,6 +178,10 @@ describe("codex-provider package", () => {
         {
           dependencies: {
             "@clanker-stuff/codex-provider": `file:${tarball}`,
+            "@clanker-stuff/footer-protocol": `file:${path.resolve(
+              PACKAGE_ROOT,
+              "../../../packages/footer-protocol"
+            )}`,
             "@clanker-stuff/lazy-singleton": `file:${path.resolve(
               PACKAGE_ROOT,
               "../../../packages/lazy-singleton"
@@ -217,6 +222,7 @@ describe("codex-provider package", () => {
       )
     ).toMatchObject({
       dependencies: {
+        "@clanker-stuff/footer-protocol": "^0.1.0",
         "@clanker-stuff/lazy-singleton": "^0.1.0",
         "@clanker-stuff/pi-extension-paths": "^0.1.0",
       },

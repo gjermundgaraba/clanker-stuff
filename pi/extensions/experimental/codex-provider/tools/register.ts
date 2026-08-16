@@ -2,8 +2,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createCodexToolsController } from "./controller.js";
 
-export const registerCodexTools = (pi: ExtensionAPI): void => {
-  const tools = createCodexToolsController(pi);
+export const registerCodexTools = (
+  pi: ExtensionAPI,
+  setFooterActive: (active: boolean) => void = () => null
+): void => {
+  const tools = createCodexToolsController(pi, setFooterActive);
 
   for (const definition of tools.definitions) {
     pi.registerTool(definition);

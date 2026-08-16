@@ -5,13 +5,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { CodeModeRuntime } from "../code-mode/tools.js";
+import { CODE_MODE_STATUS_KEY } from "../footer.js";
 import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
 import { createCodexToolSelection } from "./selection.js";
 
 const TOOL_OWNER_CHANNEL = "clanker-stuff:tools:owner";
 const PI_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "read", "write"];
 
-export const createCodexToolsController = (pi: ExtensionAPI) => {
+export const createCodexToolsController = (
+  pi: ExtensionAPI,
+  setFooterActive: (active: boolean) => void
+) => {
   const direct = createCodexDirectTools();
   const codeMode = new CodeModeRuntime();
   const selection = createCodexToolSelection(pi);
@@ -43,6 +47,9 @@ export const createCodexToolsController = (pi: ExtensionAPI) => {
   const apply = (ctx: ExtensionContext): void => {
     const previousModel = currentModel;
     currentModel = ctx.model;
+    const active = codeModeActive();
+    ctx.ui.setStatus(CODE_MODE_STATUS_KEY, active ? "</>" : undefined);
+    setFooterActive(active);
     const activeNames = pi.getActiveTools();
     if (ctx.model === undefined || !isCodexToolsModel(ctx.model)) {
       const remainingNames = activeNames.filter(

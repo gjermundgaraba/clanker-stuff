@@ -102,6 +102,9 @@ importers:
 
   pi/extensions/experimental/codex-provider:
     dependencies:
+      '@clanker-stuff/footer-protocol':
+        specifier: workspace:^
+        version: link:../../../packages/footer-protocol
       '@clanker-stuff/lazy-singleton':
         specifier: workspace:^
         version: link:../../../packages/lazy-singleton

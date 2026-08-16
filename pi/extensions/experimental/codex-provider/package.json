@@ -20,6 +20,7 @@
     "checkpoint.ts",
     "checkpoint-marker.ts",
     "fast-mode.ts",
+    "footer.ts",
     "index.ts",
     "lazy-provider.ts",
     "lifecycle.ts",
@@ -73,6 +74,7 @@
     "verify:provider": "pnpm -w check:all && pnpm run test:live:marathon && pnpm run eval:agents --repetitions 3 && pnpm run eval:agents --task compaction-resume && pnpm run eval:code-mode --runs 3"
   },
   "dependencies": {
+    "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^"
   },

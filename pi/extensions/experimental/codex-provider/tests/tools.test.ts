@@ -121,6 +121,7 @@ describe("Codex tools", () => {
 
     await host.runCommand("code-mode", "", ctx);
     expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+    expect(host.getStatus("codex-code-mode")).toBe("</>");
     expect(
       host.getRegisteredTools().get("exec")?.definition.constrainedSampling
     ).toMatchObject({ type: "grammar" });
@@ -130,7 +131,10 @@ describe("Codex tools", () => {
     });
 
     await host.runCommand("code-mode", "", ctx);
-    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
+    expect({
+      status: host.getStatus("codex-code-mode"),
+      tools: host.getActiveTools(),
+    }).toStrictEqual({ status: undefined, tools: DIRECT_NAMES });
   });
 
   it("delegates provider-owned choices from /tools", async () => {

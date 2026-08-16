@@ -9,6 +9,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
+import { FAST_MODE_STATUS_KEY } from "./footer.js";
+
 const errorCode = (error: unknown): string | undefined =>
   typeof error === "object" && error !== null && "code" in error
     ? String(error.code)
@@ -77,7 +79,8 @@ export const createFastModeConfigStore = (configPath: string) => {
 
 export const createFastModeState = (
   pi: ExtensionAPI,
-  config: ReturnType<typeof createFastModeConfigStore>
+  config: ReturnType<typeof createFastModeConfigStore>,
+  setFooterActive: (active: boolean) => void = () => null
 ) => {
   let enabled = false;
   let operation = Promise.resolve();
@@ -90,12 +93,9 @@ export const createFastModeState = (
     ctx: ExtensionContext,
     supportsFastMode: (model: Model<string> | undefined) => boolean
   ): void => {
-    ctx.ui.setStatus(
-      "codex-fast",
-      enabled && supportsFastMode(ctx.model)
-        ? ctx.ui.theme.fg("warning", "⚡")
-        : undefined
-    );
+    const active = enabled && supportsFastMode(ctx.model);
+    ctx.ui.setStatus(FAST_MODE_STATUS_KEY, active ? "⚡" : undefined);
+    setFooterActive(active);
   };
 
   return {
