@@ -4,10 +4,11 @@ import {
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
 } from "@clanker-stuff/footer-protocol";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import { createCodexRuntime } from "../../experimental/codex-provider/runtime.js";
 import type { ProviderAuthClient } from "../auth.js";
 import { providerAuthClientFromContext } from "../auth.js";
 import type { FetchJson } from "../http.js";
@@ -64,6 +65,9 @@ const fetchJson: FetchJson = async () => ({
   },
   ok: true,
 });
+
+const publishModels: RefreshModelsContext["publish"] = () =>
+  Promise.resolve(true);
 
 const stubDependencies = (nowRef: { value: number }) => {
   vi.mocked(providerAuthClientFromContext).mockReturnValue(authClient);
@@ -134,6 +138,57 @@ describe("usage controller", () => {
     await vi.waitFor(() => {
       expect(host.getStatus("usage")).toContain("Codex");
     });
+    await host.emitSessionShutdown(context);
+  });
+
+  it("refreshes immediately when Codex observes a login", async () => {
+    stubDependencies({ value: 1000 });
+    let requests = 0;
+    let refreshModels:
+      | ReturnType<typeof createCodexRuntime>["catalog"]["refreshModels"]
+      | undefined;
+    vi.mocked(defaultFetchJson).mockImplementation(async () => {
+      requests += 1;
+      return {
+        json: {
+          rate_limit: { primary_window: { used_percent: requests * 10 } },
+        },
+        ok: true,
+      };
+    });
+    const host = createExtensionHost(
+      (pi) => {
+        ({ refreshModels } = createCodexRuntime(pi, vi.fn()).catalog);
+        extension(pi);
+      },
+      { model: codexModel }
+    );
+    const context = host.createContext({ model: codexModel });
+
+    await host.emitSessionStart(context);
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toContain("10%");
+    });
+    if (refreshModels === undefined) {
+      throw new Error("Codex model refresh was not registered");
+    }
+    const { signal } = new AbortController();
+    await refreshModels({
+      allowNetwork: false,
+      publish: publishModels,
+      signal,
+    });
+    await refreshModels({
+      allowNetwork: false,
+      credential: { key: makeJwt(), type: "api_key" },
+      publish: publishModels,
+      signal,
+    });
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toContain("20%");
+    });
+
+    expect(requests).toBe(2);
     await host.emitSessionShutdown(context);
   });
 

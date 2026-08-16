@@ -60,7 +60,7 @@ const parseUsageArgs = (
 };
 
 export const createUsageController = (pi: ExtensionAPI) => {
-  const cache = new UsageCache({ now });
+  let cache = new UsageCache({ now });
   const fromHttpAdapter =
     (fetcher: HttpUsageFetcher): UsageFetcher =>
     (ctx) =>
@@ -236,6 +236,16 @@ export const createUsageController = (pi: ExtensionAPI) => {
     }
   };
 
+  const accountUnsubscribe = pi.events.on(
+    "clanker-codex:account-changed",
+    () => {
+      cache = new UsageCache({ now });
+      if (currentContext && activeProvider === "openai-codex") {
+        refresh(currentContext, activeProvider);
+      }
+    }
+  );
+
   listenForReady();
 
   return {
@@ -249,6 +259,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
         currentContext.ui.setStatus(STATUS_KEY, undefined);
       }
       published.clear();
+      accountUnsubscribe();
       readyUnsubscribe?.();
       readyUnsubscribe = undefined;
       instanceId = undefined;

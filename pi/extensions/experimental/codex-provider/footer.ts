@@ -100,7 +100,11 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
       instanceId = undefined;
       readyUnsubscribe();
     },
-    setCodeMode: (enabled: boolean): void => setActive("codeMode", enabled),
-    setFastMode: (enabled: boolean): void => setActive("fastMode", enabled),
+    setCodeMode: (enabled: boolean): void => {
+      setActive("codeMode", enabled);
+    },
+    setFastMode: (enabled: boolean): void => {
+      setActive("fastMode", enabled);
+    },
   };
 };

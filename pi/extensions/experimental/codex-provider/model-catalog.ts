@@ -373,7 +373,7 @@ const credentialApiKey = async (
   return auth?.apiKey ?? undefined;
 };
 
-export const createCodexModelCatalog = () => {
+export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
   const builtin = openaiCodexProvider();
   const fallback = builtin
     .getModels()
@@ -392,24 +392,42 @@ export const createCodexModelCatalog = () => {
   };
   let models = fallback;
   let metadataByModel = new Map<string, CodexModelMetadata>();
+  let accountObserved = false;
+  let observedAccountId: string | undefined;
+  let catalogAccountId: string | undefined;
 
   const refreshModels = async (context: RefreshModelsContext) => {
     const { stored } = context;
     // Stored projections omit private request metadata; skip offline restore.
-    if (!context.allowNetwork || context.signal.aborted) {
+    if (context.signal.aborted) {
+      return;
+    }
+    const apiKey = await credentialApiKey(context.credential, base);
+    if (context.signal.aborted) {
+      return;
+    }
+    const accountId =
+      apiKey === undefined || apiKey.length === 0
+        ? undefined
+        : extractAccountId(apiKey);
+    if (!accountObserved) {
+      accountObserved = true;
+      observedAccountId = accountId;
+    } else if (accountId !== observedAccountId) {
+      observedAccountId = accountId;
+      onAccountChanged?.();
+    }
+    if (!context.allowNetwork || apiKey === undefined || apiKey.length === 0) {
       return;
     }
     const now = Date.now();
     if (
       context.force !== true &&
+      catalogAccountId === accountId &&
       metadataByModel.size > 0 &&
       stored?.checkedAt !== undefined &&
       now - stored.checkedAt < MODEL_CACHE_TTL_MS
     ) {
-      return;
-    }
-    const apiKey = await credentialApiKey(context.credential, base);
-    if (apiKey === undefined || apiKey.length === 0) {
       return;
     }
     const [authModel] = fallback;
@@ -418,6 +436,7 @@ export const createCodexModelCatalog = () => {
     }
     const headers = createCodexHeaders(authModel, apiKey, uuidv7());
     if (
+      catalogAccountId === accountId &&
       metadataByModel.size > 0 &&
       stored?.etag !== undefined &&
       stored.etag.length > 0
@@ -473,6 +492,7 @@ export const createCodexModelCatalog = () => {
         models: nextModels,
       },
       update: () => {
+        catalogAccountId = accountId;
         metadataByModel = nextMetadata;
         models = nextModels;
       },

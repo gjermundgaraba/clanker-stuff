@@ -4,17 +4,25 @@ import type {
   AssistantMessage,
   Context,
   Credential,
+  RefreshModelsContext,
 } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { CodeModeRuntime } from "../code-mode/tools.js";
+import { createCodexModelCatalog } from "../model-catalog.js";
 import { CodexObservability } from "../observability.js";
 import {
   createCodexProviderRuntime as createProviderRuntime,
   isCodexCompactionCurrentModelFallbackError,
 } from "../provider.js";
-import { responseEvents, SPIKE_API_KEY, SPIKE_MODEL, sse } from "./fixtures.js";
+import {
+  makeCodexApiKey,
+  responseEvents,
+  SPIKE_API_KEY,
+  SPIKE_MODEL,
+  sse,
+} from "./fixtures.js";
 
 const defaultObservability = new CodexObservability(":memory:");
 const createCodexProviderRuntime = (
@@ -681,17 +689,62 @@ describe("Codex provider", () => {
     observability.close();
   });
 
+  it("bypasses the model cache when the Codex account changes", async () => {
+    let stored: RefreshModelsContext["stored"];
+    const publish: RefreshModelsContext["publish"] = async (publication) => {
+      stored = publication.persist ?? undefined;
+      publication.update?.();
+      return true;
+    };
+    const accountChanged = vi.fn<() => void>();
+    const catalog = createCodexModelCatalog(accountChanged);
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      async (input: string | URL | Request, init?: RequestInit) => {
+        requests.push(new Request(input, init));
+        return Response.json(
+          {
+            models: [
+              {
+                display_name: "Remote Codex",
+                priority: 1,
+                slug: "gpt-5.6-remote",
+                support_verbosity: true,
+                supported_in_api: true,
+                supports_parallel_tool_calls: true,
+                visibility: "list",
+              },
+            ],
+          },
+          { headers: { etag: '"catalog-1"' } }
+        );
+      }
+    );
+    const refresh = async (key: string, allowNetwork = true) =>
+      catalog.refreshModels({
+        allowNetwork,
+        credential: { key, type: "api_key" },
+        publish,
+        signal: new AbortController().signal,
+        stored,
+      });
+
+    await refresh(SPIKE_API_KEY);
+    await refresh(makeCodexApiKey("phase-one-account"));
+
+    expect(accountChanged).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.headers.get("chatgpt-account-id")).toBe(
+      "phase-one-account"
+    );
+    expect(requests[1]?.headers.has("if-none-match")).toBeFalsy();
+  });
+
   it("refreshes full model metadata and restores the projected catalog offline", async () => {
-    type RefreshContext = Parameters<
-      NonNullable<
-        ReturnType<
-          typeof createCodexProviderRuntime
-        >["provider"]["refreshModels"]
-      >
-    >[0];
-    type StoreEntry = NonNullable<RefreshContext["stored"]>;
+    type StoreEntry = NonNullable<RefreshModelsContext["stored"]>;
     let stored: StoreEntry | undefined;
-    const publish: RefreshContext["publish"] = async (publication) => {
+    const publish: RefreshModelsContext["publish"] = async (publication) => {
       if (publication.persist === null) {
         stored = undefined;
       } else if (publication.persist !== undefined) {

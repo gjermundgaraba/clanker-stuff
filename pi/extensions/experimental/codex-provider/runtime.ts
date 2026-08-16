@@ -32,7 +32,9 @@ export const createCodexRuntime = (
   setFastFooterActive: (active: boolean) => void
 ) => {
   const storage = getExtensionStoragePaths("codex-provider");
-  const catalog = createCodexModelCatalog();
+  const catalog = createCodexModelCatalog(() => {
+    pi.events.emit("clanker-codex:account-changed", null);
+  });
   const fastMode = createFastModeState(
     pi,
     createFastModeConfigStore(storage.configFile),

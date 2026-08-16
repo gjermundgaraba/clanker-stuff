@@ -50,13 +50,14 @@ export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
 const jwtPart = (value: unknown) =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
-export const SPIKE_API_KEY = `${jwtPart({ alg: "none", typ: "JWT" })}.${jwtPart(
-  {
+export const makeCodexApiKey = (accountId: string): string =>
+  `${jwtPart({ alg: "none", typ: "JWT" })}.${jwtPart({
     "https://api.openai.com/auth": {
-      chatgpt_account_id: "phase-zero-account",
+      chatgpt_account_id: accountId,
     },
-  }
-)}.signature`;
+  })}.signature`;
+
+export const SPIKE_API_KEY = makeCodexApiKey("phase-zero-account");
 
 export const SPIKE_MODEL = {
   api: "openai-codex-responses",
