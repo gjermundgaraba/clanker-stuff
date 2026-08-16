@@ -10,7 +10,6 @@ import {
   allQuestionsComplete,
   answerEntryToText,
   buildAnswerEntry,
-  isOptionSelected,
   isOtherOption,
   isQuestionComplete,
   missingQuestionHeaders,
@@ -19,29 +18,21 @@ import type { Question, QuestionSession, QuestionState } from "../questions.js";
 import { formatKeyLabel } from "./input.js";
 import type { HelpText } from "./input.js";
 
-export type EditMode =
-  | { kind: "none" }
-  | {
-      kind: "option_text";
-      questionIndex: number;
-      optionIndex: number;
-    }
-  | {
-      kind: "free_text";
-      questionIndex: number;
-    };
+export interface EditTarget {
+  optionIndex: number;
+  questionIndex: number;
+}
 
 export interface PromptView {
   activeEditor?: Editor;
   currentTab: number;
-  editMode: EditMode;
+  editTarget?: EditTarget;
   helpText: HelpText;
   hint: string;
   sessions: QuestionSession[];
   theme: Theme;
 }
 
-const MAX_FREE_TEXT_PREVIEW_LINES = 4;
 const MAX_OPTION_TEXT_PREVIEW_LINES = 3;
 
 const ANSI_RESET_BEFORE_ELLIPSIS = "\u001B[0m…";
@@ -109,37 +100,9 @@ const pushPreviewLines = (
   }
 };
 
-const renderFreeTextBody = (
-  view: PromptView,
-  state: QuestionState,
-  width: number,
-  lines: string[],
-  add: (line: string) => void
-) => {
-  const { helpText, theme } = view;
-  if (typeof state.freeText === "string" && state.freeText !== "") {
-    const wrappedPreview = wrapWithPrefix(
-      "Current answer: ",
-      state.freeText,
-      width
-    );
-    pushPreviewLines(
-      theme,
-      lines,
-      add,
-      wrappedPreview,
-      MAX_FREE_TEXT_PREVIEW_LINES,
-      "… "
-    );
-  } else {
-    add(theme.fg("muted", "Current answer: (not set)"));
-  }
-  add(theme.fg("dim", `Press ${helpText.confirm} to edit`));
-};
-
 const renderOptionRow = (
   view: PromptView,
-  question: Exclude<Question, { type: "free_text" }>,
+  question: Question,
   state: QuestionState,
   index: number,
   width: number,
@@ -150,13 +113,13 @@ const renderOptionRow = (
   const { helpText, theme } = view;
   const option = question.options[index];
   const highlighted = index === state.cursor;
-  const selected = isOptionSelected(question, state, index);
+  const selected = state.selectedIndexes.has(index);
   const prefix = highlighted ? "> " : "  ";
   let marker: string;
-  if (question.type === "single_select") {
-    marker = selected ? "(●)" : "( )";
-  } else {
+  if (question.multiSelect) {
     marker = selected ? "[x]" : "[ ]";
+  } else {
+    marker = selected ? "(●)" : "( )";
   }
   let color: "accent" | "success" | "text";
   if (highlighted) {
@@ -191,10 +154,9 @@ const renderOptionRow = (
     }
 
     if (highlighted) {
-      const multiHint =
-        question.type === "multi_select"
-          ? ` (${formatKeyLabel("space")} toggles)`
-          : "";
+      const multiHint = question.multiSelect
+        ? ` (${formatKeyLabel("space")} toggles)`
+        : "";
       add(theme.fg("dim", `    Press ${helpText.confirm} to edit${multiHint}`));
     }
     return;
@@ -203,22 +165,6 @@ const renderOptionRow = (
   if (selected && typeof optionText === "string" && optionText !== "") {
     addWrapped("    note: ", optionText);
   }
-};
-
-const highlightedOptionDetails = (
-  session: QuestionSession
-): string | undefined => {
-  const { question, state } = session;
-  if (question.type === "free_text") {
-    return undefined;
-  }
-
-  const option = question.options[state.cursor];
-  if (option === undefined || isOtherOption(option)) {
-    return undefined;
-  }
-
-  return option.details;
 };
 
 const renderQuestionPanel = (
@@ -244,11 +190,6 @@ const renderQuestionPanel = (
   }
   lines.push("");
 
-  if (question.type === "free_text") {
-    renderFreeTextBody(view, state, width, lines, add);
-    return lines;
-  }
-
   for (let index = 0; index < question.options.length; index += 1) {
     renderOptionRow(
       view,
@@ -262,7 +203,7 @@ const renderQuestionPanel = (
     );
   }
 
-  const details = highlightedOptionDetails(sessions[questionIndex]);
+  const details = question.options[state.cursor]?.details;
   if (typeof details === "string" && details !== "") {
     lines.push("");
     add(theme.bold("Details"));
@@ -346,29 +287,9 @@ const renderTabBar = (
   }
 };
 
-const describeEditTarget = (view: PromptView): string => {
-  const { editMode, sessions } = view;
-  if (editMode.kind === "none") {
-    return "";
-  }
-
-  const { question } = sessions[editMode.questionIndex];
-  if (editMode.kind === "free_text") {
-    return `Editing answer for: ${question.header}`;
-  }
-
-  if (question.type === "free_text") {
-    return `Editing answer for: ${question.header}`;
-  }
-  const option = question.options[editMode.optionIndex];
-  return isOtherOption(option)
-    ? `Editing Other answer for: ${question.header}`
-    : `Editing note for: ${option.label}`;
-};
-
 const renderFooterHelp = (view: PromptView, add: (line: string) => void) => {
-  const { currentTab, editMode, helpText, sessions, theme } = view;
-  if (editMode.kind !== "none") {
+  const { currentTab, editTarget, helpText, sessions, theme } = view;
+  if (editTarget !== undefined) {
     add(theme.fg("dim", helpText.editor));
     return;
   }
@@ -380,22 +301,18 @@ const renderFooterHelp = (view: PromptView, add: (line: string) => void) => {
   }
 
   const { question, state } = sessions[currentTab];
-  const otherFocused =
-    question.type !== "free_text" &&
-    isOtherOption(question.options[state.cursor]);
-  if (question.type === "single_select") {
-    add(theme.fg("dim", otherFocused ? helpText.singleOther : helpText.single));
-    return;
+  const otherFocused = isOtherOption(question.options[state.cursor]);
+  let footer: string;
+  if (question.multiSelect) {
+    footer = otherFocused ? helpText.multiOther : helpText.multi;
+  } else {
+    footer = otherFocused ? helpText.singleOther : helpText.single;
   }
-  if (question.type === "multi_select") {
-    add(theme.fg("dim", otherFocused ? helpText.multiOther : helpText.multi));
-    return;
-  }
-  add(theme.fg("dim", helpText.freeText));
+  add(theme.fg("dim", footer));
 };
 
 export const renderPrompt = (view: PromptView, width: number): string[] => {
-  const { activeEditor, currentTab, editMode, hint, sessions, theme } = view;
+  const { activeEditor, currentTab, editTarget, hint, sessions, theme } = view;
   const maxWidth = Math.max(1, width);
   const lines: string[] = [];
   const add = (line: string) => {
@@ -414,9 +331,14 @@ export const renderPrompt = (view: PromptView, width: number): string[] => {
     lines.push(line);
   }
 
-  if (editMode.kind !== "none") {
+  if (editTarget !== undefined) {
     lines.push("");
-    add(view.theme.fg("muted", describeEditTarget(view)));
+    const { question } = sessions[editTarget.questionIndex];
+    const option = question.options[editTarget.optionIndex];
+    const label = isOtherOption(option)
+      ? `Editing Other answer for: ${question.header}`
+      : `Editing note for: ${option.label}`;
+    add(view.theme.fg("muted", label));
     if (activeEditor !== undefined) {
       for (const editorLine of activeEditor.render(maxWidth)) {
         lines.push(editorLine);

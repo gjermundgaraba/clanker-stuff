@@ -1,6 +1,6 @@
 # ask-question
 
-Lets pi ask multiple-choice or free-text questions before continuing.
+Lets pi ask multiple-choice clarification questions before continuing.
 
 ## Install
 

@@ -23,7 +23,6 @@ const singleQuestionParams = {
       header: "Plan",
       options: [{ label: "Yes" }, { label: "No" }],
       question: "Which plan do you want?",
-      type: "single_select" as const,
     },
   ],
 };
@@ -46,9 +45,9 @@ describe("ask-question dialog rendering", () => {
         questions: [
           {
             header: "Features",
+            multiSelect: true,
             options: [{ label: "Feature A" }, { label: "Feature B" }],
             question: "Which features do you need?",
-            type: "multi_select" as const,
           },
         ],
       },
@@ -73,7 +72,6 @@ describe("ask-question dialog rendering", () => {
             { label: "Safe" },
           ],
           question: "Which plan do you want?",
-          type: "single_select" as const,
         },
       ],
     };
@@ -122,9 +120,9 @@ describe("ask-question dialog rendering", () => {
         questions: [
           {
             header: "Features",
+            multiSelect: true,
             options: [{ label: "Feature A" }, { label: "Feature B" }],
             question: "Which features do you need?",
-            type: "multi_select" as const,
           },
         ],
       },
@@ -146,6 +144,7 @@ describe("ask-question dialog rendering", () => {
     } as Theme;
     const question: Question = {
       header: "Plan",
+      multiSelect: false,
       options: [
         {
           details: "First line\nSecond line",
@@ -155,13 +154,11 @@ describe("ask-question dialog rendering", () => {
         { kind: "other", label: "Other" },
       ],
       question: "Which plan do you want?",
-      type: "single_select",
     };
 
     const rendered = renderPrompt(
       {
         currentTab: 0,
-        editMode: { kind: "none" },
         helpText: createHelpText(createKeybindings()),
         hint: "",
         sessions: createQuestionSessions([question]),
@@ -180,19 +177,18 @@ describe("ask-question dialog rendering", () => {
     const questions: Question[] = ["One", "Two", "Three", "Four", "Five"].map(
       (header) => ({
         header,
+        multiSelect: false,
         options: [
           { kind: "option", label: "Yes" },
           { kind: "other", label: "Other" },
         ],
         question: `${header}?`,
-        type: "single_select",
       })
     );
     const sessions = createQuestionSessions(questions);
     const rendered = renderPrompt(
       {
         currentTab: sessions.length,
-        editMode: { kind: "none" },
         helpText: createHelpText(createKeybindings()),
         hint: "",
         sessions,
@@ -209,20 +205,24 @@ describe("ask-question dialog rendering", () => {
   it("bounds lines when a prefix is wider than the viewport", () => {
     const question: Question = {
       header: "Notes",
+      multiSelect: true,
+      options: [
+        { kind: "option", label: "A" },
+        { kind: "other", label: "Other" },
+      ],
       question: "Anything else?",
-      type: "free_text",
     };
     const sessions = createQuestionSessions([question]);
     const [session] = sessions;
     if (!session) {
       throw new Error("expected question session");
     }
-    session.state.freeText = "answer";
+    session.state.selectedIndexes.add(1);
+    session.state.textByOptionIndex[1] = "answer";
 
     const rendered = renderPrompt(
       {
         currentTab: 0,
-        editMode: { kind: "none" },
         helpText: createHelpText(createKeybindings()),
         hint: "",
         sessions,

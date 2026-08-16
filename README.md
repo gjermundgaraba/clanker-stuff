@@ -6,7 +6,7 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex.
 
 | Extension | Description |
 | --- | --- |
-| [`@clanker-stuff/ask-question`](pi/extensions/ask-question) | Lets pi ask multiple-choice or free-text questions before continuing. |
+| [`@clanker-stuff/ask-question`](pi/extensions/ask-question) | Lets pi ask multiple-choice clarification questions before continuing. |
 | [`@clanker-stuff/codex-reverse-i-search`](pi/extensions/codex-reverse-i-search) | Adds Codex-style Ctrl+R reverse history search to pi's prompt editor. |
 | [`@clanker-stuff/codex-skills`](pi/extensions/codex-skills) | Injects complete SKILL.md instructions when prompts explicitly mention $skill-name. |
 | [`@clanker-stuff/footer`](pi/extensions/footer) | Hosts a configurable cooperative footer for built-in, native, and rich extension widgets. |

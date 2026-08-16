@@ -24,7 +24,6 @@ const singleQuestionParams = {
       header: "Plan",
       options: [{ label: "Yes" }, { label: "No" }],
       question: "Which plan do you want?",
-      type: "single_select" as const,
     },
   ],
 };
@@ -32,13 +31,14 @@ const singleQuestionParams = {
 const questionSchema = AskQuestionParametersSchema.properties.questions.items;
 
 describe("ask-question contract", () => {
-  it("emits one Google-safe string enum for every question type", () => {
-    expect(questionSchema.properties.type).toMatchObject({
+  it("emits a Google-safe schema with optional multiSelect boolean", () => {
+    expect(questionSchema.properties.multiSelect).toMatchObject({
       description:
-        "Question type. Prefer single_select or multi_select; use free_text only when multiple options doesn't make sense.",
-      enum: ["free_text", "single_select", "multi_select"],
-      type: "string",
+        "Allow choosing several options. Defaults to one choice per question.",
+      type: "boolean",
     });
+    expect(questionSchema.required).toContain("options");
+    expect(questionSchema.required).not.toContain("multiSelect");
     expect(JSON.stringify(AskQuestionParametersSchema)).not.toMatch(
       /anyOf|oneOf|const/u
     );
@@ -57,21 +57,16 @@ describe("ask-question contract", () => {
     expect(questionSchema).toHaveProperty("additionalProperties", false);
   });
 
-  it.each([
-    {
-      header: "Plan",
-      question: "Which plan do you want?",
-      type: "single_select",
-    },
-    {
-      header: "Notes",
-      options: [{ label: "Unexpected" }],
-      question: "Anything else?",
-      type: "free_text",
-    },
-  ])("rejects options that do not match the question type", (question) => {
+  it("rejects questions without options", () => {
     expect(() =>
-      parseQuestionsFromParameters({ questions: [question] })
+      parseQuestionsFromParameters({
+        questions: [
+          {
+            header: "Plan",
+            question: "Which plan do you want?",
+          },
+        ],
+      })
     ).toThrow("Invalid ask_question input");
   });
 
@@ -83,7 +78,6 @@ describe("ask-question contract", () => {
             header: "Plan",
             options: [{ label: "Alpha" }, { label: "Alpha" }],
             question: "Choose one",
-            type: "single_select",
           },
         ],
       })
@@ -112,45 +106,11 @@ describe("ask-question contract", () => {
             header: "Plan",
             options: labels.map((label) => ({ label })),
             question: "Choose one",
-            type: "single_select",
           },
         ],
       })
     ).toThrow(message);
   });
-
-  it.each([
-    {
-      firstLabel: "Alpha",
-      header: "Plan",
-      question: "Choose one",
-      type: "single_select",
-    },
-    {
-      firstLabel: "Feature A",
-      header: "Features",
-      question: "Choose any",
-      type: "multi_select",
-    },
-  ] as const)(
-    "rejects explicit Other for $type questions",
-    ({ type, header, question, firstLabel }) => {
-      expect(() =>
-        parseQuestionsFromParameters({
-          questions: [
-            {
-              header,
-              options: [{ label: firstLabel }, { label: "Other" }],
-              question,
-              type,
-            },
-          ],
-        })
-      ).toThrow(
-        "Do not include an 'Other' option; the UI provides it automatically"
-      );
-    }
-  );
 
   it("trims labels and reserves only the exact Other label", () => {
     expect(
@@ -167,13 +127,13 @@ describe("ask-question contract", () => {
             ],
             placeholder: "Pick one",
             question: "Which plan do you want?",
-            type: "single_select",
           },
         ],
       })
     ).toStrictEqual([
       {
         header: "Plan",
+        multiSelect: false,
         options: [
           {
             details: "Best default for most teams.",
@@ -192,7 +152,6 @@ describe("ask-question contract", () => {
         ],
         placeholder: "Pick one",
         question: "Which plan do you want?",
-        type: "single_select",
       },
     ]);
   });
@@ -203,8 +162,8 @@ describe("ask-question contract", () => {
         questions: [
           {
             header: "\u001B]52;c;secret\u0007",
+            options: [{ label: "Yes" }],
             question: "   ",
-            type: "free_text",
           },
         ],
       })
@@ -215,8 +174,8 @@ describe("ask-question contract", () => {
         questions: [
           {
             header: "Pl\u001B]52;c;secret\u0007an",
+            options: [{ label: "Yes" }],
             question: "Which\u009B plan?",
-            type: "free_text",
           },
         ],
       })
@@ -231,21 +190,20 @@ describe("ask-question contract", () => {
       questions: [
         {
           header: "Pl\ran",
+          multiSelect: true,
           options: [{ details: "Why\tthis", label: "Ye\ts" }],
           placeholder: "Pick\r\tone",
           question: "Line one\nLine\rtwo\t?",
-          type: "single_select",
         },
       ],
     });
     expect(sanitized).toMatchObject({
       header: "Plan",
+      multiSelect: true,
       placeholder: "Pickone",
       question: "Line one\nLinetwo?",
     });
-    const firstOption =
-      sanitized?.type === "single_select" ? sanitized.options[0] : undefined;
-    expect(firstOption).toMatchObject({
+    expect(sanitized?.options[0]).toMatchObject({
       details: "Whythis",
       label: "Yes",
     });
@@ -258,32 +216,28 @@ describe("ask-question contract", () => {
           header: "Plan",
           options: [{ label: "Alpha" }, { label: "Beta" }],
           question: "Which plan do you want?",
-          type: "single_select",
         },
         {
-          header: "Notes",
-          question: "Anything else to add?",
-          type: "free_text",
+          header: "Features",
+          multiSelect: true,
+          options: [{ label: "Feature A" }, { label: "Feature B" }],
+          question: "Which features do you need?",
         },
       ],
     });
 
     expect(
       buildSummaryContent(questions, [
-        {
-          answer: { label: "Alpha" },
-          type: "single_select",
-        },
-        {
-          answer: { text: "Need examples" },
-          type: "free_text",
-        },
+        [{ label: "Alpha" }],
+        [{ label: "Feature A" }, { label: "Feature B", note: "Need examples" }],
       ])
     ).toBe(
       [
         "User answered:",
         "- [Plan] Which plan do you want? -> Alpha",
-        "- [Notes] Anything else to add? -> Need examples",
+        "- [Features] Which features do you need? -> Feature A, Feature B",
+        "  notes:",
+        "  - Feature B: Need examples",
       ].join("\n")
     );
   });
@@ -293,17 +247,19 @@ describe("ask-question contract", () => {
       questions: [
         {
           header: "Notes",
+          options: [{ label: "Something specific" }],
           question: "Anything else?",
-          type: "free_text",
         },
       ],
     });
     const result = buildSuccessToolResult(question, {
       answers: [
-        {
-          answer: { text: "line\n".repeat(3000) },
-          type: "free_text",
-        },
+        [
+          {
+            label: "Other",
+            note: "line\n".repeat(3000),
+          },
+        ],
       ],
       cancelled: false,
     });
@@ -366,14 +322,7 @@ describe("ask-question execution", () => {
     ]);
 
     const details = expectSuccessResult(result);
-    expect(details.answers).toStrictEqual([
-      {
-        answer: {
-          label: "Yes",
-        },
-        type: "single_select",
-      },
-    ]);
+    expect(details.answers).toStrictEqual([[{ label: "Yes" }]]);
     expect(result.content[0]?.text).toContain("[Plan]");
     expect(result.content[0]?.text).toContain("Yes");
   });

@@ -178,7 +178,6 @@ export const createHelpText = (keybindings: AskQuestionKeybindings) => {
     cancel,
     confirm,
     editor: `Pi editor keybindings • ${editorSubmit} save • ${cancel} discard`,
-    freeText: `${confirm} edit answer`,
     globalTabs: `Tab/Shift+Tab or ←→ tabs • ${cancel} cancel questionnaire`,
     move,
     multi: `${move} move • Space toggle • ${confirm} confirm • n note`,

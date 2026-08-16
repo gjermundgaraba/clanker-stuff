@@ -17,7 +17,7 @@ import {
 } from "./input.js";
 import type { DecodedIntent } from "./input.js";
 import { renderPrompt } from "./render.js";
-import type { EditMode, PromptView } from "./render.js";
+import type { EditTarget, PromptView } from "./render.js";
 
 export const MAX_ANSWER_BYTES = 1000;
 export const MAX_ANSWER_LINES = 50;
@@ -67,7 +67,7 @@ export const runAskQuestionPrompt = async (
       const helpText = createHelpText(keybindings);
       let currentTab = 0;
       let hint = "";
-      let editMode: EditMode = { kind: "none" };
+      let editTarget: EditTarget | undefined;
       let activeEditor: Editor | undefined;
       let surfaceFocused = false;
       let finished = false;
@@ -83,7 +83,7 @@ export const runAskQuestionPrompt = async (
           activeEditor.focused = false;
         }
         activeEditor = undefined;
-        editMode = { kind: "none" };
+        editTarget = undefined;
         surfaceFocused = false;
         done(result);
       };
@@ -105,9 +105,6 @@ export const runAskQuestionPrompt = async (
 
       const moveCursor = (questionIndex: number, delta: number) => {
         const { question, state } = questionSessions[questionIndex];
-        if (question.type === "free_text") {
-          return;
-        }
         state.cursor = Math.max(
           0,
           Math.min(question.options.length - 1, state.cursor + delta)
@@ -135,39 +132,7 @@ export const runAskQuestionPrompt = async (
           activeEditor.focused = false;
         }
         activeEditor = undefined;
-        editMode = { kind: "none" };
-        tui.requestRender();
-      };
-
-      const handleEditorSave = (value: string) => {
-        if (editMode.kind === "none") {
-          return;
-        }
-
-        const bounded = boundAnswerText(value);
-        const { state } = questionSessions[editMode.questionIndex];
-
-        if (editMode.kind === "option_text") {
-          state.textByOptionIndex[editMode.optionIndex] =
-            bounded.length === 0 ? undefined : bounded;
-          closeEditor();
-          return;
-        }
-
-        state.freeText = bounded;
-        closeEditor();
-      };
-
-      const openEditor = (
-        mode: Exclude<EditMode, { kind: "none" }>,
-        initialText: string
-      ) => {
-        editMode = mode;
-        hint = "";
-        activeEditor = createInlineEditor(tui, theme);
-        activeEditor.focused = surfaceFocused;
-        activeEditor.setText(boundAnswerText(initialText));
-        activeEditor.onSubmit = handleEditorSave;
+        editTarget = undefined;
         tui.requestRender();
       };
 
@@ -175,47 +140,43 @@ export const runAskQuestionPrompt = async (
         questionIndex: number,
         optionIndex: number
       ) => {
+        editTarget = {
+          optionIndex,
+          questionIndex,
+        };
+        hint = "";
         const { state } = questionSessions[questionIndex];
-        openEditor(
-          {
-            kind: "option_text",
-            optionIndex,
-            questionIndex,
-          },
-          state.textByOptionIndex[optionIndex] ?? ""
+        activeEditor = createInlineEditor(tui, theme);
+        activeEditor.focused = surfaceFocused;
+        activeEditor.setText(
+          boundAnswerText(state.textByOptionIndex[optionIndex] ?? "")
         );
+        activeEditor.onSubmit = (value: string) => {
+          const bounded = boundAnswerText(value);
+          state.textByOptionIndex[optionIndex] =
+            bounded.length === 0 ? undefined : bounded;
+          closeEditor();
+        };
+        tui.requestRender();
       };
 
       const openNoteEditorForCurrentSelection = (questionIndex: number) => {
         const { question, state } = questionSessions[questionIndex];
+        const optionIndex = question.multiSelect
+          ? state.cursor
+          : [...state.selectedIndexes][0];
 
-        if (question.type === "free_text") {
-          setHint("Notes are not available for free-text questions");
+        if (optionIndex === undefined) {
+          setHint("Select an option first, then press n to add/edit note");
           return;
         }
 
-        if (question.type === "single_select") {
-          if (typeof state.selectedIndex !== "number") {
-            setHint("Select an option first, then press n to add/edit note");
-            return;
-          }
-
-          if (isOtherOption(question.options[state.selectedIndex])) {
-            setHint("Use the Other field itself instead of a note");
-            return;
-          }
-
-          openOptionTextEditor(questionIndex, state.selectedIndex);
-          return;
-        }
-
-        const optionIndex = state.cursor;
         if (isOtherOption(question.options[optionIndex])) {
           setHint("Use the Other field itself instead of a note");
           return;
         }
 
-        if (!state.selectedIndexes.has(optionIndex)) {
+        if (question.multiSelect && !state.selectedIndexes.has(optionIndex)) {
           setHint("Select the highlighted option before adding a note");
           return;
         }
@@ -230,7 +191,7 @@ export const runAskQuestionPrompt = async (
           return;
         }
 
-        if (editMode.kind === "none" || !activeEditor) {
+        if (editTarget === undefined || !activeEditor) {
           return;
         }
 
@@ -257,95 +218,59 @@ export const runAskQuestionPrompt = async (
       ) => {
         const { state } = questionSessions[questionIndex];
 
-        if (question.type !== "free_text") {
-          if (intent.type === "up") {
-            moveCursor(questionIndex, -1);
-            return;
-          }
-          if (intent.type === "down") {
-            moveCursor(questionIndex, 1);
-            return;
-          }
-        }
-
-        if (question.type === "single_select") {
-          if (intent.type === "confirm") {
-            const option = question.options[state.cursor];
-
-            state.selectedIndex = state.cursor;
-            hint = "";
-            tui.requestRender();
-
-            if (isOtherOption(option)) {
-              openOptionTextEditor(questionIndex, state.cursor);
-            }
-            return;
-          }
-
-          if (isSingleCharShortcut(intent, "n")) {
-            openNoteEditorForCurrentSelection(questionIndex);
-          }
+        if (intent.type === "up") {
+          moveCursor(questionIndex, -1);
           return;
         }
-
-        if (question.type === "multi_select") {
-          if (intent.type === "space") {
-            const option = question.options[state.cursor];
-
-            if (state.selectedIndexes.has(state.cursor)) {
-              state.selectedIndexes.delete(state.cursor);
-            } else {
-              state.selectedIndexes.add(state.cursor);
-              if (isOtherOption(option)) {
-                hint = "";
-                tui.requestRender();
-                openOptionTextEditor(questionIndex, state.cursor);
-                return;
-              }
-            }
-
-            hint = "";
-            tui.requestRender();
-            return;
-          }
-
-          if (intent.type === "confirm") {
-            const option = question.options[state.cursor];
-            if (isOtherOption(option)) {
-              state.selectedIndexes.add(state.cursor);
-              hint = "";
-              tui.requestRender();
-              openOptionTextEditor(questionIndex, state.cursor);
-              return;
-            }
-
-            if (!isQuestionComplete(question, state)) {
-              setHint("This question is incomplete");
-              return;
-            }
-            moveTab(1);
-            return;
-          }
-
-          if (isSingleCharShortcut(intent, "n")) {
-            openNoteEditorForCurrentSelection(questionIndex);
-          }
+        if (intent.type === "down") {
+          moveCursor(questionIndex, 1);
           return;
         }
 
         if (intent.type === "confirm") {
-          openEditor(
-            {
-              kind: "free_text",
-              questionIndex,
-            },
-            state.freeText ?? ""
-          );
+          const option = question.options[state.cursor];
+
+          if (!question.multiSelect) {
+            state.selectedIndexes = new Set([state.cursor]);
+            setHint("");
+            if (isOtherOption(option)) {
+              openOptionTextEditor(questionIndex, state.cursor);
+            }
+            return;
+          }
+
+          if (isOtherOption(option)) {
+            state.selectedIndexes.add(state.cursor);
+            openOptionTextEditor(questionIndex, state.cursor);
+            return;
+          }
+
+          if (!isQuestionComplete(question, state)) {
+            setHint("This question is incomplete");
+            return;
+          }
+          moveTab(1);
+          return;
+        }
+
+        if (question.multiSelect && intent.type === "space") {
+          const option = question.options[state.cursor];
+
+          if (state.selectedIndexes.delete(state.cursor)) {
+            setHint("");
+            return;
+          }
+
+          state.selectedIndexes.add(state.cursor);
+          setHint("");
+          if (isOtherOption(option)) {
+            openOptionTextEditor(questionIndex, state.cursor);
+          }
           return;
         }
 
         if (isSingleCharShortcut(intent, "n")) {
-          setHint("Notes are not available for free-text questions");
+          openNoteEditorForCurrentSelection(questionIndex);
         }
       };
 
@@ -387,7 +312,7 @@ export const runAskQuestionPrompt = async (
           return;
         }
 
-        if (editMode.kind !== "none") {
+        if (editTarget !== undefined) {
           handleEditorInput(data);
           return;
         }
@@ -413,7 +338,7 @@ export const runAskQuestionPrompt = async (
       const currentView = (): PromptView => ({
         activeEditor,
         currentTab,
-        editMode,
+        editTarget,
         helpText,
         hint,
         sessions: questionSessions,

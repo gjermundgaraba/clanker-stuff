@@ -1,11 +1,9 @@
-import { StringEnum } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import type {
@@ -24,9 +22,6 @@ const MAX_HEADER = 64;
 const MAX_QUESTION = 1000;
 const MAX_OPTION_LABEL = 256;
 const MAX_OPTION_DETAILS = 2000;
-
-const QUESTION_TYPE_DESCRIPTION =
-  "Question type. Prefer single_select or multi_select; use free_text only when multiple options doesn't make sense.";
 
 const AskQuestionOptionSchema = Type.Object(
   {
@@ -47,37 +42,35 @@ const AskQuestionOptionSchema = Type.Object(
   { additionalProperties: false }
 );
 
-const AskQuestionBaseQuestionProperties = {
-  header: Type.String({
-    description: "Short tab header",
-    maxLength: MAX_HEADER,
-    minLength: 1,
-  }),
-  placeholder: Type.Optional(
-    Type.String({
-      description: "Optional placeholder/helper text",
-      maxLength: MAX_PLACEHOLDER,
-    })
-  ),
-  question: Type.String({
-    description: "Full question prompt",
-    maxLength: MAX_QUESTION,
-    minLength: 1,
-  }),
-};
-
 const AskQuestionQuestionSchema = Type.Object(
   {
-    ...AskQuestionBaseQuestionProperties,
-    options: Type.Optional(
-      Type.Array(AskQuestionOptionSchema, {
-        description: "Options for single_select and multi_select questions.",
-        maxItems: MAX_OPTIONS,
-        minItems: MIN_OPTIONS,
+    header: Type.String({
+      description: "Short tab header",
+      maxLength: MAX_HEADER,
+      minLength: 1,
+    }),
+    multiSelect: Type.Optional(
+      Type.Boolean({
+        description:
+          "Allow choosing several options. Defaults to one choice per question.",
       })
     ),
-    type: StringEnum(["free_text", "single_select", "multi_select"] as const, {
-      description: QUESTION_TYPE_DESCRIPTION,
+    options: Type.Array(AskQuestionOptionSchema, {
+      description:
+        "Answer options. Do not include an 'Other' option; the UI appends a free-text Other automatically.",
+      maxItems: MAX_OPTIONS,
+      minItems: MIN_OPTIONS,
+    }),
+    placeholder: Type.Optional(
+      Type.String({
+        description: "Optional placeholder/helper text",
+        maxLength: MAX_PLACEHOLDER,
+      })
+    ),
+    question: Type.String({
+      description: "Full question prompt",
+      maxLength: MAX_QUESTION,
+      minLength: 1,
     }),
   },
   { additionalProperties: false }
@@ -93,8 +86,6 @@ export const AskQuestionParametersSchema = Type.Object(
   },
   { additionalProperties: false }
 );
-
-export type AskQuestionParameters = Static<typeof AskQuestionParametersSchema>;
 
 export interface AskQuestionSuccessDetails {
   cancelled: false;
@@ -134,22 +125,6 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
       throw new Error("Question headers and prompts must not be blank");
     }
 
-    if (questionValue.type === "free_text") {
-      if (questionValue.options !== undefined) {
-        throw new Error("Invalid ask_question input");
-      }
-      questions.push({
-        header,
-        placeholder,
-        question,
-        type: questionValue.type,
-      });
-      continue;
-    }
-    if (questionValue.options === undefined) {
-      throw new Error("Invalid ask_question input");
-    }
-
     const seenOptionLabels = new Set<string>();
     const options: QuestionOption[] = questionValue.options.map(
       (optionValue) => {
@@ -185,10 +160,10 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
 
     questions.push({
       header,
+      multiSelect: questionValue.multiSelect ?? false,
       options,
       placeholder,
       question,
-      type: questionValue.type,
     });
   }
 
@@ -202,38 +177,19 @@ export const buildSummaryContent = (
   const lines: string[] = ["User answered:"];
 
   for (const [index, question] of questions.entries()) {
-    const entry = answers[index];
-
-    if (entry.type === "single_select") {
-      lines.push(
-        `- [${question.header}] ${question.question} -> ${entry.answer.label}`
-      );
-      if (typeof entry.answer.note === "string" && entry.answer.note !== "") {
-        lines.push(`  note: ${entry.answer.note}`);
-      }
-      continue;
-    }
-
-    if (entry.type === "multi_select") {
-      lines.push(
-        `- [${question.header}] ${question.question} -> ${entry.answer.map((selection) => selection.label).join(", ")}`
-      );
-      const notedSelections = entry.answer.filter(
-        (selection) =>
-          typeof selection.note === "string" && selection.note !== ""
-      );
-      if (notedSelections.length > 0) {
-        lines.push("  notes:");
-        for (const selection of notedSelections) {
-          lines.push(`  - ${selection.label}: ${selection.note}`);
-        }
-      }
-      continue;
-    }
-
+    const answer = answers[index];
     lines.push(
-      `- [${question.header}] ${question.question} -> ${entry.answer.text}`
+      `- [${question.header}] ${question.question} -> ${answer
+        .map((selection) => selection.label)
+        .join(", ")}`
     );
+    const notedSelections = answer.filter(({ note }) => note);
+    if (notedSelections.length > 0) {
+      lines.push("  notes:");
+      for (const selection of notedSelections) {
+        lines.push(`  - ${selection.label}: ${selection.note}`);
+      }
+    }
   }
 
   return lines.join("\n");

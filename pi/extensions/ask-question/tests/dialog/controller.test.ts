@@ -24,29 +24,22 @@ const singleQuestionParams = {
       header: "Plan",
       options: [{ label: "Yes" }, { label: "No" }],
       question: "Which plan do you want?",
-      type: "single_select" as const,
     },
   ],
 };
 
-const allQuestionTypesParams = {
+const mixedQuestionParams = {
   questions: [
     {
       header: "Plan",
       options: [{ label: "Alpha" }, { label: "Beta" }],
       question: "Which plan do you want?",
-      type: "single_select" as const,
     },
     {
       header: "Features",
+      multiSelect: true,
       options: [{ label: "Feature A" }, { label: "Feature B" }],
       question: "Which features do you need?",
-      type: "multi_select" as const,
-    },
-    {
-      header: "Notes",
-      question: "Anything else to add?",
-      type: "free_text" as const,
     },
   ],
 };
@@ -69,64 +62,46 @@ describe("ask-question dialog controller", () => {
         questions: [
           {
             header: "Notes",
+            options: [{ label: "Something specific" }],
             question: "Anything else to add?",
-            type: "free_text" as const,
           },
         ],
       },
       {
+        customKeybindings: VIM_STYLE_KEYBINDINGS,
         customKeys: [
-          KEY_ENTER,
+          "j",
+          "y",
           "a".repeat(MAX_ANSWER_BYTES),
           "\u0002",
           "b",
           KEY_ENTER,
           KEY_TAB,
-          KEY_ENTER,
+          "y",
         ],
       }
     );
 
     const details = expectSuccessResult(result);
     expect(setText).toHaveBeenCalledOnce();
-    expect(details.answers[0]).toMatchObject({
-      answer: { text: `${"a".repeat(MAX_ANSWER_BYTES - 1)}b` },
-    });
+    expect(details.answers[0]).toStrictEqual([
+      {
+        label: "Other",
+        note: `${"a".repeat(MAX_ANSWER_BYTES - 1)}b`,
+      },
+    ]);
   });
 
-  it("supports all question types in one flow", async () => {
-    const { result } = await executeTool(allQuestionTypesParams, {
-      customKeys: [
-        KEY_ENTER,
-        KEY_TAB,
-        KEY_SPACE,
-        KEY_ENTER,
-        KEY_ENTER,
-        ..."Need examples and docs",
-        KEY_ENTER,
-        KEY_TAB,
-        KEY_ENTER,
-      ],
+  it("supports single-select and multi-select questions in one flow", async () => {
+    const { result } = await executeTool(mixedQuestionParams, {
+      customKeys: [KEY_ENTER, KEY_TAB, KEY_SPACE, KEY_ENTER, KEY_ENTER],
     });
 
     const details = expectSuccessResult(result);
-    expect(details.answers).toHaveLength(3);
-    expect(details.answers[0]).toMatchObject({
-      answer: {
-        label: "Alpha",
-      },
-      type: "single_select",
-    });
-    expect(details.answers[1]).toMatchObject({
-      answer: [{ label: "Feature A" }],
-      type: "multi_select",
-    });
-    expect(details.answers[2]).toMatchObject({
-      answer: {
-        text: "Need examples and docs",
-      },
-      type: "free_text",
-    });
+    expect(details.answers).toStrictEqual([
+      [{ label: "Alpha" }],
+      [{ label: "Feature A" }],
+    ]);
   });
 
   it("supports the implicit Other field for single-select questions", async () => {
@@ -144,13 +119,12 @@ describe("ask-question dialog controller", () => {
     });
 
     const details = expectSuccessResult(result);
-    expect(details.answers[0]).toMatchObject({
-      answer: {
+    expect(details.answers[0]).toStrictEqual([
+      {
         label: "Other",
         note: "Enterprise self-hosted",
       },
-      type: "single_select",
-    });
+    ]);
   });
 
   it("supports the implicit Other field alongside multi-select choices", async () => {
@@ -159,9 +133,9 @@ describe("ask-question dialog controller", () => {
         questions: [
           {
             header: "Features",
+            multiSelect: true,
             options: [{ label: "Feature A" }, { label: "Feature B" }],
             question: "Which features do you need?",
-            type: "multi_select" as const,
           },
         ],
       },
@@ -181,13 +155,10 @@ describe("ask-question dialog controller", () => {
     );
 
     const details = expectSuccessResult(result);
-    expect(details.answers[0]).toMatchObject({
-      answer: [
-        { label: "Feature A" },
-        { label: "Other", note: "Custom integration" },
-      ],
-      type: "multi_select",
-    });
+    expect(details.answers[0]).toStrictEqual([
+      { label: "Feature A" },
+      { label: "Other", note: "Custom integration" },
+    ]);
   });
 
   it("uses injected keybindings for confirm and vertical navigation", async () => {
@@ -197,12 +168,7 @@ describe("ask-question dialog controller", () => {
     });
 
     const details = expectSuccessResult(result);
-    expect(details.answers[0]).toMatchObject({
-      answer: {
-        label: "No",
-      },
-      type: "single_select",
-    });
+    expect(details.answers[0]).toStrictEqual([{ label: "No" }]);
   });
 
   it("clears row-specific hints after moving the cursor", async () => {
@@ -210,9 +176,9 @@ describe("ask-question dialog controller", () => {
       questions: [
         {
           header: "Features",
+          multiSelect: true,
           options: [{ label: "Feature A" }, { label: "Feature B" }],
           question: "Which features do you need?",
-          type: "multi_select" as const,
         },
       ],
     };
@@ -259,12 +225,11 @@ describe("ask-question dialog controller", () => {
     });
 
     const details = expectSuccessResult(result);
-    expect(details.answers[0]).toMatchObject({
-      answer: {
+    expect(details.answers[0]).toStrictEqual([
+      {
         label: "Yes",
         note: "Needs approval",
       },
-      type: "single_select",
-    });
+    ]);
   });
 });
