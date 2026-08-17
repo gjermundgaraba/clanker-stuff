@@ -183,7 +183,9 @@ export const buildSummaryContent = (
         .map((selection) => selection.label)
         .join(", ")}`
     );
-    const notedSelections = answer.filter(({ note }) => note);
+    const notedSelections = answer.filter(
+      ({ note }) => note !== undefined && note.length > 0
+    );
     if (notedSelections.length > 0) {
       lines.push("  notes:");
       for (const selection of notedSelections) {

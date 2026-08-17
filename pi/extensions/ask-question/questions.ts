@@ -74,7 +74,7 @@ export const buildAnswerEntry = (
     selectedIndexes.some(
       (index) =>
         isOtherOption(question.options[index]) &&
-        !state.textByOptionIndex[index]
+        (state.textByOptionIndex[index]?.length ?? 0) === 0
     )
   ) {
     return undefined;
@@ -101,7 +101,7 @@ export const isQuestionComplete = (
 export const answerEntryToText = (entry: AnswerEntry): string =>
   entry
     .map((selection) =>
-      selection.note
+      selection.note !== undefined && selection.note.length > 0
         ? `${selection.label} (note: ${selection.note})`
         : selection.label
     )
