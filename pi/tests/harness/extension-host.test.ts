@@ -1,7 +1,9 @@
 import { Type } from "@earendil-works/pi-ai";
 import type {
+  EntryRenderer,
   ExtensionAPI,
   ExtensionCommandContext,
+  MarkdownTransformer,
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
@@ -134,6 +136,7 @@ describe("extension-host harness", () => {
 
   it("registers commands and tools and can run them", async () => {
     const host = setupHost();
+    await host.ready;
 
     expect([...host.getRegisteredCommands().keys()]).toStrictEqual([
       "test-command",
@@ -149,6 +152,69 @@ describe("extension-host harness", () => {
       message: "tool:echo",
       type: "info",
     });
+  });
+
+  it("uses loaded extension registration state for renderers, providers, and flags", async () => {
+    const entryRenderer = vi.fn<EntryRenderer>();
+    const markdownTransformer = vi.fn<MarkdownTransformer>(
+      (markdown: string) => markdown
+    );
+    const nativeProvider = { id: "native-test" } as never;
+    const configuredProvider = { name: "Configured test" };
+    let defaultFlag: boolean | string | undefined;
+    const host = createExtensionHost((pi: ExtensionAPI) => {
+      pi.registerEntryRenderer("test-entry", entryRenderer);
+      pi.registerMarkdownTransformer(markdownTransformer);
+      pi.registerProvider(nativeProvider);
+      pi.registerProvider("configured-test", configuredProvider);
+      pi.registerFlag("default-on", {
+        default: true,
+        type: "boolean",
+      });
+      defaultFlag = pi.getFlag("default-on");
+    });
+
+    await host.ready;
+
+    expect(defaultFlag).toBeTruthy();
+    expect(host.getEntryRenderer("test-entry")).toBe(entryRenderer);
+    expect(host.getMarkdownTransformer()).toBe(markdownTransformer);
+    expect(host.getRegisteredNativeProviders().get("native-test")).toBe(
+      nativeProvider
+    );
+    expect(host.getRegisteredProviderConfigs().get("configured-test")).toBe(
+      configuredProvider
+    );
+  });
+
+  it("keeps post-load tool registration in the loaded extension", async () => {
+    let api: ExtensionAPI | undefined;
+    const host = createExtensionHost((pi: ExtensionAPI) => {
+      api = pi;
+    });
+    await host.ready;
+
+    api?.registerTool({
+      description: "Late tool",
+      async execute() {
+        await Promise.resolve();
+        return { content: [{ text: "late", type: "text" }], details: {} };
+      },
+      label: "Late tool",
+      name: "late-tool",
+      parameters: Type.Object({}),
+    });
+
+    expect(host.getRegisteredTools().has("late-tool")).toBeTruthy();
+    expect(host.getActiveTools()).toContain("late-tool");
+  });
+
+  it("surfaces extension loader errors through ready", async () => {
+    const host = createExtensionHost(() => {
+      throw new Error("factory failed");
+    });
+
+    await expect(host.ready).rejects.toThrow("factory failed");
   });
 
   it("auto-activates newly registered tools", async () => {

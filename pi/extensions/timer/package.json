@@ -30,9 +30,6 @@
   "dependencies": {
     "@clanker-stuff/pi-motion": "workspace:^"
   },
-  "devDependencies": {
-    "vitest": "*"
-  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },

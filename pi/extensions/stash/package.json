@@ -30,9 +30,6 @@
   "dependencies": {
     "@clanker-stuff/pi-extension-paths": "workspace:^"
   },
-  "devDependencies": {
-    "vitest": "*"
-  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"

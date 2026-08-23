@@ -1,5 +1,6 @@
 /* oxlint-disable eslint/no-use-before-define, eslint/complexity, eslint/func-style, eslint/no-nested-ternary, eslint/no-await-in-loop, promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then -- Responses transport parsing, ordered retries, and socket event queues are bounded protocol state machines */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
 
@@ -127,7 +128,6 @@ type WebSocketConstructor = new (
 ) => WebSocketLike;
 
 interface SessionRuntime {
-  activeTransport?: OpenAICodexResponsesOptions["transport"];
   continuation?: ContinuationState;
   fallbackToSse: boolean;
   socket?: {
@@ -1286,7 +1286,9 @@ const sseEvents = async function* sseEvents(
         if (timeoutController.signal.aborted && !isAborted(options?.signal)) {
           throw new Error(
             `Codex SSE response headers timed out after ${timeoutMs}ms`,
-            { cause: error }
+            {
+              cause: error,
+            }
           );
         }
         throw error;
@@ -1526,6 +1528,9 @@ export const createCodexProviderRuntime = (
 ) => {
   const { base } = catalog;
   const sessions = new Map<string, SessionRuntime>();
+  const requestTransport = new AsyncLocalStorage<
+    NonNullable<OpenAICodexResponsesOptions["transport"]>
+  >();
 
   const getSession = (sessionId: string) => {
     let session = sessions.get(sessionId);
@@ -1622,7 +1627,7 @@ export const createCodexProviderRuntime = (
           : undefined,
       sessionId: runtimeSessionId,
       signal: request.signal,
-      transport: session.activeTransport ?? "auto",
+      transport: requestTransport.getStore() ?? "auto",
     };
     const startedAt = Date.now();
     const trace = createRequestTrace();
@@ -1978,16 +1983,12 @@ export const createCodexProviderRuntime = (
           body = prepareLiteRequest(body);
         }
         const originalBodyJson = JSON.stringify(body);
-        const previousTransport = session.activeTransport;
-        session.activeTransport = session.fallbackToSse
+        const transport = session.fallbackToSse
           ? "sse"
           : (options.transport ?? "auto");
-        let transformed: unknown;
-        try {
-          transformed = await options.onPayload?.(body, model);
-        } finally {
-          session.activeTransport = previousTransport;
-        }
+        const transformed = await requestTransport.run(transport, () =>
+          options.onPayload?.(body, model)
+        );
         if (transformed !== undefined) {
           if (
             !isRecord(transformed) ||

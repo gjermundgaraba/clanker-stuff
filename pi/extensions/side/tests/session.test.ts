@@ -5,6 +5,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
   AgentSession,
+  AgentSessionEvent,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -25,6 +26,59 @@ vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => {
 });
 
 describe("side session", () => {
+  it("returns to idle when a handled prompt emits no agent events", async () => {
+    const prompt = vi.fn<(text: string) => Promise<void>>(async () => {});
+    const controller = new SideSessionController({
+      isStreaming: false,
+      prompt,
+      subscribe: () => () => {},
+    } as unknown as AgentSession);
+
+    expect(controller.submit("first command")).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(controller.state.activity.kind).toBe("idle");
+    });
+    expect(controller.submit("second command")).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(controller.state.activity.kind).toBe("idle");
+    });
+
+    expect(prompt.mock.calls).toStrictEqual([
+      ["first command"],
+      ["second command"],
+    ]);
+  });
+
+  it("clears streaming activity when a prompt rejects after an update", async () => {
+    const prompt = Promise.withResolvers<null>();
+    let listener: ((event: AgentSessionEvent) => void) | undefined;
+    const controller = new SideSessionController({
+      isStreaming: false,
+      prompt: () => prompt.promise,
+      subscribe: (next: (event: AgentSessionEvent) => void) => {
+        listener = next;
+        return () => {};
+      },
+    } as unknown as AgentSession);
+
+    expect(controller.submit("stream")).toBeTruthy();
+    listener?.({
+      assistantMessageEvent: {} as never,
+      message: fauxAssistantMessage("partial"),
+      type: "message_update",
+    });
+    expect(controller.state.activity.kind).toBe("streaming");
+
+    prompt.reject(new Error("stream failed"));
+    await vi.waitFor(() => {
+      expect(controller.state.activity.kind).toBe("idle");
+    });
+    expect(controller.state.transcript.at(-1)).toStrictEqual({
+      kind: "error",
+      text: "stream failed",
+    });
+  });
+
   it("binds child extensions without access to the main UI", async () => {
     const binding = Promise.withResolvers<null>();
     const bindExtensions = vi.fn<() => Promise<null>>(() => binding.promise);

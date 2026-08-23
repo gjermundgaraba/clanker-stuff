@@ -27,9 +27,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "devDependencies": {
-    "vitest": "*"
-  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },

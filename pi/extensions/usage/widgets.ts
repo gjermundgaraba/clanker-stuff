@@ -7,12 +7,23 @@ import type {
 
 import { formatResetDuration } from "./format.js";
 import { providerDisplayName } from "./providers.js";
-import type { UsageSnapshot, UsageWindow } from "./providers.js";
+import type {
+  SupportedProvider,
+  UsageSnapshot,
+  UsageWindow,
+} from "./providers.js";
 
 const ACTIVE_WIDGET_ID = "clanker.usage.active";
 const DETAILS_WIDGET_ID = "clanker.usage.details";
 
 export const STATUS_KEY = "usage";
+
+export type UsagePresentation =
+  | { kind: "unsupported" }
+  | { kind: "loading"; provider: SupportedProvider }
+  | { kind: "ready"; snapshot: UsageSnapshot }
+  | { kind: "stale"; message: string; snapshot: UsageSnapshot }
+  | { kind: "error"; message: string; provider: SupportedProvider };
 
 const richText = (value: string, maximum: number): string => {
   let result = "";
@@ -70,12 +81,61 @@ const health = (
   updatedAt: now,
 });
 
+const snapshotFor = (
+  presentation: UsagePresentation
+): UsageSnapshot | undefined =>
+  presentation.kind === "ready" || presentation.kind === "stale"
+    ? presentation.snapshot
+    : undefined;
+
+const unreachablePresentation = (presentation: never): never => {
+  throw new Error(`unknown usage presentation: ${String(presentation)}`);
+};
+
+const HEALTH_STATE_BY_PRESENTATION = {
+  error: "error",
+  loading: "loading",
+  ready: "ready",
+  stale: "stale",
+  unsupported: "error",
+} satisfies Record<UsagePresentation["kind"], FooterWidgetHealthState>;
+
+const healthFor = (
+  presentation: UsagePresentation
+): { message?: string; state: FooterWidgetHealthState } => {
+  const state = HEALTH_STATE_BY_PRESENTATION[presentation.kind];
+  return presentation.kind === "error" || presentation.kind === "stale"
+    ? { message: presentation.message, state }
+    : { state };
+};
+
+export const presentationProvider = (
+  presentation: UsagePresentation
+): SupportedProvider | undefined => {
+  switch (presentation.kind) {
+    case "loading":
+    case "error": {
+      return presentation.provider;
+    }
+    case "ready":
+    case "stale": {
+      return presentation.snapshot.provider;
+    }
+    case "unsupported": {
+      return undefined;
+    }
+    default: {
+      return unreachablePresentation(presentation);
+    }
+  }
+};
+
 export const activeSnapshot = (
-  snapshot: UsageSnapshot | undefined,
-  state: FooterWidgetHealthState,
-  now: number,
-  message?: string
+  presentation: UsagePresentation,
+  now: number
 ): FooterWidgetSnapshot => {
+  const snapshot = snapshotFor(presentation);
+  const { message, state } = healthFor(presentation);
   const window = snapshot ? selectActiveWindow(snapshot) : undefined;
   const percent = window ? usedPercent(window) : 0;
   const rounded = `${Math.round(percent)}%`;
@@ -114,11 +174,11 @@ export const activeSnapshot = (
 };
 
 export const detailsSnapshot = (
-  snapshot: UsageSnapshot | undefined,
-  state: FooterWidgetHealthState,
-  now: number,
-  message?: string
+  presentation: UsagePresentation,
+  now: number
 ): FooterWidgetSnapshot => {
+  const snapshot = snapshotFor(presentation);
+  const { message, state } = healthFor(presentation);
   const active = snapshot ? selectActiveWindow(snapshot) : undefined;
   // ponytail: eight rich detail windows stay within protocol text bounds; /usage still shows all.
   const windows =
@@ -141,17 +201,17 @@ export const detailsSnapshot = (
   };
 };
 
-export const fallbackText = (
-  snapshot: UsageSnapshot | undefined,
-  state: FooterWidgetHealthState
-): string => {
+export const fallbackText = (presentation: UsagePresentation): string => {
+  const snapshot = snapshotFor(presentation);
   const window = snapshot ? selectActiveWindow(snapshot) : undefined;
   if (snapshot && window) {
-    const marker = state === "stale" || state === "error" ? " !" : "";
+    const marker = presentation.kind === "stale" ? " !" : "";
     return richText(
       `usage ${providerDisplayName(snapshot.provider)} ${window.label} ${Math.round(usedPercent(window))}%${marker}`,
       240
     );
   }
-  return state === "loading" ? "usage loading" : "usage unavailable";
+  return presentation.kind === "loading"
+    ? "usage loading"
+    : "usage unavailable";
 };

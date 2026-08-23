@@ -29,7 +29,7 @@ describe("side conversation AgentSession routing", () => {
       controller.submit("too early"),
     ]).toStrictEqual([true, false]);
     await vi.waitFor(() => {
-      expect(controller?.state.isRunning).toBeFalsy();
+      expect(controller?.state.activity.kind).toBe("idle");
     });
 
     expect([
@@ -37,7 +37,7 @@ describe("side conversation AgentSession routing", () => {
       controller.submit("second question"),
     ]).toStrictEqual(["first answer", true]);
     await vi.waitFor(() => {
-      expect(controller?.state.isRunning).toBeFalsy();
+      expect(controller?.state.activity.kind).toBe("idle");
     });
 
     expect({

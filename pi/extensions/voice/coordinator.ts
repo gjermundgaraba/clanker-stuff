@@ -5,10 +5,6 @@ interface Handoff {
   prompt: string;
 }
 
-interface AcceptedHandoff extends Handoff {
-  deferredFailure?: string;
-}
-
 interface VoiceCoordinatorOptions {
   complete: (binding: DelegationBinding, text: string) => boolean;
   status: (binding: DelegationBinding, text: string) => boolean;
@@ -16,17 +12,24 @@ interface VoiceCoordinatorOptions {
   validate: () => Promise<void>;
 }
 
+type HandoffPhase =
+  | { kind: "idle" }
+  | { handoff: Handoff; kind: "validating" }
+  | { handoff: Handoff; kind: "submitted" }
+  | {
+      deferredFailure?: string;
+      handoff: Handoff;
+      kind: "accepted";
+    };
+
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const MAX_QUEUED_HANDOFFS = 20;
 
 export class VoiceCoordinator {
-  private accepted: AcceptedHandoff | undefined;
-  private generation = 0;
-  private preparing = false;
+  private phase: HandoffPhase = { kind: "idle" };
   private readonly queue: Handoff[] = [];
   private readonly options: VoiceCoordinatorOptions;
-  private submitted: Handoff | undefined;
 
   constructor(options: VoiceCoordinatorOptions) {
     this.options = options;
@@ -45,40 +48,46 @@ export class VoiceCoordinator {
   }
 
   accept(prompt: string): boolean {
-    if (this.submitted?.prompt !== prompt) {
+    if (
+      this.phase.kind !== "submitted" ||
+      this.phase.handoff.prompt !== prompt
+    ) {
       return false;
     }
-    this.accepted = this.submitted;
-    this.submitted = undefined;
+    this.phase = { handoff: this.phase.handoff, kind: "accepted" };
     return true;
   }
 
   sendStatus(text: string): boolean {
-    return Boolean(
-      this.accepted && this.options.status(this.accepted.binding, text.trim())
+    return (
+      this.phase.kind === "accepted" &&
+      this.options.status(this.phase.handoff.binding, text.trim())
     );
   }
 
   finish(text: string): boolean {
-    const { accepted } = this;
-    if (!accepted) {
+    if (this.phase.kind !== "accepted") {
       return false;
     }
-    this.accepted = undefined;
-    const delivered = this.options.complete(accepted.binding, text.trim());
+    const { handoff } = this.phase;
+    this.phase = { kind: "idle" };
+    const delivered = this.options.complete(handoff.binding, text.trim());
     void this.pump();
     return delivered;
   }
 
   deferFailure(text: string): void {
-    if (this.accepted) {
-      this.accepted.deferredFailure = text.trim();
+    if (this.phase.kind === "accepted") {
+      this.phase = {
+        ...this.phase,
+        deferredFailure: text.trim(),
+      };
     }
   }
 
   settled(): void {
-    if (this.accepted) {
-      const { deferredFailure } = this.accepted;
+    if (this.phase.kind === "accepted") {
+      const { deferredFailure } = this.phase;
       this.finish(
         deferredFailure !== undefined && deferredFailure.length > 0
           ? deferredFailure
@@ -86,33 +95,25 @@ export class VoiceCoordinator {
       );
       return;
     }
-    if (!this.submitted) {
+    if (this.phase.kind !== "submitted") {
       return;
     }
-    const { submitted } = this;
-    this.submitted = undefined;
+    const { handoff } = this.phase;
+    this.phase = { kind: "idle" };
     this.options.complete(
-      submitted.binding,
+      handoff.binding,
       "I could not submit that request to the Pi session."
     );
     void this.pump();
   }
 
   reset(): void {
-    this.generation += 1;
-    this.accepted = undefined;
-    this.preparing = false;
+    this.phase = { kind: "idle" };
     this.queue.length = 0;
-    this.submitted = undefined;
   }
 
   private async pump(): Promise<void> {
-    if (
-      this.preparing ||
-      this.submitted ||
-      this.accepted ||
-      this.queue.length === 0
-    ) {
+    if (this.phase.kind !== "idle" || this.queue.length === 0) {
       return;
     }
 
@@ -120,28 +121,31 @@ export class VoiceCoordinator {
     if (!handoff) {
       return;
     }
-    const { generation } = this;
-    this.preparing = true;
+    const validating = { handoff, kind: "validating" } as const;
+    this.phase = validating;
     try {
       await this.options.validate();
-      if (generation !== this.generation) {
+      if (this.phase !== validating) {
         return;
       }
-      this.submitted = handoff;
+      const submitted = { handoff, kind: "submitted" } as const;
+      this.phase = submitted;
       this.options.submit(handoff.prompt);
     } catch (error) {
-      if (generation === this.generation) {
+      if (
+        this.phase === validating ||
+        (this.phase.kind === "submitted" &&
+          this.phase.handoff === validating.handoff)
+      ) {
+        this.phase = { kind: "idle" };
         this.options.complete(
           handoff.binding,
           `I could not use the current Pi coordinator: ${errorMessage(error).slice(0, 240)}`
         );
       }
     } finally {
-      if (generation === this.generation) {
-        this.preparing = false;
-        if (!this.submitted) {
-          void this.pump();
-        }
+      if (this.phase.kind === "idle") {
+        void this.pump();
       }
     }
   }

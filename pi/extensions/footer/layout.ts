@@ -187,7 +187,7 @@ const renderLiveWidget = (
   family: FooterIconFamily,
   theme: FooterTheme
 ): string => {
-  if (widget.nativeAnsi === true) {
+  if (widget.source === "native") {
     return sanitizeNativeStatus(
       widget.snapshot.content.map((span) => span.text).join("")
     );
@@ -239,7 +239,6 @@ const nativeWidgets = (
     }
     const id = `status:${key}`;
     widgets.set(id, {
-      nativeAnsi: true,
       snapshot: {
         content: [{ text }],
         id,

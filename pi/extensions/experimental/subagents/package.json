@@ -1,0 +1,59 @@
+{
+  "name": "@clanker-stuff/subagents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adds durable hierarchical subagents with independent pi sessions and explicit communication tools.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/subagents#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/experimental/subagents"
+  },
+  "files": [
+    "config.ts",
+    "contract.ts",
+    "coordinator.ts",
+    "docs/protocols.md",
+    "history.ts",
+    "index.ts",
+    "keyed-queue.ts",
+    "manager.ts",
+    "model-contract.ts",
+    "nicknames.ts",
+    "permanent-error.ts",
+    "runtime.ts",
+    "selection.ts",
+    "snapshot.ts",
+    "status.ts",
+    "transcript.ts",
+    "v1",
+    "v2",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "dependencies": {
+    "@clanker-stuff/pi-extension-paths": "workspace:^"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

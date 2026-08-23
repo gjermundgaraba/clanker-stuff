@@ -1,3 +1,4 @@
+import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 /* oxlint-disable eslint/no-use-before-define, eslint/no-nested-ternary, eslint/class-methods-use-this, eslint/complexity -- tool definitions read top-down while rendering handles each trace state */
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type {
@@ -57,7 +58,7 @@ const EXEC_DESCRIPTION = `Run JavaScript code to orchestrate/compose tool calls
 - Runs raw JavaScript -- no Node, no file system, no network access, no console.
 - Accepts raw JavaScript source text, not JSON, quoted strings, or markdown code fences.
 - You may optionally start the tool input with a first-line pragma like \`// @exec: {"yield_time_ms": 10000, "max_output_tokens": 1000}\`.
-- \`yield_time_ms\` asks \`exec\` to yield early if the script is still running. Defaults to 30000 ms.
+- \`yield_time_ms\` asks \`exec\` to yield early if the script is still running. Defaults to 10000 ms.
 - \`max_output_tokens\` sets the token budget for direct \`exec\` results. Defaults to 10000 tokens.
 - When the JS code is fully evaluated, the isolate's lifetime ends and unawaited promises are silently discarded.
 
@@ -93,13 +94,42 @@ NEWLINE: /\r?\n/
 SOURCE: /[\s\S]+/
 `;
 
-export class CodeModeRuntime {
-  private client: CodeModeHostClient | undefined;
-  private clientPromise: Promise<CodeModeHostClient> | undefined;
+export interface CodeModeToolDescriptor {
+  readonly definition: ToolDefinition;
+  readonly namespace?: string;
+  readonly outputSchema?: unknown;
+}
 
-  createTools(definitions: ToolDefinition[]): ToolDefinition[] {
-    const nested = definitions.map(toNestedTool);
-    const byName = new Map(nested.map((tool) => [tool.definition.name, tool]));
+type CodeModeClientFactory = (
+  signal: AbortSignal
+) => Promise<CodeModeHostClient>;
+
+export interface CodeModeRuntimeOptions {
+  createClient?: CodeModeClientFactory;
+}
+
+const createCodeModeHostClient: CodeModeClientFactory = async (signal) => {
+  const [{ ensureCodeModeHostBinary }, { CodeModeHostClient }] =
+    await Promise.all([import("./binary.js"), import("./host-client.js")]);
+  const binary = await ensureCodeModeHostBinary(signal);
+  return new CodeModeHostClient(binary);
+};
+
+export class CodeModeRuntime {
+  private readonly client;
+  private nestedToolDescriptors: readonly CodeModeToolDescriptor[] = [];
+
+  constructor(options: CodeModeRuntimeOptions = {}) {
+    this.client = createLazySingleton(
+      options.createClient ?? createCodeModeHostClient
+    );
+  }
+
+  createTools(): ToolDefinition[] {
+    const currentByName = () =>
+      new Map(
+        this.nestedTools().map((tool) => [tool.definition.name, tool] as const)
+      );
     return [
       defineTool({
         constrainedSampling: {
@@ -117,7 +147,7 @@ export class CodeModeRuntime {
               toolCallId: id,
             },
             signal,
-            nested
+            this.nestedTools()
           );
           return toCodeModeToolResult(response);
         },
@@ -128,16 +158,19 @@ export class CodeModeRuntime {
           const source =
             typeof args.code === "string" ? args.code : "(invalid source)";
           return new Text(
-            `${theme.fg("toolTitle", theme.bold("exec"))}\n${theme.fg(
-              "toolOutput",
-              source
-            )}`,
+            `${theme.fg("toolTitle", theme.bold("exec"))}\n${theme.fg("toolOutput", source)}`,
             0,
             0
           );
         },
         renderResult(result, options, theme, context) {
-          return renderCodeModeResult(result, options, theme, context, byName);
+          return renderCodeModeResult(
+            result,
+            options,
+            theme,
+            context,
+            currentByName()
+          );
         },
       }),
       defineTool({
@@ -175,96 +208,167 @@ export class CodeModeRuntime {
           );
         },
         renderResult(result, options, theme, context) {
-          return renderCodeModeResult(result, options, theme, context, byName);
+          return renderCodeModeResult(
+            result,
+            options,
+            theme,
+            context,
+            currentByName()
+          );
         },
       }),
     ];
   }
 
-  prompt = (definitions: ToolDefinition[]): string => {
-    const lines = definitions
+  setNestedTools(descriptors: readonly CodeModeToolDescriptor[]): void {
+    this.nestedToolDescriptors = [...descriptors];
+  }
+
+  prompt = (): string => {
+    const lines = this.nestedTools()
       .toSorted((left, right) => left.name.localeCompare(right.name))
       .map(
-        (definition) =>
-          `### \`${definition.name}\`\n${definition.description}\n\nUsage: \`${usageFor(definition.name)}\``
+        (tool) =>
+          `### \`${tool.name}\`\n${tool.definition.description}\n\nUsage: \`${tool.usage}\``
       );
     return `Tools available in exec:\n\n${lines.join("\n\n")}`;
   };
 
   async shutdown(): Promise<void> {
-    const { client } = this;
-    this.client = undefined;
-    this.clientPromise = undefined;
-    await client?.shutdown();
+    await this.client.stop(async (client) => {
+      await client.shutdown();
+    });
   }
 
   private async getClient(
     signal: AbortSignal | undefined
   ): Promise<CodeModeHostClient> {
-    if (this.client) {
-      return this.client;
+    signal?.throwIfAborted();
+    const client = await abortable(this.client.load(), signal);
+    if (client === undefined) {
+      throw new Error("Code Mode runtime is stopped");
     }
-    this.clientPromise ??= this.createClient(signal);
-    try {
-      this.client = await this.clientPromise;
-      return this.client;
-    } catch (error) {
-      this.clientPromise = undefined;
-      throw error;
-    }
+    return client;
   }
 
-  private async createClient(signal: AbortSignal | undefined) {
-    const [{ ensureCodeModeHostBinary }, { CodeModeHostClient }] =
-      await Promise.all([import("./binary.js"), import("./host-client.js")]);
-    const binary = await ensureCodeModeHostBinary(signal);
-    return new CodeModeHostClient(binary);
+  private nestedTools(): NestedTool[] {
+    return this.nestedToolDescriptors.map(toNestedTool);
   }
 }
 
-export const toNestedTool = (definition: ToolDefinition): NestedTool => ({
-  definition,
-  async invoke(input, context, signal) {
-    signal.throwIfAborted();
-    const prepared: unknown = definition.prepareArguments
-      ? definition.prepareArguments(input)
-      : input;
-    if (!isRecord(prepared)) {
-      throw new TypeError(`Invalid arguments for ${definition.name}`);
-    }
-    const validated: unknown = validateToolArguments(definition, {
-      arguments: prepared,
-      id: context.toolCallId ?? `code-mode-${definition.name}`,
-      name: definition.name,
-      type: "toolCall",
-    });
-    signal.throwIfAborted();
-    const result = await definition.execute(
-      context.toolCallId ?? `code-mode-${definition.name}`,
-      validated,
-      signal,
-      (update) => {
-        context.onUpdate?.(update);
-      },
-      context.extensionContext
+const abortable = async <T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined
+): Promise<T> => {
+  signal?.throwIfAborted();
+  if (signal === undefined) {
+    return await promise;
+  }
+  const aborted = Promise.withResolvers<T>();
+  const onAbort = () => {
+    aborted.reject(signal.reason);
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    return await Promise.race([promise, aborted.promise]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+};
+
+export const toNestedTool = (
+  descriptor: CodeModeToolDescriptor
+): NestedTool => {
+  const { definition, namespace, outputSchema } = descriptor;
+  const freeformProperty = freeformInputProperty(definition);
+  return {
+    definition,
+    kind: freeformProperty === undefined ? "function" : "freeform",
+    name: codeModeName(definition.name, namespace),
+    ...(namespace === undefined ? {} : { namespace }),
+    ...(outputSchema === undefined ? {} : { outputSchema }),
+    async invoke(input, context, signal) {
+      signal.throwIfAborted();
+      const argumentsValue =
+        freeformProperty === undefined ? input : { [freeformProperty]: input };
+      const prepared: unknown = definition.prepareArguments
+        ? definition.prepareArguments(argumentsValue)
+        : argumentsValue;
+      if (!isRecord(prepared)) {
+        throw new TypeError(`Invalid arguments for ${definition.name}`);
+      }
+      const validated: unknown = validateToolArguments(definition, {
+        arguments: prepared,
+        id: context.toolCallId ?? `code-mode-${definition.name}`,
+        name: definition.name,
+        type: "toolCall",
+      });
+      signal.throwIfAborted();
+      const result = await definition.execute(
+        context.toolCallId ?? `code-mode-${definition.name}`,
+        validated,
+        signal,
+        (update) => {
+          context.onUpdate?.(update);
+        },
+        context.extensionContext
+      );
+      const normalized = normalizeResult(result);
+      context.captureResult?.(normalized);
+      return nestedResultValue(definition.name, normalized, outputSchema);
+    },
+    usage: usageFor(codeModeName(definition.name, namespace)),
+  };
+};
+
+const freeformInputProperty = (
+  definition: ToolDefinition
+): string | undefined => {
+  if (
+    definition.constrainedSampling === undefined ||
+    definition.constrainedSampling === false ||
+    definition.constrainedSampling.type !== "grammar"
+  ) {
+    return undefined;
+  }
+  const schema = definition.parameters as unknown;
+  if (!isRecord(schema) || !isRecord(schema.properties)) {
+    throw new Error(
+      `Grammar-constrained tool ${definition.name} must have one string parameter`
     );
-    const normalized = normalizeResult(result);
-    context.captureResult?.(normalized);
-    return nestedResultValue(definition.name, normalized);
-  },
-  usage: usageFor(definition.name),
-});
+  }
+  const properties = Object.entries(schema.properties);
+  if (
+    properties.length !== 1 ||
+    !isRecord(properties[0]?.[1]) ||
+    properties[0][1].type !== "string"
+  ) {
+    throw new Error(
+      `Grammar-constrained tool ${definition.name} must have one string parameter`
+    );
+  }
+  return properties[0][0];
+};
+
+const codeModeName = (name: string, namespace?: string): string => {
+  if (namespace === undefined || namespace === "functions") {
+    return name;
+  }
+  return namespace.endsWith("_") || name.startsWith("_")
+    ? `${namespace}${name}`
+    : `${namespace}__${name}`;
+};
 
 const usageFor = (name: string) => {
   switch (name) {
     case "exec_command": {
-      return "const result = await tools.exec_command({ cmd: string, workdir?: string, yield_time_ms?: number }); result.output";
+      return "const result = await tools.exec_command({ cmd: string, workdir?: string, yield_time_ms?: number, max_output_tokens?: number }); result.output";
     }
     case "write_stdin": {
-      return "const result = await tools.write_stdin({ session_id: number, chars?: string, yield_time_ms?: number }); result.output";
+      return "const result = await tools.write_stdin({ session_id: number, chars?: string, yield_time_ms?: number, max_output_tokens?: number }); result.output";
     }
     case "apply_patch": {
-      return "await tools.apply_patch({ patch: string })";
+      return "await tools.apply_patch(patch)";
     }
     case "view_image": {
       return "const result = await tools.view_image({ path: string }); image(result)";
@@ -277,7 +381,8 @@ const usageFor = (name: string) => {
 
 const nestedResultValue = (
   name: string,
-  result: RuntimeToolResult
+  result: RuntimeToolResult,
+  outputSchema: unknown
 ): unknown => {
   const image = result.content.find((item) => item.type === "image");
   if (image?.type === "image") {
@@ -298,24 +403,25 @@ const nestedResultValue = (
       "view_image did not return a supported image. Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first."
     );
   }
-  if (
-    (name === "exec_command" || name === "write_stdin") &&
-    isRecord(result.details)
-  ) {
-    const { details } = result;
-    return {
-      duration_ms: details.durationMs,
-      exit_code: details.exitCode,
-      full_output_path: details.fullOutputPath,
-      output,
-      running: details.running,
-      session_id: details.sessionId,
-      status: details.status,
-      truncation: details.truncation,
-    };
+  if (outputSchema !== undefined) {
+    try {
+      return JSON.parse(output) as unknown;
+    } catch (error) {
+      throw new Error(
+        `Nested tool ${name} declared structured output but returned invalid JSON`,
+        { cause: error }
+      );
+    }
   }
-  if (isRecord(result.details) && "output" in result.details) {
-    return result.details;
+  if (name === "exec_command" || name === "write_stdin") {
+    if (!isRecord(result.details)) {
+      throw new Error(`Nested tool ${name} returned no Code Mode result`);
+    }
+    const { codeModeResult } = result.details;
+    if (isRecord(codeModeResult)) {
+      return structuredClone(codeModeResult);
+    }
+    throw new Error(`Nested tool ${name} returned no Code Mode result`);
   }
   return output || "(no output)";
 };

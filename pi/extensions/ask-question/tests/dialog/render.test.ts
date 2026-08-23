@@ -159,6 +159,7 @@ describe("ask-question dialog rendering", () => {
     const rendered = renderPrompt(
       {
         currentTab: 0,
+        editMode: { kind: "none" },
         helpText: createHelpText(createKeybindings()),
         hint: "",
         sessions: createQuestionSessions([question]),
@@ -189,6 +190,7 @@ describe("ask-question dialog rendering", () => {
     const rendered = renderPrompt(
       {
         currentTab: sessions.length,
+        editMode: { kind: "none" },
         helpText: createHelpText(createKeybindings()),
         hint: "",
         sessions,
@@ -223,6 +225,7 @@ describe("ask-question dialog rendering", () => {
     const rendered = renderPrompt(
       {
         currentTab: 0,
+        editMode: { kind: "none" },
         helpText: createHelpText(createKeybindings()),
         hint: "",
         sessions,

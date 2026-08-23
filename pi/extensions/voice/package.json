@@ -44,8 +44,7 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1",
-    "vitest": "*"
+    "@types/ws": "^8.18.1"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

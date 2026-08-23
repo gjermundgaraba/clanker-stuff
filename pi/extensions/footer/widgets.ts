@@ -20,7 +20,6 @@ export type FooterSource = "builtin" | "native" | "rich";
 export interface LiveWidget {
   snapshot: FooterWidgetSnapshot;
   source: FooterSource;
-  nativeAnsi?: boolean;
 }
 
 export interface SessionTotals {

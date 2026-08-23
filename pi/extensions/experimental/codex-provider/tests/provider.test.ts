@@ -4,11 +4,11 @@ import type {
   AssistantMessage,
   Context,
   Credential,
-  RefreshModelsContext,
 } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
+import { codexContractFixture } from "../../subagents/docs/fixtures/codex-contract.generated.js";
 import { CodeModeRuntime } from "../code-mode/tools.js";
 import { createCodexModelCatalog } from "../model-catalog.js";
 import { CodexObservability } from "../observability.js";
@@ -16,19 +16,15 @@ import {
   createCodexProviderRuntime as createProviderRuntime,
   isCodexCompactionCurrentModelFallbackError,
 } from "../provider.js";
-import {
-  makeCodexApiKey,
-  responseEvents,
-  SPIKE_API_KEY,
-  SPIKE_MODEL,
-  sse,
-} from "./fixtures.js";
+import { responseEvents, SPIKE_API_KEY, SPIKE_MODEL, sse } from "./fixtures.js";
 
 const defaultObservability = new CodexObservability(":memory:");
 const createCodexProviderRuntime = (
   observability = defaultObservability,
   isFastModeEnabled: () => boolean = () => false
 ) => createProviderRuntime(observability, isFastModeEnabled);
+const expectedFallbackMultiAgentVersions =
+  codexContractFixture.catalog.declarations;
 
 const interruptedSse = (firstEvent: unknown) => {
   const bytes = new TextEncoder().encode(
@@ -104,7 +100,7 @@ const context = (messages: Context["messages"]): Context => ({
 });
 
 const CODE_MODE_TOOLS: NonNullable<Context["tools"]> =
-  new CodeModeRuntime().createTools([]);
+  new CodeModeRuntime().createTools();
 
 const readBody = (body: RequestInit["body"]) => {
   if (typeof body === "string") {
@@ -136,6 +132,166 @@ const FAST_MODEL = {
   name: "GPT-5.6 Sol",
 };
 
+const encodeJwtPart = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+
+const apiKeyForAccount = (accountId: string): string =>
+  `${encodeJwtPart({ alg: "none", typ: "JWT" })}.${encodeJwtPart({
+    "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+  })}.signature`;
+
+type ProviderRuntime = ReturnType<typeof createCodexProviderRuntime>;
+type RefreshContext = Parameters<
+  NonNullable<ProviderRuntime["provider"]["refreshModels"]>
+>[0];
+type StoredModels = NonNullable<RefreshContext["stored"]>;
+const publishModelUpdate: RefreshContext["publish"] = async (publication) => {
+  publication.update?.();
+  return true;
+};
+
+const REMOTE_CATALOG = {
+  models: [
+    {
+      auto_compact_token_limit: 150_000,
+      comp_hash: "comp-a",
+      context_window: 200_000,
+      default_reasoning_level: "medium",
+      default_reasoning_summary: "concise",
+      display_name: "Remote Codex",
+      effective_context_window_percent: 95,
+      multi_agent_version: "v2",
+      priority: 1,
+      service_tiers: [{ id: "priority" }],
+      slug: "gpt-5.6-remote",
+      support_verbosity: true,
+      supported_in_api: true,
+      supported_reasoning_levels: [
+        { description: "Balanced", effort: "medium" },
+        { description: "Maximum", effort: "max" },
+        { description: "Deepest", effort: "ultra" },
+        { description: "Future", effort: "future" },
+      ],
+      supports_parallel_tool_calls: true,
+      supports_reasoning_summary_parameter: true,
+      truncation_policy: { limit: 24_000, mode: "bytes" },
+      use_responses_lite: true,
+      visibility: "list",
+    },
+    {
+      auto_compact_token_limit: null,
+      comp_hash: "comp-null-limit",
+      context_window: 272_000,
+      default_reasoning_level: "ultra",
+      display_name: "Application Preset Only",
+      priority: 2,
+      slug: SPIKE_MODEL.id,
+      support_verbosity: true,
+      supported_in_api: true,
+      supported_reasoning_levels: [
+        { description: "Application Ultra", effort: "ultra" },
+      ],
+      supports_parallel_tool_calls: true,
+      visibility: "list",
+    },
+    {
+      display_name: "Sol",
+      multi_agent_version: null,
+      priority: 3,
+      slug: "gpt-5.6-sol",
+      support_verbosity: true,
+      supported_in_api: true,
+      supports_parallel_tool_calls: true,
+      visibility: "list",
+    },
+    {
+      display_name: "Terra",
+      multi_agent_version: "v3",
+      priority: 4,
+      slug: "gpt-5.6-terra",
+      support_verbosity: true,
+      supported_in_api: true,
+      supports_parallel_tool_calls: true,
+      visibility: "list",
+    },
+    {
+      display_name: "Luna",
+      priority: 5,
+      slug: "gpt-5.6-luna",
+      support_verbosity: true,
+      supported_in_api: true,
+      supports_parallel_tool_calls: true,
+      visibility: "list",
+    },
+    {
+      display_name: "Unsupported GPT-5.5",
+      priority: 6,
+      slug: "gpt-5.5",
+      support_verbosity: true,
+      supported_in_api: true,
+      supports_parallel_tool_calls: true,
+      visibility: "list",
+    },
+  ],
+};
+
+const fetchRemoteCatalog = async () => {
+  const runtime = createCodexProviderRuntime();
+  const requests: Request[] = [];
+  const state: { stored?: StoredModels } = {};
+  const publish: RefreshContext["publish"] = async (publication) => {
+    if (publication.persist === null) {
+      delete state.stored;
+    } else if (publication.persist !== undefined) {
+      state.stored = structuredClone(publication.persist);
+    }
+    publication.update?.();
+    return true;
+  };
+  const { signal } = new AbortController();
+  vi.stubGlobal(
+    "fetch",
+    async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push(new Request(input, init));
+      return requests.length === 1
+        ? Response.json(REMOTE_CATALOG, {
+            headers: { etag: '"catalog-1"' },
+          })
+        : new Response(null, { status: 304 });
+    }
+  );
+  await runtime.provider.refreshModels?.({
+    allowNetwork: true,
+    credential: { key: SPIKE_API_KEY, type: "api_key" },
+    publish,
+    signal,
+  });
+  const getStored = (): StoredModels => {
+    if (state.stored === undefined) {
+      throw new Error("Remote model catalog was not persisted");
+    }
+    return state.stored;
+  };
+  return { getStored, publish, requests, runtime, signal };
+};
+
+const restoreCatalog = async (
+  stored: StoredModels
+): Promise<ProviderRuntime> => {
+  const runtime = createCodexProviderRuntime();
+  await runtime.provider.refreshModels?.({
+    allowNetwork: false,
+    credential: { key: SPIKE_API_KEY, type: "api_key" },
+    publish: async (publication) => {
+      publication.update?.();
+      return true;
+    },
+    signal: new AbortController().signal,
+    stored,
+  });
+  return runtime;
+};
+
 describe("Codex provider", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -155,7 +311,10 @@ describe("Codex provider", () => {
     };
     const filtered = runtime.provider.filterModels?.(
       [SPIKE_MODEL, unsupportedModel],
-      { key: SPIKE_API_KEY, type: "api_key" }
+      {
+        key: SPIKE_API_KEY,
+        type: "api_key",
+      }
     );
     const fetch = vi.fn<() => Promise<Response>>(async () =>
       sse(responseEvents("unsupported", "unexpected"))
@@ -184,12 +343,20 @@ describe("Codex provider", () => {
     ).rejects.toThrow("Codex provider supports only GPT-5.6 models: gpt-5.5");
 
     const listedModels = runtime.provider.getModels();
-    expect(filtered?.map((model) => model.id)).toStrictEqual([SPIKE_MODEL.id]);
-    expect(listedModels.map((model) => model.id)).toStrictEqual([
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna",
-    ]);
+    expect({
+      filtered: filtered?.map((model) => model.id),
+      listed: listedModels.map((model) => model.id),
+      versions: Object.fromEntries(
+        listedModels.map((model) => [
+          model.id,
+          "multiAgentVersion" in model ? model.multiAgentVersion : undefined,
+        ])
+      ),
+    }).toStrictEqual({
+      filtered: [SPIKE_MODEL.id],
+      listed: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+      versions: expectedFallbackMultiAgentVersions,
+    });
     expect(message).toMatchObject({
       errorMessage: "Codex provider supports only GPT-5.6 models: gpt-5.5",
       stopReason: "error",
@@ -348,7 +515,10 @@ describe("Codex provider", () => {
         {
           ...fauxAssistantMessage(
             fauxToolCall("exec", {}, { id: toolCallId }),
-            { stopReason: "toolUse", timestamp: 1 }
+            {
+              stopReason: "toolUse",
+              timestamp: 1,
+            }
           ),
           api: SPIKE_MODEL.api,
           model: SPIKE_MODEL.id,
@@ -689,9 +859,204 @@ describe("Codex provider", () => {
     observability.close();
   });
 
+  it("isolates inline compaction transport across overlapping requests", async () => {
+    const runtime = createCodexProviderRuntime();
+    const firstEntered = Promise.withResolvers<null>();
+    const secondEntered = Promise.withResolvers<null>();
+    const releaseSecond = Promise.withResolvers<null>();
+    const websocket = vi.fn<() => never>(() => {
+      throw new Error("unexpected WebSocket attempt");
+    });
+    vi.stubGlobal("WebSocket", websocket);
+    vi.stubGlobal(
+      "fetch",
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        requestKind(readBody(init?.body)) === "compaction"
+          ? sse(compactionEvents("resp_isolated_compact"))
+          : sse(responseEvents("resp_isolated_turn", "done"))
+    );
+
+    const first = runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        onPayload: async () => {
+          firstEntered.resolve(null);
+          await secondEntered.promise;
+          await runtime.compact({
+            apiKey: SPIKE_API_KEY,
+            authoritativeInput: [],
+            context: context([]),
+            effectiveTokenLimit: 1000,
+            inputPrefix: [],
+            model: SPIKE_MODEL,
+            phase: "pre-sampling",
+            reason: "threshold",
+            sessionId: "session-overlap-transport",
+            signal: new AbortController().signal,
+            thinkingLevel: "medium",
+          });
+        },
+        sessionId: "session-overlap-transport",
+        transport: "sse",
+      })
+      .result();
+    await firstEntered.promise;
+
+    const second = runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        onPayload: async () => {
+          secondEntered.resolve(null);
+          await releaseSecond.promise;
+          throw new Error("stop overlapping request");
+        },
+        sessionId: "session-overlap-transport",
+        transport: "auto",
+      })
+      .result();
+
+    await expect(first).resolves.toMatchObject({ stopReason: "stop" });
+    releaseSecond.resolve(null);
+    await expect(second).resolves.toMatchObject({ stopReason: "error" });
+    expect(websocket).not.toHaveBeenCalled();
+  });
+
+  it("restores authoritative remote model lists and selectors offline", async () => {
+    const { getStored, publish, requests, runtime, signal } =
+      await fetchRemoteCatalog();
+
+    await runtime.provider.refreshModels?.({
+      allowNetwork: false,
+      credential: { key: SPIKE_API_KEY, type: "api_key" },
+      publish,
+      signal,
+      stored: getStored(),
+    });
+    await runtime.provider.refreshModels?.({
+      allowNetwork: true,
+      credential: { key: SPIKE_API_KEY, type: "api_key" } satisfies Credential,
+      force: true,
+      publish,
+      signal,
+      stored: getStored(),
+    });
+
+    const persistedRemoteAfterNotModified = getStored().models.some(
+      (model) => model.id === "gpt-5.6-remote"
+    );
+    const stored = getStored();
+    const restored = await restoreCatalog(stored);
+    const omitted = await restoreCatalog({
+      ...stored,
+      models: stored.models.filter((model) => model.id !== "gpt-5.6-luna"),
+    });
+    const invalid = await restoreCatalog({
+      ...stored,
+      models: stored.models.map((model) => {
+        const { codexProviderCacheVersion: _version, ...withoutVersion } =
+          model as typeof model & {
+            codexProviderCacheVersion?: number;
+          };
+        return model.id === "gpt-5.6-sol"
+          ? { ...withoutVersion, multiAgentVersion: "v1" as const }
+          : withoutVersion;
+      }),
+    });
+    const versionPresence = Object.fromEntries(
+      restored.provider
+        .getModels()
+        .filter((model) =>
+          ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].includes(model.id)
+        )
+        .map((model) => [model.id, "multiAgentVersion" in model])
+    );
+
+    expect({
+      invalidCacheSolVersion: (
+        invalid.provider
+          .getModels()
+          .find((model) => model.id === "gpt-5.6-sol") as
+          | { multiAgentVersion?: string }
+          | undefined
+      )?.multiAgentVersion,
+      liveCatalog: runtime.provider.getModels().map((model) => model.id),
+      liveRemoteAfterRepeatedRestore: runtime.provider
+        .getModels()
+        .some((model) => model.id === "gpt-5.6-remote"),
+      omittedLunaRestored: omitted.provider
+        .getModels()
+        .some((model) => model.id === "gpt-5.6-luna"),
+      persistedRemoteAfterNotModified,
+      refreshRequests: requests.length,
+      request: requests[0]?.url,
+      restoredFallbackVersion: (
+        restored.provider
+          .getModels()
+          .find((model) => model.id === "gpt-5.6-sol") as
+          | { multiAgentVersion?: string }
+          | undefined
+      )?.multiAgentVersion,
+      restoredRemoteCatalog: restored.provider
+        .getModels()
+        .some((model) => model.id === "gpt-5.6-remote"),
+      versionPresence,
+    }).toStrictEqual({
+      invalidCacheSolVersion: "v2",
+      liveCatalog: [
+        "gpt-5.6-remote",
+        SPIKE_MODEL.id,
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+      ],
+      liveRemoteAfterRepeatedRestore: true,
+      omittedLunaRestored: false,
+      persistedRemoteAfterNotModified: true,
+      refreshRequests: 2,
+      request: expect.stringContaining("/codex/models?client_version="),
+      restoredFallbackVersion: undefined,
+      restoredRemoteCatalog: true,
+      versionPresence: {
+        "gpt-5.6-luna": false,
+        "gpt-5.6-sol": false,
+        "gpt-5.6-terra": false,
+      },
+    });
+  });
+
+  it("does not restore or retain another account's cached catalog", async () => {
+    const { getStored, publish, runtime, signal } = await fetchRemoteCatalog();
+    expect(
+      runtime.provider
+        .getModels()
+        .some((model) => model.id === "gpt-5.6-remote")
+    ).toBeTruthy();
+
+    await runtime.provider.refreshModels?.({
+      allowNetwork: false,
+      credential: {
+        key: apiKeyForAccount("different-account"),
+        type: "api_key",
+      },
+      publish,
+      signal,
+      stored: getStored(),
+    });
+
+    expect({
+      hasRemoteModel: runtime.provider
+        .getModels()
+        .some((model) => model.id === "gpt-5.6-remote"),
+      remoteMetadata: runtime.getModelMetadata("gpt-5.6-remote"),
+    }).toStrictEqual({
+      hasRemoteModel: false,
+      remoteMetadata: undefined,
+    });
+  });
+
   it("bypasses the model cache when the Codex account changes", async () => {
-    let stored: RefreshModelsContext["stored"];
-    const publish: RefreshModelsContext["publish"] = async (publication) => {
+    let stored: RefreshContext["stored"];
+    const publish: RefreshContext["publish"] = async (publication) => {
       stored = publication.persist ?? undefined;
       publication.update?.();
       return true;
@@ -703,27 +1068,14 @@ describe("Codex provider", () => {
       "fetch",
       async (input: string | URL | Request, init?: RequestInit) => {
         requests.push(new Request(input, init));
-        return Response.json(
-          {
-            models: [
-              {
-                display_name: "Remote Codex",
-                priority: 1,
-                slug: "gpt-5.6-remote",
-                support_verbosity: true,
-                supported_in_api: true,
-                supports_parallel_tool_calls: true,
-                visibility: "list",
-              },
-            ],
-          },
-          { headers: { etag: '"catalog-1"' } }
-        );
+        return Response.json(REMOTE_CATALOG, {
+          headers: { etag: '"catalog-1"' },
+        });
       }
     );
-    const refresh = async (key: string, allowNetwork = true) =>
+    const refresh = async (key: string) =>
       catalog.refreshModels({
-        allowNetwork,
+        allowNetwork: true,
         credential: { key, type: "api_key" },
         publish,
         signal: new AbortController().signal,
@@ -731,7 +1083,7 @@ describe("Codex provider", () => {
       });
 
     await refresh(SPIKE_API_KEY);
-    await refresh(makeCodexApiKey("phase-one-account"));
+    await refresh(apiKeyForAccount("phase-one-account"));
 
     expect(accountChanged).toHaveBeenCalledOnce();
     expect(requests).toHaveLength(2);
@@ -741,199 +1093,60 @@ describe("Codex provider", () => {
     expect(requests[1]?.headers.has("if-none-match")).toBeFalsy();
   });
 
-  it("refreshes full model metadata and restores the projected catalog offline", async () => {
-    type StoreEntry = NonNullable<RefreshModelsContext["stored"]>;
-    let stored: StoreEntry | undefined;
-    const publish: RefreshModelsContext["publish"] = async (publication) => {
-      if (publication.persist === null) {
-        stored = undefined;
-      } else if (publication.persist !== undefined) {
-        stored = structuredClone(publication.persist);
-      }
-      publication.update?.();
-      return true;
-    };
-    const { signal } = new AbortController();
-    const runtime = createCodexProviderRuntime();
-    const requests: Request[] = [];
-    vi.stubGlobal(
-      "fetch",
-      async (input: string | URL | Request, init?: RequestInit) => {
-        requests.push(new Request(input, init));
-        return Response.json(
-          {
-            models: [
-              {
-                auto_compact_token_limit: 150_000,
-                comp_hash: "comp-a",
-                context_window: 200_000,
-                default_reasoning_level: "medium",
-                default_reasoning_summary: "concise",
-                display_name: "Remote Codex",
-                effective_context_window_percent: 95,
-                priority: 1,
-                service_tiers: [{ id: "priority" }],
-                slug: "gpt-5.6-remote",
-                support_verbosity: true,
-                supported_in_api: true,
-                supported_reasoning_levels: [
-                  { description: "Balanced", effort: "medium" },
-                  { description: "Maximum", effort: "max" },
-                  { description: "Deepest", effort: "ultra" },
-                  { description: "Future", effort: "future" },
-                ],
-                supports_parallel_tool_calls: true,
-                supports_reasoning_summary_parameter: true,
-                use_responses_lite: true,
-                visibility: "list",
-              },
-              {
-                auto_compact_token_limit: null,
-                comp_hash: "comp-null-limit",
-                context_window: 272_000,
-                default_reasoning_level: "ultra",
-                display_name: "Application Preset Only",
-                priority: 2,
-                slug: SPIKE_MODEL.id,
-                support_verbosity: true,
-                supported_in_api: true,
-                supported_reasoning_levels: [
-                  { description: "Application Ultra", effort: "ultra" },
-                ],
-                supports_parallel_tool_calls: true,
-                visibility: "list",
-              },
-              {
-                display_name: "Unsupported GPT-5.5",
-                priority: 3,
-                slug: "gpt-5.5",
-                support_verbosity: true,
-                supported_in_api: true,
-                supports_parallel_tool_calls: true,
-                visibility: "list",
-              },
-            ],
-          },
-          { headers: { etag: '"catalog-1"' } }
-        );
-      }
+  it("announces Codex account changes while refreshing the catalog", async () => {
+    const accountChanged = vi.fn<() => void>();
+    const runtime = createProviderRuntime(
+      defaultObservability,
+      () => false,
+      createCodexModelCatalog(accountChanged)
     );
+    const { signal } = new AbortController();
+
     await runtime.provider.refreshModels?.({
-      allowNetwork: true,
-      credential: { key: SPIKE_API_KEY, type: "api_key" } satisfies Credential,
-      publish,
+      allowNetwork: false,
+      credential: {
+        key: apiKeyForAccount("first-account"),
+        type: "api_key",
+      },
+      publish: publishModelUpdate,
       signal,
-      stored,
+    });
+    await runtime.provider.refreshModels?.({
+      allowNetwork: false,
+      credential: {
+        key: apiKeyForAccount("second-account"),
+        type: "api_key",
+      },
+      publish: publishModelUpdate,
+      signal,
     });
 
-    const restored = createCodexProviderRuntime();
-    await restored.provider.refreshModels?.({
-      allowNetwork: false,
-      publish,
-      signal,
-      stored,
-    });
-    const liteRequests: RequestInit[] = [];
-    const remoteModel = {
-      ...runtime.provider.getModels()[0],
-      compat: { supportsOpenAIGrammarTools: true },
-      input: ["text", "image"] as ("image" | "text")[],
-    };
-    await runtime.provider
-      .streamSimple(
-        remoteModel,
-        {
-          ...context([
-            {
-              content: [
-                {
-                  data: "AA==",
-                  mimeType: "image/png",
-                  type: "image",
-                },
-              ],
-              role: "user",
-              timestamp: 1,
-            },
-          ]),
-          tools: CODE_MODE_TOOLS,
-        },
-        {
-          apiKey: SPIKE_API_KEY,
-          fetch: async (_input, init) => {
-            liteRequests.push(init ?? {});
-            return sse(responseEvents("resp_lite", "lite"));
-          },
-          reasoning: "max",
-          sessionId: "session-lite",
-          transport: "sse",
-        }
-      )
-      .result();
-    const liteBody = readBody(liteRequests[0]?.body);
-    const liteHeaders = new Headers(liteRequests[0]?.headers);
-    const [litePrefix] = liteBody.input as Record<string, unknown>[];
-    if (!litePrefix) {
-      throw new Error("Responses Lite prefix was not serialized");
+    expect(accountChanged).toHaveBeenCalledOnce();
+  });
+
+  it("projects remote reasoning, fast-mode, and context-window metadata", async () => {
+    const { runtime } = await fetchRemoteCatalog();
+    const [remoteModel] = runtime.provider.getModels();
+    if (!remoteModel) {
+      throw new Error("Remote model was not projected");
     }
-    const liteMessage = (liteBody.input as Record<string, unknown>[]).at(2);
-    const [liteImage] = (liteMessage?.content ?? []) as Record<
-      string,
-      unknown
-    >[];
+
     expect({
-      lite: {
-        additionalTools: (litePrefix.tools as Record<string, unknown>[]).map(
-          ({ name, type }) => ({ name, type })
-        ),
-        bodyTools: liteBody.tools,
-        header: liteHeaders.get("x-openai-internal-codex-responses-lite"),
-        instructions: liteBody.instructions,
-        liteImage,
-        prefix: (liteBody.input as Record<string, unknown>[])
-          .slice(0, 2)
-          .map((item) => item.type),
-        reasoning: liteBody.reasoning,
-      },
-      metadata: runtime.getModelMetadata("gpt-5.6-remote")?.comp_hash,
-      model: runtime.provider.getModels()[0],
-      request: requests[0]?.url,
-      restoredRemoteCatalog: restored.provider
-        .getModels()
-        .some((model) => model.id === "gpt-5.6-remote"),
+      metadata: runtime.getModelMetadata(remoteModel.id)?.comp_hash,
+      model: remoteModel,
       supportsFastMode: runtime.supportsFastMode(remoteModel),
       unsupportedMetadata: runtime.getModelMetadata("gpt-5.5"),
-      unsupportedModel: runtime.provider
-        .getModels()
-        .some((model) => model.id === "gpt-5.5"),
       window: runtime.getModelWindow(remoteModel),
     }).toMatchObject({
-      lite: {
-        additionalTools: [
-          { name: "exec", type: "custom" },
-          { name: "wait", type: "function" },
-        ],
-        bodyTools: undefined,
-        header: "true",
-        instructions: "",
-        liteImage: {
-          image_url: "data:image/png;base64,AA==",
-          type: "input_image",
-        },
-        prefix: ["additional_tools", "message"],
-        reasoning: {
-          context: "all_turns",
-          effort: "max",
-          summary: "concise",
-        },
-      },
       metadata: "comp-a",
-      model: { contextWindow: 200_000, id: "gpt-5.6-remote" },
-      request: expect.stringContaining("/codex/models?client_version="),
-      restoredRemoteCatalog: false,
+      model: {
+        codexOutputTokenLimit: 6000,
+        contextWindow: 200_000,
+        id: "gpt-5.6-remote",
+        multiAgentVersion: "v2",
+      },
       supportsFastMode: true,
       unsupportedMetadata: undefined,
-      unsupportedModel: false,
       window: {
         autoCompactTokens: 150_000,
         effectiveWindowTokens: 190_000,
@@ -948,6 +1161,7 @@ describe("Codex provider", () => {
       off: null,
       xhigh: null,
     });
+
     const nullLimitModel = runtime.provider
       .getModels()
       .find((model) => model.id === SPIKE_MODEL.id);
@@ -987,6 +1201,111 @@ describe("Codex provider", () => {
       })
       .result();
     expect(readBody(defaultRequests[0]?.body).reasoning).toBeUndefined();
+  });
+
+  it("restores Responses Lite request behavior from cached metadata", async () => {
+    const { getStored } = await fetchRemoteCatalog();
+    const runtime = await restoreCatalog(getStored());
+    const [projected] = runtime.provider.getModels();
+    if (!projected) {
+      throw new Error("Cached remote model was not restored");
+    }
+    const remoteModel = {
+      ...projected,
+      compat: { supportsOpenAIGrammarTools: true },
+      input: ["text", "image"] as ("image" | "text")[],
+    } as typeof projected & { codexOutputTokenLimit?: number };
+    expect({
+      metadata: runtime.getModelMetadata(remoteModel.id)?.comp_hash,
+      outputTokenLimit: remoteModel.codexOutputTokenLimit,
+      supportsFastMode: runtime.supportsFastMode(remoteModel),
+      window: runtime.getModelWindow(remoteModel),
+    }).toStrictEqual({
+      metadata: "comp-a",
+      outputTokenLimit: 6000,
+      supportsFastMode: true,
+      window: {
+        autoCompactTokens: 150_000,
+        effectiveWindowTokens: 190_000,
+      },
+    });
+
+    const liteRequests: RequestInit[] = [];
+    await runtime.provider
+      .streamSimple(
+        remoteModel,
+        {
+          ...context([
+            {
+              content: [
+                {
+                  data: "AA==",
+                  mimeType: "image/png",
+                  type: "image",
+                },
+              ],
+              role: "user",
+              timestamp: 1,
+            },
+          ]),
+          tools: CODE_MODE_TOOLS,
+        },
+        {
+          apiKey: SPIKE_API_KEY,
+          fetch: async (_input, init) => {
+            liteRequests.push(init ?? {});
+            return sse(responseEvents("resp_lite", "lite"));
+          },
+          sessionId: "session-lite",
+          transport: "sse",
+        }
+      )
+      .result();
+    const liteBody = readBody(liteRequests[0]?.body);
+    const liteHeaders = new Headers(liteRequests[0]?.headers);
+    const [litePrefix] = liteBody.input as Record<string, unknown>[];
+    if (!litePrefix) {
+      throw new Error("Responses Lite prefix was not serialized");
+    }
+    const liteMessage = (liteBody.input as Record<string, unknown>[]).at(2);
+    const [liteImage] = (liteMessage?.content ?? []) as Record<
+      string,
+      unknown
+    >[];
+    expect({
+      additionalTools: (litePrefix.tools as Record<string, unknown>[]).map(
+        ({ name, type }) => ({
+          name,
+          type,
+        })
+      ),
+      bodyTools: liteBody.tools,
+      header: liteHeaders.get("x-openai-internal-codex-responses-lite"),
+      instructions: liteBody.instructions,
+      liteImage,
+      prefix: (liteBody.input as Record<string, unknown>[])
+        .slice(0, 2)
+        .map((item) => item.type),
+      reasoning: liteBody.reasoning,
+    }).toStrictEqual({
+      additionalTools: [
+        { name: "exec", type: "custom" },
+        { name: "wait", type: "function" },
+      ],
+      bodyTools: undefined,
+      header: "true",
+      instructions: "",
+      liteImage: {
+        image_url: "data:image/png;base64,AA==",
+        type: "input_image",
+      },
+      prefix: ["additional_tools", "message"],
+      reasoning: {
+        context: "all_turns",
+        effort: "medium",
+        summary: "concise",
+      },
+    });
 
     const liteFrames: Record<string, unknown>[] = [];
     const LiteWebSocket = function LiteWebSocket() {
@@ -1144,7 +1463,10 @@ describe("Codex provider", () => {
       .streamSimple(
         SPIKE_MODEL,
         context([{ content: "one", role: "user", timestamp: 1 }]),
-        { apiKey: SPIKE_API_KEY, sessionId: "session-ws" }
+        {
+          apiKey: SPIKE_API_KEY,
+          sessionId: "session-ws",
+        }
       )
       .result();
     const second = await runtime.provider

@@ -8,6 +8,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createAgentSessionHarness } from "./agent-session.js";
 import type { AgentSessionHarness } from "./agent-session.js";
 
+const createPayloadExtension =
+  (marker: string) =>
+  (pi: ExtensionAPI): void => {
+    pi.on("before_provider_request", (event) => ({
+      ...(event.payload && typeof event.payload === "object"
+        ? event.payload
+        : {}),
+      metadata: { harness: marker },
+      systemPrompt: marker,
+    }));
+  };
+
 describe("agent-session harness", () => {
   let harness: AgentSessionHarness | undefined;
 
@@ -183,12 +195,99 @@ describe("agent-session harness", () => {
     );
   });
 
-  it("throws on concurrent active harnesses", async () => {
-    harness = await createAgentSessionHarness();
+  it("isolates simultaneous harness response queues and provider payloads", async () => {
+    const firstStarted = Promise.withResolvers<null>();
+    const firstRelease = Promise.withResolvers<null>();
+    const secondStarted = Promise.withResolvers<null>();
+    const secondRelease = Promise.withResolvers<null>();
+    const first = await createAgentSessionHarness({
+      extensionFactories: [createPayloadExtension("first")],
+    });
+    const second = await createAgentSessionHarness({
+      extensionFactories: [createPayloadExtension("second")],
+    });
 
-    await expect(createAgentSessionHarness()).rejects.toThrow(
-      "Concurrent use of the wrapped faux provider is unsupported"
-    );
+    try {
+      first.setResponses([
+        async (context) => {
+          firstStarted.resolve(null);
+          await firstRelease.promise;
+          return fauxAssistantMessage(
+            `first:${context.systemPrompt}:${JSON.stringify(context.messages)}`
+          );
+        },
+      ]);
+      second.setResponses([
+        async (context) => {
+          secondStarted.resolve(null);
+          await secondRelease.promise;
+          return fauxAssistantMessage(
+            `second:${context.systemPrompt}:${JSON.stringify(context.messages)}`
+          );
+        },
+      ]);
+
+      const firstPrompt = first.prompt("alpha");
+      await firstStarted.promise;
+      const secondPrompt = second.prompt("beta");
+      await secondStarted.promise;
+
+      secondRelease.resolve(null);
+      await secondPrompt;
+      firstRelease.resolve(null);
+      await firstPrompt;
+
+      const firstMessages = JSON.stringify(first.messages());
+      const secondMessages = JSON.stringify(second.messages());
+      const firstPayload = first.lastProviderPayload() as Record<
+        string,
+        unknown
+      >;
+      const secondPayload = second.lastProviderPayload() as Record<
+        string,
+        unknown
+      >;
+      expect({
+        first: {
+          hasOtherPrompt: firstMessages.includes("beta"),
+          hasOwnPrompt: firstMessages.includes("alpha"),
+          hasOwnResponse: firstMessages.includes("first:first"),
+          metadata: firstPayload.metadata,
+          pendingResponses: first.getPendingResponseCount(),
+          systemPrompt: firstPayload.systemPrompt,
+        },
+        second: {
+          hasOtherPrompt: secondMessages.includes("alpha"),
+          hasOwnPrompt: secondMessages.includes("beta"),
+          hasOwnResponse: secondMessages.includes("second:second"),
+          metadata: secondPayload.metadata,
+          pendingResponses: second.getPendingResponseCount(),
+          systemPrompt: secondPayload.systemPrompt,
+        },
+      }).toStrictEqual({
+        first: {
+          hasOtherPrompt: false,
+          hasOwnPrompt: true,
+          hasOwnResponse: true,
+          metadata: { harness: "first" },
+          pendingResponses: 0,
+          systemPrompt: "first",
+        },
+        second: {
+          hasOtherPrompt: false,
+          hasOwnPrompt: true,
+          hasOwnResponse: true,
+          metadata: { harness: "second" },
+          pendingResponses: 0,
+          systemPrompt: "second",
+        },
+      });
+    } finally {
+      firstRelease.resolve(null);
+      secondRelease.resolve(null);
+      first.cleanup();
+      second.cleanup();
+    }
   });
 
   it("allows a new harness after cleanup", async () => {
@@ -202,6 +301,58 @@ describe("agent-session harness", () => {
     expect(harness.messages().map((message) => message.role)).toContain(
       "assistant"
     );
+  });
+
+  it("leaves faux auth unconfigured when requested", async () => {
+    harness = await createAgentSessionHarness({ withConfiguredAuth: false });
+    harness.setResponses([fauxAssistantMessage("unused")]);
+
+    await expect(harness.prompt("question")).rejects.toThrow(
+      "No API key found for faux"
+    );
+    expect(harness.getPendingResponseCount()).toBe(1);
+  });
+
+  it("preserves faux deferred responses and scripted errors", async () => {
+    harness = await createAgentSessionHarness();
+    const model = harness.faux.getModel();
+    harness.setResponses([fauxAssistantMessage("deferred answer")]);
+
+    const deferred = await harness.session.modelRuntime.completeSimple(
+      model,
+      { messages: [] },
+      { deferred: true }
+    );
+    if (!deferred.deferred) {
+      throw new Error("Expected faux provider to return a deferred handle");
+    }
+    const completed = await harness.session.modelRuntime.fetchDeferred(
+      model,
+      deferred.deferred
+    );
+
+    harness.setResponses([
+      () => {
+        throw new Error("scripted failure");
+      },
+    ]);
+    const failed = await harness.session.modelRuntime.completeSimple(model, {
+      messages: [],
+    });
+
+    expect({
+      completed: JSON.stringify(completed.content),
+      deferredFetchCount: harness.faux.state.deferredFetchCount,
+      deferredStopReason: deferred.stopReason,
+      errorMessage: failed.errorMessage,
+      errorStopReason: failed.stopReason,
+    }).toStrictEqual({
+      completed: '[{"type":"text","text":"deferred answer"}]',
+      deferredFetchCount: 1,
+      deferredStopReason: "deferred",
+      errorMessage: "scripted failure",
+      errorStopReason: "error",
+    });
   });
 
   it("cleans up temp resources", async () => {

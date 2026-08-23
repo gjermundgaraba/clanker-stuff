@@ -32,6 +32,18 @@ const extension = (pi: ExtensionAPI) => {
   pi.on("session_shutdown", (_event, ctx) => search.dispose(ctx));
 };
 
+const persistentSessionFile = (id: string, text: string, timestamp: number) =>
+  [
+    JSON.stringify({
+      cwd: "/project",
+      id: `${id}-session`,
+      timestamp: new Date(50).toISOString(),
+      type: "session",
+      version: 3,
+    }),
+    JSON.stringify(userEntry(id, null, text, timestamp)),
+  ].join("\n");
+
 const createHarness = async (
   entries: SessionEntry[] = [],
   sessionDirectory = path.join(
@@ -320,6 +332,51 @@ describe("reverse-search controller", () => {
       ),
       type: "error",
     });
+  });
+
+  it("reconciles files committed before a later import failure", async () => {
+    const sessionDirectory = path.join(agentDir, "sessions", "project");
+    const committedPath = path.join(sessionDirectory, "committed.jsonl");
+    const blockedPath = path.join(sessionDirectory, "blocked.jsonl");
+    await mkdir(sessionDirectory, { recursive: true });
+    await Promise.all([
+      writeFile(
+        committedPath,
+        persistentSessionFile("committed", "committed before failure", 300),
+        "utf-8"
+      ),
+      writeFile(
+        blockedPath,
+        persistentSessionFile("blocked", "blocked after commit", 200),
+        "utf-8"
+      ),
+    ]);
+    const { ctx, host } = await createHarness();
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("\u001B");
+
+    const blocker = openHistoryDatabase();
+    blocker.exec(`
+      CREATE TRIGGER block_later_history_import
+      BEFORE INSERT ON history
+      WHEN NEW.text = 'blocked after commit'
+      BEGIN
+        SELECT RAISE(FAIL, 'blocked later import write');
+      END;
+    `);
+    blocker.close();
+
+    await host.runCommand("reverse-i-search-import", "", ctx);
+    expect(host.getNotifications()).toContainEqual({
+      message: expect.stringContaining(
+        "Session history import failed: blocked later import write"
+      ),
+      type: "error",
+    });
+
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("committed before");
+    expect(ctx.ui.getEditorText()).toBe("committed before failure");
   });
 
   it("reloads a concurrent write committed while history is loading", async () => {

@@ -42,6 +42,13 @@ export const createReverseSearch = () => {
     ui.notify(`Prompt history persistence is unavailable${message}`, "warning");
   };
 
+  const replaceHistoryFromDatabase = (activeDatabase: DatabaseSync) => {
+    const nextVersion = getDataVersion(activeDatabase);
+    const nextHistory = loadHistory(activeDatabase);
+    history = nextHistory;
+    databaseVersion = nextVersion;
+  };
+
   const refreshHistory = (ui: ExtensionContext["ui"]) => {
     if (!database) {
       return;
@@ -49,8 +56,7 @@ export const createReverseSearch = () => {
     try {
       const nextVersion = getDataVersion(database);
       if (nextVersion !== databaseVersion) {
-        history = loadHistory(database);
-        databaseVersion = nextVersion;
+        replaceHistoryFromDatabase(database);
       }
     } catch (error) {
       warnPersistence(ui, error);
@@ -113,15 +119,18 @@ export const createReverseSearch = () => {
 
     try {
       const files = await pendingImport;
-      const nextVersion = getDataVersion(activeDatabase);
-      history = loadHistory(activeDatabase);
-      databaseVersion = nextVersion;
+      replaceHistoryFromDatabase(activeDatabase);
       ctx.ui.notify(
         `Imported ${history.length} history entries from ${files} session files.`,
         "info"
       );
     } catch (error) {
       if (!abort.signal.aborted) {
+        try {
+          replaceHistoryFromDatabase(activeDatabase);
+        } catch (reconciliationError) {
+          warnPersistence(ctx.ui, reconciliationError);
+        }
         const message = error instanceof Error ? `: ${error.message}` : "";
         ctx.ui.notify(`Session history import failed${message}`, "error");
       }

@@ -11,7 +11,7 @@ export const registerCodexTools = (
   for (const definition of tools.definitions) {
     pi.registerTool(definition);
   }
-  tools.publishOwner();
+  tools.registerOwner();
 
   pi.registerCommand("code-mode", {
     description: "Toggle GPT-5.6 Codex Code Mode",

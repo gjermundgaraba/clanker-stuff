@@ -63,10 +63,6 @@ importers:
       typebox:
         specifier: 1.3.7
         version: 1.3.7
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/codex-reverse-i-search:
     dependencies:
@@ -82,10 +78,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.84.2
         version: 0.84.2
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/codex-skills:
     dependencies:
@@ -95,10 +87,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.84.2
         version: 0.84.2
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/experimental/codex-provider:
     dependencies:
@@ -111,6 +99,9 @@ importers:
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../../packages/extension-paths
+      '@clanker-stuff/tool-owner-protocol':
+        specifier: workspace:^
+        version: link:../../../packages/tool-owner-protocol
       '@earendil-works/pi-ai':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -123,10 +114,21 @@ importers:
       typebox:
         specifier: 1.3.7
         version: 1.3.7
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+
+  pi/extensions/experimental/subagents:
+    dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../../packages/extension-paths
+      '@earendil-works/pi-ai':
+        specifier: 0.84.2
+        version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.84.2
+        version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+      typebox:
+        specifier: 1.3.7
+        version: 1.3.7
 
   pi/extensions/footer:
     dependencies:
@@ -148,10 +150,6 @@ importers:
       typebox:
         specifier: 1.3.7
         version: 1.3.7
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/mcp:
     dependencies:
@@ -183,9 +181,6 @@ importers:
       '@modelcontextprotocol/node':
         specifier: ^2.0.0
         version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.16)
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/plannotator:
     dependencies:
@@ -198,20 +193,12 @@ importers:
       typebox:
         specifier: 1.3.7
         version: 1.3.7
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/shell-resume-history:
     dependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/side:
     dependencies:
@@ -230,10 +217,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.84.2
         version: 0.84.2
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/stash:
     dependencies:
@@ -246,10 +229,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.84.2
         version: 0.84.2
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/timer:
     dependencies:
@@ -259,13 +238,12 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/tools:
     dependencies:
+      '@clanker-stuff/tool-owner-protocol':
+        specifier: workspace:^
+        version: link:../../packages/tool-owner-protocol
       '@earendil-works/pi-ai':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
@@ -296,10 +274,6 @@ importers:
       typebox:
         specifier: 1.3.7
         version: 1.3.7
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/extensions/voice:
     dependencies:
@@ -325,37 +299,27 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
   pi/packages/extension-paths:
     dependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 0.84.2
         version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
 
-  pi/packages/footer-protocol:
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+  pi/packages/footer-protocol: {}
 
-  pi/packages/lazy-singleton:
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+  pi/packages/lazy-singleton: {}
 
-  pi/packages/motion:
-    devDependencies:
-      vitest:
-        specifier: '*'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
+  pi/packages/motion: {}
+
+  pi/packages/tool-owner-protocol:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: 0.84.2
+        version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.84.2
+        version: 0.84.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
 
 packages:
 
@@ -3460,14 +3424,6 @@ snapshots:
     optionalDependencies:
       vite: 8.0.8(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.0)
 
-  '@vitest/mocker@4.1.10(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))':
-    dependencies:
-      '@vitest/spy': 4.1.10
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0)
-
   '@vitest/pretty-format@4.1.10':
     dependencies:
       tinyrainbow: 3.1.0
@@ -4601,19 +4557,6 @@ snapshots:
       jiti: 2.7.0
       yaml: 2.9.0
 
-  vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0):
-    dependencies:
-      lightningcss: 1.32.0
-      picomatch: 4.0.4
-      postcss: 8.5.9
-      rolldown: 1.0.0-rc.15
-      tinyglobby: 0.2.16
-    optionalDependencies:
-      '@types/node': 25.6.0
-      fsevents: 2.3.3
-      jiti: 2.7.0
-      yaml: 2.9.0
-
   vitest@4.1.10(@opentelemetry/api@1.9.0)(@types/node@24.13.3)(vite@8.0.8(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
@@ -4639,34 +4582,6 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/node': 24.13.3
-    transitivePeerDependencies:
-      - msw
-
-  vitest@4.1.10(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0)):
-    dependencies:
-      '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.10
-      '@vitest/runner': 4.1.10
-      '@vitest/snapshot': 4.1.10
-      '@vitest/spy': 4.1.10
-      '@vitest/utils': 4.1.10
-      es-module-lexer: 2.0.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.1
-      pathe: 2.0.3
-      picomatch: 4.0.4
-      std-env: 4.0.0
-      tinybench: 2.9.0
-      tinyexec: 1.2.4
-      tinyglobby: 0.2.16
-      tinyrainbow: 3.1.0
-      vite: 8.0.8(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.0
-      '@types/node': 25.6.0
     transitivePeerDependencies:
       - msw
 

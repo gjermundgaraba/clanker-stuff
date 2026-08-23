@@ -6,7 +6,7 @@ import type {
 import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
 
 import { SidePanel } from "./panel.js";
-import { createSideConversation } from "./session.js";
+import { createSideConversation, isSideActivityActive } from "./session.js";
 import type { SideSessionController } from "./session.js";
 
 const SIDE_STATUS_KEY = "side";
@@ -24,10 +24,16 @@ interface ActiveSide {
   unsubscribe?: () => void;
 }
 
+type ControllerLifecycle =
+  | { kind: "idle" }
+  | { context: ExtensionContext; kind: "opening" }
+  | { kind: "active"; side: ActiveSide }
+  | { kind: "stopped" };
+
 const updateStatus = (side: ActiveSide): void => {
   let color: "accent" | "dim" | "success" | "warning" = "accent";
   let label = "active";
-  if (side.conversation.state.isRunning) {
+  if (isSideActivityActive(side.conversation.state.activity)) {
     color = "warning";
     label = "working";
   } else if (side.unread) {
@@ -52,9 +58,10 @@ const restore = (side: ActiveSide): void => {
 };
 
 export const createSideController = (pi: ExtensionAPI) => {
-  let active: ActiveSide | undefined;
-  let opening = false;
-  let sessionGeneration = 0;
+  let lifecycle: ControllerLifecycle = { kind: "idle" };
+
+  const activeSide = (): ActiveSide | undefined =>
+    lifecycle.kind === "active" ? lifecycle.side : undefined;
 
   const hide = (side: ActiveSide): void => {
     side.hidden = true;
@@ -95,8 +102,8 @@ export const createSideController = (pi: ExtensionAPI) => {
       return;
     }
     side.disposed = true;
-    if (active === side) {
-      active = undefined;
+    if (lifecycle.kind === "active" && lifecycle.side === side) {
+      lifecycle = { kind: "idle" };
     }
     side.unsubscribe?.();
     side.unsubscribe = undefined;
@@ -120,6 +127,7 @@ export const createSideController = (pi: ExtensionAPI) => {
     }
 
     const prompt = args.trim();
+    const active = activeSide();
     if (active) {
       restore(active);
       if (prompt) {
@@ -127,16 +135,19 @@ export const createSideController = (pi: ExtensionAPI) => {
       }
       return;
     }
-    if (opening) {
+    if (lifecycle.kind === "opening") {
       ctx.ui.notify(
         "Side is still opening. Use its editor once ready.",
         "info"
       );
       return;
     }
+    if (lifecycle.kind === "stopped") {
+      return;
+    }
 
-    opening = true;
-    const openingGeneration = sessionGeneration;
+    const opening = { context: ctx, kind: "opening" } as const;
+    lifecycle = opening;
     ctx.ui.setStatus(
       SIDE_STATUS_KEY,
       ctx.ui.theme.fg("warning", "SIDE ● opening")
@@ -146,18 +157,18 @@ export const createSideController = (pi: ExtensionAPI) => {
     try {
       conversation = await createSideConversation(ctx, pi.getThinkingLevel());
     } catch (error) {
-      opening = false;
-      ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
-      ctx.ui.notify(
-        `Failed to open side: ${error instanceof Error ? error.message : String(error)}`,
-        "error"
-      );
+      if (lifecycle === opening) {
+        lifecycle = { kind: "idle" };
+        ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
+        ctx.ui.notify(
+          `Failed to open side: ${error instanceof Error ? error.message : String(error)}`,
+          "error"
+        );
+      }
       return;
     }
-    opening = false;
 
-    if (openingGeneration !== sessionGeneration) {
-      ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
+    if (lifecycle !== opening) {
       await conversation.dispose();
       return;
     }
@@ -169,11 +180,11 @@ export const createSideController = (pi: ExtensionAPI) => {
       hidden: false,
       unread: false,
     };
-    active = side;
+    lifecycle = { kind: "active", side };
 
     side.unsubscribe = conversation.subscribe(() => {
       if (
-        !conversation.state.isRunning &&
+        !isSideActivityActive(conversation.state.activity) &&
         (side.hidden || side.handle?.isFocused() !== true)
       ) {
         side.unread = true;
@@ -257,7 +268,12 @@ export const createSideController = (pi: ExtensionAPI) => {
 
   return {
     closeOnTreeChange: async (ctx: ExtensionContext): Promise<void> => {
-      sessionGeneration += 1;
+      if (lifecycle.kind === "opening") {
+        lifecycle = { kind: "idle" };
+        ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
+        return;
+      }
+      const active = activeSide();
       if (!active) {
         return;
       }
@@ -265,13 +281,20 @@ export const createSideController = (pi: ExtensionAPI) => {
       await disposeSide(active);
     },
     dispose: async (): Promise<void> => {
-      sessionGeneration += 1;
-      if (active) {
-        await disposeSide(active);
+      const previous = lifecycle;
+      const active = activeSide();
+      lifecycle = { kind: "stopped" };
+      if (previous.kind === "opening") {
+        previous.context.ui.setStatus(SIDE_STATUS_KEY, undefined);
       }
+      if (!active) {
+        return;
+      }
+      await disposeSide(active);
     },
     launch,
     toggle: (ctx: ExtensionContext): Promise<void> => {
+      const active = activeSide();
       if (active) {
         toggleFocus(active);
         return Promise.resolve();

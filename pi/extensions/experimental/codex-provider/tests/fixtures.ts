@@ -3,7 +3,9 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 export const sse = (events: readonly unknown[]) =>
   new Response(
     events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
-    { headers: { "content-type": "text/event-stream" } }
+    {
+      headers: { "content-type": "text/event-stream" },
+    }
   );
 
 export const responseEvents = (id: string, text: string, endTurn?: boolean) => {

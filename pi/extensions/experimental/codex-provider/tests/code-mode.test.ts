@@ -11,7 +11,12 @@ import {
   renderComponent,
 } from "../../../../tests/harness/tui.js";
 import { CodeModeHostClient } from "../code-mode/host-client.js";
-import { parseExecSource } from "../code-mode/protocol.js";
+import {
+  nestedToolKey,
+  parseExecSource,
+  parseHostMessage,
+  toWireToolDefinition,
+} from "../code-mode/protocol.js";
 import {
   CodeModeRuntime,
   toNestedTool,
@@ -20,7 +25,98 @@ import {
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 
+const executeCode = (
+  runtime: CodeModeRuntime,
+  signal = new AbortController().signal
+) => {
+  const execute = runtime.createTools().find((tool) => tool.name === "exec");
+  if (!execute) {
+    throw new Error("exec tool is missing");
+  }
+  return execute.execute(
+    "call-1",
+    { code: 'text("ok")' },
+    signal,
+    () => {},
+    {} as never
+  );
+};
+
+const createHostClientStub = () => {
+  const execute = vi.fn<CodeModeHostClient["execute"]>(async () => ({
+    cellId: "cell-1",
+    contentItems: [],
+    kind: "result" as const,
+  }));
+  const shutdown = vi.fn<CodeModeHostClient["shutdown"]>(async () => {});
+  return {
+    client: { execute, shutdown } as unknown as CodeModeHostClient,
+    execute,
+    shutdown,
+  };
+};
+
 describe("Codex code mode", () => {
+  it("preserves nested wire identity", () => {
+    const nested = toNestedTool({
+      definition: {
+        description: "test",
+        execute: async () => ({ content: [], details: {} }),
+        label: "test",
+        name: "spawn_agent",
+        parameters: Type.Object({}, { additionalProperties: false }),
+      },
+      namespace: "pi_subagents",
+      outputSchema: {
+        additionalProperties: false,
+        properties: {
+          agent_id: { type: "string" },
+          nickname: { type: ["string", "null"] },
+        },
+        required: ["agent_id", "nickname"],
+        type: "object",
+      },
+    });
+    expect(toWireToolDefinition(nested)).toMatchObject({
+      kind: "function",
+      name: "pi_subagents__spawn_agent",
+      output_schema: expect.objectContaining({
+        additionalProperties: false,
+        required: ["agent_id", "nickname"],
+      }),
+      tool_name: {
+        name: "spawn_agent",
+        namespace: "pi_subagents",
+      },
+    });
+  });
+
+  it("keeps namespace identity on delegated calls", () => {
+    const message = parseHostMessage({
+      id: 7,
+      request: {
+        invocation: {
+          cell_id: "cell",
+          runtime_tool_call_id: "call",
+          tool_name: { name: "search", namespace: "one" },
+        },
+        type: "tool/invoke",
+      },
+      type: "delegate/request",
+    });
+
+    expect(message).toMatchObject({
+      request: {
+        invocation: {
+          tool_name: { name: "search", namespace: "one" },
+        },
+      },
+    });
+    expect(nestedToolKey({ name: "search", namespace: "one" })).not.toBe(
+      nestedToolKey({ name: "search", namespace: "two" })
+    );
+  });
+
   it.skipIf(process.platform === "win32")(
     "aborts a host startup that never handshakes",
     async () => {
@@ -44,6 +140,99 @@ describe("Codex code mode", () => {
     }
   );
 
+  it("closes an in-flight client instead of publishing it after shutdown", async () => {
+    const starting = Promise.withResolvers<CodeModeHostClient>();
+    const factory = vi.fn<
+      (signal: AbortSignal | undefined) => Promise<CodeModeHostClient>
+    >(async () => await starting.promise);
+    const runtime = new CodeModeRuntime({ createClient: factory });
+    const execution = executeCode(runtime);
+    const stub = createHostClientStub();
+
+    const shutdown = runtime.shutdown();
+    starting.resolve(stub.client);
+
+    await shutdown;
+    await expect(execution).rejects.toThrow("Code Mode runtime is stopped");
+    await expect(executeCode(runtime)).rejects.toThrow(
+      "Code Mode runtime is stopped"
+    );
+    expect(stub.execute).not.toHaveBeenCalled();
+    expect(stub.shutdown).toHaveBeenCalledOnce();
+    expect(factory).toHaveBeenCalledOnce();
+  });
+
+  it("coalesces concurrent client startup and shutdown", async () => {
+    const shared = createHostClientStub();
+    const starting = Promise.withResolvers<CodeModeHostClient>();
+    const sharedFactory = vi.fn<
+      (signal: AbortSignal | undefined) => Promise<CodeModeHostClient>
+    >(async () => await starting.promise);
+    const sharedRuntime = new CodeModeRuntime({
+      createClient: sharedFactory,
+    });
+    const first = executeCode(sharedRuntime);
+    const second = executeCode(sharedRuntime);
+
+    starting.resolve(shared.client);
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(sharedFactory).toHaveBeenCalledOnce();
+    expect(shared.execute).toHaveBeenCalledTimes(2);
+    await Promise.all([sharedRuntime.shutdown(), sharedRuntime.shutdown()]);
+    expect(shared.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("keeps shared client startup alive when one caller aborts", async () => {
+    const starting = Promise.withResolvers<CodeModeHostClient>();
+    let lifetimeSignal: AbortSignal | undefined;
+    const factory = vi.fn<(signal: AbortSignal) => Promise<CodeModeHostClient>>(
+      async (signal) => {
+        lifetimeSignal = signal;
+        return await starting.promise;
+      }
+    );
+    const runtime = new CodeModeRuntime({ createClient: factory });
+    const controller = new AbortController();
+    const first = executeCode(runtime, controller.signal);
+    const firstResult = (async (): Promise<unknown> => {
+      try {
+        return await first;
+      } catch (error) {
+        return error;
+      }
+    })();
+    const second = executeCode(runtime);
+    const stub = createHostClientStub();
+
+    controller.abort();
+    await expect(firstResult).resolves.toMatchObject({ name: "AbortError" });
+    expect(lifetimeSignal?.aborted).toBeFalsy();
+
+    starting.resolve(stub.client);
+    await expect(second).resolves.toBeDefined();
+
+    await runtime.shutdown();
+    expect({
+      execute: stub.execute.mock.calls.length,
+      factory: factory.mock.calls.length,
+      shutdown: stub.shutdown.mock.calls.length,
+    }).toStrictEqual({ execute: 1, factory: 1, shutdown: 1 });
+  });
+
+  it("retries client creation after a startup failure", async () => {
+    const retry = createHostClientStub();
+    const retryFactory = vi
+      .fn<() => Promise<CodeModeHostClient>>()
+      .mockRejectedValueOnce(new Error("start failed"))
+      .mockResolvedValueOnce(retry.client);
+    const retryRuntime = new CodeModeRuntime({ createClient: retryFactory });
+    await expect(executeCode(retryRuntime)).rejects.toThrow("start failed");
+    await expect(executeCode(retryRuntime)).resolves.toBeDefined();
+    expect(retryFactory).toHaveBeenCalledTimes(2);
+    await retryRuntime.shutdown();
+    expect(retry.shutdown).toHaveBeenCalledOnce();
+  });
+
   it("provides native-style runtime and nested tool instructions", () => {
     const runtime = new CodeModeRuntime();
     const definition = {
@@ -56,7 +245,8 @@ describe("Codex code mode", () => {
         { additionalProperties: false }
       ),
     };
-    const tools = runtime.createTools([definition]);
+    runtime.setNestedTools([{ definition }]);
+    const tools = runtime.createTools();
 
     expect(tools.find((tool) => tool.name === "exec")?.description).toContain(
       "fresh V8 isolate as an async module"
@@ -64,17 +254,24 @@ describe("Codex code mode", () => {
     expect(tools.find((tool) => tool.name === "wait")?.description).toContain(
       "returns only new output since the last yield"
     );
-    expect(runtime.prompt([definition])).toContain(
+    expect(runtime.prompt()).toContain(
       "### `test`\nRuns a test operation.\n\nUsage: `await tools.test(input)`"
     );
-    expect(runtime.prompt([{ ...definition, name: "exec_command" }])).toContain(
-      "result.output"
+    runtime.setNestedTools([
+      { definition: { ...definition, name: "exec_command" } },
+      { definition: { ...definition, name: "write_stdin" } },
+    ]);
+    expect(runtime.prompt()).toContain(
+      "yield_time_ms?: number, max_output_tokens?: number"
+    );
+    expect(runtime.prompt()).toContain(
+      "chars?: string, yield_time_ms?: number, max_output_tokens?: number"
     );
   });
 
   it("renders semantic execution status transitions", () => {
     const renderResult = new CodeModeRuntime()
-      .createTools([])
+      .createTools()
       .find((tool) => tool.name === "exec")?.renderResult;
     if (!renderResult) {
       throw new Error("exec renderer is missing");
@@ -155,14 +352,16 @@ describe("Codex code mode", () => {
       details: {},
     }));
     const nested = toNestedTool({
-      description: "test",
-      execute,
-      label: "test",
-      name: "test",
-      parameters: Type.Object(
-        { value: Type.String() },
-        { additionalProperties: false }
-      ),
+      definition: {
+        description: "test",
+        execute,
+        label: "test",
+        name: "test",
+        parameters: Type.Object(
+          { value: Type.String() },
+          { additionalProperties: false }
+        ),
+      },
     });
     const context = {
       cwd: "/tmp",
@@ -183,19 +382,128 @@ describe("Codex code mode", () => {
     ).resolves.toBe("ok");
   });
 
+  it("returns declared structured nested results as values", async () => {
+    const nested = toNestedTool({
+      definition: {
+        description: "test",
+        execute: async () => ({
+          content: [
+            {
+              text: JSON.stringify({ agent_id: "agent-1", nickname: "Scout" }),
+              type: "text" as const,
+            },
+          ],
+          details: { hostOnly: true },
+        }),
+        label: "test",
+        name: "spawn_agent",
+        parameters: Type.Object({}, { additionalProperties: false }),
+      },
+      namespace: "pi_subagents",
+      outputSchema: { type: "object" },
+    });
+
+    await expect(
+      nested.invoke(
+        {},
+        { extensionContext: {} as never },
+        new AbortController().signal
+      )
+    ).resolves.toStrictEqual({
+      agent_id: "agent-1",
+      nickname: "Scout",
+    });
+  });
+
+  it("rejects invalid declared structured nested results", async () => {
+    const nested = toNestedTool({
+      definition: {
+        description: "test",
+        execute: async () => ({
+          content: [{ text: "not json", type: "text" as const }],
+          details: {},
+        }),
+        label: "test",
+        name: "spawn_agent",
+        parameters: Type.Object({}, { additionalProperties: false }),
+      },
+      outputSchema: { type: "object" },
+    });
+
+    await expect(
+      nested.invoke(
+        {},
+        { extensionContext: {} as never },
+        new AbortController().signal
+      )
+    ).rejects.toThrow("declared structured output but returned invalid JSON");
+  });
+
+  it("preserves grammar-constrained tools as freeform nested calls", async () => {
+    const execute = vi.fn<
+      (
+        id: string,
+        params: { patch: string }
+      ) => Promise<{
+        content: { text: string; type: "text" }[];
+        details: object;
+      }>
+    >(async (_id, params) => ({
+      content: [{ text: params.patch, type: "text" }],
+      details: {},
+    }));
+    const nested = toNestedTool({
+      definition: {
+        constrainedSampling: {
+          type: "grammar",
+          variants: { openai_lark: "start: /.+/" },
+        },
+        description: "Apply a patch.",
+        execute,
+        label: "Apply Patch",
+        name: "apply_patch",
+        parameters: Type.Object(
+          { patch: Type.String() },
+          { additionalProperties: false }
+        ),
+      },
+    });
+
+    expect(toWireToolDefinition(nested)).toMatchObject({
+      input_schema: null,
+      kind: "freeform",
+    });
+    await expect(
+      nested.invoke(
+        "*** Begin Patch\n*** End Patch",
+        { extensionContext: {} as never },
+        new AbortController().signal
+      )
+    ).resolves.toContain("*** Begin Patch");
+    expect(execute).toHaveBeenCalledWith(
+      expect.any(String),
+      { patch: "*** Begin Patch\n*** End Patch" },
+      expect.any(AbortSignal),
+      expect.any(Function),
+      expect.anything()
+    );
+  });
+
   it("rejects text returned by nested view_image", async () => {
     const nested = toNestedTool({
-      description: "test",
-      execute: async () => ({
-        content: [{ text: "<svg/>", type: "text" as const }],
-        details: {},
-      }),
-      label: "test",
-      name: "view_image",
-      parameters: Type.Object(
-        { path: Type.String() },
-        { additionalProperties: false }
-      ),
+      definition: {
+        description: "test",
+        execute: async () => ({
+          content: [{ text: "<svg/>", type: "text" as const }],
+          details: {},
+        }),
+        label: "test",
+        name: "view_image",
+        parameters: Type.Object(
+          { path: Type.String() },
+          { additionalProperties: false }
+        ),
+      },
     });
 
     await expect(

@@ -13,6 +13,7 @@ import type {
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Focusable, TUI } from "@earendil-works/pi-tui";
 
+import { isSideActivityActive } from "./session.js";
 import type { SideSessionController, SideTranscriptItem } from "./session.js";
 
 // oxlint-disable-next-line eslint/no-control-regex -- OSC 133 uses ESC and BEL control characters.
@@ -131,7 +132,7 @@ export class SidePanel implements Focusable {
     const border = (text: string) => this.theme.fg(borderColor, text);
     const row = (text: string) =>
       `${border("│")}${pad(` ${text}`, innerWidth)}${border("│")}`;
-    const sideState = this.conversation.state.isRunning
+    const sideState = isSideActivityActive(this.conversation.state.activity)
       ? `${this.actions.getWorkingMarker()} working`
       : "· ready";
     const mainState = this.actions.getMainWorking() ? "working" : "idle";
@@ -250,10 +251,9 @@ export class SidePanel implements Focusable {
     for (const item of this.conversation.state.transcript) {
       lines.push(...this.renderTranscriptItem(item, width), "");
     }
-    if (this.conversation.state.streamingMessage) {
-      lines.push(
-        ...renderAssistant(this.conversation.state.streamingMessage, width)
-      );
+    const { activity } = this.conversation.state;
+    if (activity.kind === "streaming") {
+      lines.push(...renderAssistant(activity.message, width));
     }
     if (lines.at(-1) === "") {
       lines.pop();

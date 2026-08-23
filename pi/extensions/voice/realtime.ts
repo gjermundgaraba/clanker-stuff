@@ -256,6 +256,19 @@ export interface VoiceSessionOptions {
   trace?: VoiceTrace;
 }
 
+type RenewalState =
+  | { kind: "idle" }
+  | { kind: "due" }
+  | { kind: "requested" }
+  | {
+      kind: "scheduled";
+      timer: ReturnType<typeof setTimeout>;
+    }
+  | {
+      kind: "retry_scheduled";
+      timer: ReturnType<typeof setTimeout>;
+    };
+
 export class VoiceSession {
   private active: RealtimeControl | undefined;
   private creating: RealtimeControl | undefined;
@@ -265,10 +278,7 @@ export class VoiceSession {
   private readonly inFlightDelegations = new Set<string>();
   private readonly options: VoiceSessionOptions;
   private pending: RealtimeControl | undefined;
-  private renewDue = false;
-  private renewalRequested = false;
-  private renewRetryTimer: ReturnType<typeof setTimeout> | undefined;
-  private renewTimer: ReturnType<typeof setTimeout> | undefined;
+  private renewal: RenewalState = { kind: "idle" };
   private readonly sessionId = randomUUID();
 
   constructor(options: VoiceSessionOptions) {
@@ -341,8 +351,6 @@ export class VoiceSession {
     this.pending = undefined;
     this.active.mediaReady();
     previous?.close();
-    this.renewDue = false;
-    this.renewalRequested = false;
     this.options.onState("active");
     this.armRenewTimer();
   }
@@ -350,13 +358,15 @@ export class VoiceSession {
   abortRenew(): void {
     this.pending?.close();
     this.pending = undefined;
-    this.renewalRequested = false;
-    if (this.renewDue) {
-      if (this.inFlightDelegations.size > 0) {
-        return;
-      }
-      this.scheduleRenewRetry();
+    if (this.renewal.kind === "idle" || this.renewal.kind === "scheduled") {
+      return;
     }
+    if (this.inFlightDelegations.size > 0) {
+      this.clearRenewalTimer();
+      this.renewal = { kind: "due" };
+      return;
+    }
+    this.scheduleRenewRetry();
   }
 
   recentTranscript(): TranscriptEntry[] {
@@ -456,51 +466,54 @@ export class VoiceSession {
   }
 
   private armRenewTimer(): void {
-    this.clearRenewTimer();
-    this.renewDue = false;
-    this.renewTimer = setTimeout(() => {
-      this.renewTimer = undefined;
-      this.renewDue = true;
+    this.clearRenewalTimer();
+    const timer = setTimeout(() => {
+      if (this.renewal !== scheduled) {
+        return;
+      }
+      this.renewal = { kind: "due" };
       this.requestRenewalIfReady();
     }, DEFAULT_RENEW_AFTER_MS);
-    this.renewTimer.unref?.();
+    const scheduled = { kind: "scheduled", timer } as const;
+    this.renewal = scheduled;
+    timer.unref?.();
   }
 
-  private clearRenewTimer(): void {
-    if (this.renewTimer !== undefined) {
-      clearTimeout(this.renewTimer);
-      this.renewTimer = undefined;
+  private clearRenewalTimer(): void {
+    if (
+      this.renewal.kind === "scheduled" ||
+      this.renewal.kind === "retry_scheduled"
+    ) {
+      clearTimeout(this.renewal.timer);
     }
   }
 
   private requestRenewalIfReady(): void {
     if (
-      !this.renewDue ||
-      this.renewalRequested ||
+      (this.renewal.kind !== "due" &&
+        this.renewal.kind !== "retry_scheduled") ||
       this.inFlightDelegations.size > 0 ||
       !this.active
     ) {
       return;
     }
-    this.clearRenewRetryTimer();
-    this.renewalRequested = true;
+    this.clearRenewalTimer();
+    this.renewal = { kind: "requested" };
     this.options.onRenewDue();
   }
 
   private scheduleRenewRetry(): void {
-    this.clearRenewRetryTimer();
-    this.renewRetryTimer = setTimeout(() => {
-      this.renewRetryTimer = undefined;
+    this.clearRenewalTimer();
+    const timer = setTimeout(() => {
+      if (this.renewal !== scheduled) {
+        return;
+      }
+      this.renewal = { kind: "due" };
       this.requestRenewalIfReady();
     }, RENEW_RETRY_MS);
-    this.renewRetryTimer.unref?.();
-  }
-
-  private clearRenewRetryTimer(): void {
-    if (this.renewRetryTimer !== undefined) {
-      clearTimeout(this.renewRetryTimer);
-      this.renewRetryTimer = undefined;
-    }
+    const scheduled = { kind: "retry_scheduled", timer } as const;
+    this.renewal = scheduled;
+    timer.unref?.();
   }
 
   private sendHandoffMessage(
@@ -525,8 +538,7 @@ export class VoiceSession {
 
   private closeCalls(): void {
     this.generation += 1;
-    this.clearRenewTimer();
-    this.clearRenewRetryTimer();
+    this.clearRenewalTimer();
     this.creating?.close();
     this.active?.close();
     this.pending?.close();
@@ -534,8 +546,7 @@ export class VoiceSession {
     this.active = undefined;
     this.pending = undefined;
     this.inFlightDelegations.clear();
-    this.renewDue = false;
-    this.renewalRequested = false;
+    this.renewal = { kind: "idle" };
   }
 }
 

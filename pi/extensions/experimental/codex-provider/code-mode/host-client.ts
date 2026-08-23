@@ -9,6 +9,7 @@ import { CodeModeDelegateRuntime } from "./delegate-runtime.js";
 import {
   DEFAULT_CODE_MODE_EXEC_YIELD_MS,
   executionCellId,
+  nestedToolKey,
   parseExecSource,
   parseHostMessage,
   parseRuntimeResponse,
@@ -99,7 +100,15 @@ export class CodeModeHostClient {
     const initial = Promise.withResolvers<unknown>();
     this.initial.set(id, initial);
     void initial.promise.catch(() => null);
-    const toolSet = new Map(tools.map((tool) => [tool.definition.name, tool]));
+    const toolSet = new Map(
+      tools.map((tool) => [
+        nestedToolKey({
+          name: tool.definition.name,
+          namespace: tool.namespace,
+        }),
+        tool,
+      ])
+    );
     const started = this.requestWithId(
       id,
       {

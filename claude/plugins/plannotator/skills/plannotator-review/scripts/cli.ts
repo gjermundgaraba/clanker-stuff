@@ -13,6 +13,7 @@ export type CliCompletion =
 export interface CliProcess {
   cancel: () => void;
   completion: Promise<CliCompletion>;
+  readonly signal: AbortSignal;
 }
 
 export interface CliStartOptions {
@@ -52,10 +53,31 @@ export const startCli = (
   child.stdout.setEncoding("utf-8");
   child.stderr.setEncoding("utf-8");
 
-  let cancelled = false;
+  const controller = new AbortController();
   let stdout = "";
   let stderr = "";
   let killTimer: ReturnType<typeof setTimeout> | undefined;
+  const terminate = (): void => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      return;
+    }
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      return;
+    }
+    killTimer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Cancellation is best-effort and must not throw.
+        }
+      }
+    }, 1000);
+    killTimer.unref();
+  };
+  controller.signal.addEventListener("abort", terminate, { once: true });
 
   const {
     promise: completion,
@@ -75,11 +97,12 @@ export const startCli = (
     child.stdin.end(options.stdin);
   });
   child.once("close", (code, signal) => {
+    controller.signal.removeEventListener("abort", terminate);
     if (killTimer !== undefined) {
       clearTimeout(killTimer);
       killTimer = undefined;
     }
-    if (cancelled) {
+    if (controller.signal.aborted) {
       resolve({ kind: "cancelled" });
       return;
     }
@@ -96,17 +119,11 @@ export const startCli = (
 
   return {
     cancel() {
-      cancelled = true;
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGTERM");
-        killTimer = setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
-          }
-        }, 1000);
-        killTimer.unref();
+      if (!controller.signal.aborted) {
+        controller.abort();
       }
     },
     completion,
+    signal: controller.signal,
   };
 };

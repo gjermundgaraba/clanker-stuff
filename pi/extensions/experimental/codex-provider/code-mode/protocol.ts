@@ -8,15 +8,23 @@ import type {
 
 export const MAX_CODE_MODE_OUTPUT_TOKENS = 100_000;
 export const DEFAULT_CODE_MODE_OUTPUT_TOKENS = 10_000;
-export const DEFAULT_CODE_MODE_EXEC_YIELD_MS = 30_000;
+export const DEFAULT_CODE_MODE_EXEC_YIELD_MS = 10_000;
+
+export const nestedToolKey = (toolName: {
+  name: string;
+  namespace?: null | string;
+}): string => `${toolName.namespace ?? "functions"}\0${toolName.name}`;
 
 export const toWireToolDefinition = (tool: NestedTool) => ({
   description: [`Usage: ${tool.usage}`, tool.definition.description].join("\n"),
-  input_schema: tool.definition.parameters,
-  kind: "function",
-  name: tool.definition.name,
-  output_schema: null,
-  tool_name: { name: tool.definition.name, namespace: null },
+  input_schema: tool.kind === "freeform" ? null : tool.definition.parameters,
+  kind: tool.kind,
+  name: tool.name,
+  output_schema: tool.outputSchema ?? null,
+  tool_name: {
+    name: tool.definition.name,
+    namespace: tool.namespace ?? null,
+  },
 });
 
 export const parseExecSource = (
@@ -144,7 +152,7 @@ export interface DelegateRequestMessage {
           cell_id: string;
           input?: unknown;
           runtime_tool_call_id: string;
-          tool_name: { name: string };
+          tool_name: { name: string; namespace: null | string };
         };
       };
 }
@@ -240,7 +248,8 @@ const parseDelegateRequest = (
     typeof invocation.cell_id !== "string" ||
     typeof invocation.runtime_tool_call_id !== "string" ||
     !isRecord(toolName) ||
-    typeof toolName.name !== "string"
+    typeof toolName.name !== "string" ||
+    !(toolName.namespace === null || typeof toolName.namespace === "string")
   ) {
     throw new Error("Code-mode host returned an invalid tool invocation");
   }
@@ -250,7 +259,10 @@ const parseDelegateRequest = (
       invocation: {
         cell_id: invocation.cell_id,
         runtime_tool_call_id: invocation.runtime_tool_call_id,
-        tool_name: { name: toolName.name },
+        tool_name: {
+          name: toolName.name,
+          namespace: toolName.namespace,
+        },
         ...(invocation.input === undefined ? {} : { input: invocation.input }),
       },
       type: "tool/invoke",

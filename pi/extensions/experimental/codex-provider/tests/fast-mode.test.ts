@@ -23,16 +23,7 @@ describe("Codex fast mode", () => {
   let tempRoot: string;
 
   const createHost = (flags?: Record<string, boolean | string>) =>
-    createExtensionHost(
-      (pi) => {
-        Object.assign(pi, {
-          registerEntryRenderer: vi.fn<() => void>(),
-          registerProvider: vi.fn<() => void>(),
-        });
-        extension(pi);
-      },
-      { flags, model: FAST_MODEL }
-    );
+    createExtensionHost(extension, { flags, model: FAST_MODEL });
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), "codex-fast-"));
@@ -130,6 +121,7 @@ describe("Codex fast mode", () => {
     const host = createExtensionHost((pi) => {
       api = pi;
     });
+    await host.ready;
     if (api === undefined) {
       throw new Error("Extension API was not initialized");
     }
@@ -169,6 +161,7 @@ describe("Codex fast mode", () => {
     const host = createExtensionHost((pi) => {
       api = pi;
     });
+    await host.ready;
     if (api === undefined) {
       throw new Error("Extension API was not initialized");
     }
@@ -207,6 +200,7 @@ describe("Codex fast mode", () => {
     const host = createExtensionHost((pi) => {
       api = pi;
     });
+    await host.ready;
     if (api === undefined) {
       throw new Error("Extension API was not initialized");
     }

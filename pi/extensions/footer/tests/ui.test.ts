@@ -224,6 +224,47 @@ describe("footer editor", () => {
     expect(editor.render(80).join("\n")).not.toContain("Omitted");
   });
 
+  it("opens the picker for the selected non-first-row cell", () => {
+    let preview: FooterConfig | undefined;
+    const editor = new FooterEditor(
+      createIdentityTheme(),
+      vi.fn<() => void>(),
+      vi.fn<(value: null) => void>(),
+      {
+        loaded: {
+          config: {
+            enabled: true,
+            iconFamily: "unicode",
+            rows: [
+              { center: [], left: [], right: [] },
+              { center: [], left: [], right: [] },
+            ],
+            separator: "·",
+            version: 1,
+            widgets: {},
+          },
+        },
+        onPreview: (config) => {
+          preview = config;
+        },
+        onSave: async () => {
+          await Promise.resolve();
+        },
+        renderPreview: () => [],
+        widgets: [{ id: "example", label: "Example" }],
+      }
+    );
+
+    for (let index = 0; index < 5; index += 1) {
+      editor.handleInput("\u001B[C");
+    }
+    editor.handleInput("\r");
+    expect(editor.render(80).join("\n")).toContain("Add · row 2 right");
+    editor.handleInput("\r");
+
+    expect(preview?.rows[1]?.right).toStrictEqual(["example"]);
+  });
+
   it("adds and removes aggregate placements as real chips", () => {
     let preview: FooterConfig | undefined;
     const editor = new FooterEditor(

@@ -26,27 +26,35 @@ interface RunningShell {
 }
 
 interface ProcessSession {
-  createdAt: number;
   exitPromise: Promise<void>;
+  readonly lifecycle:
+    | { status: "running" }
+    | { status: "exited"; exitCode: number | null }
+    | { status: "killed"; exitCode: number | null };
   output: { current: ProcessOutput };
   process: RunningShell;
-  status: {
-    exitCode: number | null;
-    exited: boolean;
-    reason: ExitReason;
-  };
 }
 
-export interface ProcessResult {
+interface ProcessResultBase {
   durationMs: number;
-  exitCode: number | null;
   fullOutputPath?: string;
   output: string;
-  running: boolean;
-  sessionId?: number;
-  status: "exited" | "killed" | "running";
   truncation?: TruncationResult;
 }
+
+export type ProcessResult =
+  | (ProcessResultBase & {
+      exitCode: null;
+      running: true;
+      sessionId: number;
+      status: "running";
+    })
+  | (ProcessResultBase & {
+      exitCode: number | null;
+      running: false;
+      sessionId?: never;
+      status: "exited" | "killed";
+    });
 
 // ponytail: global cap; add per-profile limits or TTL eviction only if real workloads need them.
 const MAX_SESSIONS = 32;
@@ -228,7 +236,7 @@ const wait = async (
   };
   signal?.addEventListener("abort", abort, { once: true });
   try {
-    if (!session.status.exited) {
+    if (session.lifecycle.status === "running") {
       if (yieldMs === undefined) {
         await session.exitPromise;
       } else {
@@ -261,50 +269,36 @@ const drainOutput = async (session: ProcessSession, exited: boolean) => {
 };
 
 const formatOutput = async (
-  session: ProcessSession
+  session: ProcessSession,
+  sessionId: number,
+  durationMs: number
 ): Promise<ProcessResult> => {
   // Freeze status before the async file flush. If the process exits during the
   // flush, keep the session for one final poll so no late output is dropped.
-  const { exitCode, exited, reason } = session.status;
-  const snapshot = await drainOutput(session, exited);
-  let processStatus: ProcessResult["status"] = "running";
-  let status = "Process is still running.";
-  if (reason === "killed") {
-    processStatus = "killed";
-    status = "Process was killed.";
-  } else if (exited) {
-    processStatus = "exited";
-    status = `Process exited with code ${exitCode ?? "unknown"}.`;
-  }
-  const notices = [
-    snapshot.truncation.truncated
-      ? `Output truncated to the last ${snapshot.truncation.outputLines} lines.`
-      : undefined,
-    snapshot.fullOutputPath !== undefined && snapshot.fullOutputPath.length > 0
-      ? `Full output: ${snapshot.fullOutputPath}`
-      : undefined,
-  ].filter((notice): notice is string => notice !== undefined);
-  return {
-    durationMs: Date.now() - session.createdAt,
-    exitCode,
+  const { lifecycle } = session;
+  const snapshot = await drainOutput(session, lifecycle.status !== "running");
+  const base: ProcessResultBase = {
+    durationMs,
     fullOutputPath: snapshot.fullOutputPath,
-    output: `${snapshot.content.length > 0 ? `${snapshot.content}\n\n` : ""}${status}${
-      notices.length > 0 ? `\n\n[${notices.join(" ")}]` : ""
-    }`,
-    running: !exited,
-    status: processStatus,
+    output: snapshot.content,
     truncation: snapshot.truncation.truncated ? snapshot.truncation : undefined,
   };
+  if (lifecycle.status === "running") {
+    return {
+      ...base,
+      exitCode: null,
+      running: true,
+      sessionId,
+      status: "running",
+    };
+  }
+  return {
+    ...base,
+    exitCode: lifecycle.exitCode,
+    running: false,
+    status: lifecycle.status,
+  };
 };
-
-const identifySession = (
-  result: ProcessResult,
-  sessionId: number
-): ProcessResult => ({
-  ...result,
-  output: `${result.output}\n\nSession ID: ${sessionId}`,
-  sessionId,
-});
 
 export class ProcessManager {
   private disposed = false;
@@ -345,64 +339,57 @@ export class ProcessManager {
       await output.current.discard();
       throw new Error("Process manager is disposed");
     }
-    const status: ProcessSession["status"] = {
-      exitCode: null,
-      exited: false,
-      reason: "exit",
-    };
+    let lifecycle: ProcessSession["lifecycle"] = { status: "running" };
     const exitPromise = (async () => {
       try {
         const result = await process.completion;
-        status.exitCode = result.exitCode;
-        status.exited = true;
-        status.reason = result.reason;
+        lifecycle = {
+          exitCode: result.exitCode,
+          status: result.reason === "exit" ? "exited" : "killed",
+        };
       } catch (error) {
         output.current.append(
           Buffer.from(
             `${error instanceof Error ? error.message : String(error)}\n`
           )
         );
-        status.exited = true;
-        status.reason = "killed";
+        lifecycle = { exitCode: null, status: "killed" };
       }
     })();
     const session: ProcessSession = {
-      createdAt: Date.now(),
       exitPromise,
+      get lifecycle() {
+        return lifecycle;
+      },
       output,
       process,
-      status,
     };
     const sessionId = this.nextSessionId;
     this.nextSessionId += 1;
     this.sessions.set(sessionId, session);
 
-    try {
-      await wait(session, options.yieldMs, options.signal);
-    } catch (error) {
-      this.sessions.delete(sessionId);
-      process.kill();
-      await exitPromise;
-      await output.current.discard();
-      throw error;
-    }
-    const result = await formatOutput(session);
-    if (!result.running) {
-      this.sessions.delete(sessionId);
+    const result = await this.poll(
+      sessionId,
+      session,
+      options.yieldMs,
+      options.signal
+    );
+    if (result.status !== "running") {
       return result;
     }
     if (this.sessions.size > MAX_SESSIONS) {
       const entries = [...this.sessions].filter(([id]) => id !== sessionId);
       const candidate =
-        entries.find(([, storedSession]) => storedSession.status.exited) ??
-        entries[0];
+        entries.find(
+          ([, storedSession]) => storedSession.lifecycle.status !== "running"
+        ) ?? entries[0];
       const [candidateId, candidateSession] = candidate;
       this.sessions.delete(candidateId);
       candidateSession.process.kill();
       await candidateSession.exitPromise;
       await candidateSession.output.current.discard();
     }
-    return identifySession(result, sessionId);
+    return result;
   }
 
   async continue(options: {
@@ -424,21 +411,12 @@ export class ProcessManager {
       session.process.write(options.chars);
     }
 
-    try {
-      await wait(session, options.yieldMs, options.signal);
-    } catch (error) {
-      this.sessions.delete(options.sessionId);
-      session.process.kill();
-      await session.exitPromise;
-      await session.output.current.discard();
-      throw error;
-    }
-    const result = await formatOutput(session);
-    if (!result.running) {
-      this.sessions.delete(options.sessionId);
-      return result;
-    }
-    return identifySession(result, options.sessionId);
+    return await this.poll(
+      options.sessionId,
+      session,
+      options.yieldMs,
+      options.signal
+    );
   }
 
   async dispose(): Promise<void> {
@@ -454,5 +432,29 @@ export class ProcessManager {
         await session.output.current.discard();
       })
     );
+  }
+
+  private async poll(
+    sessionId: number,
+    session: ProcessSession,
+    yieldMs: number | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<ProcessResult> {
+    const startedAt = Date.now();
+    try {
+      await wait(session, yieldMs, signal);
+    } catch (error) {
+      this.sessions.delete(sessionId);
+      session.process.kill();
+      await session.exitPromise;
+      await session.output.current.discard();
+      throw error;
+    }
+    const durationMs = Date.now() - startedAt;
+    const result = await formatOutput(session, sessionId, durationMs);
+    if (result.status !== "running") {
+      this.sessions.delete(sessionId);
+    }
+    return result;
   }
 }

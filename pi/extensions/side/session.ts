@@ -37,12 +37,20 @@ export type SideTranscriptItem =
     }
   | { kind: "user"; text: string };
 
+export type SideActivity =
+  | { kind: "idle" }
+  | { kind: "submitting" }
+  | { kind: "running" }
+  | { kind: "streaming"; message: AssistantMessage };
+
 export interface SideConversationState {
-  isRunning: boolean;
+  activity: SideActivity;
   statusMessage?: string;
-  streamingMessage?: AssistantMessage;
   transcript: SideTranscriptItem[];
 }
+
+export const isSideActivityActive = (activity: SideActivity): boolean =>
+  activity.kind !== "idle";
 
 type ParentSession = Pick<SessionManager, "getEntries" | "getLeafId">;
 type SessionMessage = ReturnType<
@@ -97,7 +105,7 @@ export const createSideSessionManager = (
 
 export class SideSessionController {
   readonly state: SideConversationState = {
-    isRunning: false,
+    activity: { kind: "idle" },
     transcript: [],
   };
 
@@ -109,7 +117,9 @@ export class SideSessionController {
 
   constructor(session: AgentSession) {
     this.session = session;
-    this.state.isRunning = session.isStreaming;
+    this.state.activity = session.isStreaming
+      ? { kind: "running" }
+      : { kind: "idle" };
     this.unsubscribe = session.subscribe((event) => {
       this.handleEvent(event);
     });
@@ -127,16 +137,17 @@ export class SideSessionController {
     if (!prompt || this.disposed) {
       return false;
     }
-    if (this.state.isRunning) {
+    if (isSideActivityActive(this.state.activity)) {
       return false;
     }
 
     this.state.transcript.push({ kind: "user", text: prompt });
-    this.state.isRunning = true;
+    const submission: SideActivity = { kind: "submitting" };
+    this.state.activity = submission;
     this.state.statusMessage = undefined;
     this.notify();
 
-    void this.runPrompt(prompt);
+    void this.runPrompt(prompt, submission);
     return true;
   }
 
@@ -184,13 +195,16 @@ export class SideSessionController {
 
   private handleEvent(event: AgentSessionEvent): void {
     if (event.type === "agent_start") {
-      this.state.isRunning = true;
+      this.state.activity = { kind: "running" };
       this.state.statusMessage = undefined;
     } else if (event.type === "agent_settled") {
-      this.state.isRunning = false;
+      this.state.activity = { kind: "idle" };
     } else if (event.type === "message_update") {
       if (event.message.role === "assistant") {
-        this.state.streamingMessage = event.message;
+        this.state.activity = {
+          kind: "streaming",
+          message: event.message,
+        };
       }
     } else if (event.type === "message_end") {
       if (event.message.role === "assistant") {
@@ -198,13 +212,14 @@ export class SideSessionController {
           kind: "assistant",
           message: event.message,
         });
-        this.state.streamingMessage = undefined;
+        this.state.activity = { kind: "running" };
         if (event.message.stopReason === "error") {
           this.state.statusMessage =
             event.message.errorMessage ?? "Side response failed.";
         }
       }
     } else if (event.type === "tool_execution_start") {
+      this.state.activity = { kind: "running" };
       this.state.transcript.push({
         id: event.toolCallId,
         kind: "tool",
@@ -237,14 +252,21 @@ export class SideSessionController {
     }
   }
 
-  private async runPrompt(prompt: string): Promise<void> {
+  private async runPrompt(
+    prompt: string,
+    submission: SideActivity
+  ): Promise<void> {
     try {
       await this.session.prompt(prompt);
+      if (this.state.activity === submission) {
+        this.state.activity = { kind: "idle" };
+        this.notify();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.state.transcript.push({ kind: "error", text: message });
       this.state.statusMessage = message;
-      this.state.isRunning = false;
+      this.state.activity = { kind: "idle" };
       this.notify();
     }
   }

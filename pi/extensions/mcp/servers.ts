@@ -5,7 +5,6 @@ import path from "node:path";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
@@ -26,8 +25,6 @@ import {
   toGeneratedToolName,
   toToolParametersSchema,
 } from "./bridge.js";
-import type { McpConfig } from "./config.js";
-import { connectToServer } from "./connection.js";
 import type { McpConnectionFactory } from "./connection.js";
 
 interface ConnectedServer {
@@ -45,11 +42,9 @@ interface McpLoadResult {
 }
 
 interface LoadServerOptions {
-  connectionFactory?: McpConnectionFactory;
+  connectionFactory: McpConnectionFactory;
   pi: ExtensionAPI;
   serverName: string;
-  serverConfig?: McpConfig["mcpServers"][string];
-  ui: Pick<ExtensionCommandContext["ui"], "notify">;
   interactive: boolean;
   signal?: AbortSignal;
 }
@@ -250,28 +245,13 @@ export class McpServerPool {
       };
     }
 
-    const { connectionFactory: providedConnectionFactory, serverConfig } =
-      options;
-    const connectionFactory =
-      providedConnectionFactory ??
-      (serverConfig === undefined
-        ? undefined
-        : (interactive: boolean, signal?: AbortSignal) =>
-            connectToServer(
-              options.serverName,
-              serverConfig,
-              options.ui,
-              interactive,
-              signal
-            ));
-    if (!connectionFactory) {
-      throw new Error(`MCP server ${options.serverName} has no connection`);
-    }
-
     const signal = options.signal
       ? AbortSignal.any([options.signal, this.shutdown.signal])
       : this.shutdown.signal;
-    const connection = await connectionFactory(options.interactive, signal);
+    const connection = await options.connectionFactory(
+      options.interactive,
+      signal
+    );
     try {
       signal.throwIfAborted();
       const result = await this.registerMcpTools(
@@ -283,7 +263,7 @@ export class McpServerPool {
       signal.throwIfAborted();
       this.servers.set(options.serverName, {
         ...connection,
-        connectionFactory,
+        connectionFactory: options.connectionFactory,
         toolNames: result.toolNames,
       });
       return result;

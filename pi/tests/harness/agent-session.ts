@@ -6,9 +6,11 @@ import type {
   AssistantMessageEventStream,
   Context,
   FauxModelDefinition,
+  FauxProviderHandle,
   FauxProviderRegistration,
   FauxResponseStep,
   Model,
+  Provider,
   SimpleStreamOptions,
   StreamOptions,
 } from "@earendil-works/pi-ai";
@@ -16,13 +18,8 @@ import {
   InMemoryCredentialStore,
   createAssistantMessageEventStream,
   fauxAssistantMessage,
+  fauxProvider,
 } from "@earendil-works/pi-ai";
-import {
-  getApiProvider,
-  registerApiProvider,
-  registerFauxProvider,
-  unregisterApiProviders,
-} from "@earendil-works/pi-ai/compat";
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -69,26 +66,6 @@ interface AgentSessionHarnessOptions {
   withConfiguredAuth?: boolean;
 }
 
-const CONCURRENT_WRAPPED_FAUX_PROVIDER_ERROR =
-  "Concurrent use of the wrapped faux provider is unsupported; clean up the active agent-session harness before creating another.";
-
-let activeWrappedFauxProviderToken: symbol | undefined;
-
-const claimWrappedFauxProviderSlot = () => {
-  if (activeWrappedFauxProviderToken) {
-    throw new Error(CONCURRENT_WRAPPED_FAUX_PROVIDER_ERROR);
-  }
-
-  const token = Symbol("agent-session-harness");
-  activeWrappedFauxProviderToken = token;
-
-  return () => {
-    if (activeWrappedFauxProviderToken === token) {
-      activeWrappedFauxProviderToken = undefined;
-    }
-  };
-};
-
 const applyCapturedPayloadToContext = (
   context: Context,
   payload: unknown
@@ -123,23 +100,13 @@ const applyCapturedPayloadToContext = (
  * a way tests can observe. This wrapper forwards onPayload manually so real
  * AgentSession tests can assert provider-payload behavior without reaching into
  * private runtime APIs.
- *
- * Provider registration in pi-ai is process-global. Because this wrapper
- * replaces the registered faux provider for the current process, only one active
- * harness may install it at a time unless this implementation changes.
  */
-const enableFauxProviderPayloadHooks = (
-  api: string,
+const wrapFauxProviderPayloadHooks = (
+  provider: Provider,
   hookOptions?: {
     onFinalPayload?: (payload: unknown) => void;
   }
-) => {
-  const provider = getApiProvider(api);
-  if (!provider) {
-    throw new Error(`Faux API provider not registered: ${api}`);
-  }
-
-  const sourceId = `agent-session-harness-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+): Provider => {
   const wrap =
     (
       delegate: (
@@ -184,12 +151,18 @@ const enableFauxProviderPayloadHooks = (
             outer.push(event);
           }
         } catch (error) {
-          outer.push({
-            error: fauxAssistantMessage("", {
+          const errorMessage = {
+            ...fauxAssistantMessage("", {
               errorMessage:
                 error instanceof Error ? error.message : String(error),
               stopReason: "error",
             }),
+            api: model.api,
+            model: model.id,
+            provider: model.provider,
+          };
+          outer.push({
+            error: errorMessage,
             reason: "error",
             type: "error",
           });
@@ -199,27 +172,51 @@ const enableFauxProviderPayloadHooks = (
       return outer;
     };
 
-  registerApiProvider(
-    {
-      api: provider.api,
-      stream: wrap(provider.stream),
-      streamSimple: wrap(provider.streamSimple),
+  return {
+    ...provider,
+    auth: {
+      ...provider.auth,
+      apiKey: {
+        async check({ credential }) {
+          return credential?.key
+            ? { source: "runtime API key", type: "api_key" }
+            : undefined;
+        },
+        name: provider.auth.apiKey?.name ?? "Faux",
+        async resolve({ credential }) {
+          return credential?.key
+            ? {
+                auth: { apiKey: credential.key },
+                source: "runtime API key",
+              }
+            : undefined;
+        },
+      },
     },
-    sourceId
-  );
-
-  return () => {
-    unregisterApiProviders(sourceId);
+    stream: wrap(provider.stream),
+    streamSimple: wrap(provider.streamSimple),
   };
 };
+
+const fauxRegistrationFacade = (
+  faux: FauxProviderHandle,
+  unregister: () => void
+): FauxProviderRegistration => ({
+  api: faux.api,
+  appendResponses: faux.appendResponses,
+  getModel: faux.getModel,
+  getPendingResponseCount: faux.getPendingResponseCount,
+  models: faux.models,
+  setResponses: faux.setResponses,
+  state: faux.state,
+  unregister,
+});
 
 export const createAgentSessionHarness = async (
   options: AgentSessionHarnessOptions = {}
 ) => {
-  const releaseWrappedFauxProviderSlot = claimWrappedFauxProviderSlot();
   let tempDir: string | undefined;
   let faux: FauxProviderRegistration | undefined;
-  let disableFauxPayloadHooks: (() => void) | undefined;
   let session: AgentSession | undefined;
   let cleanedUp = false;
 
@@ -236,19 +233,12 @@ export const createAgentSessionHarness = async (
       session = undefined;
 
       try {
-        disableFauxPayloadHooks?.();
+        faux?.unregister();
       } finally {
-        disableFauxPayloadHooks = undefined;
+        faux = undefined;
 
-        try {
-          faux?.unregister();
-        } finally {
-          faux = undefined;
-          releaseWrappedFauxProviderSlot();
-
-          if (tempDir && existsSync(tempDir)) {
-            rmSync(tempDir, { force: true, recursive: true });
-          }
+        if (tempDir && existsSync(tempDir)) {
+          rmSync(tempDir, { force: true, recursive: true });
         }
       }
     }
@@ -262,40 +252,32 @@ export const createAgentSessionHarness = async (
 
     const providerPayloads: unknown[] = [];
 
-    const registeredFaux = registerFauxProvider({ models: options.models });
-    faux = registeredFaux;
-    disableFauxPayloadHooks = enableFauxProviderPayloadHooks(
-      registeredFaux.api,
-      {
-        onFinalPayload(payload) {
-          providerPayloads.push(payload);
-        },
-      }
-    );
-    registeredFaux.setResponses([]);
+    const localFaux = fauxProvider({ models: options.models });
+    localFaux.setResponses([]);
 
     const withConfiguredAuth = options.withConfiguredAuth ?? true;
-    const model = registeredFaux.getModel();
+    const model = localFaux.getModel();
 
     const modelRuntime = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(),
       modelsPath: null,
     });
-    modelRuntime.registerProvider(model.provider, {
-      api: model.api,
-      apiKey: "FAUX_API_KEY",
-      baseUrl: model.baseUrl,
-      models: registeredFaux.models.map((registeredModel) => ({
-        api: registeredModel.api,
-        contextWindow: registeredModel.contextWindow,
-        cost: registeredModel.cost,
-        id: registeredModel.id,
-        input: registeredModel.input,
-        maxTokens: registeredModel.maxTokens,
-        name: registeredModel.name,
-        reasoning: registeredModel.reasoning,
-      })),
+    const wrappedProvider = wrapFauxProviderPayloadHooks(localFaux.provider, {
+      onFinalPayload(payload) {
+        providerPayloads.push(payload);
+      },
     });
+    modelRuntime.registerNativeProvider(wrappedProvider);
+    let unregistered = false;
+    const registeredFaux = fauxRegistrationFacade(localFaux, () => {
+      if (unregistered) {
+        return;
+      }
+
+      unregistered = true;
+      modelRuntime.unregisterProvider(wrappedProvider.id);
+    });
+    faux = registeredFaux;
 
     if (withConfiguredAuth) {
       await modelRuntime.setRuntimeApiKey(model.provider, "faux-key");

@@ -6,6 +6,10 @@ import type {
 
 export interface NestedTool {
   definition: ToolDefinition;
+  kind: "freeform" | "function";
+  name: string;
+  namespace?: string;
+  outputSchema?: unknown;
   usage: string;
   invoke: (
     input: unknown,

@@ -28,6 +28,15 @@ import {
 
 import type { Checkpoint } from "../checkpoint.ts";
 import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
+import type {
+  ChildInvocation,
+  ParentInvocation,
+  TransportMode,
+} from "./live-multi-compaction-options.ts";
+import {
+  parseLiveInvocation,
+  usesRealWindow,
+} from "./live-multi-compaction-options.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
@@ -39,8 +48,6 @@ const TIMESTAMP_CANARY_TYPE = "live-timestamp-canary";
 const TIMESTAMP_CANARY_SENTINEL = "MIDTURN-TIMESTAMP-CANARY-7F3A";
 const MAGENTA_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAA1BMVEX/AP804Oa6AAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
-
-type TransportMode = "fallback" | "sse" | "websocket";
 
 const assert: (condition: boolean, message: string) => asserts condition = (
   condition,
@@ -223,14 +230,6 @@ const syntheticText = (bytes: number): string => {
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
   assert(typeof value === "string" && value.length > 0, `${name} is required`);
-  return value;
-};
-
-const parseTransport = (value: string): TransportMode => {
-  assert(
-    value === "fallback" || value === "sse" || value === "websocket",
-    `Unknown transport mode: ${value}`
-  );
   return value;
 };
 
@@ -466,10 +465,11 @@ const assertTransport = (
 };
 
 // oxlint-disable-next-line complexity -- branch and restart assertions share one child setup
-const runFreshChild = async (branchMode: boolean) => {
-  const prefix = branchMode
-    ? "CODEX_COMPACTION_BRANCH"
-    : "CODEX_COMPACTION_RESTART";
+const runFreshChild = async (invocation: ChildInvocation) => {
+  const prefix =
+    invocation.kind === "branch-child"
+      ? "CODEX_COMPACTION_BRANCH"
+      : "CODEX_COMPACTION_RESTART";
   const environment = (name: string) =>
     requiredEnvironment(`${prefix}_${name}`);
   const canaryCwd = environment("CWD");
@@ -478,7 +478,7 @@ const runFreshChild = async (branchMode: boolean) => {
   const resultFile = environment("RESULT");
   const sessionDir = environment("SESSION_DIR");
   const sessionFile = environment("SESSION_FILE");
-  const transportMode = parseTransport(environment("TRANSPORT"));
+  const { transport: transportMode } = invocation;
   const transportProbe = installTransportProbe(transportMode);
   const realAgentDir = getAgentDir();
   const modelRuntime = await ModelRuntime.create({
@@ -510,7 +510,7 @@ const runFreshChild = async (branchMode: boolean) => {
       noSkills: true,
       noThemes: true,
       settingsManager,
-      systemPrompt: `This is a fresh-process ${branchMode ? "branch" : "restart"} canary. Reply with one short acknowledgement and do not use tools.`,
+      systemPrompt: `This is a fresh-process ${invocation.kind === "branch-child" ? "branch" : "restart"} canary. Reply with one short acknowledgement and do not use tools.`,
     });
     await resourceLoader.reload();
     const created = await createAgentSession({
@@ -547,10 +547,12 @@ const runFreshChild = async (branchMode: boolean) => {
   let manager = SessionManager.open(sessionFile, sessionDir, canaryCwd);
   let session = await openSession(
     manager,
-    branchMode ? 4096 : Math.max(baseModel.contextWindow, 1_000_000)
+    invocation.kind === "branch-child"
+      ? 4096
+      : Math.max(baseModel.contextWindow, 1_000_000)
   );
   try {
-    if (!branchMode) {
+    if (invocation.kind === "restart-child") {
       const expectedResponseId = environment("RESPONSE");
       const expectedRounds = Number(environment("ROUNDS"));
       assert(
@@ -699,54 +701,10 @@ const runFreshChild = async (branchMode: boolean) => {
 };
 
 // oxlint-disable-next-line complexity -- one linear live-canary workflow
-const main = async () => {
-  const branchMode = process.argv.includes("--branch");
-  const capabilityMode = process.argv.includes("--capabilities");
-  const fallbackMode = process.argv.includes("--fallback");
-  const midTurn = process.argv.includes("--mid-turn");
-  const realWindowMode = process.argv.includes("--real-window");
-  const portableMode = process.argv.includes("--portable");
-  const realWindow = midTurn || realWindowMode;
-  const soakMode = process.argv.includes("--soak");
-  const sseMode = process.argv.includes("--sse");
-  const streamFaultMode = process.argv.includes("--stream-fault");
-  const thresholdMode = process.argv.includes("--threshold");
-  const websocketMode = process.argv.includes("--websocket");
-  assert(
-    [fallbackMode, sseMode, websocketMode].filter(Boolean).length <= 1,
-    "Choose only one transport: --sse, --websocket, or --fallback"
-  );
-  assert(
-    [
-      branchMode,
-      capabilityMode,
-      portableMode,
-      realWindow,
-      soakMode,
-      streamFaultMode,
-      thresholdMode,
-    ].filter(Boolean).length <= 1,
-    "Choose only one behavior mode: --branch, --capabilities, --portable, --real-window, --mid-turn, --soak, --stream-fault, or --threshold"
-  );
-  let transportMode: TransportMode = "sse";
-  if (fallbackMode) {
-    transportMode = "fallback";
-  } else if (websocketMode) {
-    transportMode = "websocket";
-  }
-  assert(
-    !portableMode || transportMode === "sse",
-    "Portable canary requires SSE request inspection"
-  );
-  assert(
-    !realWindow || transportMode !== "websocket",
-    "Real-window and mid-turn canaries require SSE request inspection"
-  );
-  assert(
-    !streamFaultMode || transportMode === "sse",
-    "Stream-fault canary requires SSE"
-  );
-  if (process.argv.includes("--help")) {
+const main = async (invocation: ParentInvocation) => {
+  const scenario = invocation.kind;
+  const { rounds, transport: transportMode } = invocation;
+  if (invocation.showHelp) {
     console.log(`Usage:
   node pi/extensions/experimental/codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--portable|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
 
@@ -764,17 +722,6 @@ Environment:
     configuredModel !== undefined && configuredModel.length > 0
       ? configuredModel
       : "gpt-5.6-sol";
-  let defaultRounds = 3;
-  if (soakMode) {
-    defaultRounds = 10;
-  } else if (branchMode || realWindow || streamFaultMode) {
-    defaultRounds = 2;
-  }
-  const rounds = positiveInteger("CODEX_COMPACTION_LIVE_ROUNDS", defaultRounds);
-  if (!(capabilityMode || portableMode || thresholdMode)) {
-    assert(rounds >= 2, "Live canary requires at least 2 compactions");
-  }
-
   execFileSync(
     process.execPath,
     [path.join(PACKAGE_ROOT, "audit-local-order.ts"), process.cwd()],
@@ -818,24 +765,27 @@ Environment:
     alternateValue !== undefined && alternateValue.length > 0
       ? alternateValue
       : undefined;
-  const availableModels = capabilityMode
-    ? await modelRuntime.getAvailable()
-    : [];
-  const alternateCandidates = capabilityMode
-    ? availableModels.filter(
-        (candidate) =>
-          candidate.provider === "openai-codex" &&
-          candidate.api === "openai-codex-responses" &&
-          candidate.id !== modelId
-      )
-    : [];
-  const alternateModel = capabilityMode
-    ? (alternateCandidates.find(
-        ({ id }) => id === (configuredAlternate ?? "gpt-5.6-terra")
-      ) ??
-      (configuredAlternate === undefined ? alternateCandidates[0] : undefined))
-    : undefined;
-  if (capabilityMode) {
+  const availableModels =
+    scenario === "capabilities" ? await modelRuntime.getAvailable() : [];
+  const alternateCandidates =
+    scenario === "capabilities"
+      ? availableModels.filter(
+          (candidate) =>
+            candidate.provider === "openai-codex" &&
+            candidate.api === "openai-codex-responses" &&
+            candidate.id !== modelId
+        )
+      : [];
+  const alternateModel =
+    scenario === "capabilities"
+      ? (alternateCandidates.find(
+          ({ id }) => id === (configuredAlternate ?? "gpt-5.6-terra")
+        ) ??
+        (configuredAlternate === undefined
+          ? alternateCandidates[0]
+          : undefined))
+      : undefined;
+  if (scenario === "capabilities") {
     assert(
       baseModel.input.includes("image"),
       `Capability model ${modelId} does not accept images`
@@ -848,21 +798,27 @@ Environment:
     );
   }
   const forcedContextWindow =
-    realWindow || thresholdMode
+    usesRealWindow(scenario) || scenario === "threshold"
       ? baseModel.contextWindow
       : positiveInteger("CODEX_COMPACTION_LIVE_CONTEXT_WINDOW", 4096);
   let payloadBytes =
-    realWindow || thresholdMode
+    usesRealWindow(scenario) || scenario === "threshold"
       ? 0
       : positiveInteger("CODEX_COMPACTION_LIVE_PAYLOAD_BYTES", 20_000);
-  if (!(realWindow || portableMode || thresholdMode)) {
+  if (
+    !(
+      usesRealWindow(scenario) ||
+      scenario === "portable" ||
+      scenario === "threshold"
+    )
+  ) {
     assert(
       payloadBytes >= forcedContextWindow * 0.9 * 4,
       "Synthetic payload must cross the 90% local context estimate"
     );
   }
-  const minimumSideInputTokens = realWindow
-    ? Math.floor(forcedContextWindow * (midTurn ? 0.8 : 0.9))
+  const minimumSideInputTokens = usesRealWindow(scenario)
+    ? Math.floor(forcedContextWindow * (scenario === "mid-turn" ? 0.8 : 0.9))
     : 0;
 
   const extensionErrors: ExtensionError[] = [];
@@ -963,7 +919,9 @@ Environment:
       agentDir: isolatedAgentDir,
       cwd: canaryCwd,
       extensionFactories:
-        loadCompaction && midTurn ? [timestampCanaryExtension] : [],
+        loadCompaction && scenario === "mid-turn"
+          ? [timestampCanaryExtension]
+          : [],
       noContextFiles: true,
       noPromptTemplates: true,
       noSkills: true,
@@ -1033,9 +991,10 @@ Environment:
   let calibration:
     | { bytesPerToken: number; inputTokens: number; probeBytes: number }
     | undefined;
-  if (realWindow) {
+  if (usesRealWindow(scenario)) {
     const probeBytes = 64_000;
-    const syntheticPayload = midTurn ? syntheticText : syntheticHex;
+    const syntheticPayload =
+      scenario === "mid-turn" ? syntheticText : syntheticHex;
     const probeManager = SessionManager.inMemory(canaryCwd);
     const probe = await createCanarySession(
       probeManager,
@@ -1064,14 +1023,14 @@ Environment:
     }
     payloadBytes = positiveInteger(
       "CODEX_COMPACTION_LIVE_PAYLOAD_BYTES",
-      midTurn
+      scenario === "mid-turn"
         ? Math.max(
             Math.ceil(forcedContextWindow * 0.9 * 4 * 1.005),
             Math.ceil(minimumSideInputTokens * 1.02 * calibration.bytesPerToken)
           )
         : Math.ceil(minimumSideInputTokens * 1.015 * calibration.bytesPerToken)
     );
-    if (midTurn) {
+    if (scenario === "mid-turn") {
       assert(
         Math.ceil(payloadBytes / 4) >= Math.floor(forcedContextWindow * 0.9),
         "Mid-turn tool output does not cross the local compaction threshold"
@@ -1089,8 +1048,8 @@ Environment:
 
   const transportProbe = installTransportProbe(
     transportMode,
-    portableMode,
-    streamFaultMode
+    scenario === "portable",
+    scenario === "stream-fault"
   );
   const manager = SessionManager.create(canaryCwd, sessionDir);
   let toolCalls = 0;
@@ -1190,24 +1149,24 @@ Environment:
     },
   };
   let customTools: ToolDefinition[] = [];
-  if (capabilityMode) {
+  if (scenario === "capabilities") {
     customTools = [structuredTool];
-  } else if (midTurn) {
+  } else if (scenario === "mid-turn") {
     customTools = [midTurnTool, postCompactionTool];
-  } else if (thresholdMode) {
+  } else if (scenario === "threshold") {
     customTools = [thresholdTool];
   }
   let systemPrompt: string | undefined;
-  if (capabilityMode) {
+  if (scenario === "capabilities") {
     systemPrompt =
       "This is a backend capability canary. Follow each user request exactly. Use capability_record only when explicitly requested.";
-  } else if (thresholdMode) {
+  } else if (scenario === "threshold") {
     systemPrompt =
       "This is a below-threshold metadata canary. Call threshold_probe exactly once when requested, then reply only THRESHOLD OK.";
-  } else if (portableMode) {
+  } else if (scenario === "portable") {
     systemPrompt =
       "This is a portable compaction canary. Follow exact reply formats and preserve memorized values exactly.";
-  } else if (midTurn) {
+  } else if (scenario === "mid-turn") {
     systemPrompt =
       "For every user request, first call context_filler exactly once. Only after that tool completes, call post_compaction_probe exactly once, then reply only MIDTURN COMPLETE. Never call either tool more than once for one request.";
   }
@@ -1217,9 +1176,9 @@ Environment:
     true,
     customTools,
     systemPrompt,
-    portableMode
+    scenario === "portable"
   );
-  if (thresholdMode) {
+  if (scenario === "threshold") {
     const provider = modelRuntime.getProvider("openai-codex");
     assert(
       provider?.refreshModels !== undefined,
@@ -1264,7 +1223,7 @@ Environment:
   }[] = [];
   try {
     console.log(`Live artifacts: ${runRoot}`);
-    if (portableMode) {
+    if (scenario === "portable") {
       await session.prompt(
         "Create a unique recall token in the exact format OPAQUE- followed by 12 uppercase hexadecimal characters. Reply only with that token."
       );
@@ -1361,7 +1320,7 @@ Environment:
       );
       return;
     }
-    if (thresholdMode) {
+    if (scenario === "threshold") {
       await session.prompt(
         "BELOW-THRESHOLD CANARY. Call threshold_probe exactly once, then give the required final reply."
       );
@@ -1402,7 +1361,7 @@ Environment:
       );
       return;
     }
-    if (capabilityMode) {
+    if (scenario === "capabilities") {
       assert(alternateModel !== undefined, "Alternate model missing");
       await session.prompt(
         "IMAGE CAPABILITY CANARY. What is the single dominant color in the attached image? Reply with exactly one word.",
@@ -1516,9 +1475,9 @@ Environment:
       return;
     }
     let runLabel = "";
-    if (midTurn) {
+    if (scenario === "mid-turn") {
       runLabel = "mid-turn ";
-    } else if (soakMode) {
+    } else if (scenario === "soak") {
       runLabel = "soak ";
     }
     console.log(
@@ -1526,7 +1485,7 @@ Environment:
     );
     for (let round = 1; round <= rounds; round += 1) {
       const requestCountBefore = transportProbe.requests.length;
-      if (midTurn) {
+      if (scenario === "mid-turn") {
         // oxlint-disable-next-line no-await-in-loop -- optional repeated mid-turn rounds are sequential
         await session.prompt(
           `For mid-turn canary round ${round}, call context_filler exactly once, then call post_compaction_probe exactly once after it completes, then give the required final reply.`
@@ -1550,7 +1509,7 @@ Environment:
             postCompactionToolCalls.at(-1) === round,
           `Round ${round}: post-compaction tool ran before checkpoint ${round} or did not run exactly once`
         );
-      } else if (realWindow) {
+      } else if (usesRealWindow(scenario)) {
         assert(calibration !== undefined, "Token-density calibration missing");
         const baselineTokens =
           round === 1 ? 0 : contextTokens(lastAssistant(session)?.usage);
@@ -1590,10 +1549,10 @@ Environment:
           `Round ${round}: filled ${fillTokens.toLocaleString()} tokens (${((fillTokens / forcedContextWindow) * 100).toFixed(1)}%) from a ${baselineTokens.toLocaleString()}-token baseline`
         );
       }
-      if (!midTurn) {
+      if (scenario !== "mid-turn") {
         // oxlint-disable-next-line no-await-in-loop -- each round replays the prior checkpoint
         await session.prompt(
-          realWindow
+          usesRealWindow(scenario)
             ? `LIVE CANARY TRIGGER ${round}. Reply only ACK ${round}.`
             : `LIVE CANARY ROUND ${round}. Reply only ACK ${round}.\n${String(round).repeat(payloadBytes)}`
         );
@@ -1612,8 +1571,8 @@ Environment:
         round,
         forcedContextWindow,
         minimumSideInputTokens,
-        !realWindow || midTurn,
-        midTurn ? "mid-turn" : "pre-sampling"
+        !usesRealWindow(scenario) || scenario === "mid-turn",
+        scenario === "mid-turn" ? "mid-turn" : "pre-sampling"
       );
       const previousWindow = windows.at(-1);
       if (previousWindow !== undefined) {
@@ -1630,7 +1589,7 @@ Environment:
       assert(!ids.includes(id), `Round ${round}: response ID was reused`);
       ids.push(id);
       sideInputTokens.push(checked.sideInputTokens);
-      if (realWindow) {
+      if (usesRealWindow(scenario)) {
         const bodies = transportProbe.requests
           .slice(requestCountBefore)
           .flatMap(({ body }) => {
@@ -1704,7 +1663,7 @@ Environment:
       "Codex provider status did not report the live checkpoints without changing the session"
     );
 
-    if (streamFaultMode) {
+    if (scenario === "stream-fault") {
       const compactRequests = transportProbe.requests.filter(
         ({ body }) => compactionRequestBody(body) !== undefined
       ).length;
@@ -1719,7 +1678,7 @@ Environment:
       sessionFile !== undefined,
       "Persistent session file was not created"
     );
-    if (branchMode) {
+    if (scenario === "branch") {
       const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
       const [first, second] = checkpoints;
       assert(
@@ -1810,10 +1769,10 @@ Environment:
           calibration,
           checkpoints: ids,
           estimatorEvidence,
-          midTurn,
+          midTurn: scenario === "mid-turn",
           model: `openai-codex/${modelId}`,
           postCompactionToolCalls,
-          realWindow,
+          realWindow: usesRealWindow(scenario),
           restart: restartResult,
           rounds,
           sessionFile,
@@ -1838,10 +1797,10 @@ Environment:
 
 if (import.meta.main) {
   try {
-    const branchChild = process.argv.includes("--branch-child");
-    await (branchChild || process.argv.includes("--restart-child")
-      ? runFreshChild(branchChild)
-      : main());
+    const invocation = parseLiveInvocation(process.argv.slice(2), process.env);
+    await (invocation.process === "child"
+      ? runFreshChild(invocation)
+      : main(invocation));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

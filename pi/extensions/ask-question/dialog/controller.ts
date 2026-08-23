@@ -17,7 +17,7 @@ import {
 } from "./input.js";
 import type { DecodedIntent } from "./input.js";
 import { renderPrompt } from "./render.js";
-import type { EditTarget, PromptView } from "./render.js";
+import type { EditMode, EditTarget, PromptView } from "./render.js";
 
 export const MAX_ANSWER_BYTES = 1000;
 export const MAX_ANSWER_LINES = 50;
@@ -67,8 +67,7 @@ export const runAskQuestionPrompt = async (
       const helpText = createHelpText(keybindings);
       let currentTab = 0;
       let hint = "";
-      let editTarget: EditTarget | undefined;
-      let activeEditor: Editor | undefined;
+      let editMode: EditMode = { kind: "none" };
       let surfaceFocused = false;
       let finished = false;
       const abortListener = new AbortController();
@@ -79,11 +78,10 @@ export const runAskQuestionPrompt = async (
 
         finished = true;
         abortListener.abort();
-        if (activeEditor !== undefined) {
-          activeEditor.focused = false;
+        if (editMode.kind !== "none") {
+          editMode.editor.focused = false;
         }
-        activeEditor = undefined;
-        editTarget = undefined;
+        editMode = { kind: "none" };
         surfaceFocused = false;
         done(result);
       };
@@ -128,11 +126,32 @@ export const runAskQuestionPrompt = async (
         if (!preserveHint) {
           hint = "";
         }
-        if (activeEditor !== undefined) {
-          activeEditor.focused = false;
+        if (editMode.kind !== "none") {
+          editMode.editor.focused = false;
         }
-        activeEditor = undefined;
-        editTarget = undefined;
+        editMode = { kind: "none" };
+        tui.requestRender();
+      };
+
+      const handleEditorSave = (value: string) => {
+        if (editMode.kind === "none") {
+          return;
+        }
+
+        const bounded = boundAnswerText(value);
+        const { state } = questionSessions[editMode.questionIndex];
+        state.textByOptionIndex[editMode.optionIndex] =
+          bounded.length === 0 ? undefined : bounded;
+        closeEditor();
+      };
+
+      const openEditor = (target: EditTarget, initialText: string) => {
+        hint = "";
+        const editor = createInlineEditor(tui, theme);
+        editor.focused = surfaceFocused;
+        editor.setText(boundAnswerText(initialText));
+        editor.onSubmit = handleEditorSave;
+        editMode = { ...target, editor };
         tui.requestRender();
       };
 
@@ -140,24 +159,15 @@ export const runAskQuestionPrompt = async (
         questionIndex: number,
         optionIndex: number
       ) => {
-        editTarget = {
-          optionIndex,
-          questionIndex,
-        };
-        hint = "";
         const { state } = questionSessions[questionIndex];
-        activeEditor = createInlineEditor(tui, theme);
-        activeEditor.focused = surfaceFocused;
-        activeEditor.setText(
-          boundAnswerText(state.textByOptionIndex[optionIndex] ?? "")
+        openEditor(
+          {
+            kind: "option_text",
+            optionIndex,
+            questionIndex,
+          },
+          state.textByOptionIndex[optionIndex] ?? ""
         );
-        activeEditor.onSubmit = (value: string) => {
-          const bounded = boundAnswerText(value);
-          state.textByOptionIndex[optionIndex] =
-            bounded.length === 0 ? undefined : bounded;
-          closeEditor();
-        };
-        tui.requestRender();
       };
 
       const openNoteEditorForCurrentSelection = (questionIndex: number) => {
@@ -191,16 +201,17 @@ export const runAskQuestionPrompt = async (
           return;
         }
 
-        if (editTarget === undefined || !activeEditor) {
+        if (editMode.kind === "none") {
           return;
         }
 
         if (hint !== "") {
           hint = "";
         }
-        const editor = activeEditor;
+        const editing = editMode;
+        const { editor } = editing;
         editor.handleInput(data);
-        if (activeEditor !== editor) {
+        if (editMode !== editing) {
           return;
         }
         const value = editor.getText();
@@ -312,7 +323,7 @@ export const runAskQuestionPrompt = async (
           return;
         }
 
-        if (editTarget !== undefined) {
+        if (editMode.kind !== "none") {
           handleEditorInput(data);
           return;
         }
@@ -336,9 +347,8 @@ export const runAskQuestionPrompt = async (
       };
 
       const currentView = (): PromptView => ({
-        activeEditor,
         currentTab,
-        editTarget,
+        editMode,
         helpText,
         hint,
         sessions: questionSessions,
@@ -348,23 +358,25 @@ export const runAskQuestionPrompt = async (
       return {
         dispose() {
           surfaceFocused = false;
-          if (activeEditor !== undefined) {
-            activeEditor.focused = false;
+          if (editMode.kind !== "none") {
+            editMode.editor.focused = false;
           }
-          activeEditor = undefined;
+          editMode = { kind: "none" };
         },
         get focused(): boolean {
           return surfaceFocused;
         },
         set focused(value: boolean) {
           surfaceFocused = value;
-          if (activeEditor !== undefined) {
-            activeEditor.focused = value;
+          if (editMode.kind !== "none") {
+            editMode.editor.focused = value;
           }
         },
         handleInput,
         invalidate() {
-          activeEditor?.invalidate();
+          if (editMode.kind !== "none") {
+            editMode.editor.invalidate();
+          }
         },
         render: (width: number) => renderPrompt(currentView(), width),
       };

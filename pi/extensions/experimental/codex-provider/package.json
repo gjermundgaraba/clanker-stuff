@@ -19,6 +19,7 @@
   "files": [
     "checkpoint.ts",
     "checkpoint-marker.ts",
+    "collaboration.ts",
     "fast-mode.ts",
     "footer.ts",
     "index.ts",
@@ -76,10 +77,8 @@
   "dependencies": {
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
-    "@clanker-stuff/pi-extension-paths": "workspace:^"
-  },
-  "devDependencies": {
-    "vitest": "*"
+    "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/tool-owner-protocol": "workspace:^"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",

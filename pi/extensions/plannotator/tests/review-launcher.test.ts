@@ -16,6 +16,7 @@ const exited = (): CliCompletion => ({
 describe("targeted review launcher", () => {
   it("switches to the requested base before opening the review", async () => {
     const child = Promise.withResolvers<CliCompletion>();
+    const childController = new AbortController();
     let readyFile = "";
     const start = vi.fn<CliStarter>((_args, options) => {
       readyFile = options.env?.PLANNOTATOR_READY_FILE ?? "";
@@ -27,7 +28,11 @@ describe("targeted review launcher", () => {
           url: "http://127.0.0.1:19432",
         })}\n`
       );
-      return { cancel: vi.fn<() => void>(), completion: child.promise };
+      return {
+        cancel: vi.fn<() => void>(),
+        completion: child.promise,
+        signal: childController.signal,
+      };
     });
     const order: string[] = [];
     const fetchImpl = vi.fn<typeof fetch>(async () => {
@@ -73,6 +78,40 @@ describe("targeted review launcher", () => {
 
     child.resolve(exited());
     await expect(review.completion).resolves.toStrictEqual(exited());
+    expect(existsSync(path.dirname(readyFile))).toBeFalsy();
+  });
+
+  it("exposes cancellation and only cancels the child once", async () => {
+    const child = Promise.withResolvers<CliCompletion>();
+    const childController = new AbortController();
+    const cancelChild = vi.fn<() => void>(() => {
+      childController.abort();
+      child.resolve({ kind: "cancelled" });
+    });
+    let readyFile = "";
+    const start = vi.fn<CliStarter>((_args, options) => {
+      readyFile = options.env?.PLANNOTATOR_READY_FILE ?? "";
+      return {
+        cancel: cancelChild,
+        completion: child.promise,
+        signal: childController.signal,
+      };
+    });
+
+    const review = createTargetedReviewStarter(start)(
+      ["review", "--base", "main"],
+      { cwd: "/work/project" }
+    );
+    expect(review.signal.aborted).toBeFalsy();
+
+    review.cancel();
+    review.cancel();
+
+    expect(review.signal.aborted).toBeTruthy();
+    expect(cancelChild).toHaveBeenCalledOnce();
+    await expect(review.completion).resolves.toStrictEqual({
+      kind: "cancelled",
+    });
     expect(existsSync(path.dirname(readyFile))).toBeFalsy();
   });
 

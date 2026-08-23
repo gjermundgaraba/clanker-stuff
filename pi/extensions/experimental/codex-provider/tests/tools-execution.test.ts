@@ -7,6 +7,7 @@ import * as codingAgent from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { ProcessManager } from "../tools/process.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 
@@ -228,6 +229,45 @@ describe("profile execution", () => {
 
     expect(textContent(finished)).toContain("got:hello");
     expect(textContent(finished)).toContain("Process exited with code 0");
+    expect({
+      running: (finished.details as { running?: boolean }).running,
+      sessionId: (finished.details as { sessionId?: number }).sessionId,
+      status: (finished.details as { status?: string }).status,
+    }).toStrictEqual({
+      running: false,
+      sessionId: undefined,
+      status: "exited",
+    });
+  });
+
+  it("measures each process poll independently", async () => {
+    const host = createExtensionHost(() => {});
+    const ctx = host.createContext();
+    const manager = new ProcessManager();
+    let now = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const started = await manager.start({
+        command: "read value",
+        ctx,
+        cwd: ctx.cwd,
+        yieldMs: 0,
+      });
+      expect(started).toMatchObject({ durationMs: 0, status: "running" });
+      if (started.status !== "running") {
+        throw new Error("Expected a running process");
+      }
+
+      now = 60_000;
+      const continued = await manager.continue({
+        sessionId: started.sessionId,
+        yieldMs: 0,
+      });
+      expect(continued).toMatchObject({ durationMs: 0, status: "running" });
+    } finally {
+      clock.mockRestore();
+      await manager.dispose();
+    }
   });
 
   it("rejects shells that reserve stdin for command transport", async () => {
@@ -326,7 +366,7 @@ describe("profile execution", () => {
     }
   );
 
-  it("bounds process output and preserves the full stream", async () => {
+  it("formats direct output from the preserved full stream", async () => {
     const model = createToolsModel("gpt-5.6-luna", true);
     const host = createExtensionHost(registerCodexTools, { model });
     await host.emitSessionStart();
@@ -341,7 +381,8 @@ describe("profile execution", () => {
 
     expect(details.truncation?.truncated).toBeTruthy();
     expect(details.fullOutputPath).toBeTypeOf("string");
-    expect(textContent(result)).toContain("Output truncated");
+    expect(textContent(result)).not.toContain("Warning: truncated output");
+    expect(textContent(result)).toContain("Full output:");
     const { fullOutputPath } = details;
     if (!fullOutputPath) {
       throw new Error("Full output path was not returned");

@@ -141,6 +141,7 @@ describe("codex-provider package", () => {
         "package/code-mode/trace-store.ts",
         "package/code-mode/trace-values.ts",
         "package/code-mode/types.ts",
+        "package/collaboration.ts",
         "package/fast-mode.ts",
         "package/docs/codex-baseline.md",
         "package/docs/context-alignment.md",
@@ -190,6 +191,10 @@ describe("codex-provider package", () => {
               PACKAGE_ROOT,
               "../../../packages/extension-paths"
             )}`,
+            "@clanker-stuff/tool-owner-protocol": `file:${path.resolve(
+              PACKAGE_ROOT,
+              "../../../packages/tool-owner-protocol"
+            )}`,
             "@earendil-works/pi-ai": "0.84.2",
             "@earendil-works/pi-coding-agent": "0.84.2",
             "@earendil-works/pi-tui": "0.84.2",
@@ -225,6 +230,7 @@ describe("codex-provider package", () => {
         "@clanker-stuff/footer-protocol": "^0.1.0",
         "@clanker-stuff/lazy-singleton": "^0.1.0",
         "@clanker-stuff/pi-extension-paths": "^0.1.0",
+        "@clanker-stuff/tool-owner-protocol": "^0.1.0",
       },
       name: "@clanker-stuff/codex-provider",
       peerDependencies: {

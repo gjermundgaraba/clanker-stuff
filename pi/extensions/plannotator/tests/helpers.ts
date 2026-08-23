@@ -13,6 +13,7 @@ export interface PendingProcess {
   options: CliStartOptions;
   reject: (error: unknown) => void;
   resolve: (result: CliCompletion) => void;
+  signal: AbortSignal;
 }
 
 export const createStarter = () => {
@@ -23,15 +24,23 @@ export const createStarter = () => {
       reject,
       resolve,
     } = Promise.withResolvers<CliCompletion>();
+    const controller = new AbortController();
     const process = {
       args: [...args],
-      cancel: vi.fn<() => void>(),
+      cancel: vi.fn<() => void>(() => {
+        controller.abort();
+      }),
       options: { ...options },
       reject,
       resolve,
+      signal: controller.signal,
     };
     pending.push(process);
-    return { cancel: process.cancel, completion };
+    return {
+      cancel: process.cancel,
+      completion,
+      signal: controller.signal,
+    };
   });
   return { pending, starter };
 };

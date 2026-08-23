@@ -126,6 +126,25 @@ describe("command runtime", () => {
     ]);
   });
 
+  it("does not cancel an active process twice across repeated shutdowns", async () => {
+    const { ctx, host, pending } = setup();
+    await host.runCommand("plannotator-review", "", ctx);
+
+    const firstShutdown = host.emitSessionShutdown(ctx);
+    await Promise.resolve();
+    const secondShutdown = host.emitSessionShutdown(ctx);
+    await Promise.resolve();
+
+    expect(pending[0].signal.aborted).toBeTruthy();
+    expect(pending[0].cancel).toHaveBeenCalledOnce();
+
+    pending[0].resolve({ kind: "cancelled" });
+    await Promise.all([firstShutdown, secondShutdown]);
+    expect(host.getNotifications()).toStrictEqual([
+      { message: "Plannotator code review opened.", type: "info" },
+    ]);
+  });
+
   it("bounds shutdown when a child never reports completion", async () => {
     vi.useFakeTimers();
     try {

@@ -1,51 +1,53 @@
+import {
+  isToolOwnerRegistration,
+  TOOL_OWNER_PROTOCOL_VERSION,
+  TOOL_OWNER_REQUEST_EVENT,
+} from "@clanker-stuff/tool-owner-protocol";
+import type {
+  ToolOwnerRegistration,
+  ToolOwnerRequest,
+} from "@clanker-stuff/tool-owner-protocol";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-const TOOL_OWNER_CHANNEL = "clanker-stuff:tools:owner";
-
-interface ToolOwnerRegistration {
-  readonly names: readonly string[];
-  readonly setEnabled: (
-    name: string,
-    enabled: boolean,
-    ctx: ExtensionContext
-  ) => void;
-  readonly suppressedNames: (model?: Model<Api>) => readonly string[];
-  readonly visibleNames: (model?: Model<Api>) => readonly string[];
-}
-
-const isToolOwnerRegistration = (
-  value: unknown
-): value is ToolOwnerRegistration =>
-  typeof value === "object" &&
-  value !== null &&
-  "names" in value &&
-  Array.isArray(value.names) &&
-  value.names.every((name) => typeof name === "string") &&
-  "setEnabled" in value &&
-  typeof value.setEnabled === "function" &&
-  "suppressedNames" in value &&
-  typeof value.suppressedNames === "function" &&
-  "visibleNames" in value &&
-  typeof value.visibleNames === "function";
-
 export const createToolOwners = (pi: ExtensionAPI) => {
   let registration: ToolOwnerRegistration | undefined;
-  pi.events.on(TOOL_OWNER_CHANNEL, (value) => {
-    if (isToolOwnerRegistration(value)) {
-      registration = value;
-    }
-  });
 
-  const ownerFor = (name: string) =>
-    registration?.names.includes(name) === true ? registration : undefined;
+  const resolveRegistration = (): ToolOwnerRegistration | undefined => {
+    if (registration) {
+      return registration;
+    }
+    let candidate: ToolOwnerRegistration | undefined;
+    let responses = 0;
+    const request: ToolOwnerRequest = {
+      protocol: TOOL_OWNER_PROTOCOL_VERSION,
+      provide(value) {
+        if (!isToolOwnerRegistration(value)) {
+          return;
+        }
+        responses += 1;
+        candidate ??= value;
+      },
+      type: "request",
+    };
+    pi.events.emit(TOOL_OWNER_REQUEST_EVENT, request);
+    if (responses === 1) {
+      registration = candidate;
+    }
+    return responses === 1 ? candidate : undefined;
+  };
+
+  const ownerFor = (name: string) => {
+    const owner = resolveRegistration();
+    return owner?.names.includes(name) === true ? owner : undefined;
+  };
 
   return {
     hasVisibleTools(model?: Model<Api>): boolean {
-      return (registration?.visibleNames(model).length ?? 0) > 0;
+      return (resolveRegistration()?.visibleNames(model).length ?? 0) > 0;
     },
     isVisible(name: string, model?: Model<Api>): boolean {
       const owner = ownerFor(name);
@@ -66,7 +68,9 @@ export const createToolOwners = (pi: ExtensionAPI) => {
       return true;
     },
     suppresses(name: string, model?: Model<Api>): boolean {
-      return registration?.suppressedNames(model).includes(name) ?? false;
+      return (
+        resolveRegistration()?.suppressedNames(model).includes(name) ?? false
+      );
     },
   };
 };

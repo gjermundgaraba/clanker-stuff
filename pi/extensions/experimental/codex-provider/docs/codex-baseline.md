@@ -2,11 +2,24 @@
 
 This is the current source map for the behavior implemented by `codex-provider`. OpenAI Codex is the parity authority; Pi defines the host boundary.
 
+## Compatibility objective
+
+This extension and the companion [`subagents`](../../subagents) extension exist to minimize model-facing distribution shift from the native Codex CLI harness. The working premise is that Codex models are trained and tuned for that harness, so matching its model-facing contract gives those models the environment in which they are most likely to behave well.
+
+For every surface these packages own, the default is to match the pinned Codex implementation as closely as possible. That includes request fields, tool inventory, names, schemas, descriptions, ordering, placement, results, prompt guidance, transport, continuation, compaction, collaboration messages, and lifecycle semantics. A difference requires a concrete reason:
+
+1. The backend reserves or validates behavior that an extension cannot claim.
+2. Pi cannot execute the advertised capability truthfully.
+3. Matching would reduce safety or correctness.
+4. A Pi host constraint makes the native representation unavailable.
+
+Differences are evidence-bearing exceptions, not permission for incidental drift. They must be documented and tested, then reconsidered when Pi or Codex capabilities change. Pi remains authoritative for unrelated host behavior such as project instructions, permissions, arbitrary third-party extensions, and session storage. The companion [parity ledger](../../subagents/docs/codex-parity.md) records known model-facing matches and differences across both packages.
+
 ## Verified revisions
 
 | Project | Revision | Verification |
 | --- | --- | --- |
-| [OpenAI Codex](https://github.com/openai/codex) | [`9873cba8ce6d14e650e12cdc0dddd159ae6613d7`](https://github.com/openai/codex/tree/9873cba8ce6d14e650e12cdc0dddd159ae6613d7), committed 2026-08-04 08:51:35 UTC | Verified against `origin/main` on 2026-08-04 |
+| [OpenAI Codex](https://github.com/openai/codex) | [`12933b69551394328319dcdd1bcee7907326dc85`](https://github.com/openai/codex/tree/12933b69551394328319dcdd1bcee7907326dc85), committed 2026-08-15 14:31:04 UTC | Verified from the pinned commit on 2026-08-15 |
 | [earendil-works/pi](https://github.com/earendil-works/pi) | [`914cf1472e715297caa30db4b9535d534a9eb718`](https://github.com/earendil-works/pi/tree/914cf1472e715297caa30db4b9535d534a9eb718), tag `v0.84.2` | Exact supported host revision |
 
 At this revision, model instructions live under `ModelMessages`, plugin instructions are gated by model capability, and compact permission state is part of application world state. Those features remain on the application side of the boundary described below; the provider mapping covers request construction, transport, prewarm, continuation, compaction, window state, and Responses metadata.
@@ -15,19 +28,19 @@ At this revision, model instructions live under `ModelMessages`, plugin instruct
 
 | Behavior | Codex source | Local implementation and proof |
 | --- | --- | --- |
-| Turn-scoped client session, request construction, strict continuation, retries | [`core/src/client.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/client.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
-| Startup WebSocket prewarm | [`core/src/session_startup_prewarm.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/session_startup_prewarm.rs) | [`provider.ts`](../provider.ts), [lifecycle integration tests](../tests/lifecycle.integration.test.ts) |
-| SSE response headers and turn state | [`codex-api/src/sse/responses.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/codex-api/src/sse/responses.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
-| Reusable WebSocket, metadata, continuation, protocol retry | [`codex-api/src/endpoint/responses_websocket.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/codex-api/src/endpoint/responses_websocket.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts), [live canary](live-canary.md) |
-| Canonical turn/window/compaction metadata | [`core/src/responses_metadata.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/responses_metadata.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
-| Remote V2 request and stream validation | [`core/src/compact_remote_v2_attempt.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/compact_remote_v2_attempt.rs), [`compact_remote_v2.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/compact_remote_v2.rs) | [`provider.ts`](../provider.ts), [`lifecycle.ts`](../lifecycle.ts), [provider tests](../tests/provider.test.ts) |
-| Retained users, non-final agents, and fresh-context placement | [`core/src/compact_remote.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/compact_remote.rs) | [`replay.ts`](../replay.ts), [replay tests](../tests/replay.test.ts) |
-| Pre-turn model transition compaction | [`core/src/session/turn.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/session/turn.rs) | [`lifecycle.ts`](../lifecycle.ts), [lifecycle integration tests](../tests/lifecycle.integration.test.ts) |
-| Context-window IDs and generations | [`core/src/state/auto_compact_window.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/state/auto_compact_window.rs) | [`provider.ts`](../provider.ts), [`checkpoint.ts`](../checkpoint.ts), [checkpoint tests](../tests/checkpoint.test.ts) |
-| Model metadata schema and instruction compatibility | [`protocol/src/openai_models.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/protocol/src/openai_models.rs) | [`model-catalog.ts`](../model-catalog.ts), [provider model-refresh tests](../tests/provider.test.ts) |
-| Model refresh, ETags, and cache age | [`models-manager/src/manager.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/models-manager/src/manager.rs), [`cache.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/models-manager/src/cache.rs), [`codex-api/src/endpoint/models.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/codex-api/src/endpoint/models.rs) | [`model-catalog.ts`](../model-catalog.ts), [provider model-refresh tests](../tests/provider.test.ts) |
+| Turn-scoped client session, request construction, strict continuation, retries | [`core/src/client.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/client.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
+| Startup WebSocket prewarm | [`core/src/session_startup_prewarm.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/session_startup_prewarm.rs) | [`provider.ts`](../provider.ts), [lifecycle integration tests](../tests/lifecycle.integration.test.ts) |
+| SSE response headers and turn state | [`codex-api/src/sse/responses.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/codex-api/src/sse/responses.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
+| Reusable WebSocket, metadata, continuation, protocol retry | [`codex-api/src/endpoint/responses_websocket.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/codex-api/src/endpoint/responses_websocket.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts), [live canary](live-canary.md) |
+| Canonical turn/window/compaction metadata | [`core/src/responses_metadata.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/responses_metadata.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
+| Remote V2 request and stream validation | [`core/src/compact_remote_v2_attempt.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/compact_remote_v2_attempt.rs), [`compact_remote_v2.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/compact_remote_v2.rs) | [`provider.ts`](../provider.ts), [`lifecycle.ts`](../lifecycle.ts), [provider tests](../tests/provider.test.ts) |
+| Retained users, non-final agents, and fresh-context placement | [`core/src/compact_remote.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/compact_remote.rs) | [`replay.ts`](../replay.ts), [replay tests](../tests/replay.test.ts) |
+| Pre-turn model transition compaction | [`core/src/session/turn.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/session/turn.rs) | [`lifecycle.ts`](../lifecycle.ts), [lifecycle integration tests](../tests/lifecycle.integration.test.ts) |
+| Context-window IDs and generations | [`core/src/state/auto_compact_window.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/state/auto_compact_window.rs) | [`provider.ts`](../provider.ts), [`checkpoint.ts`](../checkpoint.ts), [checkpoint tests](../tests/checkpoint.test.ts) |
+| Model metadata schema and instruction compatibility | [`protocol/src/openai_models.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/protocol/src/openai_models.rs) | [`model-catalog.ts`](../model-catalog.ts), [provider model-refresh tests](../tests/provider.test.ts) |
+| Model refresh, ETags, and cache age | [`models-manager/src/manager.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/models-manager/src/manager.rs), [`cache.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/models-manager/src/cache.rs), [`codex-api/src/endpoint/models.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/codex-api/src/endpoint/models.rs) | [`model-catalog.ts`](../model-catalog.ts), [provider model-refresh tests](../tests/provider.test.ts) |
 | Code Mode host protocol and binaries | [Codex `rust-v0.145.0`](https://github.com/openai/codex/releases/tag/rust-v0.145.0) | [`code-mode/`](../code-mode/), [Code Mode tests](../tests/code-mode.test.ts) |
-| Application world-state snapshots and diffs | [`core/src/session/world_state.rs`](https://github.com/openai/codex/blob/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/session/world_state.rs), [`core/src/context/world_state/`](https://github.com/openai/codex/tree/9873cba8ce6d14e650e12cdc0dddd159ae6613d7/codex-rs/core/src/context/world_state) | Deliberate boundary: preserve Pi's effective prompt/tools; do not synthesize unavailable Codex application state |
+| Application world-state snapshots and diffs | [`core/src/session/world_state.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/session/world_state.rs), [`core/src/context/world_state/`](https://github.com/openai/codex/tree/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/context/world_state) | Deliberate boundary: preserve Pi's effective prompt/tools; do not synthesize unavailable Codex application state |
 
 ## Pi 0.84.2 source map
 
@@ -66,4 +79,4 @@ The behavior is exercised by [unit and contract tests](../tests), [real `AgentSe
 - **Rollout-budget accounting is not implemented.** Current Codex consumes `usage.codex_rollout_budget_units` for application policy. Pi's `Usage` cannot represent it and this provider owns no rollout-budget policy.
 - **Backend-only behavior is not claimed.** Server attestation, private routing, and unavailable backend state cannot be reproduced by an extension.
 
-These boundaries are acceptance criteria, not future scaffolding. Change one only when a concrete Pi/Codex source change or failing canary proves it necessary.
+These boundaries are current acceptance criteria, not excuses for incidental drift. Change one only when concrete Pi/Codex source evidence or a failing canary requires it, and revisit it when a closer truthful match becomes possible.

@@ -45,8 +45,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@modelcontextprotocol/node": "^2.0.0",
-    "vitest": "*"
+    "@modelcontextprotocol/node": "^2.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

@@ -268,6 +268,47 @@ describe("usage controller", () => {
     await host.emitSessionShutdown(claudeContext);
   });
 
+  it("invalidates cached and in-flight Codex usage when the account changes", async () => {
+    stubDependencies({ value: 1000 });
+    const first = Promise.withResolvers<{ json: unknown; ok: true }>();
+    const second = Promise.withResolvers<{ json: unknown; ok: true }>();
+    let request = 0;
+    vi.mocked(defaultFetchJson).mockImplementation(async () => {
+      request += 1;
+      return await (request === 1 ? first.promise : second.promise);
+    });
+    const host = createExtensionHost(extension, { model: codexModel });
+    const context = host.createContext({ model: codexModel });
+    await host.emitSessionStart(context);
+    await vi.waitFor(() => {
+      expect(defaultFetchJson).toHaveBeenCalledOnce();
+    });
+
+    host.events.emit("clanker-codex:account-changed", null);
+    await vi.waitFor(() => {
+      expect(defaultFetchJson).toHaveBeenCalledTimes(2);
+    });
+    first.resolve({
+      json: {
+        rate_limit: { primary_window: { used_percent: 11 } },
+      },
+      ok: true,
+    });
+    await Promise.resolve();
+    expect(host.getStatus("usage")).not.toContain("11%");
+
+    second.resolve({
+      json: {
+        rate_limit: { primary_window: { used_percent: 77 } },
+      },
+      ok: true,
+    });
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toContain("77%");
+    });
+    await host.emitSessionShutdown(context);
+  });
+
   it("publishes loading, error, ready, and stale health", async () => {
     const nowRef = { value: 1000 };
     stubDependencies(nowRef);

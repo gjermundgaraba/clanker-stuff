@@ -34,9 +34,6 @@
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-motion": "workspace:^"
   },
-  "devDependencies": {
-    "vitest": "*"
-  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",

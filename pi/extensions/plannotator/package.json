@@ -35,9 +35,6 @@
   "dependencies": {
     "@clanker-stuff/lazy-singleton": "workspace:^"
   },
-  "devDependencies": {
-    "vitest": "*"
-  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"

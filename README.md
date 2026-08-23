@@ -25,6 +25,7 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex.
 | Extension | Description |
 | --- | --- |
 | [`@clanker-stuff/codex-provider`](pi/extensions/experimental/codex-provider) | Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, transport, compaction, and durable checkpoint replay. |
+| [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents) | Adds durable hierarchical subagents with independent pi sessions and explicit communication tools. |
 
 Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.
 

@@ -1,8 +1,15 @@
+import type { Provider } from "@earendil-works/pi-ai";
 import type {
   AutocompleteProviderFactory,
+  EntryRenderer,
+  Extension,
   ExtensionAPI,
+  ExtensionActions,
   ExtensionCommandContext,
   ExtensionContext,
+  ExtensionContextActions,
+  MarkdownTransformer,
+  ProviderConfig,
   InputEvent,
   InputEventResult,
   RegisteredCommand,
@@ -18,6 +25,9 @@ import type {
 import {
   createEventBus,
   createSyntheticSourceInfo,
+  DefaultResourceLoader,
+  ExtensionRunner,
+  SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import { vi } from "vitest";
@@ -25,7 +35,6 @@ import { vi } from "vitest";
 import { createIdentityTheme } from "./tui.js";
 
 type ExtensionEventName = string;
-type EventHandler = (...args: unknown[]) => unknown;
 type ContextOverrides = Omit<Partial<ExtensionCommandContext>, "ui"> & {
   ui?: Partial<ExtensionCommandContext["ui"]>;
 };
@@ -36,6 +45,7 @@ type EditorFactory = Parameters<
   ExtensionCommandContext["ui"]["setEditorComponent"]
 >[0];
 type MessageRenderer = Parameters<ExtensionAPI["registerMessageRenderer"]>[1];
+type NativeProvider = Provider;
 interface RunToolOptions {
   ctx?: ExtensionCommandContext;
   signal?: Parameters<ToolExecute>[2];
@@ -52,6 +62,7 @@ export interface ExtensionHostOptions {
   commands?: SlashCommandInfo[];
   flags?: Record<string, boolean | string>;
   model?: ExtensionContext["model"];
+  sessionId?: string;
 }
 
 const TEST_SOURCE_INFO = createSyntheticSourceInfo("<test>", {
@@ -59,6 +70,7 @@ const TEST_SOURCE_INFO = createSyntheticSourceInfo("<test>", {
   scope: "project",
   source: "test",
 });
+let nextHostId = 0;
 
 const createTurnEndEvent = (event?: Partial<TurnEndEvent>): TurnEndEvent => ({
   message:
@@ -102,38 +114,74 @@ export const createExtensionHost = (
   extensionFactory: (pi: ExtensionAPI) => void | Promise<void>,
   options: ExtensionHostOptions = {}
 ) => {
-  const handlers = new Map<ExtensionEventName, EventHandler[]>();
-  const registeredCommands = new Map<string, RegisteredCommand>();
-  const registeredTools = new Map<string, RegisteredTool>();
-  const registeredShortcuts = new Map<
-    string,
-    Parameters<ExtensionAPI["registerShortcut"]>[1]
-  >();
-  const registeredFlags = new Set<string>();
-  const flagValues = new Map(Object.entries(options.flags ?? {}));
+  const sessionId = options.sessionId ?? `test-session-${(nextHostId += 1)}`;
+  const emptyCommands = new Map<string, RegisteredCommand>();
+  const emptyTools = new Map<string, RegisteredTool>();
+  const registeredNativeProviders = new Map<string, NativeProvider>();
+  const registeredProviderConfigs = new Map<string, ProviderConfig>();
   const entries = [...(options.entries ?? [])];
   const appendedEntries: SessionEntry[] = [];
   const sentUserMessages: {
     content: Parameters<ExtensionAPI["sendUserMessage"]>[0];
     options: Parameters<ExtensionAPI["sendUserMessage"]>[1];
   }[] = [];
+  const sentMessages: {
+    message: Parameters<ExtensionAPI["sendMessage"]>[0];
+    options: Parameters<ExtensionAPI["sendMessage"]>[1];
+  }[] = [];
   const notifications: { message: string; type?: string }[] = [];
   const autocompleteProviderFactories: AutocompleteProviderFactory[] = [];
-  const messageRenderers = new Map<string, MessageRenderer>();
   const widgetState = new Map<string, string | undefined>();
   const statuses = new Map<string, string | undefined>();
   const terminalInputHandlers = new Set<TerminalInputHandler>();
   const events = createEventBus();
+  let extension: Extension | undefined;
   let leafId = options.leafId ?? null;
   let nextAppendedEntryId = 1;
   let editorFactory: EditorFactory | undefined;
+  let sessionName: string | undefined;
+  let thinkingLevel = "off" as ReturnType<ExtensionAPI["getThinkingLevel"]>;
   let activeTools = [
     ...(options.activeTools ?? ["read", "bash", "edit", "write"]),
   ];
-  let allToolInfos = (
+  const baseToolInfos = (
     options.allTools ?? ["read", "bash", "edit", "write"]
   ).map(createToolInfo);
+  const knownToolNames = new Set(baseToolInfos.map(({ name }) => name));
+  let allToolInfos = [...baseToolInfos];
   let editorText = "";
+
+  const getHandlers = () => extension?.handlers ?? new Map();
+
+  const syncRegisteredTools = () => {
+    if (!extension) {
+      return;
+    }
+
+    const extensionTools = [...extension.tools.values()];
+    const extensionToolNames = new Set(
+      extensionTools.map(({ definition }) => definition.name)
+    );
+    allToolInfos = [
+      ...baseToolInfos.filter(({ name }) => !extensionToolNames.has(name)),
+      ...extensionTools.map(({ definition, sourceInfo }) => ({
+        description: definition.description,
+        name: definition.name,
+        parameters: definition.parameters,
+        promptGuidelines: definition.promptGuidelines,
+        sourceInfo,
+      })),
+    ];
+
+    for (const { definition } of extensionTools) {
+      if (!knownToolNames.has(definition.name)) {
+        knownToolNames.add(definition.name);
+        if (!activeTools.includes(definition.name)) {
+          activeTools.push(definition.name);
+        }
+      }
+    }
+  };
 
   const getEntry = (entryId: string) =>
     entries.find((entry) => entry.id === entryId);
@@ -165,7 +213,7 @@ export const createExtensionHost = (
     event: TEvent,
     ctx: ExtensionContext
   ) => {
-    const eventHandlers = handlers.get(eventName) ?? [];
+    const eventHandlers = getHandlers().get(eventName) ?? [];
     const runAt = async (
       index: number,
       results: unknown[]
@@ -255,19 +303,20 @@ export const createExtensionHost = (
       mode: "tui" as const,
       model: options.model,
       modelRegistry: {
+        find: vi.fn<(...args: never[]) => unknown>(() => null),
         getProviderAuth: vi.fn<(...args: never[]) => unknown>(
           async (): Promise<undefined> => {
             await Promise.resolve();
-            return undefined;
           }
         ),
       } as unknown as ExtensionContext["modelRegistry"],
       sessionManager: {
+        buildContextEntries: getBranch,
         getBranch,
         getEntries: () => [...entries],
         getLeafId: () => leafId,
         getSessionFile: vi.fn<() => string | undefined>(),
-        getSessionId: () => "test-session",
+        getSessionId: () => sessionId,
       },
       ui,
     } as unknown as ExtensionCommandContext;
@@ -282,101 +331,117 @@ export const createExtensionHost = (
     };
   };
 
-  const pi = {
-    appendEntry(customType: string, data: unknown) {
-      const entry: SessionEntry = {
-        customType,
-        data,
-        id: `${customType}-${nextAppendedEntryId}`,
-        parentId: leafId,
-        timestamp: new Date().toISOString(),
-        type: "custom",
-      };
-      entries.push(entry);
-      appendedEntries.push(entry);
-      nextAppendedEntryId += 1;
-      leafId = entry.id;
-    },
-    events,
+  const appendEntry: ExtensionActions["appendEntry"] = (customType, data) => {
+    const entry: SessionEntry = {
+      customType,
+      data,
+      id: `${customType}-${nextAppendedEntryId}`,
+      parentId: leafId,
+      timestamp: new Date().toISOString(),
+      type: "custom",
+    };
+    entries.push(entry);
+    appendedEntries.push(entry);
+    nextAppendedEntryId += 1;
+    leafId = entry.id;
+  };
+
+  const actions: ExtensionActions = {
+    appendEntry,
     getActiveTools: () => [...activeTools],
     getAllTools: () => [...allToolInfos],
     getCommands: () => [...(options.commands ?? [])],
-    getFlag: (name: string) =>
-      registeredFlags.has(name) ? flagValues.get(name) : undefined,
-    getThinkingLevel: () => "off" as never,
-    on(event: string, handler: EventHandler) {
-      const eventHandlers = handlers.get(event) ?? [];
-      eventHandlers.push(handler as EventHandler);
-      handlers.set(event, eventHandlers);
+    getSessionName: () => sessionName,
+    getThinkingLevel: () => thinkingLevel,
+    refreshTools: syncRegisteredTools,
+    sendMessage(message, messageOptions) {
+      sentMessages.push({ message, options: messageOptions });
     },
-    registerCommand(
-      name: string,
-      commandOptions: Parameters<ExtensionAPI["registerCommand"]>[1]
-    ) {
-      registeredCommands.set(name, {
-        ...commandOptions,
-        name,
-        sourceInfo: TEST_SOURCE_INFO,
-      } as RegisteredCommand);
+    sendUserMessage(content, messageOptions) {
+      sentUserMessages.push({ content, options: messageOptions });
     },
-    registerFlag(
-      name: string,
-      flagOptions: Parameters<ExtensionAPI["registerFlag"]>[1]
-    ) {
-      registeredFlags.add(name);
-      if (flagOptions.default !== undefined && !flagValues.has(name)) {
-        flagValues.set(name, flagOptions.default);
-      }
-    },
-    registerMessageRenderer(customType: string, renderer: MessageRenderer) {
-      messageRenderers.set(customType, renderer);
-    },
-    registerShortcut: vi.fn<(...args: never[]) => unknown>(
-      (shortcut, shortcutOptions) => {
-        registeredShortcuts.set(shortcut, shortcutOptions);
-      }
-    ),
-    registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
-      const wasKnownTool =
-        registeredTools.has(tool.name) ||
-        allToolInfos.some((candidate) => candidate.name === tool.name);
-
-      registeredTools.set(tool.name, {
-        definition: tool,
-        sourceInfo: TEST_SOURCE_INFO,
-      } as unknown as RegisteredTool);
-      const info = {
-        description: tool.description,
-        name: tool.name,
-        parameters: tool.parameters,
-        sourceInfo: TEST_SOURCE_INFO,
-      };
-      allToolInfos = allToolInfos.some(
-        (candidate) => candidate.name === tool.name
-      )
-        ? allToolInfos.map((candidate) =>
-            candidate.name === tool.name ? info : candidate
-          )
-        : [...allToolInfos, info];
-
-      if (!wasKnownTool && !activeTools.includes(tool.name)) {
-        activeTools = [...activeTools, tool.name];
-      }
-    },
-    sendUserMessage: vi.fn<(...args: never[]) => unknown>(
-      (content, messageOptions) => {
-        sentUserMessages.push({ content, options: messageOptions });
-      }
-    ),
-    setActiveTools(toolNames: string[]) {
+    setActiveTools(toolNames) {
       activeTools = [...toolNames];
     },
-  } as unknown as ExtensionAPI;
+    setLabel: vi.fn<ExtensionActions["setLabel"]>(),
+    setModel: vi.fn<ExtensionActions["setModel"]>(async () => false),
+    setSessionName(name) {
+      sessionName = name;
+    },
+    setThinkingLevel(level) {
+      thinkingLevel = level;
+    },
+  };
 
   const ready = (async () => {
-    const result = extensionFactory(pi);
-    await Promise.resolve();
-    return result;
+    const resourceLoader = new DefaultResourceLoader({
+      agentDir: process.cwd(),
+      cwd: process.cwd(),
+      eventBus: events,
+      extensionFactories: [extensionFactory],
+      noContextFiles: true,
+      noExtensions: true,
+      noPromptTemplates: true,
+      noSkills: true,
+      noThemes: true,
+      settingsManager: SettingsManager.inMemory(),
+    });
+    await resourceLoader.reload();
+
+    const loaded = resourceLoader.getExtensions();
+    if (loaded.errors.length > 0) {
+      throw new Error(
+        loaded.errors.map(({ error, path }) => `${path}: ${error}`).join("\n")
+      );
+    }
+
+    [extension] = loaded.extensions;
+    if (!extension) {
+      throw new Error("Inline test extension did not load");
+    }
+
+    for (const [name, value] of Object.entries(options.flags ?? {})) {
+      loaded.runtime.flagValues.set(name, value);
+    }
+
+    const runnerContext = buildContext();
+    const runner = new ExtensionRunner(
+      loaded.extensions,
+      loaded.runtime,
+      process.cwd(),
+      runnerContext.sessionManager as unknown as ConstructorParameters<
+        typeof ExtensionRunner
+      >[3],
+      runnerContext.modelRegistry as unknown as ConstructorParameters<
+        typeof ExtensionRunner
+      >[4]
+    );
+    const contextActions: ExtensionContextActions = {
+      abort: vi.fn<ExtensionContextActions["abort"]>(),
+      compact: vi.fn<ExtensionContextActions["compact"]>(),
+      getContextUsage: vi.fn<ExtensionContextActions["getContextUsage"]>(),
+      getModel: () => options.model,
+      getScopedModels: () => [],
+      getSignal: vi.fn<ExtensionContextActions["getSignal"]>(),
+      getSystemPrompt: () => "",
+      hasPendingMessages: () => false,
+      isIdle: () => true,
+      isProjectTrusted: () => true,
+      shutdown: vi.fn<ExtensionContextActions["shutdown"]>(),
+    };
+    runner.bindCore(actions, contextActions, {
+      registerNativeProvider(provider) {
+        registeredNativeProviders.set(provider.id, provider);
+      },
+      registerProvider(name, config) {
+        registeredProviderConfigs.set(name, config);
+      },
+      unregisterProvider(name) {
+        registeredNativeProviders.delete(name);
+        registeredProviderConfigs.delete(name);
+      },
+    });
+    syncRegisteredTools();
   })();
 
   const emit = async <TEvent>(
@@ -390,9 +455,11 @@ export const createExtensionHost = (
 
   const emitSessionStart = async (
     ctx = buildContext(),
-    reason: SessionStartEvent["reason"] = "startup"
+    reason: SessionStartEvent["reason"] = "startup",
+    previousSessionFile?: string
   ) => {
     const event: SessionStartEvent = {
+      ...(previousSessionFile === undefined ? {} : { previousSessionFile }),
       reason,
       type: "session_start",
     };
@@ -424,7 +491,8 @@ export const createExtensionHost = (
     event: InputEvent,
     ctx = buildContext()
   ): Promise<InputEventResult> => {
-    const inputHandlers = handlers.get("input") ?? [];
+    await ready;
+    const inputHandlers = getHandlers().get("input") ?? [];
 
     const runAt = async (
       index: number,
@@ -492,7 +560,7 @@ export const createExtensionHost = (
 
   const runCommand = async (name: string, args = "", ctx = buildContext()) => {
     await ready;
-    const command = registeredCommands.get(name);
+    const command = extension?.commands.get(name);
     if (!command) {
       throw new Error(`Extension command not registered: ${name}`);
     }
@@ -507,7 +575,7 @@ export const createExtensionHost = (
     toolRunOptions: RunToolOptions = {}
   ) => {
     await ready;
-    const tool = registeredTools.get(name);
+    const tool = extension?.tools.get(name);
     if (!tool) {
       throw new Error(`Extension tool not registered: ${name}`);
     }
@@ -535,7 +603,7 @@ export const createExtensionHost = (
 
   const runShortcut = async (name: string, ctx = buildContext()) => {
     await ready;
-    const shortcut = registeredShortcuts.get(name);
+    const shortcut = extension?.shortcuts.get(name as never);
     if (!shortcut) {
       throw new Error(`Extension shortcut not registered: ${name}`);
     }
@@ -568,20 +636,37 @@ export const createExtensionHost = (
     getEditorFactory() {
       return editorFactory;
     },
+    getEntryRenderer(customType: string): EntryRenderer | undefined {
+      return extension?.entryRenderers?.get(customType);
+    },
     getLeafId() {
       return leafId;
     },
+    getMarkdownTransformer(): MarkdownTransformer | undefined {
+      return extension?.markdownTransformer;
+    },
     getMessageRenderer(customType: string) {
-      return messageRenderers.get(customType);
+      return extension?.messageRenderers.get(customType) as
+        | MessageRenderer
+        | undefined;
     },
     getNotifications() {
       return [...notifications];
     },
     getRegisteredCommands() {
-      return registeredCommands;
+      return extension?.commands ?? emptyCommands;
+    },
+    getRegisteredNativeProviders() {
+      return registeredNativeProviders;
+    },
+    getRegisteredProviderConfigs() {
+      return registeredProviderConfigs;
     },
     getRegisteredTools() {
-      return registeredTools;
+      return extension?.tools ?? emptyTools;
+    },
+    getSentMessages() {
+      return [...sentMessages];
     },
     getSentUserMessages() {
       return [...sentUserMessages];

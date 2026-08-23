@@ -1,4 +1,6 @@
 /* oxlint-disable eslint/sort-keys -- preserve native harness field order */
+import { open, readFile, stat } from "node:fs/promises";
+
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import type {
   AgentToolResult,
@@ -14,6 +16,8 @@ import { resolvePath } from "./path.js";
 import type { ProcessManager, ProcessResult } from "./process.js";
 
 const strict = { additionalProperties: false } as const;
+const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
+const CODE_MODE_OUTPUT_TOKEN_LIMIT = (1024 * 1024) / 4;
 
 export const CODEX_MODEL_IDS = new Set([
   "gpt-5.6-sol",
@@ -50,10 +54,269 @@ const textResult = (text: string, details: unknown = {}) => ({
   details,
 });
 
-const processResult = ({
-  output,
-  ...details
-}: ProcessResult): AgentToolResult<unknown> => textResult(output, details);
+const approximateTokens = (bytes: number): number => Math.ceil(bytes / 4);
+
+const rustLineCount = (value: string): number => {
+  if (value === "") {
+    return 0;
+  }
+  const parts = value.split(/\n/u);
+  if (parts.at(-1) === "") {
+    parts.pop();
+  }
+  return parts.length;
+};
+
+const utf8Prefix = (value: string, byteBudget: number): string => {
+  let end = 0;
+  let bytes = 0;
+  for (const character of value) {
+    const size = Buffer.byteLength(character);
+    if (bytes + size > byteBudget) {
+      break;
+    }
+    bytes += size;
+    end += character.length;
+  }
+  return value.slice(0, end);
+};
+
+const utf8Suffix = (value: string, byteBudget: number): string => {
+  const target = Math.max(0, Buffer.byteLength(value) - byteBudget);
+  let byteOffset = 0;
+  let stringOffset = 0;
+  for (const character of value) {
+    if (byteOffset >= target) {
+      return value.slice(stringOffset);
+    }
+    byteOffset += Buffer.byteLength(character);
+    stringOffset += character.length;
+  }
+  return "";
+};
+
+export const truncateCodexOutput = (
+  output: string,
+  maxTokens: number
+): {
+  content: string;
+  originalTokenCount: number;
+  truncated: boolean;
+} => {
+  const totalBytes = Buffer.byteLength(output);
+  const byteBudget = maxTokens * 4;
+  const originalTokenCount = approximateTokens(totalBytes);
+  if (totalBytes <= byteBudget) {
+    return { content: output, originalTokenCount, truncated: false };
+  }
+  const leftBudget = Math.floor(byteBudget / 2);
+  const rightBudget = byteBudget - leftBudget;
+  const prefix = utf8Prefix(output, leftBudget);
+  const suffix = utf8Suffix(output, rightBudget);
+  const removedTokens = approximateTokens(totalBytes - byteBudget);
+  return {
+    content: [
+      `Warning: truncated output (original token count: ${originalTokenCount})`,
+      `Total output lines: ${rustLineCount(output)}`,
+      "",
+      `${prefix}…${removedTokens} tokens truncated…${suffix}`,
+    ].join("\n"),
+    originalTokenCount,
+    truncated: true,
+  };
+};
+
+const readSlice = async (
+  file: Awaited<ReturnType<typeof open>>,
+  position: number,
+  length: number
+): Promise<Buffer> => {
+  const bytes = Buffer.allocUnsafe(length);
+  const { bytesRead } = await file.read(bytes, 0, length, position);
+  return bytes.subarray(0, bytesRead);
+};
+
+const isUtf8ContinuationByte = (byte: number | undefined): boolean =>
+  byte !== undefined && byte >= 0x80 && byte <= 0xbf;
+
+const MAX_UTF8_CONTINUATION_BYTES = 3;
+
+const truncateProcessResultOutput = async (
+  result: ProcessResult,
+  maxTokens: number
+): Promise<
+  ReturnType<typeof truncateCodexOutput> & {
+    totalBytes: number;
+  }
+> => {
+  const source = result.truncation;
+  if (source === undefined || result.fullOutputPath === undefined) {
+    return {
+      ...truncateCodexOutput(result.output, maxTokens),
+      totalBytes: Buffer.byteLength(result.output),
+    };
+  }
+  const info = await stat(result.fullOutputPath);
+  const totalBytes = info.size;
+  const decodedTotalBytes = source.totalBytes;
+  const byteBudget = maxTokens * 4;
+  if (decodedTotalBytes <= byteBudget) {
+    const content = await readFile(result.fullOutputPath, "utf-8");
+    return {
+      ...truncateCodexOutput(content, maxTokens),
+      totalBytes,
+    };
+  }
+
+  const leftBudget = Math.floor(byteBudget / 2);
+  const rightBudget = byteBudget - leftBudget;
+  const file = await open(result.fullOutputPath, "r");
+  try {
+    const prefixBytes = await readSlice(file, 0, leftBudget + 4);
+    const suffixStart = Math.max(0, totalBytes - rightBudget - 4);
+    const suffixBytes = await readSlice(
+      file,
+      suffixStart,
+      totalBytes - suffixStart
+    );
+    let suffixOffset = 0;
+    if (suffixStart > 0) {
+      while (
+        suffixOffset < MAX_UTF8_CONTINUATION_BYTES &&
+        suffixOffset < suffixBytes.length &&
+        isUtf8ContinuationByte(suffixBytes[suffixOffset])
+      ) {
+        suffixOffset += 1;
+      }
+    }
+    const prefix = utf8Prefix(prefixBytes.toString("utf-8"), leftBudget);
+    const suffix = utf8Suffix(
+      suffixBytes.subarray(suffixOffset).toString("utf-8"),
+      rightBudget
+    );
+    return {
+      content: [
+        `Warning: truncated output (original token count: ${approximateTokens(decodedTotalBytes)})`,
+        `Total output lines: ${source.totalLines}`,
+        "",
+        `${prefix}…${approximateTokens(decodedTotalBytes - byteBudget)} tokens truncated…${suffix}`,
+      ].join("\n"),
+      originalTokenCount: approximateTokens(decodedTotalBytes),
+      totalBytes,
+      truncated: true,
+    };
+  } finally {
+    await file.close();
+  }
+};
+
+const outputTokenPolicy = (
+  ctx: Pick<ExtensionContext, "model" | "modelRegistry">
+): number => {
+  const selected = ctx.model;
+  const current =
+    selected === undefined
+      ? undefined
+      : // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ModelRegistry.find accepts provider and model IDs.
+        ctx.modelRegistry.find(selected.provider, selected.id);
+  const model = current ?? selected;
+  const configured = (
+    model as
+      | (NonNullable<ExtensionContext["model"]> & {
+          codexOutputTokenLimit?: unknown;
+        })
+      | undefined
+  )?.codexOutputTokenLimit;
+  return typeof configured === "number" &&
+    Number.isSafeInteger(configured) &&
+    configured >= 0
+    ? configured
+    : DEFAULT_OUTPUT_TOKEN_LIMIT;
+};
+
+const formatProcessMetadata = (result: ProcessResult): string => {
+  let status = `Process exited with code ${result.exitCode ?? "unknown"}.`;
+  if (result.status === "running") {
+    status = "Process is still running.";
+  } else if (result.status === "killed") {
+    status = "Process was killed.";
+  }
+  const output = [status];
+  if (result.fullOutputPath !== undefined && result.fullOutputPath.length > 0) {
+    output.push(`[Full output: ${result.fullOutputPath}]`);
+  }
+  if (result.sessionId !== undefined) {
+    output.push(`Session ID: ${result.sessionId}`);
+  }
+  return output.join("\n\n");
+};
+
+const codeModeResult = (
+  result: ProcessResult,
+  output: ReturnType<typeof truncateCodexOutput> | undefined
+) => ({
+  exit_code: result.exitCode,
+  ...(output === undefined
+    ? {}
+    : { original_token_count: output.originalTokenCount }),
+  output: output?.content ?? result.output,
+  ...(result.sessionId === undefined ? {} : { session_id: result.sessionId }),
+  wall_time_seconds: result.durationMs / 1000,
+});
+
+const processResult = async (
+  result: ProcessResult,
+  maxOutputTokens: number | undefined,
+  ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
+  nested: boolean
+): Promise<AgentToolResult<unknown>> => {
+  const effectiveLimit = Math.min(
+    maxOutputTokens ?? DEFAULT_OUTPUT_TOKEN_LIMIT,
+    outputTokenPolicy(ctx)
+  );
+  const truncated = await truncateProcessResultOutput(result, effectiveLimit);
+  let nestedOutput: ReturnType<typeof truncateCodexOutput> | undefined;
+  if (nested) {
+    if (maxOutputTokens === undefined) {
+      nestedOutput = await truncateProcessResultOutput(
+        result,
+        CODE_MODE_OUTPUT_TOKEN_LIMIT
+      );
+    } else {
+      const nestedLimit = Math.min(
+        maxOutputTokens,
+        CODE_MODE_OUTPUT_TOKEN_LIMIT
+      );
+      nestedOutput =
+        nestedLimit === effectiveLimit
+          ? truncated
+          : await truncateProcessResultOutput(result, nestedLimit);
+    }
+  }
+  const metadata = formatProcessMetadata(result);
+  const content =
+    truncated.content.length === 0
+      ? metadata
+      : `${truncated.content}\n\n${metadata}`;
+  const { output: _output, ...details } = result;
+  return textResult(content, {
+    ...details,
+    ...(nested ? { codeModeResult: codeModeResult(result, nestedOutput) } : {}),
+    effectiveMaxOutputTokens: effectiveLimit,
+    ...(maxOutputTokens === undefined
+      ? {}
+      : { requestedMaxOutputTokens: maxOutputTokens }),
+    ...(truncated.truncated
+      ? {
+          requestedBudgetTruncation: {
+            originalTokenCount: truncated.originalTokenCount,
+            totalBytes: truncated.totalBytes,
+            truncatedBy: "tokens",
+          },
+        }
+      : {}),
+  });
+};
 
 export const createCodexDirectTools = () => {
   const processes = createLazySingleton<ProcessManager>(async (signal) => {
@@ -68,7 +331,7 @@ export const createCodexDirectTools = () => {
     }
     return manager;
   };
-  const definitions = [
+  const execCommand = (nested: boolean) =>
     defineTool({
       name: "exec_command",
       label: "Execute Command",
@@ -77,6 +340,13 @@ export const createCodexDirectTools = () => {
       parameters: Type.Object(
         {
           cmd: Type.String(),
+          max_output_tokens: Type.Optional(
+            Type.Integer({
+              description:
+                "Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.",
+              minimum: 0,
+            })
+          ),
           workdir: Type.Optional(Type.String()),
           yield_time_ms: Type.Optional(Type.Integer({ minimum: 0 })),
         },
@@ -84,7 +354,7 @@ export const createCodexDirectTools = () => {
       ),
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
         const manager = await processManager();
-        return processResult(
+        return await processResult(
           await manager.start({
             command: params.cmd,
             ctx,
@@ -94,10 +364,14 @@ export const createCodexDirectTools = () => {
                 : resolvePath(params.workdir, ctx.cwd),
             signal,
             yieldMs: params.yield_time_ms ?? 10_000,
-          })
+          }),
+          params.max_output_tokens,
+          ctx,
+          nested
         );
       },
-    }),
+    });
+  const writeStdin = (nested: boolean) =>
     defineTool({
       name: "write_stdin",
       label: "Write Stdin",
@@ -106,22 +380,37 @@ export const createCodexDirectTools = () => {
         {
           session_id: Type.Integer({ minimum: 1 }),
           chars: Type.Optional(Type.String()),
+          max_output_tokens: Type.Optional(
+            Type.Integer({
+              description:
+                "Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.",
+              minimum: 0,
+            })
+          ),
           yield_time_ms: Type.Optional(Type.Integer({ minimum: 0 })),
         },
         strict
       ),
-      async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      async execute(_toolCallId, params, signal, _onUpdate, ctx) {
         const manager = await processManager();
-        return processResult(
+        return await processResult(
           await manager.continue({
             chars: params.chars,
             sessionId: params.session_id,
             signal,
-            yieldMs: params.yield_time_ms ?? 1000,
-          })
+            yieldMs:
+              params.yield_time_ms ??
+              (params.chars === undefined || params.chars.length === 0
+                ? 5000
+                : 250),
+          }),
+          params.max_output_tokens,
+          ctx,
+          nested
         );
       },
-    }),
+    });
+  const sharedDefinitions = [
     defineTool({
       name: "apply_patch",
       label: "Apply Patch",
@@ -159,8 +448,18 @@ export const createCodexDirectTools = () => {
       },
     }),
   ];
+  const definitions = [
+    execCommand(false),
+    writeStdin(false),
+    ...sharedDefinitions,
+  ];
   return {
     definitions,
     dispose: () => processes.stop((manager) => manager.dispose()),
+    nestedDefinitions: [
+      execCommand(true),
+      writeStdin(true),
+      ...sharedDefinitions,
+    ],
   };
 };

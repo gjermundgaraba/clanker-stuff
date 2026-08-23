@@ -17,7 +17,7 @@ describe("side panel", () => {
       createIdentityTheme(),
       createKeybindings() as unknown as KeybindingsManager,
       {
-        state: { isRunning: true, transcript: [] },
+        state: { activity: { kind: "running" }, transcript: [] },
         submit,
         subscribe: () => vi.fn<() => void>(),
       } as unknown as SideSessionController,

@@ -3,7 +3,6 @@ import path from "node:path";
 
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -30,14 +29,12 @@ describe("mcp server pool", () => {
   it("closes a connection that finishes loading during shutdown", async () => {
     const connection = Promise.withResolvers<McpClientConnection>();
     const close = vi.fn<() => Promise<void>>(() => Promise.resolve());
-    const notify = vi.fn<ExtensionCommandContext["ui"]["notify"]>();
     const pool = new McpServerPool();
     const load = pool.loadServer({
       connectionFactory: () => connection.promise,
       interactive: false,
       pi: {} as ExtensionAPI,
       serverName: "slow",
-      ui: { notify },
     });
 
     const shutdown = pool.closeAll();
@@ -70,7 +67,6 @@ describe("mcp server pool", () => {
         setActiveTools,
       } as unknown as ExtensionAPI,
       serverName: "shared",
-      ui: { notify: vi.fn<ExtensionCommandContext["ui"]["notify"]>() },
     };
 
     const first = pool.loadServer(options);
@@ -108,7 +104,6 @@ describe("mcp server pool", () => {
       interactive: false,
       pi,
       serverName: "shared",
-      ui: { notify: vi.fn<ExtensionCommandContext["ui"]["notify"]>() },
     };
     const first = pool.loadServer(options);
     const controller = new AbortController();
@@ -153,21 +148,17 @@ describe("mcp server pool", () => {
       registerTool: vi.fn<ExtensionAPI["registerTool"]>(),
       setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>(),
     } as unknown as ExtensionAPI;
-    const ui = { notify: vi.fn<ExtensionCommandContext["ui"]["notify"]>() };
-
     const background = pool.loadServer({
       connectionFactory,
       interactive: false,
       pi,
       serverName: "shared",
-      ui,
     });
     const interactive = pool.loadServer({
       connectionFactory,
       interactive: true,
       pi,
       serverName: "shared",
-      ui,
     });
     firstAttempt.resolve(null);
 
@@ -252,9 +243,6 @@ describe("mcp server pool", () => {
         setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>(),
       } as unknown as ExtensionAPI,
       serverName: "remote",
-      ui: {
-        notify: vi.fn<ExtensionCommandContext["ui"]["notify"]>(),
-      },
     });
     if (!tool) {
       throw new Error("MCP tool was not registered");

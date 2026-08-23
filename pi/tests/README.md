@@ -36,7 +36,7 @@ Default harness:
 
 Any test that imports `pi/tests/harness/agent-session.ts`, including tests of the harness itself, must be named `*.integration.test.ts`.
 
-`agent-session` wraps a process-global faux provider. Active integration-style harnesses must not overlap, so this layer runs serially.
+Each `agent-session` harness owns a faux provider registered through its local `ModelRuntime` rather than a process-global registry, so active harnesses may overlap without sharing response queues or payload hooks. The integration layer remains serial to avoid overlap in other process-level test resources.
 
 ### Smoke
 

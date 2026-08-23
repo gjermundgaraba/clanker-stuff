@@ -27,7 +27,7 @@ const fakeConversation = (
   ({
     dispose: vi.fn<() => Promise<unknown>>(dispose),
     latestAssistantText: vi.fn<() => string | undefined>(),
-    state: { isRunning: false, transcript: [] },
+    state: { activity: { kind: "idle" }, transcript: [] },
     submit: () => true,
     subscribe: () => () => {},
   }) as unknown as SideSessionController;
@@ -78,7 +78,7 @@ const createOverlayUi = () => {
 const openRunningSide = async () => {
   vi.useFakeTimers();
   const conversation = fakeConversation();
-  conversation.state.isRunning = true;
+  conversation.state.activity = { kind: "running" };
   vi.mocked(createSideConversation).mockResolvedValueOnce(conversation);
   const host = createExtensionHost(sideExtension);
   await host.ready;
@@ -199,6 +199,62 @@ describe("side controller", () => {
       expect(conversation.dispose).toHaveBeenCalledWith();
     });
     expect(host.getStatus("side")).toBeUndefined();
+  });
+
+  it("lets a replacement opening own status after a tree change", async () => {
+    const firstOpening = Promise.withResolvers<SideSessionController>();
+    vi.mocked(createSideConversation).mockReturnValueOnce(firstOpening.promise);
+    const host = createExtensionHost(sideExtension);
+    await host.ready;
+    const overlay = createOverlayUi();
+    const ctx = host.createContext({
+      model: {} as never,
+      ui: { custom: overlay.custom },
+    });
+
+    await host.runCommand("side", "", ctx);
+    await host.emitSessionTree(ctx);
+
+    const replacement = fakeConversation();
+    vi.mocked(createSideConversation).mockResolvedValueOnce(replacement);
+    await host.runCommand("side", "", ctx);
+    await vi.waitFor(() => {
+      expect(overlay.custom).toHaveBeenCalledOnce();
+    });
+
+    const obsolete = fakeConversation();
+    firstOpening.resolve(obsolete);
+    await vi.waitFor(() => {
+      expect(obsolete.dispose).toHaveBeenCalledOnce();
+    });
+
+    expect(createSideConversation).toHaveBeenCalledTimes(2);
+    expect(replacement.dispose).not.toHaveBeenCalled();
+    expect(host.getStatus("side")).toContain("active");
+
+    await host.emitSessionShutdown(ctx);
+  });
+
+  it("stops and disposes an opening conversation during shutdown", async () => {
+    const opening = Promise.withResolvers<SideSessionController>();
+    vi.mocked(createSideConversation).mockReturnValueOnce(opening.promise);
+    const host = createExtensionHost(sideExtension);
+    await host.ready;
+    const ctx = host.createContext({ model: {} as never });
+
+    await host.runCommand("side", "", ctx);
+    expect(host.getStatus("side")).toContain("opening");
+
+    await host.emitSessionShutdown(ctx);
+    expect(host.getStatus("side")).toBeUndefined();
+
+    const obsolete = fakeConversation();
+    opening.resolve(obsolete);
+    await vi.waitFor(() => {
+      expect(obsolete.dispose).toHaveBeenCalledOnce();
+    });
+    await host.runCommand("side", "", ctx);
+    expect(createSideConversation).toHaveBeenCalledOnce();
   });
 
   it("shows static activity in the panel and hidden status", async () => {

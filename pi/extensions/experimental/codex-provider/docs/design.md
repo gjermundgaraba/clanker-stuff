@@ -2,7 +2,7 @@
 
 This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.2 installation. It owns normal Responses requests, Codex-native direct tools and Code Mode, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
 
-The implementation follows the pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
+The implementation follows the compatibility objective and pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
 
 ## Runtime ownership
 
@@ -24,11 +24,13 @@ The provider runtime is not optional. Loading the extension replaces Pi's effect
 
 One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, exact continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. Session shutdown closes transport state.
 
-Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service tier for supported models across normal requests and native compaction. Live model metadata is authoritative; the pinned fallback catalog covers offline startup. The lightning status appears only when the selected model supports fast mode.
+Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service tier for supported models across normal requests and native compaction. Live model metadata is authoritative; the pinned fallback catalog covers offline startup. Persisted remote catalogs are bound to the ChatGPT account that produced them and are invalidated before another account can observe their entitlements or model policy. A catalog-observed account change also invalidates account-scoped usage cache and in-flight usage publication. The lightning status appears only when the selected model supports fast mode.
 
 Remote reasoning presets are intersected with Pi's known thinking levels instead of being forwarded as request values. Only the Codex Responses wire efforts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` reach transport. The Codex application preset `ultra` is not exposed as Pi `max`: full Ultra behavior also requires proactive multi-agent policy, which this extension does not implement.
 
 Supported GPT-5.6 Codex models start with `exec_command`, `write_stdin`, `apply_patch`, and `view_image`; `/code-mode` replaces them with `exec` and `wait`. The provider owns those six names and suppresses Pi's seven built-ins while they are active, but leaves unrelated extension tools alone. When `@clanker-stuff/tools` is also loaded, `/tools` delegates those six choices back to this extension through a provider-neutral event contract. Tool choices follow the active session branch.
+
+`exec_command` and `write_stdin` apply requested `max_output_tokens` with Codex's UTF-8 approximate-token, head-plus-tail formatter and a model-visible truncation warning. The active catalog model's truncation policy caps the request. Only raw command output consumes that budget; Pi process status, truncation-file notices, and the session ID remain visible outside it. This matches the pinned truncation algorithm and control-metadata safety, not Codex's complete PTY result layout. In Code Mode, a nested tool with a declared output schema must return valid model-visible JSON; the provider decodes that JSON to the callable value and never substitutes host-only `details`.
 
 Code Mode does not select a request envelope. `use_responses_lite` from native model metadata alone determines whether the same active tools and instructions use Responses Lite or the standard Responses envelope.
 

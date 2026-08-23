@@ -286,6 +286,40 @@ describe("mcp loader", () => {
     expect(host.getActiveTools()).toContain("mcp_beta__search");
   });
 
+  it("uses one configuration snapshot for a restore", async () => {
+    const alphaFixture = await t.startHttpFixture(false, false, true);
+    const initialBetaFixture = await t.startHttpFixture();
+    const replacementBetaFixture = await t.startHttpFixture();
+    await t.writeConfig({
+      mcpServers: {
+        alpha: { type: "http", url: alphaFixture.url },
+        beta: { type: "http", url: initialBetaFixture.url },
+      },
+    });
+    const session = createBranchSession();
+    const betaEntry = session.entries.at(-1);
+    if (!betaEntry) {
+      throw new Error("missing beta fixture entry");
+    }
+    betaEntry.parentId = "alpha-load";
+    session.leafId = "beta-load";
+    const host = t.createExtensionHost(mcp, session);
+
+    const restore = host.emitSessionStart();
+    await alphaFixture.waitForInitialization();
+    await t.writeConfig({
+      mcpServers: {
+        alpha: { type: "http", url: alphaFixture.url },
+        beta: { type: "http", url: replacementBetaFixture.url },
+      },
+    });
+    alphaFixture.releaseInitialization();
+    await restore;
+
+    expect(initialBetaFixture.getInitializationCount()).toBe(1);
+    expect(replacementBetaFixture.getInitializationCount()).toBe(0);
+  });
+
   it("restores persisted manager tools on session_start without config", async () => {
     const persistedEntry: SessionEntry = {
       customType: "mcp-server-loaded",

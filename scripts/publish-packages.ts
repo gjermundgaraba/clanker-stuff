@@ -7,9 +7,25 @@ import {
 } from "./workspace-packages.ts";
 
 const dryRun = process.argv.includes("--dry-run");
-const requestedPackageNames = process.argv
+const requestedArguments = process.argv
   .slice(2)
   .filter((arg) => arg !== "--dry-run");
+const requestedPackageNames = [...new Set(requestedArguments)];
+if (requestedPackageNames.length !== requestedArguments.length) {
+  const seen = new Set<string>();
+  const duplicates = new Set(
+    requestedArguments.filter((name) => {
+      if (seen.has(name)) {
+        return true;
+      }
+      seen.add(name);
+      return false;
+    })
+  );
+  throw new Error(
+    `Duplicate package${duplicates.size === 1 ? "" : "s"} in publish list: ${[...duplicates].join(", ")}`
+  );
+}
 
 const rootPkg = readJson("package.json");
 if (rootPkg.packageManager?.startsWith("pnpm@") !== true) {

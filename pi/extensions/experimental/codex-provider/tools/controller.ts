@@ -1,3 +1,8 @@
+import {
+  isToolOwnerRequest,
+  TOOL_OWNER_REQUEST_EVENT,
+} from "@clanker-stuff/tool-owner-protocol";
+import type { ToolOwnerRegistration } from "@clanker-stuff/tool-owner-protocol";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -5,11 +10,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { CodeModeRuntime } from "../code-mode/tools.js";
+import {
+  PI_SUBAGENTS_NAMESPACE,
+  requestCollaborationContract,
+} from "../collaboration.js";
 import { CODE_MODE_STATUS_KEY } from "../footer.js";
 import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
 import { createCodexToolSelection } from "./selection.js";
 
-const TOOL_OWNER_CHANNEL = "clanker-stuff:tools:owner";
 const PI_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "read", "write"];
 
 export const createCodexToolsController = (
@@ -20,7 +28,7 @@ export const createCodexToolsController = (
   const codeMode = new CodeModeRuntime();
   const selection = createCodexToolSelection(pi);
   const directDefinitions = [...direct.definitions];
-  const codeDefinitions = codeMode.createTools(directDefinitions);
+  const codeDefinitions = codeMode.createTools();
   const directNames = directDefinitions.map(({ name }) => name);
   const codeNames = codeDefinitions.map(({ name }) => name);
   const toolNames = [...directNames, ...codeNames];
@@ -47,6 +55,16 @@ export const createCodexToolsController = (
   const apply = (ctx: ExtensionContext): void => {
     const previousModel = currentModel;
     currentModel = ctx.model;
+    const collaboration = requestCollaborationContract(pi, ctx);
+    codeMode.setNestedTools([
+      ...direct.nestedDefinitions.map((definition) => ({ definition })),
+      ...(collaboration?.protocol === "v1"
+        ? collaboration.nestedTools.map((tool) => ({
+            ...tool,
+            namespace: PI_SUBAGENTS_NAMESPACE,
+          }))
+        : []),
+    ]);
     const active = codeModeActive();
     ctx.ui.setStatus(CODE_MODE_STATUS_KEY, active ? "</>" : undefined);
     setFooterActive(active);
@@ -74,18 +92,16 @@ export const createCodexToolsController = (
       ...selection.enabled(codeModeActive() ? codeNames : directNames),
     ]);
   };
-  const publishOwner = (): void => {
-    pi.events.emit(TOOL_OWNER_CHANNEL, {
-      names: toolNames,
-      setEnabled: (name: string, enabled: boolean, ctx: ExtensionContext) => {
-        selection.setEnabled(name, enabled, ctx);
-        apply(ctx);
-      },
-      suppressedNames: (model: ExtensionContext["model"] = currentModel) =>
-        model !== undefined && isCodexToolsModel(model) ? PI_TOOL_NAMES : [],
-      visibleNames,
-    });
-  };
+  const owner = {
+    names: toolNames,
+    setEnabled: (name: string, enabled: boolean, ctx: ExtensionContext) => {
+      selection.setEnabled(name, enabled, ctx);
+      apply(ctx);
+    },
+    suppressedNames: (model: ExtensionContext["model"] = currentModel) =>
+      model !== undefined && isCodexToolsModel(model) ? PI_TOOL_NAMES : [],
+    visibleNames,
+  } satisfies ToolOwnerRegistration;
 
   return {
     apply,
@@ -97,13 +113,19 @@ export const createCodexToolsController = (
       if (!codeModeActive()) {
         return undefined;
       }
-      const section = codeMode.prompt(directDefinitions);
+      const section = codeMode.prompt();
       return systemPrompt.includes(section)
         ? undefined
         : { systemPrompt: `${systemPrompt.trimEnd()}\n\n${section}` };
     },
     definitions: [...directDefinitions, ...codeDefinitions],
-    publishOwner,
+    registerOwner(): void {
+      pi.events.on(TOOL_OWNER_REQUEST_EVENT, (request) => {
+        if (isToolOwnerRequest(request)) {
+          request.provide(owner);
+        }
+      });
+    },
     async shutdown(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (reason === "reload") {
         pi.setActiveTools([

@@ -22,6 +22,8 @@ import type { FooterSource } from "./widgets.js";
 const GROUPS = ["left", "center", "right"] as const;
 const ICONS: FooterConfig["iconFamily"][] = ["ascii", "unicode", "nerd"];
 const PREVIEW_WIDTHS = ["current", "80", "40"] as const;
+type AggregateId = "footer.statuses" | "footer.widgets";
+type Group = (typeof GROUPS)[number];
 export interface FooterEditorWidget {
   defaultEnabled?: boolean;
   id: string;
@@ -37,14 +39,27 @@ export interface FooterEditorOptions {
   renderPreview: (config: FooterConfig, width: number) => string[];
 }
 
-interface Chip {
-  aggregate?: string;
-  group?: (typeof GROUPS)[number];
-  id: string;
-  index?: number;
-  kind: "add" | "placed" | "waiting";
-  row?: number;
-}
+type Chip = {
+  group: Group;
+  index: number;
+  row: number;
+} & (
+  | {
+      aggregate?: never;
+      id: string;
+      kind: "add";
+    }
+  | {
+      aggregate?: AggregateId;
+      id: string;
+      kind: "placed";
+    }
+  | {
+      aggregate?: never;
+      id: string;
+      kind: "waiting";
+    }
+);
 
 interface PickerItem {
   available: boolean;
@@ -66,7 +81,9 @@ const directIds = (config: FooterConfig): Set<string> =>
     )
   );
 
-const sourceAggregate = (widget: FooterEditorWidget): string | undefined =>
+const sourceAggregate = (
+  widget: FooterEditorWidget
+): AggregateId | undefined =>
   widget.source === "rich"
     ? "footer.widgets"
     : widget.source === "native"
@@ -617,7 +634,7 @@ export class FooterEditor {
         return;
       }
       this.status = "";
-      this.openPicker(items, selected.row ?? 0, selected.group ?? "left");
+      this.openPicker(items, selected.row, selected.group);
       return;
     }
     const backup = cloneFooterConfig(this.working);
@@ -625,9 +642,9 @@ export class FooterEditor {
       place(
         this.working,
         selected.id,
-        selected.row ?? 0,
-        selected.group ?? "left",
-        (selected.index ?? 0) + 1
+        selected.row,
+        selected.group,
+        selected.index + 1
       );
     }
     this.grabbed = {
@@ -666,7 +683,7 @@ export class FooterEditor {
   private openPicker(
     items: readonly PickerItem[],
     row: number,
-    group: (typeof GROUPS)[number]
+    group: Group
   ): void {
     const choices: SelectItem[] = items.map((item) => ({
       ...(item.available ? {} : { description: "waiting" }),
@@ -702,8 +719,7 @@ export class FooterEditor {
     selected: Chip,
     movement: NonNullable<ReturnType<typeof direction>>
   ): void {
-    const row = selected.row ?? 0;
-    const group = selected.group ?? "left";
+    const { group, row } = selected;
     const index = this.working.rows[row]?.[group].indexOf(selected.id) ?? -1;
     if (movement === "up" || movement === "down") {
       const targetRow = Math.max(

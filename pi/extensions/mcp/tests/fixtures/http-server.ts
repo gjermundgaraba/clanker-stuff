@@ -42,9 +42,7 @@ export const startMcpHttpFixture = async (
   const handleMcpRequest = toNodeHandler({
     async fetch(request, options) {
       const body =
-        (expireSessionOnce || pauseInitialization) && request.method === "POST"
-          ? await request.clone().json()
-          : undefined;
+        request.method === "POST" ? await request.clone().json() : undefined;
       if (pauseInitialization && isInitializeRequest(body)) {
         initializationStarted.resolve(null);
         await initializationGate.promise;

@@ -8,7 +8,6 @@ import { processFailure, startCli } from "./cli.js";
 const SHUTDOWN_TIMEOUT_MS = 2500;
 
 interface ActiveRun {
-  cancelled: boolean;
   process: CliProcess;
   settled: Promise<void>;
 }
@@ -157,7 +156,6 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
     }
 
     const run: ActiveRun = {
-      cancelled: false,
       process: cliProcess,
       settled: Promise.resolve(),
     };
@@ -167,7 +165,7 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
       let flushPendingStderrOnError = true;
       try {
         const completion = await cliProcess.completion;
-        if (run.cancelled || completion.kind === "cancelled") {
+        if (cliProcess.signal.aborted || completion.kind === "cancelled") {
           return;
         }
         if (completion.kind === "signaled") {
@@ -185,7 +183,7 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
         streamStderrLines("", true);
         options.onOutput(completion.stdout);
       } catch (error) {
-        if (!run.cancelled) {
+        if (!cliProcess.signal.aborted) {
           if (flushPendingStderrOnError) {
             streamStderrLines("", true);
           }
@@ -215,11 +213,8 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
   const shutdown = async (): Promise<void> => {
     const runs = [...activeRuns];
     for (const run of runs) {
-      run.cancelled = true;
-      try {
+      if (!run.process.signal.aborted) {
         run.process.cancel();
-      } catch {
-        // Completion handling below owns process cleanup errors.
       }
     }
     await Promise.race([

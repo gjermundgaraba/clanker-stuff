@@ -117,6 +117,69 @@ describe("voice coordinator", () => {
     expect(completions[0]).toContain("missing auth");
   });
 
+  it("recovers the queue when submission throws synchronously", async () => {
+    const completions: { delegationId: string; text: string }[] = [];
+    const submissions: string[] = [];
+    const coordinator = new VoiceCoordinator({
+      complete: (target, text) => {
+        completions.push({ delegationId: target.delegationId, text });
+        return true;
+      },
+      status: () => true,
+      submit: (prompt) => {
+        submissions.push(prompt);
+        if (prompt === "prompt-a") {
+          throw new Error("submit failed");
+        }
+      },
+      validate: async () => {
+        await Promise.resolve();
+      },
+    });
+
+    coordinator.enqueue({ binding: binding("a"), prompt: "prompt-a" });
+    coordinator.enqueue({ binding: binding("b"), prompt: "prompt-b" });
+
+    await vi.waitFor(() => {
+      expect(submissions).toStrictEqual(["prompt-a", "prompt-b"]);
+    });
+    expect(completions).toStrictEqual([
+      {
+        delegationId: "a",
+        text: "I could not use the current Pi coordinator: submit failed",
+      },
+    ]);
+    expect(coordinator.accept("prompt-b")).toBeTruthy();
+    expect(coordinator.finish("answer b")).toBeTruthy();
+    expect(completions.at(-1)).toStrictEqual({
+      delegationId: "b",
+      text: "answer b",
+    });
+  });
+
+  it("ignores a validation result after reset", async () => {
+    const validation = Promise.withResolvers<null>();
+    const complete = vi.fn<() => boolean>(() => true);
+    const submit = vi.fn<(prompt: string) => void>();
+    const coordinator = new VoiceCoordinator({
+      complete,
+      status: () => true,
+      submit,
+      validate: async () => {
+        await validation.promise;
+      },
+    });
+
+    coordinator.enqueue({ binding: binding("a"), prompt: "prompt-a" });
+    coordinator.reset();
+    validation.resolve(null);
+    await validation.promise;
+    await Promise.resolve();
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
   it("rejects a handoff when the bounded queue is full", async () => {
     const validation = Promise.withResolvers<null>();
     const completions: { delegationId: string; text: string }[] = [];

@@ -1,5 +1,6 @@
 /* oxlint-disable eslint/no-use-before-define -- delegate handling is ordered by protocol lifecycle */
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
+import { nestedToolKey } from "./protocol.js";
 import type { DelegateRequestMessage } from "./protocol.js";
 import { CodeModeTraceStore } from "./trace-store.js";
 import { toolResultFromValue, truncateTraceText } from "./trace-values.js";
@@ -140,7 +141,7 @@ export class CodeModeDelegateRuntime {
     }
     const { invocation } = request;
     const cellId = invocation.cell_id;
-    const toolName = invocation.tool_name.name;
+    const toolName = nestedToolKey(invocation.tool_name);
     const { input } = invocation;
     const tool = this.cellTools.get(cellId)?.get(toolName);
     const context = this.cellContexts.get(cellId);

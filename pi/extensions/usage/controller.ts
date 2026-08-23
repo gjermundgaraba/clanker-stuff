@@ -5,10 +5,7 @@ import {
   FOOTER_WIDGET_EVENT,
   isFooterReadyMessage,
 } from "@clanker-stuff/footer-protocol";
-import type {
-  FooterWidgetHealthState,
-  FooterWidgetSnapshot,
-} from "@clanker-stuff/footer-protocol";
+import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -25,17 +22,15 @@ import {
 } from "./format.js";
 import { defaultFetchJson } from "./http.js";
 import { getActiveProvider, SUPPORTED_PROVIDERS } from "./providers.js";
-import type {
-  SupportedProvider,
-  UsageFetchResult,
-  UsageSnapshot,
-} from "./providers.js";
+import type { SupportedProvider, UsageFetchResult } from "./providers.js";
 import {
   activeSnapshot,
   detailsSnapshot,
   fallbackText,
+  presentationProvider,
   STATUS_KEY,
 } from "./widgets.js";
+import type { UsagePresentation } from "./widgets.js";
 
 const REFRESH_INTERVAL_MS = 5 * 60_000;
 const NO_AVAILABLE_PROVIDERS_MESSAGE =
@@ -109,11 +104,10 @@ export const createUsageController = (pi: ExtensionAPI) => {
   } satisfies Record<SupportedProvider, UsageFetcher>;
 
   let generation = 0;
-  let activeProvider: SupportedProvider | undefined;
-  let currentContext: ExtensionContext | undefined;
-  let currentHealth: FooterWidgetHealthState = "loading";
-  let currentMessage: string | undefined;
-  let currentUsage: UsageSnapshot | undefined;
+  let current:
+    | { context: ExtensionContext; presentation: UsagePresentation }
+    | undefined;
+  const getCurrent = () => current;
   let instanceId: string | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let readyUnsubscribe: (() => void) | undefined;
@@ -145,18 +139,16 @@ export const createUsageController = (pi: ExtensionAPI) => {
   };
 
   const publish = (): void => {
-    const ctx = currentContext;
-    if (!ctx) {
+    if (!current) {
       return;
     }
-    publishSnapshot(
-      activeSnapshot(currentUsage, currentHealth, now(), currentMessage)
-    );
-    publishSnapshot(
-      detailsSnapshot(currentUsage, currentHealth, now(), currentMessage)
-    );
-    if (ctx.mode === "tui") {
-      ctx.ui.setStatus(STATUS_KEY, fallbackText(currentUsage, currentHealth));
+    publishSnapshot(activeSnapshot(current.presentation, now()));
+    publishSnapshot(detailsSnapshot(current.presentation, now()));
+    if (current.context.mode === "tui") {
+      current.context.ui.setStatus(
+        STATUS_KEY,
+        fallbackText(current.presentation)
+      );
     }
   };
 
@@ -196,34 +188,44 @@ export const createUsageController = (pi: ExtensionAPI) => {
     force = false
   ): void => {
     generation += 1;
-    currentContext = ctx;
-    activeProvider = provider;
-    currentMessage = undefined;
     if (!provider) {
-      currentUsage = undefined;
-      currentHealth = "error";
+      current = { context: ctx, presentation: { kind: "unsupported" } };
       publish();
       return;
     }
 
     const last = cache.getLastSuccess(provider);
-    currentUsage = last;
-    currentHealth = last ? "ready" : "loading";
+    current = {
+      context: ctx,
+      presentation: last
+        ? { kind: "ready", snapshot: last }
+        : { kind: "loading", provider },
+    };
     publish();
     const refreshGeneration = generation;
     void (async () => {
       const result = await getOrFetch(provider, ctx, force);
-      if (refreshGeneration !== generation || activeProvider !== provider) {
+      const active = getCurrent();
+      if (
+        refreshGeneration !== generation ||
+        active === undefined ||
+        presentationProvider(active.presentation) !== provider
+      ) {
         return;
       }
       if (result.ok) {
-        currentUsage = result.snapshot;
-        currentHealth = "ready";
-        currentMessage = undefined;
+        current = {
+          context: ctx,
+          presentation: { kind: "ready", snapshot: result.snapshot },
+        };
       } else {
-        currentUsage = cache.getLastSuccess(provider);
-        currentHealth = currentUsage ? "stale" : "error";
-        currentMessage = result.error.message;
+        const snapshot = cache.getLastSuccess(provider);
+        current = {
+          context: ctx,
+          presentation: snapshot
+            ? { kind: "stale", message: result.error.message, snapshot }
+            : { kind: "error", message: result.error.message, provider },
+        };
       }
       publish();
     })();
@@ -240,8 +242,11 @@ export const createUsageController = (pi: ExtensionAPI) => {
     "clanker-codex:account-changed",
     () => {
       cache = new UsageCache({ now });
-      if (currentContext && activeProvider === "openai-codex") {
-        refresh(currentContext, activeProvider);
+      if (
+        current &&
+        presentationProvider(current.presentation) === "openai-codex"
+      ) {
+        refresh(current.context, "openai-codex");
       }
     }
   );
@@ -255,19 +260,15 @@ export const createUsageController = (pi: ExtensionAPI) => {
       for (const id of published.keys()) {
         emit("remove", id);
       }
-      if (currentContext?.mode === "tui") {
-        currentContext.ui.setStatus(STATUS_KEY, undefined);
+      if (current?.context.mode === "tui") {
+        current.context.ui.setStatus(STATUS_KEY, undefined);
       }
       published.clear();
       accountUnsubscribe();
       readyUnsubscribe?.();
       readyUnsubscribe = undefined;
       instanceId = undefined;
-      activeProvider = undefined;
-      currentContext = undefined;
-      currentHealth = "loading";
-      currentMessage = undefined;
-      currentUsage = undefined;
+      current = undefined;
     },
     runCommand: async (
       args: string,
@@ -327,8 +328,11 @@ export const createUsageController = (pi: ExtensionAPI) => {
       refresh(ctx, getActiveProvider(ctx.model));
       stopTimer();
       refreshTimer = setInterval(() => {
-        if (currentContext && activeProvider) {
-          refresh(currentContext, activeProvider);
+        if (current) {
+          const provider = presentationProvider(current.presentation);
+          if (provider) {
+            refresh(current.context, provider);
+          }
         }
       }, REFRESH_INTERVAL_MS);
     },

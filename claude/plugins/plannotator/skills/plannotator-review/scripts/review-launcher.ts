@@ -320,7 +320,6 @@ export const createTargetedReviewStarter =
     const readyFile = path.join(temporaryDirectory, "ready.jsonl");
     const controller = new AbortController();
     const env = { ...process.env, ...options.env };
-    let cancelled = false;
     let child: CliProcess;
 
     try {
@@ -370,7 +369,7 @@ export const createTargetedReviewStarter =
 
         return await child.completion;
       } catch (error) {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           child.cancel();
         }
         try {
@@ -378,7 +377,7 @@ export const createTargetedReviewStarter =
         } catch {
           // Preserve the setup error below.
         }
-        if (cancelled) {
+        if (controller.signal.aborted) {
           return { kind: "cancelled" };
         }
         throw error;
@@ -389,11 +388,13 @@ export const createTargetedReviewStarter =
 
     return {
       cancel() {
-        cancelled = true;
-        controller.abort();
-        child.cancel();
+        if (!controller.signal.aborted) {
+          controller.abort();
+          child.cancel();
+        }
       },
       completion,
+      signal: controller.signal,
     };
   };
 

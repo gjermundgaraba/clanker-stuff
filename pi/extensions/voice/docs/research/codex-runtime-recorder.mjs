@@ -163,6 +163,81 @@ class CdpClient {
   }
 }
 
+export class TargetAttachmentRegistry {
+  constructor(attach, onAttachError) {
+    this.attach = attach;
+    this.onAttachError = onAttachError;
+    this.stopped = false;
+    this.targets = new Map();
+  }
+
+  claim(target) {
+    const current = this.targets.get(target.id);
+    if (
+      current?.webSocketDebuggerUrl === target.webSocketDebuggerUrl &&
+      !this.stopped
+    ) {
+      return { claimed: false, promise: current.promise };
+    }
+
+    if (current) {
+      this.#retire(current);
+    }
+    if (this.stopped) {
+      return { claimed: false, promise: Promise.resolve(undefined) };
+    }
+
+    const ownership = {
+      client: undefined,
+      promise: undefined,
+      status: "attaching",
+      webSocketDebuggerUrl: target.webSocketDebuggerUrl,
+    };
+    const isOwner = () =>
+      !this.stopped && this.targets.get(target.id) === ownership;
+    const promise = Promise.resolve().then(() => this.attach(target, isOwner));
+    ownership.promise = promise;
+    this.targets.set(target.id, ownership);
+
+    void promise.then(
+      (client) => {
+        if (!isOwner()) {
+          client?.close();
+          return;
+        }
+        ownership.client = client;
+        ownership.status = "attached";
+      },
+      (error) => {
+        const ownsTarget = this.targets.get(target.id) === ownership;
+        if (ownsTarget) {
+          this.targets.delete(target.id);
+        }
+        if (!this.stopped && ownsTarget) {
+          this.onAttachError(error, target);
+        }
+      }
+    );
+
+    return { claimed: true, promise };
+  }
+
+  stop() {
+    if (this.stopped) {
+      return;
+    }
+    this.stopped = true;
+    for (const ownership of this.targets.values()) {
+      this.#retire(ownership);
+    }
+    this.targets.clear();
+  }
+
+  #retire(ownership) {
+    ownership.client?.close();
+  }
+}
+
 const rendererHook = (configuration = {}) => {
   if (globalThis.__codexVoiceRecorderInstalled) {
     return;
@@ -650,12 +725,16 @@ const attachTarget = async (
   writer,
   mediaFiles,
   hookConfiguration,
-  startVoice
+  startVoice,
+  isActive = () => true
 ) => {
   const relevantRequestIds = new Set();
   const client = new CdpClient(
     target.webSocketDebuggerUrl,
     (method, params) => {
+      if (!isActive()) {
+        return;
+      }
       if (method === "Runtime.bindingCalled") {
         let payload;
         try {
@@ -730,7 +809,7 @@ const attachTarget = async (
         void client
           .send("Network.getResponseBody", { requestId: params.requestId })
           .then((body) => {
-            if (body?.body) {
+            if (body?.body && isActive()) {
               writer.write({
                 body,
                 kind: "Network.responseBody",
@@ -764,6 +843,9 @@ const attachTarget = async (
     expression,
     returnByValue: true,
   });
+  if (!isActive()) {
+    return client;
+  }
   writer.write({
     evaluation,
     kind: "target-attached",
@@ -775,7 +857,7 @@ const attachTarget = async (
       url: target.url,
     },
   });
-  if (startVoice && target.url === "app://-/index.html") {
+  if (startVoice && target.url === "app://-/index.html" && isActive()) {
     await client.send("Runtime.evaluate", {
       expression: `(() => {
         if (globalThis.__codexVoiceAutoStartScheduled) return;
@@ -860,9 +942,28 @@ const run = async () => {
   const proxy = createProxyLauncher(directory);
   const writer = new NdjsonWriter(join(directory, "renderer.ndjson"));
   const mediaFiles = new Map();
-  const clients = new Map();
   let stopping = false;
   let targetPoll;
+  const targetRegistry = new TargetAttachmentRegistry(
+    (target, isOwner) =>
+      attachTarget(
+        target,
+        directory,
+        writer,
+        mediaFiles,
+        hookConfiguration,
+        startVoice,
+        isOwner
+      ),
+    (error, target) => {
+      writer.write({
+        error: error instanceof Error ? error.message : String(error),
+        kind: "target-attach-error",
+        source: "recorder",
+        targetId: target.id,
+      });
+    }
+  );
 
   const appStdout = createWriteStream(join(directory, "codex.stdout.log"), {
     mode: 0o600,
@@ -895,9 +996,7 @@ const run = async () => {
     if (targetPoll !== undefined) {
       clearInterval(targetPoll);
     }
-    for (const client of clients.values()) {
-      client.close();
-    }
+    targetRegistry.stop();
     for (const output of mediaFiles.values()) {
       output.end();
     }
@@ -946,33 +1045,10 @@ const run = async () => {
       return;
     }
     for (const target of targets) {
-      if (
-        clients.has(target.id) ||
-        target.type !== "page" ||
-        !target.webSocketDebuggerUrl
-      ) {
+      if (target.type !== "page" || !target.webSocketDebuggerUrl) {
         continue;
       }
-      try {
-        clients.set(
-          target.id,
-          await attachTarget(
-            target,
-            directory,
-            writer,
-            mediaFiles,
-            hookConfiguration,
-            startVoice
-          )
-        );
-      } catch (error) {
-        writer.write({
-          error: error instanceof Error ? error.message : String(error),
-          kind: "target-attach-error",
-          source: "recorder",
-          targetId: target.id,
-        });
-      }
+      targetRegistry.claim(target);
     }
   };
   await pollTargets();
@@ -995,9 +1071,11 @@ const run = async () => {
   }
 };
 
-run().catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.stack : String(error)}\n`
-  );
-  process.exitCode = 1;
-});
+if (import.meta.main) {
+  run().catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.stack : String(error)}\n`
+    );
+    process.exitCode = 1;
+  });
+}

@@ -51,6 +51,7 @@ import type {
   CheckpointAgentMessageItem,
   RealUserInputItem,
 } from "./checkpoint.js";
+import { rewriteCollaborationTools } from "./collaboration.js";
 import type { CodexModelCatalog } from "./model-catalog.js";
 import type { CodexObservability } from "./observability.js";
 import {
@@ -2558,11 +2559,12 @@ export const createCodexLifecycle = (
     ): Promise<unknown> => {
       const headers = consumeRequestHeaders(state, ctx);
       try {
+        const payload = rewriteCollaborationTools(event.payload, pi, ctx);
         return await runBeforeProviderRequestHook(
           pi,
           state,
           headers,
-          event.payload,
+          payload,
           ctx,
           providerRuntime
         );
@@ -2573,7 +2575,7 @@ export const createCodexLifecycle = (
           state,
           ctx,
           "payload:failure",
-          "OpenAI checkpoint request preparation failed; the model request was cancelled."
+          "Codex provider request preparation failed; the model request was cancelled."
         );
         return event.payload;
       }

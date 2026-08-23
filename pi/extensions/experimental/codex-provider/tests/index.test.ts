@@ -19,20 +19,11 @@ const OTHER_MODEL = {
 } satisfies Model<"anthropic-messages">;
 
 const createHost = (entries: SessionEntry[] = []) =>
-  createExtensionHost(
-    (pi) => {
-      Object.assign(pi, {
-        registerEntryRenderer: vi.fn<() => void>(),
-        registerProvider: vi.fn<() => void>(),
-      });
-      extension(pi);
-    },
-    {
-      entries,
-      leafId: entries.at(-1)?.id,
-      model: OTHER_MODEL,
-    }
-  );
+  createExtensionHost(extension, {
+    entries,
+    leafId: entries.at(-1)?.id,
+    model: OTHER_MODEL,
+  });
 
 describe("Codex lifecycle loading", () => {
   beforeEach(() => {

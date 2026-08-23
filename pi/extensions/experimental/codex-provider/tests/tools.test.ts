@@ -1,5 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -20,6 +21,45 @@ const combinedExtension = (pi: Parameters<typeof toolsExtension>[0]) => {
   toolsExtension(pi);
   registerCodexTools(pi);
 };
+const providerFirstCombinedExtension = (
+  pi: Parameters<typeof toolsExtension>[0]
+) => {
+  registerCodexTools(pi);
+  toolsExtension(pi);
+};
+
+const withCollaborationContract =
+  (protocol: "v1" | "v2") => (pi: Parameters<typeof registerCodexTools>[0]) => {
+    const nested = {
+      description: "Spawn a test agent.",
+      execute: async () => ({ content: [], details: {} }),
+      label: "Spawn Agent",
+      name: "spawn_agent",
+      parameters: Type.Object({}, { additionalProperties: false }),
+    };
+    pi.registerTool(nested);
+    pi.events.on(
+      "clanker-stuff:subagents:contract:request",
+      (request: unknown) => {
+        if (
+          typeof request === "object" &&
+          request !== null &&
+          "provide" in request &&
+          typeof request.provide === "function" &&
+          "sessionId" in request &&
+          typeof request.sessionId === "string"
+        ) {
+          request.provide({
+            nestedTools: [{ definition: nested }],
+            protocol,
+            sessionId: request.sessionId,
+            version: 1,
+          });
+        }
+      }
+    );
+    registerCodexTools(pi);
+  };
 
 const selectModel = async (
   host: ReturnType<typeof createExtensionHost>,
@@ -58,6 +98,7 @@ describe("Codex tools", () => {
   it("normalizes Pi's initial all-extension-tool activation", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
     const host = createExtensionHost(registerCodexTools, { model });
+    await host.ready;
 
     expect(host.getActiveTools()).toStrictEqual([
       ...PI_NAMES,
@@ -124,7 +165,9 @@ describe("Codex tools", () => {
     expect(host.getStatus("codex-code-mode")).toBe("</>");
     expect(
       host.getRegisteredTools().get("exec")?.definition.constrainedSampling
-    ).toMatchObject({ type: "grammar" });
+    ).toMatchObject({
+      type: "grammar",
+    });
     expect(host.getNotifications()).toContainEqual({
       message: "Code Mode enabled",
       type: "info",
@@ -137,43 +180,87 @@ describe("Codex tools", () => {
     }).toStrictEqual({ status: undefined, tools: DIRECT_NAMES });
   });
 
-  it("delegates provider-owned choices from /tools", async () => {
-    const model = createToolsModel("gpt-5.6-sol", true);
-    const host = createExtensionHost(combinedExtension, {
-      entries: [messageEntry("root", null), messageEntry("branch-b", "root")],
-      leafId: "root",
-      model,
-    });
-    await host.emitSessionStart();
-    initTheme("dark");
-    const rendered: string[] = [];
-    const ctx = host.createContext();
-    const custom: typeof ctx.ui.custom = async (factory) => {
-      const component = await factory(
-        { requestRender() {} } as never,
-        ctx.ui.theme,
-        {} as never,
-        () => null
+  it.each([
+    ["v1", true],
+    ["v2", false],
+  ] as const)(
+    "keeps %s collaboration on its intended Code Mode surface",
+    async (protocol, nested) => {
+      const model = createToolsModel("gpt-5.6-sol", true);
+      const host = createExtensionHost(withCollaborationContract(protocol), {
+        activeTools: ["spawn_agent"],
+        allTools: ["spawn_agent"],
+        model,
+      });
+      const ctx = host.createContext({ model });
+      await host.emitSessionStart(ctx);
+      await host.runCommand("code-mode", "", ctx);
+
+      const [prompt] = await host.emit(
+        "before_agent_start",
+        {
+          prompt: "test",
+          systemPrompt: "Base",
+          systemPromptOptions: {},
+          type: "before_agent_start",
+        },
+        ctx
       );
-      rendered.push(...component.render(120));
-      component.handleInput?.(" ");
-      return null as never;
-    };
-    ctx.ui.custom = custom;
+      const systemPrompt =
+        typeof prompt === "object" &&
+        prompt !== null &&
+        "systemPrompt" in prompt &&
+        typeof prompt.systemPrompt === "string"
+          ? prompt.systemPrompt
+          : "";
+      expect(systemPrompt.includes("pi_subagents__spawn_agent")).toBe(nested);
+      expect(host.getActiveTools()).toContain("spawn_agent");
+    }
+  );
 
-    await host.runCommand("tools", "", ctx);
+  it.each([
+    ["tools first", combinedExtension],
+    ["provider first", providerFirstCombinedExtension],
+  ] as const)(
+    "delegates provider-owned choices from /tools with %s",
+    async (_order, extension) => {
+      const model = createToolsModel("gpt-5.6-sol", true);
+      const host = createExtensionHost(extension, {
+        entries: [messageEntry("root", null), messageEntry("branch-b", "root")],
+        leafId: "root",
+        model,
+      });
+      await host.emitSessionStart();
+      initTheme("dark");
+      const rendered: string[] = [];
+      const ctx = host.createContext();
+      const custom: typeof ctx.ui.custom = async (factory) => {
+        const component = await factory(
+          { requestRender() {} } as never,
+          ctx.ui.theme,
+          {} as never,
+          () => null
+        );
+        rendered.push(...component.render(120));
+        component.handleInput?.(" ");
+        return null as never;
+      };
+      ctx.ui.custom = custom;
 
-    expect(rendered.join("\n")).not.toContain("read");
-    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
-    expect(host.getAppendedEntries().at(-1)).toMatchObject({
-      customType: "codex-provider-tools",
-      data: { exec_command: false },
-    });
+      await host.runCommand("tools", "", ctx);
 
-    host.setLeafId("branch-b");
-    await host.emitSessionStart(ctx, "resume");
-    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
-  });
+      expect(rendered.join("\n")).not.toContain("read");
+      expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
+      expect(host.getAppendedEntries().at(-1)).toMatchObject({
+        customType: "codex-provider-tools",
+        data: { exec_command: false },
+      });
+
+      host.setLeafId("branch-b");
+      await host.emitSessionStart(ctx, "resume");
+      expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
+    }
+  );
 
   it("cooperates with non-Codex profiles and external tools", async () => {
     const codex = createToolsModel("gpt-5.6-sol", true);

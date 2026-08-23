@@ -19,14 +19,20 @@ import { formatKeyLabel } from "./input.js";
 import type { HelpText } from "./input.js";
 
 export interface EditTarget {
+  kind: "option_text";
   optionIndex: number;
   questionIndex: number;
 }
 
+export type EditMode =
+  | { kind: "none" }
+  | (EditTarget & {
+      editor: Editor;
+    });
+
 export interface PromptView {
-  activeEditor?: Editor;
   currentTab: number;
-  editTarget?: EditTarget;
+  editMode: EditMode;
   helpText: HelpText;
   hint: string;
   sessions: QuestionSession[];
@@ -288,8 +294,8 @@ const renderTabBar = (
 };
 
 const renderFooterHelp = (view: PromptView, add: (line: string) => void) => {
-  const { currentTab, editTarget, helpText, sessions, theme } = view;
-  if (editTarget !== undefined) {
+  const { currentTab, editMode, helpText, sessions, theme } = view;
+  if (editMode.kind !== "none") {
     add(theme.fg("dim", helpText.editor));
     return;
   }
@@ -312,7 +318,7 @@ const renderFooterHelp = (view: PromptView, add: (line: string) => void) => {
 };
 
 export const renderPrompt = (view: PromptView, width: number): string[] => {
-  const { activeEditor, currentTab, editTarget, hint, sessions, theme } = view;
+  const { currentTab, editMode, hint, sessions, theme } = view;
   const maxWidth = Math.max(1, width);
   const lines: string[] = [];
   const add = (line: string) => {
@@ -331,18 +337,16 @@ export const renderPrompt = (view: PromptView, width: number): string[] => {
     lines.push(line);
   }
 
-  if (editTarget !== undefined) {
+  if (editMode.kind !== "none") {
     lines.push("");
-    const { question } = sessions[editTarget.questionIndex];
-    const option = question.options[editTarget.optionIndex];
+    const { question } = sessions[editMode.questionIndex];
+    const option = question.options[editMode.optionIndex];
     const label = isOtherOption(option)
       ? `Editing Other answer for: ${question.header}`
       : `Editing note for: ${option.label}`;
     add(view.theme.fg("muted", label));
-    if (activeEditor !== undefined) {
-      for (const editorLine of activeEditor.render(maxWidth)) {
-        lines.push(editorLine);
-      }
+    for (const editorLine of editMode.editor.render(maxWidth)) {
+      lines.push(editorLine);
     }
   }
 

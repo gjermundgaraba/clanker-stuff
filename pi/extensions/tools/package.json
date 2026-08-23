@@ -33,6 +33,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@clanker-stuff/tool-owner-protocol": "workspace:^"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",

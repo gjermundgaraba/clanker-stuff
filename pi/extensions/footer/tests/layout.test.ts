@@ -190,6 +190,32 @@ describe("normalization", () => {
     );
   });
 
+  it("renders native status ANSI without semantic theme styling", () => {
+    const nativeTheme: FooterTheme = {
+      bold: () => {
+        throw new Error("native status must not use bold styling");
+      },
+      fg: (_tone, text) => {
+        if (text.includes("red") || text.includes("\u001B")) {
+          throw new Error("native status must not use semantic styling");
+        }
+        return text;
+      },
+    };
+    const rendered = renderFooterState(
+      {
+        builtins: new Map(),
+        config,
+        nativeStatuses: new Map([["colored", "\u001B[31mred\u001B[0m"]]),
+        rich: new Map(),
+      },
+      80,
+      nativeTheme
+    ).lines.join("\n");
+
+    expect(rendered).toContain("\u001B[31mred\u001B[0m");
+  });
+
   it("ignores native statuses whose keys contain controls", () => {
     expect(
       renderFooterState(

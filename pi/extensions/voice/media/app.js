@@ -1,6 +1,12 @@
 /* eslint-disable func-style, promise/avoid-new */
 
 import { CallLifecycle } from "./call-lifecycle.js";
+import {
+  commitRenewal,
+  createCall,
+  disposeCallMedia,
+  disposeLeg,
+} from "./call-media.js";
 import { BrowserMediaSession } from "./media-session.js";
 
 const CALL_START_TIMEOUT_MS = 25_000;
@@ -17,15 +23,9 @@ if (!orb || !initialAudio) {
 const lifecycle = new CallLifecycle(CALL_START_TIMEOUT_MS);
 const pendingRequests = new Map();
 let nextRequestId = 0;
-let session;
-let microphone;
-let sessionStream;
-let activeAudio = initialAudio;
-let muted = false;
+let currentCall;
 let reconnectTimer = 0;
 let reconnectDelayMs = RECONNECT_MIN_MS;
-let renewing = false;
-let renewalController;
 let detail = "Starting.";
 let researchConfig = {};
 
@@ -90,7 +90,8 @@ function request(method, offer, signal) {
 }
 
 function render() {
-  const listening = lifecycle.state === "active" && !muted;
+  const listening =
+    lifecycle.state === "active" && currentCall && !currentCall.muted;
   orb.className = `orb ${listening ? "listening" : "paused"}`;
   orb.title = `Pi Voice — ${detail}`;
   orb.setAttribute("aria-label", orb.title);
@@ -211,7 +212,10 @@ async function startCall() {
   trace("call-start", {});
   cancelReconnect();
   const attempt = lifecycle.beginStart();
-  let candidate;
+  let candidateCall;
+  let candidateLeg;
+  let candidateMicrophone;
+  let candidateStream;
   setDetail("Opening microphone.");
 
   try {
@@ -222,19 +226,38 @@ async function startCall() {
         lateMicrophone.close();
       }
     );
-    microphone = nextMicrophone;
-    sessionStream = nextMicrophone.createStream();
+    candidateMicrophone = nextMicrophone;
+    const nextStream = nextMicrophone.createStream();
+    candidateStream = nextStream;
     lifecycle.markNegotiating(attempt);
     setDetail("Connecting.");
 
-    candidate = new BrowserMediaSession({
-      audioElement: activeAudio,
+    const candidate = new BrowserMediaSession({
+      audioElement: initialAudio,
       onConnected: () => {
         nextMicrophone.release();
       },
-      onEvent: handleMediaEvent,
-      stream: sessionStream,
+      onEvent: (event) => {
+        if (
+          currentCall === candidateCall &&
+          candidateCall?.leg.session === candidate
+        ) {
+          handleMediaEvent(event);
+        }
+      },
+      stream: nextStream,
     });
+    candidateLeg = {
+      audio: initialAudio,
+      session: candidate,
+      stream: nextStream,
+    };
+    candidateCall = createCall(nextMicrophone, candidateLeg);
+    candidateLeg = undefined;
+    candidateMicrophone = undefined;
+    candidateStream = undefined;
+    currentCall = candidateCall;
+
     const offer = await lifecycle.wait(attempt, candidate.createOffer());
     const answer = await lifecycle.wait(
       attempt,
@@ -244,18 +267,22 @@ async function startCall() {
     await lifecycle.wait(attempt, candidate.waitUntilConfigured());
 
     lifecycle.markActive(attempt);
-    session = candidate;
-    candidate = undefined;
-    muted = false;
     reconnectDelayMs = RECONNECT_MIN_MS;
     setDetail("Listening. Click to pause.");
   } catch (error) {
     trace("call-error", {
       message: error instanceof Error ? error.message : String(error),
     });
-    candidate?.close();
     lifecycle.fail(attempt, error);
-    cleanupMedia();
+    if (currentCall === candidateCall) {
+      currentCall = undefined;
+    }
+    disposeCallMedia(candidateCall, error);
+    disposeLeg(candidateLeg);
+    for (const track of candidateStream?.getTracks() ?? []) {
+      track.stop();
+    }
+    candidateMicrophone?.close();
     send({
       event: "error",
       message: error instanceof Error ? error.message : String(error),
@@ -271,40 +298,48 @@ async function startCall() {
 }
 
 async function runCutover() {
-  if (renewing || lifecycle.state !== "active" || !session || !microphone) {
+  const originCall = currentCall;
+  if (lifecycle.state !== "active" || !originCall || originCall.renewal) {
     return;
   }
-  const originSession = session;
-  const originMicrophone = microphone;
-  const controller = new AbortController();
-  renewalController = controller;
+
   const isCurrent = () =>
-    lifecycle.state === "active" &&
-    session === originSession &&
-    microphone === originMicrophone;
+    lifecycle.state === "active" && currentCall === originCall;
   const requireCurrent = () => {
     if (!isCurrent()) {
       throw new Error("Voice renewal was cancelled.");
     }
   };
-  renewing = true;
-  let warm;
+
+  let controller;
+  let renewal;
+  let warmLeg;
   let warmStream;
+  let committed = false;
   try {
-    warmStream = originMicrophone.createStream(false);
+    warmStream = originCall.microphone.createStream(false);
     const warmAudio = document.createElement("audio");
     warmAudio.autoplay = true;
     warmAudio.muted = true;
     const warmSession = new BrowserMediaSession({
       audioElement: warmAudio,
       onEvent: (event) => {
-        if (session === warmSession) {
+        if (currentCall === originCall && originCall.leg === warmLeg) {
           handleMediaEvent(event);
         }
       },
       stream: warmStream,
     });
-    warm = warmSession;
+    warmLeg = {
+      audio: warmAudio,
+      session: warmSession,
+      stream: warmStream,
+    };
+    warmStream = undefined;
+    controller = new AbortController();
+    renewal = { controller, warmLeg };
+    originCall.renewal = renewal;
+
     const offer = await warmSession.createOffer();
     requireCurrent();
     const answer = await request("renew_offer", offer, controller.signal);
@@ -312,56 +347,41 @@ async function runCutover() {
     await warmSession.waitUntilConfigured();
     requireCurrent();
 
-    const [warmTrack] = warmStream.getAudioTracks();
+    const [warmTrack] = warmLeg.stream.getAudioTracks();
     if (!warmTrack) {
       throw new Error("Replacement call has no microphone track.");
     }
     await request("renew_commit", undefined, controller.signal);
     requireCurrent();
-    warmTrack.enabled = !muted;
+    warmTrack.enabled = !originCall.muted;
     warmAudio.muted = false;
-    const previousSession = session;
-    const previousStream = sessionStream;
-    session = warmSession;
-    sessionStream = warmStream;
-    activeAudio = warmAudio;
-    warm = undefined;
-    warmStream = undefined;
-    previousSession.close();
-    for (const track of previousStream?.getTracks() ?? []) {
-      track.stop();
-    }
+    const previousLeg = commitRenewal(originCall, renewal);
+    committed = true;
+    disposeLeg(previousLeg);
   } catch (error) {
     send({ event: "renew_abort", type: "event" });
-    warm?.close();
     for (const track of warmStream?.getTracks() ?? []) {
       track.stop();
     }
+    disposeLeg(warmLeg);
     setDetail(
       `Renewal failed: ${error instanceof Error ? error.message : String(error)}`
     );
   } finally {
-    controller.abort(new Error("Voice renewal finished."));
-    if (renewalController === controller) {
-      renewalController = undefined;
+    controller?.abort(new Error("Voice renewal finished."));
+    if (originCall.renewal === renewal) {
+      originCall.renewal = undefined;
     }
-    renewing = false;
+    if (!committed) {
+      disposeLeg(warmLeg);
+    }
   }
 }
 
 function cleanupMedia() {
-  renewalController?.abort(new Error("Voice call closed."));
-  session?.close();
-  session = undefined;
-  for (const track of sessionStream?.getTracks() ?? []) {
-    track.stop();
-  }
-  sessionStream = undefined;
-  microphone?.close();
-  microphone = undefined;
-  muted = false;
-  activeAudio.pause();
-  activeAudio.srcObject = null;
+  const closingCall = currentCall;
+  currentCall = undefined;
+  disposeCallMedia(closingCall, new Error("Voice call closed."));
 }
 
 function releaseCall(reason) {
@@ -378,12 +398,14 @@ orb.addEventListener("click", () => {
     void startCall();
     return;
   }
-  if (lifecycle.state === "active" && session) {
-    muted = !muted;
-    session.setMuted(muted);
-    send({ event: "muted", muted, type: "event" });
+  if (lifecycle.state === "active" && currentCall) {
+    currentCall.muted = !currentCall.muted;
+    currentCall.leg.session.setMuted(currentCall.muted);
+    send({ event: "muted", muted: currentCall.muted, type: "event" });
     setDetail(
-      muted ? "Paused. Click to resume." : "Listening. Click to pause."
+      currentCall.muted
+        ? "Paused. Click to resume."
+        : "Listening. Click to pause."
     );
   }
 });

@@ -44,8 +44,9 @@ describe("ask-question contract", () => {
     );
   });
 
-  it("keeps the public schema strict", () => {
+  it("keeps the public schema strict", async () => {
     const host = createExtensionHost(askQuestion);
+    await host.ready;
     const definition = host
       .getRegisteredTools()
       .get("ask_question")?.definition;

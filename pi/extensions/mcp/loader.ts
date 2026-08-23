@@ -11,7 +11,8 @@ import {
   loadMcpConfig,
   removeMcpServer,
 } from "./config.js";
-import { errorMessage } from "./connection.js";
+import type { McpConfig } from "./config.js";
+import { connectToServer, errorMessage } from "./connection.js";
 import { loadedServerNames } from "./loaded-servers.js";
 import {
   createMcpManagerConnection,
@@ -97,6 +98,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
     ctx: ExtensionContext,
     serverName: string,
     options: {
+      config?: Promise<McpConfig>;
       interactive: boolean;
       persist: boolean;
       signal?: AbortSignal;
@@ -135,21 +137,27 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
         pi,
         serverName,
         signal: options.signal,
-        ui: ctx.ui,
       });
     } else {
-      const config = await loadMcpConfig(configOptions(ctx));
+      const config = await (options.config ??
+        loadMcpConfig(configOptions(ctx)));
       const serverConfig = config.mcpServers[serverName];
       if (serverConfig === undefined) {
         throw new Error(`MCP server ${serverName} is not configured`);
       }
       result = await serverPool.loadServer({
+        connectionFactory: (interactive, signal) =>
+          connectToServer(
+            serverName,
+            serverConfig,
+            ctx.ui,
+            interactive,
+            signal
+          ),
         interactive: options.interactive,
         pi,
-        serverConfig,
         serverName,
         signal: options.signal,
-        ui: ctx.ui,
       });
     }
 
@@ -211,6 +219,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       restoreGeneration += 1;
       const generation = restoreGeneration;
       const names = loadedServerNames(ctx.sessionManager.getBranch());
+      let config: Promise<McpConfig> | undefined;
       desiredServerNames = names;
       serverPool.reconcileActiveServers(pi, names);
       for (const serverName of names) {
@@ -221,6 +230,10 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
         try {
           // oxlint-disable-next-line no-await-in-loop -- registrations mutate shared tool state
           await loadNamedServer(ctx, serverName, {
+            config:
+              serverName === MCP_MANAGER_SERVER_NAME
+                ? undefined
+                : (config ??= loadMcpConfig(configOptions(ctx))),
             interactive: false,
             persist: false,
           });
