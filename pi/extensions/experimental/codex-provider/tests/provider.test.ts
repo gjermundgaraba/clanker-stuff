@@ -508,6 +508,53 @@ describe("Codex provider", () => {
     ).toStrictEqual(expect.any(String));
   });
 
+  it("derives authoritative SSE routing hints from the final request", async () => {
+    let fastMode = false;
+    const requests: Request[] = [];
+    const runtime = createCodexProviderRuntime(
+      defaultObservability,
+      () => fastMode
+    );
+    const send = async (sessionId: string) => {
+      await runtime.provider
+        .streamSimple(FAST_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch: async (input, init) => {
+            requests.push(new Request(input, init));
+            return sse(responseEvents(`resp_${sessionId}`, "done"));
+          },
+          headers: {
+            originator: "stale",
+            "x-codex-routing-hint": "model=stale;tier=stale",
+          },
+          onPayload: (payload) => ({
+            ...(payload as Record<string, unknown>),
+            model: "gpt-5.6-final",
+          }),
+          sessionId,
+          transport: "sse",
+        })
+        .result();
+    };
+
+    await send("routing-standard");
+    fastMode = true;
+    await send("routing-fast");
+
+    expect(
+      requests.map((request) => ({
+        originator: request.headers.get("originator"),
+        routingHint: request.headers.get("x-codex-routing-hint"),
+      }))
+    ).toStrictEqual([
+      { originator: "pi", routingHint: "model=gpt-5.6-final" },
+      {
+        originator: "codex_cli_rs",
+        routingHint: "model=gpt-5.6-final;tier=priority",
+      },
+    ]);
+  });
+
   it("places deferred tools using the model's supported mode", async () => {
     const toolCallId = "call_base|fc_base";
     const dynamicContext: Context = {
@@ -622,6 +669,66 @@ describe("Codex provider", () => {
     });
     expect(compaction.usage.cost.total).toBeCloseTo(2.4e-5, 10);
     expect(message.usage.cost.total).toBeCloseTo(2.4e-5, 10);
+  });
+
+  it("snapshots fast mode for turns and inline compaction", async () => {
+    let fastMode = false;
+    const requests: Record<string, unknown>[] = [];
+    vi.stubGlobal("WebSocket", null);
+    vi.stubGlobal(
+      "fetch",
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        const body = readBody(init?.body);
+        requests.push(body);
+        return requestKind(body) === "compaction"
+          ? sse(compactionEvents("resp_snapshot_compaction"))
+          : sse(responseEvents(`resp_snapshot_${requests.length}`, "done"));
+      }
+    );
+    const runtime = createCodexProviderRuntime(
+      defaultObservability,
+      () => fastMode
+    );
+    const sessionId = "session-fast-snapshot";
+
+    await runtime.provider
+      .streamSimple(FAST_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId,
+      })
+      .result();
+    fastMode = true;
+    await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model: FAST_MODEL,
+      phase: "mid-turn",
+      reason: "threshold",
+      sessionId,
+      signal: new AbortController().signal,
+      thinkingLevel: "medium",
+    });
+    runtime.endTurn(sessionId);
+    runtime.beginTurn(sessionId);
+    await runtime.provider
+      .streamSimple(FAST_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId,
+      })
+      .result();
+
+    expect(
+      requests.map((request) => ({
+        kind: requestKind(request),
+        tier: request.service_tier,
+      }))
+    ).toStrictEqual([
+      { kind: "turn", tier: undefined },
+      { kind: "compaction", tier: undefined },
+      { kind: "turn", tier: "priority" },
+    ]);
   });
 
   it("removes priority from transition compaction on an unsupported model", async () => {
@@ -999,6 +1106,7 @@ describe("Codex provider", () => {
       restoredRemoteCatalog: restored.provider
         .getModels()
         .some((model) => model.id === "gpt-5.6-remote"),
+      routingHint: requests[0]?.headers.get("x-codex-routing-hint"),
       versionPresence,
     }).toStrictEqual({
       invalidCacheSolVersion: "v2",
@@ -1016,6 +1124,7 @@ describe("Codex provider", () => {
       request: expect.stringContaining("/codex/models?client_version="),
       restoredFallbackVersion: undefined,
       restoredRemoteCatalog: true,
+      routingHint: null,
       versionPresence: {
         "gpt-5.6-luna": false,
         "gpt-5.6-sol": false,
@@ -1382,8 +1491,12 @@ describe("Codex provider", () => {
     ]);
   });
 
-  it("reuses one socket and sends only an exact continuation delta", async () => {
+  it("reuses sockets by route and sends only exact continuation deltas", async () => {
     const frames: Record<string, unknown>[] = [];
+    const handshakeHints: string[] = [];
+    const socketUrls: string[] = [];
+    let closes = 0;
+    let fastMode = false;
     let responseNumber = 0;
     class MockWebSocket {
       readonly readyState = 1;
@@ -1392,7 +1505,16 @@ describe("Codex provider", () => {
         Set<(event: unknown) => void>
       >();
 
-      constructor() {
+      constructor(
+        url: string,
+        protocols?: string | string[] | { headers?: Record<string, string> }
+      ) {
+        socketUrls.push(url);
+        if (typeof protocols === "object" && !Array.isArray(protocols)) {
+          handshakeHints.push(
+            protocols.headers?.["x-codex-routing-hint"] ?? ""
+          );
+        }
         queueMicrotask(() => this.emit("open", {}));
       }
 
@@ -1403,6 +1525,7 @@ describe("Codex provider", () => {
       }
 
       close() {
+        closes += 1;
         this.listeners.clear();
       }
 
@@ -1457,11 +1580,14 @@ describe("Codex provider", () => {
       }
     }
     vi.stubGlobal("WebSocket", MockWebSocket);
-    const runtime = createCodexProviderRuntime();
+    const runtime = createCodexProviderRuntime(
+      defaultObservability,
+      () => fastMode
+    );
     runtime.beginTurn("session-ws");
     const first = await runtime.provider
       .streamSimple(
-        SPIKE_MODEL,
+        FAST_MODEL,
         context([{ content: "one", role: "user", timestamp: 1 }]),
         {
           apiKey: SPIKE_API_KEY,
@@ -1471,7 +1597,7 @@ describe("Codex provider", () => {
       .result();
     const second = await runtime.provider
       .streamSimple(
-        SPIKE_MODEL,
+        FAST_MODEL,
         context([
           { content: "one", role: "user", timestamp: 1 },
           first as AssistantMessage,
@@ -1481,10 +1607,11 @@ describe("Codex provider", () => {
       )
       .result();
     runtime.endTurn("session-ws");
+    fastMode = true;
     runtime.beginTurn("session-ws");
-    await runtime.provider
+    const third = await runtime.provider
       .streamSimple(
-        SPIKE_MODEL,
+        FAST_MODEL,
         context([
           { content: "one", role: "user", timestamp: 1 },
           first as AssistantMessage,
@@ -1495,20 +1622,73 @@ describe("Codex provider", () => {
         { apiKey: SPIKE_API_KEY, sessionId: "session-ws" }
       )
       .result();
+    const fourth = await runtime.provider
+      .streamSimple(
+        FAST_MODEL,
+        context([
+          { content: "one", role: "user", timestamp: 1 },
+          first as AssistantMessage,
+          { content: "two", role: "user", timestamp: 2 },
+          second as AssistantMessage,
+          { content: "three", role: "user", timestamp: 3 },
+          third as AssistantMessage,
+          { content: "four", role: "user", timestamp: 4 },
+        ]),
+        { apiKey: SPIKE_API_KEY, sessionId: "session-ws" }
+      )
+      .result();
+    const otherApiKey = apiKeyForAccount("account-other");
+    const fifth = await runtime.provider
+      .streamSimple(
+        FAST_MODEL,
+        context([
+          { content: "one", role: "user", timestamp: 1 },
+          first as AssistantMessage,
+          { content: "two", role: "user", timestamp: 2 },
+          second as AssistantMessage,
+          { content: "three", role: "user", timestamp: 3 },
+          third as AssistantMessage,
+          { content: "four", role: "user", timestamp: 4 },
+          fourth as AssistantMessage,
+          { content: "five", role: "user", timestamp: 5 },
+        ]),
+        { apiKey: otherApiKey, sessionId: "session-ws" }
+      )
+      .result();
+    await runtime.provider
+      .streamSimple(
+        { ...FAST_MODEL, baseUrl: "https://example.test/backend-api" },
+        context([
+          { content: "one", role: "user", timestamp: 1 },
+          first as AssistantMessage,
+          { content: "two", role: "user", timestamp: 2 },
+          second as AssistantMessage,
+          { content: "three", role: "user", timestamp: 3 },
+          third as AssistantMessage,
+          { content: "four", role: "user", timestamp: 4 },
+          fourth as AssistantMessage,
+          { content: "five", role: "user", timestamp: 5 },
+          fifth as AssistantMessage,
+          { content: "six", role: "user", timestamp: 6 },
+        ]),
+        { apiKey: otherApiKey, sessionId: "session-ws" }
+      )
+      .result();
 
     const generated = frames.filter((frame) => frame.generate !== false);
     const prewarm = frames.find((frame) => frame.generate === false);
     expect({
-      delta: (generated[1]?.input as unknown[])?.length,
+      closes,
       endTurns: [first.endTurn, second.endTurn],
-      firstDelta: (generated[0]?.input as unknown[])?.length,
-      firstPreviousResponseId: generated[0]?.previous_response_id,
-      previousResponseIds: generated
-        .slice(1)
-        .map((frame) => frame.previous_response_id),
+      handshakeHints,
+      inputLengths: generated.map(
+        (frame) => (frame.input as unknown[])?.length
+      ),
+      previousResponseIds: generated.map((frame) => frame.previous_response_id),
       prewarmInput: prewarm?.input,
       requestCount: generated.length,
       requestKinds: frames.map(requestKind),
+      socketUrls,
       turnStates: generated.map(
         (frame) =>
           (frame.client_metadata as Record<string, string>)[
@@ -1516,15 +1696,40 @@ describe("Codex provider", () => {
           ]
       ),
     }).toStrictEqual({
-      delta: 1,
+      closes: 3,
       endTurns: [false, false],
-      firstDelta: 1,
-      firstPreviousResponseId: undefined,
-      previousResponseIds: ["resp_ws_2", "resp_ws_3"],
+      handshakeHints: [
+        `model=${FAST_MODEL.id}`,
+        `model=${FAST_MODEL.id};tier=priority`,
+        `model=${FAST_MODEL.id};tier=priority`,
+        `model=${FAST_MODEL.id};tier=priority`,
+      ],
+      inputLengths: [1, 1, 5, 1, 9, 11],
+      previousResponseIds: [
+        undefined,
+        "resp_ws_2",
+        undefined,
+        "resp_ws_4",
+        undefined,
+        undefined,
+      ],
       prewarmInput: [],
-      requestCount: 3,
-      requestKinds: ["prewarm", "turn", "turn", "turn"],
-      turnStates: [undefined, "turn-state-1", undefined],
+      requestCount: 6,
+      requestKinds: ["prewarm", "turn", "turn", "turn", "turn", "turn", "turn"],
+      socketUrls: [
+        "wss://phase-zero.invalid/backend-api/codex/responses",
+        "wss://phase-zero.invalid/backend-api/codex/responses",
+        "wss://phase-zero.invalid/backend-api/codex/responses",
+        "wss://example.test/backend-api/codex/responses",
+      ],
+      turnStates: [
+        undefined,
+        "turn-state-1",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ],
     });
   });
 
@@ -2446,6 +2651,7 @@ describe("Codex provider", () => {
     runtime.beginTurn("session-compact");
     const result = await runtime.compact({
       apiKey: SPIKE_API_KEY,
+      authoritativeEnvelope: { service_tier: "flex" },
       authoritativeInput: [
         {
           content: [{ text: "compact me", type: "input_text" }],
@@ -2456,6 +2662,7 @@ describe("Codex provider", () => {
       codexReason: "comp_hash_changed",
       context: context([]),
       effectiveTokenLimit: 1000,
+      headers: { "x-codex-routing-hint": "model=stale;tier=stale" },
       inputPrefix: [
         {
           content: [{ text: "prefix", type: "input_text" }],
@@ -2481,6 +2688,7 @@ describe("Codex provider", () => {
       headerMetadata: headers.get("x-codex-turn-metadata"),
       requestKind: metadata.request_kind,
       responseId: result.responseId,
+      routingHint: headers.get("x-codex-routing-hint"),
       sourceText: (body.input as Record<string, unknown>[])
         .slice(0, -1)
         .map(
@@ -2499,6 +2707,7 @@ describe("Codex provider", () => {
       headerMetadata: JSON.stringify(metadata),
       requestKind: "compaction",
       responseId: "resp_compact",
+      routingHint: `model=${SPIKE_MODEL.id};tier=flex`,
       sourceText: ["prefix", "compact me"],
       trigger: "compaction_trigger",
     });

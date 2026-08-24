@@ -22,6 +22,8 @@ Differences are evidence-bearing exceptions, not permission for incidental drift
 | [OpenAI Codex](https://github.com/openai/codex) | [`12933b69551394328319dcdd1bcee7907326dc85`](https://github.com/openai/codex/tree/12933b69551394328319dcdd1bcee7907326dc85), committed 2026-08-15 14:31:04 UTC | Verified from the pinned commit on 2026-08-15 |
 | [earendil-works/pi](https://github.com/earendil-works/pi) | [`914cf1472e715297caa30db4b9535d534a9eb718`](https://github.com/earendil-works/pi/tree/914cf1472e715297caa30db4b9535d534a9eb718), tag `v0.84.2` | Exact supported host revision |
 
+In upstream Codex, commit [`270d93268ce97e8c5606a6cf12b4192d71b2581a`](https://github.com/openai/codex/commit/270d93268ce97e8c5606a6cf12b4192d71b2581a), already contained in the pinned revision, establishes the native tier-routing contract. Codex-backend-authenticated requests send `x-codex-routing-hint` on Responses HTTP, remote compaction, WebSocket handshake, and prewarm paths. Its value is `model=<model>` without a selected tier or `model=<model>;tier=<tier>` with one; a selected tier is also sent as the request body's `service_tier`. Provider configurations with environment keys, experimental bearer tokens, explicit auth headers, or AWS credentials omit the hint. The contract was re-inspected at [`e3609f2d02a5896c391fa4c07335165c9272b686`](https://github.com/openai/codex/tree/e3609f2d02a5896c391fa4c07335165c9272b686) without finding a change. This inspection does not move the verified pin.
+
 At this revision, model instructions live under `ModelMessages`, plugin instructions are gated by model capability, and compact permission state is part of application world state. Those features remain on the application side of the boundary described below; the provider mapping covers request construction, transport, prewarm, continuation, compaction, window state, and Responses metadata.
 
 ## Codex source map
@@ -29,6 +31,7 @@ At this revision, model instructions live under `ModelMessages`, plugin instruct
 | Behavior | Codex source | Local implementation and proof |
 | --- | --- | --- |
 | Turn-scoped client session, request construction, strict continuation, retries | [`core/src/client.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/client.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
+| Codex-backend routing hints for HTTP, remote compaction, WebSocket handshakes, and prewarm | [`core/src/client.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/client.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts), [live fast canary](live-canary.md#fast-routing-run) |
 | Startup WebSocket prewarm | [`core/src/session_startup_prewarm.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/session_startup_prewarm.rs) | [`provider.ts`](../provider.ts), [lifecycle integration tests](../tests/lifecycle.integration.test.ts) |
 | SSE response headers and turn state | [`codex-api/src/sse/responses.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/codex-api/src/sse/responses.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts) |
 | Reusable WebSocket, metadata, continuation, protocol retry | [`codex-api/src/endpoint/responses_websocket.rs`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/codex-api/src/endpoint/responses_websocket.rs) | [`provider.ts`](../provider.ts), [provider tests](../tests/provider.test.ts), [live canary](live-canary.md) |
@@ -58,8 +61,8 @@ At this revision, model instructions live under `ModelMessages`, plugin instruct
 The local extension owns Codex-native tool selection before Pi finalizes `Context`, then mirrors provider behavior after that boundary:
 
 1. Model-gated direct tools, provider-owned Code Mode, branch-local tool choices, and model transitions that preserve unrelated extension tools.
-2. Model-driven request fields, Codex headers, truthful canonical session/turn/window metadata, event parsing, usage, fast-mode selection, and service-tier pricing.
-3. Cached WebSocket transport, turn-state propagation, startup prewarm, exact delta continuation, protocol retries before visible output, and session-sticky SSE fallback.
+2. Model-driven request fields, Codex headers and routing hints, truthful canonical session/turn/window metadata, event parsing, usage, fast-mode selection, and service-tier pricing.
+3. Route-aware cached WebSocket transport, turn-state propagation, startup prewarm, exact delta continuation, protocol retries before visible output, and session-sticky SSE fallback.
 4. Remote V2 compaction on the active turn session, bounded private-stream retries, 64,000-token retained input, non-final agent retention, tool-history repair, model transitions, and explicit window generations.
 5. `/models` refresh with a five-minute freshness window, ETag revalidation, a provider-private metadata map, and a Pi-compatible projected model catalog.
 6. Strict checkpoint v1 persistence, active-branch replay, readable lifecycle summaries, resume/fork recovery, and redacted diagnostics.
@@ -77,6 +80,7 @@ The behavior is exercised by [unit and contract tests](../tests), [real `AgentSe
 - **Visible-stream retries stay outside the provider.** The provider never retracts emitted deltas. Pi's outer retry handles post-emission failures; private compaction streams can retry because their partial output is not user-visible.
 - **Portable summaries are a Pi adaptation.** Lifecycle compaction pays for and persists a readable Pi summary beside the opaque item so incompatible providers and exports remain usable. Compatible Codex requests still receive only the opaque replacement.
 - **Rollout-budget accounting is not implemented.** Current Codex consumes `usage.codex_rollout_budget_units` for application policy. Pi's `Usage` cannot represent it and this provider owns no rollout-budget policy.
-- **Backend-only behavior is not claimed.** Server attestation, private routing, and unavailable backend state cannot be reproduced by an extension.
+- **Fast originator selection is a local adaptation.** Standard requests send `originator: pi`; priority requests narrowly send `originator: codex_cli_rs`. Live observations motivate this split, but it is not part of the upstream tier-routing contract and does not claim that the Pi host is the Codex CLI.
+- **Backend-only behavior is not claimed.** The public routing hint is reproduced, but server attestation, the backend's private routing decision, and unavailable backend state cannot be.
 
 These boundaries are current acceptance criteria, not excuses for incidental drift. Change one only when concrete Pi/Codex source evidence or a failing canary requires it, and revisit it when a closer truthful match becomes possible.

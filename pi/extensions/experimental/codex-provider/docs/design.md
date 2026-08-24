@@ -25,7 +25,9 @@ The provider runtime is not optional. Loading the extension replaces Pi's effect
 
 One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, exact continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. Session shutdown closes transport state.
 
-Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service tier for supported models across normal requests and native compaction. Live model metadata is authoritative; the pinned fallback catalog covers offline startup. Persisted remote catalogs are bound to the ChatGPT account that produced them and are invalidated before another account can observe their entitlements or model policy. A catalog-observed account change also invalidates account-scoped usage cache and in-flight usage publication. The lightning status appears only when the selected model supports fast mode.
+Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service tier for supported models across normal requests and native compaction. The provider applies the [upstream tier-routing contract](codex-baseline.md#verified-revisions) to every supported `openai-codex-responses` stream: fast requests set `service_tier: priority` in the body and `tier=priority` in `x-codex-routing-hint`, while standard requests omit both tier selections. This covers SSE requests, remote compaction, WebSocket handshakes, and prewarm. Separately, the local provider sends `originator: pi` for standard requests and `originator: codex_cli_rs` for priority requests. That split is an empirically motivated Pi adaptation, not an upstream routing requirement.
+
+Live model metadata is authoritative; the pinned fallback catalog covers offline startup. Persisted remote catalogs are bound to the ChatGPT account that produced them and are invalidated before another account can observe their entitlements or model policy. A catalog-observed account change also invalidates account-scoped usage cache and in-flight usage publication. The lightning status appears only when the selected model supports fast mode.
 
 Remote reasoning presets are intersected with Pi's known thinking levels instead of being forwarded as request values. Only the Codex Responses wire efforts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` reach transport. The Codex application preset `ultra` is not exposed as Pi `max`: full Ultra behavior also requires proactive multi-agent policy, which this extension does not implement.
 
@@ -52,10 +54,12 @@ The checkpoint entry renderer presents estimated before/after context size separ
 1. Pi finalizes its system prompt, messages, tools, auth, options, and earlier extension transformations.
 2. The provider serializes the effective Pi context with Pi's public Responses converters, then adds only extension-owned Codex metadata.
 3. `context`, `before_provider_headers`, and `before_provider_request` pair the active branch, finalized input, and headers to the same request generation.
-4. WebSocket `auto` mode may prewarm once, reuses an idle socket, and sends `previous_response_id` only when every stable request field matches and the new input is an exact extension of the completed request.
+4. WebSocket `auto` mode may prewarm once and reuses an idle socket only while its stable handshake identity still matches the endpoint, account credentials, model, effective tier, and other route headers. A mismatch closes the stale socket, reconnects, and clears socket-bound continuation state.
 5. A pre-output WebSocket failure makes SSE sticky for that Pi session. Visible assistant output is never internally replayed after emission; Pi remains responsible for outer retry.
 
 Redirects are rejected for remote compaction. Normal and compaction streams require terminal protocol state, and compaction additionally requires a matching completed response ID, usage, and exactly one canonical opaque item.
+
+`response.service_tier` is retained for usage pricing.
 
 ## Compaction and checkpoint v1
 

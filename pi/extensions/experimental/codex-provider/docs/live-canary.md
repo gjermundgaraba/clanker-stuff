@@ -107,6 +107,22 @@ pnpm --dir pi/extensions/experimental/codex-provider test:live:threshold
 
 This performs one small real tool loop using the model's declared context window and live remote metadata. Both model calls must complete without creating a checkpoint. It guards nullable or missing auto-compaction metadata from turning the effective threshold into zero.
 
+## Fast routing run
+
+```bash
+CODEX_FAST_LIVE_PAID=1 pnpm --filter @clanker-stuff/codex-provider run test:live:fast
+```
+
+The explicit `CODEX_FAST_LIVE_PAID=1` guard acknowledges paid usage. The runner defaults to `gpt-5.6-sol`; optional arguments include `--model ID`, `--pairs N`, `--seed N`, and `--out PATH`.
+
+[`scripts/live-fast.ts`](../scripts/live-fast.ts) runs one standard/fast pair by default over WebSocket, using a fresh runtime session and socket for each generation. Every socket sends one `generate=false` prewarm followed by one generation, so the default pair comprises two paid generations and four `response.create` frames. Each generation disables reasoning and must stream the exact fixed 64-word response. The runner compares complete visible words delivered after the first nonempty text delta through the last text delta; words already complete in the first delta are excluded. This is a client-visible fixed-work rate, not exact token generation throughput, because text deltas can contain more than one token. Provider-reported output tokens and backend timing metrics remain separate evidence.
+
+The runner verifies the [upstream tier-routing contract](codex-baseline.md#verified-revisions): standard omits `service_tier` and uses a model-only hint, while fast sends the priority request tier and matching priority hint. It separately records the local originator adaptation: `pi` for standard and `codex_cli_rs` for fast. Deterministic provider tests cover the equivalent SSE contract and the standard-to-fast WebSocket transition that must reconnect rather than reuse a handshake bound to the old route.
+
+The retained artifact records sanitized outbound routing evidence under `samples[].wire`; observed generation, prewarm, and total `response.create` counts; successful prewarm and generation terminal event type, status, and `service_tier`; client timing and visible-word delivery rate; fixed-output validation; usage and cost; whitelisted numeric `responsesapi.websocket_timing` metrics; and the standard/fast rate ratio. The ChatGPT Codex WebSocket may report different terminal tiers for prewarm and generation, so those labeled values are evidence rather than a pass/fail oracle. The artifact persists no prompts, authentication or account data, complete headers, credentials, or other secrets.
+
+This canary depends on paid backend behavior and timing, so it is deliberately non-gating. A single pair is a direct throughput measurement, not a statistical claim; increase `--pairs` only when repeated sampling is useful.
+
 ## Ten-round soak runs
 
 ```bash

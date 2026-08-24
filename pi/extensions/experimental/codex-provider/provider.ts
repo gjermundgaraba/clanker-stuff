@@ -133,10 +133,12 @@ interface SessionRuntime {
   socket?: {
     busy: boolean;
     createdAt: number;
+    identity: string;
     idleTimer?: ReturnType<typeof setTimeout>;
     value: WebSocketLike;
   };
   turn?: {
+    fastModeEnabled: boolean;
     id: string;
     prewarmed: boolean;
     startedAt: number;
@@ -290,6 +292,20 @@ const resolveWebSocketUrl = (baseUrl?: string) => {
 const headersRecord = (headers: Headers) =>
   Object.fromEntries(headers.entries());
 
+const webSocketIdentity = (url: string, headers: Headers) => {
+  const stableHeaders = new Headers(headers);
+  for (const name of [
+    "session-id",
+    "x-client-request-id",
+    "x-codex-turn-metadata",
+    "x-codex-turn-state",
+    "x-codex-window-id",
+  ]) {
+    stableHeaders.delete(name);
+  }
+  return sha256Canonical([url, ...stableHeaders.entries()]);
+};
+
 const buildBaseHeaders = (
   model: SupportedModel,
   options: OpenAICodexResponsesOptions | undefined,
@@ -356,11 +372,10 @@ const requestMetadata = (
   kind: "compaction" | "prewarm" | "turn",
   compaction?: Readonly<Record<string, string>>
 ) => {
-  const turn = (session.turn ??= {
-    id: uuidv7(),
-    prewarmed: false,
-    startedAt: Date.now(),
-  });
+  const { turn } = session;
+  if (!turn) {
+    throw new Error("Codex turn is not initialized");
+  }
   const canonical = JSON.stringify({
     request_kind: kind,
     session_id: sessionId,
@@ -1019,6 +1034,7 @@ const connectSocket = async (
   timeoutMs: number | undefined
 ) => {
   const now = Date.now();
+  const identity = webSocketIdentity(url, headers);
   const cached = session.socket;
   if (cached?.busy === true) {
     throw new WebSocketUnavailableError("WebSocket session is busy");
@@ -1027,6 +1043,7 @@ const connectSocket = async (
     cached &&
     !cached.busy &&
     cached.value.readyState === 1 &&
+    cached.identity === identity &&
     now - cached.createdAt < WEBSOCKET_MAX_AGE_MS
   ) {
     clearTimeout(cached.idleTimer);
@@ -1042,7 +1059,7 @@ const connectSocket = async (
   }
   signal?.throwIfAborted();
   const socket = new Constructor(url, { headers: headersRecord(headers) });
-  session.socket = { busy: true, createdAt: now, value: socket };
+  session.socket = { busy: true, createdAt: now, identity, value: socket };
   await new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
@@ -1229,6 +1246,17 @@ const applyTurnHeaders = (
   }
 };
 
+const applyRoutingHint = (headers: Headers, body: RequestBody) => {
+  headers.set(
+    "originator",
+    body.service_tier === "priority" ? "codex_cli_rs" : "pi"
+  );
+  const hint = `model=${body.model}${
+    typeof body.service_tier === "string" ? `;tier=${body.service_tier}` : ""
+  }`;
+  headers.set("x-codex-routing-hint", hint);
+};
+
 const sseEvents = async function* sseEvents(
   model: SupportedModel,
   body: RequestBody,
@@ -1247,6 +1275,7 @@ const sseEvents = async function* sseEvents(
     headers.set("x-openai-internal-codex-responses-lite", "true");
   }
   applyTurnHeaders(headers, body, session);
+  applyRoutingHint(headers, body);
   const bodyJson = JSON.stringify(body);
   const compressed = compressBody(bodyJson);
   if (compressed !== undefined) {
@@ -1370,6 +1399,7 @@ const websocketEvents = async function* websocketEvents(
       headers.set("x-openai-internal-codex-responses-lite", "true");
     }
     applyTurnHeaders(headers, fullBody, session);
+    applyRoutingHint(headers, fullBody);
     const previousSocket = session.socket;
     trace.transportUsed = "websocket";
     const socket = await connectSocket(
@@ -1611,6 +1641,7 @@ export const createCodexProviderRuntime = (
       : request.sessionId;
     const session = standalone ? createSession() : getSession(runtimeSessionId);
     session.turn ??= {
+      fastModeEnabled: isFastModeEnabled(),
       id: uuidv7(),
       prewarmed: true,
       startedAt: Date.now(),
@@ -1622,7 +1653,7 @@ export const createCodexProviderRuntime = (
       maxRetries: 0,
       reasoningEffort: request.thinkingLevel,
       serviceTier:
-        isFastModeEnabled() && catalog.supportsFastMode(request.model)
+        session.turn.fastModeEnabled && catalog.supportsFastMode(request.model)
           ? "priority"
           : undefined,
       sessionId: runtimeSessionId,
@@ -1950,6 +1981,12 @@ export const createCodexProviderRuntime = (
           throw new Error(`No API key for provider: ${model.provider}`);
         }
         const session = getSession(sessionId);
+        session.turn ??= {
+          fastModeEnabled: isFastModeEnabled(),
+          id: uuidv7(),
+          prewarmed: false,
+          startedAt: Date.now(),
+        };
         const built = buildRequestBody(
           model,
           context,
@@ -1976,7 +2013,10 @@ export const createCodexProviderRuntime = (
           ? built.body.input.slice(0, litePrefixLength)
           : [];
         let { body } = built;
-        if (isFastModeEnabled() && catalog.supportsFastMode(model)) {
+        if (
+          session.turn?.fastModeEnabled === true &&
+          catalog.supportsFastMode(model)
+        ) {
           body.service_tier = "priority";
         }
         if (built.responsesLite) {
@@ -2178,7 +2218,12 @@ export const createCodexProviderRuntime = (
   return {
     beginTurn(sessionId: string) {
       const session = getSession(sessionId);
-      session.turn = { id: uuidv7(), prewarmed: false, startedAt: Date.now() };
+      session.turn = {
+        fastModeEnabled: isFastModeEnabled(),
+        id: uuidv7(),
+        prewarmed: false,
+        startedAt: Date.now(),
+      };
     },
     closeSession,
     compact,

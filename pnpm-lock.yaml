@@ -114,6 +114,10 @@ importers:
       typebox:
         specifier: 1.3.7
         version: 1.3.7
+    devDependencies:
+      jiti:
+        specifier: 2.7.0
+        version: 2.7.0
 
   pi/extensions/experimental/subagents:
     dependencies:

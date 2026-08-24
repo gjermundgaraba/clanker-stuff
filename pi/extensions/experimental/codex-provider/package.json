@@ -61,6 +61,7 @@
     "test:live:branch": "node ./scripts/live-multi-compaction.ts --branch",
     "test:live:capabilities": "node ./scripts/live-multi-compaction.ts --capabilities",
     "test:live:fallback": "node ./scripts/live-multi-compaction.ts --fallback",
+    "test:live:fast": "jiti ./scripts/live-fast.ts",
     "test:live:fault": "node ./scripts/live-multi-compaction.ts --stream-fault --sse",
     "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
     "test:live:installed": "node ./scripts/live-installed.ts",
@@ -80,6 +81,9 @@
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@clanker-stuff/tool-owner-protocol": "workspace:^"
+  },
+  "devDependencies": {
+    "jiti": "2.7.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",
