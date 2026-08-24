@@ -1,21 +1,14 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
-import {
-  createIdentityTheme,
-  createKeybindings,
-} from "../../../../tests/harness/tui.js";
+import { createIdentityTheme, createKeybindings } from "../../../../tests/harness/tui.js";
 import { createHelpText } from "../../dialog/input.js";
 import { renderPrompt } from "../../dialog/render.js";
 import { createQuestionSessions } from "../../questions.js";
 import type { Question } from "../../questions.js";
-import {
-  KEY_SPACE,
-  KEY_TAB,
-  VIM_STYLE_KEYBINDINGS,
-  renderFlowWithKeys,
-} from "../helpers.js";
+import type { AskQuestionParameters } from "../../tool.js";
+import { KEY_SPACE, KEY_TAB, VIM_STYLE_KEYBINDINGS, renderFlowWithKeys } from "../helpers.js";
 
 const singleQuestionParams = {
   questions: [
@@ -25,14 +18,14 @@ const singleQuestionParams = {
       question: "Which plan do you want?",
     },
   ],
-};
+} satisfies AskQuestionParameters;
 
 describe("ask-question dialog rendering", () => {
   it("shows an incomplete single-select Other answer", async () => {
     const rendered = await renderFlowWithKeys(
       singleQuestionParams,
       ["j", "j", "y", "x", KEY_TAB, "y"],
-      VIM_STYLE_KEYBINDINGS
+      VIM_STYLE_KEYBINDINGS,
     );
 
     expect(rendered).toContain("• Plan: incomplete");
@@ -52,7 +45,7 @@ describe("ask-question dialog rendering", () => {
         ],
       },
       ["j", "j", KEY_SPACE, "x", KEY_TAB, "y"],
-      VIM_STYLE_KEYBINDINGS
+      VIM_STYLE_KEYBINDINGS,
     );
 
     expect(rendered).toContain("• Features: incomplete");
@@ -77,25 +70,15 @@ describe("ask-question dialog rendering", () => {
     };
 
     const renderedWithDetails = await renderFlowWithKeys(params, []);
-    const renderedWithoutDetails = await renderFlowWithKeys(
-      params,
-      ["j"],
-      VIM_STYLE_KEYBINDINGS
-    );
+    const renderedWithoutDetails = await renderFlowWithKeys(params, ["j"], VIM_STYLE_KEYBINDINGS);
 
     expect(renderedWithDetails).toContain("Details");
     expect(renderedWithDetails).toContain("Best default for most teams.");
-    expect(renderedWithoutDetails).not.toContain(
-      "Best default for most teams."
-    );
+    expect(renderedWithoutDetails).not.toContain("Best default for most teams.");
   });
 
   it("renders remapped help and the active edit target", async () => {
-    const initial = await renderFlowWithKeys(
-      singleQuestionParams,
-      [],
-      VIM_STYLE_KEYBINDINGS
-    );
+    const initial = await renderFlowWithKeys(singleQuestionParams, [], VIM_STYLE_KEYBINDINGS);
     const editing = await renderFlowWithKeys(
       singleQuestionParams,
       ["y", "n"],
@@ -105,7 +88,7 @@ describe("ask-question dialog rendering", () => {
         "tui.select.confirm": ["y"],
         "tui.select.down": ["j"],
         "tui.select.up": ["k"],
-      })
+      }),
     );
 
     expect(initial).toContain("k/j move");
@@ -127,7 +110,7 @@ describe("ask-question dialog rendering", () => {
         ],
       },
       ["j", "j"],
-      VIM_STYLE_KEYBINDINGS
+      VIM_STYLE_KEYBINDINGS,
     );
 
     expect(rendered).toContain("Space toggle • y edit Other");
@@ -136,12 +119,9 @@ describe("ask-question dialog rendering", () => {
   it("preserves styling across multiline details", () => {
     const dim = "\u001B[2m";
     const reset = "\u001B[0m";
-    const identityTheme = createIdentityTheme();
-    const theme = {
-      ...identityTheme,
-      fg: (color: string, text: string) =>
-        color === "muted" ? `${dim}${text}${reset}` : text,
-    } as Theme;
+    const theme: Theme = Object.assign(createIdentityTheme(), {
+      fg: (color: string, text: string) => (color === "muted" ? `${dim}${text}${reset}` : text),
+    });
     const question: Question = {
       header: "Plan",
       multiSelect: false,
@@ -165,27 +145,23 @@ describe("ask-question dialog rendering", () => {
         sessions: createQuestionSessions([question]),
         theme,
       },
-      80
+      80,
     );
 
     expect(rendered.find((line) => line.includes("First line"))).toContain(dim);
-    expect(rendered.find((line) => line.includes("Second line"))).toContain(
-      dim
-    );
+    expect(rendered.find((line) => line.includes("Second line"))).toContain(dim);
   });
 
   it("wraps tabs so the active Submit tab remains visible", () => {
-    const questions: Question[] = ["One", "Two", "Three", "Four", "Five"].map(
-      (header) => ({
-        header,
-        multiSelect: false,
-        options: [
-          { kind: "option", label: "Yes" },
-          { kind: "other", label: "Other" },
-        ],
-        question: `${header}?`,
-      })
-    );
+    const questions: Question[] = ["One", "Two", "Three", "Four", "Five"].map((header) => ({
+      header,
+      multiSelect: false,
+      options: [
+        { kind: "option", label: "Yes" },
+        { kind: "other", label: "Other" },
+      ],
+      question: `${header}?`,
+    }));
     const sessions = createQuestionSessions(questions);
     const rendered = renderPrompt(
       {
@@ -196,12 +172,10 @@ describe("ask-question dialog rendering", () => {
         sessions,
         theme: createIdentityTheme(),
       },
-      24
+      24,
     );
 
-    expect(rendered.slice(1, rendered.indexOf("")).join(" ")).toContain(
-      "Submit"
-    );
+    expect(rendered.slice(1, rendered.indexOf("")).join(" ")).toContain("Submit");
   });
 
   it("bounds lines when a prefix is wider than the viewport", () => {
@@ -231,7 +205,7 @@ describe("ask-question dialog rendering", () => {
         sessions,
         theme: createIdentityTheme(),
       },
-      8
+      8,
     );
 
     expect(rendered.every((line) => visibleWidth(line) <= 8)).toBeTruthy();

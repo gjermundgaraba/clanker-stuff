@@ -5,17 +5,15 @@ import path from "node:path";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { Type } from "typebox";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
-import {
-  createChildRuntime,
-  SUBAGENT_IDENTITY_ENTRY_TYPE,
-} from "../runtime.js";
+import { createChildRuntime, SUBAGENT_IDENTITY_ENTRY_TYPE } from "../runtime.js";
 
 const runtimeRequest = (
   harness: Awaited<ReturnType<typeof createAgentSessionHarness>>,
-  identity = "/root/child"
+  identity = "/root/child",
 ) => ({
   bridge: () => Promise.resolve(),
   cwd: path.dirname(harness.agentDir),
@@ -47,7 +45,7 @@ describe("child runtime", () => {
     try {
       expect(existsSync(runtime.sessionFile)).toBeTruthy();
       await expect(readFile(runtime.sessionFile, "utf-8")).resolves.toContain(
-        `"customType":"${SUBAGENT_IDENTITY_ENTRY_TYPE}"`
+        `"customType":"${SUBAGENT_IDENTITY_ENTRY_TYPE}"`,
       );
       runtime.commit();
     } finally {
@@ -73,12 +71,10 @@ describe("child runtime", () => {
         SessionManager.open(
           runtime.sessionFile,
           path.dirname(runtime.sessionFile),
-          path.dirname(harness.agentDir)
+          path.dirname(harness.agentDir),
         )
           .getBranch()
-          .some(
-            (entry) => entry.type === "message" && entry.message.role === "user"
-          )
+          .some((entry) => entry.type === "message" && entry.message.role === "user"),
       ).toBeTruthy();
     } finally {
       await runtime.dispose();
@@ -142,9 +138,11 @@ describe("child runtime", () => {
       await expect(turn.settled).resolves.toMatchObject({
         text: "answer after steering",
       });
-      expect(JSON.stringify(harness.lastProviderPayload())).toContain(
-        "new steering context"
-      );
+      expect(
+        JSON.stringify(
+          harness.lastProviderPayload(Type.Object({}, { additionalProperties: true })),
+        ),
+      ).toContain("new steering context");
     } finally {
       await runtime.dispose();
       harness.cleanup();
@@ -163,7 +161,7 @@ describe("child runtime", () => {
         createChildRuntime({
           ...runtimeRequest(harness, "/root/sibling"),
           sessionFile,
-        })
+        }),
       ).rejects.toThrow("belongs to a different agent");
     } finally {
       harness.cleanup();
@@ -179,9 +177,9 @@ describe("child runtime", () => {
       await mkdir(dataDir, { recursive: true });
       await symlink(target, path.join(dataDir, "sessions"));
 
-      await expect(
-        createChildRuntime({ ...runtimeRequest(harness), dataDir })
-      ).rejects.toThrow("must be a regular directory");
+      await expect(createChildRuntime({ ...runtimeRequest(harness), dataDir })).rejects.toThrow(
+        "must be a regular directory",
+      );
     } finally {
       await rm(target, { force: true, recursive: true });
       harness.cleanup();

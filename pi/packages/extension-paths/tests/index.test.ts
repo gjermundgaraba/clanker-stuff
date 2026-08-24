@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { getExtensionStoragePaths } from "../index.js";
 
@@ -27,8 +27,6 @@ describe(getExtensionStoragePaths, () => {
   });
 
   it("rejects IDs that could escape their storage namespace", () => {
-    expect(() => getExtensionStoragePaths("../example")).toThrow(
-      "invalid extension ID"
-    );
+    expect(() => getExtensionStoragePaths("../example")).toThrow("invalid extension ID");
   });
 });

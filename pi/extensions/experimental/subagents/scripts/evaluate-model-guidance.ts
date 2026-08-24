@@ -7,13 +7,13 @@ import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const repositoryRoot = path.resolve(packageRoot, "../../../..");
-const providerExtension = path.resolve(
-  packageRoot,
-  "../codex-provider/index.ts"
-);
+const providerExtension = path.resolve(packageRoot, "../codex-provider/index.ts");
 const subagentsExtension = path.resolve(packageRoot, "index.ts");
 
 interface Scenario {
@@ -24,7 +24,7 @@ interface Scenario {
 }
 
 interface ToolAttempt {
-  args: Record<string, unknown>;
+  args: ToolArguments;
   error?: boolean;
   name: string;
   sequence: number;
@@ -36,8 +36,54 @@ interface EvaluationTrace {
   tools: readonly ToolAttempt[];
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+const ToolArgumentsSchema = Type.Object(
+  {
+    message: Type.Optional(Type.String()),
+    target: Type.Optional(Type.String()),
+    task_name: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+type ToolArguments = Static<typeof ToolArgumentsSchema>;
+const ToolStartEventSchema = Type.Object(
+  {
+    args: Type.Unknown(),
+    toolCallId: Type.String(),
+    toolName: Type.String(),
+    type: Type.Literal("tool_execution_start"),
+  },
+  { additionalProperties: true },
+);
+const ToolEndEventSchema = Type.Object(
+  {
+    isError: Type.Optional(Type.Boolean()),
+    toolCallId: Type.String(),
+    type: Type.Literal("tool_execution_end"),
+  },
+  { additionalProperties: true },
+);
+const AssistantMessageSchema = Type.Object(
+  {
+    content: Type.Array(Type.Unknown()),
+    role: Type.Literal("assistant"),
+  },
+  { additionalProperties: true },
+);
+const MessageEndEventSchema = Type.Object(
+  {
+    message: Type.Unknown(),
+    type: Type.Literal("message_end"),
+  },
+  { additionalProperties: true },
+);
+const TextContentSchema = Type.Object(
+  {
+    text: Type.String(),
+    type: Type.Literal("text"),
+  },
+  { additionalProperties: true },
+);
+type AssistantMessage = Static<typeof AssistantMessageSchema>;
 
 const attempts = (trace: EvaluationTrace, name: string) =>
   trace.tools.filter((call) => call.name === name);
@@ -45,27 +91,14 @@ const attempts = (trace: EvaluationTrace, name: string) =>
 const successful = (trace: EvaluationTrace, name: string) =>
   attempts(trace, name).filter((call) => call.error === false);
 
-const finalTextFromMessage = (value: unknown): string => {
-  if (!isRecord(value) || value.role !== "assistant") {
-    return "";
-  }
-  return Array.isArray(value.content)
-    ? value.content
-        .filter(
-          (item): item is Record<string, unknown> =>
-            isRecord(item) && item.type === "text"
-        )
-        .map((item) => (typeof item.text === "string" ? item.text : ""))
-        .join("")
-        .trim()
-    : "";
-};
+const finalTextFromMessage = (message: AssistantMessage): string =>
+  message.content
+    .filter((item) => Value.Check(TextContentSchema, item))
+    .map((item) => item.text)
+    .join("")
+    .trim();
 
-const requireMarker = (
-  trace: EvaluationTrace,
-  marker: string,
-  failures: string[]
-): void => {
+const requireMarker = (trace: EvaluationTrace, marker: string, failures: string[]): void => {
   if (!trace.finalText.endsWith(marker)) {
     failures.push(`final response must end with ${marker}`);
   }
@@ -74,14 +107,12 @@ const requireMarker = (
 const validateQueueMessages = (
   trace: EvaluationTrace,
   sends: readonly ToolAttempt[],
-  failures: string[]
+  failures: string[],
 ): void => {
   const targets = sends.flatMap((call) =>
-    typeof call.args.target === "string" ? [call.args.target] : []
+    call.args.target === undefined ? [] : [call.args.target],
   );
-  const relativeTargets = new Set(
-    targets.map((target) => target.split("/").at(-1))
-  );
+  const relativeTargets = new Set(targets.map((target) => target.split("/").at(-1)));
   if (
     sends.length !== 2 ||
     relativeTargets.size !== 2 ||
@@ -94,18 +125,10 @@ const validateQueueMessages = (
     failures.push("queue-only addressing included a failed message");
   }
   for (const send of sends) {
-    const target =
-      typeof send.args.target === "string"
-        ? send.args.target.split("/").at(-1)
-        : undefined;
+    const target = send.args.target?.split("/").at(-1);
     const expectedOther = target === "v1_review" ? "v2_review" : "v1_review";
-    if (
-      typeof send.args.message !== "string" ||
-      !send.args.message.includes(expectedOther)
-    ) {
-      failures.push(
-        `message to ${target ?? "unknown target"} did not name ${expectedOther}`
-      );
+    if (send.args.message === undefined || !send.args.message.includes(expectedOther)) {
+      failures.push(`message to ${target ?? "unknown target"} did not name ${expectedOther}`);
     }
   }
 };
@@ -119,9 +142,7 @@ const scenarios: readonly Scenario[] = [
     validate: (trace) => {
       const failures: string[] = [];
       if (attempts(trace, "spawn_agent").length > 0) {
-        failures.push(
-          "explicit mode attempted delegation without an explicit request"
-        );
+        failures.push("explicit mode attempted delegation without an explicit request");
       }
       requireMarker(trace, "EXPLICIT_DONE", failures);
       return failures;
@@ -143,7 +164,7 @@ const scenarios: readonly Scenario[] = [
         failures.push("expected at least two successful spawn_agent calls");
       }
       const taskNames = spawns.flatMap((call) =>
-        typeof call.args.task_name === "string" ? [call.args.task_name] : []
+        call.args.task_name === undefined ? [] : [call.args.task_name],
       );
       if (new Set(taskNames).size !== spawns.length) {
         failures.push("spawn_agent calls must use distinct task names");
@@ -209,11 +230,9 @@ const runScenario = async (
   scenario: Scenario,
   model: string,
   reasoning: string,
-  timeoutMs: number
+  timeoutMs: number,
 ) => {
-  const agentDir = await mkdtemp(
-    path.join(tmpdir(), `subagents-${scenario.id}-`)
-  );
+  const agentDir = await mkdtemp(path.join(tmpdir(), `subagents-${scenario.id}-`));
   try {
     await copyAuthentication(agentDir);
     await writeFile(
@@ -225,8 +244,8 @@ const runScenario = async (
           version: 1,
         },
         null,
-        2
-      )}\n`
+        2,
+      )}\n`,
     );
     await mkdir(path.join(agentDir, "sessions"), { recursive: true });
     const args = [
@@ -262,17 +281,10 @@ const runScenario = async (
     let sequence = 0;
     createInterface({ input: child.stdout }).on("line", (line) => {
       try {
-        const event: unknown = JSON.parse(line);
-        if (!isRecord(event)) {
-          return;
-        }
-        if (
-          event.type === "tool_execution_start" &&
-          typeof event.toolCallId === "string" &&
-          typeof event.toolName === "string"
-        ) {
+        const event = JSON.parse(line);
+        if (Value.Check(ToolStartEventSchema, event)) {
           const attempt: ToolAttempt = {
-            args: isRecord(event.args) ? event.args : {},
+            args: Value.Check(ToolArgumentsSchema, event.args) ? event.args : {},
             name: event.toolName,
             sequence,
             toolCallId: event.toolCallId,
@@ -280,15 +292,15 @@ const runScenario = async (
           sequence += 1;
           tools.push(attempt);
           toolsById.set(attempt.toolCallId, attempt);
-        } else if (
-          event.type === "tool_execution_end" &&
-          typeof event.toolCallId === "string"
-        ) {
+        } else if (Value.Check(ToolEndEventSchema, event)) {
           const attempt = toolsById.get(event.toolCallId);
           if (attempt !== undefined) {
             attempt.error = event.isError === true;
           }
-        } else if (event.type === "message_end") {
+        } else if (
+          Value.Check(MessageEndEventSchema, event) &&
+          Value.Check(AssistantMessageSchema, event.message)
+        ) {
           const text = finalTextFromMessage(event.message);
           if (text !== "") {
             finalText = text;
@@ -315,9 +327,7 @@ const runScenario = async (
       killTimer = setTimeout(() => {
         child.kill("SIGKILL");
         rejectTimer = setTimeout(() => {
-          timedOut.reject(
-            new Error(`Scenario ${scenario.id} did not exit after SIGKILL`)
-          );
+          timedOut.reject(new Error(`Scenario ${scenario.id} did not exit after SIGKILL`));
         }, 1000);
       }, 5000);
     }, timeoutMs);
@@ -370,14 +380,12 @@ const main = async () => {
     return;
   }
   const requested = new Set(values.scenario);
-  const unknown = [...requested].filter(
-    (id) => !scenarios.some((scenario) => scenario.id === id)
-  );
+  const unknown = [...requested].filter((id) => !scenarios.some((scenario) => scenario.id === id));
   if (unknown.length > 0) {
     throw new Error(`Unknown scenario: ${unknown.join(", ")}`);
   }
   const selected = scenarios.filter(
-    (scenario) => requested.size === 0 || requested.has(scenario.id)
+    (scenario) => requested.size === 0 || requested.has(scenario.id),
   );
   if (values["dry-run"] === true) {
     console.log(
@@ -388,8 +396,8 @@ const main = async () => {
           prompt,
         })),
         null,
-        2
-      )
+        2,
+      ),
     );
     return;
   }
@@ -399,12 +407,11 @@ const main = async () => {
   }
   const results = [];
   for (const scenario of selected) {
-    // oxlint-disable-next-line eslint/no-await-in-loop -- isolate auth, config, and session state per model eval
     const result = await runScenario(
       scenario,
       values.model,
       values.reasoning,
-      timeoutMinutes * 60_000
+      timeoutMinutes * 60_000,
     );
     results.push(result);
   }

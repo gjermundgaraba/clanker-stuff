@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { sha256Canonical } from "../checkpoint.js";
 import { formatCheckpointEntry } from "../renderer.js";
@@ -78,7 +78,7 @@ describe("checkpoint entry renderer", () => {
 
   it("shows technical checkpoint details only when expanded", () => {
     expect(formatCheckpointEntry(checkpoint(), true)).toBe(
-      "✓ Context compacted successfully · Model: gpt-5.6-sol\nEstimated context size: ~12,345 → ~47 tokens · ~12,298 fewer (99.6% smaller)\nTrigger: Automatic — context threshold reached · Timing: While the agent was working\nOpenAI compaction usage: 120 tokens total\nUsage breakdown: 100 uncached input · 30 cached input · 20 output · 40 cache write\nCheckpoint: saved and validated · Provider window: 2\nCheckpoint details:\nResponse ID: SECRET_RESPONSE_ID\nWindow IDs: window-1 → window-2\nReplacement SHA-256: 55985697c985bfb82c3cd1f693ad3e60322676197b8fbf890ba6b38e8f7e2bd5\nCompaction hash: comp-a\nSchema: clanker.codex-provider/checkpoint v1 · openai-responses-compaction-v2 · request v1\nEffective token limit: 190,000\nReplacement: 2 items · 1 compaction · 1 user · 0 agent"
+      "✓ Context compacted successfully · Model: gpt-5.6-sol\nEstimated context size: ~12,345 → ~47 tokens · ~12,298 fewer (99.6% smaller)\nTrigger: Automatic — context threshold reached · Timing: While the agent was working\nOpenAI compaction usage: 120 tokens total\nUsage breakdown: 100 uncached input · 30 cached input · 20 output · 40 cache write\nCheckpoint: saved and validated · Provider window: 2\nCheckpoint details:\nResponse ID: SECRET_RESPONSE_ID\nWindow IDs: window-1 → window-2\nReplacement SHA-256: 55985697c985bfb82c3cd1f693ad3e60322676197b8fbf890ba6b38e8f7e2bd5\nCompaction hash: comp-a\nSchema: clanker.codex-provider/checkpoint v1 · openai-responses-compaction-v2 · request v1\nEffective token limit: 190,000\nReplacement: 2 items · 1 compaction · 1 user · 0 agent",
     );
   });
 });

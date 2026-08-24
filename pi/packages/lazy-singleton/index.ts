@@ -2,7 +2,7 @@ type Dispose<T> = (value: T) => Promise<void> | void;
 
 export const createLazySingleton = <T extends object>(
   create: (signal: AbortSignal) => Promise<T>,
-  onLoad?: (value: T) => void
+  onLoad?: (value: T) => void,
 ) => {
   const lifetime = new AbortController();
   let current: T | undefined;

@@ -40,7 +40,7 @@ export type UsageFetchResult =
 
 export const usageFailure = (
   message: string,
-  kind: UsageFetchError["kind"] = "failure"
+  kind: UsageFetchError["kind"] = "failure",
 ): UsageFetchResult => ({ error: { kind, message }, ok: false });
 
 const NO_WINDOWS_MESSAGE = "no usage windows in response";
@@ -52,14 +52,13 @@ export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult => {
   return { ok: true, snapshot };
 };
 
-const isSupportedProvider = (
-  provider: string | undefined
-): provider is SupportedProvider =>
-  provider !== undefined &&
-  (SUPPORTED_PROVIDERS as readonly string[]).includes(provider);
+const SUPPORTED_PROVIDER_IDS = new Set<string>(SUPPORTED_PROVIDERS);
+
+const isSupportedProvider = (provider: string | undefined): provider is SupportedProvider =>
+  provider !== undefined && SUPPORTED_PROVIDER_IDS.has(provider);
 
 export const getActiveProvider = (
-  model: { provider?: string } | undefined | null
+  model: { provider?: string } | undefined | null,
 ): SupportedProvider | undefined => {
   const provider = model?.provider;
   return isSupportedProvider(provider) ? provider : undefined;

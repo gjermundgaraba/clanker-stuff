@@ -1,10 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
-import {
-  formatDetail,
-  formatProviderError,
-  formatResetDuration,
-} from "../format.js";
+import { formatDetail, formatProviderError, formatResetDuration } from "../format.js";
 import type { UsageSnapshot } from "../providers.js";
 
 const now = Date.parse("2026-07-21T12:00:00.000Z");
@@ -40,7 +36,7 @@ describe("reset duration formatting", () => {
         new Date(now + 2 * 3_600_000 + 15 * 60_000),
         new Date(now + 3 * 86_400_000),
         new Date(now + 3 * 86_400_000 + 4 * 3_600_000),
-      ].map((date) => formatResetDuration(date.toISOString(), now))
+      ].map((date) => formatResetDuration(date.toISOString(), now)),
     ).toStrictEqual(["now", "45m", "2h", "2h 15m", "3d", "3d 4h"]);
   });
 });
@@ -66,7 +62,7 @@ describe("detail formatting", () => {
     const detail = formatDetail(snapshot, now);
     const error = formatProviderError(
       "openai-codex",
-      "bad\nforged\terror\u001B]8;;https://secret\u0007link"
+      "bad\nforged\terror\u001B]8;;https://secret\u0007link",
     );
 
     expect(`${detail}\n${error}`).not.toContain("\u001B");

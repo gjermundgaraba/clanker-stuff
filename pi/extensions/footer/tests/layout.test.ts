@@ -1,17 +1,9 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { FooterConfig } from "../config.js";
-import {
-  layoutFooterRows,
-  renderFooterState,
-  sanitizeNativeStatus,
-} from "../layout.js";
-import type {
-  FooterRenderState,
-  FooterTheme,
-  RenderableWidget,
-} from "../layout.js";
+import { layoutFooterRows, renderFooterState, sanitizeNativeStatus } from "../layout.js";
+import type { FooterRenderState, FooterTheme, RenderableWidget } from "../layout.js";
 import type { LiveWidget } from "../widgets.js";
 
 const theme: FooterTheme = {
@@ -23,18 +15,14 @@ const widget = (
   id: string,
   group: RenderableWidget["group"],
   text: string,
-  truncate?: RenderableWidget["truncate"]
-): RenderableWidget => ({
-  group,
-  id,
-  text,
-  ...(truncate === undefined ? {} : { truncate }),
-});
+  truncate?: RenderableWidget["truncate"],
+): RenderableWidget =>
+  truncate === undefined ? { group, id, text } : { group, id, text, truncate };
 
 const live = (
   id: string,
   text: string,
-  options: Partial<LiveWidget["snapshot"]> = {}
+  options: Partial<LiveWidget["snapshot"]> = {},
 ): LiveWidget => ({
   snapshot: {
     content: [{ text }],
@@ -51,42 +39,33 @@ describe("layout", () => {
       layoutFooterRows(
         [[widget("alpha", "left", "alpha"), widget("beta", "right", "beta")]],
         16,
-        " · "
-      ).lines
+        " · ",
+      ).lines,
     ).toStrictEqual(["alpha       beta"]);
-    expect(
-      layoutFooterRows([[widget("mid", "center", "mid")]], 9, " · ").lines
-    ).toStrictEqual(["   mid"]);
+    expect(layoutFooterRows([[widget("mid", "center", "mid")]], 9, " · ").lines).toStrictEqual([
+      "   mid",
+    ]);
   });
 
   it("truncates toward the center unless a widget overrides it", () => {
+    expect(layoutFooterRows([[widget("left", "left", "abcdef")]], 5, " · ").lines).toStrictEqual([
+      "abcd…",
+    ]);
+    expect(layoutFooterRows([[widget("right", "right", "abcdef")]], 5, " · ").lines).toStrictEqual([
+      "…cdef",
+    ]);
     expect(
-      layoutFooterRows([[widget("left", "left", "abcdef")]], 5, " · ").lines
-    ).toStrictEqual(["abcd…"]);
-    expect(
-      layoutFooterRows([[widget("right", "right", "abcdef")]], 5, " · ").lines
-    ).toStrictEqual(["…cdef"]);
-    expect(
-      layoutFooterRows([[widget("center", "center", "abcdef")]], 5, " · ").lines
+      layoutFooterRows([[widget("center", "center", "abcdef")]], 5, " · ").lines,
     ).toStrictEqual(["ab…ef"]);
     expect(
-      layoutFooterRows(
-        [[widget("override", "left", "abcdef", "start")]],
-        5,
-        " · "
-      ).lines
+      layoutFooterRows([[widget("override", "left", "abcdef", "start")]], 5, " · ").lines,
     ).toStrictEqual(["…cdef"]);
     expect(
       layoutFooterRows(
-        [
-          [
-            widget("left", "left", "abcdef"),
-            widget("right", "right", "uvwxyz"),
-          ],
-        ],
+        [[widget("left", "left", "abcdef"), widget("right", "right", "uvwxyz")]],
         2,
-        " · "
-      ).lines
+        " · ",
+      ).lines,
     ).toStrictEqual(["……"]);
   });
 
@@ -142,9 +121,7 @@ describe("normalization", () => {
 
     state.config = structuredClone(config);
     state.config.rows[0]?.left.unshift("status:timer");
-    expect(renderFooterState(state, 80, theme).lines.join("\n")).toContain(
-      "fallback"
-    );
+    expect(renderFooterState(state, 80, theme).lines.join("\n")).toContain("fallback");
   });
 
   it("isolates a widget whose theme rendering fails", () => {
@@ -170,24 +147,18 @@ describe("normalization", () => {
         ]),
       },
       80,
-      throwingTheme
+      throwingTheme,
     );
 
     expect(result.lines.join("\n")).toContain("still here");
-    expect(result.widgetErrors).toStrictEqual([
-      { id: "example.bad", message: "bad widget" },
-    ]);
+    expect(result.widgetErrors).toStrictEqual([{ id: "example.bad", message: "bad widget" }]);
   });
 
   it("preserves only SGR controls in native statuses", () => {
     expect(
-      sanitizeNativeStatus(
-        "\u001B[31mred\u001B[0m\nnext\u001B]8;;https://secret\u0007link"
-      )
+      sanitizeNativeStatus("\u001B[31mred\u001B[0m\nnext\u001B]8;;https://secret\u0007link"),
     ).toBe("\u001B[31mred\u001B[0m nextlink\u001B[0m");
-    expect(sanitizeNativeStatus("\u001B[31mred")).toBe(
-      "\u001B[31mred\u001B[0m"
-    );
+    expect(sanitizeNativeStatus("\u001B[31mred")).toBe("\u001B[31mred\u001B[0m");
   });
 
   it("renders native status ANSI without semantic theme styling", () => {
@@ -210,7 +181,7 @@ describe("normalization", () => {
         rich: new Map(),
       },
       80,
-      nativeTheme
+      nativeTheme,
     ).lines.join("\n");
 
     expect(rendered).toContain("\u001B[31mred\u001B[0m");
@@ -226,19 +197,15 @@ describe("normalization", () => {
           rich: new Map(),
         },
         80,
-        theme
-      ).lines.join("\n")
+        theme,
+      ).lines.join("\n"),
     ).not.toContain("must not render");
   });
 
   it("strips terminal controls from rich widget text and icons", () => {
-    const injected = live(
-      "example.injected",
-      "\u001B]52;c;secret\u0007visible",
-      {
-        icon: { glyphs: "\u001B[31m!" },
-      }
-    );
+    const injected = live("example.injected", "\u001B]52;c;secret\u0007visible", {
+      icon: { glyphs: "\u001B[31m!" },
+    });
     const rendered = renderFooterState(
       {
         builtins: new Map(),
@@ -247,7 +214,7 @@ describe("normalization", () => {
         rich: new Map([[injected.snapshot.id, injected]]),
       },
       80,
-      theme
+      theme,
     ).lines.join("\n");
 
     expect(rendered).toContain("visible");

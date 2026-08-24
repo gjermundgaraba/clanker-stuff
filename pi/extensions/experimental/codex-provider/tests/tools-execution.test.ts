@@ -4,7 +4,9 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import * as codingAgent from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { ProcessManager } from "../tools/process.js";
@@ -14,6 +16,15 @@ import { createToolsModel } from "./fixtures.js";
 vi.mock(import("@earendil-works/pi-coding-agent"), { spy: true });
 
 const tempDirectories: string[] = [];
+const SessionDetailsSchema = Type.Object({
+  running: Type.Optional(Type.Boolean()),
+  sessionId: Type.Optional(Type.Number()),
+  status: Type.Optional(Type.String()),
+});
+const OutputDetailsSchema = Type.Object({
+  fullOutputPath: Type.Optional(Type.String()),
+  truncation: Type.Optional(Type.Object({ truncated: Type.Boolean() })),
+});
 
 const createTempDirectory = async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "codex-tools-"));
@@ -22,7 +33,7 @@ const createTempDirectory = async () => {
 };
 
 const textContent = (
-  result: Awaited<ReturnType<ReturnType<typeof createExtensionHost>["runTool"]>>
+  result: Awaited<ReturnType<ReturnType<typeof createExtensionHost>["runTool"]>>,
 ) =>
   result.content
     .filter((item) => item.type === "text")
@@ -34,7 +45,7 @@ describe("profile execution", () => {
     await Promise.all(
       tempDirectories.splice(0).map(async (directory) => {
         await rm(directory, { force: true, recursive: true });
-      })
+      }),
     );
   });
   it("applies Codex add, update, move, and delete patches", async () => {
@@ -47,14 +58,11 @@ describe("profile execution", () => {
     await host.runTool(
       "apply_patch",
       {
-        patch: [
-          "*** Begin Patch",
-          "*** Add File: example.txt",
-          "+hello",
-          "*** End Patch",
-        ].join("\n"),
+        patch: ["*** Begin Patch", "*** Add File: example.txt", "+hello", "*** End Patch"].join(
+          "\n",
+        ),
       },
-      ctx
+      ctx,
     );
     await writeFile(path.join(cwd, "delete.txt"), "remove me\n", "utf-8");
     await host.runTool(
@@ -71,18 +79,12 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx
+      ctx,
     );
 
-    await expect(readFile(path.join(cwd, "moved.txt"), "utf-8")).resolves.toBe(
-      "world\n"
-    );
-    await expect(
-      readFile(path.join(cwd, "example.txt"), "utf-8")
-    ).rejects.toThrow("ENOENT");
-    await expect(
-      readFile(path.join(cwd, "delete.txt"), "utf-8")
-    ).rejects.toThrow("ENOENT");
+    await expect(readFile(path.join(cwd, "moved.txt"), "utf-8")).resolves.toBe("world\n");
+    await expect(readFile(path.join(cwd, "example.txt"), "utf-8")).rejects.toThrow("ENOENT");
+    await expect(readFile(path.join(cwd, "delete.txt"), "utf-8")).rejects.toThrow("ENOENT");
   });
 
   it("applies Codex move-only patches", async () => {
@@ -103,15 +105,11 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx
+      ctx,
     );
 
-    await expect(readFile(path.join(cwd, "moved.txt"), "utf-8")).resolves.toBe(
-      "unchanged\n"
-    );
-    await expect(
-      readFile(path.join(cwd, "source.txt"), "utf-8")
-    ).rejects.toThrow("ENOENT");
+    await expect(readFile(path.join(cwd, "moved.txt"), "utf-8")).resolves.toBe("unchanged\n");
+    await expect(readFile(path.join(cwd, "source.txt"), "utf-8")).rejects.toThrow("ENOENT");
   });
 
   it("anchors Codex end-of-file hunks and rejects trailing hunk lines", async () => {
@@ -136,12 +134,10 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx
+      ctx,
     );
 
-    await expect(readFile(file, "utf-8")).resolves.toBe(
-      "target\nmiddle\nlast\n"
-    );
+    await expect(readFile(file, "utf-8")).resolves.toBe("target\nmiddle\nlast\n");
     await host.runTool(
       "apply_patch",
       {
@@ -156,7 +152,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx
+      ctx,
     );
     await expect(readFile(file, "utf-8")).resolves.toBe("");
 
@@ -175,8 +171,8 @@ describe("profile execution", () => {
             "*** End Patch",
           ].join("\n"),
         },
-        ctx
-      )
+        ctx,
+      ),
     ).rejects.toThrow("End-of-file marker must end the update");
   });
 
@@ -193,19 +189,14 @@ describe("profile execution", () => {
       host.runTool(
         "apply_patch",
         {
-          patch: [
-            "*** Begin Patch",
-            "*** Add File: example.txt",
-            "+hello",
-            "*** End Patch",
-          ].join("\n"),
+          patch: ["*** Begin Patch", "*** Add File: example.txt", "+hello", "*** End Patch"].join(
+            "\n",
+          ),
         },
-        { ctx, signal: controller.signal }
-      )
+        { ctx, signal: controller.signal },
+      ),
     ).rejects.toThrow("Operation aborted");
-    await expect(
-      readFile(path.join(cwd, "example.txt"), "utf-8")
-    ).rejects.toThrow("ENOENT");
+    await expect(readFile(path.join(cwd, "example.txt"), "utf-8")).rejects.toThrow("ENOENT");
   });
 
   it("runs and continues Codex process sessions", async () => {
@@ -217,7 +208,7 @@ describe("profile execution", () => {
       cmd: "read value; printf 'got:%s' \"$value\"",
       yield_time_ms: 0,
     });
-    const details = started.details as { sessionId?: number };
+    const details = Value.Parse(SessionDetailsSchema, started.details);
     expect(details.sessionId).toBeTypeOf("number");
     expect(textContent(started)).toContain(`Session ID: ${details.sessionId}`);
 
@@ -229,15 +220,12 @@ describe("profile execution", () => {
 
     expect(textContent(finished)).toContain("got:hello");
     expect(textContent(finished)).toContain("Process exited with code 0");
-    expect({
-      running: (finished.details as { running?: boolean }).running,
-      sessionId: (finished.details as { sessionId?: number }).sessionId,
-      status: (finished.details as { status?: string }).status,
-    }).toStrictEqual({
+    const finishedDetails = Value.Parse(SessionDetailsSchema, finished.details);
+    expect(finishedDetails).toMatchObject({
       running: false,
-      sessionId: undefined,
       status: "exited",
     });
+    expect(finishedDetails.sessionId).toBeUndefined();
   });
 
   it("measures each process poll independently", async () => {
@@ -280,9 +268,9 @@ describe("profile execution", () => {
     const host = createExtensionHost(registerCodexTools, { model });
     await host.emitSessionStart();
 
-    await expect(
-      host.runTool("exec_command", { cmd: "printf unreachable" })
-    ).rejects.toThrow("Shell stdin command transport is not supported");
+    await expect(host.runTool("exec_command", { cmd: "printf unreachable" })).rejects.toThrow(
+      "Shell stdin command transport is not supported",
+    );
   });
 
   it.skipIf(process.platform === "win32")(
@@ -305,7 +293,7 @@ describe("profile execution", () => {
       expect(Date.now() - startedAt).toBeLessThan(3000);
       await delay(500);
       await expect(readFile(marker, "utf-8")).resolves.toBe("alive");
-    }
+    },
   );
 
   it("kills and forgets an aborted Codex process session", async () => {
@@ -317,7 +305,7 @@ describe("profile execution", () => {
       cmd: "read value",
       yield_time_ms: 0,
     });
-    const { sessionId } = started.details as { sessionId?: number };
+    const { sessionId } = Value.Parse(SessionDetailsSchema, started.details);
     if (!sessionId) {
       throw new Error("Process session ID was not returned");
     }
@@ -328,14 +316,14 @@ describe("profile execution", () => {
       host.runTool(
         "write_stdin",
         { session_id: sessionId, yield_time_ms: 0 },
-        { signal: controller.signal }
-      )
+        { signal: controller.signal },
+      ),
     ).rejects.toThrow("Operation aborted");
     await expect(
       host.runTool("write_stdin", {
         session_id: sessionId,
         yield_time_ms: 0,
-      })
+      }),
     ).rejects.toThrow(`Unknown process session: ${sessionId}`);
   });
 
@@ -355,7 +343,7 @@ describe("profile execution", () => {
           cmd: `node -e ${JSON.stringify(`setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "leaked"), 1000)`)}`,
           yield_time_ms: 10_000,
         },
-        ctx
+        ctx,
       );
       await delay(100);
       await host.emitSessionShutdown(ctx);
@@ -363,7 +351,7 @@ describe("profile execution", () => {
       await delay(1100);
 
       await expect(readFile(marker, "utf-8")).rejects.toThrow("ENOENT");
-    }
+    },
   );
 
   it("formats direct output from the preserved full stream", async () => {
@@ -374,10 +362,7 @@ describe("profile execution", () => {
     const result = await host.runTool("exec_command", {
       cmd: `node -e "for(let i=0;i<3000;i++) console.log('line')"`,
     });
-    const details = result.details as {
-      fullOutputPath?: string;
-      truncation?: { truncated: boolean };
-    };
+    const details = Value.Parse(OutputDetailsSchema, result.details);
 
     expect(details.truncation?.truncated).toBeTruthy();
     expect(details.fullOutputPath).toBeTypeOf("string");
@@ -387,9 +372,7 @@ describe("profile execution", () => {
     if (!fullOutputPath) {
       throw new Error("Full output path was not returned");
     }
-    await expect(readFile(fullOutputPath, "utf-8")).resolves.toContain(
-      "line\nline\n"
-    );
+    await expect(readFile(fullOutputPath, "utf-8")).resolves.toContain("line\nline\n");
     await rm(fullOutputPath);
   });
 });

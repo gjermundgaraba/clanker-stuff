@@ -6,9 +6,9 @@ import {
   TUI_KEYBINDINGS,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createIdentityTheme } from "../../../tests/harness/tui.js";
+import { createCustomUiDriver, createIdentityTheme } from "../../../tests/harness/tui.js";
 import { cloneFooterConfig, DEFAULT_CONFIG } from "../config.js";
 import type { FooterConfig } from "../config.js";
 import { FooterEditor, showFooterEditor } from "../ui.js";
@@ -38,7 +38,7 @@ describe("footer editor", () => {
           { id: "footer.thinking", label: "thinking", source: "builtin" },
           { id: "footer.context", label: "context", source: "builtin" },
         ],
-      }
+      },
     );
 
     editor.handleInput("\r");
@@ -46,9 +46,7 @@ describe("footer editor", () => {
     editor.handleInput("\r");
 
     expect(preview?.rows[0]?.left).toStrictEqual(["footer.git", "footer.cwd"]);
-    expect(
-      editor.render(40).every((line) => visibleWidth(line) <= 40)
-    ).toBeTruthy();
+    expect(editor.render(40).every((line) => visibleWidth(line) <= 40)).toBeTruthy();
   });
 
   it("keeps every option visible at 40 columns without tabs", () => {
@@ -66,7 +64,7 @@ describe("footer editor", () => {
         },
         renderPreview: () => [],
         widgets: [{ id: "footer.cwd", label: "cwd", source: "builtin" }],
-      }
+      },
     );
 
     const rendered = editor.render(40);
@@ -75,11 +73,11 @@ describe("footer editor", () => {
     expect(text).toContain("Q Close");
     expect(text).toContain("+ Add");
     expect(text).not.toMatch(
-      /D Discard|File|Widget settings|◇ (?:Omitted|Options|Selected|Waiting)/u
+      /D Discard|File|Widget settings|◇ (?:Omitted|Options|Selected|Waiting)/u,
     );
     expect(
       text.indexOf("ROW 3") < text.indexOf("Live preview") &&
-        text.indexOf("Live preview") < text.indexOf("Arrows select")
+        text.indexOf("Live preview") < text.indexOf("Arrows select"),
     ).toBeTruthy();
     expect(rendered.every((value) => visibleWidth(value) <= 40)).toBeTruthy();
   });
@@ -104,7 +102,7 @@ describe("footer editor", () => {
         onSave,
         renderPreview: () => [],
         widgets: [{ id: "footer.cwd", label: "Working directory" }],
-      }
+      },
     );
 
     editor.handleInput("r");
@@ -119,22 +117,17 @@ describe("footer editor", () => {
   it("restores the loaded preview when closed without saving", () => {
     const done = vi.fn<(value: null) => void>();
     const onPreview = vi.fn<(config: FooterConfig) => void>();
-    const editor = new FooterEditor(
-      createIdentityTheme(),
-      vi.fn<() => void>(),
-      done,
-      {
-        loaded: {
-          config: cloneFooterConfig(DEFAULT_CONFIG),
-        },
-        onPreview,
-        onSave: async () => {
-          await Promise.resolve();
-        },
-        renderPreview: () => [],
-        widgets: [],
-      }
-    );
+    const editor = new FooterEditor(createIdentityTheme(), vi.fn<() => void>(), done, {
+      loaded: {
+        config: cloneFooterConfig(DEFAULT_CONFIG),
+      },
+      onPreview,
+      onSave: async () => {
+        await Promise.resolve();
+      },
+      renderPreview: () => [],
+      widgets: [],
+    });
 
     editor.handleInput("i");
     editor.handleInput("q");
@@ -145,19 +138,16 @@ describe("footer editor", () => {
 
   it("opens as a bounded overlay", async () => {
     let customOptions: unknown;
-    const custom: ExtensionCommandContext["ui"]["custom"] = async (
-      _factory,
-      options
-    ) => {
+    const driver = createCustomUiDriver({ keys: ["q"] });
+    const custom: ExtensionCommandContext["ui"]["custom"] = async (factory, options) => {
       customOptions = options;
-      await Promise.resolve();
-      return null as never;
+      return await driver.custom(factory);
     };
 
     await showFooterEditor(
       {
         ui: { custom },
-      } as never,
+      },
       {
         loaded: {
           config: cloneFooterConfig(DEFAULT_CONFIG),
@@ -168,7 +158,7 @@ describe("footer editor", () => {
         },
         renderPreview: () => [],
         widgets: [],
-      }
+      },
     );
 
     expect(customOptions).toStrictEqual({
@@ -206,7 +196,7 @@ describe("footer editor", () => {
         },
         renderPreview: () => [],
         widgets: [{ id: "example.rich", label: "rich", source: "rich" }],
-      }
+      },
     );
 
     editor.handleInput("l");
@@ -214,10 +204,7 @@ describe("footer editor", () => {
     expect(editor.render(80).join("\n")).toContain("◇ Add · row 1 left");
     editor.handleInput("\r");
 
-    expect(preview?.rows[0]?.left).toStrictEqual([
-      "footer.widgets",
-      "example.rich",
-    ]);
+    expect(preview?.rows[0]?.left).toStrictEqual(["footer.widgets", "example.rich"]);
 
     editor.handleInput("\u001B[3~");
     expect(preview?.rows[0]?.left).toStrictEqual(["footer.widgets"]);
@@ -252,7 +239,7 @@ describe("footer editor", () => {
         },
         renderPreview: () => [],
         widgets: [{ id: "example", label: "Example" }],
-      }
+      },
     );
 
     for (let index = 0; index < 5; index += 1) {
@@ -296,7 +283,7 @@ describe("footer editor", () => {
             source: "builtin",
           },
         ],
-      }
+      },
     );
 
     editor.handleInput("\r");
@@ -337,7 +324,7 @@ describe("footer editor", () => {
           { id: "footer.git", label: "git", source: "builtin" },
         ],
       },
-      keybindings
+      keybindings,
     );
 
     editor.handleInput("n");
@@ -374,7 +361,7 @@ describe("footer editor", () => {
         renderPreview: () => [],
         widgets: [],
       },
-      keybindings
+      keybindings,
     );
 
     editor.handleInput("i");
@@ -421,7 +408,7 @@ describe("footer editor", () => {
             { id: "beta", label: "Beta" },
           ],
         },
-        keybindings
+        keybindings,
       );
 
       editor.handleInput("s");
@@ -468,7 +455,7 @@ describe("footer editor", () => {
         onSave,
         renderPreview: () => [],
         widgets: [],
-      }
+      },
     );
 
     editor.handleInput("i");
@@ -478,9 +465,7 @@ describe("footer editor", () => {
     saving.resolve(null);
 
     await vi.waitFor(() => {
-      expect(editor.render(80).join("\n")).toContain(
-        "Saved; newer changes are unsaved."
-      );
+      expect(editor.render(80).join("\n")).toContain("Saved; newer changes are unsaved.");
     });
     expect(onSave.mock.calls[0]?.[0].iconFamily).toBe("nerd");
   });
@@ -506,7 +491,7 @@ describe("footer editor", () => {
         onSave,
         renderPreview: () => [],
         widgets: [],
-      }
+      },
     );
 
     editor.handleInput("i");
@@ -518,9 +503,7 @@ describe("footer editor", () => {
 
     first.resolve(null);
     await vi.waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
-    expect(
-      onSave.mock.calls.map(([config]) => config.iconFamily)
-    ).toStrictEqual(["nerd", "ascii"]);
+    expect(onSave.mock.calls.map(([config]) => config.iconFamily)).toStrictEqual(["nerd", "ascii"]);
     second.resolve(null);
   });
 
@@ -541,7 +524,7 @@ describe("footer editor", () => {
         onSave,
         renderPreview: () => [],
         widgets: [{ id: "footer.cwd", label: "cwd", source: "builtin" }],
-      }
+      },
     );
 
     editor.handleInput("s");
@@ -585,7 +568,7 @@ describe("footer editor", () => {
           label: `Widget ${index.toString().padStart(3, "0")}`,
           source: "rich" as const,
         })),
-      }
+      },
     );
 
     editor.handleInput("\r");

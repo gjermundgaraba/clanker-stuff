@@ -1,9 +1,10 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
+import { createCustomUiDriver } from "../../../tests/harness/tui.js";
 import mcp from "../index.js";
 import { MCP_MANAGER_SERVER_NAME } from "../manager.js";
-import { createCustomStub, fixtureServer, setupMcpTest } from "./helpers.js";
+import { fixtureServer, setupMcpTest } from "./helpers.js";
 
 const createBranchSession = () => {
   const timestamp = new Date().toISOString();
@@ -125,9 +126,7 @@ describe("mcp loader", () => {
     await t.writeConfig({
       mcpServers: { github: fixtureServer() },
     });
-    const select = vi
-      .fn<() => Promise<string | undefined>>()
-      .mockResolvedValueOnce("○ github");
+    const select = vi.fn<() => Promise<string | undefined>>().mockResolvedValueOnce("○ github");
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({ ui: { select } });
 
@@ -145,18 +144,28 @@ describe("mcp loader", () => {
       mcpServers: { github: fixtureServer() },
     });
     const host = t.createExtensionHost(mcp);
-    const custom = createCustomStub();
+    let customOpened = false;
+    const driver = createCustomUiDriver({
+      onComponent: () => {
+        customOpened = true;
+      },
+      waitForDone: true,
+    });
     const ctx = host.createContext({
       ui: {
-        custom,
+        custom: driver.custom,
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
 
     await host.runCommand("mcp", "", ctx);
 
-    expect(custom).toHaveBeenCalledOnce();
+    expect(customOpened).toBeTruthy();
     expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
+    expect(host.getNotifications()).toContainEqual({
+      message: "MCP server github was loaded with 1 tools",
+      type: undefined,
+    });
   });
 
   it("shows the manager when the MCP config is empty", async () => {
@@ -167,9 +176,7 @@ describe("mcp loader", () => {
 
     await host.runCommand("mcp", "", ctx);
 
-    expect(select).toHaveBeenCalledWith("MCP server", [
-      `○ ${MCP_MANAGER_SERVER_NAME}`,
-    ]);
+    expect(select).toHaveBeenCalledWith("MCP server", [`○ ${MCP_MANAGER_SERVER_NAME}`]);
     expect(host.getNotifications()).toStrictEqual([]);
   });
 
@@ -181,9 +188,7 @@ describe("mcp loader", () => {
 
     await host.runCommand("mcp", "", ctx);
 
-    expect(select).toHaveBeenCalledWith("MCP server", [
-      `○ ${MCP_MANAGER_SERVER_NAME}`,
-    ]);
+    expect(select).toHaveBeenCalledWith("MCP server", [`○ ${MCP_MANAGER_SERVER_NAME}`]);
     expect(host.getNotifications()).toContainEqual({
       message: expect.stringContaining("Failed to load MCP config:"),
       type: "error",
@@ -205,15 +210,8 @@ describe("mcp loader", () => {
 
     const mcpEntries = host
       .getAppendedEntries()
-      .filter(
-        (entry) =>
-          entry.type === "custom" && entry.customType === "mcp-server-loaded"
-      );
-    expect(mcpEntries).toHaveLength(1);
-    const { data } = mcpEntries[0] as { data: unknown };
-    expect(data).toStrictEqual({
-      serverName: "github",
-    });
+      .filter((entry) => entry.type === "custom" && entry.customType === "mcp-server-loaded");
+    expect(mcpEntries).toStrictEqual([expect.objectContaining({ data: { serverName: "github" } })]);
   });
 
   it("auto-reconnects persisted servers on session_start", async () => {
@@ -339,8 +337,6 @@ describe("mcp loader", () => {
 
     await host.emitSessionStart();
 
-    expect(
-      host.getRegisteredTools().has("mcp_mcp_manager__list_mcps")
-    ).toBeTruthy();
+    expect(host.getRegisteredTools().has("mcp_mcp_manager__list_mcps")).toBeTruthy();
   });
 });

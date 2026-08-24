@@ -6,29 +6,21 @@ import {
   getSelectListTheme,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  KeybindingsManager,
-  Theme,
-} from "@earendil-works/pi-coding-agent";
+import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Focusable, TUI } from "@earendil-works/pi-tui";
 
 import { isSideActivityActive } from "./session.js";
-import type { SideSessionController, SideTranscriptItem } from "./session.js";
+import type { SideConversation, SideTranscriptItem } from "./session.js";
+
+export type SidePanelConversation = Pick<SideConversation, "state" | "submit" | "subscribe">;
 
 // oxlint-disable-next-line eslint/no-control-regex -- OSC 133 uses ESC and BEL control characters.
 const PROMPT_ZONE_PATTERN = /\u001B\]133;[ABC]\u0007/gu;
-const stripPromptZones = (text: string): string =>
-  text.replaceAll(PROMPT_ZONE_PATTERN, "");
+const stripPromptZones = (text: string): string => text.replaceAll(PROMPT_ZONE_PATTERN, "");
 
 const renderAssistant = (message: AssistantMessage, width: number): string[] =>
-  new AssistantMessageComponent(
-    message,
-    false,
-    getMarkdownTheme(),
-    undefined,
-    0
-  )
+  new AssistantMessageComponent(message, false, getMarkdownTheme(), undefined, 0)
     .render(width)
     .map(stripPromptZones);
 
@@ -48,7 +40,7 @@ interface SidePanelActions {
 export class SidePanel implements Focusable {
   private _focused = false;
   private readonly actions: SidePanelActions;
-  private readonly conversation: SideSessionController;
+  private readonly conversation: SidePanelConversation;
   private readonly editor: CustomEditor;
   private readonly theme: Theme;
   private readonly tui: TUI;
@@ -59,8 +51,8 @@ export class SidePanel implements Focusable {
     tui: TUI,
     theme: Theme,
     keybindings: KeybindingsManager,
-    conversation: SideSessionController,
-    actions: SidePanelActions
+    conversation: SidePanelConversation,
+    actions: SidePanelActions,
   ) {
     this.actions = actions;
     this.conversation = conversation;
@@ -72,7 +64,7 @@ export class SidePanel implements Focusable {
         borderColor: (text: string) => theme.fg("borderAccent", text),
         selectList: getSelectListTheme(),
       },
-      keybindings
+      keybindings,
     );
     this.editor.onEscape = actions.onHide;
     this.editor.onCtrlD = actions.onClose;
@@ -117,7 +109,7 @@ export class SidePanel implements Focusable {
     if (matchesKey(data, Key.pageDown)) {
       this.scrollOffset = Math.max(
         0,
-        this.scrollOffset - Math.max(1, Math.floor(this.tui.terminal.rows / 3))
+        this.scrollOffset - Math.max(1, Math.floor(this.tui.terminal.rows / 3)),
       );
       return;
     }
@@ -130,8 +122,7 @@ export class SidePanel implements Focusable {
     const height = Math.max(1, this.tui.terminal.rows);
     const borderColor = this.focused ? "borderAccent" : "borderMuted";
     const border = (text: string) => this.theme.fg(borderColor, text);
-    const row = (text: string) =>
-      `${border("│")}${pad(` ${text}`, innerWidth)}${border("│")}`;
+    const row = (text: string) => `${border("│")}${pad(` ${text}`, innerWidth)}${border("│")}`;
     const sideState = isSideActivityActive(this.conversation.state.activity)
       ? `${this.actions.getWorkingMarker()} working`
       : "· ready";
@@ -140,26 +131,17 @@ export class SidePanel implements Focusable {
       .render(Math.max(10, innerWidth - 2))
       .slice(-Math.max(1, Math.min(6, Math.floor(height / 4))));
     const { statusMessage } = this.conversation.state;
-    const statusHeight =
-      statusMessage === undefined || statusMessage.length === 0 ? 0 : 1;
-    const transcriptHeight = Math.max(
-      0,
-      height - 7 - editorLines.length - statusHeight
-    );
+    const statusHeight = statusMessage === undefined || statusMessage.length === 0 ? 0 : 1;
+    const transcriptHeight = Math.max(0, height - 7 - editorLines.length - statusHeight);
 
     const lines = [
       border(`╭${"─".repeat(innerWidth)}╮`),
-      row(
-        `${this.theme.bold("Side")} ${sideState} · ${this.focused ? "focused" : "main focused"}`
-      ),
+      row(`${this.theme.bold("Side")} ${sideState} · ${this.focused ? "focused" : "main focused"}`),
       row(this.theme.fg("dim", `Main ${mainState}`)),
       border(`├${"─".repeat(innerWidth)}┤`),
     ];
 
-    for (const line of this.visibleTranscript(
-      Math.max(1, innerWidth - 2),
-      transcriptHeight
-    )) {
+    for (const line of this.visibleTranscript(Math.max(1, innerWidth - 2), transcriptHeight)) {
       lines.push(row(line));
     }
 
@@ -174,15 +156,13 @@ export class SidePanel implements Focusable {
       row(
         this.theme.fg(
           "dim",
-          "Ctrl+/ main · Esc hide · Ctrl+D close · Alt+Enter insert · PgUp/PgDn scroll"
-        )
+          "Ctrl+/ main · Esc hide · Ctrl+D close · Alt+Enter insert · PgUp/PgDn scroll",
+        ),
       ),
-      border(`╰${"─".repeat(innerWidth)}╯`)
+      border(`╰${"─".repeat(innerWidth)}╯`),
     );
 
-    return lines
-      .map((line) => truncateToWidth(line, safeWidth, ""))
-      .slice(0, height);
+    return lines.map((line) => truncateToWidth(line, safeWidth, "")).slice(0, height);
   }
 
   invalidate(): void {
@@ -211,10 +191,7 @@ export class SidePanel implements Focusable {
     this.unsubscribe = undefined;
   }
 
-  private renderTranscriptItem(
-    item: SideTranscriptItem,
-    width: number
-  ): string[] {
+  private renderTranscriptItem(item: SideTranscriptItem, width: number): string[] {
     switch (item.kind) {
       case "user": {
         return new UserMessageComponent(item.text, getMarkdownTheme(), 1)

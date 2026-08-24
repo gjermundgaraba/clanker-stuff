@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   isToolOwnerRegistration,
@@ -22,14 +22,14 @@ describe("tool-owner protocol", () => {
         protocol: TOOL_OWNER_PROTOCOL_VERSION,
         provide: vi.fn<ToolOwnerRequest["provide"]>(),
         type: "request",
-      })
+      }),
     ).toBeTruthy();
     expect(
       isToolOwnerRequest({
         protocol: 2,
         provide: vi.fn<ToolOwnerRequest["provide"]>(),
         type: "request",
-      })
+      }),
     ).toBeFalsy();
   });
 
@@ -40,13 +40,13 @@ describe("tool-owner protocol", () => {
         setEnabled: vi.fn<ToolOwnerRegistration["setEnabled"]>(),
         suppressedNames: vi.fn<ToolOwnerRegistration["suppressedNames"]>(),
         visibleNames: vi.fn<ToolOwnerRegistration["visibleNames"]>(),
-      })
+      }),
     ).toBeTruthy();
     expect(
       isToolOwnerRegistration({
         names: ["exec_command"],
         setEnabled: vi.fn<ToolOwnerRegistration["setEnabled"]>(),
-      })
+      }),
     ).toBeFalsy();
   });
 });

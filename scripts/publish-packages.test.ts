@@ -3,19 +3,14 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
-const PUBLISH_PACKAGES_PATH = path.join(
-  import.meta.dirname,
-  "publish-packages.ts"
-);
+const PUBLISH_PACKAGES_PATH = path.join(import.meta.dirname, "publish-packages.ts");
 const tempDirs: string[] = [];
 
 describe("package publication", () => {
   afterEach(async () => {
-    await Promise.all(
-      tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true }))
-    );
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
   });
 
   it("rejects duplicate packages before invoking pnpm", async () => {
@@ -41,12 +36,12 @@ describe("package publication", () => {
           ...process.env,
           PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
         },
-      }
+      },
     );
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(
-      "Duplicate package in publish list: @clanker-stuff/footer-protocol"
+      "Duplicate package in publish list: @clanker-stuff/footer-protocol",
     );
     await expect(readFile(marker, "utf-8")).rejects.toMatchObject({
       code: "ENOENT",

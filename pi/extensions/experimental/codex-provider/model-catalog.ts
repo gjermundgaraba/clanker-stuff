@@ -1,7 +1,9 @@
-/* oxlint-disable eslint/complexity -- model catalog parsing and projection validate one bounded remote protocol payload */
 import { arch, platform, release } from "node:os";
 
 import { uuidv7 } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 import type {
   Api,
   ApiKeyAuth,
@@ -25,7 +27,6 @@ const MODEL_CACHE_METADATA_FIELD = "codexProviderMetadata";
 const MODEL_CACHE_ACCOUNT_FIELD = "codexProviderAccountId";
 const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
 
-type JsonRecord = Record<string, unknown>;
 type SupportedModel = Model<"openai-codex-responses"> & {
   readonly codexOutputTokenLimit?: number;
   readonly multiAgentVersion?: "disabled" | "v1" | "v2";
@@ -36,9 +37,7 @@ type CachedSupportedModel = SupportedModel & {
   readonly codexProviderMetadata: CodexModelMetadata;
 };
 type CodexProvider = Provider<"openai-codex-responses">;
-type CodexWireReasoningEffort = NonNullable<
-  OpenAICodexResponsesOptions["reasoningEffort"]
->;
+type CodexWireReasoningEffort = NonNullable<OpenAICodexResponsesOptions["reasoningEffort"]>;
 type CatalogSnapshot =
   | { readonly kind: "fallback" }
   | {
@@ -58,13 +57,17 @@ const PI_CODEX_REASONING_EFFORTS = {
   xhigh: "xhigh",
 } as const satisfies Record<ModelThinkingLevel, CodexWireReasoningEffort>;
 const CODEX_WIRE_REASONING_EFFORT_SET: ReadonlySet<string> = new Set(
-  Object.values(PI_CODEX_REASONING_EFFORTS)
+  Object.values(PI_CODEX_REASONING_EFFORTS),
 );
+const ReasoningEffortInputSchema = Type.Unknown();
+type ReasoningEffortInput = Static<typeof ReasoningEffortInputSchema>;
+const BooleanValueSchema = Type.Boolean();
+const ReasoningEffortStringSchema = Type.String();
 
 export const isCodexWireReasoningEffort = (
-  value: unknown
+  value: ReasoningEffortInput,
 ): value is CodexWireReasoningEffort =>
-  typeof value === "string" && CODEX_WIRE_REASONING_EFFORT_SET.has(value);
+  Value.Check(ReasoningEffortStringSchema, value) && CODEX_WIRE_REASONING_EFFORT_SET.has(value);
 
 const storedApiKeyAuth: ApiKeyAuth = {
   name: "OpenAI Codex access token",
@@ -80,7 +83,45 @@ const storedApiKeyAuth: ApiKeyAuth = {
   },
 };
 
-export interface CodexModelMetadata extends JsonRecord {
+export interface CodexModelServiceTier {
+  readonly id?: string;
+}
+
+export interface CodexModelReasoningLevel {
+  readonly effort?: string;
+}
+
+export interface CodexModelMetadataWire {
+  readonly auto_compact_token_limit?: number | null;
+  readonly base_instructions?: string;
+  readonly comp_hash?: string;
+  readonly context_window?: number | null;
+  readonly default_reasoning_level?: string;
+  readonly default_reasoning_summary?: "auto" | "concise" | "detailed" | "none";
+  readonly default_service_tier?: string;
+  readonly default_verbosity?: "high" | "low" | "medium";
+  readonly display_name?: string;
+  readonly effective_context_window_percent?: number | null;
+  readonly input_modalities?: readonly string[];
+  readonly max_context_window?: number | null;
+  readonly multi_agent_version?: string | null;
+  readonly priority?: number;
+  readonly service_tiers?: readonly (CodexModelServiceTier | null)[];
+  readonly slug?: string;
+  readonly supported_in_api?: boolean;
+  readonly supported_reasoning_levels?: readonly (string | CodexModelReasoningLevel | null)[];
+  readonly support_verbosity?: boolean;
+  readonly supports_reasoning_summary_parameter?: boolean;
+  readonly supports_parallel_tool_calls?: boolean;
+  readonly truncation_policy?: {
+    readonly limit: number;
+    readonly mode: "bytes" | "tokens";
+  };
+  readonly use_responses_lite?: boolean | null;
+  readonly visibility?: string;
+}
+
+export interface CodexModelMetadata {
   readonly auto_compact_token_limit?: number;
   readonly base_instructions?: string;
   readonly comp_hash?: string;
@@ -95,10 +136,10 @@ export interface CodexModelMetadata extends JsonRecord {
   readonly max_context_window?: number;
   readonly multi_agent_version?: string | null;
   readonly priority: number;
-  readonly service_tiers?: readonly unknown[];
+  readonly service_tiers?: readonly (CodexModelServiceTier | null)[];
   readonly slug: string;
   readonly supported_in_api: boolean;
-  readonly supported_reasoning_levels?: readonly unknown[];
+  readonly supported_reasoning_levels?: readonly (string | CodexModelReasoningLevel | null)[];
   readonly support_verbosity: boolean;
   readonly supports_reasoning_summary_parameter?: boolean;
   readonly supports_parallel_tool_calls: boolean;
@@ -110,11 +151,7 @@ export interface CodexModelMetadata extends JsonRecord {
   readonly visibility: string;
 }
 
-const FALLBACK_FAST_MODELS = new Set([
-  "gpt-5.6-luna",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-]);
+const FALLBACK_FAST_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]);
 const FALLBACK_MODEL_PRIORITY = new Map([
   ["gpt-5.6-sol", 1],
   ["gpt-5.6-terra", 2],
@@ -129,42 +166,34 @@ const FALLBACK_MULTI_AGENT_VERSION = new Map<
   ["gpt-5.6-luna", "v1"],
 ]);
 
-const isRecord = (value: unknown): value is JsonRecord =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+const TokenPayloadSchema = Type.Object({
+  "https://api.openai.com/auth": Type.Object({ chatgpt_account_id: Type.String() }),
+});
 
-export const isSupportedCodexModelId = (modelId: string): boolean =>
-  modelId.startsWith("gpt-5.6-");
+export const isSupportedCodexModelId = (modelId: string): boolean => modelId.startsWith("gpt-5.6-");
 
-export const modelSupportsServiceTier = (
-  metadata: CodexModelMetadata,
-  serviceTier: string
-) =>
-  (metadata.service_tiers ?? []).some(
-    (tier) => isRecord(tier) && tier.id === serviceTier
-  );
+export const modelSupportsServiceTier = (metadata: CodexModelMetadata, serviceTier: string) =>
+  (metadata.service_tiers ?? []).some((tier) => tier?.id === serviceTier);
 
-const isNonnegativeInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isNonnegativeInteger = (value: number): boolean => Number.isSafeInteger(value) && value >= 0;
 
 const isTruncationPolicy = (
-  value: unknown
-): value is { limit: number; mode: "bytes" | "tokens" } =>
-  isRecord(value) &&
-  (value.mode === "bytes" || value.mode === "tokens") &&
-  isNonnegativeInteger(value.limit);
+  value: NonNullable<CodexModelMetadataWire["truncation_policy"]>,
+): boolean =>
+  (value.mode === "bytes" || value.mode === "tokens") && isNonnegativeInteger(value.limit);
 
 const isMultiAgentVersion = (
-  value: unknown
+  value: string | null | undefined,
 ): value is NonNullable<SupportedModel["multiAgentVersion"]> =>
   value === "disabled" || value === "v1" || value === "v2";
 
 const seedFallbackModel = (model: SupportedModel): SupportedModel => {
   const version = FALLBACK_MULTI_AGENT_VERSION.get(model.id);
-  return {
+  const seeded: SupportedModel = {
     ...model,
     codexOutputTokenLimit: DEFAULT_OUTPUT_TOKEN_LIMIT,
-    ...(version === undefined ? {} : { multiAgentVersion: version }),
   };
+  return version === undefined ? seeded : { ...seeded, multiAgentVersion: version };
 };
 
 const restoreCachedModel = (model: CachedSupportedModel): SupportedModel => {
@@ -180,9 +209,7 @@ const restoreCachedModel = (model: CachedSupportedModel): SupportedModel => {
 export const resolveCodexResponsesUrl = (baseUrl?: string): string => {
   const candidate = baseUrl?.trim();
   const normalized = (
-    candidate === undefined || candidate.length === 0
-      ? DEFAULT_BASE_URL
-      : candidate
+    candidate === undefined || candidate.length === 0 ? DEFAULT_BASE_URL : candidate
   ).replace(/\/+$/u, "");
   if (normalized.endsWith("/codex/responses")) {
     return normalized;
@@ -195,10 +222,7 @@ export const resolveCodexResponsesUrl = (baseUrl?: string): string => {
 
 const resolveModelsUrl = (baseUrl?: string): string => {
   const responseUrl = new URL(resolveCodexResponsesUrl(baseUrl));
-  responseUrl.pathname = responseUrl.pathname.replace(
-    /\/responses$/u,
-    "/models"
-  );
+  responseUrl.pathname = responseUrl.pathname.replace(/\/responses$/u, "/models");
   responseUrl.searchParams.set("client_version", MODEL_CLIENT_VERSION);
   return responseUrl.toString();
 };
@@ -206,16 +230,13 @@ const resolveModelsUrl = (baseUrl?: string): string => {
 const extractAccountId = (token: string): string => {
   try {
     const payload: unknown = JSON.parse(
-      Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf-8")
+      Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf-8"),
     );
-    if (!isRecord(payload)) {
+    if (!Value.Check(TokenPayloadSchema, payload)) {
       throw new Error("invalid token payload");
     }
-    const auth = payload["https://api.openai.com/auth"];
-    if (!isRecord(auth) || typeof auth.chatgpt_account_id !== "string") {
-      throw new Error("missing account id");
-    }
-    return auth.chatgpt_account_id;
+    return Value.Parse(TokenPayloadSchema, payload)["https://api.openai.com/auth"]
+      .chatgpt_account_id;
   } catch {
     throw new Error("Failed to extract accountId from OpenAI credential");
   }
@@ -240,7 +261,7 @@ export const createCodexHeaders = (
   model: SupportedModel,
   apiKey: string,
   requestId: string,
-  extra?: Readonly<ProviderHeaders>
+  extra?: Readonly<ProviderHeaders>,
 ): Headers => {
   const headers = new Headers();
   applyHeaders(headers, model.headers, extra);
@@ -255,26 +276,24 @@ export const createCodexHeaders = (
 
 const reasoningLevels = (metadata: CodexModelMetadata) =>
   (metadata.supported_reasoning_levels ?? []).flatMap((value) => {
-    if (typeof value === "string") {
+    if (Value.Check(ReasoningEffortStringSchema, value)) {
       return [value];
     }
-    return isRecord(value) && typeof value.effort === "string"
-      ? [value.effort]
-      : [];
+    return value?.effort === undefined ? [] : [value.effort];
   });
 
-const parseModelMetadata = (value: unknown): CodexModelMetadata => {
-  if (!isRecord(value)) {
+const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata => {
+  if (!(value instanceof Object) || Array.isArray(value)) {
     throw new Error("Codex model metadata must be an object");
   }
   const { display_name: displayName, slug, visibility } = value;
-  if (typeof displayName !== "string" || displayName.length === 0) {
+  if (displayName === undefined || displayName.length === 0) {
     throw new Error("Codex model metadata display_name is invalid");
   }
-  if (typeof slug !== "string" || slug.length === 0) {
+  if (slug === undefined || slug.length === 0) {
     throw new Error("Codex model metadata slug is invalid");
   }
-  if (typeof visibility !== "string" || visibility.length === 0) {
+  if (visibility === undefined || visibility.length === 0) {
     throw new Error("Codex model metadata visibility is invalid");
   }
   const {
@@ -284,51 +303,36 @@ const parseModelMetadata = (value: unknown): CodexModelMetadata => {
     supports_parallel_tool_calls: supportsParallelToolCalls,
   } = value;
   if (
-    typeof supportedInApi !== "boolean" ||
-    typeof supportVerbosity !== "boolean" ||
-    typeof supportsParallelToolCalls !== "boolean" ||
-    typeof priority !== "number" ||
+    !Value.Check(BooleanValueSchema, supportedInApi) ||
+    !Value.Check(BooleanValueSchema, supportVerbosity) ||
+    !Value.Check(BooleanValueSchema, supportsParallelToolCalls) ||
+    priority === undefined ||
     !Number.isSafeInteger(priority)
   ) {
     throw new TypeError("Codex model metadata capabilities are invalid");
   }
-  for (const key of [
-    "auto_compact_token_limit",
-    "context_window",
-    "max_context_window",
-  ] as const) {
+  for (const key of ["auto_compact_token_limit", "context_window", "max_context_window"] as const) {
+    const windowValue = value[key];
     if (
-      value[key] !== undefined &&
-      value[key] !== null &&
-      !isNonnegativeInteger(value[key])
+      windowValue !== undefined &&
+      windowValue !== null &&
+      (!Number.isSafeInteger(windowValue) || windowValue < 0)
     ) {
       throw new Error(`Codex model metadata ${key} is invalid`);
     }
   }
-  const autoCompactTokenLimit =
-    typeof value.auto_compact_token_limit === "number"
-      ? value.auto_compact_token_limit
-      : undefined;
-  const contextWindow =
-    typeof value.context_window === "number" ? value.context_window : undefined;
-  const maxContextWindow =
-    typeof value.max_context_window === "number"
-      ? value.max_context_window
-      : undefined;
+  const autoCompactTokenLimit = value.auto_compact_token_limit ?? undefined;
+  const contextWindow = value.context_window ?? undefined;
+  const maxContextWindow = value.max_context_window ?? undefined;
   const percent = value.effective_context_window_percent ?? 95;
-  if (
-    typeof percent !== "number" ||
-    !Number.isSafeInteger(percent) ||
-    percent <= 0 ||
-    percent > 100
-  ) {
+  if (!Number.isSafeInteger(percent) || percent <= 0 || percent > 100) {
     throw new Error("Codex model effective context percentage is invalid");
   }
   const truncationPolicy = value.truncation_policy;
   if (truncationPolicy !== undefined && !isTruncationPolicy(truncationPolicy)) {
     throw new Error("Codex model truncation policy is invalid");
   }
-  return {
+  const parsed: CodexModelMetadata = {
     ...value,
     auto_compact_token_limit: autoCompactTokenLimit,
     context_window: contextWindow,
@@ -340,23 +344,23 @@ const parseModelMetadata = (value: unknown): CodexModelMetadata => {
     support_verbosity: supportVerbosity,
     supported_in_api: supportedInApi,
     supports_parallel_tool_calls: supportsParallelToolCalls,
-    ...(truncationPolicy === undefined
-      ? {}
-      : {
-          truncation_policy: {
+    truncation_policy:
+      truncationPolicy === undefined
+        ? undefined
+        : {
             limit: truncationPolicy.limit,
             mode: truncationPolicy.mode,
           },
-        }),
     use_responses_lite: value.use_responses_lite === true,
     visibility,
   };
+  return parsed;
 };
 
 const cacheModel = (
   model: SupportedModel,
   metadata: CodexModelMetadata,
-  accountId: string
+  accountId: string,
 ): CachedSupportedModel => ({
   ...model,
   [MODEL_CACHE_ACCOUNT_FIELD]: accountId,
@@ -367,7 +371,7 @@ const cacheModel = (
 const cacheCatalog = (
   models: readonly SupportedModel[],
   metadataByModel: ReadonlyMap<string, CodexModelMetadata>,
-  accountId: string
+  accountId: string,
 ): CachedSupportedModel[] =>
   models.map((model) => {
     const metadata = metadataByModel.get(model.id);
@@ -377,24 +381,23 @@ const cacheCatalog = (
     return cacheModel(model, metadata, accountId);
   });
 
-const isCurrentCachedModel = (
-  model: Model<Api>
-): model is CachedSupportedModel =>
+const isCurrentCachedModel = (model: Model<Api>): model is CachedSupportedModel =>
   model.api === "openai-codex-responses" &&
   model.provider === "openai-codex" &&
   MODEL_CACHE_ACCOUNT_FIELD in model &&
-  typeof model[MODEL_CACHE_ACCOUNT_FIELD] === "string" &&
+  Value.Check(ReasoningEffortStringSchema, model[MODEL_CACHE_ACCOUNT_FIELD]) &&
   model[MODEL_CACHE_ACCOUNT_FIELD].length > 0 &&
   MODEL_CACHE_VERSION_FIELD in model &&
   model[MODEL_CACHE_VERSION_FIELD] === MODEL_CACHE_VERSION &&
   MODEL_CACHE_METADATA_FIELD in model &&
   (!("multiAgentVersion" in model) ||
     model.multiAgentVersion === undefined ||
-    isMultiAgentVersion(model.multiAgentVersion));
+    (Value.Check(ReasoningEffortStringSchema, model.multiAgentVersion) &&
+      isMultiAgentVersion(model.multiAgentVersion)));
 
 const restoreCurrentCache = (
   stored: RefreshModelsContext["stored"],
-  accountId: string
+  accountId: string,
 ):
   | {
       readonly accountId: string;
@@ -435,29 +438,21 @@ const restoreCurrentCache = (
 const projectModel = (
   metadata: CodexModelMetadata,
   fallback: readonly SupportedModel[],
-  baseUrl: string
+  baseUrl: string,
 ): SupportedModel => {
   const existing = fallback.find((model) => model.id === metadata.slug);
-  const supportedReasoningEfforts = reasoningLevels(metadata).filter(
-    isCodexWireReasoningEffort
-  );
-  const hasRemoteReasoningLevels =
-    metadata.supported_reasoning_levels !== undefined;
+  const supportedReasoningEfforts = reasoningLevels(metadata).filter(isCodexWireReasoningEffort);
+  const hasRemoteReasoningLevels = metadata.supported_reasoning_levels !== undefined;
   const thinkingLevelMap = hasRemoteReasoningLevels
     ? Object.fromEntries(
-        Object.entries(PI_CODEX_REASONING_EFFORTS).map(
-          ([piLevel, wireEffort]) => [
-            piLevel,
-            supportedReasoningEfforts.includes(wireEffort) ? wireEffort : null,
-          ]
-        )
+        Object.entries(PI_CODEX_REASONING_EFFORTS).map(([piLevel, wireEffort]) => [
+          piLevel,
+          supportedReasoningEfforts.includes(wireEffort) ? wireEffort : null,
+        ]),
       )
     : existing?.thinkingLevelMap;
   const contextWindow =
-    metadata.context_window ??
-    metadata.max_context_window ??
-    existing?.contextWindow ??
-    128_000;
+    metadata.context_window ?? metadata.max_context_window ?? existing?.contextWindow ?? 128_000;
   const multiAgentVersion = isMultiAgentVersion(metadata.multi_agent_version)
     ? metadata.multi_agent_version
     : undefined;
@@ -468,9 +463,9 @@ const projectModel = (
     outputTokenLimit = Math.ceil(metadata.truncation_policy.limit / 4);
   }
   const modalities = metadata.input_modalities?.filter(
-    (input): input is "image" | "text" => input === "text" || input === "image"
+    (input): input is "image" | "text" => input === "text" || input === "image",
   );
-  return {
+  const model: SupportedModel = {
     api: "openai-codex-responses",
     baseUrl: existing?.baseUrl ?? baseUrl,
     codexOutputTokenLimit: outputTokenLimit,
@@ -488,19 +483,21 @@ const projectModel = (
         ? modalities
         : (existing?.input ?? ["text", "image"]),
     maxTokens: existing?.maxTokens ?? Math.min(contextWindow, 128_000),
-    ...(multiAgentVersion === undefined ? {} : { multiAgentVersion }),
     name: metadata.display_name,
     provider: "openai-codex",
     reasoning: hasRemoteReasoningLevels
       ? supportedReasoningEfforts.some((level) => level !== "none")
       : existing?.reasoning === true,
-    ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
   };
+  if (thinkingLevelMap !== undefined) {
+    model.thinkingLevelMap = thinkingLevelMap;
+  }
+  return multiAgentVersion === undefined ? model : { ...model, multiAgentVersion };
 };
 
 const modelWindow = (
   model: SupportedModel,
-  metadata: CodexModelMetadata | undefined
+  metadata: CodexModelMetadata | undefined,
 ):
   | {
       readonly autoCompactTokens: number;
@@ -508,9 +505,7 @@ const modelWindow = (
     }
   | undefined => {
   const contextWindow =
-    metadata?.context_window ??
-    metadata?.max_context_window ??
-    model.contextWindow;
+    metadata?.context_window ?? metadata?.max_context_window ?? model.contextWindow;
   if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0) {
     return undefined;
   }
@@ -521,14 +516,14 @@ const modelWindow = (
         ? contextLimit
         : Math.min(metadata.auto_compact_token_limit, contextLimit),
     effectiveWindowTokens: Math.floor(
-      (contextWindow * (metadata?.effective_context_window_percent ?? 95)) / 100
+      (contextWindow * (metadata?.effective_context_window_percent ?? 95)) / 100,
     ),
   };
 };
 
 const credentialApiKey = async (
   credential: Credential | undefined,
-  base: CodexProvider
+  base: CodexProvider,
 ): Promise<string | undefined> => {
   if (credential === undefined) {
     return undefined;
@@ -548,14 +543,13 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
     .toSorted(
       (left, right) =>
         (FALLBACK_MODEL_PRIORITY.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-        (FALLBACK_MODEL_PRIORITY.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+        (FALLBACK_MODEL_PRIORITY.get(right.id) ?? Number.MAX_SAFE_INTEGER),
     )
     .map(seedFallbackModel);
   const base: CodexProvider = {
     ...builtin,
     auth: { ...builtin.auth, apiKey: storedApiKeyAuth },
-    filterModels: (models) =>
-      models.filter((model) => isSupportedCodexModelId(model.id)),
+    filterModels: (models) => models.filter((model) => isSupportedCodexModelId(model.id)),
     getModels: () => fallback,
   };
   let catalog: CatalogSnapshot = { kind: "fallback" };
@@ -576,9 +570,7 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
       return;
     }
     const accountId =
-      apiKey === undefined || apiKey.length === 0
-        ? undefined
-        : extractAccountId(apiKey);
+      apiKey === undefined || apiKey.length === 0 ? undefined : extractAccountId(apiKey);
     if (!accountObserved) {
       accountObserved = true;
       observedAccountId = accountId;
@@ -587,10 +579,7 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
       onAccountChanged?.();
     }
     if (stored !== undefined && catalog.kind === "fallback") {
-      const current =
-        accountId === undefined
-          ? undefined
-          : restoreCurrentCache(stored, accountId);
+      const current = accountId === undefined ? undefined : restoreCurrentCache(stored, accountId);
       if (
         !(await context.publish({
           update: () => {
@@ -667,11 +656,7 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
         persist: {
           ...stored,
           checkedAt: now,
-          models: cacheCatalog(
-            catalog.models,
-            catalog.metadata,
-            catalog.accountId
-          ),
+          models: cacheCatalog(catalog.models, catalog.metadata, catalog.accountId),
         },
       });
       return;
@@ -680,12 +665,22 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
       throw new Error(`Codex model refresh failed (${response.status})`);
     }
     const payload: unknown = await response.json();
-    if (!isRecord(payload) || !Array.isArray(payload.models)) {
+    const ModelsPayloadSchema = Type.Object({ models: Type.Array(Type.Unknown()) });
+    if (!Value.Check(ModelsPayloadSchema, payload)) {
       throw new Error("Codex model response is malformed");
     }
+    const metadataValues = Value.Parse(ModelsPayloadSchema, payload).models;
     const nextMetadata = new Map<string, CodexModelMetadata>();
-    for (const value of payload.models) {
-      const metadata = parseModelMetadata(value);
+    for (const value of metadataValues) {
+      const ModelEntrySchema = Type.Object({
+        display_name: Type.Optional(Type.String()),
+        slug: Type.Optional(Type.String()),
+        visibility: Type.Optional(Type.String()),
+      });
+      if (!Value.Check(ModelEntrySchema, value)) {
+        throw new Error("Codex model metadata must be an object");
+      }
+      const metadata = parseModelMetadata(Value.Parse(ModelEntrySchema, value));
       if (
         metadata.visibility === "list" &&
         isSupportedCodexModelId(metadata.slug) &&
@@ -699,9 +694,7 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
     }
     const nextModels = [...nextMetadata.values()]
       .toSorted((left, right) => left.priority - right.priority)
-      .map((metadata) =>
-        projectModel(metadata, fallback, base.baseUrl ?? DEFAULT_BASE_URL)
-      );
+      .map((metadata) => projectModel(metadata, fallback, base.baseUrl ?? DEFAULT_BASE_URL));
     if (context.signal.aborted) {
       return;
     }
@@ -725,15 +718,11 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
   return {
     base,
     getModelMetadata: modelMetadata,
-    getModelWindow: (model: SupportedModel) =>
-      modelWindow(model, modelMetadata(model.id)),
+    getModelWindow: (model: SupportedModel) => modelWindow(model, modelMetadata(model.id)),
     getModels: catalogModels,
     refreshModels,
     supportsFastMode: (model: Model<Api> | undefined): boolean => {
-      if (
-        model?.provider !== "openai-codex" ||
-        model.api !== "openai-codex-responses"
-      ) {
+      if (model?.provider !== "openai-codex" || model.api !== "openai-codex-responses") {
         return false;
       }
       const metadata = modelMetadata(model.id);

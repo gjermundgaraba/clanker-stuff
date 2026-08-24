@@ -1,14 +1,13 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
-import { describe, expect, it } from "vitest";
+import { fauxProvider } from "@earendil-works/pi-ai";
+import { describe, expect, it } from "vite-plus/test";
 
 import { resolveProtocol } from "../selection.js";
 
 const model = (version?: "disabled" | "v1" | "v2") =>
-  ({
-    id: "model",
-    multiAgentVersion: version,
-    provider: "provider",
-  }) as unknown as Model<Api>;
+  Object.assign(
+    fauxProvider({ models: [{ id: "model" }], provider: "provider" }).getModel(),
+    version === undefined ? {} : { multiAgentVersion: version },
+  );
 
 describe(resolveProtocol, () => {
   it("uses exact, wildcard, declaration, then the V1 default", () => {
@@ -29,16 +28,8 @@ describe(resolveProtocol, () => {
     expect([
       resolveProtocol(model("v1"), {}, "v2"),
       resolveProtocol(model("v1"), { "*": "off" }, "v2"),
-      resolveProtocol(
-        model("v1"),
-        { "*": "off", "provider/model": "auto" },
-        "v2"
-      ),
-      resolveProtocol(
-        model("v1"),
-        { "*": "off", "provider/model": "v1" },
-        "v2"
-      ),
+      resolveProtocol(model("v1"), { "*": "off", "provider/model": "auto" }, "v2"),
+      resolveProtocol(model("v1"), { "*": "off", "provider/model": "v1" }, "v2"),
     ]).toStrictEqual(["v2", "off", "v2", "v1"]);
   });
 });

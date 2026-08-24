@@ -7,20 +7,9 @@ const repoRoot = process.cwd();
 
 const IMPORT_SPECIFIER_PATTERN =
   /(?:import|export)\s+(?:[^"'`]*?\s+from\s+)?["'](?<specifier>[^"']+)["']/gu;
-const DYNAMIC_IMPORT_PATTERN =
-  /import\s*\(\s*["'](?<specifier>[^"']+)["']\s*\)/gu;
-const AGENT_SESSION_HARNESS = path.join(
-  "pi",
-  "tests",
-  "harness",
-  "agent-session.ts"
-);
-const EXTENSION_SMOKE_HARNESS = path.join(
-  "pi",
-  "tests",
-  "harness",
-  "extension-smoke.ts"
-);
+const DYNAMIC_IMPORT_PATTERN = /import\s*\(\s*["'](?<specifier>[^"']+)["']\s*\)/gu;
+const AGENT_SESSION_HARNESS = path.join("pi", "tests", "harness", "agent-session.ts");
+const EXTENSION_SMOKE_HARNESS = path.join("pi", "tests", "harness", "extension-smoke.ts");
 
 const packageDirs = readWorkspacePackages()
   .map(({ dir }) => dir)
@@ -66,7 +55,7 @@ const resolveRelativeImport = (importingFile: string, specifier: string) => {
     if (extension === ".js") {
       candidates.push(
         `${resolvedTarget.slice(0, -extension.length)}.ts`,
-        `${resolvedTarget.slice(0, -extension.length)}.tsx`
+        `${resolvedTarget.slice(0, -extension.length)}.tsx`,
       );
     }
   } else {
@@ -77,21 +66,15 @@ const resolveRelativeImport = (importingFile: string, specifier: string) => {
       `${resolvedTarget}.js`,
       path.join(resolvedTarget, "index.ts"),
       path.join(resolvedTarget, "index.tsx"),
-      path.join(resolvedTarget, "index.js")
+      path.join(resolvedTarget, "index.js"),
     );
   }
 
   const existingTarget = candidates.find((candidate) => existsSync(candidate));
-  return existingTarget === undefined
-    ? undefined
-    : relativeToRepo(existingTarget);
+  return existingTarget === undefined ? undefined : relativeToRepo(existingTarget);
 };
 
-const escapesPackageRoot = (
-  packageRoot: string,
-  importingFile: string,
-  specifier: string
-) => {
+const escapesPackageRoot = (packageRoot: string, importingFile: string, specifier: string) => {
   const resolvedTarget = path.resolve(path.dirname(importingFile), specifier);
   const relativeTarget = path.relative(packageRoot, resolvedTarget);
 
@@ -112,9 +95,7 @@ for (const packageName of packageDirs) {
   const packageRoot = path.join(repoRoot, packageName);
   const files = findTypeScriptFiles(packageRoot);
   const repoRelativeFiles = files.map(relativeToRepo);
-  const testFiles = repoRelativeFiles.filter((filePath) =>
-    filePath.endsWith(".test.ts")
-  );
+  const testFiles = repoRelativeFiles.filter((filePath) => filePath.endsWith(".test.ts"));
 
   if (testFiles.length === 0) {
     errors.push(`${packageName}: missing test file (*.test.ts)`);
@@ -122,9 +103,7 @@ for (const packageName of packageDirs) {
 
   const sourceFiles = files.filter(
     (filePath) =>
-      filePath.endsWith(".ts") &&
-      !filePath.endsWith(".test.ts") &&
-      !isWithinTestsDir(filePath)
+      filePath.endsWith(".ts") && !filePath.endsWith(".test.ts") && !isWithinTestsDir(filePath),
   );
 
   for (const sourceFile of sourceFiles) {
@@ -133,7 +112,7 @@ for (const packageName of packageDirs) {
     for (const specifier of getImportSpecifiers(sourceText)) {
       if (escapesPackageRoot(packageRoot, sourceFile, specifier)) {
         errors.push(
-          `${relativeToRepo(sourceFile)} imports ${specifier}, which resolves outside ${packageName}/`
+          `${relativeToRepo(sourceFile)} imports ${specifier}, which resolves outside ${packageName}/`,
         );
       }
     }
@@ -141,7 +120,7 @@ for (const packageName of packageDirs) {
 }
 
 for (const testFile of findTypeScriptFiles(repoRoot).filter((filePath) =>
-  filePath.endsWith(".test.ts")
+  filePath.endsWith(".test.ts"),
 )) {
   const repoRelativeTestFile = relativeToRepo(testFile);
   const sourceText = readFileSync(testFile, "utf-8");
@@ -154,7 +133,7 @@ for (const testFile of findTypeScriptFiles(repoRoot).filter((filePath) =>
       !repoRelativeTestFile.endsWith(".integration.test.ts")
     ) {
       errors.push(
-        `${repoRelativeTestFile} imports ${specifier} (${AGENT_SESSION_HARNESS}), so it must be named *.integration.test.ts`
+        `${repoRelativeTestFile} imports ${specifier} (${AGENT_SESSION_HARNESS}), so it must be named *.integration.test.ts`,
       );
     }
 
@@ -163,7 +142,7 @@ for (const testFile of findTypeScriptFiles(repoRoot).filter((filePath) =>
       !repoRelativeTestFile.endsWith(".smoke.test.ts")
     ) {
       errors.push(
-        `${repoRelativeTestFile} imports ${specifier} (${EXTENSION_SMOKE_HARNESS}), so it must be named *.smoke.test.ts`
+        `${repoRelativeTestFile} imports ${specifier} (${EXTENSION_SMOKE_HARNESS}), so it must be named *.smoke.test.ts`,
       );
     }
   }
@@ -177,6 +156,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(
-  `Test/boundary validation passed for ${packageDirs.length} packages.`
-);
+console.log(`Test/boundary validation passed for ${packageDirs.length} packages.`);

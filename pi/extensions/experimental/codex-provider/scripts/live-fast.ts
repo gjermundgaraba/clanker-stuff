@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* oxlint-disable eslint/no-await-in-loop, eslint/no-bitwise, unicorn/numeric-separators-style, unicorn/prefer-math-trunc -- paid samples are deliberately sequential; seeded PRNG requires 32-bit operations */
 import { ok as assert } from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -9,6 +8,9 @@ import { parseArgs } from "node:util";
 
 import type { AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 const OPT_IN = "CODEX_FAST_LIVE_PAID";
 const DEFAULT_MODEL = "gpt-5.6-sol";
@@ -18,14 +20,10 @@ const DEFAULT_MAX_COST_USD = 5;
 const DEFAULT_TIMEOUT_MS = 180_000;
 const MIN_OUTPUT_TOKENS = 32;
 const EXPECTED_OUTPUT_WORDS = 64;
-const SYSTEM_PROMPT =
-  "Follow the user's exact reply format. Do not use tools or add explanation.";
+const SYSTEM_PROMPT = "Follow the user's exact reply format. Do not use tools or add explanation.";
 const USER_PROMPT =
   'Reply with exactly 64 repetitions of the word "SPEED", separated by single spaces.';
-const EXPECTED_RESPONSE = Array.from(
-  { length: EXPECTED_OUTPUT_WORDS },
-  () => "SPEED"
-).join(" ");
+const EXPECTED_RESPONSE = Array.from({ length: EXPECTED_OUTPUT_WORDS }, () => "SPEED").join(" ");
 const TIMING_KEYS = [
   "responses_duration_excl_engine_and_client_tool_time_ms",
   "engine_service_total_ms",
@@ -61,8 +59,8 @@ interface Handshake {
 }
 
 interface TerminalEvidence {
-  readonly serviceTier: string | "absent";
-  readonly status: string | "absent";
+  readonly serviceTier: string;
+  readonly status: string;
   readonly type: ResponseTerminalType;
 }
 
@@ -102,39 +100,41 @@ interface Sample {
   readonly wordsAtFirstText: number;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+const WireValueSchema = Type.Unknown();
+type WireValue = Static<typeof WireValueSchema>;
+const JsonRecordSchema = Type.Record(Type.String(), WireValueSchema);
+type JsonRecord = Static<typeof JsonRecordSchema>;
+const StringSchema = Type.String();
+const NumberSchema = Type.Number();
+const WebSocketProbeSchema = Type.Object({
+  addEventListener: Type.Function(
+    [StringSchema, Type.Function([WireValueSchema], Type.Void())],
+    Type.Void(),
+  ),
+  send: Type.Function([WireValueSchema], WireValueSchema),
+});
+
+const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
 const usageTokens = (message: AssistantMessage): number =>
   message.usage.totalTokens ||
-  message.usage.input +
-    message.usage.output +
-    message.usage.cacheRead +
-    message.usage.cacheWrite;
+  message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite;
 
 const assistantText = (message: AssistantMessage): string =>
-  message.content
-    .flatMap((block) => (block.type === "text" ? [block.text] : []))
-    .join("");
+  message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
 
 const completeSpeedWords = (text: string): number =>
   text.split(" ").filter((word) => word === "SPEED").length;
 
 const parsePositiveInteger = (name: string, value: string): number => {
   const parsed = Number(value);
-  assert(
-    Number.isSafeInteger(parsed) && parsed > 0,
-    `${name} must be a positive safe integer`
-  );
+  assert(Number.isSafeInteger(parsed) && parsed > 0, `${name} must be a positive safe integer`);
   return parsed;
 };
 
 const parseNonnegativeNumber = (name: string, value: string): number => {
   const parsed = Number(value);
-  assert(
-    Number.isFinite(parsed) && parsed >= 0,
-    `${name} must be a nonnegative finite number`
-  );
+  assert(Number.isFinite(parsed) && parsed >= 0, `${name} must be a nonnegative finite number`);
   return parsed;
 };
 
@@ -142,7 +142,7 @@ const parseUint32 = (name: string, value: string): number => {
   const parsed = Number(value);
   assert(
     Number.isInteger(parsed) && parsed >= 0 && parsed <= 0xffff_ffff,
-    `${name} must be an unsigned 32-bit integer`
+    `${name} must be an unsigned 32-bit integer`,
   );
   return parsed;
 };
@@ -150,7 +150,7 @@ const parseUint32 = (name: string, value: string): number => {
 const defaultArtifactPath = () =>
   path.join(
     process.env.CODEX_FAST_LIVE_DIR?.trim() || os.tmpdir(),
-    `codex-live-fast-${new Date().toISOString().replaceAll(":", "-")}.json`
+    `codex-live-fast-${new Date().toISOString().replaceAll(":", "-")}.json`,
   );
 
 const parseInvocation = (args: readonly string[]): Invocation | undefined => {
@@ -179,23 +179,14 @@ const parseInvocation = (args: readonly string[]): Invocation | undefined => {
     values["max-total-tokens"] === undefined
       ? DEFAULT_MAX_TOTAL_TOKENS
       : parsePositiveInteger("--max-total-tokens", values["max-total-tokens"]);
-  const model =
-    values.model ?? (process.env.CODEX_FAST_LIVE_MODEL?.trim() || undefined);
+  const model = values.model ?? (process.env.CODEX_FAST_LIVE_MODEL?.trim() || undefined);
   assert(model === undefined || model.length > 0, "--model requires a value");
-  assert(
-    values.out === undefined || values.out.length > 0,
-    "--out requires a value"
-  );
-  const out =
-    values.out === undefined ? defaultArtifactPath() : path.resolve(values.out);
+  assert(values.out === undefined || values.out.length > 0, "--out requires a value");
+  const out = values.out === undefined ? defaultArtifactPath() : path.resolve(values.out);
   const pairs =
-    values.pairs === undefined
-      ? DEFAULT_PAIRS
-      : parsePositiveInteger("--pairs", values.pairs);
+    values.pairs === undefined ? DEFAULT_PAIRS : parsePositiveInteger("--pairs", values.pairs);
   const seed =
-    values.seed === undefined
-      ? randomBytes(4).readUInt32LE()
-      : parseUint32("--seed", values.seed);
+    values.seed === undefined ? randomBytes(4).readUInt32LE() : parseUint32("--seed", values.seed);
   const timeoutMs =
     values["timeout-ms"] === undefined
       ? DEFAULT_TIMEOUT_MS
@@ -246,23 +237,21 @@ const createRandom = (seed: number) => {
 
 const randomizedOrders = (pairs: number, random: () => number): Mode[][] => {
   const orders = Array.from({ length: pairs }, (): Mode[] =>
-    random() < 0.5 ? ["off", "on"] : ["on", "off"]
+    random() < 0.5 ? ["off", "on"] : ["on", "off"],
   );
   return orders;
 };
 
-const messageText = async (event: unknown): Promise<string | undefined> => {
+const messageText = async (event: WireValue): Promise<string | undefined> => {
   const data = isRecord(event) ? event.data : undefined;
-  if (typeof data === "string") {
+  if (Value.Check(StringSchema, data)) {
     return data;
   }
   if (data instanceof ArrayBuffer) {
     return new TextDecoder().decode(data);
   }
   if (ArrayBuffer.isView(data)) {
-    return new TextDecoder().decode(
-      new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-    );
+    return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
   }
   if (data instanceof Blob) {
     return await data.text();
@@ -270,7 +259,7 @@ const messageText = async (event: unknown): Promise<string | undefined> => {
   return undefined;
 };
 
-const timingMetrics = (value: unknown): TimingMetrics | undefined => {
+const timingMetrics = (value: WireValue): TimingMetrics | undefined => {
   if (
     !isRecord(value) ||
     value.type !== "responsesapi.websocket_timing" ||
@@ -281,11 +270,7 @@ const timingMetrics = (value: unknown): TimingMetrics | undefined => {
   const sanitized: TimingMetrics = {};
   for (const key of TIMING_KEYS) {
     const candidate = value.timing_metrics[key];
-    if (
-      typeof candidate === "number" &&
-      Number.isFinite(candidate) &&
-      candidate >= 0
-    ) {
+    if (Value.Check(NumberSchema, candidate) && Number.isFinite(candidate) && candidate >= 0) {
       sanitized[key] = candidate;
     }
   }
@@ -294,10 +279,7 @@ const timingMetrics = (value: unknown): TimingMetrics | undefined => {
 
 export const installWebSocketProbe = () => {
   const NativeWebSocket = globalThis.WebSocket;
-  assert(
-    typeof NativeWebSocket === "function",
-    "This live proof requires Node WebSocket support"
-  );
+  assert(NativeWebSocket !== undefined, "This live proof requires Node WebSocket support");
   const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
   const sockets = new Set<object>();
   let active:
@@ -309,8 +291,8 @@ export const installWebSocketProbe = () => {
         readonly terminalResponses: {
           readonly messageSequence: number;
           readonly responseId: string | undefined;
-          readonly serviceTier: string | "absent";
-          readonly status: string | "absent";
+          readonly serviceTier: string;
+          readonly status: string;
           readonly type: ResponseTerminalType;
         }[];
       }
@@ -321,50 +303,46 @@ export const installWebSocketProbe = () => {
       assert(active !== undefined, "WebSocket constructed outside a sample");
       const observation = active;
       const [, options] = argumentsList;
-      const headers =
-        isRecord(options) && isRecord(options.headers) ? options.headers : {};
+      const headers = isRecord(options) && isRecord(options.headers) ? options.headers : {};
       observation.handshakes.push({
-        originator:
-          typeof headers.originator === "string"
-            ? headers.originator
-            : undefined,
-        routingHint:
-          typeof headers["x-codex-routing-hint"] === "string"
-            ? headers["x-codex-routing-hint"]
-            : undefined,
-        timingMetricsRequested:
-          typeof headers["x-responsesapi-include-timing-metrics"] === "string"
-            ? headers["x-responsesapi-include-timing-metrics"]
-            : undefined,
+        originator: Value.Check(StringSchema, headers.originator) ? headers.originator : undefined,
+        routingHint: Value.Check(StringSchema, headers["x-codex-routing-hint"])
+          ? headers["x-codex-routing-hint"]
+          : undefined,
+        timingMetricsRequested: Value.Check(
+          StringSchema,
+          headers["x-responsesapi-include-timing-metrics"],
+        )
+          ? headers["x-responsesapi-include-timing-metrics"]
+          : undefined,
       });
-      const socket = Reflect.construct(target, argumentsList, newTarget);
-      assert(
-        isRecord(socket) && typeof socket.addEventListener === "function",
-        "WebSocket constructor returned an invalid socket"
+      const socket = Value.Parse(
+        WebSocketProbeSchema,
+        Reflect.construct(target, argumentsList, newTarget),
       );
       assert(!sockets.has(socket), "A physical WebSocket was reused");
       sockets.add(socket);
-      const nativeSend = Reflect.get(socket, "send");
-      assert(typeof nativeSend === "function", "WebSocket has no send method");
-      assert(
-        Reflect.set(socket, "send", (data: unknown) => {
-          if (typeof data === "string") {
+      const nativeSend = socket.send;
+      Object.defineProperty(socket, "send", {
+        configurable: true,
+        value(data: WireValue) {
+          if (Value.Check(StringSchema, data)) {
             try {
-              const payload: unknown = JSON.parse(data);
+              const payload: WireValue = JSON.parse(data);
               if (isRecord(payload) && payload.type === "response.create") {
                 observation.responseCreateFrames.push(
-                  payload.generate === false ? "prewarm" : "generation"
+                  payload.generate === false ? "prewarm" : "generation",
                 );
               }
             } catch {
               // The shipped provider remains authoritative for request parsing.
             }
           }
-          return Reflect.apply(nativeSend, socket, [data]);
-        }),
-        "WebSocket send probe could not be installed"
-      );
-      socket.addEventListener("message", (event: unknown) => {
+          return nativeSend.call(socket, data);
+        },
+        writable: true,
+      });
+      socket.addEventListener("message", (event: WireValue) => {
         messageSequence += 1;
         const currentMessageSequence = messageSequence;
         const pending = (async () => {
@@ -373,7 +351,7 @@ export const installWebSocketProbe = () => {
             return;
           }
           try {
-            const payload: unknown = JSON.parse(text);
+            const payload: WireValue = JSON.parse(text);
             const metric = timingMetrics(payload);
             if (metric !== undefined) {
               observation.metrics.push(metric);
@@ -388,18 +366,15 @@ export const installWebSocketProbe = () => {
             ) {
               observation.terminalResponses.push({
                 messageSequence: currentMessageSequence,
-                responseId:
-                  typeof payload.response.id === "string"
-                    ? payload.response.id
-                    : undefined,
-                serviceTier:
-                  typeof payload.response.service_tier === "string"
-                    ? payload.response.service_tier
-                    : "absent",
-                status:
-                  typeof payload.response.status === "string"
-                    ? payload.response.status
-                    : "absent",
+                responseId: Value.Check(StringSchema, payload.response.id)
+                  ? payload.response.id
+                  : undefined,
+                serviceTier: Value.Check(StringSchema, payload.response.service_tier)
+                  ? payload.response.service_tier
+                  : "absent",
+                status: Value.Check(StringSchema, payload.response.status)
+                  ? payload.response.status
+                  : "absent",
                 type: payload.type,
               });
             }
@@ -454,10 +429,7 @@ const context: Context = {
 };
 
 const run = async (invocation: Invocation) => {
-  assert(
-    process.env[OPT_IN] === "1",
-    `Paid live requests are disabled. Re-run with ${OPT_IN}=1`
-  );
+  assert(process.env[OPT_IN] === "1", `Paid live requests are disabled. Re-run with ${OPT_IN}=1`);
   const [
     { createCodexModelCatalog, modelSupportsServiceTier },
     { CodexObservability },
@@ -495,28 +467,22 @@ const run = async (invocation: Invocation) => {
   });
   const priorityModels = catalog.getModels().filter((candidate) => {
     const metadata = catalog.getModelMetadata(candidate.id);
-    return (
-      metadata !== undefined && modelSupportsServiceTier(metadata, "priority")
-    );
+    return metadata !== undefined && modelSupportsServiceTier(metadata, "priority");
   });
   const modelId = invocation.model ?? DEFAULT_MODEL;
   const configuredModel = priorityModels.find(({ id }) => id === modelId);
   assert(
     configuredModel !== undefined,
-    `Remote model ${modelId} is unavailable or does not advertise priority`
+    `Remote model ${modelId} is unavailable or does not advertise priority`,
   );
-  const model: Model<"openai-codex-responses"> = {
-    ...configuredModel,
-    ...(auth.auth.baseUrl === undefined ? {} : { baseUrl: auth.auth.baseUrl }),
-  };
+  const model: Model<"openai-codex-responses"> =
+    auth.auth.baseUrl === undefined
+      ? configuredModel
+      : { ...configuredModel, baseUrl: auth.auth.baseUrl };
 
   let fastMode = false;
   const observability = new CodexObservability(":memory:");
-  const runtime = createCodexProviderRuntime(
-    observability,
-    () => fastMode,
-    catalog
-  );
+  const runtime = createCodexProviderRuntime(observability, () => fastMode, catalog);
   const probe = installWebSocketProbe();
   const random = createRandom(invocation.seed);
   const orders = randomizedOrders(invocation.pairs, random);
@@ -525,7 +491,6 @@ const run = async (invocation: Invocation) => {
   let totalCostUsd = 0;
   let totalTokens = 0;
 
-  // oxlint-disable-next-line eslint/complexity -- one paid sample validates every required wire and response boundary
   const takeSample = async (pair: number, mode: Mode): Promise<Sample> => {
     fastMode = mode === "on";
     const sessionId = `live-fast:${randomUUID()}`;
@@ -553,21 +518,18 @@ const run = async (invocation: Invocation) => {
           assert(isRecord(payload), "Final provider payload is not an object");
           assert(
             payload.prompt_cache_key === undefined,
-            "Cache-disabled request contains prompt_cache_key"
+            "Cache-disabled request contains prompt_cache_key",
           );
-          assert(
-            payload.store === false,
-            "Final provider payload must not store"
-          );
+          assert(payload.store === false, "Final provider payload must not store");
           if (expectedTier === undefined) {
             assert(
               !Object.hasOwn(payload, "service_tier"),
-              "Fast OFF request contains service_tier"
+              "Fast OFF request contains service_tier",
             );
           } else {
             assert(
               payload.service_tier === expectedTier,
-              "Fast ON request does not contain service_tier=priority"
+              "Fast ON request does not contain service_tier=priority",
             );
           }
           wireBodyObserved = true;
@@ -606,70 +568,66 @@ const run = async (invocation: Invocation) => {
     assert(wireBodyObserved, "Final provider payload was not observed");
     assert(message !== undefined, "Codex request produced no final message");
     assert(
-      typeof message.responseId === "string" && message.responseId.length > 0,
-      "Final assistant message has no responseId"
+      message.responseId !== undefined && message.responseId.length > 0,
+      "Final assistant message has no responseId",
     );
-    assert(
-      firstResponse !== undefined,
-      "Codex request produced no first response"
-    );
+    assert(firstResponse !== undefined, "Codex request produced no first response");
     assert(firstText !== undefined, "Codex request produced no text");
     assert(lastText !== undefined, "Codex request produced no last text delta");
     assert(wordsAtFirstText !== undefined);
     assert(
       assistantText(message) === EXPECTED_RESPONSE,
-      'Codex response did not contain exactly 64 space-separated repetitions of "SPEED"'
+      'Codex response did not contain exactly 64 space-separated repetitions of "SPEED"',
     );
     assert(
       streamedText === EXPECTED_RESPONSE,
-      "Codex stream deltas did not contain the exact fixed response"
+      "Codex stream deltas did not contain the exact fixed response",
     );
     assert(
       message.usage.output >= MIN_OUTPUT_TOKENS,
-      `Codex request produced ${message.usage.output} output tokens; expected at least ${MIN_OUTPUT_TOKENS}`
+      `Codex request produced ${message.usage.output} output tokens; expected at least ${MIN_OUTPUT_TOKENS}`,
     );
     assert(
       wordsAtFirstText < EXPECTED_OUTPUT_WORDS,
-      "Codex delivered the entire fixed response in its first text delta"
+      "Codex delivered the entire fixed response in its first text delta",
     );
     const textStream = lastText - firstText;
     assert(textStream > 0, "Codex text stream duration must be positive");
-    const visibleWordsPerSecond =
-      ((EXPECTED_OUTPUT_WORDS - wordsAtFirstText) * 1000) / textStream;
+    const visibleWordsPerSecond = ((EXPECTED_OUTPUT_WORDS - wordsAtFirstText) * 1000) / textStream;
     assert(
       observed.handshakes.length === 1,
-      `Expected one fresh WebSocket, observed ${observed.handshakes.length}`
+      `Expected one fresh WebSocket, observed ${observed.handshakes.length}`,
     );
     assert(
       observed.responseCreateFrames.length === 2 &&
         observed.responseCreateFrames[0] === "prewarm" &&
         observed.responseCreateFrames[1] === "generation",
-      "Expected one prewarm response.create followed by one generation response.create"
+      "Expected one prewarm response.create followed by one generation response.create",
     );
     responseCreateFrameCount += observed.responseCreateFrames.length;
     const [handshake] = observed.handshakes;
     assert(handshake !== undefined, "WebSocket handshake was not observed");
     assert(
       handshake.routingHint === expectedHint,
-      `Sanitized routing hint mismatch: expected ${expectedHint}, received ${handshake.routingHint ?? "absent"}`
+      `Sanitized routing hint mismatch: expected ${expectedHint}, received ${handshake.routingHint ?? "absent"}`,
     );
     assert(
       handshake.timingMetricsRequested === "true",
-      "WebSocket timing metrics header was not requested"
+      "WebSocket timing metrics header was not requested",
     );
     assert(
       handshake.originator === expectedOriginator,
-      `Originator mismatch: expected ${expectedOriginator}, received ${handshake.originator ?? "absent"}`
+      `Originator mismatch: expected ${expectedOriginator}, received ${handshake.originator ?? "absent"}`,
     );
     const terminalResponses = observed.terminalResponses.toSorted(
-      (left, right) => left.messageSequence - right.messageSequence
+      (left, right) => left.messageSequence - right.messageSequence,
     );
     const generationIndex = terminalResponses.findIndex(
-      ({ responseId }) => responseId === message.responseId
+      ({ responseId }) => responseId === message.responseId,
     );
     assert(
       terminalResponses.length === 2 && generationIndex === 1,
-      "Expected one prewarm terminal followed by the final generation terminal"
+      "Expected one prewarm terminal followed by the final generation terminal",
     );
     const [prewarmTerminal, generationTerminal] = terminalResponses;
     assert(prewarmTerminal !== undefined && generationTerminal !== undefined);
@@ -678,10 +636,9 @@ const run = async (invocation: Invocation) => {
       ["Generation", generationTerminal],
     ] as const) {
       assert(
-        (terminal.type === "response.completed" ||
-          terminal.type === "response.done") &&
+        (terminal.type === "response.completed" || terminal.type === "response.done") &&
           (terminal.status === "absent" || terminal.status === "completed"),
-        `${label} terminal was not successful: ${terminal.type} status=${terminal.status}`
+        `${label} terminal was not successful: ${terminal.type} status=${terminal.status}`,
       );
     }
     const responseTerminalEvidence: ResponseTerminalEvidence = {
@@ -702,11 +659,11 @@ const run = async (invocation: Invocation) => {
     totalCostUsd += costUsd;
     assert(
       totalTokens <= invocation.maxTotalTokens,
-      `Completed usage ${totalTokens} exceeded --max-total-tokens ${invocation.maxTotalTokens}`
+      `Completed usage ${totalTokens} exceeded --max-total-tokens ${invocation.maxTotalTokens}`,
     );
     assert(
       totalCostUsd <= invocation.maxCostUsd,
-      `Completed cost $${totalCostUsd.toFixed(6)} exceeded --max-cost-usd $${invocation.maxCostUsd.toFixed(6)}`
+      `Completed cost $${totalCostUsd.toFixed(6)} exceeded --max-cost-usd $${invocation.maxCostUsd.toFixed(6)}`,
     );
     return {
       clientMs: { firstResponse, firstText, lastText, textStream, total },
@@ -742,7 +699,7 @@ const run = async (invocation: Invocation) => {
     }
     assert(
       probe.socketCount() === samples.length,
-      "Each paid sample must construct one unique physical socket"
+      "Each paid sample must construct one unique physical socket",
     );
   } finally {
     probe.restore();
@@ -750,16 +707,9 @@ const run = async (invocation: Invocation) => {
   }
 
   const pairs = Array.from({ length: invocation.pairs }, (_, index) => {
-    const off = samples.find(
-      (sample) => sample.pair === index + 1 && sample.mode === "off"
-    );
-    const on = samples.find(
-      (sample) => sample.pair === index + 1 && sample.mode === "on"
-    );
-    assert(
-      off !== undefined && on !== undefined,
-      `Pair ${index + 1} is incomplete`
-    );
+    const off = samples.find((sample) => sample.pair === index + 1 && sample.mode === "off");
+    const on = samples.find((sample) => sample.pair === index + 1 && sample.mode === "on");
+    assert(off !== undefined && on !== undefined, `Pair ${index + 1} is incomplete`);
     return {
       clientDifferenceMs: {
         firstResponse: off.clientMs.firstResponse - on.clientMs.firstResponse,
@@ -780,8 +730,7 @@ const run = async (invocation: Invocation) => {
   const averageVisibleWordsPerSecond = (mode: Mode) =>
     samples
       .filter((sample) => sample.mode === mode)
-      .reduce((total, sample) => total + sample.visibleWordsPerSecond, 0) /
-    invocation.pairs;
+      .reduce((total, sample) => total + sample.visibleWordsPerSecond, 0) / invocation.pairs;
   const standardVisibleWordsPerSecond = averageVisibleWordsPerSecond("off");
   const fastVisibleWordsPerSecond = averageVisibleWordsPerSecond("on");
   const throughput = {
@@ -789,7 +738,6 @@ const run = async (invocation: Invocation) => {
     speedup: fastVisibleWordsPerSecond / standardVisibleWordsPerSecond,
     standardVisibleWordsPerSecond,
   };
-  // oxlint-disable-next-line eslint/sort-keys -- schema fields are grouped for artifact readability
   const artifact = {
     artifact: "clanker.codex-provider/live-fast-v1",
     budgets: {
@@ -807,7 +755,7 @@ const run = async (invocation: Invocation) => {
       pairs: invocation.pairs,
       rawTimingEvents: samples.reduce(
         (total, sample) => total + sample.rawWebSocketTiming.length,
-        0
+        0,
       ),
       requests: {
         generation: samples.length,
@@ -817,7 +765,7 @@ const run = async (invocation: Invocation) => {
       throughput,
       totalTokens,
     },
-    testShape: {
+    proofConfiguration: {
       cache: "disabled",
       expectedOutput: {
         repetitions: EXPECTED_OUTPUT_WORDS,
@@ -851,8 +799,8 @@ const run = async (invocation: Invocation) => {
         totalTokens,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 };
 

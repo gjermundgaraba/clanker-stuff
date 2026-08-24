@@ -1,12 +1,57 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ExtensionUIContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+
+const WireValueSchema = Type.Unknown();
+export type WireValue = Static<typeof WireValueSchema>;
+export const WireRecordSchema = Type.Record(Type.String(), Type.Unknown());
+export type WireRecord = Static<typeof WireRecordSchema>;
+const WireArraySchema = Type.Array(Type.Unknown());
+const StringValueSchema = Type.String();
+
+export const wireRecord = (value: WireValue): WireRecord => Value.Parse(WireRecordSchema, value);
+
+export const wireArray = (value: WireValue): WireValue[] => Value.Parse(WireArraySchema, value);
+
+export const wireRecords = (value: WireValue): WireRecord[] => wireArray(value).map(wireRecord);
+
+export const wireString = (value: WireValue): string => Value.Parse(StringValueSchema, value);
+
+type MockUiContext = Pick<ExtensionUIContext, "notify" | "setStatus"> &
+  Partial<Pick<ExtensionUIContext, "select">>;
+
+export const mockUiContext = (context: MockUiContext): ExtensionUIContext => {
+  const fixture = {
+    select: async () => await Promise.resolve(undefined),
+    ...context,
+  } satisfies Pick<ExtensionUIContext, "notify" | "select" | "setStatus">;
+  // SAFETY: Codex provider sessions use only notify, select, and setStatus; all three are implemented.
+  return fixture as ExtensionUIContext;
+};
+
+export type SessionEntryPayload<Entry = SessionEntry> = Entry extends SessionEntry
+  ? Omit<Entry, "id" | "parentId" | "timestamp">
+  : never;
+type Mutable<Payload> = { -readonly [Key in keyof Payload]: Payload[Key] };
+
+export const sessionEntry = <const Payload extends SessionEntryPayload>(
+  id: string,
+  value: Payload,
+  parentId: string | null = null,
+  timestamp = "2026-07-30T12:00:00.000Z",
+): Mutable<Payload> & { id: string; parentId: string | null; timestamp: string } => ({
+  ...value,
+  id,
+  parentId,
+  timestamp,
+});
 
 export const sse = (events: readonly unknown[]) =>
-  new Response(
-    events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
-    {
-      headers: { "content-type": "text/event-stream" },
-    }
-  );
+  new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+    headers: { "content-type": "text/event-stream" },
+  });
 
 export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
   const message = {
@@ -49,8 +94,7 @@ export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
   ];
 };
 
-const jwtPart = (value: unknown) =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
+const jwtPart = (value: WireValue) => Buffer.from(JSON.stringify(value)).toString("base64url");
 
 export const makeCodexApiKey = (accountId: string): string =>
   `${jwtPart({ alg: "none", typ: "JWT" })}.${jwtPart({
@@ -82,7 +126,7 @@ export const SPIKE_MODEL = {
 export const createToolsModel = (
   id: string,
   grammar = false,
-  overrides: { api?: Api; provider?: string } = {}
+  overrides: { api?: Api; provider?: string } = {},
 ): Model<Api> => ({
   ...SPIKE_MODEL,
   compat: grammar ? { supportsOpenAIGrammarTools: true } : undefined,

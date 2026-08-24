@@ -9,16 +9,12 @@ export const createFixtureMcpServer = (scenario = "normal"): McpServer => {
   });
 
   if (scenario === "collision") {
-    server.registerTool(
-      "foo-bar",
-      { inputSchema: z.object({ query: z.string() }) },
-      async () => ({ content: [{ text: "collision", type: "text" }] })
-    );
-    server.registerTool(
-      "foo_bar",
-      { inputSchema: z.object({ query: z.string() }) },
-      async () => ({ content: [{ text: "collision", type: "text" }] })
-    );
+    server.registerTool("foo-bar", { inputSchema: z.object({ query: z.string() }) }, async () => ({
+      content: [{ text: "collision", type: "text" }],
+    }));
+    server.registerTool("foo_bar", { inputSchema: z.object({ query: z.string() }) }, async () => ({
+      content: [{ text: "collision", type: "text" }],
+    }));
     return server;
   }
 
@@ -50,9 +46,9 @@ export const createFixtureMcpServer = (scenario = "normal"): McpServer => {
               ]
             : []),
         ],
-        ...(scenario === "error" ? { isError: true } : {}),
+        isError: scenario === "error" ? true : undefined,
       };
-    }
+    },
   );
   return server;
 };

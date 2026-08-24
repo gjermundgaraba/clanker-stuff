@@ -12,21 +12,15 @@ import type { PromptInput } from "../runtime.js";
 const STRICT = { additionalProperties: false } as const;
 export const V1InputItemSchema = Type.Union([
   Type.Object({ text: Type.String(), type: Type.Literal("text") }, STRICT),
-  Type.Object(
-    { image_url: Type.String(), type: Type.Literal("image") },
-    STRICT
-  ),
-  Type.Object(
-    { path: Type.String({ minLength: 1 }), type: Type.Literal("local_image") },
-    STRICT
-  ),
+  Type.Object({ image_url: Type.String(), type: Type.Literal("image") }, STRICT),
+  Type.Object({ path: Type.String({ minLength: 1 }), type: Type.Literal("local_image") }, STRICT),
   Type.Object(
     {
       name: Type.String({ minLength: 1 }),
       path: Type.String({ minLength: 1 }),
       type: Type.Literal("skill"),
     },
-    STRICT
+    STRICT,
   ),
 ]);
 export type V1InputItem = Static<typeof V1InputItemSchema>;
@@ -67,12 +61,11 @@ const localImage = async (cwd: string, file: string): Promise<ImageContent> => {
 
 const skillText = async (
   item: Extract<V1InputItem, { type: "skill" }>,
-  skills: readonly Skill[]
+  skills: readonly Skill[],
 ): Promise<string> => {
   const skill = skills.find(
     (candidate) =>
-      candidate.name === item.name &&
-      path.resolve(candidate.filePath) === path.resolve(item.path)
+      candidate.name === item.name && path.resolve(candidate.filePath) === path.resolve(item.path),
   );
   if (skill === undefined) {
     throw new Error(`Unknown skill: ${item.name}`);
@@ -86,7 +79,7 @@ export const prepareInput = async (
   items: readonly V1InputItem[] | undefined,
   cwd: string,
   skills: readonly Skill[],
-  trusted: boolean
+  trusted: boolean,
 ): Promise<PromptInput> => {
   if ((message === undefined) === (items === undefined)) {
     throw new Error("Provide exactly one of message or items");
@@ -114,28 +107,25 @@ export const prepareInput = async (
       }
       const match = DATA_IMAGE.exec(item.image_url);
       if (!match?.groups) {
-        throw new Error(
-          "image_url must be a base64 PNG, JPEG, GIF, or WebP data URL"
-        );
+        throw new Error("image_url must be a base64 PNG, JPEG, GIF, or WebP data URL");
       }
       return {
         data: match.groups.data.replaceAll(/\s/gu, ""),
         mimeType: match.groups.mimeType.toLowerCase(),
         type: "image",
       };
-    })
+    }),
   );
-  const text = prepared.filter(
-    (item): item is string => typeof item === "string"
-  );
-  const images = prepared.filter(
-    (item): item is ImageContent => typeof item !== "string"
-  );
+  const text = prepared.filter((item): item is string => !(item instanceof Object));
+  const images = prepared.filter((item): item is ImageContent => item instanceof Object);
   if (text.every((value) => value.trim() === "") && images.length === 0) {
     throw new Error("items must contain text, an image, or a skill");
   }
-  return {
-    ...(images.length === 0 ? {} : { images }),
+  const input: PromptInput = {
     text: text.join("\n\n") || "Review the attached image input.",
   };
+  if (images.length > 0) {
+    input.images = images;
+  }
+  return input;
 };

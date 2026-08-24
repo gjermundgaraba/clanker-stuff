@@ -1,8 +1,6 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { TProperties } from "typebox";
 
 import { DEFAULT_CONFIG, ThinkingSchema } from "../config.js";
 import type { AgentThinkingLevel, SubagentsConfig } from "../config.js";
@@ -35,21 +33,13 @@ const parseForkTurns = (value: string | undefined): ForkTurns => {
     return "none";
   }
   if (!/^\+?[0-9]+$/u.test(normalized)) {
-    throw new Error(
-      "fork_turns must be `none`, `all`, or a positive integer string"
-    );
+    throw new Error("fork_turns must be `none`, `all`, or a positive integer string");
   }
   const turns = BigInt(normalized);
   if (turns === 0n || turns > MAX_USIZE) {
-    throw new Error(
-      "fork_turns must be `none`, `all`, or a positive integer string"
-    );
+    throw new Error("fork_turns must be `none`, `all`, or a positive integer string");
   }
-  return Number(
-    turns > BigInt(Number.MAX_SAFE_INTEGER)
-      ? BigInt(Number.MAX_SAFE_INTEGER)
-      : turns
-  );
+  return Number(turns > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : turns);
 };
 
 interface SpawnArguments {
@@ -60,8 +50,12 @@ interface SpawnArguments {
   reasoning_effort?: AgentThinkingLevel;
   task_name: string;
 }
+export type V2ToolController = Pick<
+  V2Controller,
+  "followUp" | "interrupt" | "list" | "sendMessage" | "spawn" | "wait"
+>;
 
-const result = (visible: unknown, details: unknown = visible) => ({
+const result = <Visible, Details>(visible: Visible, details: Details | Visible = visible) => ({
   content: [{ text: JSON.stringify(visible), type: "text" as const }],
   details,
 });
@@ -72,58 +66,55 @@ const emptyResult = () => ({
 
 export const registerV2Tools = (
   pi: ExtensionAPI,
-  controller: V2Controller,
+  controller: V2ToolController,
   caller: string,
   beforeExecute: (ctx: ExtensionContext) => void,
-  config: SubagentsConfig = DEFAULT_CONFIG
+  config: SubagentsConfig = DEFAULT_CONFIG,
 ): void => {
-  const spawnParameters = Type.Unsafe<SpawnArguments>(
-    Type.Object(
-      {
-        ...(Object.keys(config.roles).length === 0
-          ? {}
-          : {
-              agent_type: Type.Optional(
-                Type.String({
-                  description: [
-                    "Agent type override. Omit unless an explicit role is needed.",
-                    ...Object.entries(config.roles).map(([name, role]) =>
-                      configuredRoleDescription(name, role)
-                    ),
-                  ].join("\n"),
-                  minLength: 1,
-                })
-              ),
+  const roleParameter =
+    Object.keys(config.roles).length === 0
+      ? {}
+      : {
+          agent_type: Type.Optional(
+            Type.String({
+              description: [
+                "Agent type override. Omit unless an explicit role is needed.",
+                ...Object.entries(config.roles).map(([name, role]) =>
+                  configuredRoleDescription(name, role),
+                ),
+              ].join("\n"),
+              minLength: 1,
             }),
-        fork_turns: Type.Optional(ForkTurnsSchema),
-        message: Type.String({
-          description: "Initial plain-text task for the new agent.",
-          minLength: 1,
+          ),
+        };
+  const modelParameters = config.expose_spawn_agent_model_overrides
+    ? {
+        model: Type.Optional(
+          Type.String({
+            description:
+              "Model override. Use a model id, or provider/model when the id is ambiguous.",
+            minLength: 1,
+          }),
+        ),
+        reasoning_effort: Type.Optional({
+          ...ThinkingSchema,
+          description: REASONING_EFFORT_DESCRIPTION,
         }),
-        ...(config.expose_spawn_agent_model_overrides
-          ? {
-              model: Type.Optional(
-                Type.String({
-                  description:
-                    "Model override. Use a model id, or provider/model when the id is ambiguous.",
-                  minLength: 1,
-                })
-              ),
-              reasoning_effort: Type.Optional({
-                ...ThinkingSchema,
-                description: REASONING_EFFORT_DESCRIPTION,
-              }),
-            }
-          : {}),
-        task_name: Type.String({
-          description:
-            "Task name for the child. Use lowercase letters, digits, and underscores.",
-          pattern: "^[a-z0-9_]+$",
-        }),
-      },
-      STRICT
-    )
-  );
+      }
+    : {};
+  const spawnProperties: TProperties = {};
+  Object.assign(spawnProperties, roleParameter, modelParameters, {
+    fork_turns: Type.Optional(ForkTurnsSchema),
+    message: Type.String({
+      description: "Initial plain-text task for the new agent.",
+      minLength: 1,
+    }),
+    task_name: Type.String({
+      description: "Task name for the child. Use lowercase letters, digits, and underscores.",
+      pattern: "^[a-z0-9_]+$",
+    }),
+  });
+  const spawnParameters = Type.Unsafe<SpawnArguments>(Type.Object(spawnProperties, STRICT));
   pi.registerTool({
     description: v2SpawnDescription(),
     execute: async (_id, params, signal, _update, ctx) => {
@@ -139,7 +130,7 @@ export const registerV2Tools = (
           thinking: params.reasoning_effort,
         },
         ctx,
-        signal
+        signal,
       );
       return result({ task_name: spawned.task_name }, spawned);
     },
@@ -156,13 +147,7 @@ export const registerV2Tools = (
     execute: async (_id, params, signal, _update, ctx) => {
       beforeExecute(ctx);
       signal?.throwIfAborted();
-      await controller.sendMessage(
-        caller,
-        params.target,
-        params.message,
-        ctx,
-        signal
-      );
+      await controller.sendMessage(caller, params.target, params.message, ctx, signal);
       return emptyResult();
     },
     executionMode: "parallel",
@@ -175,12 +160,11 @@ export const registerV2Tools = (
           minLength: 1,
         }),
         target: Type.String({
-          description:
-            "Relative or canonical task name to message, from spawn_agent.",
+          description: "Relative or canonical task name to message, from spawn_agent.",
           minLength: 1,
         }),
       },
-      STRICT
+      STRICT,
     ),
     promptSnippet: "Queue a message for another known agent",
   });
@@ -191,13 +175,7 @@ export const registerV2Tools = (
     execute: async (_id, params, signal, _update, ctx) => {
       beforeExecute(ctx);
       signal?.throwIfAborted();
-      await controller.followUp(
-        caller,
-        params.target,
-        params.message,
-        ctx,
-        signal
-      );
+      await controller.followUp(caller, params.target, params.message, ctx, signal);
       return emptyResult();
     },
     executionMode: "parallel",
@@ -210,12 +188,11 @@ export const registerV2Tools = (
           minLength: 1,
         }),
         target: Type.String({
-          description:
-            "Relative or canonical non-root task name, from spawn_agent.",
+          description: "Relative or canonical non-root task name, from spawn_agent.",
           minLength: 1,
         }),
       },
-      STRICT
+      STRICT,
     ),
     promptSnippet: "Wake or continue a known agent with another task",
   });
@@ -225,9 +202,7 @@ export const registerV2Tools = (
       "Wait for mailbox activity from any agent or for steered user input. Returns a summary and timeout flag, never the message content.",
     execute: async (_id, params, signal, _update, ctx) => {
       beforeExecute(ctx);
-      return result(
-        await controller.wait(caller, params.timeout_ms ?? 30_000, signal)
-      );
+      return result(await controller.wait(caller, params.timeout_ms ?? 30_000, signal));
     },
     executionMode: "parallel",
     label: "Wait for Agent",
@@ -236,12 +211,11 @@ export const registerV2Tools = (
       {
         timeout_ms: Type.Optional(
           Type.Number({
-            description:
-              "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
-          })
+            description: "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
+          }),
         ),
       },
-      STRICT
+      STRICT,
     ),
     promptSnippet: "Wait for incoming agent communication",
   });
@@ -283,13 +257,12 @@ export const registerV2Tools = (
       {
         path_prefix: Type.Optional(
           Type.String({
-            description:
-              "Task-path prefix without a trailing slash. Omit to list all live agents.",
+            description: "Task-path prefix without a trailing slash. Omit to list all live agents.",
             minLength: 1,
-          })
+          }),
         ),
       },
-      STRICT
+      STRICT,
     ),
     promptSnippet: "List the durable subagent tree and statuses",
   });

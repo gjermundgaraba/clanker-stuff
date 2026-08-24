@@ -1,10 +1,11 @@
 import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CliCompletion, CliStarter } from "../cli.js";
 import { createTargetedReviewStarter } from "../review-launcher.js";
+import { expectString } from "./helpers.js";
 
 const exited = (): CliCompletion => ({
   code: 0,
@@ -26,7 +27,7 @@ describe("targeted review launcher", () => {
           isRemote: false,
           port: 19_432,
           url: "http://127.0.0.1:19432",
-        })}\n`
+        })}\n`,
       );
       return {
         cancel: vi.fn<() => void>(),
@@ -52,9 +53,7 @@ describe("targeted review launcher", () => {
 
     await vi.waitFor(() => expect(openUrl).toHaveBeenCalledOnce());
     const [request, requestInit] = fetchImpl.mock.calls[0] ?? [];
-    const requestBody = requestInit?.body;
-    const body: unknown =
-      typeof requestBody === "string" ? JSON.parse(requestBody) : requestBody;
+    const body = JSON.parse(expectString(requestInit?.body));
     expect({
       args: start.mock.calls[0]?.[0],
       body,
@@ -98,10 +97,9 @@ describe("targeted review launcher", () => {
       };
     });
 
-    const review = createTargetedReviewStarter(start)(
-      ["review", "--base", "main"],
-      { cwd: "/work/project" }
-    );
+    const review = createTargetedReviewStarter(start)(["review", "--base", "main"], {
+      cwd: "/work/project",
+    });
     expect(review.signal.aborted).toBeFalsy();
 
     review.cancel();
@@ -129,9 +127,9 @@ describe("targeted review launcher", () => {
     ],
   ])("rejects %s", (_label, args, message) => {
     const start = vi.fn<CliStarter>();
-    expect(() =>
-      createTargetedReviewStarter(start)(args, { cwd: "/work/project" })
-    ).toThrow(message);
+    expect(() => createTargetedReviewStarter(start)(args, { cwd: "/work/project" })).toThrow(
+      message,
+    );
     expect(start).not.toHaveBeenCalled();
   });
 });

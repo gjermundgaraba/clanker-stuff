@@ -1,9 +1,6 @@
-import type {
-  ExtensionContext,
-  SessionEntry,
-} from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import {
   CHECKPOINT_CUSTOM_TYPE,
   RETAINED_USER_IMAGE_PLACEHOLDER,
@@ -29,7 +26,13 @@ import {
 } from "../lifecycle.js";
 import type { LifecycleExecutionSuccess } from "../lifecycle.js";
 import { CodexObservability } from "../observability.js";
-import { responseEvents, SPIKE_API_KEY, SPIKE_MODEL, sse } from "./fixtures.js";
+import {
+  responseEvents,
+  sessionEntry as entry,
+  SPIKE_API_KEY,
+  SPIKE_MODEL,
+  sse,
+} from "./fixtures.js";
 
 const userInput = (text: string) => ({
   content: [{ text, type: "input_text" as const }],
@@ -46,19 +49,18 @@ const CHECKPOINT_RUNTIME = {
   windowNumber: 1,
 };
 
-const entry = (
-  id: string,
-  value: Record<string, unknown>,
-  parentId: string | null = null
-): SessionEntry =>
-  ({
-    id,
-    parentId,
-    timestamp: "2026-07-30T12:00:00.000Z",
-    ...value,
-  }) as SessionEntry;
+const createLifecycleHost = async (observability: CodexObservability) => {
+  let lifecycle: ReturnType<typeof createCodexLifecycle> | undefined;
+  const host = createExtensionHost((pi) => {
+    lifecycle = createCodexLifecycle(pi, observability);
+  });
+  await host.ready;
+  if (lifecycle === undefined) {
+    throw new Error("Lifecycle host did not initialize");
+  }
+  return { host, lifecycle };
+};
 
-// oxlint-disable-next-line eslint/prefer-arrow-callback -- WebSocket constructors must be constructable
 const FailingWebSocket = function FailingWebSocket() {
   throw new Error("unavailable");
 };
@@ -70,18 +72,10 @@ describe("transport fallback notification", () => {
 
   it("warns once after the next successful assistant message", async () => {
     vi.stubGlobal("WebSocket", FailingWebSocket);
-    const notifications: [string, string][] = [];
-    const sessionId = "fallback-session";
-    const ctx = {
-      sessionManager: { getSessionId: () => sessionId },
-      ui: {
-        notify: (message: string, type: string) => {
-          notifications.push([message, type]);
-        },
-      },
-    } as unknown as ExtensionContext;
     const observability = new CodexObservability(":memory:");
-    const lifecycle = createCodexLifecycle({} as never, observability);
+    const { host, lifecycle } = await createLifecycleHost(observability);
+    const ctx = host.createContext();
+    const sessionId = ctx.sessionManager.getSessionId();
     const output = await lifecycle.provider
       .streamSimple(
         SPIKE_MODEL,
@@ -90,7 +84,7 @@ describe("transport fallback notification", () => {
           apiKey: SPIKE_API_KEY,
           fetch: async () => sse(responseEvents("resp_fallback", "ok")),
           sessionId,
-        }
+        },
       )
       .result();
 
@@ -99,7 +93,7 @@ describe("transport fallback notification", () => {
         message: { ...output, stopReason: "error" },
         type: "message_end",
       },
-      ctx
+      ctx,
     );
     lifecycle.messageEnd(
       {
@@ -111,36 +105,27 @@ describe("transport fallback notification", () => {
         },
         type: "message_end",
       },
-      ctx
+      ctx,
     );
-    expect(notifications).toStrictEqual([]);
+    expect(host.getNotifications()).toStrictEqual([]);
     lifecycle.messageEnd({ message: output, type: "message_end" }, ctx);
     lifecycle.messageEnd({ message: output, type: "message_end" }, ctx);
 
-    expect(notifications).toStrictEqual([
-      [
-        "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
-        "warning",
-      ],
+    expect(host.getNotifications()).toStrictEqual([
+      {
+        message: "OpenAI Codex WebSocket is unavailable; using SSE for this session.",
+        type: "warning",
+      },
     ]);
     observability.close();
   });
 });
 
 describe("observability lifecycle", () => {
-  it("keeps observations in memory when Pi has no session file", () => {
+  it("keeps observations in memory when Pi has no session file", async () => {
     const observability = new CodexObservability("persistent.sqlite");
-    const lifecycle = createCodexLifecycle(
-      { getFlag: () => false } as never,
-      observability
-    );
-    lifecycle.start({
-      sessionManager: {
-        getSessionFile: vi.fn<() => string | undefined>(),
-        getSessionId: () => "ephemeral-session",
-      },
-      ui: { notify: vi.fn<() => void>(), setStatus: vi.fn<() => void>() },
-    } as unknown as ExtensionContext);
+    const { host, lifecycle } = await createLifecycleHost(observability);
+    lifecycle.start(host.createContext());
 
     expect(observability.path).toBe(":memory:");
     observability.close();
@@ -182,7 +167,7 @@ describe("lifecycle source and checkpoint construction", () => {
 
     expect({
       policies: [undefined, " ask ", "FALLBACK", "cancel", "invalid"].map(
-        parseCompactionFailurePolicy
+        parseCompactionFailurePolicy,
       ),
       usage: combineCompactionUsage(first, second),
     }).toStrictEqual({
@@ -250,7 +235,7 @@ describe("lifecycle source and checkpoint construction", () => {
           },
           type: "message",
         },
-        "user-old"
+        "user-old",
       ),
       entry(
         "user-new",
@@ -262,7 +247,7 @@ describe("lifecycle source and checkpoint construction", () => {
           },
           type: "message",
         },
-        "assistant"
+        "assistant",
       ),
     ];
 
@@ -270,11 +255,11 @@ describe("lifecycle source and checkpoint construction", () => {
     expect({
       contextText: source.contextMessages
         .flatMap((message) =>
-          typeof message.content === "string"
-            ? [message.content]
-            : message.content
+          Array.isArray(message.content)
+            ? message.content
                 .filter((content) => content.type === "text")
                 .map((content) => content.text)
+            : [message.content],
         )
         .join("|"),
       prefix: source.inputPrefix,
@@ -302,7 +287,7 @@ describe("lifecycle source and checkpoint construction", () => {
         data: { version: 9 },
         type: "custom",
       },
-      "before"
+      "before",
     );
     const tail = entry(
       "tail",
@@ -314,7 +299,7 @@ describe("lifecycle source and checkpoint construction", () => {
         },
         type: "message",
       },
-      "corrupt-inline"
+      "corrupt-inline",
     );
     const ordinary = entry(
       "ordinary",
@@ -324,7 +309,7 @@ describe("lifecycle source and checkpoint construction", () => {
         tokensBefore: 10,
         type: "compaction",
       },
-      "before"
+      "before",
     );
     const corruptAfterOrdinary = entry(
       "corrupt-after-ordinary",
@@ -333,7 +318,7 @@ describe("lifecycle source and checkpoint construction", () => {
         data: { version: 9 },
         type: "custom",
       },
-      "ordinary"
+      "ordinary",
     );
     const tailAfterOrdinary = entry(
       "tail-after-ordinary",
@@ -345,7 +330,7 @@ describe("lifecycle source and checkpoint construction", () => {
         },
         type: "message",
       },
-      "corrupt-after-ordinary"
+      "corrupt-after-ordinary",
     );
     const nativeLifecycle = entry(
       "native-lifecycle",
@@ -359,7 +344,7 @@ describe("lifecycle source and checkpoint construction", () => {
         tokensBefore: 10,
         type: "compaction",
       },
-      "before"
+      "before",
     );
     const corruptAfterNative = entry(
       "corrupt-after-native",
@@ -368,7 +353,7 @@ describe("lifecycle source and checkpoint construction", () => {
         data: { version: 9 },
         type: "custom",
       },
-      "native-lifecycle"
+      "native-lifecycle",
     );
     const tailAfterNative = entry(
       "tail-after-native",
@@ -380,15 +365,12 @@ describe("lifecycle source and checkpoint construction", () => {
         },
         type: "message",
       },
-      "corrupt-after-native"
+      "corrupt-after-native",
     );
-    const noPriorCompaction = buildLifecycleSource(
-      [before, corruptInline, tail],
-      SPIKE_MODEL
-    );
+    const noPriorCompaction = buildLifecycleSource([before, corruptInline, tail], SPIKE_MODEL);
     const afterOrdinary = buildLifecycleSource(
       [before, ordinary, corruptAfterOrdinary, tailAfterOrdinary],
-      SPIKE_MODEL
+      SPIKE_MODEL,
     );
 
     expect({
@@ -409,21 +391,18 @@ describe("lifecycle source and checkpoint construction", () => {
       noPriorCompaction: {
         ignored: true,
         prefix: [],
-        retainedItems: [
-          userInput("before corrupt inline"),
-          userInput("after corrupt inline"),
-        ],
+        retainedItems: [userInput("before corrupt inline"), userInput("after corrupt inline")],
       },
     });
     expect(() =>
       buildLifecycleSource(
         [before, nativeLifecycle, corruptAfterNative, tailAfterNative],
-        SPIKE_MODEL
-      )
+        SPIKE_MODEL,
+      ),
     ).toThrow("active checkpoint boundary is invalid");
-    expect(() =>
-      buildLifecycleSource([before, nativeLifecycle, tail], SPIKE_MODEL)
-    ).toThrow("active checkpoint boundary is invalid");
+    expect(() => buildLifecycleSource([before, nativeLifecycle, tail], SPIKE_MODEL)).toThrow(
+      "active checkpoint boundary is invalid",
+    );
   });
 
   it("builds a strict checkpoint without persisting request secrets or source history", () => {
@@ -496,17 +475,12 @@ describe("lifecycle source and checkpoint construction", () => {
         },
         type: "message",
       },
-      "checkpoint"
+      "checkpoint",
     );
-    const repeatedSource = buildLifecycleSource(
-      [lifecycleEntry, tailEntry],
-      SPIKE_MODEL
-    );
+    const repeatedSource = buildLifecycleSource([lifecycleEntry, tailEntry], SPIKE_MODEL);
 
     expect({
-      encryptedCount: checkpoint.replacement.filter(
-        (item) => item.type === "compaction"
-      ).length,
+      encryptedCount: checkpoint.replacement.filter((item) => item.type === "compaction").length,
       parsed: parseCheckpoint(checkpoint).ok,
       persistedSecrets: [
         "secret prompt must not persist",
@@ -526,7 +500,7 @@ describe("lifecycle source and checkpoint construction", () => {
       resolvableInstall: isLifecycleInstallationResolvable(
         [lifecycleEntry, tailEntry],
         checkpoint.response.id,
-        checkpoint.replacementSha256
+        checkpoint.replacementSha256,
       ),
       response: checkpoint.response,
       sourceTokens: checkpoint.sourceTokens,
@@ -608,11 +582,8 @@ describe("lifecycle source and checkpoint construction", () => {
         type: "custom",
       }),
     ];
-    const transition = resolvePreviousTurnTransition(
-      branch,
-      currentModel,
-      (_provider, model) =>
-        model === previousModel.id ? previousModel : undefined
+    const transition = resolvePreviousTurnTransition(branch, currentModel, (_provider, model) =>
+      model === previousModel.id ? previousModel : undefined,
     );
 
     expect({
@@ -645,8 +616,7 @@ describe("lifecycle source and checkpoint construction", () => {
         currentModel: currentModel.id,
         estimatedTokens: 1,
         previousCompHash: transition?.previousCompHash,
-        previousEffectiveTokenLimit:
-          transition?.previousEffectiveTokenLimit ?? 0,
+        previousEffectiveTokenLimit: transition?.previousEffectiveTokenLimit ?? 0,
         previousModel: transition?.previousModel.id ?? "",
       }),
     }).toStrictEqual({
@@ -660,7 +630,7 @@ describe("lifecycle source and checkpoint construction", () => {
   });
 
   it("merges beta features without changing unrelated headers", () => {
-    const ordinaryHeaders: Record<string, string | null> = {
+    const ordinaryHeaders = {
       "X-Codex-Beta-Features": "one",
       "x-codex-beta-features": "two",
       "x-delete-me": null,
@@ -718,17 +688,18 @@ describe("lifecycle source and checkpoint construction", () => {
       output: 3,
       totalTokens: 13,
     };
+    const staleMessage = {
+      api: SPIKE_MODEL.api,
+      content: [{ text: "stale", type: "text" as const }],
+      model: SPIKE_MODEL.id,
+      provider: SPIKE_MODEL.provider,
+      role: "assistant" as const,
+      stopReason: "stop" as const,
+      timestamp: 1,
+      usage,
+    };
     const staleAssistant = entry("stale-assistant", {
-      message: {
-        api: SPIKE_MODEL.api,
-        content: [{ text: "stale", type: "text" }],
-        model: SPIKE_MODEL.id,
-        provider: SPIKE_MODEL.provider,
-        role: "assistant",
-        stopReason: "stop",
-        timestamp: 1,
-        usage,
-      },
+      message: staleMessage,
       type: "message",
     });
     const boundary = entry(
@@ -738,19 +709,20 @@ describe("lifecycle source and checkpoint construction", () => {
         data: {},
         type: "custom",
       },
-      "stale-assistant"
+      "stale-assistant",
     );
+    const freshMessage = {
+      ...staleMessage,
+      content: [{ text: "fresh", type: "text" as const }],
+      timestamp: 2,
+    };
     const freshAssistant = entry(
       "fresh-assistant",
       {
-        message: {
-          ...(staleAssistant.type === "message" ? staleAssistant.message : {}),
-          content: [{ text: "fresh", type: "text" }],
-          timestamp: 2,
-        },
+        message: freshMessage,
         type: "message",
       },
-      "inline-boundary"
+      "inline-boundary",
     );
     const trailingUser = entry(
       "trailing-user",
@@ -762,19 +734,19 @@ describe("lifecycle source and checkpoint construction", () => {
         },
         type: "message",
       },
-      "fresh-assistant"
+      "fresh-assistant",
     );
     const failedAssistant = entry(
       "failed-assistant",
       {
         message: {
-          ...(freshAssistant.type === "message" ? freshAssistant.message : {}),
+          ...freshMessage,
           stopReason: "error",
           timestamp: 3,
         },
         type: "message",
       },
-      "fresh-assistant"
+      "fresh-assistant",
     );
 
     expect({
@@ -812,50 +784,36 @@ describe("lifecycle source and checkpoint construction", () => {
         Boolean(parseFinalizedResponsesEnvelope(validPayload, SPIKE_MODEL)),
         Boolean(
           parseFinalizedResponsesEnvelope(
-            { ...validPayload, model: "other" },
-            SPIKE_MODEL
-          )
+            { ...validPayload, instructions: { malformed: true } },
+            SPIKE_MODEL,
+          ),
         ),
+        Boolean(parseFinalizedResponsesEnvelope({ ...validPayload, model: "other" }, SPIKE_MODEL)),
         Boolean(
           parseFinalizedResponsesEnvelope(
             {
               ...validPayload,
               input: [{ type: "compaction_trigger" }],
             },
-            SPIKE_MODEL
-          )
+            SPIKE_MODEL,
+          ),
         ),
-        Boolean(
-          parseFinalizedResponsesEnvelope(
-            { ...validPayload, store: true },
-            SPIKE_MODEL
-          )
-        ),
+        Boolean(parseFinalizedResponsesEnvelope({ ...validPayload, store: true }, SPIKE_MODEL)),
       ],
       freshUsage: freshAssistantUsageTokens(
         [staleAssistant, boundary, freshAssistant, trailingUser],
         1,
-        SPIKE_MODEL
+        SPIKE_MODEL,
       ),
       retryUsage: freshAssistantUsageTokens(
-        [
-          staleAssistant,
-          boundary,
-          freshAssistant,
-          failedAssistant,
-          trailingUser,
-        ],
+        [staleAssistant, boundary, freshAssistant, failedAssistant, trailingUser],
         1,
-        SPIKE_MODEL
+        SPIKE_MODEL,
       ),
-      staleUsage: freshAssistantUsageTokens(
-        [staleAssistant, boundary],
-        1,
-        SPIKE_MODEL
-      ),
+      staleUsage: freshAssistantUsageTokens([staleAssistant, boundary], 1, SPIKE_MODEL),
     }).toStrictEqual({
       decisions: [false, true, false, true, true, false],
-      envelopeDecisions: [true, false, false, false],
+      envelopeDecisions: [true, true, false, false, false],
       freshUsage: 13,
       retryUsage: undefined,
       staleUsage: undefined,
@@ -910,7 +868,7 @@ describe("lifecycle source and checkpoint construction", () => {
         data: checkpoint,
         type: "custom",
       },
-      "previous"
+      "previous",
     );
     const tail = entry(
       "tail-after-inline",
@@ -922,7 +880,7 @@ describe("lifecycle source and checkpoint construction", () => {
         },
         type: "message",
       },
-      "inline"
+      "inline",
     );
 
     expect([
@@ -930,19 +888,19 @@ describe("lifecycle source and checkpoint construction", () => {
         [previous, inline],
         "previous",
         checkpoint.response.id,
-        checkpoint.replacementSha256
+        checkpoint.replacementSha256,
       ),
       isInlineInstallationResolvable(
         [previous, inline],
         "wrong-parent",
         checkpoint.response.id,
-        checkpoint.replacementSha256
+        checkpoint.replacementSha256,
       ),
       isInlineInstallationResolvable(
         [previous, inline, tail],
         "previous",
         checkpoint.response.id,
-        checkpoint.replacementSha256
+        checkpoint.replacementSha256,
       ),
     ]).toStrictEqual([true, false, false]);
   });
@@ -1001,8 +959,6 @@ describe("redacted lifecycle diagnostics", () => {
       frameResult: "missing",
       mismatchContentTypes: ["string"],
     });
-    expect(JSON.stringify(diagnostic)).not.toMatch(
-      /BASELINE_SECRET|EVENT_SECRET/u
-    );
+    expect(JSON.stringify(diagnostic)).not.toMatch(/BASELINE_SECRET|EVENT_SECRET/u);
   });
 });

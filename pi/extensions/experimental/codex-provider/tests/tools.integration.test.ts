@@ -3,19 +3,14 @@ import os from "node:os";
 import path from "node:path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import toolsExtension from "../../../tools/index.js";
 import codexProviderExtension from "../index.js";
 import { createRealCodexSession } from "./agent-session.js";
 import { createToolsModel } from "./fixtures.js";
 
-const DIRECT_NAMES = [
-  "exec_command",
-  "write_stdin",
-  "apply_patch",
-  "view_image",
-];
+const DIRECT_NAMES = ["exec_command", "write_stdin", "apply_patch", "view_image"];
 const CODE_NAMES = ["exec", "wait"];
 
 describe("Codex tools with a real AgentSession", () => {
@@ -49,7 +44,7 @@ describe("Codex tools with a real AgentSession", () => {
         session.dispose();
         await rm(rootDir, { force: true, recursive: true });
       }
-    }
+    },
   );
 
   it.each([
@@ -75,16 +70,11 @@ describe("Codex tools with a real AgentSession", () => {
         await session.reload();
         await session.setModel(createToolsModel("deepseek-v4-pro"));
 
-        expect(session.getActiveToolNames()).toStrictEqual([
-          "read",
-          "bash",
-          "edit",
-          "write",
-        ]);
+        expect(session.getActiveToolNames()).toStrictEqual(["read", "bash", "edit", "write"]);
       } finally {
         session.dispose();
         await rm(rootDir, { force: true, recursive: true });
       }
-    }
+    },
   );
 });

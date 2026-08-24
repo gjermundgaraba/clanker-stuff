@@ -3,11 +3,12 @@ import type {
   ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 import type { Protocol } from "./selection.js";
 
-export const COLLABORATION_CONTRACT_REQUEST =
-  "clanker-stuff:subagents:contract:request";
+export const COLLABORATION_CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
 
 export interface NestedToolContract {
   readonly definition: ToolDefinition;
@@ -27,32 +28,32 @@ interface ContractRequest {
   sessionId: string;
 }
 
-type ProtocolResolutionContext = Pick<
-  ExtensionContext,
-  "model" | "modelRegistry"
->;
+type ProtocolResolutionContext = Pick<ExtensionContext, "model" | "modelRegistry">;
 
-const isProtocolResolutionContext = (
-  value: unknown
-): value is ProtocolResolutionContext =>
-  typeof value === "object" &&
-  value !== null &&
-  "modelRegistry" in value &&
-  typeof value.modelRegistry === "object" &&
-  value.modelRegistry !== null &&
-  "find" in value.modelRegistry &&
-  typeof value.modelRegistry.find === "function";
-
-const isContractRequest = (value: unknown): value is ContractRequest =>
-  typeof value === "object" &&
-  value !== null &&
-  "provide" in value &&
-  typeof value.provide === "function" &&
-  "sessionId" in value &&
-  typeof value.sessionId === "string" &&
-  (!("context" in value) ||
-    value.context === undefined ||
-    isProtocolResolutionContext(value.context));
+const ProtocolResolutionContextSchema = Type.Unsafe<ProtocolResolutionContext>(
+  Type.Object(
+    {
+      model: Type.Optional(Type.Unknown()),
+      modelRegistry: Type.Object(
+        {
+          find: Type.Function([], Type.Unknown()),
+        },
+        { additionalProperties: true },
+      ),
+    },
+    { additionalProperties: true },
+  ),
+);
+const ContractRequestSchema = Type.Unsafe<ContractRequest>(
+  Type.Object(
+    {
+      context: Type.Optional(ProtocolResolutionContextSchema),
+      provide: Type.Function([Type.Unknown()], Type.Void()),
+      sessionId: Type.String(),
+    },
+    { additionalProperties: true },
+  ),
+);
 
 export const registerContractResponder = (
   pi: ExtensionAPI,
@@ -63,10 +64,10 @@ export const registerContractResponder = (
         sessionId: string;
       }
     | undefined,
-  prepare?: (ctx: ProtocolResolutionContext) => void
+  prepare?: (ctx: ProtocolResolutionContext) => void,
 ) =>
   pi.events.on(COLLABORATION_CONTRACT_REQUEST, (value) => {
-    if (!isContractRequest(value)) {
+    if (!Value.Check(ContractRequestSchema, value)) {
       return;
     }
     if (current()?.sessionId !== value.sessionId) {

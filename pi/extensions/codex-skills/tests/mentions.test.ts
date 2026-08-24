@@ -2,23 +2,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import {
-  createSyntheticSourceInfo,
-  parseSkillBlock,
-} from "@earendil-works/pi-coding-agent";
-import type {
-  BeforeAgentStartEvent,
-  ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
+import { createSyntheticSourceInfo, parseSkillBlock } from "@earendil-works/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import type { ExtensionHostOptions } from "../../../tests/harness/extension-host.js";
-import {
-  createIdentityTheme,
-  renderComponent,
-} from "../../../tests/harness/tui.js";
+import { createIdentityTheme, renderComponent } from "../../../tests/harness/tui.js";
 import { createSkillMentions } from "../mentions.js";
 
 const SOURCE_INFO = createSyntheticSourceInfo("<test>", {
@@ -30,6 +23,9 @@ const renderOptions = (expanded: boolean) => ({
   expanded,
   outputPad: 0,
 });
+const InjectedSkillResultSchema = Type.Object({
+  message: Type.Object({ content: Type.String() }),
+});
 
 const createMentionHost = (commands: ExtensionHostOptions["commands"] = []) =>
   createExtensionHost(
@@ -40,7 +36,7 @@ const createMentionHost = (commands: ExtensionHostOptions["commands"] = []) =>
       pi.on("before_agent_start", (event, ctx) => mentions.inject(event, ctx));
       pi.on("input", (event, ctx) => mentions.injectStreaming(event, ctx));
     },
-    { commands }
+    { commands },
   );
 
 const createSkillHost = () =>
@@ -81,8 +77,7 @@ describe("skill mentions", () => {
     const shellPath = path.join(directory, "PATH.md");
     const alpha = "---\nname: alpha\n---\nAlpha instructions.\n";
     const beta = "---\nname: beta\n---\nBeta instructions.\n";
-    const plugin =
-      "---\nname: plugin:deploy\n---\nPlugin deploy instructions.\n";
+    const plugin = "---\nname: plugin:deploy\n---\nPlugin deploy instructions.\n";
     const shell = "---\nname: PATH\n---\nMust remain a shell variable.\n";
     await Promise.all([
       writeFile(alphaPath, alpha),
@@ -107,8 +102,7 @@ describe("skill mentions", () => {
     const [result] = await host.emit(
       "before_agent_start",
       {
-        prompt:
-          "Use $beta, then $alpha twice: $alpha, and $plugin:deploy. Ignore $PATH.",
+        prompt: "Use $beta, then $alpha twice: $alpha, and $plugin:deploy. Ignore $PATH.",
         systemPrompt: "",
         systemPromptOptions: {
           cwd: directory,
@@ -149,7 +143,7 @@ describe("skill mentions", () => {
         },
         type: "before_agent_start",
       } satisfies BeforeAgentStartEvent,
-      host.createContext()
+      host.createContext(),
     );
 
     expect(result).toStrictEqual({
@@ -174,13 +168,11 @@ describe("skill mentions", () => {
       timestamp: 0,
     };
     expect(
-      renderComponent(
-        renderer(message, renderOptions(false), createIdentityTheme())
-      )
+      renderComponent(renderer(message, renderOptions(false), createIdentityTheme())),
     ).toContain("◆ Skills injected: $alpha, $beta, $plugin:deploy");
     const expanded = renderComponent(
       renderer(message, renderOptions(true), createIdentityTheme()),
-      200
+      200,
     );
     expect(expanded).toContain(alphaPath);
     expect(expanded).toContain("Alpha instructions.");
@@ -191,20 +183,19 @@ describe("skill mentions", () => {
     const host = createSkillHost();
     await host.emitSessionStart();
     const provider = host.getAutocompleteProvider(
-      new CombinedAutocompleteProvider([], process.cwd())
+      new CombinedAutocompleteProvider([], process.cwd()),
     );
-    const [suggestions, namespacedSuggestions, shellSuggestions] =
-      await Promise.all([
-        provider.getSuggestions(["Use $alp"], 0, 8, {
-          signal: new AbortController().signal,
-        }),
-        provider.getSuggestions(["Use $plugin:d"], 0, 13, {
-          signal: new AbortController().signal,
-        }),
-        provider.getSuggestions(["Use $PATH"], 0, 9, {
-          signal: new AbortController().signal,
-        }),
-      ]);
+    const [suggestions, namespacedSuggestions, shellSuggestions] = await Promise.all([
+      provider.getSuggestions(["Use $alp"], 0, 8, {
+        signal: new AbortController().signal,
+      }),
+      provider.getSuggestions(["Use $plugin:d"], 0, 13, {
+        signal: new AbortController().signal,
+      }),
+      provider.getSuggestions(["Use $PATH"], 0, 9, {
+        signal: new AbortController().signal,
+      }),
+    ]);
 
     expect(suggestions).toStrictEqual({
       items: [
@@ -252,7 +243,7 @@ describe("skill mentions", () => {
         systemPromptOptions: { cwd: directory, skills: [skill] },
         type: "before_agent_start",
       } satisfies BeforeAgentStartEvent,
-      ctx
+      ctx,
     );
 
     const results = await Promise.all(
@@ -264,15 +255,15 @@ describe("skill mentions", () => {
             text: "Use $alpha now",
             type: "input",
           },
-          ctx
-        )
-      )
+          ctx,
+        ),
+      ),
     );
     for (const result of results) {
       expect(result).toMatchObject({
         action: "transform",
         text: expect.stringContaining(
-          `References are relative to ${directory}.\n\nAlpha instructions.`
+          `References are relative to ${directory}.\n\nAlpha instructions.`,
         ),
       });
       expect(result).toMatchObject({
@@ -282,9 +273,7 @@ describe("skill mentions", () => {
   });
 
   it("keeps quoted skill paths inside the skill block", async () => {
-    const directory = await mkdtemp(
-      path.join(tmpdir(), 'codex-skills-"quoted"-')
-    );
+    const directory = await mkdtemp(path.join(tmpdir(), 'codex-skills-"quoted"-'));
     onTestFinished(() => rm(directory, { force: true, recursive: true }));
     const filePath = path.join(directory, 'alpha"&<.md');
     await writeFile(filePath, "Alpha instructions.\n");
@@ -309,14 +298,9 @@ describe("skill mentions", () => {
         },
         type: "before_agent_start",
       } satisfies BeforeAgentStartEvent,
-      host.createContext()
+      host.createContext(),
     );
-    const content = (
-      result as { message?: { content?: unknown } } | null | undefined
-    )?.message?.content;
-    if (typeof content !== "string") {
-      throw new TypeError("Expected an injected skill block");
-    }
+    const content = Value.Parse(InjectedSkillResultSchema, result).message.content;
 
     expect(parseSkillBlock(content)).toMatchObject({
       content: expect.stringContaining("Alpha instructions."),

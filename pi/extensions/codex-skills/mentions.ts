@@ -10,10 +10,7 @@ import type {
   InputEventResult,
   MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
-import {
-  getMarkdownTheme,
-  stripFrontmatter,
-} from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { Box, fuzzyFilter, Markdown, Text } from "@earendil-works/pi-tui";
 
 import { installSkillMentionEditor } from "./editor.js";
@@ -55,12 +52,12 @@ type Skill = NonNullable<BuildSystemPromptOptions["skills"]>[number];
 const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
   message,
   { expanded, outputPad },
-  theme
+  theme,
 ) => {
   const skills = message.details?.skills ?? [];
   const header = theme.fg(
     "accent",
-    `◆ Skills injected: ${skills.map((skill) => `$${skill.name}`).join(", ")}`
+    `◆ Skills injected: ${skills.map((skill) => `$${skill.name}`).join(", ")}`,
   );
   const bg = (content: string) => theme.bg("customMessageBg", content);
 
@@ -72,11 +69,7 @@ const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
   box.addChild(new Text(header, 0, 0));
   for (const skill of skills) {
     box.addChild(
-      new Text(
-        `${theme.fg("accent", `$${skill.name}`)}\n${theme.fg("dim", skill.path)}`,
-        0,
-        0
-      )
+      new Text(`${theme.fg("accent", `$${skill.name}`)}\n${theme.fg("dim", skill.path)}`, 0, 0),
     );
     box.addChild(new Markdown(skill.body, 0, 0, getMarkdownTheme()));
   }
@@ -94,15 +87,10 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
         description: command.description,
         name: command.name.slice(SKILL_COMMAND_PREFIX.length),
       }))
-      .filter(
-        (skill) =>
-          SKILL_NAME.test(skill.name) && !COMMON_ENV_VARS.has(skill.name)
-      );
+      .filter((skill) => SKILL_NAME.test(skill.name) && !COMMON_ENV_VARS.has(skill.name));
 
   const install = (ctx: ExtensionContext): void => {
-    installSkillMentionEditor(ctx, () =>
-      getSkills().map((skill) => skill.name)
-    );
+    installSkillMentionEditor(ctx, () => getSkills().map((skill) => skill.name));
 
     ctx.ui.addAutocompleteProvider((current) => ({
       applyCompletion: current.applyCompletion.bind(current),
@@ -111,43 +99,28 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
         const beforeCursor = currentLine.slice(0, cursorCol);
         const query = SKILL_COMPLETION.exec(beforeCursor)?.groups?.query;
         if (query === undefined) {
-          return await current.getSuggestions(
-            lines,
-            cursorLine,
-            cursorCol,
-            options
-          );
+          return await current.getSuggestions(lines, cursorLine, cursorCol, options);
         }
         if (DEFINITE_SHELL_PARAMETER.test(query)) {
           return null;
         }
 
-        const items = fuzzyFilter(
-          getSkills(),
-          query,
-          (skill) => skill.name
-        ).map((skill) => ({
-          ...(typeof skill.description === "string" &&
-          skill.description.length > 0
-            ? { description: skill.description }
-            : {}),
-          label: `$${skill.name}`,
-          value: `$${skill.name}`,
-        }));
+        const items = fuzzyFilter(getSkills(), query, (skill) => skill.name).map((skill) => {
+          const label = `$${skill.name}`;
+          const value = `$${skill.name}`;
+          return skill.description !== undefined && skill.description.length > 0
+            ? { description: skill.description, label, value }
+            : { label, value };
+        });
 
         return items.length > 0 ? { items, prefix: `$${query}` } : null;
       },
-      shouldTriggerFileCompletion:
-        current.shouldTriggerFileCompletion?.bind(current),
+      shouldTriggerFileCompletion: current.shouldTriggerFileCompletion?.bind(current),
       triggerCharacters: ["$"],
     }));
   };
 
-  const loadMentionedSkills = async (
-    text: string,
-    skills: Skill[],
-    ctx: ExtensionContext
-  ) => {
+  const loadMentionedSkills = async (text: string, skills: Skill[], ctx: ExtensionContext) => {
     const mentionedNames = new Set<string>();
     for (const match of text.matchAll(SKILL_MENTION)) {
       const { name } = match.groups ?? {};
@@ -175,18 +148,18 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
           } catch (error) {
             ctx.ui.notify(
               `Failed to load skill ${skill.name}: ${error instanceof Error ? error.message : String(error)}`,
-              "warning"
+              "warning",
             );
             return null;
           }
-        })
+        }),
     );
     return loadedBlocks.filter((block) => block !== null);
   };
 
   const inject = async (
     event: BeforeAgentStartEvent,
-    ctx: ExtensionContext
+    ctx: ExtensionContext,
   ): Promise<BeforeAgentStartEventResult | undefined> => {
     activeSkills = event.systemPromptOptions.skills ?? [];
     const blocks = await loadMentionedSkills(event.prompt, activeSkills, ctx);
@@ -212,7 +185,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
 
   const injectStreaming = async (
     event: InputEvent,
-    ctx: ExtensionContext
+    ctx: ExtensionContext,
   ): Promise<InputEventResult | undefined> => {
     if (event.streamingBehavior === undefined) {
       return undefined;

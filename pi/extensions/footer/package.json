@@ -40,6 +40,10 @@
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^"
   },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
@@ -47,7 +51,7 @@
     "typebox": "*"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "pi": {
     "extensions": [

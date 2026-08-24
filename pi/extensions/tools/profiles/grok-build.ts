@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/sort-keys -- preserve native harness field order */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -6,6 +5,14 @@ import { prepareForegroundArguments } from "./arguments.js";
 import type { HarnessProfile } from "./types.js";
 
 const strict = { additionalProperties: false } as const;
+const terminalParameters = Type.Object(
+  {
+    command: Type.String(),
+    description: Type.String(),
+    timeout: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  strict,
+);
 
 export const grokBuildProfile: HarnessProfile = {
   createTools: (operations) => [
@@ -13,22 +20,15 @@ export const grokBuildProfile: HarnessProfile = {
       name: "run_terminal_cmd",
       label: "Run Terminal Command",
       description: "Run a terminal command in the current workspace.",
-      parameters: Type.Object(
-        {
-          command: Type.String(),
-          description: Type.String(),
-          timeout: Type.Optional(Type.Integer({ minimum: 1 })),
-        },
-        strict
-      ),
-      prepareArguments: prepareForegroundArguments,
+      parameters: terminalParameters,
+      prepareArguments: prepareForegroundArguments(terminalParameters),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.runShell(
           {
             command: params.command,
             timeoutMs: params.timeout,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -42,7 +42,7 @@ export const grokBuildProfile: HarnessProfile = {
           offset: Type.Optional(Type.Integer({ minimum: 0 })),
           limit: Type.Optional(Type.Integer({ minimum: 1 })),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.read(
@@ -51,7 +51,7 @@ export const grokBuildProfile: HarnessProfile = {
             offset: params.offset === undefined ? undefined : params.offset + 1,
             path: params.target_file,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -66,7 +66,7 @@ export const grokBuildProfile: HarnessProfile = {
           new_string: Type.String(),
           replace_all: Type.Optional(Type.Boolean()),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.replace(
@@ -76,7 +76,7 @@ export const grokBuildProfile: HarnessProfile = {
             path: params.file_path,
             replaceAll: params.replace_all,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -96,7 +96,7 @@ export const grokBuildProfile: HarnessProfile = {
           head_limit: Type.Optional(Type.Integer({ minimum: 1 })),
           multiline: Type.Optional(Type.Boolean()),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.grep(
@@ -111,7 +111,7 @@ export const grokBuildProfile: HarnessProfile = {
             path: params.path,
             pattern: params.pattern,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -123,7 +123,7 @@ export const grokBuildProfile: HarnessProfile = {
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.list(
           { path: params.target_directory },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),

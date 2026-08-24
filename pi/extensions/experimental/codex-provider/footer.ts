@@ -60,7 +60,7 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
             ...envelope,
             id: widget.id,
             type: "remove",
-          }
+          },
     );
   };
 

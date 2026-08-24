@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
 
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
@@ -15,10 +15,10 @@ import {
   saveHistoryBatch,
   saveHistoryItem,
 } from "../history.js";
-import { userEntry } from "./fixtures.js";
+import { nonPromptEntries, userEntry } from "./fixtures.js";
 
 describe("prompt history", () => {
-  it("extracts, orders, and deduplicates session history", () => {
+  it("extracts only user prompts and bash commands from session history", () => {
     const entries: SessionEntry[] = [
       userEntry("older", null, " Build Release ", 100),
       {
@@ -38,6 +38,7 @@ describe("prompt history", () => {
         type: "message",
       },
       userEntry("newer", "bash", "Build Release", 300),
+      ...nonPromptEntries("newer", 400),
     ];
 
     expect(normalizeHistory(historyFromEntries(entries))).toStrictEqual([
@@ -58,9 +59,9 @@ describe("prompt history", () => {
       await rm(agentDir, { force: true, recursive: true });
     });
 
-    await expect(
-      importPersistentHistory(database, "", () => {}, abort.signal)
-    ).rejects.toThrow("This operation was aborted");
+    await expect(importPersistentHistory(database, "", () => {}, abort.signal)).rejects.toThrow(
+      "This operation was aborted",
+    );
   });
 
   it("stores history by most recent use", async () => {

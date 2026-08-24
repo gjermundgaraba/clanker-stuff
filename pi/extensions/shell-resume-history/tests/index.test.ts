@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 import type { recordResumeCommand as RecordResumeCommand } from "../resume-command.js";
 
 const recordResumeCommand = vi.hoisted(() =>
-  vi.fn<typeof RecordResumeCommand>(() => Promise.resolve())
+  vi.fn<typeof RecordResumeCommand>(() => Promise.resolve()),
 );
 
 vi.mock(import("../resume-command.js"), () => ({ recordResumeCommand }));

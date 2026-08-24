@@ -17,21 +17,15 @@ export class NicknamePool {
   readonly #config: SubagentsConfig;
   readonly #pick: (maximum: number) => number;
 
-  constructor(
-    config: SubagentsConfig,
-    pick: (maximum: number) => number = randomInt
-  ) {
+  constructor(config: SubagentsConfig, pick: (maximum: number) => number = randomInt) {
     this.#config = config;
     this.#pick = pick;
   }
 
   choose(role: string | undefined, reserved: ReadonlySet<string>): string {
     const candidates =
-      (role === undefined ? undefined : this.#config.roles[role]?.nicknames) ??
-      DEFAULT_NICKNAMES;
-    const available = candidates.filter(
-      (candidate) => !reserved.has(candidate)
-    );
+      (role === undefined ? undefined : this.#config.roles[role]?.nicknames) ?? DEFAULT_NICKNAMES;
+    const available = candidates.filter((candidate) => !reserved.has(candidate));
     if (available.length > 0) {
       return available[this.#pick(available.length)];
     }

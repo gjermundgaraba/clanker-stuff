@@ -1,22 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { TreeCoordinator } from "../coordinator.js";
-import {
-  freshSnapshot,
-  createMemoryControlStore,
-  rootBinding,
-} from "../snapshot.js";
+import { freshSnapshot, createMemoryControlStore, rootBinding } from "../snapshot.js";
 import type { ControlStore } from "../snapshot.js";
 
 describe("tree coordinator", () => {
   it("serializes concurrent mutations against one authoritative snapshot", async () => {
     const root = rootBinding("tree");
     const coordinator = new TreeCoordinator();
-    await coordinator.install(
-      createMemoryControlStore(),
-      freshSnapshot("v2", root),
-      true
-    );
+    await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), true);
     await Promise.all(
       Array.from({ length: 20 }, (_, index) =>
         coordinator.transact((draft) => {
@@ -31,32 +23,24 @@ describe("tree coordinator", () => {
             tools: [],
           });
           draft.nicknames.push(`worker-${index}`);
-        })
-      )
+        }),
+      ),
     );
     expect(coordinator.state).toMatchObject({
       revision: 20,
       state: {
-        nodes: expect.arrayContaining([
-          expect.objectContaining({ path: "/root/worker_19" }),
-        ]),
+        nodes: expect.arrayContaining([expect.objectContaining({ path: "/root/worker_19" })]),
       },
     });
     expect(
-      coordinator.state.protocolLatch === "v2"
-        ? coordinator.state.state.nodes
-        : []
+      coordinator.state.protocolLatch === "v2" ? coordinator.state.state.nodes : [],
     ).toHaveLength(20);
   });
 
   it("activates an unlocked protocol before publishing its provisional state", async () => {
     const root = rootBinding("tree");
     const coordinator = new TreeCoordinator();
-    await coordinator.install(
-      createMemoryControlStore(),
-      freshSnapshot("v1", root),
-      false
-    );
+    await coordinator.install(createMemoryControlStore(), freshSnapshot("v1", root), false);
     let active = "v1";
     const observations: string[] = [];
     coordinator.subscribe((state) => {
@@ -68,7 +52,7 @@ describe("tree coordinator", () => {
       freshSnapshot("v2", root),
       () => {
         active = "v2";
-      }
+      },
     );
 
     expect(observations).toStrictEqual(["v2:v2"]);
@@ -84,20 +68,10 @@ describe("tree coordinator", () => {
       persistent: true,
       write: () => Promise.reject(failure),
     };
-    await coordinator.install(
-      createMemoryControlStore(),
-      freshSnapshot("v2", root),
-      false
-    );
-    await expect(
-      coordinator.install(store, freshSnapshot("v2", root), true)
-    ).rejects.toBe(failure);
-    await expect(coordinator.command(() => "unreachable")).rejects.toBe(
-      failure
-    );
-    await expect(coordinator.transact(() => "unreachable")).rejects.toBe(
-      failure
-    );
+    await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), false);
+    await expect(coordinator.install(store, freshSnapshot("v2", root), true)).rejects.toBe(failure);
+    await expect(coordinator.command(() => "unreachable")).rejects.toBe(failure);
+    await expect(coordinator.transact(() => "unreachable")).rejects.toBe(failure);
   });
 
   it("keeps a rename-committed mutation while blocking later work after uncertain durability", async () => {
@@ -113,11 +87,7 @@ describe("tree coordinator", () => {
         return Promise.resolve(uncertainty);
       },
     };
-    await coordinator.install(
-      createMemoryControlStore(),
-      freshSnapshot("v2", root),
-      false
-    );
+    await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), false);
 
     await coordinator.install(store, freshSnapshot("v2", root), false);
     let committed = false;
@@ -129,15 +99,13 @@ describe("tree coordinator", () => {
         onCommit: () => {
           committed = true;
         },
-      }
+      },
     );
 
     expect(coordinator.state.protocolLatch).toBe("v2");
     expect(coordinator.state.root.sessionId).toBe("committed");
     expect(committed).toBeTruthy();
     expect(coordinator.error).toBe(uncertainty);
-    await expect(coordinator.command(() => "blocked")).rejects.toBe(
-      uncertainty
-    );
+    await expect(coordinator.command(() => "blocked")).rejects.toBe(uncertainty);
   });
 });

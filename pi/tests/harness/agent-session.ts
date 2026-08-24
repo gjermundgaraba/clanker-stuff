@@ -20,6 +20,9 @@ import {
   fauxAssistantMessage,
   fauxProvider,
 } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import type { Static, TSchema as TypeBoxSchema } from "typebox";
+import { Value } from "typebox/value";
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -66,30 +69,31 @@ interface AgentSessionHarnessOptions {
   withConfiguredAuth?: boolean;
 }
 
+const CapturedProviderPayloadSchema = Type.Object(
+  {
+    messages: Type.Optional(Type.Unsafe<Context["messages"]>({ type: "array" })),
+    systemPrompt: Type.Optional(Type.String()),
+    tools: Type.Optional(Type.Unsafe<Context["tools"]>({ type: "array" })),
+  },
+  { additionalProperties: true },
+);
+type CapturedProviderPayload = Static<typeof CapturedProviderPayloadSchema>;
+
 const applyCapturedPayloadToContext = (
   context: Context,
-  payload: unknown
+  candidate: CapturedProviderPayload,
 ): Context => {
-  if (!payload || typeof payload !== "object") {
-    return context;
+  const merged: Context = { ...context };
+  if (candidate.systemPrompt !== undefined) {
+    merged.systemPrompt = candidate.systemPrompt;
   }
-
-  const candidate = payload as {
-    systemPrompt?: unknown;
-    messages?: unknown;
-    tools?: unknown;
-  };
-
-  return {
-    ...context,
-    ...(typeof candidate.systemPrompt === "string"
-      ? { systemPrompt: candidate.systemPrompt }
-      : {}),
-    ...(Array.isArray(candidate.messages)
-      ? { messages: candidate.messages }
-      : {}),
-    ...(Array.isArray(candidate.tools) ? { tools: candidate.tools } : {}),
-  };
+  if (candidate.messages !== undefined) {
+    merged.messages = candidate.messages;
+  }
+  if (candidate.tools !== undefined) {
+    merged.tools = candidate.tools;
+  }
+  return merged;
 };
 
 /**
@@ -104,22 +108,18 @@ const applyCapturedPayloadToContext = (
 const wrapFauxProviderPayloadHooks = (
   provider: Provider,
   hookOptions?: {
-    onFinalPayload?: (payload: unknown) => void;
-  }
+    onFinalPayload?: (payload: CapturedProviderPayload) => void;
+  },
 ): Provider => {
   const wrap =
     (
       delegate: (
         model: Model<Api>,
         context: Context,
-        options?: StreamOptions | SimpleStreamOptions
-      ) => AssistantMessageEventStream
+        options?: StreamOptions | SimpleStreamOptions,
+      ) => AssistantMessageEventStream,
     ) =>
-    (
-      model: Model<Api>,
-      context: Context,
-      streamOptions?: StreamOptions | SimpleStreamOptions
-    ) => {
+    (model: Model<Api>, context: Context, streamOptions?: StreamOptions | SimpleStreamOptions) => {
       const outer = createAssistantMessageEventStream();
 
       queueMicrotask(async () => {
@@ -129,19 +129,15 @@ const wrapFauxProviderPayloadHooks = (
             systemPrompt: context.systemPrompt,
             tools: context.tools,
           };
-          const nextPayload = await streamOptions?.onPayload?.(
-            syntheticPayload,
-            model
+          const nextPayload = await streamOptions?.onPayload?.(syntheticPayload, model);
+          const finalPayload = Value.Parse(
+            CapturedProviderPayloadSchema,
+            nextPayload === undefined ? syntheticPayload : nextPayload,
           );
-          const finalPayload =
-            nextPayload === undefined ? syntheticPayload : nextPayload;
 
           hookOptions?.onFinalPayload?.(finalPayload);
 
-          const nextContext = applyCapturedPayloadToContext(
-            context,
-            finalPayload
-          );
+          const nextContext = applyCapturedPayloadToContext(context, finalPayload);
           const inner = delegate(model, nextContext, {
             ...streamOptions,
             onPayload: undefined,
@@ -153,8 +149,7 @@ const wrapFauxProviderPayloadHooks = (
         } catch (error) {
           const errorMessage = {
             ...fauxAssistantMessage("", {
-              errorMessage:
-                error instanceof Error ? error.message : String(error),
+              errorMessage: error instanceof Error ? error.message : String(error),
               stopReason: "error",
             }),
             api: model.api,
@@ -178,9 +173,7 @@ const wrapFauxProviderPayloadHooks = (
       ...provider.auth,
       apiKey: {
         async check({ credential }) {
-          return credential?.key
-            ? { source: "runtime API key", type: "api_key" }
-            : undefined;
+          return credential?.key ? { source: "runtime API key", type: "api_key" } : undefined;
         },
         name: provider.auth.apiKey?.name ?? "Faux",
         async resolve({ credential }) {
@@ -193,28 +186,30 @@ const wrapFauxProviderPayloadHooks = (
         },
       },
     },
-    stream: wrap(provider.stream),
-    streamSimple: wrap(provider.streamSimple),
+    stream: wrap((model, context, options) => provider.stream(model, context, options)),
+    streamSimple: wrap((model, context, options) => provider.streamSimple(model, context, options)),
   };
 };
 
 const fauxRegistrationFacade = (
   faux: FauxProviderHandle,
-  unregister: () => void
+  unregister: () => void,
 ): FauxProviderRegistration => ({
   api: faux.api,
-  appendResponses: faux.appendResponses,
-  getModel: faux.getModel,
-  getPendingResponseCount: faux.getPendingResponseCount,
+  appendResponses: (responses) => {
+    faux.appendResponses(responses);
+  },
+  getModel: () => faux.getModel(),
+  getPendingResponseCount: () => faux.getPendingResponseCount(),
   models: faux.models,
-  setResponses: faux.setResponses,
+  setResponses: (responses) => {
+    faux.setResponses(responses);
+  },
   state: faux.state,
   unregister,
 });
 
-export const createAgentSessionHarness = async (
-  options: AgentSessionHarnessOptions = {}
-) => {
+export const createAgentSessionHarness = async (options: AgentSessionHarnessOptions = {}) => {
   let tempDir: string | undefined;
   let faux: FauxProviderRegistration | undefined;
   let session: AgentSession | undefined;
@@ -250,7 +245,7 @@ export const createAgentSessionHarness = async (
     const agentDir = path.join(tempDir, "agent");
     mkdirSync(agentDir, { recursive: true });
 
-    const providerPayloads: unknown[] = [];
+    const providerPayloads: CapturedProviderPayload[] = [];
 
     const localFaux = fauxProvider({ models: options.models });
     localFaux.setResponses([]);
@@ -317,12 +312,14 @@ export const createAgentSessionHarness = async (
     });
     ({ session } = createdSession);
 
-    await session.bindExtensions({
-      ...(options.mode === undefined ? {} : { mode: options.mode }),
-      ...(options.uiContext === undefined
-        ? {}
-        : { uiContext: options.uiContext }),
-    });
+    const bindOptions: Parameters<AgentSession["bindExtensions"]>[0] = {};
+    if (options.mode !== undefined) {
+      bindOptions.mode = options.mode;
+    }
+    if (options.uiContext !== undefined) {
+      bindOptions.uiContext = options.uiContext;
+    }
+    await session.bindExtensions(bindOptions);
 
     const events: AgentSessionEvent[] = [];
     session.subscribe((event) => {
@@ -347,8 +344,7 @@ export const createAgentSessionHarness = async (
       },
       eventsOfType<T extends AgentSessionEvent["type"]>(type: T) {
         return events.filter(
-          (event): event is Extract<AgentSessionEvent, { type: T }> =>
-            event.type === type
+          (event): event is Extract<AgentSessionEvent, { type: T }> => event.type === type,
         );
       },
       extensionsResult: activeExtensionsResult,
@@ -356,8 +352,12 @@ export const createAgentSessionHarness = async (
       getPendingResponseCount() {
         return activeFaux.getPendingResponseCount();
       },
-      lastProviderPayload() {
-        return providerPayloads.at(-1);
+      lastProviderPayload<TSchema extends TypeBoxSchema>(schema: TSchema): Static<TSchema> {
+        const payload = providerPayloads.at(-1);
+        if (payload === undefined) {
+          throw new Error("No provider payload has been captured");
+        }
+        return Value.Parse(schema, payload);
       },
       messages() {
         return [...activeSession.messages];
@@ -365,8 +365,8 @@ export const createAgentSessionHarness = async (
       async prompt(text: string, promptOptions?: PromptOptions) {
         await activeSession.prompt(text, promptOptions);
       },
-      providerPayloads() {
-        return [...providerPayloads];
+      providerPayloads<TSchema extends TypeBoxSchema>(schema: TSchema): Static<TSchema>[] {
+        return providerPayloads.map((payload) => Value.Parse(schema, payload));
       },
       resourceLoader: activeResourceLoader,
       session: activeSession,
@@ -382,7 +382,5 @@ export const createAgentSessionHarness = async (
   }
 };
 
-export type AgentSessionHarness = Awaited<
-  ReturnType<typeof createAgentSessionHarness>
->;
+export type AgentSessionHarness = Awaited<ReturnType<typeof createAgentSessionHarness>>;
 export type { AgentSessionHarnessOptions };

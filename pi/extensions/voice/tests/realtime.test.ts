@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   delegationContextEvents,
@@ -6,8 +6,30 @@ import {
   rememberDelegationId,
   sessionConfig,
   VoiceSession,
+  type VoiceSessionControl,
+  type VoiceDelegation,
   VOICE_INSTRUCTIONS,
 } from "../realtime.js";
+
+interface FakeSessionControl extends VoiceSessionControl {
+  appendHandoffMessage: ReturnType<
+    typeof vi.fn<
+      (delegationId: string, channel: "commentary" | "speakable", text: string) => boolean
+    >
+  >;
+  close: ReturnType<typeof vi.fn<() => void>>;
+  mediaReady: ReturnType<typeof vi.fn<() => void>>;
+  onDelegation: (event: Omit<VoiceDelegation, "transcriptDelta">) => void;
+}
+
+const fakeSessionControl = (callId: string): FakeSessionControl => ({
+  appendHandoffMessage: vi.fn(() => true),
+  callId,
+  close: vi.fn(),
+  createCall: vi.fn(async () => "v=0"),
+  mediaReady: vi.fn(),
+  onDelegation: () => {},
+});
 
 describe("realtime session protocol", () => {
   it("uses the observed Codex model, voice, and handoff policy", () => {
@@ -28,9 +50,7 @@ describe("realtime session protocol", () => {
   });
 
   it("builds only delegation-bound status and completion frames", () => {
-    expect(
-      delegationContextEvents("handoff-1", "commentary", "Found it.")
-    ).toStrictEqual([
+    expect(delegationContextEvents("handoff-1", "commentary", "Found it.")).toStrictEqual([
       {
         channel: "commentary",
         content: [{ text: "[STATUS] Found it.", type: "input_text" }],
@@ -38,9 +58,7 @@ describe("realtime session protocol", () => {
         type: "delegation.context.append",
       },
     ]);
-    expect(
-      delegationContextEvents("handoff-1", "speakable", "Done.")
-    ).toStrictEqual([
+    expect(delegationContextEvents("handoff-1", "speakable", "Done.")).toStrictEqual([
       {
         channel: "speakable",
         content: [{ text: "[COMPLETE] Done.", type: "input_text" }],
@@ -70,7 +88,7 @@ describe("realtime transcript protocol", () => {
       parseTranscriptEvent({
         item: { id: "a1", text: "Working " },
         type: "output_transcript.added",
-      })
+      }),
     ).toStrictEqual({
       delta: true,
       role: "assistant",
@@ -80,7 +98,7 @@ describe("realtime transcript protocol", () => {
       parseTranscriptEvent({
         item: { id: "u1", text: "Can you" },
         type: "input_transcript.added",
-      })
+      }),
     ).toStrictEqual({
       delta: true,
       role: "user",
@@ -93,7 +111,7 @@ describe("realtime transcript protocol", () => {
       parseTranscriptEvent({
         turn: { id: "u1", role: "user", transcript: "Fix it" },
         type: "turn.done",
-      })
+      }),
     ).toStrictEqual({
       delta: false,
       role: "user",
@@ -158,8 +176,7 @@ describe("realtime connection cancellation", () => {
         states.push(state);
       },
       resolveAuth: () =>
-        auth.shift()?.promise ??
-        Promise.reject(new Error("No auth resolver available.")),
+        auth.shift()?.promise ?? Promise.reject(new Error("No auth resolver available.")),
       threadId: "thread-1",
     });
 
@@ -183,23 +200,36 @@ describe("realtime connection cancellation", () => {
       accountId: string;
     }>();
     const errors: string[] = [];
-    const voice = new VoiceSession({
-      onDelegation: () => {},
-      onError: (message) => {
-        errors.push(message);
+    const active = fakeSessionControl("call-1");
+    const replacement = fakeSessionControl("call-2");
+    const controls = [active, replacement];
+    let authAttempt = 0;
+    const voice = new VoiceSession(
+      {
+        onDelegation: () => {},
+        onError: (message) => {
+          errors.push(message);
+        },
+        onRenewDue: () => {},
+        onState: () => {},
+        resolveAuth: () => {
+          authAttempt += 1;
+          return authAttempt === 1
+            ? Promise.resolve({ accessToken: "token", accountId: "account-1" })
+            : auth.promise;
+        },
+        threadId: "thread-1",
       },
-      onRenewDue: () => {},
-      onState: () => {},
-      resolveAuth: () => auth.promise,
-      threadId: "thread-1",
-    });
-    const active = {
-      callId: "call-1",
-      close: vi.fn<() => void>(),
-    };
-    Object.assign(voice as unknown as { active: typeof active | undefined }, {
-      active,
-    });
+      (options) => {
+        const control = controls.shift();
+        if (!control) {
+          throw new Error("No fake voice control available.");
+        }
+        control.onDelegation = options.onDelegation;
+        return control;
+      },
+    );
+    await voice.acceptOffer("v=0");
 
     const renewal = voice.renewOffer("v=0");
     voice.dispose();
@@ -215,71 +245,61 @@ describe("realtime renewal gating", () => {
     vi.useFakeTimers();
     try {
       const renewalRequests = vi.fn<() => void>();
-      const voice = new VoiceSession({
-        onDelegation: () => {},
-        onError: () => {},
-        onRenewDue: renewalRequests,
-        onState: () => {},
-        resolveAuth: async () => ({
-          accessToken: "token",
-          accountId: "account-1",
-        }),
-        threadId: "thread-1",
-      });
-      const active = {
-        appendHandoffMessage: vi.fn<
-          (
-            delegationId: string,
-            channel: "commentary" | "speakable",
-            text: string
-          ) => boolean
-        >(() => true),
-        callId: "call-1",
-        close: vi.fn<() => void>(),
-        mediaReady: vi.fn<() => void>(),
-      };
-      const firstWarm = {
-        callId: "call-2",
-        close: vi.fn<() => void>(),
-        mediaReady: vi.fn<() => void>(),
-      };
-      const internals = voice as unknown as {
-        active: typeof active | undefined;
-        inFlightDelegations: Set<string>;
-        pending: typeof firstWarm | undefined;
-      };
-      internals.active = active;
-      internals.inFlightDelegations.add("call-1\0handoff-a");
+      const active = fakeSessionControl("call-1");
+      const firstWarm = fakeSessionControl("call-2");
+      const secondWarm = fakeSessionControl("call-3");
+      const controls = [active, firstWarm, secondWarm];
+      const voice = new VoiceSession(
+        {
+          onDelegation: () => {},
+          onError: () => {},
+          onRenewDue: renewalRequests,
+          onState: () => {},
+          resolveAuth: async () => ({
+            accessToken: "token",
+            accountId: "account-1",
+          }),
+          threadId: "thread-1",
+        },
+        (options) => {
+          const control = controls.shift();
+          if (!control) {
+            throw new Error("No fake voice control available.");
+          }
+          control.onDelegation = options.onDelegation;
+          return control;
+        },
+      );
+      await voice.acceptOffer("v=0");
       voice.mediaReady();
+      active.onDelegation({
+        binding: { callId: "call-1", delegationId: "handoff-a" },
+        input: "question a",
+      });
 
       await vi.advanceTimersByTimeAsync(55 * 60_000);
       const requestsBeforeCompletion = renewalRequests.mock.calls.length;
-      voice.sendComplete(
-        { callId: "call-1", delegationId: "handoff-a" },
-        "answer a"
-      );
+      voice.sendComplete({ callId: "call-1", delegationId: "handoff-a" }, "answer a");
       const requestsAfterCompletion = renewalRequests.mock.calls.length;
 
-      internals.pending = firstWarm;
-      internals.inFlightDelegations.add("call-1\0handoff-b");
+      await voice.renewOffer("v=0");
+      active.onDelegation({
+        binding: { callId: "call-1", delegationId: "handoff-b" },
+        input: "question b",
+      });
       const racedCommit = voice.commitRenew();
       await expect(racedCommit).rejects.toThrow("deferred");
       voice.abortRenew();
-      voice.sendComplete(
-        { callId: "call-1", delegationId: "handoff-b" },
-        "answer b"
-      );
+      voice.sendComplete({ callId: "call-1", delegationId: "handoff-b" }, "answer b");
 
-      const secondWarm = {
-        callId: "call-3",
-        close: vi.fn<() => void>(),
-        mediaReady: vi.fn<() => void>(),
-      };
-      internals.pending = secondWarm;
+      await voice.renewOffer("v=0");
       await voice.commitRenew();
 
       expect({
-        activeCall: internals.active?.callId,
+        activeCallAccepted: voice.sendStatus(
+          { callId: "call-3", delegationId: "handoff-c" },
+          "status c",
+        ),
         firstWarmClosed: firstWarm.close.mock.calls.length,
         oldCallClosed: active.close.mock.calls.length,
         requestsAfterCompletion,
@@ -287,7 +307,7 @@ describe("realtime renewal gating", () => {
         requestsBeforeCompletion,
         secondWarmReady: secondWarm.mediaReady.mock.calls.length,
       }).toStrictEqual({
-        activeCall: "call-3",
+        activeCallAccepted: true,
         firstWarmClosed: 1,
         oldCallClosed: 1,
         requestsAfterCompletion: 1,

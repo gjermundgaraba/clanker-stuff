@@ -1,14 +1,18 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { open as openFile } from "node:fs/promises";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 import { PermanentChildError } from "./permanent-error.js";
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const PersistedIdSchema = Type.Object(
+  {
+    id: Type.String(),
+  },
+  { additionalProperties: true },
+);
 
-export const lastPersistedEntryId = (
-  sessionFile: string
-): string | undefined => {
+export const lastPersistedEntryId = (sessionFile: string): string | undefined => {
   const descriptor = openSync(sessionFile, "r");
   try {
     let position = fstatSync(descriptor).size;
@@ -22,10 +26,7 @@ export const lastPersistedEntryId = (
       const bytesRead = readSync(descriptor, chunk, 0, length, position);
       let end = bytesRead;
       if (!foundContent) {
-        while (
-          end > 0 &&
-          (chunk[end - 1] === 0x0a || chunk[end - 1] === 0x0d)
-        ) {
+        while (end > 0 && (chunk[end - 1] === 0x0a || chunk[end - 1] === 0x0d)) {
           end -= 1;
         }
         if (end === 0) {
@@ -41,12 +42,8 @@ export const lastPersistedEntryId = (
         continue;
       }
       try {
-        const entry: unknown = JSON.parse(
-          Buffer.concat(chunks, total).toString("utf-8")
-        );
-        return isRecord(entry) && typeof entry.id === "string"
-          ? entry.id
-          : undefined;
+        const entry = JSON.parse(Buffer.concat(chunks, total).toString("utf-8"));
+        return Value.Check(PersistedIdSchema, entry) ? entry.id : undefined;
       } catch {
         return undefined;
       }
@@ -61,6 +58,13 @@ interface TranscriptEntry {
   id: string;
   parentId: string | null;
 }
+const TranscriptEntrySchema = Type.Object(
+  {
+    id: Type.String(),
+    parentId: Type.Union([Type.String(), Type.Null()]),
+  },
+  { additionalProperties: true },
+);
 
 const parseEntries = (bytes: Buffer): TranscriptEntry[] =>
   bytes
@@ -68,15 +72,9 @@ const parseEntries = (bytes: Buffer): TranscriptEntry[] =>
     .split("\n")
     .filter((line) => line !== "")
     .map((line) => {
-      const entry: unknown = JSON.parse(line);
-      if (
-        !isRecord(entry) ||
-        typeof entry.id !== "string" ||
-        !(entry.parentId === null || typeof entry.parentId === "string")
-      ) {
-        throw new PermanentChildError(
-          "Child transcript contains an invalid entry"
-        );
+      const entry = JSON.parse(line);
+      if (!Value.Check(TranscriptEntrySchema, entry)) {
+        throw new PermanentChildError("Child transcript contains an invalid entry");
       }
       return { id: entry.id, parentId: entry.parentId };
     });
@@ -123,9 +121,7 @@ export class TranscriptCursor {
 
   async #verifyNewEntries(expectedId: string | undefined): Promise<void> {
     let found =
-      expectedId === undefined ||
-      expectedId === this.#parentId ||
-      this.#seen.delete(expectedId);
+      expectedId === undefined || expectedId === this.#parentId || this.#seen.delete(expectedId);
     const file = await openFile(this.#file, "r");
     try {
       const info = await file.stat();
@@ -135,9 +131,7 @@ export class TranscriptCursor {
       const length = info.size - this.#offset;
       if (length === 0) {
         if (!found) {
-          throw new PermanentChildError(
-            `Session entry ${expectedId} was not persisted`
-          );
+          throw new PermanentChildError(`Session entry ${expectedId} was not persisted`);
         }
         return;
       }
@@ -147,16 +141,12 @@ export class TranscriptCursor {
         throw new PermanentChildError("Unable to read child transcript");
       }
       if (bytes.at(-1) !== 0x0a) {
-        throw new PermanentChildError(
-          "Child transcript ended with an incomplete entry"
-        );
+        throw new PermanentChildError("Child transcript ended with an incomplete entry");
       }
       let parent = this.#parentId;
       for (const entry of parseEntries(bytes)) {
         if (this.#strictParents && entry.parentId !== (parent ?? null)) {
-          throw new PermanentChildError(
-            "Child transcript parent chain is discontinuous"
-          );
+          throw new PermanentChildError("Child transcript parent chain is discontinuous");
         }
         parent = entry.id;
         if (entry.id === expectedId) {
@@ -168,17 +158,14 @@ export class TranscriptCursor {
       this.#offset = info.size;
       this.#parentId = parent;
       if (!found) {
-        throw new PermanentChildError(
-          `Session entry ${expectedId} was not persisted`
-        );
+        throw new PermanentChildError(`Session entry ${expectedId} was not persisted`);
       }
     } catch (error) {
       throw error instanceof PermanentChildError
         ? error
-        : new PermanentChildError(
-            error instanceof Error ? error.message : String(error),
-            { cause: error }
-          );
+        : new PermanentChildError(error instanceof Error ? error.message : String(error), {
+            cause: error,
+          });
     } finally {
       await file.close();
     }

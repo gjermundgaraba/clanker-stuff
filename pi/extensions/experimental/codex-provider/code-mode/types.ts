@@ -3,6 +3,34 @@ import type {
   ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+
+const OpaqueRuntimeValueSchema = Type.Unknown();
+export type RuntimeValue = Static<typeof OpaqueRuntimeValueSchema>;
+
+const RuntimeToolContentSchema = Type.Union([
+  Type.Object({ text: Type.String(), type: Type.Literal("text") }),
+  Type.Object({ data: Type.String(), mimeType: Type.String(), type: Type.Literal("image") }),
+]);
+
+export const RuntimeToolResultSchema = Type.Object({
+  content: Type.Array(RuntimeToolContentSchema),
+  details: Type.Optional(OpaqueRuntimeValueSchema),
+});
+
+export type RuntimeToolResult = Static<typeof RuntimeToolResultSchema>;
+
+export const RuntimeToolTraceSchema = Type.Object({
+  error: Type.Optional(Type.String()),
+  id: Type.String(),
+  input: OpaqueRuntimeValueSchema,
+  name: Type.String(),
+  result: Type.Optional(RuntimeToolResultSchema),
+  status: Type.Union([Type.Literal("running"), Type.Literal("done"), Type.Literal("error")]),
+});
+
+export type RuntimeToolTrace = Static<typeof RuntimeToolTraceSchema>;
 
 export interface NestedTool {
   definition: ToolDefinition;
@@ -12,10 +40,10 @@ export interface NestedTool {
   outputSchema?: unknown;
   usage: string;
   invoke: (
-    input: unknown,
+    input: RuntimeValue,
     context: ToolExecutionContext,
-    signal: AbortSignal
-  ) => Promise<unknown>;
+    signal: AbortSignal,
+  ) => Promise<RuntimeValue>;
 }
 
 export interface ToolExecutionContext {
@@ -23,23 +51,6 @@ export interface ToolExecutionContext {
   toolCallId?: string;
   onUpdate?: (result: AgentToolResult<unknown>) => void;
   captureResult?: (result: RuntimeToolResult) => void;
-}
-
-export interface RuntimeToolResult {
-  content: (
-    | { type: "text"; text: string }
-    | { type: "image"; data: string; mimeType: string }
-  )[];
-  details?: unknown;
-}
-
-export interface RuntimeToolTrace {
-  error?: string;
-  id: string;
-  input: unknown;
-  name: string;
-  result?: RuntimeToolResult;
-  status: "running" | "done" | "error";
 }
 
 export interface RuntimeContentItem {

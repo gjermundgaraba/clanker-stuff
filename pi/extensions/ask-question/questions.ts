@@ -46,27 +46,22 @@ export type AskQuestionFlowResult =
       reason: "user_cancelled" | "external_aborted";
     };
 
-export const isOtherOption = (
-  option: QuestionOption | undefined
-): option is OtherQuestionOption => option?.kind === "other";
+export const isOtherOption = (option: QuestionOption | undefined): option is OtherQuestionOption =>
+  option?.kind === "other";
 
-export const createQuestionSessions = (
-  questions: Question[]
-): QuestionSession[] =>
+export const createQuestionSessions = (questions: Question[]): QuestionSession[] =>
   questions.map((question) => ({
     question,
     state: {
       cursor: 0,
       selectedIndexes: new Set<number>(),
-      textByOptionIndex: question.options.map(
-        (): string | undefined => undefined
-      ),
+      textByOptionIndex: question.options.map((): string | undefined => undefined),
     },
   }));
 
 export const buildAnswerEntry = (
   question: Question,
-  state: QuestionState
+  state: QuestionState,
 ): AnswerEntry | undefined => {
   const selectedIndexes = [...state.selectedIndexes].toSorted((a, b) => a - b);
   if (
@@ -74,7 +69,7 @@ export const buildAnswerEntry = (
     selectedIndexes.some(
       (index) =>
         isOtherOption(question.options[index]) &&
-        (state.textByOptionIndex[index]?.length ?? 0) === 0
+        (state.textByOptionIndex[index]?.length ?? 0) === 0,
     )
   ) {
     return undefined;
@@ -93,17 +88,15 @@ export const buildAnswerEntry = (
   });
 };
 
-export const isQuestionComplete = (
-  question: Question,
-  state: QuestionState
-): boolean => buildAnswerEntry(question, state) !== undefined;
+export const isQuestionComplete = (question: Question, state: QuestionState): boolean =>
+  buildAnswerEntry(question, state) !== undefined;
 
 export const answerEntryToText = (entry: AnswerEntry): string =>
   entry
     .map((selection) =>
       selection.note !== undefined && selection.note.length > 0
         ? `${selection.label} (note: ${selection.note})`
-        : selection.label
+        : selection.label,
     )
     .join(", ");
 
@@ -112,11 +105,11 @@ export const allQuestionsComplete = (sessions: QuestionSession[]): boolean =>
 
 export const missingQuestionHeaders = (sessions: QuestionSession[]): string[] =>
   sessions.flatMap(({ question, state }) =>
-    isQuestionComplete(question, state) ? [] : [question.header]
+    isQuestionComplete(question, state) ? [] : [question.header],
   );
 
 export const buildSuccessFlowResult = (
-  sessions: QuestionSession[]
+  sessions: QuestionSession[],
 ): Extract<AskQuestionFlowResult, { cancelled: false }> | undefined => {
   const answers: AnswerEntry[] = [];
   for (const { question, state } of sessions) {

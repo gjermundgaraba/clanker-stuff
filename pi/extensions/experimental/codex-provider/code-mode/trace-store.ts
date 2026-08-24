@@ -1,13 +1,10 @@
-import {
-  boundRuntimeToolResult,
-  cloneTrace,
-  sanitizeTraceInput,
-} from "./trace-values.js";
+import { boundRuntimeToolResult, cloneTrace, sanitizeTraceInput } from "./trace-values.js";
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import type {
   RuntimeResponse,
   RuntimeToolResult,
   RuntimeToolTrace,
+  RuntimeValue,
   ToolExecutionContext,
 } from "./types.js";
 
@@ -29,12 +26,7 @@ export class CodeModeTraceStore {
     this.droppedCounts.delete(cellId);
   }
 
-  start(
-    cellId: string,
-    id: string,
-    name: string,
-    input: unknown
-  ): RuntimeToolTrace {
+  start(cellId: string, id: string, name: string, input: RuntimeValue): RuntimeToolTrace {
     const traces = this.traces.get(cellId) ?? [];
     if (traces.length >= MAX_TRACE_COUNT) {
       traces.shift();
@@ -54,20 +46,16 @@ export class CodeModeTraceStore {
   captureResult(
     cellId: string,
     current: RuntimeToolTrace,
-    result: RuntimeToolResult
+    result: RuntimeToolResult,
   ): RuntimeToolResult {
     const usedImageChars = (this.traces.get(cellId) ?? [])
       .filter((trace) => trace !== current)
       .flatMap((trace) => trace.result?.content ?? [])
       .reduce(
-        (total, item) =>
-          total + (item.type === "image" && item.data ? item.data.length : 0),
-        0
+        (total, item) => total + (item.type === "image" && item.data ? item.data.length : 0),
+        0,
       );
-    return boundRuntimeToolResult(
-      result,
-      Math.max(0, MAX_TRACE_IMAGE_CHARS - usedImageChars)
-    );
+    return boundRuntimeToolResult(result, Math.max(0, MAX_TRACE_IMAGE_CHARS - usedImageChars));
   }
 
   emitUpdate(cellId: string, context: ToolExecutionContext): void {
@@ -79,7 +67,7 @@ export class CodeModeTraceStore {
           cellId,
           status: "running",
           traces: (this.traces.get(cellId) ?? []).map(cloneTrace),
-          ...(droppedTraceCount > 0 ? { droppedTraceCount } : {}),
+          droppedTraceCount: droppedTraceCount > 0 ? droppedTraceCount : undefined,
         },
       });
     } catch {
@@ -93,12 +81,16 @@ export class CodeModeTraceStore {
     if (response.kind !== "yielded") {
       this.delete(response.cellId);
     }
-    return (traces && traces.length > 0) || droppedTraceCount > 0
-      ? {
-          ...response,
-          ...(traces && traces.length > 0 ? { traces } : {}),
-          ...(droppedTraceCount > 0 ? { droppedTraceCount } : {}),
-        }
-      : response;
+    if ((traces === undefined || traces.length === 0) && droppedTraceCount === 0) {
+      return response;
+    }
+    const enriched = { ...response };
+    if (traces !== undefined && traces.length > 0) {
+      enriched.traces = traces;
+    }
+    if (droppedTraceCount > 0) {
+      enriched.droppedTraceCount = droppedTraceCount;
+    }
+    return enriched;
   }
 }

@@ -1,5 +1,7 @@
 import { existsSync, globSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 export interface PackageJson {
   bugs?: { url?: string };
@@ -28,33 +30,26 @@ export interface WorkspacePackage {
   packageJsonPath: string;
 }
 
+const PackageJsonSchema = Type.Object({ name: Type.String() }, { additionalProperties: true });
+
 export const readJson = (filePath: string): PackageJson => {
-  const parsed: unknown = JSON.parse(readFileSync(filePath, "utf-8"));
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    Array.isArray(parsed) ||
-    !("name" in parsed) ||
-    typeof parsed.name !== "string"
-  ) {
+  try {
+    return Value.Parse(PackageJsonSchema, JSON.parse(readFileSync(filePath, "utf-8")));
+  } catch {
     throw new TypeError(`${filePath} does not contain package metadata`);
   }
-  return { ...parsed, name: parsed.name };
 };
 
 const readWorkspaceDirs = (root: string): string[] => {
   const dirs = readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8")
     .split(/\r?\n/u)
     .flatMap((line) => {
-      const match =
-        /^\s*-\s*["']?(?<directory>[^"'#]+?)["']?\s*(?:#.*)?$/u.exec(line);
+      const match = /^\s*-\s*["']?(?<directory>[^"'#]+?)["']?\s*(?:#.*)?$/u.exec(line);
       const directory = match?.groups?.directory;
-      return directory === undefined || directory.length === 0
-        ? []
-        : [directory];
+      return directory === undefined || directory.length === 0 ? [] : [directory];
     })
     .flatMap((directory) =>
-      directory.includes("*") ? globSync(directory, { cwd: root }) : [directory]
+      directory.includes("*") ? globSync(directory, { cwd: root }) : [directory],
     );
 
   if (dirs.every((directory) => directory === ".")) {
@@ -64,9 +59,7 @@ const readWorkspaceDirs = (root: string): string[] => {
   return dirs;
 };
 
-export const readWorkspacePackages = (
-  root = process.cwd()
-): WorkspacePackage[] =>
+export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] =>
   readWorkspaceDirs(root).flatMap((directory) => {
     const packageJsonPath = path.join(directory, "package.json");
     const absolutePackageJsonPath = path.join(root, packageJsonPath);
@@ -84,9 +77,5 @@ export const readWorkspacePackages = (
     ];
   });
 
-export const publishableWorkspacePackages = (
-  root = process.cwd()
-): WorkspacePackage[] =>
-  readWorkspacePackages(root).filter(
-    ({ packageJson }) => packageJson.private === false
-  );
+export const publishableWorkspacePackages = (root = process.cwd()): WorkspacePackage[] =>
+  readWorkspacePackages(root).filter(({ packageJson }) => packageJson.private === false);

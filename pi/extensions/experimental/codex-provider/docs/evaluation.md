@@ -68,7 +68,7 @@ The harness does not claim perfect parity: Pi and Codex CLI have different syste
 The provider-local benchmark compares direct Codex tools, `/code-mode`, and native `codex exec` on the same fixture:
 
 ```bash
-pnpm eval:code-mode --runs 3
+vp run eval:code-mode --runs 3
 ```
 
 Use `--prepare-only` for a no-model-call fixture check. Results include hidden-test outcomes, active tools, elapsed and first-response times, token usage, cost, and each workspace diff.

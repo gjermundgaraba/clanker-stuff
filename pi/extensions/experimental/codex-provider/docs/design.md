@@ -6,20 +6,20 @@ The implementation follows the compatibility objective and pinned [Codex and Pi 
 
 ## Runtime ownership
 
-| Responsibility | Implementation |
-| --- | --- |
-| Provider registration, lazy loading, and hook routing | [`index.ts`](../index.ts), [`runtime.ts`](../runtime.ts), [`lazy-provider.ts`](../lazy-provider.ts) |
-| Session lifecycle, compaction hooks, and fast mode | [`lifecycle.ts`](../lifecycle.ts), [`fast-mode.ts`](../fast-mode.ts) |
-| Request bodies, service tiers, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts) |
-| Model catalog, `/models` refresh, and Codex request headers | [`model-catalog.ts`](../model-catalog.ts) |
-| Direct tools, model gating, selection, and `/code-mode` | [`tools/`](../tools/) |
-| Code Mode host protocol and nested tool runtime | [`code-mode/`](../code-mode/) |
-| Skill-catalog visibility without Pi's `read` tool | [`skill-catalog.ts`](../skill-catalog.ts) |
-| Best-effort request and reliability observations | [`observability.ts`](../observability.ts) |
-| Strict persisted checkpoint format and active-branch resolution | [`checkpoint.ts`](../checkpoint.ts) |
-| Framing, retention, token estimates, and tool-history repair | [`replay.ts`](../replay.ts) |
-| Redacted checkpoint display | [`renderer.ts`](../renderer.ts) |
-| Read-only provider status | [`status.ts`](../status.ts) |
+| Responsibility                                                                          | Implementation                                                                                      |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Provider registration, lazy loading, and hook routing                                   | [`index.ts`](../index.ts), [`runtime.ts`](../runtime.ts), [`lazy-provider.ts`](../lazy-provider.ts) |
+| Session lifecycle, compaction hooks, and fast mode                                      | [`lifecycle.ts`](../lifecycle.ts), [`fast-mode.ts`](../fast-mode.ts)                                |
+| Request bodies, service tiers, retries, transport, continuation, and compaction streams | [`provider.ts`](../provider.ts)                                                                     |
+| Model catalog, `/models` refresh, and Codex request headers                             | [`model-catalog.ts`](../model-catalog.ts)                                                           |
+| Direct tools, model gating, selection, and `/code-mode`                                 | [`tools/`](../tools/)                                                                               |
+| Code Mode host protocol and nested tool runtime                                         | [`code-mode/`](../code-mode/)                                                                       |
+| Skill-catalog visibility without Pi's `read` tool                                       | [`skill-catalog.ts`](../skill-catalog.ts)                                                           |
+| Best-effort request and reliability observations                                        | [`observability.ts`](../observability.ts)                                                           |
+| Strict persisted checkpoint format and active-branch resolution                         | [`checkpoint.ts`](../checkpoint.ts)                                                                 |
+| Framing, retention, token estimates, and tool-history repair                            | [`replay.ts`](../replay.ts)                                                                         |
+| Redacted checkpoint display                                                             | [`renderer.ts`](../renderer.ts)                                                                     |
+| Read-only provider status                                                               | [`status.ts`](../status.ts)                                                                         |
 
 The provider runtime is not optional. Loading the extension replaces Pi's effective `openai-codex` provider for the process. The extension must resolve last so no later context, header, payload, provider, or compaction registration can invalidate its checks; see [local deployment](local-deployment.md).
 

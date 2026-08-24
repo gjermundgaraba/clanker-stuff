@@ -1,18 +1,18 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { describe, expect, it } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { codexContractFixture } from "../../subagents/docs/fixtures/codex-contract.generated.js";
-import {
-  PI_SUBAGENTS_NAMESPACE,
-  rewriteCollaborationTools,
-} from "../collaboration.js";
+import type { CollaborationContractRequest } from "../collaboration.js";
+import { PI_SUBAGENTS_NAMESPACE, rewriteCollaborationTools } from "../collaboration.js";
+import { createToolsModel, wireArray, wireRecord, wireRecords } from "./fixtures.js";
+import type { WireValue } from "./fixtures.js";
 
 const V1_NAMES = codexContractFixture.v1.tools;
 const V2_NAMES = codexContractFixture.v2.tools;
+const StringSchema = Type.String();
 const tools = (names: readonly string[]) =>
   names.map((name) => ({
     description: name,
@@ -21,39 +21,23 @@ const tools = (names: readonly string[]) =>
     strict: null,
     type: "function",
   }));
-const namespaceMemberNames = (
-  namespace: Record<string, unknown> | undefined
-): string[] => {
-  const members = namespace?.tools;
+const namespaceMemberNames = (namespace: WireValue): string[] => {
+  const members = wireRecord(namespace).tools;
   if (!Array.isArray(members)) {
     return [];
   }
-  return members.flatMap((member) =>
-    typeof member === "object" &&
-    member !== null &&
-    "name" in member &&
-    typeof member.name === "string"
-      ? [member.name]
-      : []
-  );
+  return members.flatMap((member) => {
+    const name = wireRecord(member).name;
+    return Value.Check(StringSchema, name) ? [name] : [];
+  });
 };
 
-const harness = (
-  protocol?: "off" | "v1" | "v2",
-  nestedTools: readonly ToolDefinition[] = []
-) => {
+const harness = (protocol?: "off" | "v1" | "v2", nestedTools: readonly ToolDefinition[] = []) => {
   const sessionId = "collaboration-session";
   const pi = {
     events: {
-      emit(channel: string, request: unknown) {
-        if (
-          channel === "clanker-stuff:subagents:contract:request" &&
-          protocol !== undefined &&
-          typeof request === "object" &&
-          request !== null &&
-          "provide" in request &&
-          typeof request.provide === "function"
-        ) {
+      emit(channel: string, request: CollaborationContractRequest) {
+        if (channel === "clanker-stuff:subagents:contract:request" && protocol !== undefined) {
           request.provide({
             nestedTools: nestedTools.map((definition) => ({ definition })),
             protocol,
@@ -63,10 +47,11 @@ const harness = (
         }
       },
     },
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    sessionManager: { getSessionId: () => sessionId },
-  } as unknown as ExtensionContext;
+  };
+  const ctx = createExtensionHost(() => {}, {
+    model: createToolsModel("gpt-5.6-sol"),
+    sessionId,
+  }).createContext();
   return { ctx, pi };
 };
 
@@ -74,26 +59,33 @@ describe("Codex collaboration wire projection", () => {
   it("groups the complete V2 family for standard and Lite requests", () => {
     const { ctx, pi } = harness("v2");
     const incomingNames = V2_NAMES.toReversed();
-    const standard = rewriteCollaborationTools(
-      { tools: [{ ...tools(["exec_command"])[0] }, ...tools(incomingNames)] },
-      pi,
-      ctx
-    ) as { tools: Record<string, unknown>[] };
-    const lite = rewriteCollaborationTools(
-      {
-        input: [
-          {
-            role: "developer",
-            tools: tools(incomingNames),
-            type: "additional_tools",
-          },
-        ],
-      },
-      pi,
-      ctx
-    ) as { input: { tools: Record<string, unknown>[] }[] };
+    const standard = wireRecord(
+      rewriteCollaborationTools(
+        { tools: [{ ...tools(["exec_command"])[0] }, ...tools(incomingNames)] },
+        pi,
+        ctx,
+      ),
+    );
+    const lite = wireRecord(
+      rewriteCollaborationTools(
+        {
+          input: [
+            {
+              role: "developer",
+              tools: tools(incomingNames),
+              type: "additional_tools",
+            },
+          ],
+        },
+        pi,
+        ctx,
+      ),
+    );
+    const standardTools = wireRecords(standard.tools);
+    const liteInput = wireRecords(lite.input);
+    const liteTools = wireRecords(liteInput[0]?.tools);
 
-    for (const namespace of [standard.tools[1], lite.input[0]?.tools[0]]) {
+    for (const namespace of [standardTools[1], liteTools[0]]) {
       expect(namespace).toMatchObject({
         name: "pi_subagents",
         type: "namespace",
@@ -107,32 +99,23 @@ describe("Codex collaboration wire projection", () => {
             }),
             strict: false,
           }),
-        ])
+        ]),
       );
-      expect(namespaceMemberNames(namespace)).toStrictEqual(
-        [...V2_NAMES].toSorted()
-      );
+      expect(namespaceMemberNames(namespace)).toStrictEqual([...V2_NAMES].toSorted());
     }
-    expect(standard.tools[1]).toStrictEqual(lite.input[0]?.tools[0]);
+    expect(standardTools[1]).toStrictEqual(liteTools[0]);
     expect(PI_SUBAGENTS_NAMESPACE).not.toBe(codexContractFixture.v2.namespace);
     const wire = JSON.stringify({ lite, standard });
-    expect(wire).not.toContain(
-      `"name":${JSON.stringify(codexContractFixture.v2.namespace)}`
-    );
+    expect(wire).not.toContain(`"name":${JSON.stringify(codexContractFixture.v2.namespace)}`);
     expect(wire).not.toContain('"encrypted":true');
   });
 
   it("uses the Pi namespace for V1 and fails closed for stale complete families", () => {
     const active = harness("v1");
-    const [namespace] = (
-      rewriteCollaborationTools(
-        { tools: tools(V1_NAMES.toReversed()) },
-        active.pi,
-        active.ctx
-      ) as {
-        tools: Record<string, unknown>[];
-      }
-    ).tools;
+    const rewritten = wireRecord(
+      rewriteCollaborationTools({ tools: tools(V1_NAMES.toReversed()) }, active.pi, active.ctx),
+    );
+    const [namespace] = wireArray(rewritten.tools);
     expect(namespace).toMatchObject({
       name: "pi_subagents",
       type: "namespace",
@@ -142,18 +125,10 @@ describe("Codex collaboration wire projection", () => {
 
     const missing = harness();
     expect(() =>
-      rewriteCollaborationTools(
-        { tools: tools(V2_NAMES) },
-        missing.pi,
-        missing.ctx
-      )
+      rewriteCollaborationTools({ tools: tools(V2_NAMES) }, missing.pi, missing.ctx),
     ).toThrow("without a matching session contract");
     expect(
-      rewriteCollaborationTools(
-        { tools: tools(["spawn_agent"]) },
-        missing.pi,
-        missing.ctx
-      )
+      rewriteCollaborationTools({ tools: tools(["spawn_agent"]) }, missing.pi, missing.ctx),
     ).toMatchObject({
       tools: [expect.objectContaining({ name: "spawn_agent" })],
     });

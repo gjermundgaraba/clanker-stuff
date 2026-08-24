@@ -1,7 +1,5 @@
-/* oxlint-disable typescript/no-misused-spread -- summaries use protocol-defined code points */
-
 export const summary = (value: string): string =>
-  [...value]
+  Array.from(value)
     .slice(0, 512)
     .map((char) => {
       const code = char.codePointAt(0) ?? 0;

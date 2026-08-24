@@ -1,7 +1,6 @@
-/* oxlint-disable eslint/no-use-before-define -- delegate handling is ordered by protocol lifecycle */
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import { nestedToolKey } from "./protocol.js";
-import type { DelegateRequestMessage } from "./protocol.js";
+import type { DelegateRequestMessage, DelegateResponse } from "./protocol.js";
 import { CodeModeTraceStore } from "./trace-store.js";
 import { toolResultFromValue, truncateTraceText } from "./trace-values.js";
 import type {
@@ -18,24 +17,17 @@ const MAX_NOTIFICATIONS_PER_CELL = 100;
 export class CodeModeDelegateRuntime {
   private readonly cellContexts = new Map<string, ToolExecutionContext>();
   private readonly cellTools = new Map<string, Map<string, NestedTool>>();
-  private readonly cleanupTimers = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
+  private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly controllers = new Map<number, AbortController>();
   private readonly notifications = new Map<string, string[]>();
-  private readonly send: (message: unknown) => void;
+  private readonly send: (message: DelegateResponse) => void;
   private readonly traces = new CodeModeTraceStore();
 
-  constructor(send: (message: unknown) => void) {
+  constructor(send: (message: DelegateResponse) => void) {
     this.send = send;
   }
 
-  bindCell(
-    cellId: string,
-    context: ToolExecutionContext,
-    tools?: Map<string, NestedTool>
-  ): void {
+  bindCell(cellId: string, context: ToolExecutionContext, tools?: Map<string, NestedTool>): void {
     this.cellContexts.set(cellId, context);
     if (tools) {
       this.cellTools.set(cellId, tools);
@@ -59,7 +51,7 @@ export class CodeModeDelegateRuntime {
         this.cleanupTimers.delete(cellId);
         this.notifications.delete(cellId);
         this.traces.delete(cellId);
-      }, 1000)
+      }, 1000),
     );
   }
 
@@ -132,7 +124,7 @@ export class CodeModeDelegateRuntime {
 
   private async invoke(
     message: DelegateRequestMessage,
-    controller: AbortController
+    controller: AbortController,
   ): Promise<void> {
     const { request } = message;
     if (request.type === "notification/send") {
@@ -160,7 +152,7 @@ export class CodeModeDelegateRuntime {
       cellId,
       invocation.runtime_tool_call_id,
       tool.definition.name,
-      input
+      input,
     );
     const invocationContext: ToolExecutionContext = {
       ...context,
@@ -169,27 +161,15 @@ export class CodeModeDelegateRuntime {
         this.traces.emitUpdate(cellId, context);
       },
       onUpdate: (update) => {
-        trace.result = this.traces.captureResult(
-          cellId,
-          trace,
-          normalizeResult(update)
-        );
+        trace.result = this.traces.captureResult(cellId, trace, normalizeResult(update));
         this.traces.emitUpdate(cellId, context);
       },
       toolCallId: trace.id,
     };
     this.traces.emitUpdate(cellId, context);
     try {
-      const result = await tool.invoke(
-        input,
-        invocationContext,
-        controller.signal
-      );
-      trace.result ??= this.traces.captureResult(
-        cellId,
-        trace,
-        toolResultFromValue(result)
-      );
+      const result = await tool.invoke(input, invocationContext, controller.signal);
+      trace.result ??= this.traces.captureResult(cellId, trace, toolResultFromValue(result));
       trace.status = "done";
       this.traces.emitUpdate(cellId, context);
       this.respond(message.id, {
@@ -200,7 +180,7 @@ export class CodeModeDelegateRuntime {
       trace.status = "error";
       trace.error = truncateTraceText(
         error instanceof Error ? error.message : String(error),
-        MAX_TRACE_ERROR_CHARS
+        MAX_TRACE_ERROR_CHARS,
       );
       this.traces.emitUpdate(cellId, context);
       this.respond(message.id, {
@@ -214,10 +194,7 @@ export class CodeModeDelegateRuntime {
 
   private handleNotification(
     id: number,
-    request: Extract<
-      DelegateRequestMessage["request"],
-      { type: "notification/send" }
-    >
+    request: Extract<DelegateRequestMessage["request"], { type: "notification/send" }>,
   ): void {
     const { cellId } = request;
     const context = this.cellContexts.get(cellId);
@@ -233,10 +210,7 @@ export class CodeModeDelegateRuntime {
     const text = request.text.slice(0, MAX_NOTIFICATION_CHARS);
     notifications.push(text);
     if (notifications.length > MAX_NOTIFICATIONS_PER_CELL) {
-      notifications.splice(
-        0,
-        notifications.length - MAX_NOTIFICATIONS_PER_CELL
-      );
+      notifications.splice(0, notifications.length - MAX_NOTIFICATIONS_PER_CELL);
     }
     this.notifications.set(cellId, notifications);
     context.onUpdate?.({
@@ -250,7 +224,7 @@ export class CodeModeDelegateRuntime {
     this.controllers.delete(id);
   }
 
-  private respond(id: number, result: Record<string, unknown>): void {
+  private respond(id: number, result: DelegateResponse["result"]): void {
     try {
       this.send({ id, result, type: "delegate/response" });
     } catch (error) {
@@ -282,12 +256,10 @@ const normalizeResult = (result: {
 }): RuntimeToolResult => ({
   content: result.content.filter(
     (
-      item
-    ): item is
-      | { type: "text"; text: string }
-      | { type: "image"; data: string; mimeType: string } =>
+      item,
+    ): item is { type: "text"; text: string } | { type: "image"; data: string; mimeType: string } =>
       (item.type === "text" && "text" in item) ||
-      (item.type === "image" && "data" in item && "mimeType" in item)
+      (item.type === "image" && "data" in item && "mimeType" in item),
   ),
   details: result.details,
 });

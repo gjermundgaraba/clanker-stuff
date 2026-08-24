@@ -5,16 +5,16 @@ import type {
   MessageStartEvent,
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 import { VOICE_TOOL_NAMES } from "../tools.js";
 
 const controller = vi.hoisted(() => ({
-  beforeAgentStart: vi.fn<
-    (event: BeforeAgentStartEvent) => BeforeAgentStartEventResult
-  >(() => ({})),
+  beforeAgentStart: vi.fn<(event: BeforeAgentStartEvent) => BeforeAgentStartEventResult>(
+    () => ({}),
+  ),
   endActiveCall: vi.fn<() => boolean>(() => true),
   finish: vi.fn<(spokenSummary: string) => boolean>(() => true),
   messageStart: vi.fn<(event: MessageStartEvent) => void>(),
@@ -59,13 +59,13 @@ describe("voice registration", () => {
     await host.emit(
       "session_before_tree",
       { preparation: { oldLeafId: null }, type: "session_before_tree" },
-      ctx
+      ctx,
     );
     await host.emitSessionTree(ctx);
     await host.emit(
       "before_agent_start",
       { systemPrompt: "base", type: "before_agent_start" },
-      ctx
+      ctx,
     );
     await host.emit("turn_end", turnEndEvent, ctx);
     await host.emit("agent_settled", { type: "agent_settled" }, ctx);
@@ -82,13 +82,10 @@ describe("voice registration", () => {
       description: "Start, stop, or inspect realtime voice",
     });
     expect(
-      host.getRegisteredTools().get("end_realtime_voice_call")?.definition
-        .description
+      host.getRegisteredTools().get("end_realtime_voice_call")?.definition.description,
     ).toContain("clearly signs off");
     for (const name of VOICE_TOOL_NAMES) {
-      expect(
-        host.getRegisteredTools().get(name)?.definition.constrainedSampling
-      ).toStrictEqual({
+      expect(host.getRegisteredTools().get(name)?.definition.constrainedSampling).toStrictEqual({
         strict: "prefer",
         type: "json_schema",
       });

@@ -3,29 +3,23 @@ import {
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
+  parseFooterWidgetMessage,
 } from "@clanker-stuff/footer-protocol";
 import type { Api, Model, RefreshModelsContext } from "@earendil-works/pi-ai";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createCodexRuntime } from "../../experimental/codex-provider/runtime.js";
 import type { ProviderAuthClient } from "../auth.js";
-import { providerAuthClientFromContext } from "../auth.js";
 import type { FetchJson } from "../http.js";
-import { defaultFetchJson } from "../http.js";
-import extension from "../index.js";
-
-vi.mock(import("../auth.js"), { spy: true });
-vi.mock(import("../http.js"), { spy: true });
+import { createUsageExtension } from "../index.js";
 
 const makeJwt = (): string => {
-  const header = Buffer.from(JSON.stringify({ alg: "none" })).toString(
-    "base64url"
-  );
+  const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
   const body = Buffer.from(
     JSON.stringify({
       "https://api.openai.com/auth": { chatgpt_account_id: "acct_1" },
-    })
+    }),
   ).toString("base64url");
   return `${header}.${body}.sig`;
 };
@@ -56,7 +50,7 @@ const authClient: ProviderAuthClient = {
   }),
 };
 
-const fetchJson: FetchJson = async () => ({
+const successfulFetchJson: FetchJson = async () => ({
   json: {
     rate_limit: {
       primary_window: { used_percent: 32 },
@@ -66,23 +60,29 @@ const fetchJson: FetchJson = async () => ({
   ok: true,
 });
 
-const publishModels: RefreshModelsContext["publish"] = () =>
-  Promise.resolve(true);
+const fetchJson = vi.fn<FetchJson>(successfulFetchJson);
+
+const publishModels: RefreshModelsContext["publish"] = () => Promise.resolve(true);
 
 const stubDependencies = (nowRef: { value: number }) => {
-  vi.mocked(providerAuthClientFromContext).mockReturnValue(authClient);
-  vi.mocked(defaultFetchJson).mockImplementation(fetchJson);
-  // oxlint-disable-next-line vitest/prefer-mock-return-shorthand -- time must be read lazily; tests advance nowRef mid-run
-  vi.spyOn(Date, "now").mockImplementation(() => nowRef.value);
+  fetchJson.mockReset();
+  fetchJson.mockImplementation(successfulFetchJson);
+  return createUsageExtension({
+    fetchJson,
+    now: () => nowRef.value,
+    providerAuthClient: () => authClient,
+  });
 };
 
 describe("usage controller", () => {
   it("keeps a native fallback and publishes rich snapshots when a host is ready", async () => {
-    stubDependencies({ value: 1000 });
+    const extension = stubDependencies({ value: 1000 });
     const host = createExtensionHost(extension, { model: codexModel });
-    const messages: unknown[] = [];
+    const messages: object[] = [];
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {
-      messages.push(value);
+      if (value instanceof Object) {
+        messages.push(value);
+      }
     });
     host.events.on(FOOTER_READY_REQUEST_EVENT, () => {
       host.events.emit(FOOTER_READY_EVENT, {
@@ -101,37 +101,31 @@ describe("usage controller", () => {
     expect(
       messages.some(
         (message) =>
-          typeof message === "object" &&
-          message !== null &&
           "widget" in message &&
-          (message.widget as { id?: string }).id === "clanker.usage.active"
-      )
+          message.widget instanceof Object &&
+          "id" in message.widget &&
+          message.widget.id === "clanker.usage.active",
+      ),
     ).toBeTruthy();
     expect(
       messages.some(
         (message) =>
-          typeof message === "object" &&
-          message !== null &&
           "widget" in message &&
-          (message.widget as { id?: string }).id === "clanker.usage.details"
-      )
+          message.widget instanceof Object &&
+          "id" in message.widget &&
+          message.widget.id === "clanker.usage.details",
+      ),
     ).toBeTruthy();
 
     await host.emitSessionShutdown(context);
     expect(host.getStatus("usage")).toBeUndefined();
     expect(
-      messages.filter(
-        (message) =>
-          typeof message === "object" &&
-          message !== null &&
-          "type" in message &&
-          message.type === "remove"
-      )
+      messages.filter((message) => "type" in message && message.type === "remove"),
     ).toHaveLength(2);
   });
 
   it("works without a rich footer host", async () => {
-    stubDependencies({ value: 1000 });
+    const extension = stubDependencies({ value: 1000 });
     const host = createExtensionHost(extension, { model: codexModel });
     const context = host.createContext({ model: codexModel });
     await host.emitSessionStart(context);
@@ -142,12 +136,12 @@ describe("usage controller", () => {
   });
 
   it("refreshes immediately when Codex observes a login", async () => {
-    stubDependencies({ value: 1000 });
+    const extension = stubDependencies({ value: 1000 });
     let requests = 0;
     let refreshModels:
       | ReturnType<typeof createCodexRuntime>["catalog"]["refreshModels"]
       | undefined;
-    vi.mocked(defaultFetchJson).mockImplementation(async () => {
+    fetchJson.mockImplementation(async () => {
       requests += 1;
       return {
         json: {
@@ -161,7 +155,7 @@ describe("usage controller", () => {
         ({ refreshModels } = createCodexRuntime(pi, vi.fn()).catalog);
         extension(pi);
       },
-      { model: codexModel }
+      { model: codexModel },
     );
     const context = host.createContext({ model: codexModel });
 
@@ -193,19 +187,19 @@ describe("usage controller", () => {
   });
 
   it("does not fetch usage automatically outside TUI mode", async () => {
-    stubDependencies({ value: 1000 });
+    const extension = stubDependencies({ value: 1000 });
     const host = createExtensionHost(extension, { model: codexModel });
     const context = host.createContext({ mode: "rpc", model: codexModel });
 
     await host.emitSessionStart(context);
     await host.emit("agent_settled", { type: "agent_settled" }, context);
 
-    expect(defaultFetchJson).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
     await host.emitSessionShutdown(context);
   });
 
   it("does not let a stale command refresh overwrite a model switch", async () => {
-    stubDependencies({ value: 1000 });
+    const extension = stubDependencies({ value: 1000 });
     const codex = Promise.withResolvers<{
       json: unknown;
       ok: true;
@@ -214,7 +208,7 @@ describe("usage controller", () => {
       json: unknown;
       ok: true;
     }>();
-    vi.mocked(defaultFetchJson).mockImplementation(async (url) => {
+    fetchJson.mockImplementation(async (url) => {
       if (url.includes("/wham/usage")) {
         return await codex.promise;
       }
@@ -228,10 +222,7 @@ describe("usage controller", () => {
 
     const command = host.runCommand("usage", "", codexContext);
     await vi.waitFor(() => {
-      expect(defaultFetchJson).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Object)
-      );
+      expect(fetchJson).toHaveBeenCalledWith(expect.any(String), expect.any(Object));
     });
     const claudeContext = host.createContext({ model: claudeModel });
     await host.emit(
@@ -242,7 +233,7 @@ describe("usage controller", () => {
         source: "set",
         type: "model_select",
       },
-      claudeContext
+      claudeContext,
     );
     claude.resolve({
       json: {
@@ -269,11 +260,11 @@ describe("usage controller", () => {
   });
 
   it("invalidates cached and in-flight Codex usage when the account changes", async () => {
-    stubDependencies({ value: 1000 });
+    const extension = stubDependencies({ value: 1000 });
     const first = Promise.withResolvers<{ json: unknown; ok: true }>();
     const second = Promise.withResolvers<{ json: unknown; ok: true }>();
     let request = 0;
-    vi.mocked(defaultFetchJson).mockImplementation(async () => {
+    fetchJson.mockImplementation(async () => {
       request += 1;
       return await (request === 1 ? first.promise : second.promise);
     });
@@ -281,12 +272,12 @@ describe("usage controller", () => {
     const context = host.createContext({ model: codexModel });
     await host.emitSessionStart(context);
     await vi.waitFor(() => {
-      expect(defaultFetchJson).toHaveBeenCalledOnce();
+      expect(fetchJson).toHaveBeenCalledOnce();
     });
 
     host.events.emit("clanker-codex:account-changed", null);
     await vi.waitFor(() => {
-      expect(defaultFetchJson).toHaveBeenCalledTimes(2);
+      expect(fetchJson).toHaveBeenCalledTimes(2);
     });
     first.resolve({
       json: {
@@ -311,34 +302,30 @@ describe("usage controller", () => {
 
   it("publishes loading, error, ready, and stale health", async () => {
     const nowRef = { value: 1000 };
-    stubDependencies(nowRef);
+    const extension = stubDependencies(nowRef);
     let requests = 0;
     const health: { message?: string; state: string }[] = [];
-    vi.mocked(defaultFetchJson).mockImplementation(async (url, options) => {
+    fetchJson.mockImplementation(async (url, options) => {
       requests += 1;
       if (requests === 2) {
-        return fetchJson(url, options);
+        return successfulFetchJson(url, options);
       }
       return { message: "boom\n[31mred", ok: false };
     });
     const host = createExtensionHost(extension, { model: codexModel });
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {
-      const { widget } = value as {
-        widget?: {
-          health?: { message?: string; state?: string };
-          id?: string;
-        };
-      };
+      const message = parseFooterWidgetMessage(value);
       if (
-        widget?.id === "clanker.usage.active" &&
-        widget.health?.state !== undefined
+        message?.type === "upsert" &&
+        message.widget.id === "clanker.usage.active" &&
+        message.widget.health !== undefined
       ) {
-        health.push({
-          ...(widget.health.message === undefined
-            ? {}
-            : { message: widget.health.message }),
-          state: widget.health.state,
-        });
+        const widgetHealth = message.widget.health;
+        health.push(
+          widgetHealth.message === undefined
+            ? { state: widgetHealth.state }
+            : { message: widgetHealth.message, state: widgetHealth.state },
+        );
       }
     });
     host.events.on(FOOTER_READY_REQUEST_EVENT, () => {
@@ -369,7 +356,7 @@ describe("usage controller", () => {
     });
 
     expect(health.map(({ state }) => state)).toStrictEqual(
-      expect.arrayContaining(["loading", "error", "ready", "stale"])
+      expect.arrayContaining(["loading", "error", "ready", "stale"]),
     );
     expect(health.at(-1)?.message).toBe("boom  [31mred");
 

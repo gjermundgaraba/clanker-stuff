@@ -1,5 +1,5 @@
 import { BREATHING_DOT_INTERVAL_MS as TIMER_INTERVAL_MS } from "@clanker-stuff/pi-motion";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createTimer } from "../timer.js";
@@ -53,9 +53,7 @@ describe("timer", () => {
 
     const callCountAfterEnd = vi.mocked(ctx.ui.setStatus).mock.calls.length;
     vi.advanceTimersByTime(1000);
-    expect(vi.mocked(ctx.ui.setStatus)).toHaveBeenCalledTimes(
-      callCountAfterEnd
-    );
+    expect(vi.mocked(ctx.ui.setStatus)).toHaveBeenCalledTimes(callCountAfterEnd);
   });
 
   it("formats times over 60 seconds as mm:ss", () => {
@@ -88,11 +86,8 @@ describe("timer", () => {
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 5);
     timer.dispose();
 
-    const callCountAfterShutdown = vi.mocked(ctx.ui.setStatus).mock.calls
-      .length;
+    const callCountAfterShutdown = vi.mocked(ctx.ui.setStatus).mock.calls.length;
     vi.advanceTimersByTime(1000);
-    expect(vi.mocked(ctx.ui.setStatus)).toHaveBeenCalledTimes(
-      callCountAfterShutdown
-    );
+    expect(vi.mocked(ctx.ui.setStatus)).toHaveBeenCalledTimes(callCountAfterShutdown);
   });
 });

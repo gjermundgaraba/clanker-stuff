@@ -1,9 +1,5 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
-import type {
-  ExtensionContext,
-  InputEvent,
-  UserBashEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
 
 import type { createReverseSearch } from "./controller.js";
 
@@ -21,7 +17,7 @@ export const createReverseSearchRuntime = () => {
       if (context !== undefined) {
         controller.start(context);
       }
-    }
+    },
   );
 
   return {

@@ -27,20 +27,20 @@ const PromptInputSchema = Type.Object(
             mimeType: Type.String({ minLength: 1 }),
             type: Type.Literal("image"),
           },
-          { additionalProperties: false }
-        )
-      )
+          { additionalProperties: false },
+        ),
+      ),
     ),
     text: Type.String(),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 const TurnSchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
     input: PromptInputSchema,
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 const ActiveTurnProperties = {
   ...TurnSchema.properties,
@@ -50,14 +50,14 @@ const PendingTurnSchema = Type.Object(
     ...ActiveTurnProperties,
     phase: Type.Literal("pending"),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 const RunningTurnSchema = Type.Object(
   {
     ...ActiveTurnProperties,
     phase: Type.Literal("running"),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 const NotificationSchema = Type.Object(
   {
@@ -65,7 +65,7 @@ const NotificationSchema = Type.Object(
     content: Type.String(),
     id: Type.String({ minLength: 1 }),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 const AgentIdentityProperties = {
   id: Type.String({ minLength: 1 }),
@@ -88,7 +88,7 @@ const AgentSchema = Type.Union([
       error: Type.Optional(Type.Never()),
       status: Type.Literal("pending"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -97,7 +97,7 @@ const AgentSchema = Type.Union([
       error: Type.Optional(Type.Never()),
       status: Type.Literal("running"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -106,7 +106,7 @@ const AgentSchema = Type.Union([
       error: Type.Optional(Type.Never()),
       status: Type.Literal("interrupted"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -115,7 +115,7 @@ const AgentSchema = Type.Union([
       error: Type.Optional(Type.Never()),
       status: Type.Literal("completed"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -124,7 +124,7 @@ const AgentSchema = Type.Union([
       error: Type.String(),
       status: Type.Literal("errored"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -136,7 +136,7 @@ const AgentSchema = Type.Union([
       queue: Type.Tuple([]),
       status: Type.Literal("shutdown"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
 ]);
 export const V1SnapshotSchema = Type.Object(
@@ -144,7 +144,7 @@ export const V1SnapshotSchema = Type.Object(
     agents: Type.Array(AgentSchema),
     notifications: Type.Array(NotificationSchema),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 
 export type V1AgentStatus = Static<typeof StatusSchema>;

@@ -1,16 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
-import {
-  getActiveProvider,
-  providerDisplayName,
-  SUPPORTED_PROVIDERS,
-} from "../providers.js";
+import { getActiveProvider, providerDisplayName, SUPPORTED_PROVIDERS } from "../providers.js";
 
 describe("providers", () => {
   it("recognizes exactly the supported providers", () => {
-    expect(
-      SUPPORTED_PROVIDERS.map((provider) => getActiveProvider({ provider }))
-    ).toStrictEqual(SUPPORTED_PROVIDERS);
+    expect(SUPPORTED_PROVIDERS.map((provider) => getActiveProvider({ provider }))).toStrictEqual(
+      SUPPORTED_PROVIDERS,
+    );
     expect(getActiveProvider({ provider: "openrouter" })).toBeUndefined();
     expect(getActiveProvider(null)).toBeUndefined();
   });

@@ -4,14 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  removeCopiedAuth,
-  waitForCrashCheckpoint,
-} from "../scripts/live-chaos.js";
+import { removeCopiedAuth, waitForCrashCheckpoint } from "../scripts/live-chaos.js";
 
-// oxlint-disable-next-line unicorn/prefer-event-target -- ChildProcess uses EventEmitter semantics
 class FakeChild extends EventEmitter {
   readonly signals: NodeJS.Signals[] = [];
 
@@ -25,10 +21,10 @@ class FakeChild extends EventEmitter {
 const watch = (
   child: FakeChild,
   stdout: PassThrough,
-  find: (root: string) => Promise<unknown>
+  find: (root: string) => Promise<object | undefined>,
 ) =>
   waitForCrashCheckpoint({
-    child: child as never,
+    child,
     find,
     pollIntervalMs: 10,
     stdout,
@@ -52,7 +48,7 @@ describe("live crash infrastructure", () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     const stdout = new PassThrough();
-    const find = vi.fn<(root: string) => Promise<unknown>>(async () => ({
+    const find = vi.fn<(root: string) => Promise<object | undefined>>(async () => ({
       checkpoint: true,
     }));
     const result = watch(child, stdout, find);
@@ -75,7 +71,7 @@ describe("live crash infrastructure", () => {
     const child = new FakeChild();
     const stdout = new PassThrough();
     const find = vi
-      .fn<(root: string) => Promise<unknown>>()
+      .fn<(root: string) => Promise<object | undefined>>()
       .mockRejectedValue(new Error("unreadable session"));
     const result = watch(child, stdout, find);
     const rejection = captureError(result);
@@ -95,7 +91,7 @@ describe("live crash infrastructure", () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     const stdout = new PassThrough();
-    const find = vi.fn<(root: string) => Promise<unknown>>(async () => {});
+    const find = vi.fn<(root: string) => Promise<object | undefined>>(async () => {});
     const result = watch(child, stdout, find);
     const rejection = captureError(result);
 
@@ -118,12 +114,10 @@ describe("live crash infrastructure", () => {
 
     try {
       await removeCopiedAuth(agentDir);
-      await expect(readFile(path.join(agentDir, "auth.json"))).rejects.toThrow(
-        "ENOENT"
+      await expect(readFile(path.join(agentDir, "auth.json"))).rejects.toThrow("ENOENT");
+      await expect(readFile(path.join(agentDir, "settings.json"), "utf-8")).resolves.toBe(
+        "settings",
       );
-      await expect(
-        readFile(path.join(agentDir, "settings.json"), "utf-8")
-      ).resolves.toBe("settings");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

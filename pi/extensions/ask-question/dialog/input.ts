@@ -14,10 +14,7 @@ export type DecodedIntent =
   | { type: "printable"; text: string }
   | { type: "none" };
 
-export type AskQuestionKeybindings = Pick<
-  KeybindingsManager,
-  "matches" | "getKeys"
->;
+export type AskQuestionKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
 
 export const formatKeyLabel = (key: string): string => {
   switch (key) {
@@ -87,8 +84,7 @@ const extractPrintableText = (data: string): string => {
   let out = "";
   for (const char of data) {
     const code = char.codePointAt(0) ?? 0;
-    const isControl =
-      code < 32 || code === 127 || (code >= 0x80 && code <= 0x9f);
+    const isControl = code < 32 || code === 127 || (code >= 0x80 && code <= 0x9f);
     if (!isControl) {
       out += char;
     }
@@ -96,10 +92,7 @@ const extractPrintableText = (data: string): string => {
   return out;
 };
 
-export const isSingleCharShortcut = (
-  intent: DecodedIntent,
-  key: string
-): boolean =>
+export const isSingleCharShortcut = (intent: DecodedIntent, key: string): boolean =>
   intent.type === "printable" &&
   intent.text.length === 1 &&
   intent.text.toLowerCase() === key.toLowerCase();
@@ -107,7 +100,7 @@ export const isSingleCharShortcut = (
 const formatBindingLabel = (
   keybindings: AskQuestionKeybindings,
   keybinding: Parameters<AskQuestionKeybindings["getKeys"]>[0],
-  fallback: string
+  fallback: string,
 ): string => {
   const keys = keybindings.getKeys(keybinding);
   if (keys.length === 0) {
@@ -118,7 +111,7 @@ const formatBindingLabel = (
 
 export const decodeAskQuestionIntent = (
   keybindings: AskQuestionKeybindings,
-  data: string
+  data: string,
 ): DecodedIntent => {
   type KeyId = Parameters<typeof matchesKey>[1];
   const match = (keyId: KeyId) => matchesKey(data, keyId);
@@ -159,17 +152,9 @@ export const decodeAskQuestionIntent = (
 };
 
 export const createHelpText = (keybindings: AskQuestionKeybindings) => {
-  const confirm = formatBindingLabel(
-    keybindings,
-    "tui.select.confirm",
-    "confirm"
-  );
+  const confirm = formatBindingLabel(keybindings, "tui.select.confirm", "confirm");
   const cancel = formatBindingLabel(keybindings, "tui.select.cancel", "cancel");
-  const editorSubmit = formatBindingLabel(
-    keybindings,
-    "tui.input.submit",
-    "submit"
-  );
+  const editorSubmit = formatBindingLabel(keybindings, "tui.input.submit", "submit");
   const up = formatBindingLabel(keybindings, "tui.select.up", "↑");
   const down = formatBindingLabel(keybindings, "tui.select.down", "↓");
   const move = `${up}/${down}`;

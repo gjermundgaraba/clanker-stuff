@@ -4,20 +4,50 @@ import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+
 import type { VoiceTrace } from "./trace.js";
 
-type MediaRequest =
-  | {
-      id: number;
-      method: "offer" | "renew_offer";
-      offer: string;
-      type: "request";
-    }
-  | {
-      id: number;
-      method: "renew_commit";
-      type: "request";
-    };
+const MediaRequestSchema = Type.Union([
+  Type.Object({
+    id: Type.Number(),
+    method: Type.Union([Type.Literal("offer"), Type.Literal("renew_offer")]),
+    offer: Type.String({ minLength: 1, maxLength: 1_000_000 }),
+    type: Type.Literal("request"),
+  }),
+  Type.Object({
+    id: Type.Number(),
+    method: Type.Literal("renew_commit"),
+    type: Type.Literal("request"),
+  }),
+]);
+
+type MediaRequest = Static<typeof MediaRequestSchema>;
+
+const MediaEventSchema = Type.Object({
+  event: Type.String(),
+  message: Type.Optional(Type.String()),
+  muted: Type.Optional(Type.Boolean()),
+  type: Type.Literal("event"),
+});
+
+type MediaEvent = Static<typeof MediaEventSchema>;
+
+const ReadyEventSchema = Type.Object({
+  event: Type.Literal("ready"),
+  type: Type.Literal("event"),
+});
+
+const ElectronPathSchema = Type.String({ minLength: 1 });
+
+type MediaCommand =
+  | { command: "shutdown"; type: "command" }
+  | { event: "renew_due"; type: "event" }
+  | { event: "error"; message: string; type: "event" }
+  | { event: "state"; state: string; type: "event" }
+  | { error?: string; id: number; ok: boolean; type: "response"; value?: string };
 
 interface MediaProcessOptions {
   onClosed: () => void;
@@ -31,29 +61,6 @@ interface MediaProcessOptions {
   onRenewOffer: (offer: string) => Promise<string>;
   trace?: VoiceTrace;
 }
-
-interface MediaEvent {
-  event: string;
-  message?: string;
-  muted?: boolean;
-  type: "event";
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-const isMediaRequest = (value: unknown): value is MediaRequest =>
-  isRecord(value) &&
-  value.type === "request" &&
-  typeof value.id === "number" &&
-  (value.method === "renew_commit" ||
-    ((value.method === "offer" || value.method === "renew_offer") &&
-      typeof value.offer === "string" &&
-      value.offer.length > 0 &&
-      value.offer.length <= 1_000_000));
-
-const isMediaEvent = (value: unknown): value is MediaEvent =>
-  isRecord(value) && value.type === "event" && typeof value.event === "string";
 
 export class MediaProcess {
   private child: ChildProcessWithoutNullStreams | undefined;
@@ -78,21 +85,17 @@ export class MediaProcess {
 
     const require = createRequire(import.meta.url);
     const electronModule: unknown = require("electron");
-    if (typeof electronModule !== "string" || electronModule.length === 0) {
+    if (!Value.Check(ElectronPathSchema, electronModule)) {
       throw new Error("Electron is not installed.");
     }
-    const electronPath = electronModule;
+    const electronPath = Value.Parse(ElectronPathSchema, electronModule);
 
     const environment = { ...process.env };
     delete environment.ELECTRON_RUN_AS_NODE;
-    const child = spawn(
-      electronPath,
-      [fileURLToPath(new URL("media", import.meta.url))],
-      {
-        env: environment,
-        stdio: ["pipe", "pipe", "pipe"],
-      }
-    );
+    const child = spawn(electronPath, [fileURLToPath(new URL("media", import.meta.url))], {
+      env: environment,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     this.child = child;
     this.stopping = false;
     this.options.trace?.("media.spawn", {
@@ -123,9 +126,7 @@ export class MediaProcess {
         this.child = undefined;
       }
       this.rejectStartup(
-        new Error(
-          `Voice media window exited during startup (${code ?? "unknown"}).`
-        )
+        new Error(`Voice media window exited during startup (${code ?? "unknown"}).`),
       );
       if (!this.stopping) {
         this.options.onClosed();
@@ -139,9 +140,7 @@ export class MediaProcess {
         resolve(true);
       },
       timeout: setTimeout(() => {
-        this.rejectStartup(
-          new Error("Voice media window did not start in time.")
-        );
+        this.rejectStartup(new Error("Voice media window did not start in time."));
       }, 10_000),
     };
     await promise;
@@ -184,20 +183,17 @@ export class MediaProcess {
     } catch {
       return;
     }
-    if (!isRecord(message)) {
-      return;
-    }
-    if (message.type === "event" && message.event === "ready") {
+    if (Value.Check(ReadyEventSchema, message)) {
       this.resolveStartup();
       return;
     }
 
-    if (isMediaRequest(message)) {
-      void this.handleRequest(message);
+    if (Value.Check(MediaRequestSchema, message)) {
+      void this.handleRequest(Value.Parse(MediaRequestSchema, message));
       return;
     }
-    if (isMediaEvent(message)) {
-      this.handleEvent(message);
+    if (Value.Check(MediaEventSchema, message)) {
+      this.handleEvent(Value.Parse(MediaEventSchema, message));
     }
   }
 
@@ -253,9 +249,7 @@ export class MediaProcess {
         break;
       }
       case "usage_warning": {
-        this.options.onError(
-          "OpenAI reports that voice usage is approaching its limit."
-        );
+        this.options.onError("OpenAI reports that voice usage is approaching its limit.");
         break;
       }
       default: {
@@ -264,7 +258,7 @@ export class MediaProcess {
     }
   }
 
-  private send(message: Record<string, unknown>): void {
+  private send(message: MediaCommand): void {
     const input = this.child?.stdin;
     if (input?.writable !== true) {
       return;

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { auditLocalOrder } from "../audit-local-order.js";
 
@@ -32,7 +32,7 @@ describe("local order audit", () => {
     await Promise.all([
       writeFile(
         path.join(agentDir, "settings.json"),
-        `${JSON.stringify({ packages: [PACKAGE_ROOT] }, null, 2)}\n`
+        `${JSON.stringify({ packages: [PACKAGE_ROOT] }, null, 2)}\n`,
       ),
       writeFile(
         path.join(projectConfig, "settings.json"),
@@ -42,13 +42,10 @@ describe("local order audit", () => {
             packages: ["../project-package"],
           },
           null,
-          2
-        )}\n`
+          2,
+        )}\n`,
       ),
-      writeFile(
-        path.join(projectConfig, "configured.ts"),
-        "export default () => {};\n"
-      ),
+      writeFile(path.join(projectConfig, "configured.ts"), "export default () => {};\n"),
       writeFile(
         path.join(projectPackage, "package.json"),
         `${JSON.stringify(
@@ -58,13 +55,10 @@ describe("local order audit", () => {
             type: "module",
           },
           null,
-          2
-        )}\n`
+          2,
+        )}\n`,
       ),
-      writeFile(
-        path.join(projectPackage, "index.ts"),
-        "export default () => {};\n"
-      ),
+      writeFile(path.join(projectPackage, "index.ts"), "export default () => {};\n"),
     ]);
 
     const result = await auditLocalOrder({
@@ -76,7 +70,7 @@ describe("local order audit", () => {
       count: result.count,
       finalPath: result.finalPath,
       orderedFiles: result.extensions.map(({ path: extensionPath }) =>
-        path.basename(extensionPath)
+        path.basename(extensionPath),
       ),
       piVersion: result.piVersion,
       sdkVersion: result.sdkVersion,
@@ -88,8 +82,8 @@ describe("local order audit", () => {
       sdkVersion: "0.84.2",
     });
 
-    await expect(
-      auditLocalOrder({ agentDir, cwd, piVersion: "0.83.0" })
-    ).rejects.toThrow("Unsupported Pi executable version 0.83.0");
+    await expect(auditLocalOrder({ agentDir, cwd, piVersion: "0.83.0" })).rejects.toThrow(
+      "Unsupported Pi executable version 0.83.0",
+    );
   });
 });

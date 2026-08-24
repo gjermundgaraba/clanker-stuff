@@ -29,7 +29,7 @@ const isCodexModel = (model: Model<string> | undefined): boolean =>
 
 export const createCodexRuntime = (
   pi: ExtensionAPI,
-  setFastFooterActive: (active: boolean) => void
+  setFastFooterActive: (active: boolean) => void,
 ) => {
   const storage = getExtensionStoragePaths("codex-provider");
   const catalog = createCodexModelCatalog(() => {
@@ -38,28 +38,23 @@ export const createCodexRuntime = (
   const fastMode = createFastModeState(
     pi,
     createFastModeConfigStore(storage.configFile),
-    setFastFooterActive
+    setFastFooterActive,
   );
-  let pendingModelSelection:
-    | { ctx: ExtensionContext; event: ModelSelectEvent }
-    | undefined;
+  let pendingModelSelection: { ctx: ExtensionContext; event: ModelSelectEvent } | undefined;
   let pendingStart: ExtensionContext | undefined;
 
   const codex = createLazySingleton<CodexLifecycle>(
     async (signal) => {
-      const [{ createCodexLifecycle }, { CodexObservability }] =
-        await Promise.all([
-          import("./lifecycle.js"),
-          import("./observability.js"),
-        ]);
+      const [{ createCodexLifecycle }, { CodexObservability }] = await Promise.all([
+        import("./lifecycle.js"),
+        import("./observability.js"),
+      ]);
       signal.throwIfAborted();
       return createCodexLifecycle(
         pi,
-        new CodexObservability(
-          path.join(storage.dataDir, "codex-provider.sqlite")
-        ),
+        new CodexObservability(path.join(storage.dataDir, "codex-provider.sqlite")),
         fastMode.isEnabled,
-        catalog
+        catalog,
       );
     },
     (loaded) => {
@@ -73,7 +68,7 @@ export const createCodexRuntime = (
         pendingModelSelection = undefined;
         loaded.modelSelect(selection.event, selection.ctx);
       }
-    }
+    },
   );
   const requireCodex = async (): Promise<CodexLifecycle> => {
     const loaded = await codex.load();
@@ -82,11 +77,8 @@ export const createCodexRuntime = (
     }
     return loaded;
   };
-  const maybeLoad = async (
-    required: () => boolean
-  ): Promise<CodexLifecycle | undefined> =>
-    codex.get() ??
-    (codex.isLoading() || required() ? await codex.load() : undefined);
+  const maybeLoad = async (required: () => boolean): Promise<CodexLifecycle | undefined> =>
+    codex.get() ?? (codex.isLoading() || required() ? await codex.load() : undefined);
   const refreshFastStatus = (ctx: ExtensionContext): void => {
     fastMode.refresh(ctx, catalog.supportsFastMode);
   };
@@ -99,42 +91,31 @@ export const createCodexRuntime = (
       const loaded = await maybeLoad(() => isCodexModel(ctx.model));
       loaded?.beforeAgentStart(ctx);
     },
-    beforeCompact: async (
-      event: SessionBeforeCompactEvent,
-      ctx: ExtensionContext
-    ) => {
+    beforeCompact: async (event: SessionBeforeCompactEvent, ctx: ExtensionContext) => {
       const loaded = await maybeLoad(
-        () => isCodexModel(ctx.model) || branchNeedsCodex(event.branchEntries)
+        () => isCodexModel(ctx.model) || branchNeedsCodex(event.branchEntries),
       );
       return await loaded?.beforeCompact(event, ctx);
     },
     beforeProviderHeaders: async (
       event: BeforeProviderHeadersEvent,
-      ctx: ExtensionContext
+      ctx: ExtensionContext,
     ): Promise<void> => {
       const loaded = await maybeLoad(() => isCodexModel(ctx.model));
       loaded?.beforeProviderHeaders(event, ctx);
     },
-    beforeProviderRequest: async (
-      event: BeforeProviderRequestEvent,
-      ctx: ExtensionContext
-    ) => {
+    beforeProviderRequest: async (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => {
       const loaded = await maybeLoad(() => isCodexModel(ctx.model));
       return await loaded?.beforeProviderRequest(event, ctx);
     },
     catalog,
-    command: async (
-      args: string,
-      ctx: ExtensionCommandContext
-    ): Promise<void> => {
+    command: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const loaded = await codex.load();
       await loaded?.runCommand(args, ctx);
     },
     context: async (event: ContextEvent, ctx: ExtensionContext) => {
       const loaded = await maybeLoad(
-        () =>
-          isCodexModel(ctx.model) ||
-          branchNeedsCodex(ctx.sessionManager.getBranch())
+        () => isCodexModel(ctx.model) || branchNeedsCodex(ctx.sessionManager.getBranch()),
       );
       return loaded?.context(event, ctx);
     },
@@ -160,16 +141,10 @@ export const createCodexRuntime = (
       }
       refreshFastStatus(ctx);
     },
-    sessionCompact: (
-      event: SessionCompactEvent,
-      ctx: ExtensionContext
-    ): void => {
+    sessionCompact: (event: SessionCompactEvent, ctx: ExtensionContext): void => {
       codex.get()?.compact(event, ctx);
     },
-    sessionStart: async (
-      ctx: ExtensionContext,
-      startup: boolean
-    ): Promise<void> => {
+    sessionStart: async (ctx: ExtensionContext, startup: boolean): Promise<void> => {
       const loaded = codex.get();
       if (loaded === undefined) {
         pendingStart = ctx;

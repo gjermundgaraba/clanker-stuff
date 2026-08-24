@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { codexContractFixture } from "../docs/fixtures/codex-contract.generated.js";
 
@@ -9,25 +9,14 @@ const docsDir = path.resolve(import.meta.dirname, "../docs");
 
 describe("Codex parity documentation", () => {
   it("keeps parity rows structurally valid", async () => {
-    const document = await readFile(
-      path.join(docsDir, "codex-parity.md"),
-      "utf-8"
-    );
-    const rows = document
-      .split("\n")
-      .filter((line) => /^\| [A-Z0-9]+-\d+ \|/u.test(line));
+    const document = await readFile(path.join(docsDir, "codex-parity.md"), "utf-8");
+    const rows = document.split("\n").filter((line) => /^\| [A-Z0-9]+-\d+ \|/u.test(line));
     const ids = rows.map((row) => row.split("|")[1]?.trim());
     expect(rows.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
     for (const row of rows) {
       const cells = row.split("|").map((cell) => cell.trim());
-      expect([
-        "match",
-        "partial",
-        "different",
-        "unsupported",
-        "unknown",
-      ]).toContain(cells[5]);
+      expect(["match", "partial", "different", "unsupported", "unknown"]).toContain(cells[5]);
       expect(cells[7]).not.toBe("");
       expect(cells[8]).not.toBe("");
     }
@@ -42,15 +31,12 @@ describe("Codex parity documentation", () => {
     ] as const;
     const documents = Object.fromEntries(
       await Promise.all(
-        names.map(async (name) => [
-          name,
-          await readFile(path.join(docsDir, name), "utf-8"),
-        ])
-      )
+        names.map(async (name) => [name, await readFile(path.join(docsDir, name), "utf-8")]),
+      ),
     );
     const providerBaseline = await readFile(
       path.resolve(docsDir, "../../codex-provider/docs/codex-baseline.md"),
-      "utf-8"
+      "utf-8",
     );
     const { commit } = codexContractFixture;
     for (const link of [
@@ -61,9 +47,7 @@ describe("Codex parity documentation", () => {
       expect(documents["protocols.md"]).toContain(`(${link})`);
     }
     for (const link of ["codex-parity.md", "protocols.md"]) {
-      expect(documents["codex-model-facing-contract.md"]).toContain(
-        `(${link})`
-      );
+      expect(documents["codex-model-facing-contract.md"]).toContain(`(${link})`);
     }
 
     for (const name of [
@@ -74,7 +58,7 @@ describe("Codex parity documentation", () => {
       expect(documents[name]).toContain(commit);
       const linkedCommits = [
         ...documents[name].matchAll(
-          /github\.com\/openai\/codex\/(?:blob|tree)\/(?<commit>[a-f0-9]{40})/gu
+          /github\.com\/openai\/codex\/(?:blob|tree)\/(?<commit>[a-f0-9]{40})/gu,
         ),
       ].map((match) => match.groups?.commit);
       expect(new Set(linkedCommits)).toStrictEqual(new Set([commit]));

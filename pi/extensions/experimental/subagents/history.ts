@@ -6,9 +6,7 @@ export type ForkTurns = "none" | "all" | number;
 type ContextMessage = ReturnType<typeof sessionEntryToContextMessages>[number];
 type ForkedMessage = Extract<ContextMessage, { role: "assistant" | "user" }>;
 
-const sanitizeMessage = (
-  message: ContextMessage
-): ForkedMessage | undefined => {
+const sanitizeMessage = (message: ContextMessage): ForkedMessage | undefined => {
   if (message.role === "user") {
     return structuredClone(message);
   }
@@ -57,14 +55,14 @@ const sanitizeMessage = (
 
 export const forkHistory = (
   entries: readonly SessionEntry[],
-  turns: ForkTurns
+  turns: ForkTurns,
 ): ForkedMessage[] => {
   if (turns === "none") {
     return [];
   }
 
   let messages = entries.flatMap(sessionEntryToContextMessages);
-  if (typeof turns === "number") {
+  if (turns !== "all") {
     let remaining = turns;
     let start = messages.length;
     while (start > 0 && remaining > 0) {

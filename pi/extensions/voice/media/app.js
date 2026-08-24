@@ -1,12 +1,5 @@
-/* eslint-disable func-style, promise/avoid-new */
-
 import { CallLifecycle } from "./call-lifecycle.js";
-import {
-  commitRenewal,
-  createCall,
-  disposeCallMedia,
-  disposeLeg,
-} from "./call-media.js";
+import { commitRenewal, createCall, disposeCallMedia, disposeLeg } from "./call-media.js";
 import { BrowserMediaSession } from "./media-session.js";
 
 const CALL_START_TIMEOUT_MS = 25_000;
@@ -58,9 +51,7 @@ function request(method, offer, signal) {
     };
     const onAbort = () => {
       rejectAndCleanup(
-        signal.reason instanceof Error
-          ? signal.reason
-          : new Error("Voice request cancelled.")
+        signal.reason instanceof Error ? signal.reason : new Error("Voice request cancelled."),
       );
     };
     const timeout = setTimeout(() => {
@@ -83,15 +74,14 @@ function request(method, offer, signal) {
     send({
       id,
       method,
-      ...(offer === undefined ? {} : { offer }),
+      offer,
       type: "request",
     });
   });
 }
 
 function render() {
-  const listening =
-    lifecycle.state === "active" && currentCall && !currentCall.muted;
+  const listening = lifecycle.state === "active" && currentCall && !currentCall.muted;
   orb.className = `orb ${listening ? "listening" : "paused"}`;
   orb.title = `Pi Voice — ${detail}`;
   orb.setAttribute("aria-label", orb.title);
@@ -106,9 +96,9 @@ async function openMicrophone() {
   if (
     !isSecureContext ||
     !navigator.mediaDevices?.getUserMedia ||
-    typeof RTCPeerConnection !== "function" ||
-    typeof AudioContext !== "function" ||
-    typeof AudioWorkletNode !== "function"
+    !globalThis.RTCPeerConnection ||
+    !globalThis.AudioContext ||
+    !globalThis.AudioWorkletNode
   ) {
     throw new Error("Microphone access is unavailable.");
   }
@@ -123,7 +113,7 @@ async function openMicrophone() {
   const context = new AudioContext();
   try {
     await context.audioWorklet.addModule(
-      new URL("realtime-buffered-audio-worklet.js", import.meta.url)
+      new URL("realtime-buffered-audio-worklet.js", import.meta.url),
     );
     const source = context.createMediaStreamSource(permissionStream);
     const worklet = new AudioWorkletNode(context, "pi-voice-buffered-audio", {
@@ -158,8 +148,6 @@ async function openMicrophone() {
         return new MediaStream([track]);
       },
       release() {
-        // MessagePort.postMessage has no targetOrigin argument.
-        // eslint-disable-next-line unicorn/require-post-message-target-origin
         worklet.port.postMessage({ type: "release" });
       },
     };
@@ -219,13 +207,9 @@ async function startCall() {
   setDetail("Opening microphone.");
 
   try {
-    const nextMicrophone = await lifecycle.wait(
-      attempt,
-      openMicrophone(),
-      (lateMicrophone) => {
-        lateMicrophone.close();
-      }
-    );
+    const nextMicrophone = await lifecycle.wait(attempt, openMicrophone(), (lateMicrophone) => {
+      lateMicrophone.close();
+    });
     candidateMicrophone = nextMicrophone;
     const nextStream = nextMicrophone.createStream();
     candidateStream = nextStream;
@@ -238,10 +222,7 @@ async function startCall() {
         nextMicrophone.release();
       },
       onEvent: (event) => {
-        if (
-          currentCall === candidateCall &&
-          candidateCall?.leg.session === candidate
-        ) {
+        if (currentCall === candidateCall && candidateCall?.leg.session === candidate) {
           handleMediaEvent(event);
         }
       },
@@ -259,10 +240,7 @@ async function startCall() {
     currentCall = candidateCall;
 
     const offer = await lifecycle.wait(attempt, candidate.createOffer());
-    const answer = await lifecycle.wait(
-      attempt,
-      request("offer", offer, attempt.signal)
-    );
+    const answer = await lifecycle.wait(attempt, request("offer", offer, attempt.signal));
     await lifecycle.wait(attempt, candidate.acceptAnswer(answer));
     await lifecycle.wait(attempt, candidate.waitUntilConfigured());
 
@@ -290,9 +268,7 @@ async function startCall() {
     });
     send({ event: "end", type: "event" });
     lifecycle.finishClose();
-    setDetail(
-      `Could not start: ${error instanceof Error ? error.message : String(error)}`
-    );
+    setDetail(`Could not start: ${error instanceof Error ? error.message : String(error)}`);
     scheduleReconnect();
   }
 }
@@ -303,8 +279,7 @@ async function runCutover() {
     return;
   }
 
-  const isCurrent = () =>
-    lifecycle.state === "active" && currentCall === originCall;
+  const isCurrent = () => lifecycle.state === "active" && currentCall === originCall;
   const requireCurrent = () => {
     if (!isCurrent()) {
       throw new Error("Voice renewal was cancelled.");
@@ -364,9 +339,7 @@ async function runCutover() {
       track.stop();
     }
     disposeLeg(warmLeg);
-    setDetail(
-      `Renewal failed: ${error instanceof Error ? error.message : String(error)}`
-    );
+    setDetail(`Renewal failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     controller?.abort(new Error("Voice renewal finished."));
     if (originCall.renewal === renewal) {
@@ -402,11 +375,7 @@ orb.addEventListener("click", () => {
     currentCall.muted = !currentCall.muted;
     currentCall.leg.session.setMuted(currentCall.muted);
     send({ event: "muted", muted: currentCall.muted, type: "event" });
-    setDetail(
-      currentCall.muted
-        ? "Paused. Click to resume."
-        : "Listening. Click to pause."
-    );
+    setDetail(currentCall.muted ? "Paused. Click to resume." : "Listening. Click to pause.");
   }
 });
 
@@ -424,10 +393,10 @@ window.addEventListener("beforeunload", () => {
 });
 
 window.piVoice.onMessage((message) => {
-  if (!message || typeof message !== "object") {
+  if (!(message instanceof Object)) {
     return;
   }
-  if (message.type === "response" && typeof message.id === "number") {
+  if (message.type === "response" && Number.isInteger(message.id)) {
     const pending = pendingRequests.get(message.id);
     if (!pending) {
       return;

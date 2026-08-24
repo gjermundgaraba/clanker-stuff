@@ -12,16 +12,16 @@ Quoted prose is verbatim except that Rust source indentation and leading blank l
 
 Codex has two distinct model-facing protocols ([version selection](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/session/mod.rs#L435-L450), [tool registration](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/spec_plan.rs#L1131-L1217)):
 
-| Surface | V1 | V2 |
-| --- | --- | --- |
-| Default namespace | `multi_agent_v1` | `collaboration` |
-| Address exposed by spawn | Thread UUID | Canonical task path |
-| Tools | `spawn_agent`, `send_input`, `resume_agent`, `wait_agent`, `close_agent` | `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, `list_agents` |
-| Delegation guidance | Primarily in `spawn_agent`'s description | Standalone developer messages plus a shorter `spawn_agent` description |
-| Initial child task | Normal user input | `NEW_TASK` inter-agent message |
-| Completion delivered to parent | User-role `<subagent_notification>` | Structured `FINAL_ANSWER` agent message |
-| Wait semantics | Wait for named agents to become final | Wait for mailbox activity or steered user input |
-| Targeting | UUID only | Relative path, canonical path, or in-tree UUID fallback |
+| Surface                        | V1                                                                       | V2                                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Default namespace              | `multi_agent_v1`                                                         | `collaboration`                                                                                |
+| Address exposed by spawn       | Thread UUID                                                              | Canonical task path                                                                            |
+| Tools                          | `spawn_agent`, `send_input`, `resume_agent`, `wait_agent`, `close_agent` | `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, `list_agents` |
+| Delegation guidance            | Primarily in `spawn_agent`'s description                                 | Standalone developer messages plus a shorter `spawn_agent` description                         |
+| Initial child task             | Normal user input                                                        | `NEW_TASK` inter-agent message                                                                 |
+| Completion delivered to parent | User-role `<subagent_notification>`                                      | Structured `FINAL_ANSWER` agent message                                                        |
+| Wait semantics                 | Wait for named agents to become final                                    | Wait for mailbox activity or steered user input                                                |
+| Targeting                      | UUID only                                                                | Relative path, canonical path, or in-tree UUID fallback                                        |
 
 Codex does **not** define a separate collaboration-specific system prompt. Instead:
 
@@ -106,13 +106,13 @@ When tool search is enabled, V1 tools are registered as deferred rather than dir
 
 Each V1 tool supplies one internal search-text string:
 
-| Tool | Exact search text |
-| --- | --- |
-| `spawn_agent` | `spawn_agent spawn agent subagent sub-agent delegate delegation parallel work worker explorer no-apps fork model reasoning` |
-| `send_input` | `send_input send message existing agent subagent follow up interrupt redirect queue target` |
-| `resume_agent` | `resume_agent resume reopen closed agent subagent thread id target` |
-| `wait_agent` | `wait_agent wait agent subagent status final result complete timeout targets` |
-| `close_agent` | `close_agent close shutdown stop agent subagent thread status target` |
+| Tool           | Exact search text                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `spawn_agent`  | `spawn_agent spawn agent subagent sub-agent delegate delegation parallel work worker explorer no-apps fork model reasoning` |
+| `send_input`   | `send_input send message existing agent subagent follow up interrupt redirect queue target`                                 |
+| `resume_agent` | `resume_agent resume reopen closed agent subagent thread id target`                                                         |
+| `wait_agent`   | `wait_agent wait agent subagent status final result complete timeout targets`                                               |
+| `close_agent`  | `close_agent close shutdown stop agent subagent thread status target`                                                       |
 
 These strings are retrieval metadata rather than prose returned in the loaded tool definition, but they affect whether a model query discovers each deferred tool. The loaded result carries the same namespace, tool description, and parameter schema documented below ([shared source](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents.rs#L30-L71), [per-tool strings](https://github.com/openai/codex/tree/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents), [exposure selection](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/spec_plan.rs#L1191-L1215)).
 
@@ -480,28 +480,28 @@ Source: [`spawn_agent_tool_description`](https://github.com/openai/codex/blob/12
 
 Parameters:
 
-| Property | Required by schema | Model-facing description |
-| --- | --- | --- |
-| `message` | No | `Initial plain-text task for the new agent. Use either message or items.` |
-| `items` | No | `Structured input items. Use this to pass explicit mentions (for example app:// connector paths).` |
-| `agent_type` | No; field omitted unless configured roles exist | `Agent type override for the new agent. Omit to inherit the parent agent type with a full-history fork; otherwise, \`default\` is used.` followed by the role inventory |
-| `fork_context` | No | `True forks the current thread history into the new agent; false or omitted starts with only the initial prompt.` |
-| `model` | No | `Model override for the new agent. Omit unless an explicit override is needed.` |
-| `reasoning_effort` | No | `Reasoning effort override for the new agent. Omit to inherit the parent effort.` |
-| `service_tier` | No | `Service tier override for the new agent. Omit unless explicitly requested.` |
+| Property           | Required by schema                              | Model-facing description                                                                                                                                                |
+| ------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `message`          | No                                              | `Initial plain-text task for the new agent. Use either message or items.`                                                                                               |
+| `items`            | No                                              | `Structured input items. Use this to pass explicit mentions (for example app:// connector paths).`                                                                      |
+| `agent_type`       | No; field omitted unless configured roles exist | `Agent type override for the new agent. Omit to inherit the parent agent type with a full-history fork; otherwise, \`default\` is used.` followed by the role inventory |
+| `fork_context`     | No                                              | `True forks the current thread history into the new agent; false or omitted starts with only the initial prompt.`                                                       |
+| `model`            | No                                              | `Model override for the new agent. Omit unless an explicit override is needed.`                                                                                         |
+| `reasoning_effort` | No                                              | `Reasoning effort override for the new agent. Omit to inherit the parent effort.`                                                                                       |
+| `service_tier`     | No                                              | `Service tier override for the new agent. Omit unless explicitly requested.`                                                                                            |
 
 The schema marks no property as required, but runtime requires exactly one of `message` or `items`.
 
 Each `items` entry is an object with `additionalProperties: false` and these optional schema properties:
 
-| Property | Description |
-| --- | --- |
-| `type` | `Input item type: text, image, local_image, audio, local_audio, skill, or mention.` |
-| `text` | `Text content when type is text.` |
-| `image_url` | `Image URL when type is image.` |
-| `audio_url` | `Audio data URL when type is audio.` |
-| `path` | `Path when type is local_image/local_audio/skill, or structured mention target such as app://<connector-id> or plugin://<plugin-name>@<marketplace-name> when type is mention.` |
-| `name` | `Display name when type is skill or mention.` |
+| Property    | Description                                                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`      | `Input item type: text, image, local_image, audio, local_audio, skill, or mention.`                                                                                             |
+| `text`      | `Text content when type is text.`                                                                                                                                               |
+| `image_url` | `Image URL when type is image.`                                                                                                                                                 |
+| `audio_url` | `Audio data URL when type is audio.`                                                                                                                                            |
+| `path`      | `Path when type is local_image/local_audio/skill, or structured mention target such as app://<connector-id> or plugin://<plugin-name>@<marketplace-name> when type is mention.` |
+| `name`      | `Display name when type is skill or mention.`                                                                                                                                   |
 
 Source: [V1 parameters](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_spec.rs#L546-L629).
 
@@ -513,12 +513,12 @@ Description:
 
 Parameters:
 
-| Property | Required | Description |
-| --- | --- | --- |
-| `target` | Yes | `Agent id to message (from spawn_agent).` |
-| `message` | No | `Legacy plain-text message to send to the agent. Use either message or items.` |
-| `items` | No | Same structured-item schema as `spawn_agent` |
-| `interrupt` | No | `True interrupts the current task and handles this message immediately; false or omitted queues it.` |
+| Property    | Required | Description                                                                                          |
+| ----------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `target`    | Yes      | `Agent id to message (from spawn_agent).`                                                            |
+| `message`   | No       | `Legacy plain-text message to send to the agent. Use either message or items.`                       |
+| `items`     | No       | Same structured-item schema as `spawn_agent`                                                         |
+| `interrupt` | No       | `True interrupts the current task and handles this message immediately; false or omitted queues it.` |
 
 Runtime requires exactly one of `message` or `items`.
 
@@ -546,10 +546,10 @@ Description:
 
 Parameters:
 
-| Property | Required | Description |
-| --- | --- | --- |
-| `targets` | Yes | `Agent ids to wait on. Pass multiple ids to wait for whichever finishes first.` |
-| `timeout_ms` | No | `Timeout in milliseconds. Defaults to {default}, min {min}, max {max}. Prefer longer waits (minutes) to avoid busy polling.` |
+| Property     | Required | Description                                                                                                                  |
+| ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `targets`    | Yes      | `Agent ids to wait on. Pass multiple ids to wait for whichever finishes first.`                                              |
+| `timeout_ms` | No       | `Timeout in milliseconds. Defaults to {default}, min {min}, max {max}. Prefer longer waits (minutes) to avoid busy polling.` |
 
 The stock values are:
 
@@ -619,15 +619,15 @@ Source: [`spawn_agent_tool_description_v2`](https://github.com/openai/codex/blob
 
 Parameters:
 
-| Property | Required by schema | Model-facing description |
-| --- | --- | --- |
-| `task_name` | Yes | `Task name for the new agent. Use lowercase letters, digits, and underscores.` |
-| `message` | Yes | `Initial plain-text task for the new agent.` |
-| `agent_type` | No; field omitted unless configured roles exist | `Agent type override for the new agent. Omit unless explicitly asked. The selected role applies regardless of how much parent history is inherited.` followed by the role inventory |
-| `fork_turns` | No | `Optional number of turns to fork. Defaults to \`all\`. Use \`none\`, \`all\`, or a positive integer string such as \`3\` to fork only the most recent turns.` |
-| `model` | No; field can be hidden by configuration | `Model override for the new agent. Omit unless an explicit override is needed.` |
-| `reasoning_effort` | No; field can be hidden by configuration | `Reasoning effort override for the new agent. Omit to inherit the parent effort.` |
-| `service_tier` | No; omitted in the stock profile | `Service tier override for the new agent. Omit unless explicitly requested.` |
+| Property           | Required by schema                              | Model-facing description                                                                                                                                                            |
+| ------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_name`        | Yes                                             | `Task name for the new agent. Use lowercase letters, digits, and underscores.`                                                                                                      |
+| `message`          | Yes                                             | `Initial plain-text task for the new agent.`                                                                                                                                        |
+| `agent_type`       | No; field omitted unless configured roles exist | `Agent type override for the new agent. Omit unless explicitly asked. The selected role applies regardless of how much parent history is inherited.` followed by the role inventory |
+| `fork_turns`       | No                                              | `Optional number of turns to fork. Defaults to \`all\`. Use \`none\`, \`all\`, or a positive integer string such as \`3\` to fork only the most recent turns.`                      |
+| `model`            | No; field can be hidden by configuration        | `Model override for the new agent. Omit unless an explicit override is needed.`                                                                                                     |
+| `reasoning_effort` | No; field can be hidden by configuration        | `Reasoning effort override for the new agent. Omit to inherit the parent effort.`                                                                                                   |
+| `service_tier`     | No; omitted in the stock profile                | `Service tier override for the new agent. Omit unless explicitly requested.`                                                                                                        |
 
 `message` carries the public JSON-schema marker `"encrypted": true`. The runtime accepts case-insensitive `none` and `all`, or a positive integer string, for `fork_turns`. Empty or omitted `fork_turns` becomes `all` ([schema](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_spec.rs#L102-L146), [parser](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs#L231-L265)).
 
@@ -660,10 +660,10 @@ Description:
 
 Required parameters:
 
-| Property | Description |
-| --- | --- |
-| `target` | `Agent id or canonical task name to send a follow-up task to (from spawn_agent).` |
-| `message` | `Message text to send to the target agent.` |
+| Property  | Description                                                                       |
+| --------- | --------------------------------------------------------------------------------- |
+| `target`  | `Agent id or canonical task name to send a follow-up task to (from spawn_agent).` |
+| `message` | `Message text to send to the target agent.`                                       |
 
 `message` carries the public JSON-schema marker `"encrypted": true`.
 
@@ -708,8 +708,8 @@ It contains no agent name or update source. The communication that woke the wait
 
 Optional parameter:
 
-| Property | Description |
-| --- | --- |
+| Property     | Description                                                             |
+| ------------ | ----------------------------------------------------------------------- |
 | `timeout_ms` | `Timeout in milliseconds. Defaults to {default}, min {min}, max {max}.` |
 
 The stock values are:
@@ -732,8 +732,8 @@ Description:
 
 Required parameter:
 
-| Property | Description |
-| --- | --- |
+| Property | Description                                                        |
+| -------- | ------------------------------------------------------------------ |
 | `target` | `Agent id or canonical task name to interrupt (from spawn_agent).` |
 
 Source: [`create_interrupt_agent_tool_v2`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_spec.rs#L340-L358).
@@ -746,8 +746,8 @@ Description:
 
 Optional parameter:
 
-| Property | Description |
-| --- | --- |
+| Property      | Description                                                                       |
+| ------------- | --------------------------------------------------------------------------------- |
 | `path_prefix` | `Task-path prefix filter without a trailing slash. Omit to list all live agents.` |
 
 The prefix is resolved relative to the current agent unless it is canonical. Matching includes the exact path and all descendants. `/root` matches the whole tree. Results are ordered by path. The root is included only when its runtime is loaded and matches. Codex then enumerates registered agents but skips reserved entries without an id and every registered identity whose runtime is currently unloaded ([implementation](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/agent/control.rs#L437-L507), [prefix matching](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/agent/control.rs#L814-L825)).
@@ -1018,13 +1018,13 @@ Codex classifies a call as a plaintext direct message only when all three condit
 
 The classification matrix is:
 
-| Call source | Namespace/metadata | Communication branch |
-| --- | --- | --- |
-| Direct function call | `collaboration` plus `encrypted_function_args: []` | Plaintext |
-| Direct function call | `collaboration` with missing or non-empty encryption metadata | Encrypted-content |
-| Direct function call | Any custom V2 namespace, even with `encrypted_function_args: []` | Encrypted-content |
-| Ordinary unnamespaced function | Canonicalized to the `functions` namespace | Encrypted-content |
-| Code Mode nested call | Explicit `CodeMode` source | Encrypted-content |
+| Call source                    | Namespace/metadata                                               | Communication branch |
+| ------------------------------ | ---------------------------------------------------------------- | -------------------- |
+| Direct function call           | `collaboration` plus `encrypted_function_args: []`               | Plaintext            |
+| Direct function call           | `collaboration` with missing or non-empty encryption metadata    | Encrypted-content    |
+| Direct function call           | Any custom V2 namespace, even with `encrypted_function_args: []` | Encrypted-content    |
+| Ordinary unnamespaced function | Canonicalized to the `functions` namespace                       | Encrypted-content    |
+| Code Mode nested call          | Explicit `CodeMode` source                                       | Encrypted-content    |
 
 Source: [`ToolCall::direct_source`](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/router.rs#L39-L55), [Code Mode dispatch](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/code_mode/mod.rs#L351-L374).
 
@@ -1075,11 +1075,11 @@ Source: [`InterAgentCompletionMessage`](https://github.com/openai/codex/blob/129
 
 The normal child-session delivery path produces:
 
-| Final status | Source event | Payload |
-| --- | --- | --- |
-| `completed` with a message | `TurnComplete` | The child's final assistant message |
-| `completed` without a message | `TurnComplete` | Empty string |
-| `errored` | A stored terminal error, or a non-interrupt/non-budget `TurnAborted` reason | See exact error envelope below |
+| Final status                  | Source event                                                                | Payload                             |
+| ----------------------------- | --------------------------------------------------------------------------- | ----------------------------------- |
+| `completed` with a message    | `TurnComplete`                                                              | The child's final assistant message |
+| `completed` without a message | `TurnComplete`                                                              | Empty string                        |
+| `errored`                     | A stored terminal error, or a non-interrupt/non-budget `TurnAborted` reason | See exact error envelope below      |
 
 The error envelope is:
 
@@ -1226,27 +1226,27 @@ Successful structured results are serialized as compact JSON ([source](https://g
 
 #### V1 results
 
-| Tool | Model-visible success output |
-| --- | --- |
-| `spawn_agent` | `{"agent_id":"{uuid}","nickname":"{nickname}"}` |
-| `send_input` | `{"submission_id":"{id}"}` |
-| `resume_agent` | `{"status":{AgentStatus}}` |
-| `wait_agent` | `{"status":{"{target}":{AgentStatus}},"timed_out":false}`; timeout returns an empty status object and `true` |
-| `close_agent` | `{"previous_status":{AgentStatus}}` |
+| Tool           | Model-visible success output                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| `spawn_agent`  | `{"agent_id":"{uuid}","nickname":"{nickname}"}`                                                              |
+| `send_input`   | `{"submission_id":"{id}"}`                                                                                   |
+| `resume_agent` | `{"status":{AgentStatus}}`                                                                                   |
+| `wait_agent`   | `{"status":{"{target}":{AgentStatus}},"timed_out":false}`; timeout returns an empty status object and `true` |
+| `close_agent`  | `{"previous_status":{AgentStatus}}`                                                                          |
 
 Sources: [V1 spawn](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents/spawn.rs#L224-L269), [send](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents/send_input.rs#L123-L164), [resume](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents/resume_agent.rs#L148-L188), [wait](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents/wait.rs#L188-L221), [close](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents/close_agent.rs#L125-L158).
 
 #### V2 results
 
-| Tool | Model-visible success output |
-| --- | --- |
-| `spawn_agent` with hidden metadata | `{"task_name":"{canonical_path}"}` |
-| `spawn_agent` with visible metadata | `{"task_name":"{canonical_path}","nickname":"{nickname}"}` |
-| `send_message` | Empty text |
-| `followup_task` | Empty text |
-| `wait_agent` | `{"message":"{summary}","timed_out":{boolean}}` |
-| `interrupt_agent` | `{"previous_status":{AgentStatus}}` |
-| `list_agents` | `{"agents":[{"agent_name":"{canonical_path_or_uuid}","agent_status":{AgentStatus}}]}` |
+| Tool                                | Model-visible success output                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------- |
+| `spawn_agent` with hidden metadata  | `{"task_name":"{canonical_path}"}`                                                    |
+| `spawn_agent` with visible metadata | `{"task_name":"{canonical_path}","nickname":"{nickname}"}`                            |
+| `send_message`                      | Empty text                                                                            |
+| `followup_task`                     | Empty text                                                                            |
+| `wait_agent`                        | `{"message":"{summary}","timed_out":{boolean}}`                                       |
+| `interrupt_agent`                   | `{"previous_status":{AgentStatus}}`                                                   |
+| `list_agents`                       | `{"agents":[{"agent_name":"{canonical_path_or_uuid}","agent_status":{AgentStatus}}]}` |
 
 Sources: [V2 spawn](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs#L199-L209), [empty message result](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs#L112-L137), [wait](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_v2/wait.rs#L129-L175), [interrupt](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_v2/interrupt_agent.rs#L93-L130), [list](https://github.com/openai/codex/blob/12933b69551394328319dcdd1bcee7907326dc85/codex-rs/core/src/tools/handlers/multi_agents_v2/list_agents.rs#L56-L82).
 

@@ -4,7 +4,8 @@ import path from "node:path";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { Type } from "typebox";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../../tests/harness/agent-session.js";
 import subagents from "../index.js";
@@ -14,15 +15,9 @@ describe("subagent control persistence", () => {
   it("commits child completion without moving the active root leaf", async () => {
     const agentDir = getAgentDir();
     const configFile = path.join(agentDir, "subagents.json");
-    const sessionDir = path.join(
-      agentDir,
-      `subagents-manager-test-${process.pid}-${Date.now()}`
-    );
+    const sessionDir = path.join(agentDir, `subagents-manager-test-${process.pid}-${Date.now()}`);
     await mkdir(agentDir, { recursive: true });
-    await writeFile(
-      configFile,
-      JSON.stringify({ protocols: { "*": "v2" }, version: 1 })
-    );
+    await writeFile(configFile, JSON.stringify({ protocols: { "*": "v2" }, version: 1 }));
 
     const childRelease = Promise.withResolvers<null>();
     const rootPrepared = Promise.withResolvers<null>();
@@ -40,7 +35,7 @@ describe("subagent control persistence", () => {
             message: "Investigate the race.",
             task_name: "worker",
           }),
-          { stopReason: "toolUse" }
+          { stopReason: "toolUse" },
         ),
         async () => {
           await childRelease.promise;
@@ -63,24 +58,25 @@ describe("subagent control persistence", () => {
       expect(sessionFile).toBeDefined();
       const store = createControlStore(
         getExtensionStoragePaths("subagents").dataDir,
-        rootBinding(harness.sessionManager.getSessionId(), sessionFile)
+        rootBinding(harness.sessionManager.getSessionId(), sessionFile),
       );
       await vi.waitFor(async () => {
         const snapshot = await store.load();
         expect(
           snapshot?.protocolLatch === "v2"
-            ? snapshot.state.nodes.find((node) => node.path === "/root/worker")
-                ?.status
-            : undefined
+            ? snapshot.state.nodes.find((node) => node.path === "/root/worker")?.status
+            : undefined,
         ).toBe("completed");
       });
 
       expect(harness.sessionManager.getLeafId()).toBe(preparedLeaf);
       rootRelease.resolve(null);
       await prompting;
-      expect(JSON.stringify(harness.lastProviderPayload())).toContain(
-        "child answer"
-      );
+      expect(
+        JSON.stringify(
+          harness.lastProviderPayload(Type.Object({}, { additionalProperties: true })),
+        ),
+      ).toContain("child answer");
     } finally {
       rootRelease.resolve(null);
       childRelease.resolve(null);

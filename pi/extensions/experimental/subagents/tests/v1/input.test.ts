@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
 import type { Skill } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createTempDir } from "../../../../../tests/helpers/fs.js";
 import { prepareInput } from "../../v1/input.js";
@@ -14,11 +15,14 @@ describe(prepareInput, () => {
     const skillPath = path.join(skillDir, "SKILL.md");
     await mkdir(skillDir);
     await writeFile(skillPath, "---\nname: demo\n---\nDo the thing.\n");
-    const skill = {
+    const skill: Skill = {
       baseDir: skillDir,
+      description: "",
+      disableModelInvocation: false,
       filePath: skillPath,
       name: "demo",
-    } as Skill;
+      sourceInfo: createSyntheticSourceInfo(skillPath, { source: "test" }),
+    };
 
     await expect(
       prepareInput(
@@ -26,16 +30,14 @@ describe(prepareInput, () => {
         [{ name: "demo", path: skillPath, type: "skill" }],
         cwd,
         [skill],
-        true
-      )
+        true,
+      ),
     ).resolves.toStrictEqual({
       text: expect.stringContaining('<skill name="demo"'),
     });
     await expect(
-      prepareInput("message", [{ text: "item", type: "text" }], cwd, [], true)
+      prepareInput("message", [{ text: "item", type: "text" }], cwd, [], true),
     ).rejects.toThrow("exactly one");
-    await expect(
-      prepareInput(undefined, undefined, cwd, [], true)
-    ).rejects.toThrow("exactly one");
+    await expect(prepareInput(undefined, undefined, cwd, [], true)).rejects.toThrow("exactly one");
   });
 });

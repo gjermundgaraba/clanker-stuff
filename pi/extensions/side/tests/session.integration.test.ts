@@ -1,5 +1,5 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../tests/harness/agent-session.js";
 import type { AgentSessionHarness } from "../../../tests/harness/agent-session.js";
@@ -24,18 +24,18 @@ describe("side conversation AgentSession routing", () => {
     ]);
     controller = new SideSessionController(harness.session);
 
-    expect([
-      controller.submit("first question"),
-      controller.submit("too early"),
-    ]).toStrictEqual([true, false]);
+    expect([controller.submit("first question"), controller.submit("too early")]).toStrictEqual([
+      true,
+      false,
+    ]);
     await vi.waitFor(() => {
       expect(controller?.state.activity.kind).toBe("idle");
     });
 
-    expect([
-      controller.latestAssistantText(),
-      controller.submit("second question"),
-    ]).toStrictEqual(["first answer", true]);
+    expect([controller.latestAssistantText(), controller.submit("second question")]).toStrictEqual([
+      "first answer",
+      true,
+    ]);
     await vi.waitFor(() => {
       expect(controller?.state.activity.kind).toBe("idle");
     });

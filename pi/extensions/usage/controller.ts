@@ -14,12 +14,9 @@ import type {
 
 import type { AdapterDeps } from "./adapters/util.js";
 import { providerAuthClientFromContext } from "./auth.js";
+import type { ProviderAuthClient } from "./auth.js";
 import { UsageCache } from "./cache.js";
-import {
-  formatDetail,
-  formatProviderError,
-  formatRefreshFailed,
-} from "./format.js";
+import { formatDetail, formatProviderError, formatRefreshFailed } from "./format.js";
 import { defaultFetchJson } from "./http.js";
 import { getActiveProvider, SUPPORTED_PROVIDERS } from "./providers.js";
 import type { SupportedProvider, UsageFetchResult } from "./providers.js";
@@ -36,14 +33,23 @@ const REFRESH_INTERVAL_MS = 5 * 60_000;
 const NO_AVAILABLE_PROVIDERS_MESSAGE =
   "usage: no supported providers are available (log in to a supported provider; opencode-go also requires CodexBar to be running)";
 
-// Wrapped so tests can control time by spying on Date.now.
-const now = (): number => Date.now();
-
 type UsageFetcher = (ctx: ExtensionContext) => Promise<UsageFetchResult>;
 type HttpUsageFetcher = (deps: AdapterDeps) => Promise<UsageFetchResult>;
 
+export interface UsageControllerDependencies {
+  fetchJson: typeof defaultFetchJson;
+  now: () => number;
+  providerAuthClient: (ctx: ExtensionContext) => ProviderAuthClient;
+}
+
+const defaultDependencies: UsageControllerDependencies = {
+  fetchJson: defaultFetchJson,
+  now: Date.now,
+  providerAuthClient: providerAuthClientFromContext,
+};
+
 const parseUsageArgs = (
-  args: string
+  args: string,
 ): { ok: true; refresh: boolean } | { ok: false; message: string } => {
   const command = args.trim();
   if (command === "") {
@@ -54,14 +60,18 @@ const parseUsageArgs = (
     : { message: "usage: expected /usage [refresh]", ok: false };
 };
 
-export const createUsageController = (pi: ExtensionAPI) => {
+export const createUsageController = (
+  pi: ExtensionAPI,
+  dependencies: UsageControllerDependencies = defaultDependencies,
+) => {
+  const { fetchJson, now, providerAuthClient } = dependencies;
   let cache = new UsageCache({ now });
   const fromHttpAdapter =
     (fetcher: HttpUsageFetcher): UsageFetcher =>
     (ctx) =>
       fetcher({
-        authClient: providerAuthClientFromContext(ctx),
-        fetchJson: defaultFetchJson,
+        authClient: providerAuthClient(ctx),
+        fetchJson,
         now,
       });
   const usageFetchers = {
@@ -104,19 +114,14 @@ export const createUsageController = (pi: ExtensionAPI) => {
   } satisfies Record<SupportedProvider, UsageFetcher>;
 
   let generation = 0;
-  let current:
-    | { context: ExtensionContext; presentation: UsagePresentation }
-    | undefined;
+  let current: { context: ExtensionContext; presentation: UsagePresentation } | undefined;
   const getCurrent = () => current;
   let instanceId: string | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let readyUnsubscribe: (() => void) | undefined;
   const published = new Map<string, FooterWidgetSnapshot>();
 
-  const emit = (
-    type: "upsert" | "remove",
-    value: FooterWidgetSnapshot | string
-  ): void => {
+  const emit = (type: "upsert" | "remove", value: FooterWidgetSnapshot | string): void => {
     if (instanceId === undefined) {
       return;
     }
@@ -129,7 +134,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
             type,
             widget: value,
           }
-        : { id: value, instanceId, protocol: FOOTER_PROTOCOL_VERSION, type }
+        : { id: value, instanceId, protocol: FOOTER_PROTOCOL_VERSION, type },
     );
   };
 
@@ -145,10 +150,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
     publishSnapshot(activeSnapshot(current.presentation, now()));
     publishSnapshot(detailsSnapshot(current.presentation, now()));
     if (current.context.mode === "tui") {
-      current.context.ui.setStatus(
-        STATUS_KEY,
-        fallbackText(current.presentation)
-      );
+      current.context.ui.setStatus(STATUS_KEY, fallbackText(current.presentation));
     }
   };
 
@@ -178,14 +180,14 @@ export const createUsageController = (pi: ExtensionAPI) => {
   const getOrFetch = (
     provider: SupportedProvider,
     ctx: ExtensionContext,
-    force: boolean
+    force: boolean,
   ): Promise<UsageFetchResult> =>
     cache.getOrFetch(provider, force, () => usageFetchers[provider](ctx));
 
   const refresh = (
     ctx: ExtensionContext,
     provider: SupportedProvider | undefined,
-    force = false
+    force = false,
   ): void => {
     generation += 1;
     if (!provider) {
@@ -197,9 +199,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
     const last = cache.getLastSuccess(provider);
     current = {
       context: ctx,
-      presentation: last
-        ? { kind: "ready", snapshot: last }
-        : { kind: "loading", provider },
+      presentation: last ? { kind: "ready", snapshot: last } : { kind: "loading", provider },
     };
     publish();
     const refreshGeneration = generation;
@@ -238,18 +238,12 @@ export const createUsageController = (pi: ExtensionAPI) => {
     }
   };
 
-  const accountUnsubscribe = pi.events.on(
-    "clanker-codex:account-changed",
-    () => {
-      cache = new UsageCache({ now });
-      if (
-        current &&
-        presentationProvider(current.presentation) === "openai-codex"
-      ) {
-        refresh(current.context, "openai-codex");
-      }
+  const accountUnsubscribe = pi.events.on("clanker-codex:account-changed", () => {
+    cache = new UsageCache({ now });
+    if (current && presentationProvider(current.presentation) === "openai-codex") {
+      refresh(current.context, "openai-codex");
     }
-  );
+  });
 
   listenForReady();
 
@@ -270,10 +264,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
       instanceId = undefined;
       current = undefined;
     },
-    runCommand: async (
-      args: string,
-      ctx: ExtensionCommandContext
-    ): Promise<void> => {
+    runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const parsed = parseUsageArgs(args);
       if (!parsed.ok) {
         ctx.ui.notify(parsed.message, "info");
@@ -284,10 +275,10 @@ export const createUsageController = (pi: ExtensionAPI) => {
         SUPPORTED_PROVIDERS.map(async (provider) => ({
           provider,
           result: await getOrFetch(provider, ctx, parsed.refresh),
-        }))
+        })),
       );
       const available = results.filter(
-        ({ result }) => result.ok || result.error.kind === "failure"
+        ({ result }) => result.ok || result.error.kind === "failure",
       );
       if (available.length === 0) {
         ctx.ui.notify(NO_AVAILABLE_PROVIDERS_MESSAGE, "info");
@@ -296,25 +287,16 @@ export const createUsageController = (pi: ExtensionAPI) => {
 
       const lines: string[] = [];
       for (const { provider, result } of available) {
-        const snapshot = result.ok
-          ? result.snapshot
-          : cache.getLastSuccess(provider);
+        const snapshot = result.ok ? result.snapshot : cache.getLastSuccess(provider);
         if (snapshot) {
-          const [header = "", ...details] = formatDetail(snapshot, now()).split(
-            "\n"
-          );
+          const [header = "", ...details] = formatDetail(snapshot, now()).split("\n");
           lines.push([ctx.ui.theme.bold(header), ...details].join("\n"));
         }
         if (!result.ok) {
           lines.push(
             snapshot
-              ? formatRefreshFailed(
-                  provider,
-                  result.error.message,
-                  snapshot.fetchedAt,
-                  now()
-                )
-              : formatProviderError(provider, result.error.message)
+              ? formatRefreshFailed(provider, result.error.message, snapshot.fetchedAt, now())
+              : formatProviderError(provider, result.error.message),
           );
         }
       }
@@ -336,10 +318,7 @@ export const createUsageController = (pi: ExtensionAPI) => {
         }
       }, REFRESH_INTERVAL_MS);
     },
-    trackModel: (
-      ctx: ExtensionContext,
-      model: { provider?: string } | undefined | null
-    ): void => {
+    trackModel: (ctx: ExtensionContext, model: { provider?: string } | undefined | null): void => {
       if (ctx.mode === "tui") {
         refresh(ctx, getActiveProvider(model));
       }

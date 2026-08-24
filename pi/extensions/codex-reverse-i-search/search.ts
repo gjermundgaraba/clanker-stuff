@@ -1,12 +1,5 @@
-import type {
-  ExtensionContext,
-  TerminalInputHandler,
-} from "@earendil-works/pi-coding-agent";
-import {
-  decodeKittyPrintable,
-  isKeyRelease,
-  matchesKey,
-} from "@earendil-works/pi-tui";
+import type { ExtensionContext, TerminalInputHandler } from "@earendil-works/pi-coding-agent";
+import { decodeKittyPrintable, isKeyRelease, matchesKey } from "@earendil-works/pi-tui";
 
 import type { HistoryItem } from "./history.js";
 
@@ -64,7 +57,7 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
     ui.setWidget(
       WIDGET_KEY,
       [`reverse-i-search: ${ui.theme.fg("accent", session.query)}${suffix}`],
-      { placement: "belowEditor" }
+      { placement: "belowEditor" },
     );
   };
 
@@ -74,21 +67,13 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
     }
 
     const query = session.query.toLowerCase();
-    const canNarrow =
-      session.filteredQuery.length > 0 &&
-      query.startsWith(session.filteredQuery);
+    const canNarrow = session.filteredQuery.length > 0 && query.startsWith(session.filteredQuery);
     const candidates = canNarrow ? session.matches : getHistory();
-    const pattern = session.query
-      ? new RegExp(RegExp.escape(session.query), "iu")
-      : undefined;
-    session.matches = pattern
-      ? candidates.filter(({ text }) => pattern.test(text))
-      : [];
+    const pattern = session.query ? new RegExp(RegExp.escape(session.query), "iu") : undefined;
+    session.matches = pattern ? candidates.filter(({ text }) => pattern.test(text)) : [];
     session.filteredQuery = query;
     session.selected = 0;
-    session.ui.setEditorText(
-      session.matches[session.selected]?.text ?? session.draft
-    );
+    session.ui.setEditorText(session.matches[session.selected]?.text ?? session.draft);
     render();
   };
 
@@ -99,11 +84,9 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
 
     session.selected = Math.max(
       0,
-      Math.min(session.matches.length - 1, session.selected + direction)
+      Math.min(session.matches.length - 1, session.selected + direction),
     );
-    session.ui.setEditorText(
-      session.matches[session.selected]?.text ?? session.draft
-    );
+    session.ui.setEditorText(session.matches[session.selected]?.text ?? session.draft);
     render();
   };
 

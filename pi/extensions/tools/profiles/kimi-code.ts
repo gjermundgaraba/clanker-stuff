@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/sort-keys -- preserve native harness field order */
 import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -7,6 +6,16 @@ import { prepareForegroundArguments } from "./arguments.js";
 import type { HarnessProfile } from "./types.js";
 
 const strict = { additionalProperties: false } as const;
+const bashParameters = Type.Object(
+  {
+    command: Type.String(),
+    cwd: Type.Optional(Type.String()),
+    timeout: Type.Optional(Type.Integer({ minimum: 1 })),
+    description: Type.Optional(Type.String()),
+    disable_timeout: Type.Optional(Type.Boolean()),
+  },
+  strict,
+);
 
 export const kimiCodeProfile: HarnessProfile = {
   createTools: (operations) => [
@@ -20,7 +29,7 @@ export const kimiCodeProfile: HarnessProfile = {
           line_offset: Type.Optional(Type.Integer({ minimum: 1 })),
           n_lines: Type.Optional(Type.Integer({ maximum: 1000, minimum: 1 })),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.read(
@@ -29,7 +38,7 @@ export const kimiCodeProfile: HarnessProfile = {
             offset: params.line_offset,
             path: params.path,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -39,10 +48,7 @@ export const kimiCodeProfile: HarnessProfile = {
       description: "Read an image or other model-supported media file.",
       parameters: Type.Object({ path: Type.String() }, strict),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        return await operations.read(
-          { path: params.path },
-          { ctx, onUpdate, signal, toolCallId }
-        );
+        return await operations.read({ path: params.path }, { ctx, onUpdate, signal, toolCallId });
       },
     }),
     defineTool({
@@ -55,7 +61,7 @@ export const kimiCodeProfile: HarnessProfile = {
           content: Type.String(),
           mode: Type.Optional(StringEnum(["overwrite", "append"] as const)),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.write(
@@ -64,7 +70,7 @@ export const kimiCodeProfile: HarnessProfile = {
             mode: params.mode,
             path: params.path,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -79,7 +85,7 @@ export const kimiCodeProfile: HarnessProfile = {
           new_string: Type.String(),
           replace_all: Type.Optional(Type.Boolean()),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.replace(
@@ -89,7 +95,7 @@ export const kimiCodeProfile: HarnessProfile = {
             path: params.path,
             replaceAll: params.replace_all,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -103,14 +109,14 @@ export const kimiCodeProfile: HarnessProfile = {
           path: Type.Optional(Type.String()),
           glob: Type.Optional(Type.String()),
           output_mode: Type.Optional(
-            StringEnum(["content", "files_with_matches", "count"] as const)
+            StringEnum(["content", "files_with_matches", "count"] as const),
           ),
           "-C": Type.Optional(Type.Integer({ minimum: 0 })),
           "-i": Type.Optional(Type.Boolean()),
           head_limit: Type.Optional(Type.Integer({ minimum: 1 })),
           multiline: Type.Optional(Type.Boolean()),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.grep(
@@ -124,7 +130,7 @@ export const kimiCodeProfile: HarnessProfile = {
             path: params.path,
             pattern: params.pattern,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -137,7 +143,7 @@ export const kimiCodeProfile: HarnessProfile = {
           path: Type.Optional(Type.String()),
           pattern: Type.String(),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.findFiles(
@@ -146,7 +152,7 @@ export const kimiCodeProfile: HarnessProfile = {
             path: params.path,
             pattern: params.pattern,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -154,26 +160,16 @@ export const kimiCodeProfile: HarnessProfile = {
       name: "Bash",
       label: "Bash",
       description: "Execute a shell command.",
-      parameters: Type.Object(
-        {
-          command: Type.String(),
-          cwd: Type.Optional(Type.String()),
-          timeout: Type.Optional(Type.Integer({ minimum: 1 })),
-          description: Type.Optional(Type.String()),
-          disable_timeout: Type.Optional(Type.Boolean()),
-        },
-        strict
-      ),
-      prepareArguments: prepareForegroundArguments,
+      parameters: bashParameters,
+      prepareArguments: prepareForegroundArguments(bashParameters),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.runShell(
           {
             command: params.command,
             cwd: params.cwd,
-            timeoutMs:
-              params.disable_timeout === true ? undefined : params.timeout,
+            timeoutMs: params.disable_timeout === true ? undefined : params.timeout,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),

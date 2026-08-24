@@ -2,16 +2,21 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 const directory = process.env.PI_VOICE_TRACE_DIR;
+const BigIntSchema = Type.BigInt();
 
-const recorder =
+type Recorder = <T>(kind: string, detail: T) => void;
+
+const recorder: Recorder | undefined =
   directory !== undefined && directory.length > 0
     ? (() => {
         mkdirSync(directory, { mode: 0o700, recursive: true });
         const file = path.join(directory, "pi.ndjson");
         let sequence = 0;
-        return (kind: string, detail: unknown) => {
+        return <T>(kind: string, detail: T): void => {
           sequence += 1;
           appendFileSync(
             file,
@@ -23,10 +28,9 @@ const recorder =
                 sequence,
                 timestamp: new Date().toISOString(),
               },
-              (_key: string, value: unknown): unknown =>
-                typeof value === "bigint" ? value.toString() : value
+              (_key, value) => (Value.Check(BigIntSchema, value) ? value.toString() : value),
             )}\n`,
-            { encoding: "utf-8", mode: 0o600 }
+            { encoding: "utf-8", mode: 0o600 },
           );
         };
       })()
@@ -36,14 +40,12 @@ const redactHeaders = (headers: Record<string, string | null>) =>
   Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [
       key,
-      /authorization|api[-_]key|cookie|token/iu.test(key)
-        ? "[REDACTED]"
-        : value,
-    ])
+      /authorization|api[-_]key|cookie|token/iu.test(key) ? "[REDACTED]" : value,
+    ]),
   );
 
 export default function piRuntimeRecorder(pi: ExtensionAPI): void {
-  const record = (kind: string, detail: unknown) => {
+  const record = <T>(kind: string, detail: T): void => {
     recorder?.(kind, detail);
   };
 

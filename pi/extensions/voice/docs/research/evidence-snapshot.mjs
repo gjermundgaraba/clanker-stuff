@@ -1,10 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 
 const remove = (directory) => {
@@ -19,9 +13,7 @@ const remove = (directory) => {
  */
 export const createEvidenceSnapshot = (captureDirectory) => {
   const evidenceDirectory = path.join(captureDirectory, "evidence");
-  const temporaryDirectory = mkdtempSync(
-    path.join(captureDirectory, ".evidence-tmp-")
-  );
+  const temporaryDirectory = mkdtempSync(path.join(captureDirectory, ".evidence-tmp-"));
   chmodSync(temporaryDirectory, 0o700);
 
   let finished = false;
@@ -55,7 +47,7 @@ export const createEvidenceSnapshot = (captureDirectory) => {
           } catch (rollbackError) {
             throw new AggregateError(
               [error, rollbackError],
-              "Could not publish evidence or restore the previous snapshot."
+              "Could not publish evidence or restore the previous snapshot.",
             );
           }
         }

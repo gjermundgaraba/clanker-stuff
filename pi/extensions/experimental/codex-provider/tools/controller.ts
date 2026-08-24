@@ -1,5 +1,5 @@
 import {
-  isToolOwnerRequest,
+  TOOL_OWNER_PROTOCOL_VERSION,
   TOOL_OWNER_REQUEST_EVENT,
 } from "@clanker-stuff/tool-owner-protocol";
 import type { ToolOwnerRegistration } from "@clanker-stuff/tool-owner-protocol";
@@ -8,21 +8,25 @@ import type {
   ExtensionContext,
   SessionShutdownEvent,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 import { CodeModeRuntime } from "../code-mode/tools.js";
-import {
-  PI_SUBAGENTS_NAMESPACE,
-  requestCollaborationContract,
-} from "../collaboration.js";
+import { PI_SUBAGENTS_NAMESPACE, requestCollaborationContract } from "../collaboration.js";
 import { CODE_MODE_STATUS_KEY } from "../footer.js";
 import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
 import { createCodexToolSelection } from "./selection.js";
 
 const PI_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "read", "write"];
+const ToolOwnerRequestSchema = Type.Object({
+  protocol: Type.Literal(TOOL_OWNER_PROTOCOL_VERSION),
+  provide: Type.Function([Type.Unknown()], Type.Void()),
+  type: Type.Literal("request"),
+});
 
 export const createCodexToolsController = (
   pi: ExtensionAPI,
-  setFooterActive: (active: boolean) => void
+  setFooterActive: (active: boolean) => void,
 ) => {
   const direct = createCodexDirectTools();
   const codeMode = new CodeModeRuntime();
@@ -39,13 +43,9 @@ export const createCodexToolsController = (
   let suppressedPiNames: string[] = [];
 
   const codeModeActive = () =>
-    codeModeEnabled &&
-    currentModel !== undefined &&
-    isCodexToolsModel(currentModel);
+    codeModeEnabled && currentModel !== undefined && isCodexToolsModel(currentModel);
 
-  const visibleNames = (
-    model: ExtensionContext["model"] = currentModel
-  ): string[] => {
+  const visibleNames = (model: ExtensionContext["model"] = currentModel): string[] => {
     if (model === undefined || !isCodexToolsModel(model)) {
       return [];
     }
@@ -70,23 +70,15 @@ export const createCodexToolsController = (
     setFooterActive(active);
     const activeNames = pi.getActiveTools();
     if (ctx.model === undefined || !isCodexToolsModel(ctx.model)) {
-      const remainingNames = activeNames.filter(
-        (name) => !codexToolNameSet.has(name)
-      );
-      pi.setActiveTools([
-        ...new Set([...suppressedPiNames, ...remainingNames]),
-      ]);
+      const remainingNames = activeNames.filter((name) => !codexToolNameSet.has(name));
+      pi.setActiveTools([...new Set([...suppressedPiNames, ...remainingNames])]);
       suppressedPiNames = [];
       return;
     }
     if (previousModel === undefined || !isCodexToolsModel(previousModel)) {
-      suppressedPiNames = activeNames.filter((name) =>
-        PI_TOOL_NAMES.includes(name)
-      );
+      suppressedPiNames = activeNames.filter((name) => PI_TOOL_NAMES.includes(name));
     }
-    const externalNames = activeNames.filter(
-      (name) => !codexManagedNameSet.has(name)
-    );
+    const externalNames = activeNames.filter((name) => !codexManagedNameSet.has(name));
     pi.setActiveTools([
       ...externalNames,
       ...selection.enabled(codeModeActive() ? codeNames : directNames),
@@ -107,7 +99,7 @@ export const createCodexToolsController = (
     apply,
     beforeAgentStart(
       systemPrompt: string,
-      ctx: ExtensionContext
+      ctx: ExtensionContext,
     ): { systemPrompt: string } | undefined {
       apply(ctx);
       if (!codeModeActive()) {
@@ -121,16 +113,14 @@ export const createCodexToolsController = (
     definitions: [...directDefinitions, ...codeDefinitions],
     registerOwner(): void {
       pi.events.on(TOOL_OWNER_REQUEST_EVENT, (request) => {
-        if (isToolOwnerRequest(request)) {
-          request.provide(owner);
+        if (Value.Check(ToolOwnerRequestSchema, request)) {
+          Value.Parse(ToolOwnerRequestSchema, request).provide(owner);
         }
       });
     },
     async shutdown(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (reason === "reload") {
-        pi.setActiveTools([
-          ...new Set([...suppressedPiNames, ...pi.getActiveTools()]),
-        ]);
+        pi.setActiveTools([...new Set([...suppressedPiNames, ...pi.getActiveTools()])]);
       }
       await codeMode.shutdown();
       await direct.dispose();
@@ -146,10 +136,7 @@ export const createCodexToolsController = (
     toggle(ctx: ExtensionContext): void {
       codeModeEnabled = !codeModeEnabled;
       apply(ctx);
-      ctx.ui.notify(
-        `Code Mode ${codeModeEnabled ? "enabled" : "disabled"}`,
-        "info"
-      );
+      ctx.ui.notify(`Code Mode ${codeModeEnabled ? "enabled" : "disabled"}`, "info");
     },
   };
 };

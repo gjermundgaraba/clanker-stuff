@@ -1,9 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  fetchClaudeUsage,
-  parseClaudeUsagePayload,
-} from "../../adapters/claude.js";
+import { fetchClaudeUsage, parseClaudeUsagePayload } from "../../adapters/claude.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, tokenAuthClient } from "./helpers.js";
 
@@ -46,12 +43,8 @@ describe("claude usage", () => {
 
   it("fails when no windows are present or utilization is out of range", () => {
     expect(parseClaudeUsagePayload({}, NOW).ok).toBeFalsy();
-    expect(
-      parseClaudeUsagePayload({ five_hour: { utilization: -1 } }, NOW).ok
-    ).toBeFalsy();
-    expect(
-      parseClaudeUsagePayload({ five_hour: { utilization: 101 } }, NOW).ok
-    ).toBeFalsy();
+    expect(parseClaudeUsagePayload({ five_hour: { utilization: -1 } }, NOW).ok).toBeFalsy();
+    expect(parseClaudeUsagePayload({ five_hour: { utilization: 101 } }, NOW).ok).toBeFalsy();
   });
 
   it("requests OAuth usage with Anthropic headers", async () => {

@@ -1,10 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import type {
-  ExtensionContext,
-  InputEvent,
-  UserBashEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
 
 import type { HistoryItem } from "./history.js";
 import {
@@ -30,15 +26,12 @@ export const createReverseSearch = () => {
 
   const search = createSearch(() => history);
 
-  const warnPersistence = (
-    ui: ExtensionContext["ui"],
-    error: unknown
-  ): void => {
+  const warnPersistence = (ui: ExtensionContext["ui"], cause: unknown): void => {
     if (persistenceWarningShown) {
       return;
     }
     persistenceWarningShown = true;
-    const message = error instanceof Error ? `: ${error.message}` : "";
+    const message = cause instanceof Error ? `: ${cause.message}` : "";
     ui.notify(`Prompt history persistence is unavailable${message}`, "warning");
   };
 
@@ -112,7 +105,7 @@ export const createReverseSearch = () => {
       (status) => {
         ctx.ui.setStatus(WIDGET_KEY, status);
       },
-      abort.signal
+      abort.signal,
     );
     importAbort = abort;
     importPromise = pendingImport;
@@ -122,7 +115,7 @@ export const createReverseSearch = () => {
       replaceHistoryFromDatabase(activeDatabase);
       ctx.ui.notify(
         `Imported ${history.length} history entries from ${files} session files.`,
-        "info"
+        "info",
       );
     } catch (error) {
       if (!abort.signal.aborted) {
@@ -147,9 +140,7 @@ export const createReverseSearch = () => {
     }
 
     unsubscribeInput = ctx.ui.onTerminalInput(search.handleInput);
-    history = normalizeHistory(
-      historyFromEntries(ctx.sessionManager.getBranch())
-    );
+    history = normalizeHistory(historyFromEntries(ctx.sessionManager.getBranch()));
 
     if (ctx.sessionManager.getSessionDir() === "") {
       return;
@@ -176,10 +167,7 @@ export const createReverseSearch = () => {
   };
 
   const recordBash = (event: UserBashEvent, ctx: ExtensionContext) => {
-    addHistory(
-      `${event.excludeFromContext ? "!!" : "!"}${event.command}`,
-      ctx.ui
-    );
+    addHistory(`${event.excludeFromContext ? "!!" : "!"}${event.command}`, ctx.ui);
   };
 
   const dispose = async (ctx: ExtensionContext) => {

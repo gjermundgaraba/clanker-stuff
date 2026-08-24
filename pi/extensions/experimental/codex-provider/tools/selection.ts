@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -14,12 +11,9 @@ const savedState = (ctx: ExtensionContext): CodexToolsState | undefined => {
   const entry = ctx.sessionManager
     .getBranch()
     .findLast(
-      (candidate) =>
-        candidate.type === "custom" &&
-        candidate.customType === CODEX_TOOLS_STATE_TYPE
+      (candidate) => candidate.type === "custom" && candidate.customType === CODEX_TOOLS_STATE_TYPE,
     );
-  return entry?.type === "custom" &&
-    Value.Check(CodexToolsStateSchema, entry.data)
+  return entry?.type === "custom" && Value.Check(CodexToolsStateSchema, entry.data)
     ? entry.data
     : undefined;
 };
@@ -36,7 +30,7 @@ export const createCodexToolSelection = (pi: ExtensionAPI) => {
       tools = savedState(ctx) ?? baseline;
     },
     setEnabled(name: string, enabled: boolean, _ctx: ExtensionContext): void {
-      tools = { ...tools, [name]: enabled };
+      tools = Object.assign({}, tools, { [name]: enabled });
       pi.appendEntry<CodexToolsState>(CODEX_TOOLS_STATE_TYPE, tools);
     },
     start(ctx: ExtensionContext): void {

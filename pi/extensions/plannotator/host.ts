@@ -1,13 +1,7 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-type CommandHandler = (
-  args: string,
-  ctx: ExtensionCommandContext
-) => Promise<void>;
+type CommandHandler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 
 interface PlannotatorRuntime {
   annotate: CommandHandler;
@@ -27,7 +21,7 @@ export const createPlannotatorHost = (pi: ExtensionAPI) => {
     ]);
     signal.throwIfAborted();
     const runtime = command.createCommandRuntime(
-      launcher.createTargetedReviewStarter(command.startPlannotatorCli)
+      launcher.createTargetedReviewStarter(command.startPlannotatorCli),
     );
     return {
       annotate: annotate.createAnnotateHandler(pi, runtime),

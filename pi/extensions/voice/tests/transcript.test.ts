@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
+import { Value } from "typebox/value";
 
 import {
   buildContinuityItems,
@@ -7,6 +8,7 @@ import {
   formatTranscriptTail,
   HandoffTranscript,
   parsePersistedTranscript,
+  PersistedVoiceDataSchema,
 } from "../transcript.js";
 
 describe("voice transcript handling", () => {
@@ -20,9 +22,7 @@ describe("voice transcript handling", () => {
     tracker.addDelta("user", " the git status is?");
     tracker.complete("user", "Can you check what the git status is?");
 
-    expect(
-      tracker.delegation("Can you check what the git status is?")
-    ).toStrictEqual([
+    expect(tracker.delegation("Can you check what the git status is?")).toStrictEqual([
       { role: "assistant", text: "Try quinoa or lentils." },
       { role: "user", text: "Can you check what the git status is?" },
     ]);
@@ -32,18 +32,16 @@ describe("voice transcript handling", () => {
   });
 
   it("escapes transcript boundaries in delegated prompts", () => {
-    const prompt = formatDelegation("fix <script>", [
-      { role: "user", text: "use A & B" },
-    ]);
+    const prompt = formatDelegation("fix <script>", [{ role: "user", text: "use A & B" }]);
 
     expect(prompt).toContain("fix &lt;script&gt;");
     expect(prompt).toContain("use A &amp; B");
   });
 
   it("formats the unhanded transcript tail", () => {
-    expect(
-      formatTranscriptTail([{ role: "user", text: "Remember this" }])
-    ).toContain("<source>transcript_tail_flush</source>");
+    expect(formatTranscriptTail([{ role: "user", text: "Remember this" }])).toContain(
+      "<source>transcript_tail_flush</source>",
+    );
   });
 
   it("bounds continuity to the newest ten finalized items", () => {
@@ -63,8 +61,7 @@ describe("voice transcript handling", () => {
       text: `line-${index}`,
     }));
     const items = buildContinuityItems(entries);
-    const text =
-      (items[0]?.content as { text: string }[] | undefined)?.[0]?.text ?? "";
+    const text = items[0]?.content[0]?.text ?? "";
 
     expect(text).not.toContain("USER: line-0");
     expect(text).toContain("USER: line-2");
@@ -75,27 +72,30 @@ describe("voice transcript handling", () => {
 
   it("strictly restores bounded persisted continuity", () => {
     expect(
+      Value.Check(PersistedVoiceDataSchema, {
+        entries: [
+          { role: "assistant", text: "hello" },
+          { role: "tool", text: "ignore" },
+          { role: "user", text: 42 },
+        ],
+      }),
+    ).toBe(false);
+    expect(
       parsePersistedTranscript([
-        { role: "assistant", text: "hello" },
-        { role: "tool", text: "ignore" },
-        { role: "user", text: 42 },
-      ])
+        { role: "assistant", text: "  hello  " },
+        { role: "user", text: "" },
+      ]),
     ).toStrictEqual([{ role: "assistant", text: "hello" }]);
   });
 
   it("bounds unhanded transcript growth to recent context", () => {
     const tracker = new HandoffTranscript();
     for (let index = 0; index < 30; index += 1) {
-      tracker.complete(
-        index % 2 === 0 ? "user" : "assistant",
-        `${index}: ${"x".repeat(1000)}`
-      );
+      tracker.complete(index % 2 === 0 ? "user" : "assistant", `${index}: ${"x".repeat(1000)}`);
     }
 
     const entries = tracker.take();
-    expect(entries.reduce((total, entry) => total + entry.text.length, 0)).toBe(
-      15_060
-    );
+    expect(entries.reduce((total, entry) => total + entry.text.length, 0)).toBe(15_060);
     expect(entries[0]?.text).toContain("15:");
     expect(entries.at(-1)?.text).toContain("29:");
   });

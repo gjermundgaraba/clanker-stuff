@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   FOOTER_PROTOCOL_VERSION,
@@ -27,20 +27,20 @@ describe("footer protocol", () => {
         instanceId: "host",
         protocol: FOOTER_PROTOCOL_VERSION,
         type: "ready",
-      })
+      }),
     ).toBeTruthy();
     expect(
       isFooterReadyRequestMessage({
         protocol: FOOTER_PROTOCOL_VERSION,
         type: "ready-request",
-      })
+      }),
     ).toBeTruthy();
     expect(
       isFooterReadyMessage({
         instanceId: "host",
         protocol: 2,
         type: "ready",
-      })
+      }),
     ).toBeFalsy();
   });
 });

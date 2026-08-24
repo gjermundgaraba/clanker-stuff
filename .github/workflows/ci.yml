@@ -13,12 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: voidzero-dev/setup-vp@v1.17.0
         with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check:all
+          cache: true
+          node-version: "26"
+      - run: vp install --frozen-lockfile
+      - run: vp run ready

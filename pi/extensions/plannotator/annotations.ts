@@ -17,7 +17,7 @@ export type AnnotationOutcome = Static<typeof AnnotationOutcomeSchema>;
 
 export const normalizeAnnotationArguments = (
   tokens: string[],
-  controlledFlags: Set<string>
+  controlledFlags: Set<string>,
 ): string[] => {
   if (tokens.includes("--hook")) {
     throw new Error("--hook is not supported by this Pi extension");

@@ -33,12 +33,11 @@ export const createTimer = () => {
       intervalId === undefined
         ? STATIC_BREATHING_DOT_FRAME
         : (BREATHING_DOT_FRAMES[
-            Math.floor(elapsed / BREATHING_DOT_INTERVAL_MS) %
-              BREATHING_DOT_FRAMES.length
+            Math.floor(elapsed / BREATHING_DOT_INTERVAL_MS) % BREATHING_DOT_FRAMES.length
           ] ?? STATIC_BREATHING_DOT_FRAME);
     ctx.ui.setStatus(
       "timer",
-      `${ctx.ui.theme.fg(frame.color, frame.marker)} ${ctx.ui.theme.fg("dim", formatElapsed(elapsed))}`
+      `${ctx.ui.theme.fg(frame.color, frame.marker)} ${ctx.ui.theme.fg("dim", formatElapsed(elapsed))}`,
     );
   };
 

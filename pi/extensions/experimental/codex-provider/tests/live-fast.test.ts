@@ -1,9 +1,11 @@
+import { ok as assert } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { installWebSocketProbe } from "../scripts/live-fast.js";
+import type { WireValue } from "./fixtures.js";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 
@@ -21,25 +23,27 @@ describe("live fast runner", () => {
   it("keeps late messages with the sample that created the socket", async () => {
     const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
     class FakeWebSocket {
-      readonly listeners = new Set<(event: { data: unknown }) => void>();
-      readonly sent: unknown[] = [];
+      static readonly instances: FakeWebSocket[] = [];
+      readonly listeners = new Set<(event: { data: WireValue }) => void>();
+      readonly sent: WireValue[] = [];
 
-      addEventListener(
-        type: string,
-        listener: (event: { data: unknown }) => void
-      ) {
+      constructor() {
+        FakeWebSocket.instances.push(this);
+      }
+
+      addEventListener(type: string, listener: (event: { data: WireValue }) => void) {
         if (type === "message") {
           this.listeners.add(listener);
         }
       }
 
-      emitMessage(data: unknown) {
+      emitMessage(data: WireValue) {
         for (const listener of this.listeners) {
           listener({ data });
         }
       }
 
-      send(data: unknown) {
+      send(data: WireValue) {
         this.sent.push(data);
       }
     }
@@ -53,16 +57,14 @@ describe("live fast runner", () => {
     try {
       probe = installWebSocketProbe();
       probe.begin();
-      const firstSocket = new WebSocket(
-        "ws://example.test"
-      ) as unknown as FakeWebSocket;
+      new WebSocket("ws://example.test");
+      const firstSocket = FakeWebSocket.instances.at(-1);
+      assert(firstSocket !== undefined);
       const first = await probe.finish();
 
       probe.begin();
       const delayed = Promise.withResolvers<string>();
-      firstSocket.emitMessage(
-        Object.assign(new Blob([]), { text: () => delayed.promise })
-      );
+      firstSocket.emitMessage(Object.assign(new Blob([]), { text: () => delayed.promise }));
 
       expect(first.pending).toHaveLength(1);
       delayed.resolve(
@@ -73,14 +75,14 @@ describe("live fast runner", () => {
             status: "completed",
           },
           type: "response.completed",
-        })
+        }),
       );
       await Promise.all(first.pending);
       const second = await probe.finish();
 
-      expect(
-        first.terminalResponses.map(({ responseId }) => responseId)
-      ).toStrictEqual(["late-first"]);
+      expect(first.terminalResponses.map(({ responseId }) => responseId)).toStrictEqual([
+        "late-first",
+      ]);
       expect(second.terminalResponses).toStrictEqual([]);
     } finally {
       probe?.restore();
@@ -94,18 +96,18 @@ describe("live fast runner", () => {
 
   it("accepts seed zero before enforcing the paid opt-in", () => {
     const result = invoke("0");
+    const output = `${result.stdout}${result.stderr}`;
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Paid live requests are disabled");
-    expect(result.stderr).not.toContain("--seed must");
+    expect(output).toContain("Paid live requests are disabled");
+    expect(output).not.toContain("--seed must");
   });
 
   it("rejects values outside uint32", () => {
     const result = invoke("4294967296");
+    const output = `${result.stdout}${result.stderr}`;
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(
-      "--seed must be an unsigned 32-bit integer"
-    );
+    expect(output).toContain("--seed must be an unsigned 32-bit integer");
   });
 });

@@ -29,19 +29,10 @@ export interface CallMedia {
   renewal: CallMediaRenewal | undefined;
 }
 
-export const createCall: (
-  microphone: CallMediaMicrophone,
-  leg: CallMediaLeg
-) => CallMedia;
+export const createCall: (microphone: CallMediaMicrophone, leg: CallMediaLeg) => CallMedia;
 
-export const commitRenewal: (
-  call: CallMedia,
-  renewal: CallMediaRenewal
-) => CallMediaLeg;
+export const commitRenewal: (call: CallMedia, renewal: CallMediaRenewal) => CallMediaLeg;
 
 export const disposeLeg: (leg: CallMediaLeg | undefined) => boolean;
 
-export const disposeCallMedia: (
-  call: CallMedia | undefined,
-  reason: Error
-) => boolean;
+export const disposeCallMedia: (call: CallMedia | undefined, reason: Error) => boolean;

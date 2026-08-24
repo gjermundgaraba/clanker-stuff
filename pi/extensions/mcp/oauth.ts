@@ -47,18 +47,18 @@ const DiscoveryStateSchema = z.object({
 // SEP-2352: the SDK stamps `issuer` on credentials before persisting them and
 // warns when a read comes back without it. The core wire schemas strip unknown
 // fields, so storage schemas must re-add `issuer` to round-trip the stamp.
-const issuerStampShape = { issuer: z.string().optional() };
+const issuerStampFields = { issuer: z.string().optional() };
 
 const StoredServerOAuthStateSchema = z.object({
   clientInformation: z
     .union([
-      OAuthClientInformationFullSchema.extend(issuerStampShape),
-      OAuthClientInformationSchema.extend(issuerStampShape),
+      OAuthClientInformationFullSchema.extend(issuerStampFields),
+      OAuthClientInformationSchema.extend(issuerStampFields),
     ])
     .optional(),
   codeVerifier: z.string().min(1).optional(),
   discoveryState: DiscoveryStateSchema.optional(),
-  tokens: OAuthTokensSchema.extend(issuerStampShape).optional(),
+  tokens: OAuthTokensSchema.extend(issuerStampFields).optional(),
 });
 
 const StoredOAuthStateSchema = z.object({
@@ -71,8 +71,8 @@ type StoredOAuthState = z.infer<typeof StoredOAuthStateSchema>;
 const getOAuthStatePath = (): string =>
   path.join(getExtensionStoragePaths("mcp").dataDir, OAUTH_STATE_FILE);
 
-const parseStoredOAuthState = (value: unknown): StoredOAuthState => {
-  const result = StoredOAuthStateSchema.safeParse(value);
+const parseStoredOAuthState = (text: string): StoredOAuthState => {
+  const result = StoredOAuthStateSchema.safeParse(JSON.parse(text));
   if (!result.success) {
     throw new Error("invalid MCP OAuth state", { cause: result.error });
   }
@@ -80,12 +80,12 @@ const parseStoredOAuthState = (value: unknown): StoredOAuthState => {
 };
 
 const fetchAuthorizationServerMetadata = async (
-  url: string
+  url: string,
 ): Promise<AuthorizationServerMetadata> => {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(
-      `failed to fetch OAuth authorization server metadata: ${response.status} ${response.statusText}`
+      `failed to fetch OAuth authorization server metadata: ${response.status} ${response.statusText}`,
     );
   }
   return AuthorizationServerMetadataSchema.parse(await response.json());
@@ -93,7 +93,7 @@ const fetchAuthorizationServerMetadata = async (
 
 export const startOAuthCallbackServer = async (
   redirectUrl: URL,
-  expectedState: string
+  expectedState: string,
 ): Promise<OAuthCallbackServer> => {
   const {
     promise: codePromise,
@@ -139,7 +139,6 @@ export const startOAuthCallbackServer = async (
   });
 
   // Real callers still observe this promise; this only prevents an unhandled rejection.
-  // oxlint-disable-next-line promise/prefer-await-to-then -- Must attach to the original promise.
   void codePromise.catch(() => null);
 
   server.listen(Number(redirectUrl.port), redirectUrl.hostname);
@@ -188,30 +187,23 @@ const writeOAuthState = async (state: StoredOAuthState): Promise<void> => {
 const readOAuthState = async (): Promise<StoredOAuthState> => {
   try {
     const contents = await readFile(getOAuthStatePath(), "utf-8");
-    return parseStoredOAuthState(JSON.parse(contents));
+    return parseStoredOAuthState(contents);
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error instanceof Object && "code" in error && error.code === "ENOENT") {
       return { servers: {} };
     }
     throw error;
   }
 };
 
-const readServerState = async (
-  serverName: string
-): Promise<StoredServerOAuthState | undefined> => {
+const readServerState = async (serverName: string): Promise<StoredServerOAuthState | undefined> => {
   const state = await readOAuthState();
   return state.servers[serverName];
 };
 
 const updateServerState = async (
   serverName: string,
-  update: (state: StoredServerOAuthState) => void
+  update: (state: StoredServerOAuthState) => void,
 ): Promise<void> => {
   const filePath = getOAuthStatePath();
   await withFileMutationQueue(filePath, async () => {
@@ -233,13 +225,13 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   constructor(
     serverName: string,
     config: HttpOAuthAuthorizationCodeConfig,
-    onAuthorizationUrl: (url: URL) => void
+    onAuthorizationUrl: (url: URL) => void,
   ) {
     this.serverName = serverName;
     this.config = config;
     this.onAuthorizationUrl = onAuthorizationUrl;
     this.redirectUrlValue = new URL(
-      `http://${CALLBACK_HOST}:${config.callbackPort ?? DEFAULT_REDIRECT_PORT}${CALLBACK_PATH}`
+      `http://${CALLBACK_HOST}:${config.callbackPort ?? DEFAULT_REDIRECT_PORT}${CALLBACK_PATH}`,
     );
   }
 
@@ -259,8 +251,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
       response_types: ["code"],
       scope: this.config.scopes,
       token_endpoint_auth_method:
-        typeof this.config.clientSecret === "string" &&
-        this.config.clientSecret !== ""
+        this.config.clientSecret !== undefined && this.config.clientSecret !== ""
           ? "client_secret_post"
           : undefined,
     };
@@ -271,10 +262,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   }
 
   async clientInformation(): Promise<StoredOAuthClientInformation | undefined> {
-    if (
-      typeof this.config.clientId === "string" &&
-      this.config.clientId !== ""
-    ) {
+    if (this.config.clientId !== undefined && this.config.clientId !== "") {
       return {
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
@@ -284,13 +272,8 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
     return serverState?.clientInformation;
   }
 
-  async saveClientInformation(
-    clientInformation: StoredOAuthClientInformation
-  ): Promise<void> {
-    if (
-      typeof this.config.clientId === "string" &&
-      this.config.clientId !== ""
-    ) {
+  async saveClientInformation(clientInformation: StoredOAuthClientInformation): Promise<void> {
+    if (this.config.clientId !== undefined && this.config.clientId !== "") {
       return;
     }
     await updateServerState(this.serverName, (state) => {
@@ -310,7 +293,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   }
 
   async invalidateCredentials(
-    scope: "all" | "client" | "tokens" | "verifier" | "discovery"
+    scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
     await updateServerState(this.serverName, (state) => {
       if (scope === "all" || scope === "client") {
@@ -341,7 +324,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   async codeVerifier(): Promise<string> {
     const serverState = await readServerState(this.serverName);
     const codeVerifier = serverState?.codeVerifier;
-    if (typeof codeVerifier !== "string" || codeVerifier === "") {
+    if (codeVerifier === undefined || codeVerifier === "") {
       throw new Error("No MCP OAuth code verifier saved");
     }
     return codeVerifier;
@@ -355,12 +338,10 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
     if (
-      typeof this.config.authServerMetadataUrl === "string" &&
+      this.config.authServerMetadataUrl !== undefined &&
       this.config.authServerMetadataUrl !== ""
     ) {
-      const metadata = await fetchAuthorizationServerMetadata(
-        this.config.authServerMetadataUrl
-      );
+      const metadata = await fetchAuthorizationServerMetadata(this.config.authServerMetadataUrl);
       return {
         authorizationServerMetadata: metadata,
         authorizationServerUrl: metadata.issuer,

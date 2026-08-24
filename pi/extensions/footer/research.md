@@ -27,14 +27,14 @@ Native statuses were previously flattened into one line with special handling fo
 
 ## Projects reviewed
 
-| Project | Useful evidence |
-| --- | --- |
-| `pi-footer-manager` | One cooperative owner is practical when pi cannot compose footer slots. |
-| `pi-fancy-footer` | Versioned upsert/remove events, ready replay, and a spatial editor fit the problem. |
-| `wobondar/pi-footer` | Live preview and explicit save are useful; its broader settings surface is unnecessary here. |
-| `pi-powerline-footer` | Native statuses can become individually configurable items. |
-| `ccstatusline` | Progressive disclosure keeps persistent output quiet while configuration remains discoverable. |
-| Starship | Stable module IDs and separate alignment groups are durable configuration concepts. |
+| Project               | Useful evidence                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| `pi-footer-manager`   | One cooperative owner is practical when pi cannot compose footer slots.                        |
+| `pi-fancy-footer`     | Versioned upsert/remove events, ready replay, and a spatial editor fit the problem.            |
+| `wobondar/pi-footer`  | Live preview and explicit save are useful; its broader settings surface is unnecessary here.   |
+| `pi-powerline-footer` | Native statuses can become individually configurable items.                                    |
+| `ccstatusline`        | Progressive disclosure keeps persistent output quiet while configuration remains discoverable. |
+| Starship              | Stable module IDs and separate alignment groups are durable configuration concepts.            |
 
 The rejected patterns were arbitrary contributor render callbacks, `globalThis` registries, pi monkey-patching, automatic font detection, and coupling editor or transcript behavior to footer ownership.
 

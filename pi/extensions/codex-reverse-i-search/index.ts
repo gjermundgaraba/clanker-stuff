@@ -19,9 +19,7 @@ export default function codexReverseISearch(pi: ExtensionAPI): void {
     reverseSearch.sessionStart(ctx);
   });
   pi.on("input", (event, ctx) =>
-    event.source === "interactive"
-      ? reverseSearch.recordInput(event, ctx)
-      : undefined
+    event.source === "interactive" ? reverseSearch.recordInput(event, ctx) : undefined,
   );
   pi.on("user_bash", (event, ctx) => reverseSearch.recordBash(event, ctx));
   pi.on("session_shutdown", (_event, ctx) => reverseSearch.shutdown(ctx));

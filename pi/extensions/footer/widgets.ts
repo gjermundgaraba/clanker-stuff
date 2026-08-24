@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/no-nested-ternary -- bounded numeric formatters stay adjacent */
 import os from "node:os";
 import path from "node:path";
 
@@ -8,10 +7,7 @@ import type {
   FooterTone,
   FooterWidgetSnapshot,
 } from "@clanker-stuff/footer-protocol";
-import type {
-  ExtensionContext,
-  SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import type { GitStatus } from "./git.js";
 
@@ -47,11 +43,17 @@ interface UsageLike {
   output?: number;
 }
 
-const span = (
-  text: string,
-  tone: FooterTone = "text",
-  bold = false
-): FooterContent => [{ bold, text, tone }];
+type SessionTotalsContext = {
+  sessionManager: {
+    getEntries: () => SessionEntry[];
+    getHeader: () => { timestamp: string } | null | undefined;
+    getSessionName: () => string | undefined;
+  };
+};
+
+const span = (text: string, tone: FooterTone = "text", bold = false): FooterContent => [
+  { bold, text, tone },
+];
 
 const builtin = (snapshot: FooterWidgetSnapshot): LiveWidget => ({
   snapshot,
@@ -75,11 +77,7 @@ export const formatTokenCount = (tokens: number): string => {
 
 const formatCost = (cost: number): string => {
   const safe = Number.isFinite(cost) ? Math.max(0, cost) : 0;
-  return safe === 0
-    ? "$0"
-    : safe < 0.01
-      ? `$${safe.toFixed(3)}`
-      : `$${safe.toFixed(2)}`;
+  return safe === 0 ? "$0" : safe < 0.01 ? `$${safe.toFixed(3)}` : `$${safe.toFixed(2)}`;
 };
 
 const formatElapsed = (milliseconds: number): string => {
@@ -94,8 +92,7 @@ const formatElapsed = (milliseconds: number): string => {
 
 const abbreviateHome = (cwd: string): string => {
   const home = os.homedir();
-  return home.length > 0 &&
-    (cwd === home || cwd.startsWith(`${home}${path.sep}`))
+  return home.length > 0 && (cwd === home || cwd.startsWith(`${home}${path.sep}`))
     ? `~${cwd.slice(home.length)}`
     : cwd;
 };
@@ -130,7 +127,7 @@ const modelWidget = (ctx: ExtensionContext): LiveWidget => {
         (candidate) =>
           candidate !== model &&
           candidate.provider !== model.provider &&
-          (candidate.name === model.name || candidate.id === model.id)
+          (candidate.name === model.name || candidate.id === model.id),
       );
   } catch {
     // A registry failure should not remove the active model from the footer.
@@ -176,11 +173,7 @@ const contextWidget = (ctx: ExtensionContext, now: number): LiveWidget => {
     { text: "─".repeat(12 - filled), tone: "dim" },
     { text: ` ${rounded}`, tone: percentTone(percent) },
   ];
-  if (
-    usage?.tokens !== null &&
-    usage?.tokens !== undefined &&
-    usage.contextWindow > 0
-  ) {
+  if (usage?.tokens !== null && usage?.tokens !== undefined && usage.contextWindow > 0) {
     bar.push({
       text: ` ${formatTokenCount(usage.tokens)}/${formatTokenCount(usage.contextWindow)}`,
       tone: "dim",
@@ -234,15 +227,10 @@ const gitWidgets = (git: GitStatus | null): LiveWidget[] => {
 };
 
 const sessionWidget = (totals: SessionTotals, now: number): LiveWidget => {
-  const elapsed = formatElapsed(
-    totals.startedAt === undefined ? 0 : now - totals.startedAt
-  );
+  const elapsed = formatElapsed(totals.startedAt === undefined ? 0 : now - totals.startedAt);
   const cost = formatCost(totals.cost);
   const trimmedName = totals.name?.trim();
-  const name =
-    trimmedName === undefined || trimmedName.length === 0
-      ? "session"
-      : trimmedName;
+  const name = trimmedName === undefined || trimmedName.length === 0 ? "session" : trimmedName;
   const full = `${name} ${elapsed} in ${formatTokenCount(totals.input)} out ${formatTokenCount(totals.output)} cache ${formatTokenCount(totals.cacheRead)}/${formatTokenCount(totals.cacheWrite)} ${cost}`;
   return builtin({
     content: span(full, "dim"),
@@ -260,12 +248,10 @@ const usageFromEntry = (entry: SessionEntry): UsageLike | undefined => {
     const { message } = entry;
     return "usage" in message ? message.usage : undefined;
   }
-  return entry.type === "compaction" || entry.type === "branch_summary"
-    ? entry.usage
-    : undefined;
+  return entry.type === "compaction" || entry.type === "branch_summary" ? entry.usage : undefined;
 };
 
-export const collectSessionTotals = (ctx: ExtensionContext): SessionTotals => {
+export const collectSessionTotals = (ctx: SessionTotalsContext): SessionTotals => {
   const totals: SessionTotals = {
     cacheRead: 0,
     cacheWrite: 0,
@@ -297,7 +283,7 @@ export const collectSessionTotals = (ctx: ExtensionContext): SessionTotals => {
 
 export const buildBuiltinWidgets = (
   ctx: ExtensionContext,
-  options: BuiltinWidgetOptions
+  options: BuiltinWidgetOptions,
 ): Map<string, LiveWidget> => {
   const values = [
     cwdWidget(ctx.cwd),

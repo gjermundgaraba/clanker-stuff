@@ -6,12 +6,7 @@ import { release, tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type {
-  CliCompletion,
-  CliProcess,
-  CliStarter,
-  CliStartOptions,
-} from "./cli.ts";
+import type { CliCompletion, CliProcess, CliStarter, CliStartOptions } from "./cli.ts";
 import { processFailure, startCli } from "./cli.ts";
 
 const READY_TIMEOUT_MS = 30_000;
@@ -28,6 +23,12 @@ All other options are forwarded to \`plannotator review\`.
 interface ReadyMetadata {
   isRemote: boolean;
   url: string;
+}
+
+type JsonValue = JsonValue[] | JsonObject | boolean | null | number | string;
+
+interface JsonObject {
+  [key: string]: JsonValue;
 }
 
 interface BrowserChoice {
@@ -115,9 +116,7 @@ const parseReview = (args: string[]): ParsedReview => {
   return { args: ["review", ...forwarded], base, browser };
 };
 
-const completionBeforeReady = async (
-  completion: Promise<CliCompletion>
-): Promise<never> => {
+const completionBeforeReady = async (completion: Promise<CliCompletion>): Promise<never> => {
   const result = await completion;
   if (result.kind === "exited" && result.code !== 0) {
     throw processFailure(result);
@@ -128,17 +127,52 @@ const completionBeforeReady = async (
   throw new Error("Plannotator exited before opening the review server");
 };
 
+const isMissingFileError = (cause: unknown): boolean =>
+  cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+
+const isJsonObject = (value: JsonValue): value is JsonObject =>
+  value !== null && !Array.isArray(value) && Object(value) === value;
+
+const isJsonString = (value: JsonValue | undefined): value is string =>
+  value !== null && value !== undefined && value.constructor === String;
+
+const isJsonBoolean = (value: JsonValue | undefined): value is boolean =>
+  value !== null && value !== undefined && value.constructor === Boolean;
+
+const parseJson = (text: string): JsonValue => JSON.parse(text);
+
+const parseReadyMetadata = (line: string): ReadyMetadata | undefined => {
+  try {
+    const value = parseJson(line);
+    if (
+      !isJsonObject(value) ||
+      !isJsonString(value.url) ||
+      !isJsonBoolean(value.isRemote) ||
+      !URL.canParse(value.url)
+    ) {
+      return undefined;
+    }
+    return { isRemote: value.isRemote, url: value.url };
+  } catch {
+    return undefined;
+  }
+};
+
+const parseApiError = (text: string): string | undefined => {
+  try {
+    const value = parseJson(text);
+    return isJsonObject(value) && isJsonString(value.error) ? value.error : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const readReadyMetadata = (filePath: string): ReadyMetadata | undefined => {
   let text: string;
   try {
     text = readFileSync(filePath, "utf-8");
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (isMissingFileError(error)) {
       return undefined;
     }
     throw error;
@@ -149,30 +183,13 @@ const readReadyMetadata = (filePath: string): ReadyMetadata | undefined => {
     return undefined;
   }
 
-  try {
-    const value: unknown = JSON.parse(line);
-    if (
-      typeof value !== "object" ||
-      value === null ||
-      !("url" in value) ||
-      !("isRemote" in value) ||
-      typeof value.url !== "string" ||
-      typeof value.isRemote !== "boolean"
-    ) {
-      return undefined;
-    }
-    return URL.canParse(value.url)
-      ? { isRemote: value.isRemote, url: value.url }
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseReadyMetadata(line);
 };
 
 const waitForReady = async (
   readyFile: string,
   signal: AbortSignal,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<ReadyMetadata> => {
   const deadline = Date.now() + timeoutMs;
   const poll = async (): Promise<ReadyMetadata> => {
@@ -181,9 +198,7 @@ const waitForReady = async (
       return metadata;
     }
     if (Date.now() >= deadline) {
-      throw new Error(
-        "Timed out waiting for Plannotator to open the review server"
-      );
+      throw new Error("Timed out waiting for Plannotator to open the review server");
     }
     await delay(25, undefined, { signal });
     return await poll();
@@ -195,7 +210,7 @@ const switchBase = async (
   url: string,
   base: string,
   signal: AbortSignal,
-  fetchImpl: typeof fetch
+  fetchImpl: typeof fetch,
 ): Promise<void> => {
   const response = await fetchImpl(new URL("/api/diff/switch", url), {
     body: JSON.stringify({
@@ -208,29 +223,16 @@ const switchBase = async (
     signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
   });
   const text = await response.text();
-  let payload: unknown;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    payload = undefined;
-  }
-  const apiError =
-    typeof payload === "object" &&
-    payload !== null &&
-    "error" in payload &&
-    typeof payload.error === "string"
-      ? payload.error
-      : undefined;
+  const apiError = parseApiError(text);
   if (!response.ok || apiError !== undefined) {
-    const detail =
-      apiError ?? (text.length > 0 ? text : `HTTP ${response.status}`);
+    const detail = apiError ?? (text.length > 0 ? text : `HTTP ${response.status}`);
     throw new Error(`Could not target base ${JSON.stringify(base)}: ${detail}`);
   }
 };
 
 const browserChoice = (
   browserArgument: string | undefined,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
 ): BrowserChoice | undefined => {
   const plannotatorBrowser = browserArgument ?? env.PLANNOTATOR_BROWSER;
   if (
@@ -263,15 +265,11 @@ const spawnDetached = (command: string, args: string[]): Promise<null> => {
   return promise;
 };
 
-const openBrowser = async (
-  url: string,
-  choice: BrowserChoice | undefined
-): Promise<void> => {
+const openBrowser = async (url: string, choice: BrowserChoice | undefined): Promise<void> => {
   const isWindows = process.platform === "win32";
   const isWsl =
     process.platform === "linux" &&
-    (Boolean(process.env.WSL_DISTRO_NAME) ||
-      release().toLowerCase().includes("microsoft"));
+    (Boolean(process.env.WSL_DISTRO_NAME) || release().toLowerCase().includes("microsoft"));
 
   if (choice) {
     if (process.platform === "darwin" && choice.plannotatorStyle) {
@@ -314,9 +312,7 @@ export const createTargetedReviewStarter =
       return start(args, options);
     }
 
-    const temporaryDirectory = mkdtempSync(
-      path.join(tmpdir(), "plannotator-review-")
-    );
+    const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "plannotator-review-"));
     const readyFile = path.join(temporaryDirectory, "ready.jsonl");
     const controller = new AbortController();
     const env = { ...process.env, ...options.env };
@@ -342,16 +338,11 @@ export const createTargetedReviewStarter =
           waitForReady(
             readyFile,
             controller.signal,
-            dependencies.readyTimeoutMs ?? READY_TIMEOUT_MS
+            dependencies.readyTimeoutMs ?? READY_TIMEOUT_MS,
           ),
           completionBeforeReady(child.completion),
         ]);
-        await switchBase(
-          metadata.url,
-          base,
-          controller.signal,
-          dependencies.fetch ?? fetch
-        );
+        await switchBase(metadata.url, base, controller.signal, dependencies.fetch ?? fetch);
 
         if (metadata.isRemote) {
           announceUrl(metadata.url);
@@ -413,10 +404,9 @@ const runCli = async (): Promise<void> => {
     process.stdout.write(HELP);
     return;
   }
-  const review = createTargetedReviewStarter(startInstalledPlannotator)(
-    ["review", ...args],
-    { cwd: process.cwd() }
-  );
+  const review = createTargetedReviewStarter(startInstalledPlannotator)(["review", ...args], {
+    cwd: process.cwd(),
+  });
   const cancel = (): void => {
     review.cancel();
   };
@@ -435,9 +425,7 @@ const runCli = async (): Promise<void> => {
       process.exitCode = 130;
     }
   } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`
-    );
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   } finally {
     process.off("SIGINT", cancel);

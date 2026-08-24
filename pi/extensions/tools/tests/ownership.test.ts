@@ -1,13 +1,16 @@
-import {
-  isToolOwnerRequest,
-  TOOL_OWNER_REQUEST_EVENT,
-} from "@clanker-stuff/tool-owner-protocol";
+import { TOOL_OWNER_REQUEST_EVENT } from "@clanker-stuff/tool-owner-protocol";
 import type { ToolOwnerRegistration } from "@clanker-stuff/tool-owner-protocol";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createToolOwners } from "../ownership.js";
+
+const ToolOwnerRequestSchema = Type.Object({
+  provide: Type.Function([Type.Unknown()], Type.Void()),
+});
 
 const registration = (name: string): ToolOwnerRegistration => ({
   names: [name],
@@ -18,9 +21,7 @@ const registration = (name: string): ToolOwnerRegistration => ({
 
 const respondWith = (owner: ToolOwnerRegistration) => (pi: ExtensionAPI) => {
   pi.events.on(TOOL_OWNER_REQUEST_EVENT, (request) => {
-    if (isToolOwnerRequest(request)) {
-      request.provide(owner);
-    }
+    Value.Parse(ToolOwnerRequestSchema, request).provide(owner);
   });
 };
 
@@ -28,10 +29,10 @@ describe("tool ownership discovery", () => {
   it("treats an absent or malformed responder as unowned", async () => {
     let owners: ReturnType<typeof createToolOwners> | undefined;
     const host = createExtensionHost((pi) => {
+      const malformed = registration("broken");
+      Object.defineProperty(malformed, "setEnabled", { value: undefined });
       pi.events.on(TOOL_OWNER_REQUEST_EVENT, (request) => {
-        if (isToolOwnerRequest(request)) {
-          request.provide({ names: ["broken"] } as never);
-        }
+        Value.Parse(ToolOwnerRequestSchema, request).provide(malformed);
       });
       owners = createToolOwners(pi);
     });

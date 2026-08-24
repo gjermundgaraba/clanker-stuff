@@ -1,16 +1,18 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type, fauxProvider } from "@earendil-works/pi-ai";
 import type {
   EntryRenderer,
   ExtensionAPI,
-  ExtensionCommandContext,
   MarkdownTransformer,
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { Value } from "typebox/value";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "./extension-host.js";
 import { createCustomUiDriver } from "./tui.js";
+
+const LegacyToolArgumentsSchema = Type.Object({ legacy: Type.Optional(Type.String()) });
 
 const setupHost = () =>
   createExtensionHost((pi: ExtensionAPI) => {
@@ -54,19 +56,17 @@ const setupHost = () =>
     pi.on("input", async (event, ctx) => {
       ctx.ui.setWidget("input", [event.text]);
       if (event.text === "custom") {
-        const result = await ctx.ui.custom<string>(
-          (_tui, _theme, _keybindings, done) => {
-            done("from-done");
-            return {
-              invalidate() {
-                /* noop */
-              },
-              render() {
-                return ["custom-flow"];
-              },
-            };
-          }
-        );
+        const result = await ctx.ui.custom<string>((_tui, _theme, _keybindings, done) => {
+          done("from-done");
+          return {
+            invalidate() {
+              /* noop */
+            },
+            render() {
+              return ["custom-flow"];
+            },
+          };
+        });
         return {
           action: "transform",
           text: `${event.text}:${result}`,
@@ -138,9 +138,7 @@ describe("extension-host harness", () => {
     const host = setupHost();
     await host.ready;
 
-    expect([...host.getRegisteredCommands().keys()]).toStrictEqual([
-      "test-command",
-    ]);
+    expect([...host.getRegisteredCommands().keys()]).toStrictEqual(["test-command"]);
     expect([...host.getRegisteredTools().keys()]).toStrictEqual(["test-tool"]);
 
     await host.runCommand("test-command");
@@ -156,10 +154,11 @@ describe("extension-host harness", () => {
 
   it("uses loaded extension registration state for renderers, providers, and flags", async () => {
     const entryRenderer = vi.fn<EntryRenderer>();
-    const markdownTransformer = vi.fn<MarkdownTransformer>(
-      (markdown: string) => markdown
-    );
-    const nativeProvider = { id: "native-test" } as never;
+    const markdownTransformer = vi.fn<MarkdownTransformer>((markdown: string) => markdown);
+    const nativeProvider = {
+      ...fauxProvider().provider,
+      id: "native-test",
+    };
     const configuredProvider = { name: "Configured test" };
     let defaultFlag: boolean | string | undefined;
     const host = createExtensionHost((pi: ExtensionAPI) => {
@@ -179,12 +178,8 @@ describe("extension-host harness", () => {
     expect(defaultFlag).toBeTruthy();
     expect(host.getEntryRenderer("test-entry")).toBe(entryRenderer);
     expect(host.getMarkdownTransformer()).toBe(markdownTransformer);
-    expect(host.getRegisteredNativeProviders().get("native-test")).toBe(
-      nativeProvider
-    );
-    expect(host.getRegisteredProviderConfigs().get("configured-test")).toBe(
-      configuredProvider
-    );
+    expect(host.getRegisteredNativeProviders().get("native-test")).toBe(nativeProvider);
+    expect(host.getRegisteredProviderConfigs().get("configured-test")).toBe(configuredProvider);
   });
 
   it("keeps post-load tool registration in the loaded extension", async () => {
@@ -234,7 +229,7 @@ describe("extension-host harness", () => {
           parameters: Type.Object({}),
         });
       },
-      { activeTools: ["read"] }
+      { activeTools: ["read"] },
     );
 
     await host.ready;
@@ -259,7 +254,7 @@ describe("extension-host harness", () => {
           parameters: Type.Object({}),
         });
       },
-      { activeTools: ["read"], allTools: ["read", "known-tool"] }
+      { activeTools: ["read"], allTools: ["read", "known-tool"] },
     );
 
     await host.ready;
@@ -282,8 +277,9 @@ describe("extension-host harness", () => {
         name: "test-tool",
         parameters: Type.Object({ value: Type.String() }),
         prepareArguments(args) {
+          const legacy = Value.Parse(LegacyToolArgumentsSchema, args);
           return {
-            value: (args as { legacy?: string }).legacy ?? "",
+            value: legacy.legacy ?? "",
           };
         },
       });
@@ -296,6 +292,24 @@ describe("extension-host harness", () => {
     expect(result).toMatchObject({ details: { echoed: "echo" } });
   });
 
+  it("validates tool arguments before execute", async () => {
+    const execute = vi.fn();
+    const host = createExtensionHost((pi: ExtensionAPI) => {
+      pi.registerTool({
+        description: "Tool for tests",
+        execute,
+        label: "Test tool",
+        name: "test-tool",
+        parameters: Type.Object({ value: Type.String() }),
+      });
+    });
+
+    await expect(host.runTool("test-tool", {})).rejects.toThrow(
+      'Validation failed for tool "test-tool"',
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("passes explicit tool execution options through runTool", async () => {
     const { signal } = new AbortController();
     const onUpdate = vi.fn<() => void>();
@@ -306,7 +320,8 @@ describe("extension-host harness", () => {
           await Promise.resolve();
           currentOnUpdate?.({
             content: [{ text: "partial", type: "text" }],
-          } as never);
+            details: {},
+          });
           return {
             content: [{ text: params.value, type: "text" }],
             details: {
@@ -329,11 +344,12 @@ describe("extension-host harness", () => {
         onUpdate,
         signal,
         toolCallId: "tool-call-123",
-      }
+      },
     );
 
     expect(onUpdate).toHaveBeenCalledWith({
       content: [{ text: "partial", type: "text" }],
+      details: {},
     });
     expect(result).toMatchObject({
       details: {
@@ -356,7 +372,7 @@ describe("extension-host harness", () => {
         text: "hello",
         type: "input",
       },
-      ctx
+      ctx,
     );
     await host.emitTurnEnd(undefined, ctx);
     await host.emitSessionShutdown(ctx);
@@ -372,20 +388,18 @@ describe("extension-host harness", () => {
         { message: "started", type: "info" },
         { message: "turn ended", type: "info" },
         { message: "stopped", type: "warning" },
-      ])
+      ]),
     );
   });
 
   it("supports explicit custom ui overrides", async () => {
     const host = setupHost();
-    const customUi = createCustomUiDriver<string>({
+    const customUi = createCustomUiDriver({
       captureRender: "after",
     });
     const ctx = host.createContext({
       ui: {
-        custom: vi.fn<(...args: never[]) => unknown>(
-          customUi.custom
-        ) as ExtensionCommandContext["ui"]["custom"],
+        custom: customUi.custom,
       },
     });
 
@@ -395,14 +409,13 @@ describe("extension-host harness", () => {
         text: "custom",
         type: "input",
       },
-      ctx
+      ctx,
     );
 
     expect(result).toStrictEqual({
       action: "transform",
       text: "custom:from-done",
     });
-    expect(ctx.ui.custom).toHaveBeenCalledOnce();
     expect(customUi.getLastRender()).toContain("custom-flow");
   });
 
@@ -428,16 +441,14 @@ describe("extension-host harness", () => {
     const host = createExtensionHost((pi: ExtensionAPI) => {
       pi.on("input", async (_event, ctx) => ({
         action: "transform",
-        text: await ctx.ui.custom<string>(
-          (_tui, _theme, _keybindings, _done) => ({
-            invalidate() {
-              /* noop */
-            },
-            render() {
-              return ["picker"];
-            },
-          })
-        ),
+        text: await ctx.ui.custom<string>((_tui, _theme, _keybindings, _done) => ({
+          invalidate() {
+            /* noop */
+          },
+          render() {
+            return ["picker"];
+          },
+        })),
       }));
     });
 
@@ -446,17 +457,15 @@ describe("extension-host harness", () => {
         source: "interactive",
         text: "ignored",
         type: "input",
-      })
-    ).rejects.toThrow(
-      "Tests using ui.custom must provide ctx.ui.custom explicitly"
-    );
+      }),
+    ).rejects.toThrow("Tests using ui.custom must provide ctx.ui.custom explicitly");
   });
 
   it("throws when running an unregistered command", async () => {
     const host = setupHost();
 
     await expect(host.runCommand("missing-command")).rejects.toThrow(
-      "Extension command not registered: missing-command"
+      "Extension command not registered: missing-command",
     );
   });
 
@@ -464,7 +473,7 @@ describe("extension-host harness", () => {
     const host = setupHost();
 
     await expect(host.runTool("missing-tool", {})).rejects.toThrow(
-      "Extension tool not registered: missing-tool"
+      "Extension tool not registered: missing-tool",
     );
   });
 
@@ -495,7 +504,7 @@ describe("extension-host harness", () => {
           },
         ],
         leafId: "root",
-      }
+      },
     );
 
     await host.runCommand("append");

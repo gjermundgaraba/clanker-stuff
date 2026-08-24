@@ -3,12 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
-const CHECK_PACKAGE_READINESS_PATH = path.join(
-  import.meta.dirname,
-  "check-package-readiness.ts"
-);
+const CHECK_PACKAGE_READINESS_PATH = path.join(import.meta.dirname, "check-package-readiness.ts");
 const tempDirs: string[] = [];
 
 const createFixture = (
@@ -16,7 +13,7 @@ const createFixture = (
   extension = true,
   experimental = extension,
   packagePrivate = true,
-  includeExperimentalWarning = experimental
+  includeExperimentalWarning = experimental,
 ) => {
   const root = mkdtempSync(path.join(tmpdir(), "package-readiness-test-"));
   tempDirs.push(root);
@@ -28,64 +25,56 @@ const createFixture = (
 
   writeFileSync(
     path.join(root, "pnpm-workspace.yaml"),
-    `packages:\n  - "."\n  - "${packagePath}"\n`
+    `packages:\n  - "."\n  - "${packagePath}"\n`,
   );
   writeFileSync(
     path.join(root, "package.json"),
     JSON.stringify({
-      engines: { node: ">=24" },
+      engines: { node: ">=26" },
       name: "clanker-stuff",
-      packageManager: "pnpm@10",
+      packageManager: "pnpm@11",
       private: true,
-    })
+    }),
   );
   writeFileSync(path.join(root, "LICENSE"), "fixture license\n");
   writeFileSync(
     path.join(packageDir, "package.json"),
     JSON.stringify({
-      engines: { node: ">=24" },
+      bugs:
+        valid && !packagePrivate
+          ? { url: "https://github.com/gjermundgaraba/clanker-stuff/issues" }
+          : undefined,
+      description: valid ? "Adds a sample extension." : undefined,
+      engines: { node: ">=26" },
+      exports: valid ? "./index.ts" : undefined,
+      files: valid ? ["index.ts", "README.md", "LICENSE"] : undefined,
+      homepage:
+        valid && !packagePrivate
+          ? `https://github.com/gjermundgaraba/clanker-stuff/tree/main/${packagePath}#readme`
+          : undefined,
+      keywords: valid && extension ? ["pi-package"] : undefined,
+      license: valid ? "MIT" : undefined,
       name: "@clanker-stuff/sample",
+      pi: valid && extension ? { extensions: ["./index.ts"] } : undefined,
       private: packagePrivate,
+      publishConfig: valid && !packagePrivate ? { access: "public" } : undefined,
+      repository:
+        valid && !packagePrivate
+          ? {
+              directory: packagePath,
+              type: "git",
+              url: "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+            }
+          : undefined,
       version: "0.1.0",
-      ...(valid
-        ? {
-            description: "Adds a sample extension.",
-            exports: "./index.ts",
-            files: ["index.ts", "README.md", "LICENSE"],
-            license: "MIT",
-            ...(packagePrivate
-              ? {}
-              : {
-                  bugs: {
-                    url: "https://github.com/gjermundgaraba/clanker-stuff/issues",
-                  },
-                  homepage: `https://github.com/gjermundgaraba/clanker-stuff/tree/main/${packagePath}#readme`,
-                  publishConfig: { access: "public" },
-                  repository: {
-                    directory: packagePath,
-                    type: "git",
-                    url: "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-                  },
-                }),
-            ...(extension
-              ? {
-                  keywords: ["pi-package"],
-                  pi: { extensions: ["./index.ts"] },
-                }
-              : {}),
-          }
-        : {}),
-    })
+    }),
   );
-  writeFileSync(
-    path.join(packageDir, "index.ts"),
-    "export default () => {};\n"
-  );
+  writeFileSync(path.join(packageDir, "index.ts"), "export default () => {};\n");
   if (valid) {
     writeFileSync(path.join(packageDir, "LICENSE"), "fixture license\n");
     writeFileSync(
       path.join(packageDir, "README.md"),
-      `# sample\n${includeExperimentalWarning ? "\n**Experimental:** Unstable.\n" : ""}`
+      `# sample\n${includeExperimentalWarning ? "\n**Experimental:** Unstable.\n" : ""}`,
     );
   }
   return root;
@@ -147,18 +136,15 @@ describe("package readiness", () => {
   });
 
   it("accepts a valid stable extension package", () => {
-    expect(
-      validateFixture(createFixture(true, true, false, false))
-    ).toMatchObject({ status: 0, stderr: "" });
+    expect(validateFixture(createFixture(true, true, false, false))).toMatchObject({
+      status: 0,
+      stderr: "",
+    });
   });
 
   it("requires experimental packages to warn in their README", () => {
-    const result = validateFixture(
-      createFixture(true, true, true, true, false)
-    );
+    const result = validateFixture(createFixture(true, true, true, true, false));
 
-    expect(result.stderr).toContain(
-      "experimental extension README must include **Experimental:**"
-    );
+    expect(result.stderr).toContain("experimental extension README must include **Experimental:**");
   });
 });

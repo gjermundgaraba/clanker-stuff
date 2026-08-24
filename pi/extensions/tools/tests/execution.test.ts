@@ -3,13 +3,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { DEFAULT_MAX_BYTES } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 import { createModel } from "./fixtures.js";
 
 const tempDirectories: string[] = [];
+const BashDetailsSchema = Type.Object({
+  fullOutputPath: Type.String(),
+  truncation: Type.Object({ truncated: Type.Boolean() }),
+});
 
 const createTempDirectory = async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "tools-extension-"));
@@ -18,7 +24,7 @@ const createTempDirectory = async () => {
 };
 
 const textContent = (
-  result: Awaited<ReturnType<ReturnType<typeof createExtensionHost>["runTool"]>>
+  result: Awaited<ReturnType<ReturnType<typeof createExtensionHost>["runTool"]>>,
 ) =>
   result.content
     .filter((item) => item.type === "text")
@@ -30,7 +36,7 @@ describe("profile execution", () => {
     await Promise.all(
       tempDirectories.splice(0).map(async (directory) => {
         await rm(directory, { force: true, recursive: true });
-      })
+      }),
     );
   });
   it("translates Kimi replace_all into one queued file mutation", async () => {
@@ -51,7 +57,7 @@ describe("profile execution", () => {
         path: file,
         replace_all: true,
       },
-      ctx
+      ctx,
     );
 
     await expect(readFile(file, "utf-8")).resolves.toBe("new and new\n");
@@ -66,15 +72,11 @@ describe("profile execution", () => {
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
-    await host.runTool(
-      "Write",
-      { content: "first\n", mode: "append", path: file },
-      ctx
-    );
+    await host.runTool("Write", { content: "first\n", mode: "append", path: file }, ctx);
     const appended = await host.runTool(
       "Write",
       { content: "second\n", mode: "append", path: file },
-      ctx
+      ctx,
     );
 
     await expect(readFile(file, "utf-8")).resolves.toBe("first\nsecond\n");
@@ -86,7 +88,7 @@ describe("profile execution", () => {
     await writeFile(
       path.join(cwd, "example.txt"),
       "first line\nsecond line\nthird line\n",
-      "utf-8"
+      "utf-8",
     );
     const model = createModel("kimi-k3");
     const host = createExtensionHost(extension, { model });
@@ -100,7 +102,7 @@ describe("profile execution", () => {
         path: cwd,
         pattern: "first line\\nsecond line",
       },
-      ctx
+      ctx,
     );
 
     expect(textContent(result)).toContain("example.txt:1:first line");
@@ -109,7 +111,7 @@ describe("profile execution", () => {
     const count = await host.runTool(
       "Grep",
       { head_limit: 1, output_mode: "count", path: cwd, pattern: "line" },
-      ctx
+      ctx,
     );
     expect(textContent(count)).toContain("example.txt:3");
   });
@@ -119,7 +121,7 @@ describe("profile execution", () => {
     await writeFile(
       path.join(cwd, "context.txt"),
       "before two\nbefore one\nmatch\nafter one\nafter two\n",
-      "utf-8"
+      "utf-8",
     );
     const model = createModel("claude-sonnet-5");
     const host = createExtensionHost(extension, { model });
@@ -134,7 +136,7 @@ describe("profile execution", () => {
         path: cwd,
         pattern: "match",
       },
-      ctx
+      ctx,
     );
     const output = textContent(result);
 
@@ -149,7 +151,7 @@ describe("profile execution", () => {
     await writeFile(
       path.join(cwd, "context.txt"),
       "before\nmatch one\nmatch two\nafter\n",
-      "utf-8"
+      "utf-8",
     );
     const model = createModel("claude-sonnet-5");
     const host = createExtensionHost(extension, { model });
@@ -157,22 +159,20 @@ describe("profile execution", () => {
     await host.emitSessionStart(ctx);
 
     const symmetric = textContent(
-      await host.runTool("Grep", { "-C": 1, path: cwd, pattern: "match" }, ctx)
+      await host.runTool("Grep", { "-C": 1, path: cwd, pattern: "match" }, ctx),
     );
     expect({
       firstMatches: symmetric.match(/match one/gu)?.length,
       secondMatches: symmetric.match(/match two/gu)?.length,
     }).toStrictEqual({ firstMatches: 1, secondMatches: 1 });
-    expect(symmetric).toStrictEqual(
-      expect.stringContaining("context.txt:2:match one")
-    );
+    expect(symmetric).toStrictEqual(expect.stringContaining("context.txt:2:match one"));
 
     const singleFile = textContent(
       await host.runTool(
         "Grep",
         { "-C": 1, path: path.join(cwd, "context.txt"), pattern: "match" },
-        ctx
-      )
+        ctx,
+      ),
     );
     expect({ output: singleFile, secondMatch: symmetric }).toMatchObject({
       output: expect.not.stringContaining(cwd),
@@ -180,11 +180,7 @@ describe("profile execution", () => {
     });
 
     const zeroAfter = textContent(
-      await host.runTool(
-        "Grep",
-        { "-A": 0, "-C": 1, path: cwd, pattern: "match one" },
-        ctx
-      )
+      await host.runTool("Grep", { "-A": 0, "-C": 1, path: cwd, pattern: "match one" }, ctx),
     );
     expect({
       hasBefore: zeroAfter.includes("before"),
@@ -204,8 +200,8 @@ describe("profile execution", () => {
           path: cwd,
           pattern: "match one",
         },
-        ctx
-      )
+        ctx,
+      ),
     );
     expect(zeroBoth).not.toContain("before");
   });
@@ -214,13 +210,8 @@ describe("profile execution", () => {
     const cwd = await createTempDirectory();
     await Promise.all(
       ["a.txt", "b.txt"].map(
-        async (file) =>
-          await writeFile(
-            path.join(cwd, file),
-            "before\nneedle\nafter\n",
-            "utf-8"
-          )
-      )
+        async (file) => await writeFile(path.join(cwd, file), "before\nneedle\nafter\n", "utf-8"),
+      ),
     );
     const model = createModel("claude-sonnet-5");
     const host = createExtensionHost(extension, { model });
@@ -228,11 +219,7 @@ describe("profile execution", () => {
     await host.emitSessionStart(ctx);
 
     const output = textContent(
-      await host.runTool(
-        "Grep",
-        { "-C": 1, head_limit: 1, path: cwd, pattern: "needle" },
-        ctx
-      )
+      await host.runTool("Grep", { "-C": 1, head_limit: 1, path: cwd, pattern: "needle" }, ctx),
     );
 
     expect(output.match(/needle/gu)).toHaveLength(1);
@@ -248,25 +235,22 @@ describe("profile execution", () => {
           path: cwd,
           pattern: "before|needle",
         },
-        ctx
-      )
+        ctx,
+      ),
     );
     expect(adjacent.match(/before|needle/gu)).toHaveLength(1);
   });
 
   it("renders grep matches from non-UTF-8 files", async () => {
     const cwd = await createTempDirectory();
-    await writeFile(
-      path.join(cwd, "bytes.txt"),
-      Buffer.from([0xff, ...Buffer.from("needle\n")])
-    );
+    await writeFile(path.join(cwd, "bytes.txt"), Buffer.from([0xff, ...Buffer.from("needle\n")]));
     const model = createModel("claude-sonnet-5");
     const host = createExtensionHost(extension, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
     const output = textContent(
-      await host.runTool("Grep", { "-C": 1, path: cwd, pattern: "needle" }, ctx)
+      await host.runTool("Grep", { "-C": 1, path: cwd, pattern: "needle" }, ctx),
     );
 
     expect(output).toContain("needle");
@@ -277,18 +261,14 @@ describe("profile execution", () => {
     await writeFile(
       path.join(cwd, "long.txt"),
       `needle${"x".repeat(DEFAULT_MAX_BYTES * 3)}`,
-      "utf-8"
+      "utf-8",
     );
     const model = createModel("claude-sonnet-5");
     const host = createExtensionHost(extension, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
-    const result = await host.runTool(
-      "Grep",
-      { "-C": 1, path: cwd, pattern: "needle" },
-      ctx
-    );
+    const result = await host.runTool("Grep", { "-C": 1, path: cwd, pattern: "needle" }, ctx);
     const output = textContent(result);
 
     expect(Buffer.byteLength(output)).toBeLessThan(DEFAULT_MAX_BYTES);
@@ -304,20 +284,12 @@ describe("profile execution", () => {
     const result = await host.runTool("Bash", {
       command: `node -e "for(let i=0;i<3000;i++) console.log('line')"`,
     });
-    const details = result.details as {
-      fullOutputPath?: string;
-      truncation?: { truncated: boolean };
-    };
+    const details = Value.Parse(BashDetailsSchema, result.details);
 
     expect(details.truncation?.truncated).toBeTruthy();
     expect(details.fullOutputPath).toBeTypeOf("string");
     expect(textContent(result)).toContain("Full output:");
-    if (!details.fullOutputPath) {
-      throw new Error("Full output path was not returned");
-    }
-    await expect(readFile(details.fullOutputPath, "utf-8")).resolves.toContain(
-      "line\nline\n"
-    );
+    await expect(readFile(details.fullOutputPath, "utf-8")).resolves.toContain("line\nline\n");
     await rm(details.fullOutputPath);
   });
 });

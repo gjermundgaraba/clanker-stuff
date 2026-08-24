@@ -1,5 +1,3 @@
-/* eslint-disable promise/prefer-await-to-callbacks */
-
 import path from "node:path";
 import { createInterface } from "node:readline";
 
@@ -11,8 +9,7 @@ const send = (message) => {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 };
 
-const trustedSender = (event) =>
-  Boolean(window && event.sender === window.webContents);
+const trustedSender = (event) => Boolean(window && event.sender === window.webContents);
 
 ipcMain.handle("voice:research-config", (event) => {
   if (!trustedSender(event)) {
@@ -24,7 +21,7 @@ ipcMain.handle("voice:research-config", (event) => {
 });
 
 ipcMain.on("voice:message", (event, message) => {
-  if (trustedSender(event) && message && typeof message === "object") {
+  if (trustedSender(event) && message instanceof Object) {
     send(message);
   }
 });
@@ -64,20 +61,18 @@ const createWindow = async () => {
 
   const contents = window.webContents;
   session.defaultSession.setPermissionCheckHandler(
-    (requestingContents, permission) =>
-      requestingContents === contents && permission === "media"
+    (requestingContents, permission) => requestingContents === contents && permission === "media",
   );
   session.defaultSession.setPermissionRequestHandler(
     (requestingContents, permission, callback, details) => {
-      const mediaTypes =
-        "mediaTypes" in details ? (details.mediaTypes ?? []) : [];
+      const mediaTypes = "mediaTypes" in details ? (details.mediaTypes ?? []) : [];
       callback(
         requestingContents === contents &&
           permission === "media" &&
           mediaTypes.length > 0 &&
-          mediaTypes.every((type) => type === "audio")
+          mediaTypes.every((type) => type === "audio"),
       );
-    }
+    },
   );
 
   window.setAlwaysOnTop(true, "floating");

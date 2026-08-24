@@ -27,6 +27,9 @@ import {
   truncateLine,
   withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 import { resolvePath } from "./path.js";
 
@@ -53,7 +56,7 @@ interface OperationContext {
 
 export type OperationResult = AgentToolResult<unknown>;
 
-const textResult = (text: string, details: unknown = {}) => ({
+const textResult = <TDetails>(text: string, details: TDetails) => ({
   content: [{ text, type: "text" as const }],
   details,
 });
@@ -70,25 +73,24 @@ interface ExecutableDefinition<TParams, TDetails> {
     params: TParams,
     signal: AbortSignal | undefined,
     onUpdate: AgentToolUpdateCallback<TDetails> | undefined,
-    ctx: ExtensionContext
+    ctx: ExtensionContext,
   ) => Promise<AgentToolResult<TDetails>>;
 }
 
 const runDefinition = async <TParams, TDetails>(
   definition: ExecutableDefinition<TParams, TDetails>,
   params: NoInfer<TParams>,
-  execution: OperationContext
+  execution: OperationContext,
 ): Promise<OperationResult> =>
   await definition.execute(
     execution.toolCallId,
     params,
     execution.signal,
     execution.onUpdate,
-    execution.ctx
+    execution.ctx,
   );
 
-const shellQuote = (value: string) =>
-  `'${value.replaceAll("'", String.raw`'"'"'`)}'`;
+const shellQuote = (value: string) => `'${value.replaceAll("'", String.raw`'"'"'`)}'`;
 
 const createGrepArguments = (input: GrepInput, searchPath: string) => {
   const args = ["--line-number", "--color=never", "--hidden"];
@@ -144,54 +146,39 @@ interface RgContentEvent {
   type: "context" | "match";
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const RgTextSchema = Type.Union([
+  Type.Object({ text: Type.String() }),
+  Type.Object({ bytes: Type.String() }),
+]);
+const RgContentEventSchema = Type.Object({
+  data: Type.Object({
+    line_number: Type.Integer({ minimum: 1 }),
+    lines: RgTextSchema,
+    path: RgTextSchema,
+  }),
+  type: Type.Union([Type.Literal("context"), Type.Literal("match")]),
+});
 
-const decodeRgText = (value: Record<string, unknown>) => {
-  if (typeof value.text === "string") {
-    return value.text;
-  }
-  return typeof value.bytes === "string"
-    ? Buffer.from(value.bytes, "base64").toString("utf-8")
-    : undefined;
-};
+const decodeRgText = (value: Static<typeof RgTextSchema>) =>
+  "text" in value ? value.text : Buffer.from(value.bytes, "base64").toString("utf-8");
 
 const parseGrepContent = (output: string): RgContentEvent[] =>
   output.split("\n").flatMap((line) => {
-    let parsed: unknown;
+    let parsed: Static<typeof RgContentEventSchema>;
     try {
-      parsed = JSON.parse(line);
+      parsed = Value.Parse(RgContentEventSchema, JSON.parse(line));
     } catch {
-      return [];
-    }
-    if (
-      !isRecord(parsed) ||
-      !(parsed.type === "context" || parsed.type === "match") ||
-      !isRecord(parsed.data) ||
-      !isRecord(parsed.data.path) ||
-      !isRecord(parsed.data.lines)
-    ) {
       return [];
     }
     const { line_number: lineNumber } = parsed.data;
     const filePath = decodeRgText(parsed.data.path);
     const text = decodeRgText(parsed.data.lines);
-    if (
-      typeof filePath !== "string" ||
-      typeof lineNumber !== "number" ||
-      typeof text !== "string"
-    ) {
-      return [];
-    }
     const normalized = text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
     return [
       {
         filePath,
         lineNumber,
-        lines: (normalized.endsWith("\n")
-          ? normalized.slice(0, -1)
-          : normalized
-        ).split("\n"),
+        lines: (normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized).split("\n"),
         type: parsed.type,
       },
     ];
@@ -202,7 +189,7 @@ const renderGrepContent = (
   limit: number,
   beforeContext: number,
   afterContext: number,
-  searchPath: string
+  searchPath: string,
 ) => {
   const matches = events.filter((event) => event.type === "match");
   const selected = new Set(matches.slice(0, limit));
@@ -227,9 +214,7 @@ const renderGrepContent = (
       const lineNumber = event.lineNumber + offset;
       if (
         unselected.has(event) ||
-        !ranges.some(
-          (range) => lineNumber >= range.start && lineNumber <= range.end
-        )
+        !ranges.some((range) => lineNumber >= range.start && lineNumber <= range.end)
       ) {
         continue;
       }
@@ -240,8 +225,7 @@ const renderGrepContent = (
       seen.add(key);
       if (
         previous !== undefined &&
-        (previous.filePath !== event.filePath ||
-          previous.lineNumber + 1 !== lineNumber)
+        (previous.filePath !== event.filePath || previous.lineNumber + 1 !== lineNumber)
       ) {
         output.push("--");
       }
@@ -249,7 +233,7 @@ const renderGrepContent = (
       const truncated = truncateLine(text);
       linesTruncated ||= truncated.wasTruncated;
       output.push(
-        `${formatGrepPath(event.filePath, searchPath)}${marker}${lineNumber}${marker}${truncated.text}`
+        `${formatGrepPath(event.filePath, searchPath)}${marker}${lineNumber}${marker}${truncated.text}`,
       );
       previous = { filePath: event.filePath, lineNumber };
     }
@@ -274,35 +258,28 @@ const executeGrep = async (command: string, execution: OperationContext) => {
 
   let exitCode: number | null = null;
   try {
-    ({ exitCode } = await createLocalBashOperations().exec(
-      command,
-      execution.ctx.cwd,
-      {
-        onData: (data) => {
-          if (outputLimitReached) {
-            return;
-          }
-          const remaining = DEFAULT_MAX_BYTES * 2 - bytes;
-          if (remaining <= 0) {
-            outputLimitReached = true;
-            controller.abort();
-            return;
-          }
-          const retained =
-            data.length > remaining
-              ? Buffer.from(data.subarray(0, remaining))
-              : data;
-          chunks.push(retained);
-          bytes += retained.length;
-          if (retained.length < data.length) {
-            outputLimitReached = true;
-            controller.abort();
-          }
-        },
-        signal: controller.signal,
-        timeout: 30,
-      }
-    ));
+    ({ exitCode } = await createLocalBashOperations().exec(command, execution.ctx.cwd, {
+      onData: (data) => {
+        if (outputLimitReached) {
+          return;
+        }
+        const remaining = DEFAULT_MAX_BYTES * 2 - bytes;
+        if (remaining <= 0) {
+          outputLimitReached = true;
+          controller.abort();
+          return;
+        }
+        const retained = data.length > remaining ? Buffer.from(data.subarray(0, remaining)) : data;
+        chunks.push(retained);
+        bytes += retained.length;
+        if (retained.length < data.length) {
+          outputLimitReached = true;
+          controller.abort();
+        }
+      },
+      signal: controller.signal,
+      timeout: 30,
+    }));
   } catch (error) {
     throwIfAborted(execution.signal);
     if (!outputLimitReached) {
@@ -322,19 +299,14 @@ const executeGrep = async (command: string, execution: OperationContext) => {
   };
 };
 
-const renderNativeGrep = (
-  input: GrepInput,
-  output: string,
-  limit: number,
-  searchPath: string
-) => {
+const renderNativeGrep = (input: GrepInput, output: string, limit: number, searchPath: string) => {
   if ((input.outputMode ?? "content") === "content") {
     return renderGrepContent(
       parseGrepContent(output),
       limit,
       input.beforeContext ?? input.context ?? 0,
       input.afterContext ?? input.context ?? 0,
-      searchPath
+      searchPath,
     );
   }
   const entries = output.trimEnd()
@@ -352,14 +324,14 @@ const renderNativeGrep = (
 
 const grepWithNativeOptions = async (
   input: GrepInput,
-  execution: OperationContext
+  execution: OperationContext,
 ): Promise<OperationResult> => {
   const searchPath = resolvePath(input.path ?? ".", execution.ctx.cwd);
   const limit = Math.max(1, input.limit ?? 100);
   const args = createGrepArguments(input, searchPath);
   const { exitCode, output, outputLimitReached } = await executeGrep(
     ["rg", ...args].map(shellQuote).join(" "),
-    execution
+    execution,
   );
   throwIfAborted(execution.signal);
   if (!outputLimitReached && exitCode !== 0 && exitCode !== 1) {
@@ -370,39 +342,25 @@ const grepWithNativeOptions = async (
   const truncation = truncateHead(rendered.output);
   const notices = [
     rendered.limitReached ? `${limit} matches limit reached` : undefined,
-    outputLimitReached || truncation.truncated
-      ? "Output byte limit reached"
-      : undefined,
+    outputLimitReached || truncation.truncated ? "Output byte limit reached" : undefined,
     rendered.linesTruncated
       ? "Some lines truncated; use the read tool to see full lines"
       : undefined,
   ].filter((notice): notice is string => notice !== undefined);
-  const content = `${truncation.content}${
-    notices.length > 0 ? `\n\n[${notices.join(". ")}]` : ""
-  }`;
+  const content = `${truncation.content}${notices.length > 0 ? `\n\n[${notices.join(". ")}]` : ""}`;
   return textResult(content || "No matches found", {
-    ...(rendered.limitReached ? { matchLimitReached: limit } : {}),
-    ...(rendered.linesTruncated ? { linesTruncated: true } : {}),
-    ...(truncation.truncated ? { truncation } : {}),
+    matchLimitReached: rendered.limitReached ? limit : undefined,
+    linesTruncated: rendered.linesTruncated ? true : undefined,
+    truncation: truncation.truncated ? truncation : undefined,
   });
 };
 
 export const toolOperations = {
-  async findFiles(
-    input: FindToolInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
-    return await runDefinition(
-      createFindToolDefinition(execution.ctx.cwd),
-      input,
-      execution
-    );
+  async findFiles(input: FindToolInput, execution: OperationContext): Promise<OperationResult> {
+    return await runDefinition(createFindToolDefinition(execution.ctx.cwd), input, execution);
   },
 
-  async grep(
-    input: GrepInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
+  async grep(input: GrepInput, execution: OperationContext): Promise<OperationResult> {
     const afterContext = input.afterContext ?? input.context ?? 0;
     const beforeContext = input.beforeContext ?? input.context ?? 0;
     if (
@@ -415,44 +373,23 @@ export const toolOperations = {
     ) {
       return await grepWithNativeOptions(input, execution);
     }
-    const {
-      afterContext: _afterContext,
-      beforeContext: _beforeContext,
-      ...grepInput
-    } = input;
+    const { afterContext: _afterContext, beforeContext: _beforeContext, ...grepInput } = input;
     return await runDefinition(
       createGrepToolDefinition(execution.ctx.cwd),
       { ...grepInput, context: afterContext || undefined },
-      execution
+      execution,
     );
   },
 
-  async list(
-    input: LsToolInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
-    return await runDefinition(
-      createLsToolDefinition(execution.ctx.cwd),
-      input,
-      execution
-    );
+  async list(input: LsToolInput, execution: OperationContext): Promise<OperationResult> {
+    return await runDefinition(createLsToolDefinition(execution.ctx.cwd), input, execution);
   },
 
-  async read(
-    input: ReadToolInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
-    return await runDefinition(
-      createReadToolDefinition(execution.ctx.cwd),
-      input,
-      execution
-    );
+  async read(input: ReadToolInput, execution: OperationContext): Promise<OperationResult> {
+    return await runDefinition(createReadToolDefinition(execution.ctx.cwd), input, execution);
   },
 
-  async replace(
-    input: ReplacementInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
+  async replace(input: ReplacementInput, execution: OperationContext): Promise<OperationResult> {
     if (input.replaceAll === true) {
       if (input.oldText.length === 0) {
         throw new Error("old_string must not be empty");
@@ -471,10 +408,9 @@ export const toolOperations = {
           throw new Error(`Replacement made no changes in ${input.path}`);
         }
         await writeFile(absolutePath, updated, "utf-8");
-        return textResult(
-          `Successfully replaced all occurrences in ${input.path}.`,
-          { replacementCount }
-        );
+        return textResult(`Successfully replaced all occurrences in ${input.path}.`, {
+          replacementCount,
+        });
       });
     }
     return await runDefinition(
@@ -483,33 +419,24 @@ export const toolOperations = {
         edits: [{ newText: input.newText, oldText: input.oldText }],
         path: input.path,
       },
-      execution
+      execution,
     );
   },
 
-  async runShell(
-    input: ShellInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
+  async runShell(input: ShellInput, execution: OperationContext): Promise<OperationResult> {
     return await runDefinition(
       createBashToolDefinition(
-        input.cwd === undefined
-          ? execution.ctx.cwd
-          : resolvePath(input.cwd, execution.ctx.cwd)
+        input.cwd === undefined ? execution.ctx.cwd : resolvePath(input.cwd, execution.ctx.cwd),
       ),
       {
         command: input.command,
-        timeout:
-          input.timeoutMs === undefined ? undefined : input.timeoutMs / 1000,
+        timeout: input.timeoutMs === undefined ? undefined : input.timeoutMs / 1000,
       },
-      execution
+      execution,
     );
   },
 
-  async write(
-    input: WriteInput,
-    execution: OperationContext
-  ): Promise<OperationResult> {
+  async write(input: WriteInput, execution: OperationContext): Promise<OperationResult> {
     if (input.mode === "append") {
       const absolutePath = resolvePath(input.path, execution.ctx.cwd);
       return await withFileMutationQueue(absolutePath, async () => {
@@ -526,7 +453,7 @@ export const toolOperations = {
     return await runDefinition(
       createWriteToolDefinition(execution.ctx.cwd),
       { content: input.content, path: input.path },
-      execution
+      execution,
     );
   },
 };

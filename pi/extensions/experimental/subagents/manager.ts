@@ -11,6 +11,8 @@ import type {
   ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 import type { SubagentsConfig } from "./config.js";
 import { registerContractResponder } from "./contract.js";
@@ -26,26 +28,25 @@ import { V1Controller, V1_NOTIFICATION_TYPE } from "./v1/controller.js";
 import { V1_TOOL_NAMES } from "./v1/protocol.js";
 import { registerV1Tools } from "./v1/tools.js";
 import { V2Controller } from "./v2/controller.js";
-import {
-  ROOT_AGENT_PATH,
-  SUBAGENT_MESSAGE_TYPE,
-  V2_TOOL_NAMES,
-} from "./v2/protocol.js";
+import { ROOT_AGENT_PATH, SUBAGENT_MESSAGE_TYPE, V2_TOOL_NAMES } from "./v2/protocol.js";
 import { registerV2Tools } from "./v2/tools.js";
 
-const ALL_TOOL_NAMES: ReadonlySet<string> = new Set([
-  ...V1_TOOL_NAMES,
-  ...V2_TOOL_NAMES,
-]);
+const ALL_TOOL_NAMES: ReadonlySet<string> = new Set([...V1_TOOL_NAMES, ...V2_TOOL_NAMES]);
+const RootDeliveryDetailsSchema = Type.Object(
+  {
+    communicationId: Type.Optional(Type.String()),
+    notificationId: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
 
 const currentModel = (
-  ctx: Pick<ExtensionContext, "model" | "modelRegistry">
+  ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
 ): Model<Api> | undefined => {
   const selected = ctx.model;
   if (selected === undefined) {
     return undefined;
   }
-  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ModelRegistry.find accepts provider and model IDs.
   return ctx.modelRegistry.find(selected.provider, selected.id) ?? selected;
 };
 
@@ -105,7 +106,7 @@ export class SubagentManager {
     kind: "awaiting-session",
     protocol: "v1",
   };
-  #showBackgroundError: ((error: unknown) => void) | undefined;
+  #showBackgroundError: ((cause: unknown) => void) | undefined;
   readonly #unsubscribeContract: ReturnType<typeof registerContractResponder>;
   readonly #unsubscribeState: () => void;
   readonly #v1: V1Controller;
@@ -118,7 +119,7 @@ export class SubagentManager {
     this.#dataDir = options.dataDir;
     this.#pi = pi;
     this.#nicknames = new NicknamePool(options.config);
-    const report = (error: unknown) => this.#showBackgroundError?.(error);
+    const report = (cause: unknown) => this.#showBackgroundError?.(cause);
     this.#v1 = new V1Controller({
       config: options.config,
       coordinator: this.#coordinator,
@@ -153,7 +154,7 @@ export class SubagentManager {
       },
       (ctx) => {
         this.#refreshProtocol(ctx);
-      }
+      },
     );
   }
 
@@ -165,7 +166,7 @@ export class SubagentManager {
     this.#showBackgroundError = (error) => {
       ctx.ui.notify(
         `Subagent controller background failure: ${error instanceof Error ? error.message : String(error)}`,
-        "error"
+        "error",
       );
     };
     this.#rootAttempt = undefined;
@@ -183,23 +184,18 @@ export class SubagentManager {
     }
     const binding = rootBinding(
       ctx.sessionManager.getSessionId(),
-      ctx.sessionManager.getSessionFile()
+      ctx.sessionManager.getSessionFile(),
     );
     try {
       const store = createControlStore(this.#dataDir, binding);
       const stored = await store.load();
-      const inherited =
-        stored?.protocolLatch ?? (await this.#forkProtocol(event, ctx));
-      const selected = resolveProtocol(
-        currentModel(ctx),
-        this.#config.protocols,
-        inherited
-      );
+      const inherited = stored?.protocolLatch ?? (await this.#forkProtocol(event, ctx));
+      const selected = resolveProtocol(currentModel(ctx), this.#config.protocols, inherited);
       const restore = stored !== undefined && stored.protocolLatch === selected;
       if (stored !== undefined && !restore) {
         ctx.ui.notify(
           `Configured subagent protocol ${selected.toUpperCase()} overrides the stored ${stored.protocolLatch.toUpperCase()} tree protocol; starting a new tree.`,
-          "warning"
+          "warning",
         );
       }
       const state = restore ? stored : freshSnapshot(selected, binding);
@@ -216,17 +212,12 @@ export class SubagentManager {
       };
       await Promise.all([this.#v1.reset(), this.#v2.reset()]);
       this.#ensureRootCursor();
-      await this.#coordinator.install(
-        store,
-        state,
-        restore || inherited !== undefined
-      );
+      await this.#coordinator.install(store, state, restore || inherited !== undefined);
       this.#applyTools();
       this.#syncRoot();
       this.#scheduleRootDelivery();
     } catch (error) {
-      const startError =
-        error instanceof Error ? error : new Error(String(error));
+      const startError = error instanceof Error ? error : new Error(String(error));
       this.#sessionPhase = {
         error: startError,
         kind: "start-failed",
@@ -235,7 +226,7 @@ export class SubagentManager {
       };
       ctx.ui.notify(
         `Unable to open subagent control state; collaboration is blocked: ${startError.message}`,
-        "warning"
+        "warning",
       );
       this.#applyTools();
     }
@@ -248,12 +239,12 @@ export class SubagentManager {
       const { protocol, sessionId } = this.#sessionPhase;
       const binding = rootBinding(
         ctx.sessionManager.getSessionId(),
-        ctx.sessionManager.getSessionFile()
+        ctx.sessionManager.getSessionFile(),
       );
       await this.#coordinator.install(
         createControlStore(this.#dataDir, binding),
         freshSnapshot(protocol, binding),
-        true
+        true,
       );
       this.#sessionPhase = {
         kind: "locked",
@@ -284,9 +275,7 @@ export class SubagentManager {
     } else if (this.#sessionPhase.protocol === "v2") {
       prompt = this.#v2.rootPrompt();
     }
-    return prompt === ""
-      ? undefined
-      : { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
+    return prompt === "" ? undefined : { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
   }
 
   agentStart(): void {
@@ -307,20 +296,16 @@ export class SubagentManager {
     this.#scheduleRootDelivery();
   }
 
-  async modelSelect(
-    event: { model: Model<Api> },
-    ctx: ExtensionContext
-  ): Promise<void> {
+  async modelSelect(event: { model: Model<Api> }, ctx: ExtensionContext): Promise<void> {
     const selected = resolveProtocol(
-      currentModel({ model: event.model, modelRegistry: ctx.modelRegistry }) ??
-        event.model,
-      this.#config.protocols
+      currentModel({ model: event.model, modelRegistry: ctx.modelRegistry }) ?? event.model,
+      this.#config.protocols,
     );
     if (this.#isProtocolLocked()) {
       if (selected !== this.#sessionPhase.protocol) {
         ctx.ui.notify(
           `Subagent protocol is locked to ${this.#sessionPhase.protocol.toUpperCase()} for this tree; model selection did not change its tools.`,
-          "warning"
+          "warning",
         );
       }
       return;
@@ -330,14 +315,14 @@ export class SubagentManager {
     }
     const binding = rootBinding(
       ctx.sessionManager.getSessionId(),
-      ctx.sessionManager.getSessionFile()
+      ctx.sessionManager.getSessionFile(),
     );
     await this.#coordinator.installProvisional(
       createControlStore(this.#dataDir, binding),
       freshSnapshot(selected, binding),
       () => {
         this.#selectProtocol(selected);
-      }
+      },
     );
     this.#applyTools();
   }
@@ -409,7 +394,7 @@ export class SubagentManager {
     if (error !== undefined) {
       throw new Error(
         `Subagent state could not be persisted: ${error.message}. Collaboration is blocked for this tree.`,
-        { cause: error }
+        { cause: error },
       );
     }
   }
@@ -422,9 +407,7 @@ export class SubagentManager {
     this.#assertHealthy();
   }
 
-  #refreshProtocol(
-    ctx: Pick<ExtensionContext, "model" | "modelRegistry">
-  ): void {
+  #refreshProtocol(ctx: Pick<ExtensionContext, "model" | "modelRegistry">): void {
     if (this.#isProtocolLocked()) {
       return;
     }
@@ -436,10 +419,7 @@ export class SubagentManager {
   }
 
   #isProtocolLocked(): boolean {
-    return (
-      this.#sessionPhase.kind === "locked" ||
-      this.#sessionPhase.kind === "restore-pending"
-    );
+    return this.#sessionPhase.kind === "locked" || this.#sessionPhase.kind === "restore-pending";
   }
 
   #selectProtocol(protocol: Protocol): void {
@@ -454,7 +434,7 @@ export class SubagentManager {
         (ctx) => {
           this.#latch("v1", ctx);
         },
-        this.#config
+        this.#config,
       );
     } else if (this.#sessionPhase.protocol === "v2") {
       registerV2Tools(
@@ -464,12 +444,10 @@ export class SubagentManager {
         (ctx) => {
           this.#latch("v2", ctx);
         },
-        this.#config
+        this.#config,
       );
     }
-    const base = this.#pi
-      .getActiveTools()
-      .filter((name) => !ALL_TOOL_NAMES.has(name));
+    const base = this.#pi.getActiveTools().filter((name) => !ALL_TOOL_NAMES.has(name));
     let selected: readonly string[] = [];
     if (this.#sessionPhase.protocol === "v1") {
       selected = V1_TOOL_NAMES;
@@ -505,20 +483,11 @@ export class SubagentManager {
   }
 
   async #deliverRootOnce(): Promise<void> {
-    if (
-      this.#rootAttempt !== undefined ||
-      this.#sessionPhase.kind === "awaiting-session"
-    ) {
+    if (this.#rootAttempt !== undefined || this.#sessionPhase.kind === "awaiting-session") {
       return;
     }
-    const v1 =
-      this.#sessionPhase.protocol === "v1"
-        ? this.#v1.rootDeliveries()[0]
-        : undefined;
-    const v2 =
-      this.#sessionPhase.protocol === "v2"
-        ? this.#v2.rootDeliveries()[0]
-        : undefined;
+    const v1 = this.#sessionPhase.protocol === "v1" ? this.#v1.rootDeliveries()[0] : undefined;
+    const v2 = this.#sessionPhase.protocol === "v2" ? this.#v2.rootDeliveries()[0] : undefined;
     let attempt: RootAttempt | undefined;
     if (v1 !== undefined) {
       attempt = { id: v1.id, protocol: "v1" };
@@ -536,16 +505,12 @@ export class SubagentManager {
       if (
         session !== undefined &&
         sessionFile !== undefined &&
-        !SessionManager.open(
-          sessionFile,
-          session.getSessionDir(),
-          session.getCwd()
-        )
+        !SessionManager.open(sessionFile, session.getSessionDir(), session.getCwd())
           .getEntries()
           .some(({ id }) => id === existingEntryId)
       ) {
         throw new Error(
-          `Root delivery ${attempt.id} exists only in memory; its transcript append failed`
+          `Root delivery ${attempt.id} exists only in memory; its transcript append failed`,
         );
       }
       await this.#acknowledgeRoot(attempt);
@@ -562,7 +527,7 @@ export class SubagentManager {
           details: { agentId: v1.agentId, notificationId: v1.id },
           display: false,
         },
-        { deliverAs: "steer", triggerTurn: this.#rootRunning }
+        { deliverAs: "steer", triggerTurn: this.#rootRunning },
       );
     } else if (v2 !== undefined) {
       this.#pi.sendMessage(
@@ -577,7 +542,7 @@ export class SubagentManager {
           },
           display: false,
         },
-        { deliverAs: "steer", triggerTurn: this.#rootRunning }
+        { deliverAs: "steer", triggerTurn: this.#rootRunning },
       );
       this.#v2.mailboxEnqueued(ROOT_AGENT_PATH);
     }
@@ -627,16 +592,13 @@ export class SubagentManager {
     return session.getBranch().findLast((entry) => {
       if (
         entry.type !== "custom_message" ||
-        entry.details === null ||
-        typeof entry.details !== "object"
+        !Value.Check(RootDeliveryDetailsSchema, entry.details)
       ) {
         return false;
       }
       return attempt.protocol === "v1"
-        ? "notificationId" in entry.details &&
-            entry.details.notificationId === attempt.id
-        : "communicationId" in entry.details &&
-            entry.details.communicationId === attempt.id;
+        ? "notificationId" in entry.details && entry.details.notificationId === attempt.id
+        : "communicationId" in entry.details && entry.details.communicationId === attempt.id;
     })?.id;
   }
 
@@ -652,28 +614,21 @@ export class SubagentManager {
 
   async #forkProtocol(
     event: SessionStartEvent,
-    ctx: ExtensionContext
+    ctx: ExtensionContext,
   ): Promise<Protocol | undefined> {
     if (event.reason !== "fork" || event.previousSessionFile === undefined) {
       return undefined;
     }
     try {
-      const source = SessionManager.open(
-        event.previousSessionFile,
-        undefined,
-        ctx.cwd
-      );
-      const binding: RootBinding = rootBinding(
-        source.getSessionId(),
-        event.previousSessionFile
-      );
+      const source = SessionManager.open(event.previousSessionFile, undefined, ctx.cwd);
+      const binding: RootBinding = rootBinding(source.getSessionId(), event.previousSessionFile);
       const store: ControlStore = createControlStore(this.#dataDir, binding);
       const stored = await store.load();
       return stored?.protocolLatch;
     } catch (error) {
       ctx.ui.notify(
         `Unable to inherit the source subagent protocol for this fork: ${error instanceof Error ? error.message : String(error)}`,
-        "warning"
+        "warning",
       );
       return undefined;
     }

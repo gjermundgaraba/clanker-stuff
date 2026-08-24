@@ -68,13 +68,13 @@
     "test:live:portable": "node ./scripts/live-multi-compaction.ts --portable",
     "test:live:real": "node ./scripts/live-multi-compaction.ts --real-window",
     "test:live:crash": "node ./scripts/live-chaos.ts --crash",
-    "test:live:marathon": "pnpm run test:live:soak:sse && pnpm run test:live:websocket && pnpm run test:live:mid-turn && pnpm run test:live:fault && pnpm run test:live:rpc && pnpm run test:live:crash",
+    "test:live:marathon": "vp run test:live:soak:sse && vp run test:live:websocket && vp run test:live:mid-turn && vp run test:live:fault && vp run test:live:rpc && vp run test:live:crash",
     "test:live:rpc": "node ./scripts/live-chaos.ts --rpc",
     "test:live:soak:sse": "node ./scripts/live-multi-compaction.ts --soak --sse",
     "test:live:soak:websocket": "node ./scripts/live-multi-compaction.ts --soak --websocket",
     "test:live:threshold": "node ./scripts/live-multi-compaction.ts --threshold",
     "test:live:websocket": "node ./scripts/live-multi-compaction.ts --branch --websocket",
-    "verify:provider": "pnpm -w check:all && pnpm run test:live:marathon && pnpm run eval:agents --repetitions 3 && pnpm run eval:agents --task compaction-resume && pnpm run eval:code-mode --runs 3"
+    "verify:provider": "vp run -w ready && vp run test:live:marathon && vp run eval:agents --repetitions 3 && vp run eval:agents --task compaction-resume && vp run eval:code-mode --runs 3"
   },
   "dependencies": {
     "@clanker-stuff/footer-protocol": "workspace:^",
@@ -83,7 +83,9 @@
     "@clanker-stuff/tool-owner-protocol": "workspace:^"
   },
   "devDependencies": {
-    "jiti": "2.7.0"
+    "jiti": "2.7.0",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",
@@ -92,7 +94,7 @@
     "typebox": "*"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "pi": {
     "extensions": [

@@ -26,7 +26,7 @@ const MinimaxUsagePayloadSchema = Type.Object({
     Type.Object({
       status_code: Type.Optional(Type.Number()),
       status_msg: Type.Optional(Type.String()),
-    })
+    }),
   ),
   model_remains: Type.Optional(Type.Array(MinimaxBucketSchema)),
 });
@@ -39,10 +39,7 @@ const epochMsToIso = (value: number | undefined): string | undefined =>
 /** Bucket selection: prefer the active "general" bucket (text/code), then any
  *  general bucket, then any active bucket, then the first bucket. */
 const pickBucket = (remains: MinimaxBucket[]): MinimaxBucket | undefined =>
-  remains.find(
-    (entry) =>
-      entry.model_name === "general" && entry.current_interval_status === 1
-  ) ??
+  remains.find((entry) => entry.model_name === "general" && entry.current_interval_status === 1) ??
   remains.find((entry) => entry.model_name === "general") ??
   remains.find((entry) => entry.current_interval_status === 1) ??
   remains[0];
@@ -50,7 +47,7 @@ const pickBucket = (remains: MinimaxBucket[]): MinimaxBucket | undefined =>
 const remainingWindow = (
   remainingPercent: number | undefined,
   resetsAt: string | undefined,
-  id: UsageWindow["id"]
+  id: UsageWindow["id"],
 ): UsageWindow | undefined => {
   if (remainingPercent === undefined) {
     return undefined;
@@ -59,9 +56,9 @@ const remainingWindow = (
 };
 
 export const parseMinimaxUsagePayload = (
-  payload: unknown,
+  payload: Static<typeof MinimaxUsagePayloadSchema> | undefined,
   provider: "minimax" | "minimax-cn",
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   if (!Value.Check(MinimaxUsagePayloadSchema, payload)) {
     return usageFailure("invalid usage payload");
@@ -70,8 +67,7 @@ export const parseMinimaxUsagePayload = (
   const statusCode = payload.base_resp?.status_code;
   if (statusCode !== undefined && statusCode !== 0) {
     const statusMessage =
-      payload.base_resp?.status_msg !== undefined &&
-      payload.base_resp.status_msg.length > 0
+      payload.base_resp?.status_msg !== undefined && payload.base_resp.status_msg.length > 0
         ? payload.base_resp.status_msg
         : `API ${statusCode}`;
     return usageFailure(statusMessage);
@@ -85,12 +81,12 @@ export const parseMinimaxUsagePayload = (
           remainingWindow(
             bucket.current_interval_remaining_percent,
             epochMsToIso(bucket.end_time),
-            "5h"
+            "5h",
           ),
           remainingWindow(
             bucket.current_weekly_remaining_percent,
             epochMsToIso(bucket.weekly_end_time),
-            "week"
+            "week",
           ),
         ].filter(isDefined);
 
@@ -103,7 +99,7 @@ export const parseMinimaxUsagePayload = (
 
 export const fetchMinimaxUsage = async (
   deps: AdapterDeps,
-  provider: "minimax" | "minimax-cn"
+  provider: "minimax" | "minimax-cn",
 ): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, provider);
@@ -111,8 +107,7 @@ export const fetchMinimaxUsage = async (
     return usageFailure(auth.message, auth.kind);
   }
 
-  const url =
-    provider === "minimax-cn" ? MINIMAX_CN_USAGE_URL : MINIMAX_USAGE_URL;
+  const url = provider === "minimax-cn" ? MINIMAX_CN_USAGE_URL : MINIMAX_USAGE_URL;
   const response = await deps.fetchJson(url, {
     headers: {
       Authorization: `Bearer ${auth.value.accessToken}`,
@@ -122,7 +117,13 @@ export const fetchMinimaxUsage = async (
   });
 
   if (response.ok) {
-    return parseMinimaxUsagePayload(response.json, provider, now());
+    return parseMinimaxUsagePayload(
+      Value.Check(MinimaxUsagePayloadSchema, response.json)
+        ? Value.Parse(MinimaxUsagePayloadSchema, response.json)
+        : undefined,
+      provider,
+      now(),
+    );
   }
 
   return usageFailure(response.message);

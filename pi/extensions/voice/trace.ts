@@ -1,7 +1,7 @@
 import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export type VoiceTrace = (kind: string, detail: unknown) => void;
+export type VoiceTrace = <T>(kind: string, detail: T) => void;
 
 export const createVoiceTrace = (): VoiceTrace | undefined => {
   const directory = process.env.PI_VOICE_TRACE_DIR;
@@ -27,7 +27,7 @@ export const createVoiceTrace = (): VoiceTrace | undefined => {
         sequence,
         timestamp: new Date().toISOString(),
       })}\n`,
-      { encoding: "utf-8", mode: 0o600 }
+      { encoding: "utf-8", mode: 0o600 },
     );
   };
 };

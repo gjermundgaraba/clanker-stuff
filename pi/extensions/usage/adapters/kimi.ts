@@ -7,12 +7,7 @@ import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import {
-  isDefined,
-  makeUsageWindow,
-  parseIso,
-  windowIdFromLimitSeconds,
-} from "./util.js";
+import { isDefined, makeUsageWindow, parseIso, windowIdFromLimitSeconds } from "./util.js";
 
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 
@@ -28,7 +23,7 @@ const KimiLimitSchema = Type.Object({
     Type.Object({
       duration: Type.Optional(Type.Number()),
       timeUnit: Type.Optional(Type.String()),
-    })
+    }),
   ),
 });
 
@@ -37,19 +32,14 @@ const KimiUsagePayloadSchema = Type.Object({
   usage: Type.Optional(KimiUsageSummarySchema),
 });
 
-const remainingFromLimit = (
-  limit: number,
-  remaining: number
-): number | undefined => {
+const remainingFromLimit = (limit: number, remaining: number): number | undefined => {
   if (limit <= 0) {
     return undefined;
   }
   return (remaining / limit) * 100;
 };
 
-const parseLimitEntry = (
-  limitEntry: Static<typeof KimiLimitSchema>
-): UsageWindow | undefined => {
+const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindow | undefined => {
   const { detail, window: windowInfo } = limitEntry;
   const limit = detail?.limit ?? 0;
   const remaining = detail?.remaining ?? 0;
@@ -59,19 +49,15 @@ const parseLimitEntry = (
   }
 
   const durationMinutes =
-    windowInfo?.timeUnit === "TIME_UNIT_MINUTE"
-      ? windowInfo.duration
-      : undefined;
+    windowInfo?.timeUnit === "TIME_UNIT_MINUTE" ? windowInfo.duration : undefined;
   const id =
-    durationMinutes === undefined
-      ? "5h"
-      : (windowIdFromLimitSeconds(durationMinutes * 60) ?? "5h");
+    durationMinutes === undefined ? "5h" : (windowIdFromLimitSeconds(durationMinutes * 60) ?? "5h");
   return makeUsageWindow(id, remainingPercent, parseIso(detail?.resetTime));
 };
 
 export const parseKimiUsagePayload = (
-  payload: unknown,
-  nowMs: number = Date.now()
+  payload: Static<typeof KimiUsagePayloadSchema> | undefined,
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   if (!Value.Check(KimiUsagePayloadSchema, payload)) {
     return usageFailure("invalid usage payload");
@@ -95,9 +81,7 @@ export const parseKimiUsagePayload = (
   });
 };
 
-export const fetchKimiUsage = async (
-  deps: AdapterDeps
-): Promise<UsageFetchResult> => {
+export const fetchKimiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, "kimi-coding");
   if (!auth.ok) {
@@ -113,7 +97,12 @@ export const fetchKimiUsage = async (
   });
 
   if (response.ok) {
-    return parseKimiUsagePayload(response.json, now());
+    return parseKimiUsagePayload(
+      Value.Check(KimiUsagePayloadSchema, response.json)
+        ? Value.Parse(KimiUsagePayloadSchema, response.json)
+        : undefined,
+      now(),
+    );
   }
 
   return usageFailure(response.message);

@@ -1,29 +1,29 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { describe, expect, it } from "vitest";
+import { Value } from "typebox/value";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
 import toolsExtension from "../../../tools/index.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 
-const DIRECT_NAMES = [
-  "exec_command",
-  "write_stdin",
-  "apply_patch",
-  "view_image",
-];
+const DIRECT_NAMES = ["exec_command", "write_stdin", "apply_patch", "view_image"];
 const CODE_NAMES = ["exec", "wait"];
 const PI_NAMES = ["read", "bash", "edit", "write"];
+const ContractRequestSchema = Type.Object({
+  provide: Type.Function([Type.Unknown()], Type.Void()),
+  sessionId: Type.String(),
+});
+const PromptResultSchema = Type.Object({ systemPrompt: Type.String() });
 
 const combinedExtension = (pi: Parameters<typeof toolsExtension>[0]) => {
   toolsExtension(pi);
   registerCodexTools(pi);
 };
-const providerFirstCombinedExtension = (
-  pi: Parameters<typeof toolsExtension>[0]
-) => {
+const providerFirstCombinedExtension = (pi: Parameters<typeof toolsExtension>[0]) => {
   registerCodexTools(pi);
   toolsExtension(pi);
 };
@@ -38,38 +38,27 @@ const withCollaborationContract =
       parameters: Type.Object({}, { additionalProperties: false }),
     };
     pi.registerTool(nested);
-    pi.events.on(
-      "clanker-stuff:subagents:contract:request",
-      (request: unknown) => {
-        if (
-          typeof request === "object" &&
-          request !== null &&
-          "provide" in request &&
-          typeof request.provide === "function" &&
-          "sessionId" in request &&
-          typeof request.sessionId === "string"
-        ) {
-          request.provide({
-            nestedTools: [{ definition: nested }],
-            protocol,
-            sessionId: request.sessionId,
-            version: 1,
-          });
-        }
-      }
-    );
+    pi.events.on("clanker-stuff:subagents:contract:request", (request) => {
+      const parsed = Value.Parse(ContractRequestSchema, request);
+      parsed.provide({
+        nestedTools: [{ definition: nested }],
+        protocol,
+        sessionId: parsed.sessionId,
+        version: 1,
+      });
+    });
     registerCodexTools(pi);
   };
 
 const selectModel = async (
   host: ReturnType<typeof createExtensionHost>,
   previousModel: ReturnType<typeof createToolsModel>,
-  model: ReturnType<typeof createToolsModel>
+  model: ReturnType<typeof createToolsModel>,
 ) => {
   await host.emit(
     "model_select",
     { model, previousModel, source: "set", type: "model_select" },
-    host.createContext({ model })
+    host.createContext({ model }),
   );
 };
 
@@ -84,7 +73,7 @@ const messageEntry = (id: string, parentId: string | null): SessionEntry => ({
 const selectionEntry = (
   id: string,
   parentId: string | null,
-  tools: Record<string, boolean>
+  tools: Record<string, boolean>,
 ): SessionEntry => ({
   customType: "codex-provider-tools",
   data: tools,
@@ -100,18 +89,11 @@ describe("Codex tools", () => {
     const host = createExtensionHost(registerCodexTools, { model });
     await host.ready;
 
-    expect(host.getActiveTools()).toStrictEqual([
-      ...PI_NAMES,
-      ...DIRECT_NAMES,
-      ...CODE_NAMES,
-    ]);
+    expect(host.getActiveTools()).toStrictEqual([...PI_NAMES, ...DIRECT_NAMES, ...CODE_NAMES]);
     await host.emitSessionStart();
 
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
-    expect([...host.getRegisteredTools().keys()]).toStrictEqual([
-      ...DIRECT_NAMES,
-      ...CODE_NAMES,
-    ]);
+    expect([...host.getRegisteredTools().keys()]).toStrictEqual([...DIRECT_NAMES, ...CODE_NAMES]);
   });
 
   it("gates activation on model and grammar-tool support", async () => {
@@ -163,9 +145,7 @@ describe("Codex tools", () => {
     await host.runCommand("code-mode", "", ctx);
     expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
     expect(host.getStatus("codex-code-mode")).toBe("</>");
-    expect(
-      host.getRegisteredTools().get("exec")?.definition.constrainedSampling
-    ).toMatchObject({
+    expect(host.getRegisteredTools().get("exec")?.definition.constrainedSampling).toMatchObject({
       type: "grammar",
     });
     expect(host.getNotifications()).toContainEqual({
@@ -204,85 +184,59 @@ describe("Codex tools", () => {
           systemPromptOptions: {},
           type: "before_agent_start",
         },
-        ctx
+        ctx,
       );
-      const systemPrompt =
-        typeof prompt === "object" &&
-        prompt !== null &&
-        "systemPrompt" in prompt &&
-        typeof prompt.systemPrompt === "string"
-          ? prompt.systemPrompt
-          : "";
+      const systemPrompt = Value.Check(PromptResultSchema, prompt)
+        ? Value.Parse(PromptResultSchema, prompt).systemPrompt
+        : "";
       expect(systemPrompt.includes("pi_subagents__spawn_agent")).toBe(nested);
       expect(host.getActiveTools()).toContain("spawn_agent");
-    }
+    },
   );
 
   it.each([
     ["tools first", combinedExtension],
     ["provider first", providerFirstCombinedExtension],
-  ] as const)(
-    "delegates provider-owned choices from /tools with %s",
-    async (_order, extension) => {
-      const model = createToolsModel("gpt-5.6-sol", true);
-      const host = createExtensionHost(extension, {
-        entries: [messageEntry("root", null), messageEntry("branch-b", "root")],
-        leafId: "root",
-        model,
-      });
-      await host.emitSessionStart();
-      initTheme("dark");
-      const rendered: string[] = [];
-      const ctx = host.createContext();
-      const custom: typeof ctx.ui.custom = async (factory) => {
-        const component = await factory(
-          { requestRender() {} } as never,
-          ctx.ui.theme,
-          {} as never,
-          () => null
-        );
-        rendered.push(...component.render(120));
-        component.handleInput?.(" ");
-        return null as never;
-      };
-      ctx.ui.custom = custom;
+  ] as const)("delegates provider-owned choices from /tools with %s", async (_order, extension) => {
+    const model = createToolsModel("gpt-5.6-sol", true);
+    const host = createExtensionHost(extension, {
+      entries: [messageEntry("root", null), messageEntry("branch-b", "root")],
+      leafId: "root",
+      model,
+    });
+    await host.emitSessionStart();
+    initTheme("dark");
+    const ui = createCustomUiDriver({
+      captureRender: "before",
+      keys: [" ", "\u001B"],
+      width: 120,
+    });
+    const ctx = host.createContext();
+    ctx.ui.custom = ui.custom;
 
-      await host.runCommand("tools", "", ctx);
+    await host.runCommand("tools", "", ctx);
 
-      expect(rendered.join("\n")).not.toContain("read");
-      expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
-      expect(host.getAppendedEntries().at(-1)).toMatchObject({
-        customType: "codex-provider-tools",
-        data: { exec_command: false },
-      });
+    expect(ui.getLastRender()).not.toContain("read");
+    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
+    expect(host.getAppendedEntries().at(-1)).toMatchObject({
+      customType: "codex-provider-tools",
+      data: { exec_command: false },
+    });
 
-      host.setLeafId("branch-b");
-      await host.emitSessionStart(ctx, "resume");
-      expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
-    }
-  );
+    host.setLeafId("branch-b");
+    await host.emitSessionStart(ctx, "resume");
+    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
+  });
 
   it("cooperates with non-Codex profiles and external tools", async () => {
     const codex = createToolsModel("gpt-5.6-sol", true);
     const host = createExtensionHost(combinedExtension, {
       activeTools: ["read", "bash", "ask_question"],
-      allTools: [
-        "read",
-        "bash",
-        "edit",
-        "write",
-        "grep",
-        "find",
-        "ls",
-        "ask_question",
-      ],
+      allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
       model: codex,
     });
     await host.emitSessionStart();
-    expect(host.getActiveTools()).toStrictEqual([
-      "ask_question",
-      ...DIRECT_NAMES,
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
 
     const claude = createToolsModel("claude-opus-5");
     await selectModel(host, codex, claude);
@@ -298,17 +252,10 @@ describe("Codex tools", () => {
 
     const unsupported = createToolsModel("deepseek-v4-pro");
     await selectModel(host, claude, unsupported);
-    expect(host.getActiveTools()).toStrictEqual([
-      "read",
-      "bash",
-      "ask_question",
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["read", "bash", "ask_question"]);
 
     await selectModel(host, unsupported, codex);
-    expect(host.getActiveTools()).toStrictEqual([
-      "ask_question",
-      ...DIRECT_NAMES,
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
   });
 
   it("restores provider-owned choices from the active branch", async () => {
@@ -324,7 +271,7 @@ describe("Codex tools", () => {
     });
     await host.emitSessionStart();
     expect(host.getActiveTools()).toStrictEqual(
-      DIRECT_NAMES.filter((name) => name !== "apply_patch")
+      DIRECT_NAMES.filter((name) => name !== "apply_patch"),
     );
 
     host.setLeafId("branch-b");

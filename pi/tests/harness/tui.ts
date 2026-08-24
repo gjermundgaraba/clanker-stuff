@@ -3,238 +3,229 @@ import type {
   KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { Component, KeyId, TUI } from "@earendil-works/pi-tui";
+import {
+  type Component,
+  type KeyId,
+  type OverlayHandle,
+  type OverlayUnfocusOptions,
+  type TUI,
+} from "@earendil-works/pi-tui";
 
-type TestKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
 type CustomUiComponent = Component & { dispose?: () => void };
-interface Renderable {
-  render: (width: number) => string[];
-}
+type TestKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
+type CustomUiFactory<T> = (
+  tui: TUI,
+  theme: Theme,
+  keybindings: KeybindingsManager,
+  done: (result: T) => void,
+) => CustomUiComponent | Promise<CustomUiComponent>;
 interface MockTuiOptions {
-  columns?: number;
   rows?: number;
 }
-interface CustomUiDriverOptions<T = unknown> {
+interface CustomUiDriverOptions {
   tui?: TUI;
   theme?: Theme;
-  keybindings?: TestKeybindings;
+  keybindings?: KeybindingsManager;
   width?: number;
   keys?: string[];
   captureRender?: "before" | "after" | "before-and-after";
+  onAfterCapture?: () => void | Promise<void>;
   onComponent?: (component: CustomUiComponent) => void | Promise<void>;
-  resolveWith?: T | ((component: CustomUiComponent) => T | Promise<T>);
+  waitForDone?: boolean;
 }
 interface CustomUiRunResult<T> {
   component: CustomUiComponent;
+  handle: OverlayHandle;
   rendered: string[];
   result: T | undefined;
 }
+type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
 const toKeyId = (key: string): KeyId => {
   switch (key) {
-    case "\r": {
+    case "\r":
       return "enter";
-    }
-    case "\u001B": {
+    case "\u001B":
       return "escape";
-    }
-    case "\t": {
+    case "\t":
       return "tab";
-    }
-    case " ": {
+    case " ":
       return "space";
-    }
-    default: {
+    default:
+      // SAFETY: Callers provide valid Pi key IDs; raw control sequences are normalized above.
       return key as KeyId;
-    }
   }
 };
 
-const toKeybindingsManager = (
-  keybindings: TestKeybindings
-): KeybindingsManager => keybindings as unknown as KeybindingsManager;
+const createOverlayHandle = (): OverlayHandle => {
+  let focused = true;
+  let hidden = false;
+  return {
+    focus() {
+      focused = true;
+    },
+    hide() {
+      focused = false;
+      hidden = true;
+    },
+    isFocused: () => focused,
+    isHidden: () => hidden,
+    setHidden(nextHidden: boolean) {
+      hidden = nextHidden;
+      if (hidden) focused = false;
+    },
+    unfocus(_options?: OverlayUnfocusOptions) {
+      focused = false;
+    },
+  };
+};
 
-export const createIdentityTheme = (): Theme =>
-  ({
+export const createIdentityTheme = (): Theme => {
+  const theme = {
     bg: (_color: string, text: string) => text,
     bold: (text: string) => text,
     fg: (_color: string, text: string) => text,
+    inverse: (text: string) => text,
     italic: (text: string) => text,
     strikethrough: (text: string) => text,
-  }) as unknown as Theme;
-
-const noop = (): void => {
-  /* noop */
+    underline: (text: string) => text,
+  };
+  // SAFETY: Every harness consumer uses only these identity formatting methods; Theme's private state is inaccessible.
+  return theme as Theme;
 };
 
-export const createMockTui = (options: MockTuiOptions = {}) => {
-  const overlayHandle = {
-    focus: noop,
-    hide: noop,
-    isFocused: () => false,
-    isHidden: () => false,
-    setHidden: noop,
-    unfocus: noop,
+export const createMockTui = (options: MockTuiOptions = {}): TUI => {
+  const tui = {
+    requestRender() {},
+    terminal: { rows: options.rows ?? 40 },
   };
-
-  const terminal = {
-    clearFromCursor: noop,
-    clearLine: noop,
-    clearScreen: noop,
-    get columns() {
-      return options.columns ?? 80;
-    },
-    drainInput: async () => {
-      await Promise.resolve();
-    },
-    get height() {
-      return options.rows ?? 40;
-    },
-    hideCursor: noop,
-    get kittyProtocolActive() {
-      return false;
-    },
-    moveBy: noop,
-    get rows() {
-      return options.rows ?? 40;
-    },
-    setTitle: noop,
-    showCursor: noop,
-    start: noop,
-    stop: noop,
-    get width() {
-      return options.columns ?? 80;
-    },
-    write: noop,
-  } as unknown as TUI["terminal"];
-
-  return {
-    requestRender: noop,
-    showOverlay: () => overlayHandle,
-    terminal,
-  } as unknown as TUI;
+  // SAFETY: Harness consumers use only requestRender and terminal.rows.
+  return tui as TUI;
 };
 
 export const createKeybindings = (
-  bindings: Partial<Record<string, string[]>> = {}
-): TestKeybindings => ({
-  getKeys(keybinding) {
-    return (bindings[keybinding] ?? []).map(toKeyId);
-  },
-  matches(data, keybinding) {
-    return bindings[keybinding]?.includes(data) ?? false;
-  },
-});
-
-export const renderComponent = (
-  component: unknown,
-  width = 80
-): string | undefined => {
-  if (
-    component &&
-    typeof component === "object" &&
-    "render" in component &&
-    typeof component.render === "function"
-  ) {
-    return (component as Renderable).render(width).join("\n");
-  }
-
-  return undefined;
+  bindings: Partial<Record<string, string[]>> = {},
+): KeybindingsManager => {
+  const keybindings: TestKeybindings = {
+    getKeys: (keybinding) => (bindings[keybinding] ?? []).map(toKeyId),
+    matches: (data, keybinding) => bindings[keybinding]?.includes(data) ?? false,
+  };
+  // SAFETY: The harness exercises only matches/getKeys; the remaining members are private configuration state.
+  return keybindings as KeybindingsManager;
 };
 
-const runCustomUi = async <T>(
-  factory: Parameters<ExtensionUIContext["custom"]>[0],
-  options: CustomUiDriverOptions<T> = {}
-): Promise<CustomUiRunResult<T>> => {
-  const theme = options.theme ?? (createIdentityTheme() as unknown as Theme);
-  const keybindings = toKeybindingsManager(
-    options.keybindings ?? createKeybindings()
-  );
+export const renderComponent = (component: Component | undefined, width = 80): string | undefined =>
+  component?.render(width).join("\n");
+
+async function runCustomUi<T>(
+  factory: CustomUiFactory<T>,
+  options: CustomUiDriverOptions = {},
+  customOptions?: CustomUiOptions,
+): Promise<CustomUiRunResult<T>> {
+  const theme = options.theme ?? createIdentityTheme();
+  const keybindings = options.keybindings ?? createKeybindings();
   const tui = options.tui ?? createMockTui();
   const width = options.width ?? 80;
   const rendered: string[] = [];
   let resolved = false;
   let result: T | undefined;
+  const pending = options.waitForDone ? Promise.withResolvers<T>() : undefined;
+  const handle = createOverlayHandle();
 
   const done = (value: T) => {
     resolved = true;
     result = value;
+    pending?.resolve(value);
   };
 
-  const component = (await factory(
-    tui,
-    theme,
-    keybindings,
-    done as Parameters<typeof factory>[3]
-  )) as CustomUiComponent;
+  const component = await factory(tui, theme, keybindings, done);
+  customOptions?.onHandle?.(handle);
 
-  await options.onComponent?.(component);
+  try {
+    await options.onComponent?.(component);
 
-  if (
-    options.captureRender === "before" ||
-    options.captureRender === "before-and-after"
-  ) {
-    rendered.push(renderComponent(component, width) ?? "");
-  }
-
-  for (const key of options.keys ?? []) {
-    component.handleInput?.(key);
-    if (resolved) {
-      break;
+    if (options.captureRender === "before" || options.captureRender === "before-and-after") {
+      rendered.push(renderComponent(component, width) ?? "");
     }
+
+    for (const key of options.keys ?? []) {
+      component.handleInput?.(key);
+      if (resolved) break;
+    }
+
+    if (options.captureRender === "after" || options.captureRender === "before-and-after") {
+      rendered.push(renderComponent(component, width) ?? "");
+    }
+
+    await options.onAfterCapture?.();
+
+    if (!resolved && options.waitForDone) {
+      result = await pending?.promise;
+    }
+
+    return { component, handle, rendered, result };
+  } finally {
+    component.dispose?.();
   }
+}
 
-  if (
-    options.captureRender === "after" ||
-    options.captureRender === "before-and-after"
-  ) {
-    rendered.push(renderComponent(component, width) ?? "");
-  }
-
-  if (!resolved && options.resolveWith !== undefined) {
-    const { resolveWith } = options;
-    result =
-      typeof resolveWith === "function"
-        ? await (
-            resolveWith as (component: CustomUiComponent) => T | Promise<T>
-          )(component)
-        : resolveWith;
-  }
-
-  return {
-    component,
-    rendered,
-    result,
-  };
-};
-
-export const createCustomUiDriver = <T = unknown>(
-  options: CustomUiDriverOptions<T> = {}
-) => {
+export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
   const rendered: string[] = [];
+  let component: CustomUiComponent | undefined;
+  let handle = createOverlayHandle();
 
-  const run = async (
-    factory: Parameters<ExtensionUIContext["custom"]>[0],
-    overrides: CustomUiDriverOptions<T> = {}
-  ) => {
-    const result = await runCustomUi(factory, { ...options, ...overrides });
+  async function runWithState<TResult>(
+    factory: CustomUiFactory<TResult>,
+    runOptions: CustomUiDriverOptions,
+    customOptions?: CustomUiOptions,
+  ): Promise<CustomUiRunResult<TResult>> {
+    const onComponent = runOptions.onComponent;
+    const result = await runCustomUi(
+      factory,
+      {
+        ...runOptions,
+        async onComponent(nextComponent) {
+          component = nextComponent;
+          await onComponent?.(nextComponent);
+        },
+      },
+      {
+        ...customOptions,
+        onHandle(nextHandle) {
+          handle = nextHandle;
+          customOptions?.onHandle?.(nextHandle);
+        },
+      },
+    );
 
     rendered.push(...result.rendered);
     return result;
+  }
+
+  const custom: ExtensionUIContext["custom"] = async <TResult>(
+    factory: CustomUiFactory<TResult>,
+    customOptions?: CustomUiOptions,
+  ): Promise<TResult> => {
+    const { waitForDone: _waitForDone, ...commonOptions } = options;
+    const result = await runWithState(
+      factory,
+      { ...commonOptions, waitForDone: true },
+      customOptions,
+    );
+    // SAFETY: waitForDone guarantees that the custom component supplied a result.
+    return result.result as TResult;
   };
 
-  const custom = (async <TResult>(
-    factory: Parameters<ExtensionUIContext["custom"]>[0]
-  ) => {
-    const result = await run(factory);
-    return result.result as TResult;
-  }) as ExtensionUIContext["custom"];
-
   return {
+    get component() {
+      return component;
+    },
     custom,
+    get handle() {
+      return handle;
+    },
     getLastRender() {
       return rendered.at(-1);
     },
-    run,
   };
 };

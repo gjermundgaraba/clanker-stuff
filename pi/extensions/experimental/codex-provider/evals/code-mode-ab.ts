@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/no-await-in-loop, eslint/complexity -- eval variants stay sequential for timing isolation; metrics collect both Pi and native Codex event shapes */
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -16,12 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import type {
-  Api,
-  AssistantMessage,
-  Model,
-  Usage,
-} from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -29,8 +23,13 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 import { ensureCodeModeHostBinary } from "../code-mode/binary.ts";
+
+type SessionMessage = Awaited<ReturnType<typeof createAgentSession>>["session"]["messages"][number];
 
 const DEFAULT_MODEL = "openai-codex/gpt-5.6-sol";
 const DEFAULT_THINKING = "high";
@@ -39,15 +38,7 @@ const TASK_PROMPT = `Implement the inventory planner described in SPEC.md.
 
 Inspect the existing source and tests, make the minimum correct changes, and run the tests. Do not modify SPEC.md or existing tests. Do not add dependencies or commit changes.`;
 const EXTENSION_PATH = fileURLToPath(new URL("../index.ts", import.meta.url));
-const THINKING_LEVELS = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const;
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 const isThinkingLevel = (value: string): value is ThinkingLevel =>
   THINKING_LEVELS.some((level) => level === value);
@@ -314,7 +305,7 @@ const FIXTURE_FILES = {
       type: "module",
     },
     null,
-    2
+    2,
   )}\n`,
   "src/events.js": EVENTS_SOURCE,
   "src/inventory.js": INVENTORY_SOURCE,
@@ -363,32 +354,32 @@ interface VariantResult {
   workspace: string;
 }
 
-interface NativeExecEvent {
-  item?: {
-    id?: string;
-    text?: string;
-    type?: string;
-  };
-  message?: string;
-  type?: string;
-  usage?: {
-    cache_write_input_tokens?: number;
-    cached_input_tokens?: number;
-    input_tokens?: number;
-    output_tokens?: number;
-    reasoning_output_tokens?: number;
-  };
-}
+const NativeExecEventSchema = Type.Object({
+  item: Type.Optional(
+    Type.Object({
+      id: Type.Optional(Type.String()),
+      text: Type.Optional(Type.String()),
+      type: Type.Optional(Type.String()),
+    }),
+  ),
+  message: Type.Optional(Type.String()),
+  type: Type.Optional(Type.String()),
+  usage: Type.Optional(
+    Type.Object({
+      cache_write_input_tokens: Type.Optional(Type.Number()),
+      cached_input_tokens: Type.Optional(Type.Number()),
+      input_tokens: Type.Optional(Type.Number()),
+      output_tokens: Type.Optional(Type.Number()),
+      reasoning_output_tokens: Type.Optional(Type.Number()),
+    }),
+  ),
+});
+type NativeExecEvent = Static<typeof NativeExecEventSchema>;
 
 const parseCount = (output: string, name: string) =>
   Number(new RegExp(`^(?:#|ℹ) ${name} (\\d+)$`, "mu").exec(output)?.[1] ?? 0);
 
-const command = (
-  executable: string,
-  args: string[],
-  cwd: string,
-  timeout = 30_000
-) => {
+const command = (executable: string, args: string[], cwd: string, timeout = 30_000) => {
   const result = spawnSync(executable, args, {
     cwd,
     encoding: "utf-8",
@@ -403,9 +394,7 @@ const command = (
 const requireCommand = (executable: string, args: string[], cwd: string) => {
   const result = command(executable, args, cwd);
   if (result.status !== 0) {
-    throw new Error(
-      `${executable} ${args.join(" ")} failed:\n${result.output.trim()}`
-    );
+    throw new Error(`${executable} ${args.join(" ")} failed:\n${result.output.trim()}`);
   }
 };
 
@@ -432,7 +421,7 @@ const createFixture = (cwd: string) => {
       "-m",
       "fixture",
     ],
-    cwd
+    cwd,
   );
 };
 
@@ -440,8 +429,7 @@ const evaluate = (cwd: string): Evaluation => {
   const protectedFilesIntact = PROTECTED_FILES.every(
     (relativePath) =>
       existsSync(path.join(cwd, relativePath)) &&
-      readFileSync(path.join(cwd, relativePath), "utf-8") ===
-        FIXTURE_FILES[relativePath]
+      readFileSync(path.join(cwd, relativePath), "utf-8") === FIXTURE_FILES[relativePath],
   );
   const hiddenPath = path.join(cwd, "test/eval-hidden.test.js");
   mkdirSync(path.dirname(hiddenPath), { recursive: true });
@@ -490,19 +478,15 @@ const addUsage = (metrics: Metrics, usage: Usage) => {
 };
 
 const collectMetrics = (
-  messages: readonly unknown[],
+  messages: readonly SessionMessage[],
   elapsedMs: number,
-  firstResponseMs: number | null
+  firstResponseMs: number | null,
 ): Metrics => {
   const metrics = emptyMetrics();
   metrics.elapsedMs = elapsedMs;
   metrics.firstResponseMs = firstResponseMs;
   const assistants = messages.filter(
-    (message): message is AssistantMessage =>
-      typeof message === "object" &&
-      message !== null &&
-      "role" in message &&
-      message.role === "assistant"
+    (message): message is AssistantMessage => message.role === "assistant",
   );
   metrics.assistantTurns = assistants.length;
 
@@ -514,20 +498,15 @@ const collectMetrics = (
         continue;
       }
       metrics.toolCalls += 1;
-      metrics.toolNames[content.name] =
-        (metrics.toolNames[content.name] ?? 0) + 1;
+      metrics.toolNames[content.name] = (metrics.toolNames[content.name] ?? 0) + 1;
     }
   }
   return metrics;
 };
 
-const finalText = (messages: readonly unknown[]) => {
+const finalText = (messages: readonly SessionMessage[]) => {
   const assistant = messages.findLast(
-    (message): message is AssistantMessage =>
-      typeof message === "object" &&
-      message !== null &&
-      "role" in message &&
-      message.role === "assistant"
+    (message): message is AssistantMessage => message.role === "assistant",
   );
   return (
     assistant?.content
@@ -539,8 +518,10 @@ const finalText = (messages: readonly unknown[]) => {
 
 const parseNativeEvent = (line: string): NativeExecEvent | undefined => {
   try {
-    const value: unknown = JSON.parse(line);
-    return typeof value === "object" && value !== null ? value : undefined;
+    const value = JSON.parse(line);
+    return Value.Check(NativeExecEventSchema, value)
+      ? Value.Parse(NativeExecEventSchema, value)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -550,14 +531,12 @@ const nativeMetrics = (
   events: NativeExecEvent[],
   elapsedMs: number,
   firstResponseMs: number | null,
-  model: Model<Api>
+  model: Model<Api>,
 ): Metrics => {
   const metrics = emptyMetrics();
   metrics.elapsedMs = elapsedMs;
   metrics.firstResponseMs = firstResponseMs;
-  const completion = events.findLast(
-    (event) => event.type === "turn.completed"
-  );
+  const completion = events.findLast((event) => event.type === "turn.completed");
   const usage = completion?.usage;
   const inputTokens = usage?.input_tokens ?? 0;
   const cacheRead = usage?.cached_input_tokens ?? 0;
@@ -587,10 +566,7 @@ const nativeMetrics = (
   ]);
   const completedIds = new Set<string>();
   for (const event of events) {
-    if (
-      event.type === "item.completed" &&
-      event.item?.type === "agent_message"
-    ) {
+    if (event.type === "item.completed" && event.item?.type === "agent_message") {
       metrics.assistantTurns += 1;
     }
     const itemType = event.item?.type;
@@ -623,26 +599,20 @@ const runNativeVariant = async (
   cwd: string,
   model: Model<Api>,
   thinking: ThinkingLevel,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<VariantResult> => {
   createFixture(cwd);
-  const sourceCodexHome =
-    process.env.CODEX_HOME ?? path.join(homedir(), ".codex");
+  const sourceCodexHome = process.env.CODEX_HOME ?? path.join(homedir(), ".codex");
   const authPath = path.join(sourceCodexHome, "auth.json");
   if (!existsSync(authPath)) {
     throw new Error(`Native Codex auth not found: ${authPath}`);
   }
-  const nativeCodexHome = mkdtempSync(
-    path.join(tmpdir(), "code-mode-eval-codex-home-")
-  );
+  const nativeCodexHome = mkdtempSync(path.join(tmpdir(), "code-mode-eval-codex-home-"));
   chmodSync(nativeCodexHome, 0o700);
   try {
     const modelsCachePath = path.join(sourceCodexHome, "models_cache.json");
     if (existsSync(modelsCachePath)) {
-      copyFileSync(
-        modelsCachePath,
-        path.join(nativeCodexHome, "models_cache.json")
-      );
+      copyFileSync(modelsCachePath, path.join(nativeCodexHome, "models_cache.json"));
     }
     copyFileSync(authPath, path.join(nativeCodexHome, "auth.json"));
     chmodSync(path.join(nativeCodexHome, "auth.json"), 0o600);
@@ -684,7 +654,7 @@ const runNativeVariant = async (
       cwd,
       env: { ...process.env, CODEX_HOME: nativeCodexHome },
       stdio: ["pipe", "pipe", "pipe"],
-    }
+    },
   );
   child.stdin.end(TASK_PROMPT);
   const consumeLines = (chunk: string, flush = false) => {
@@ -730,7 +700,7 @@ const runNativeVariant = async (
     clearTimeout(forceKill);
     exit.resolve(code);
   });
-  const exitCode = await exit.promise.catch((error: unknown) => {
+  const exitCode = await exit.promise.catch((error) => {
     errorMessage = error instanceof Error ? error.message : String(error);
     return null;
   });
@@ -740,9 +710,7 @@ const runNativeVariant = async (
   if (timedOut) {
     errorMessage = `Timed out after ${timeoutMs} ms`;
   } else if (exitCode !== 0 && errorMessage === undefined) {
-    const eventMessage = events.findLast(
-      (event) => event.type === "error"
-    )?.message;
+    const eventMessage = events.findLast((event) => event.type === "error")?.message;
     const stderrMessage = stderr.trim();
     if (eventMessage !== undefined && eventMessage.length > 0) {
       errorMessage = eventMessage;
@@ -759,7 +727,7 @@ const runNativeVariant = async (
     (event) =>
       event.type === "item.completed" &&
       event.item?.type === "agent_message" &&
-      typeof event.item.text === "string"
+      event.item.text !== undefined,
   )?.item?.text;
   writeFileSync(path.join(cwd, "result.patch"), diff);
   writeFileSync(path.join(cwd, "assistant.txt"), final ?? "");
@@ -768,9 +736,7 @@ const runNativeVariant = async (
   writeFileSync(path.join(cwd, "test-output.txt"), evaluation.output);
   return {
     activeTools: ["native-codex-code-mode"],
-    ...(errorMessage !== undefined && errorMessage.length > 0
-      ? { error: errorMessage }
-      : {}),
+    error: errorMessage !== undefined && errorMessage.length > 0 ? errorMessage : undefined,
     evaluation,
     metrics: nativeMetrics(events, elapsedMs, firstResponseMs, model),
     mode: "native",
@@ -787,16 +753,14 @@ const runPiVariant = async (
   modelName: string,
   thinking: ThinkingLevel,
   timeoutMs: number,
-  agentDir: string
+  agentDir: string,
 ): Promise<VariantResult> => {
   createFixture(cwd);
   const metrics = emptyMetrics();
   const activeTools: string[] = [];
-  let session:
-    | Awaited<ReturnType<typeof createAgentSession>>["session"]
-    | undefined;
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   let errorMessage: string | undefined;
-  let messages: readonly unknown[] = [];
+  let messages: readonly SessionMessage[] = [];
   let firstResponseMs: number | null = null;
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -832,9 +796,7 @@ const runPiVariant = async (
     await resourceLoader.reload();
     const extensionErrors = resourceLoader.getExtensions().errors;
     if (extensionErrors.length > 0) {
-      throw new Error(
-        `Extension load failed: ${JSON.stringify(extensionErrors)}`
-      );
+      throw new Error(`Extension load failed: ${JSON.stringify(extensionErrors)}`);
     }
 
     const created = await createAgentSession({
@@ -858,18 +820,12 @@ const runPiVariant = async (
         ? ["exec", "wait"]
         : ["exec_command", "write_stdin", "apply_patch", "view_image"];
     if (expectedTools.some((name) => !activeTools.includes(name))) {
-      throw new Error(
-        `${mode} mode has unexpected tools: ${activeTools.join(", ")}`
-      );
+      throw new Error(`${mode} mode has unexpected tools: ${activeTools.join(", ")}`);
     }
 
     let startedAt = 0;
     const unsubscribe = session.subscribe((event) => {
-      if (
-        startedAt > 0 &&
-        firstResponseMs === null &&
-        event.type === "message_update"
-      ) {
+      if (startedAt > 0 && firstResponseMs === null && event.type === "message_update") {
         firstResponseMs = Date.now() - startedAt;
       }
     });
@@ -890,18 +846,12 @@ const runPiVariant = async (
       metrics.elapsedMs = Date.now() - startedAt;
     }
     ({ messages } = session);
-    Object.assign(
-      metrics,
-      collectMetrics(messages, metrics.elapsedMs, firstResponseMs)
-    );
+    Object.assign(metrics, collectMetrics(messages, metrics.elapsedMs, firstResponseMs));
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : String(error);
     if (session) {
       ({ messages } = session);
-      Object.assign(
-        metrics,
-        collectMetrics(messages, metrics.elapsedMs, firstResponseMs)
-      );
+      Object.assign(metrics, collectMetrics(messages, metrics.elapsedMs, firstResponseMs));
     }
   } finally {
     if (session) {
@@ -928,9 +878,7 @@ const runPiVariant = async (
   writeFileSync(path.join(cwd, "test-output.txt"), evaluation.output);
   return {
     activeTools,
-    ...(errorMessage !== undefined && errorMessage.length > 0
-      ? { error: errorMessage }
-      : {}),
+    error: errorMessage !== undefined && errorMessage.length > 0 ? errorMessage : undefined,
     evaluation,
     metrics,
     mode,
@@ -946,32 +894,21 @@ const percent = (codeValue: number, directValue: number) =>
   directValue === 0 ? null : ((codeValue - directValue) / directValue) * 100;
 
 const summarize = (results: VariantResult[]) => {
-  const byMode = (mode: Mode) =>
-    results.filter((result) => result.mode === mode);
+  const byMode = (mode: Mode) => results.filter((result) => result.mode === mode);
   const summary = Object.fromEntries(
     MODES.map((mode) => {
       const variants = byMode(mode);
       return [
         mode,
         {
-          averageCostUsd: average(
-            variants.map((result) => result.metrics.costUsd)
-          ),
-          averageElapsedMs: average(
-            variants.map((result) => result.metrics.elapsedMs)
-          ),
-          averageOutputTokens: average(
-            variants.map((result) => result.metrics.usage.output)
-          ),
-          averageTotalTokens: average(
-            variants.map((result) => result.metrics.usage.totalTokens)
-          ),
-          passRate:
-            variants.filter((result) => result.evaluation.passed).length /
-            variants.length,
+          averageCostUsd: average(variants.map((result) => result.metrics.costUsd)),
+          averageElapsedMs: average(variants.map((result) => result.metrics.elapsedMs)),
+          averageOutputTokens: average(variants.map((result) => result.metrics.usage.output)),
+          averageTotalTokens: average(variants.map((result) => result.metrics.usage.totalTokens)),
+          passRate: variants.filter((result) => result.evaluation.passed).length / variants.length,
         },
       ];
-    })
+    }),
   );
   const { code, direct, native } = summary;
   return {
@@ -979,29 +916,20 @@ const summarize = (results: VariantResult[]) => {
     codeModeDeltaPercent: {
       cost: percent(code.averageCostUsd, direct.averageCostUsd),
       elapsed: percent(code.averageElapsedMs, direct.averageElapsedMs),
-      outputTokens: percent(
-        code.averageOutputTokens,
-        direct.averageOutputTokens
-      ),
+      outputTokens: percent(code.averageOutputTokens, direct.averageOutputTokens),
       totalTokens: percent(code.averageTotalTokens, direct.averageTotalTokens),
     },
     nativeCodexDeltaPercent: {
       cost: percent(native.averageCostUsd, direct.averageCostUsd),
       elapsed: percent(native.averageElapsedMs, direct.averageElapsedMs),
-      outputTokens: percent(
-        native.averageOutputTokens,
-        direct.averageOutputTokens
-      ),
-      totalTokens: percent(
-        native.averageTotalTokens,
-        direct.averageTotalTokens
-      ),
+      outputTokens: percent(native.averageOutputTokens, direct.averageOutputTokens),
+      totalTokens: percent(native.averageTotalTokens, direct.averageTotalTokens),
     },
   };
 };
 
 const help = () => {
-  console.log(`Usage: pnpm eval:code-mode [options]
+  console.log(`Usage: vp run eval:code-mode [options]
 
 Options:
   --model <provider/id>   Model for all variants (default: ${DEFAULT_MODEL})
@@ -1051,7 +979,7 @@ const main = async () => {
   }
   const timestamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
   const requestedOutput = path.resolve(
-    values.output ?? path.join(tmpdir(), `code-mode-eval-${timestamp}`)
+    values.output ?? path.join(tmpdir(), `code-mode-eval-${timestamp}`),
   );
   if (existsSync(requestedOutput)) {
     throw new Error(`Output directory already exists: ${requestedOutput}`);
@@ -1086,29 +1014,21 @@ const main = async () => {
         mode === "native"
           ? await runNativeVariant(
               trial,
-              path.join(
-                output,
-                `trial-${String(trial).padStart(2, "0")}`,
-                mode
-              ),
+              path.join(output, `trial-${String(trial).padStart(2, "0")}`, mode),
               model,
               thinking,
-              timeoutMinutes * 60_000
+              timeoutMinutes * 60_000,
             )
           : await runPiVariant(
               trial,
               mode,
-              path.join(
-                output,
-                `trial-${String(trial).padStart(2, "0")}`,
-                mode
-              ),
+              path.join(output, `trial-${String(trial).padStart(2, "0")}`, mode),
               modelRuntime,
               modelName,
               thinking,
               timeoutMinutes * 60_000,
-              piAgentDir
-            )
+              piAgentDir,
+            ),
       );
     }
   }
@@ -1122,10 +1042,7 @@ const main = async () => {
     task: TASK_ID,
     thinking,
   };
-  writeFileSync(
-    path.join(output, "results.json"),
-    `${JSON.stringify(report, null, 2)}\n`
-  );
+  writeFileSync(path.join(output, "results.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.table(
     results.map((result) => ({
       costUsd: result.metrics.costUsd.toFixed(4),
@@ -1136,7 +1053,7 @@ const main = async () => {
       tokens: result.metrics.usage.totalTokens,
       toolCalls: result.metrics.toolCalls,
       trial: result.trial,
-    }))
+    })),
   );
   console.log("\nCode Mode delta (negative is lower/faster):");
   console.log(comparison.codeModeDeltaPercent);

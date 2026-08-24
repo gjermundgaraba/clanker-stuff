@@ -13,30 +13,19 @@ export const VOICE_TOOL_NAMES = [
   "end_realtime_voice_call",
 ] as const;
 
-interface VoicePresentationDetails {
-  delivered: boolean;
-  markdown: string;
-}
-
 export interface VoiceToolDeps {
   endActiveCall: () => boolean;
   finish: (spokenSummary: string) => boolean;
   sendStatus: (message: string) => boolean;
 }
 
-export const registerVoiceTools = (
-  pi: ExtensionAPI,
-  deps: VoiceToolDeps
-): void => {
+export const registerVoiceTools = (pi: ExtensionAPI, deps: VoiceToolDeps): void => {
   pi.registerTool({
     constrainedSampling: STRICT_SAMPLING,
     description:
       "Send one meaningful progress update to the active realtime voice handoff. Use only for a verified finding, material progress, a newly identified blocker, or a decision that matters while work continues. Never use for acknowledgements, generic checking or waiting updates, or the final result; the final assistant response is delivered automatically.",
     async execute(_toolCallId, params) {
-      const message = params.message
-        .replaceAll(/\s+/gu, " ")
-        .trim()
-        .slice(0, MAX_SPEECH_CHARS);
+      const message = params.message.replaceAll(/\s+/gu, " ").trim().slice(0, MAX_SPEECH_CHARS);
       const delivered = Boolean(message && deps.sendStatus(message));
       return {
         content: [
@@ -61,7 +50,7 @@ export const registerVoiceTools = (
           minLength: 1,
         }),
       },
-      { additionalProperties: false }
+      { additionalProperties: false },
     ),
     promptGuidelines: [
       "During active voice chat, use speak_to_user only for meaningful non-final status; the final assistant response is delivered automatically.",
@@ -74,13 +63,9 @@ export const registerVoiceTools = (
       "Display substantial Markdown in the pi terminal and send only a concise spoken summary as the final response to the active realtime voice handoff. Use for reports, code, links, comparisons, plans, or other output that is better inspected than heard.",
     async execute(_toolCallId, params) {
       const markdown = params.markdown.trim();
-      const spokenSummary = params.spokenSummary
-        .replaceAll(/\s+/gu, " ")
-        .trim();
+      const spokenSummary = params.spokenSummary.replaceAll(/\s+/gu, " ").trim();
       if (!markdown || !spokenSummary) {
-        throw new Error(
-          "Both terminal Markdown and a spoken summary are required."
-        );
+        throw new Error("Both terminal Markdown and a spoken summary are required.");
       }
       const delivered = deps.finish(spokenSummary);
       return {
@@ -113,7 +98,7 @@ export const registerVoiceTools = (
           minLength: 1,
         }),
       },
-      { additionalProperties: false }
+      { additionalProperties: false },
     ),
     promptGuidelines: [
       "During active voice chat, call present_voice_result by itself after work is complete when substantial visual output is needed; it completes the handoff, so do not add a second final response.",
@@ -122,13 +107,9 @@ export const registerVoiceTools = (
       if (isPartial) {
         return new Text(theme.fg("muted", "Preparing terminal result…"), 0, 0);
       }
-      const details = result.details as VoicePresentationDetails | undefined;
+      const details = result.details;
       if (details?.markdown === undefined || details.markdown === "") {
-        return new Text(
-          theme.fg("warning", "No terminal result was available."),
-          0,
-          0
-        );
+        return new Text(theme.fg("warning", "No terminal result was available."), 0, 0);
       }
       return new Markdown(details.markdown, 0, 0, getMarkdownTheme());
     },

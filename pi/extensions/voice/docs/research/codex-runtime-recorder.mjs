@@ -13,6 +13,8 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import pathModule from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 const { join, resolve: resolvePath } = pathModule;
 const CODEX_APP = process.env.CODEX_APP_PATH ?? "/Applications/ChatGPT.app";
@@ -23,8 +25,58 @@ const DEFAULT_CAPTURE_ROOT = `${process.env.HOME}/Library/Application Support/Pi
 const SOURCE_DIRECTORY = import.meta.dirname;
 const PROXY = join(SOURCE_DIRECTORY, "codex-cli-proxy.mjs");
 const TARGET_POLL_MS = 500;
-const NETWORK_URL_PATTERN =
-  /(?:codex|realtime|quicksilver|statsig|feature|voice|openai)/iu;
+const NETWORK_URL_PATTERN = /(?:codex|realtime|quicksilver|statsig|feature|voice|openai)/iu;
+const CdpResponseSchema = Type.Object(
+  {
+    error: Type.Optional(Type.Unknown()),
+    id: Type.Number(),
+    result: Type.Optional(Type.Unknown()),
+  },
+  { additionalProperties: true },
+);
+const CdpEventSchema = Type.Object(
+  {
+    method: Type.String(),
+    params: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  },
+  { additionalProperties: true },
+);
+const CdpVersionSchema = Type.Object(
+  {
+    webSocketDebuggerUrl: Type.String(),
+  },
+  { additionalProperties: true },
+);
+const CdpTargetsSchema = Type.Array(
+  Type.Object(
+    {
+      id: Type.String(),
+      type: Type.String(),
+      webSocketDebuggerUrl: Type.Optional(Type.String()),
+    },
+    { additionalProperties: true },
+  ),
+);
+const RendererBindingPayloadSchema = Type.Object(
+  {
+    detail: Type.Optional(Type.Unknown()),
+    kind: Type.String(),
+  },
+  { additionalProperties: true },
+);
+const RendererMediaChunkPayloadSchema = Type.Object(
+  {
+    detail: Type.Object(
+      {
+        data: Type.String(),
+        streamId: Type.String(),
+      },
+      { additionalProperties: true },
+    ),
+    kind: Type.Literal("media-chunk"),
+  },
+  { additionalProperties: true },
+);
 
 const sleep = (milliseconds) =>
   new Promise((resolve) => {
@@ -33,8 +85,7 @@ const sleep = (milliseconds) =>
 
 const monotonicNs = () => process.hrtime.bigint().toString();
 
-const timestampStem = () =>
-  new Date().toISOString().replaceAll(/[:.]/gu, "-").replace("Z", "Z");
+const timestampStem = () => new Date().toISOString().replaceAll(/[:.]/gu, "-").replace("Z", "Z");
 
 const hashFile = (filePath) =>
   new Promise((resolve, reject) => {
@@ -51,7 +102,7 @@ const freePort = () =>
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
-      if (!address || typeof address === "string") {
+      if (!address || !("port" in address)) {
         reject(new Error("Could not allocate a CDP port."));
         return;
       }
@@ -86,7 +137,7 @@ class NdjsonWriter {
         monotonicNs: monotonicNs(),
         sequence: this.sequence,
         timestamp: new Date().toISOString(),
-      })}\n`
+      })}\n`,
     );
   }
 
@@ -110,7 +161,7 @@ class CdpClient {
       this.socket.addEventListener(
         "error",
         () => reject(new Error("CDP WebSocket failed to open.")),
-        { once: true }
+        { once: true },
       );
       this.socket.addEventListener("message", (event) => {
         this.handleMessage(event.data);
@@ -138,13 +189,14 @@ class CdpClient {
   }
 
   handleMessage(raw) {
-    let message;
+    let parsed;
     try {
-      message = JSON.parse(String(raw));
+      parsed = JSON.parse(String(raw));
     } catch {
       return;
     }
-    if (typeof message.id === "number") {
+    if (Value.Check(CdpResponseSchema, parsed)) {
+      const message = parsed;
       const pending = this.pending.get(message.id);
       if (!pending) {
         return;
@@ -157,7 +209,8 @@ class CdpClient {
       }
       return;
     }
-    if (typeof message.method === "string") {
+    if (Value.Check(CdpEventSchema, parsed)) {
+      const message = parsed;
       this.onEvent(message.method, message.params ?? {});
     }
   }
@@ -173,10 +226,7 @@ export class TargetAttachmentRegistry {
 
   claim(target) {
     const current = this.targets.get(target.id);
-    if (
-      current?.webSocketDebuggerUrl === target.webSocketDebuggerUrl &&
-      !this.stopped
-    ) {
+    if (current?.webSocketDebuggerUrl === target.webSocketDebuggerUrl && !this.stopped) {
       return { claimed: false, promise: current.promise };
     }
 
@@ -193,8 +243,7 @@ export class TargetAttachmentRegistry {
       status: "attaching",
       webSocketDebuggerUrl: target.webSocketDebuggerUrl,
     };
-    const isOwner = () =>
-      !this.stopped && this.targets.get(target.id) === ownership;
+    const isOwner = () => !this.stopped && this.targets.get(target.id) === ownership;
     const promise = Promise.resolve().then(() => this.attach(target, isOwner));
     ownership.promise = promise;
     this.targets.set(target.id, ownership);
@@ -214,9 +263,9 @@ export class TargetAttachmentRegistry {
           this.targets.delete(target.id);
         }
         if (!this.stopped && ownsTarget) {
-          this.onAttachError(error, target);
+          this.onAttachError(error instanceof Error ? error : new Error(String(error)), target);
         }
-      }
+      },
     );
 
     return { claimed: true, promise };
@@ -257,7 +306,7 @@ const rendererHook = (configuration = {}) => {
           kind,
           pageTimestamp: new Date().toISOString(),
           performanceNow: performance.now(),
-        })
+        }),
       );
     } catch {
       // The CDP binding may disappear while the page closes.
@@ -279,7 +328,7 @@ const rendererHook = (configuration = {}) => {
   });
 
   const captureStream = (stream, capturePoint) => {
-    if (!stream || typeof MediaRecorder !== "function") {
+    if (!stream || globalThis.MediaRecorder === undefined) {
       emit("media-recorder-unavailable", { capturePoint });
       return;
     }
@@ -357,7 +406,7 @@ const rendererHook = (configuration = {}) => {
       emit("data-channel-received", {
         ...describe(),
         data:
-          typeof event.data === "string"
+          event.data?.constructor === String
             ? event.data
             : { byteLength: event.data?.byteLength ?? null },
       });
@@ -384,9 +433,7 @@ const rendererHook = (configuration = {}) => {
   }
 
   try {
-    const originalGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(
-      navigator.mediaDevices
-    );
+    const originalGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
     if (originalGetUserMedia) {
       navigator.mediaDevices.getUserMedia = async (constraints) => {
         emit("get-user-media-request", { constraints });
@@ -396,17 +443,13 @@ const rendererHook = (configuration = {}) => {
             const permissionStream = await originalGetUserMedia(constraints);
             const context = latestAudioContext ?? new AudioContext();
             const encoded = atob(configuration.syntheticAudioBase64);
-            const bytes = Uint8Array.from(encoded, (character) =>
-              character.codePointAt(0)
-            );
+            const bytes = Uint8Array.from(encoded, (character) => character.codePointAt(0));
             const buffer = await context.decodeAudioData(bytes.buffer);
             const source = context.createBufferSource();
             const destination = context.createMediaStreamDestination();
             source.buffer = buffer;
             source.connect(destination);
-            source.start(
-              context.currentTime + configuration.syntheticDelayMs / 1000
-            );
+            source.start(context.currentTime + configuration.syntheticDelayMs / 1000);
             globalThis.__codexVoiceSyntheticAudio = {
               bufferDuration: buffer.duration,
               context,
@@ -446,7 +489,7 @@ const rendererHook = (configuration = {}) => {
 
   try {
     const NativePeerConnection = globalThis.RTCPeerConnection;
-    if (typeof NativePeerConnection === "function") {
+    if (NativePeerConnection) {
       globalThis.RTCPeerConnection = new Proxy(NativePeerConnection, {
         construct(Target, arguments_) {
           const peer = Reflect.construct(Target, arguments_, Target);
@@ -515,9 +558,7 @@ const rendererHook = (configuration = {}) => {
             channel.send = (data) => {
               emit("data-channel-sent", {
                 data:
-                  typeof data === "string"
-                    ? data
-                    : { byteLength: data?.byteLength ?? null },
+                  data?.constructor === String ? data : { byteLength: data?.byteLength ?? null },
                 id: channel.id,
                 label: channel.label,
                 peerId,
@@ -527,11 +568,7 @@ const rendererHook = (configuration = {}) => {
             return channel;
           };
 
-          for (const method of [
-            "createOffer",
-            "setLocalDescription",
-            "setRemoteDescription",
-          ]) {
+          for (const method of ["createOffer", "setLocalDescription", "setRemoteDescription"]) {
             const original = peer[method].bind(peer);
             peer[method] = async (...methodArguments) => {
               emit(`peer-${method}-call`, {
@@ -581,7 +618,7 @@ const rendererHook = (configuration = {}) => {
 
   try {
     const bridge = globalThis.electronBridge;
-    if (bridge && typeof bridge.sendMessageFromView === "function") {
+    if (bridge?.sendMessageFromView) {
       const original = bridge.sendMessageFromView.bind(bridge);
       bridge.sendMessageFromView = async (...arguments_) => {
         emit("electron-bridge-send", { arguments: arguments_ });
@@ -622,12 +659,17 @@ const rendererHook = (configuration = {}) => {
   });
 };
 
-const getJson = async (url) => {
+const getJson = async (url, schema) => {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`${url} returned HTTP ${response.status}.`);
   }
-  return response.json();
+  const value = await response.json();
+  try {
+    return Value.Parse(schema, value);
+  } catch {
+    throw new Error(`${url} returned an unexpected JSON response.`);
+  }
 };
 
 const waitForCdp = async (port, timeoutMs = 30_000) => {
@@ -635,14 +677,14 @@ const waitForCdp = async (port, timeoutMs = 30_000) => {
   let lastError;
   while (Date.now() < deadline) {
     try {
-      return await getJson(`http://127.0.0.1:${port}/json/version`);
+      return await getJson(`http://127.0.0.1:${port}/json/version`, CdpVersionSchema);
     } catch (error) {
       lastError = error;
       await sleep(200);
     }
   }
   throw new Error(
-    `Codex CDP did not start: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+    `Codex CDP did not start: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
   );
 };
 
@@ -654,25 +696,19 @@ const writeManifest = async (directory, port, runConfiguration) => {
     app: CODEX_APP,
     appAsar: {
       bytes: appAsarBytes,
+      hashError:
+        appAsarBytes > 0 && appAsarHash === emptyHash
+          ? "Whole-file reads returned zero bytes; member and signature evidence remain authoritative."
+          : undefined,
       path: CODEX_ASAR,
-      sha256:
-        appAsarBytes > 0 && appAsarHash === emptyHash ? null : appAsarHash,
-      ...(appAsarBytes > 0 && appAsarHash === emptyHash
-        ? {
-            hashError:
-              "Whole-file reads returned zero bytes; member and signature evidence remain authoritative.",
-          }
-        : {}),
+      sha256: appAsarBytes > 0 && appAsarHash === emptyHash ? null : appAsarHash,
     },
     appExecutable: {
       path: CODEX_EXECUTABLE,
       sha256: await hashFile(CODEX_EXECUTABLE),
     },
-    build: commandOutput("defaults", [
-      "read",
-      `${CODEX_APP}/Contents/Info`,
-      "CFBundleVersion",
-    ]).stdout,
+    build: commandOutput("defaults", ["read", `${CODEX_APP}/Contents/Info`, "CFBundleVersion"])
+      .stdout,
     cdpPort: port,
     cli: {
       path: CODEX_CLI,
@@ -696,11 +732,9 @@ const writeManifest = async (directory, port, runConfiguration) => {
       "CFBundleShortVersionString",
     ]).stdout,
   };
-  writeFileSync(
-    join(directory, "manifest.json"),
-    `${JSON.stringify(info, null, 2)}\n`,
-    { mode: 0o600 }
-  );
+  writeFileSync(join(directory, "manifest.json"), `${JSON.stringify(info, null, 2)}\n`, {
+    mode: 0o600,
+  });
 };
 
 const createProxyLauncher = (directory) => {
@@ -708,16 +742,14 @@ const createProxyLauncher = (directory) => {
   writeFileSync(
     proxyPath,
     `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(PROXY)} "$@"\n`,
-    { mode: 0o700 }
+    { mode: 0o700 },
   );
   chmodSync(proxyPath, 0o700);
   return proxyPath;
 };
 
 const isRelevantNetworkEvent = (params) =>
-  NETWORK_URL_PATTERN.test(
-    params.request?.url ?? params.response?.url ?? params.url ?? ""
-  );
+  NETWORK_URL_PATTERN.test(params.request?.url ?? params.response?.url ?? params.url ?? "");
 
 const attachTarget = async (
   target,
@@ -726,105 +758,94 @@ const attachTarget = async (
   mediaFiles,
   hookConfiguration,
   startVoice,
-  isActive = () => true
+  isActive = () => true,
 ) => {
   const relevantRequestIds = new Set();
-  const client = new CdpClient(
-    target.webSocketDebuggerUrl,
-    (method, params) => {
-      if (!isActive()) {
-        return;
+  const client = new CdpClient(target.webSocketDebuggerUrl, (method, params) => {
+    if (!isActive()) {
+      return;
+    }
+    if (method === "Runtime.bindingCalled") {
+      let payload;
+      try {
+        payload = Value.Parse(RendererBindingPayloadSchema, JSON.parse(params.payload));
+      } catch {
+        payload = { kind: "invalid-binding-payload", raw: params.payload };
       }
-      if (method === "Runtime.bindingCalled") {
-        let payload;
-        try {
-          payload = JSON.parse(params.payload);
-        } catch {
-          payload = { kind: "invalid-binding-payload", raw: params.payload };
-        }
-        const detail = payload.detail ?? {};
-        if (payload.kind === "media-chunk" && typeof detail.data === "string") {
-          const key = `${target.id}:${detail.streamId}`;
-          let output = mediaFiles.get(key);
-          if (!output) {
-            const safeName = String(detail.streamId).replaceAll(
-              /[^\dA-Za-z_.-]/gu,
-              "_"
-            );
-            output = createWriteStream(
-              join(directory, `${target.id}-${safeName}.webm`),
-              { mode: 0o600 }
-            );
-            mediaFiles.set(key, output);
-          }
-          const bytes = Buffer.from(detail.data, "base64");
-          output.write(bytes);
-          writer.write({
-            detail: {
-              ...detail,
-              bytes: bytes.length,
-              data: undefined,
-            },
-            kind: payload.kind,
-            source: "renderer-binding",
-            targetId: target.id,
+      if (Value.Check(RendererMediaChunkPayloadSchema, payload)) {
+        const { detail } = Value.Parse(RendererMediaChunkPayloadSchema, payload);
+        const key = `${target.id}:${detail.streamId}`;
+        let output = mediaFiles.get(key);
+        if (!output) {
+          const safeName = String(detail.streamId).replaceAll(/[^\dA-Za-z_.-]/gu, "_");
+          output = createWriteStream(join(directory, `${target.id}-${safeName}.webm`), {
+            mode: 0o600,
           });
-          return;
+          mediaFiles.set(key, output);
         }
+        const bytes = Buffer.from(detail.data, "base64");
+        output.write(bytes);
         writer.write({
-          ...payload,
+          detail: {
+            ...detail,
+            bytes: bytes.length,
+            data: undefined,
+          },
+          kind: payload.kind,
           source: "renderer-binding",
           targetId: target.id,
         });
         return;
       }
-
-      if (
-        (method === "Network.requestWillBeSent" ||
-          method === "Network.responseReceived") &&
-        isRelevantNetworkEvent(params)
-      ) {
-        relevantRequestIds.add(params.requestId);
-      }
-
-      if (
-        method.startsWith("Network.webSocket") ||
-        (method.startsWith("Network.") && isRelevantNetworkEvent(params)) ||
-        method === "Runtime.consoleAPICalled" ||
-        method === "Runtime.exceptionThrown"
-      ) {
-        writer.write({
-          kind: method,
-          params,
-          source: "cdp",
-          targetId: target.id,
-        });
-      }
-
-      if (
-        method === "Network.loadingFinished" &&
-        relevantRequestIds.has(params.requestId)
-      ) {
-        relevantRequestIds.delete(params.requestId);
-        void client
-          .send("Network.getResponseBody", { requestId: params.requestId })
-          .then((body) => {
-            if (body?.body && isActive()) {
-              writer.write({
-                body,
-                kind: "Network.responseBody",
-                requestId: params.requestId,
-                source: "cdp",
-                targetId: target.id,
-              });
-            }
-          })
-          .catch(() => {
-            // Some responses are evicted before CDP can retrieve their bodies.
-          });
-      }
+      writer.write({
+        ...payload,
+        source: "renderer-binding",
+        targetId: target.id,
+      });
+      return;
     }
-  );
+
+    if (
+      (method === "Network.requestWillBeSent" || method === "Network.responseReceived") &&
+      isRelevantNetworkEvent(params)
+    ) {
+      relevantRequestIds.add(params.requestId);
+    }
+
+    if (
+      method.startsWith("Network.webSocket") ||
+      (method.startsWith("Network.") && isRelevantNetworkEvent(params)) ||
+      method === "Runtime.consoleAPICalled" ||
+      method === "Runtime.exceptionThrown"
+    ) {
+      writer.write({
+        kind: method,
+        params,
+        source: "cdp",
+        targetId: target.id,
+      });
+    }
+
+    if (method === "Network.loadingFinished" && relevantRequestIds.has(params.requestId)) {
+      relevantRequestIds.delete(params.requestId);
+      void client
+        .send("Network.getResponseBody", { requestId: params.requestId })
+        .then((body) => {
+          if (body?.body && isActive()) {
+            writer.write({
+              body,
+              kind: "Network.responseBody",
+              requestId: params.requestId,
+              source: "cdp",
+              targetId: target.id,
+            });
+          }
+        })
+        .catch(() => {
+          // Some responses are evicted before CDP can retrieve their bodies.
+        });
+    }
+  });
   await client.connect();
   await Promise.all([
     client.send("Runtime.enable"),
@@ -883,9 +904,7 @@ const attachTarget = async (
 };
 
 const run = async () => {
-  const durationArgument = process.argv.find((argument) =>
-    argument.startsWith("--duration=")
-  );
+  const durationArgument = process.argv.find((argument) => argument.startsWith("--duration="));
   const durationSeconds = durationArgument
     ? Number(durationArgument.slice("--duration=".length))
     : undefined;
@@ -896,39 +915,23 @@ const run = async () => {
     throw new Error("--duration must be a positive number of seconds.");
   }
 
-  const outputArgument = process.argv.find((argument) =>
-    argument.startsWith("--output=")
-  );
-  const audioArgument = process.argv.find((argument) =>
-    argument.startsWith("--audio=")
-  );
-  const audioPath = audioArgument
-    ? resolvePath(audioArgument.slice("--audio=".length))
-    : undefined;
-  const audioDelayArgument = process.argv.find((argument) =>
-    argument.startsWith("--audio-delay=")
-  );
+  const outputArgument = process.argv.find((argument) => argument.startsWith("--output="));
+  const audioArgument = process.argv.find((argument) => argument.startsWith("--audio="));
+  const audioPath = audioArgument ? resolvePath(audioArgument.slice("--audio=".length)) : undefined;
+  const audioDelayArgument = process.argv.find((argument) => argument.startsWith("--audio-delay="));
   const syntheticDelayMs = audioDelayArgument
     ? Number(audioDelayArgument.slice("--audio-delay=".length))
     : 3000;
-  if (
-    !Number.isFinite(syntheticDelayMs) ||
-    syntheticDelayMs < 0 ||
-    syntheticDelayMs > 60_000
-  ) {
+  if (!Number.isFinite(syntheticDelayMs) || syntheticDelayMs < 0 || syntheticDelayMs > 60_000) {
     throw new Error("--audio-delay must be between 0 and 60000 milliseconds.");
   }
   const startVoice = process.argv.includes("--start-voice");
   const hookConfiguration = {
-    ...(audioPath
-      ? { syntheticAudioBase64: readFileSync(audioPath).toString("base64") }
-      : {}),
+    syntheticAudioBase64: audioPath ? readFileSync(audioPath).toString("base64") : undefined,
     syntheticDelayMs,
   };
   const runConfiguration = {
-    audio: audioPath
-      ? { path: audioPath, sha256: await hashFile(audioPath) }
-      : null,
+    audio: audioPath ? { path: audioPath, sha256: await hashFile(audioPath) } : null,
     startVoice,
     syntheticDelayMs,
   };
@@ -946,15 +949,7 @@ const run = async () => {
   let targetPoll;
   const targetRegistry = new TargetAttachmentRegistry(
     (target, isOwner) =>
-      attachTarget(
-        target,
-        directory,
-        writer,
-        mediaFiles,
-        hookConfiguration,
-        startVoice,
-        isOwner
-      ),
+      attachTarget(target, directory, writer, mediaFiles, hookConfiguration, startVoice, isOwner),
     (error, target) => {
       writer.write({
         error: error instanceof Error ? error.message : String(error),
@@ -962,7 +957,7 @@ const run = async () => {
         source: "recorder",
         targetId: target.id,
       });
-    }
+    },
   );
 
   const appStdout = createWriteStream(join(directory, "codex.stdout.log"), {
@@ -980,8 +975,7 @@ const run = async () => {
       CODEX_ROLLOUT_TRACE_ROOT: join(directory, "rollout-traces"),
       CODEX_VOICE_TRACE_DIR: directory,
       LOG_FORMAT: "json",
-      RUST_LOG:
-        "warn,codex_http_client::transport=trace,codex_api::realtime_websocket::wire=trace",
+      RUST_LOG: "warn,codex_http_client::transport=trace,codex_api::realtime_websocket::wire=trace",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -1033,7 +1027,7 @@ const run = async () => {
   const pollTargets = async () => {
     let targets;
     try {
-      targets = await getJson(`http://127.0.0.1:${port}/json/list`);
+      targets = await getJson(`http://127.0.0.1:${port}/json/list`, CdpTargetsSchema);
     } catch (error) {
       if (!stopping) {
         writer.write({
@@ -1063,7 +1057,7 @@ const run = async () => {
       `CDP: http://127.0.0.1:${port}`,
       `Start a Codex voice session, then press Ctrl+C when finished.`,
       "",
-    ].join("\n")
+    ].join("\n"),
   );
 
   if (durationSeconds !== undefined) {
@@ -1073,9 +1067,7 @@ const run = async () => {
 
 if (import.meta.main) {
   run().catch((error) => {
-    process.stderr.write(
-      `${error instanceof Error ? error.stack : String(error)}\n`
-    );
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
     process.exitCode = 1;
   });
 }

@@ -4,48 +4,48 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex.
 
 ## Pi extensions
 
-| Extension | Description |
-| --- | --- |
-| [`@clanker-stuff/ask-question`](pi/extensions/ask-question) | Lets pi ask multiple-choice clarification questions before continuing. |
-| [`@clanker-stuff/codex-reverse-i-search`](pi/extensions/codex-reverse-i-search) | Adds Codex-style Ctrl+R reverse history search to pi's prompt editor. |
-| [`@clanker-stuff/codex-skills`](pi/extensions/codex-skills) | Adds Codex-style skill mentions and V1/V2 orchestration guidance for OpenAI Codex. |
-| [`@clanker-stuff/footer`](pi/extensions/footer) | Hosts a configurable cooperative footer for built-in, native, and rich extension widgets. |
-| [`@clanker-stuff/mcp`](pi/extensions/mcp) | Connects selected MCP servers to pi and registers their tools. |
-| [`@clanker-stuff/plannotator`](pi/extensions/plannotator) | Adds Plannotator review and annotation commands to pi. |
-| [`@clanker-stuff/shell-resume-history`](pi/extensions/shell-resume-history) | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits. |
-| [`@clanker-stuff/side`](pi/extensions/side) | Adds a concurrent multi-turn /side conversation with an adaptive side panel. |
-| [`@clanker-stuff/stash`](pi/extensions/stash) | Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text. |
-| [`@clanker-stuff/timer`](pi/extensions/timer) | Tracks agent execution time and displays a live running timer in the status bar. |
-| [`@clanker-stuff/tools`](pi/extensions/tools) | Adapts pi's coding tools to model-native interfaces and adds /tools for choosing active tools. |
-| [`@clanker-stuff/usage`](pi/extensions/usage) | Shows subscription usage for supported providers and contributes quota widgets to cooperative footers. |
-| [`@clanker-stuff/voice`](pi/extensions/voice) | Adds Codex-style realtime voice conversations backed by the current pi session. |
+| Extension                                                                       | Description                                                                                            |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`@clanker-stuff/ask-question`](pi/extensions/ask-question)                     | Lets pi ask multiple-choice clarification questions before continuing.                                 |
+| [`@clanker-stuff/codex-reverse-i-search`](pi/extensions/codex-reverse-i-search) | Adds Codex-style Ctrl+R reverse history search to pi's prompt editor.                                  |
+| [`@clanker-stuff/codex-skills`](pi/extensions/codex-skills)                     | Adds Codex-style skill mentions and V1/V2 orchestration guidance for OpenAI Codex.                     |
+| [`@clanker-stuff/footer`](pi/extensions/footer)                                 | Hosts a configurable cooperative footer for built-in, native, and rich extension widgets.              |
+| [`@clanker-stuff/mcp`](pi/extensions/mcp)                                       | Connects selected MCP servers to pi and registers their tools.                                         |
+| [`@clanker-stuff/plannotator`](pi/extensions/plannotator)                       | Adds Plannotator review and annotation commands to pi.                                                 |
+| [`@clanker-stuff/shell-resume-history`](pi/extensions/shell-resume-history)     | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits.                    |
+| [`@clanker-stuff/side`](pi/extensions/side)                                     | Adds a concurrent multi-turn /side conversation with an adaptive side panel.                           |
+| [`@clanker-stuff/stash`](pi/extensions/stash)                                   | Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text.                  |
+| [`@clanker-stuff/timer`](pi/extensions/timer)                                   | Tracks agent execution time and displays a live running timer in the status bar.                       |
+| [`@clanker-stuff/tools`](pi/extensions/tools)                                   | Adapts pi's coding tools to model-native interfaces and adds /tools for choosing active tools.         |
+| [`@clanker-stuff/usage`](pi/extensions/usage)                                   | Shows subscription usage for supported providers and contributes quota widgets to cooperative footers. |
+| [`@clanker-stuff/voice`](pi/extensions/voice)                                   | Adds Codex-style realtime voice conversations backed by the current pi session.                        |
 
 ## Experimental
 
-| Extension | Description |
-| --- | --- |
+| Extension                                                                    | Description                                                                                                                          |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | [`@clanker-stuff/codex-provider`](pi/extensions/experimental/codex-provider) | Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, transport, compaction, and durable checkpoint replay. |
-| [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents) | Adds durable hierarchical subagents with independent pi sessions and explicit communication tools. |
+| [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)           | Adds durable hierarchical subagents with independent pi sessions and explicit communication tools.                                   |
 
 Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.
 
 ## Claude Code plugins
 
-| Plugin | Description |
-| --- | --- |
-| [`plannotator`](claude/plugins/plannotator) | Adds Plannotator review and annotation workflows to Claude Code. |
+| Plugin                                            | Description                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| [`plannotator`](claude/plugins/plannotator)       | Adds Plannotator review and annotation workflows to Claude Code.   |
 | [`resume-history`](claude/plugins/resume-history) | Adds Claude Code's resume command to the invoking shell's history. |
 
 ## Codex plugins
 
-| Plugin | Description |
-| --- | --- |
-| [`plannotator`](codex/plugins/plannotator) | Adds Plannotator review and annotation workflows to Codex. |
+| Plugin                                           | Description                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------ |
+| [`plannotator`](codex/plugins/plannotator)       | Adds Plannotator review and annotation workflows to Codex.   |
 | [`resume-history`](codex/plugins/resume-history) | Adds Codex's resume command to the invoking shell's history. |
 
 ## Development
 
-Requires Node.js 24 or newer and pnpm. Run `pnpm install --frozen-lockfile`, then `pnpm check:all`.
+Requires Vite+ and Node.js 26 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`.
 
 ## License
 

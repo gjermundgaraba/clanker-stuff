@@ -5,38 +5,38 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import type { Transport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 import type { HttpServerConfig, McpConfig } from "./config.js";
-import {
-  PersistentMcpOAuthProvider,
-  startOAuthCallbackServer,
-} from "./oauth.js";
+import { PersistentMcpOAuthProvider, startOAuthCallbackServer } from "./oauth.js";
+
+export type McpClient = Pick<Client, "callTool" | "listTools">;
+
+export interface McpTransport {
+  readonly sessionId?: string;
+}
 
 export interface McpClientConnection {
-  client: Client;
+  client: McpClient;
   close: () => Promise<void>;
-  transport: Transport;
+  transport: McpTransport;
 }
 
 export type McpConnectionFactory = (
   interactive: boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ) => Promise<McpClientConnection>;
 
-export const errorMessage = (error: unknown): string => {
-  if (!(error instanceof Error) || !error.message) {
-    return String(error);
+export const errorMessage = (cause: unknown): string => {
+  if (!(cause instanceof Error) || !cause.message) {
+    return String(cause);
   }
   if (
-    error.message.includes(
-      "Incompatible auth server: does not support dynamic client registration"
-    )
+    cause.message.includes("Incompatible auth server: does not support dynamic client registration")
   ) {
-    return `${error.message}. Configure oauth.clientId for this MCP server.`;
+    return `${cause.message}. Configure oauth.clientId for this MCP server.`;
   }
-  return error.message;
+  return cause.message;
 };
 
 const authorizeHttpProvider = async (
@@ -47,7 +47,7 @@ const authorizeHttpProvider = async (
     provider: PersistentMcpOAuthProvider;
   },
   interactive: boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<void> => {
   const result = await auth(authProvider.provider, { serverUrl });
   if (result === "AUTHORIZED") {
@@ -55,13 +55,13 @@ const authorizeHttpProvider = async (
   }
   if (!interactive) {
     throw new UnauthorizedError(
-      `MCP server ${serverName} requires interactive OAuth authorization`
+      `MCP server ${serverName} requires interactive OAuth authorization`,
     );
   }
 
   const callbackServer = await startOAuthCallbackServer(
     authProvider.provider.redirectUrl,
-    authProvider.provider.expectedState
+    authProvider.provider.expectedState,
   );
   try {
     authProvider.notifyAuthorizationUrl();
@@ -85,7 +85,7 @@ const createHttpAuthProvider = (
   serverName: string,
   serverConfig: HttpServerConfig,
   ui: Pick<ExtensionCommandContext["ui"], "notify">,
-  interactive: boolean
+  interactive: boolean,
 ):
   | {
       notifyAuthorizationUrl: () => void;
@@ -96,28 +96,24 @@ const createHttpAuthProvider = (
     return undefined;
   }
   let authorizationUrl: URL | undefined;
-  const provider = new PersistentMcpOAuthProvider(
-    serverName,
-    serverConfig.oauth,
-    (url) => {
-      if (!interactive) {
-        throw new UnauthorizedError(
-          `MCP server ${serverName} requires interactive OAuth authorization`
-        );
-      }
-      authorizationUrl = url;
+  const provider = new PersistentMcpOAuthProvider(serverName, serverConfig.oauth, (url) => {
+    if (!interactive) {
+      throw new UnauthorizedError(
+        `MCP server ${serverName} requires interactive OAuth authorization`,
+      );
     }
-  );
+    authorizationUrl = url;
+  });
   return {
     notifyAuthorizationUrl: () => {
       if (!authorizationUrl) {
         throw new UnauthorizedError(
-          `MCP server ${serverName} did not provide an OAuth authorization URL`
+          `MCP server ${serverName} did not provide an OAuth authorization URL`,
         );
       }
       ui.notify(
         `Authorize MCP server ${serverName}:\n${authorizationUrl.toString()}\nWaiting for OAuth authorization...`,
-        "info"
+        "info",
       );
     },
     provider,
@@ -129,7 +125,7 @@ export const connectToServer = async (
   serverConfig: McpConfig["mcpServers"][string],
   ui: Pick<ExtensionCommandContext["ui"], "notify">,
   interactive: boolean,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<McpClientConnection> => {
   const client = new Client({ name: "pi-mcp", version: "0.1.0" });
 
@@ -141,24 +137,13 @@ export const connectToServer = async (
       stderr: "ignore",
     });
     await client.connect(transport, signal ? { signal } : undefined);
-    return { client, close: () => client.close(), transport };
+    return { client, close: () => client.close(), transport: {} };
   }
 
   const serverUrl = new URL(serverConfig.url);
-  const authProvider = createHttpAuthProvider(
-    serverName,
-    serverConfig,
-    ui,
-    interactive
-  );
+  const authProvider = createHttpAuthProvider(serverName, serverConfig, ui, interactive);
   if (authProvider) {
-    await authorizeHttpProvider(
-      serverName,
-      serverUrl,
-      authProvider,
-      interactive,
-      signal
-    );
+    await authorizeHttpProvider(serverName, serverUrl, authProvider, interactive, signal);
   }
 
   const transport = new StreamableHTTPClientTransport(serverUrl, {

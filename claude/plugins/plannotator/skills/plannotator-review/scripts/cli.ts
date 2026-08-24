@@ -23,25 +23,18 @@ export interface CliStartOptions {
   stdin?: string;
 }
 
-export type CliStarter = (
-  args: string[],
-  options: CliStartOptions
-) => CliProcess;
+export type CliStarter = (args: string[], options: CliStartOptions) => CliProcess;
 
-export const processFailure = (
-  completion: Extract<CliCompletion, { kind: "exited" }>
-): Error => {
+export const processFailure = (completion: Extract<CliCompletion, { kind: "exited" }>): Error => {
   const detail =
-    completion.stderr.trim() ||
-    completion.stdout.trim() ||
-    `exited with code ${completion.code}`;
+    completion.stderr.trim() || completion.stdout.trim() || `exited with code ${completion.code}`;
   return new Error(detail);
 };
 
 export const startCli = (
   executable: string,
   args: string[],
-  options: CliStartOptions
+  options: CliStartOptions,
 ): CliProcess => {
   const child = spawn(executable, args, {
     cwd: options.cwd,
@@ -79,11 +72,7 @@ export const startCli = (
   };
   controller.signal.addEventListener("abort", terminate, { once: true });
 
-  const {
-    promise: completion,
-    reject,
-    resolve,
-  } = Promise.withResolvers<CliCompletion>();
+  const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
   child.stdout.on("data", (chunk: string) => {
     stdout += chunk;
   });

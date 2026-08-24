@@ -1,6 +1,9 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { Mock } from "vitest";
-import { expect, vi } from "vitest";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+import type { Mock } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import type { CliCompletion, CliStarter, CliStartOptions } from "../cli.js";
@@ -11,19 +14,21 @@ export interface PendingProcess {
   args: string[];
   cancel: Mock<() => void>;
   options: CliStartOptions;
-  reject: (error: unknown) => void;
+  reject: (error: Error) => void;
   resolve: (result: CliCompletion) => void;
   signal: AbortSignal;
 }
 
+const TestValueSchema = Type.Unknown();
+const TestStringSchema = Type.String();
+type TestValue = Static<typeof TestValueSchema>;
+
+export const expectString = (value: TestValue): string => Value.Parse(TestStringSchema, value);
+
 export const createStarter = () => {
   const pending: PendingProcess[] = [];
   const starter = vi.fn<CliStarter>((args, options) => {
-    const {
-      promise: completion,
-      reject,
-      resolve,
-    } = Promise.withResolvers<CliCompletion>();
+    const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
     const controller = new AbortController();
     const process = {
       args: [...args],
@@ -47,10 +52,7 @@ export const createStarter = () => {
 
 // Requires the calling test file to have run
 // `vi.mock(import("../command-runtime.js"), { spy: true })`.
-export const setup = (
-  entries: SessionEntry[] = [],
-  leafId: string | null = null
-) => {
+export const setup = (entries: SessionEntry[] = [], leafId: string | null = null) => {
   const { pending, starter } = createStarter();
   vi.mocked(startPlannotatorCli).mockImplementation(starter);
   const host = createExtensionHost(extension, { entries, leafId });
@@ -60,7 +62,7 @@ export const setup = (
 
 export const exited = (
   stdout: string,
-  options: { code?: number; stderr?: string } = {}
+  options: { code?: number; stderr?: string } = {},
 ): CliCompletion => ({
   code: options.code ?? 0,
   kind: "exited",
@@ -73,10 +75,7 @@ export const signaled = (signal: NodeJS.Signals): CliCompletion => ({
   signal,
 });
 
-export const waitForMessages = async (
-  host: ReturnType<typeof setup>["host"],
-  count: number
-) => {
+export const waitForMessages = async (host: ReturnType<typeof setup>["host"], count: number) => {
   await vi.waitFor(() => {
     expect(host.getSentUserMessages()).toHaveLength(count);
   });
@@ -85,7 +84,7 @@ export const waitForMessages = async (
 export const assistantEntry = (
   id: string,
   parentId: string | null,
-  text: string
+  text: string,
 ): SessionEntry => ({
   id,
   message: {
@@ -110,11 +109,7 @@ export const assistantEntry = (
   type: "message",
 });
 
-export const userEntry = (
-  id: string,
-  parentId: string,
-  text: string
-): SessionEntry => ({
+export const userEntry = (id: string, parentId: string, text: string): SessionEntry => ({
   id,
   message: {
     content: [{ text, type: "text" }],

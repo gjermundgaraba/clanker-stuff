@@ -12,9 +12,7 @@ import { HARNESS_PROFILES } from "./profiles/index.js";
 import { createToolSelection } from "./selection.js";
 
 const resolveProfile = (model: Model<Api> | undefined) =>
-  model
-    ? HARNESS_PROFILES.find((profile) => profile.matches(model))
-    : undefined;
+  model ? HARNESS_PROFILES.find((profile) => profile.matches(model)) : undefined;
 
 const PI_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "read", "write"];
 const PI_SCOPE = "pi";
@@ -40,12 +38,9 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
         owners.owns(name)
           ? owners.isVisible(name, ownerModel)
           : !owners.suppresses(name, ownerModel) &&
-            (!managedNames.has(name) || currentManagedNames.has(name))
+            (!managedNames.has(name) || currentManagedNames.has(name)),
       );
-  const captureCurrentSelection = (
-    ownerModel?: Model<Api>,
-    tools = visibleTools(ownerModel)
-  ) => {
+  const captureCurrentSelection = (ownerModel?: Model<Api>, tools = visibleTools(ownerModel)) => {
     const activeNames = new Set(pi.getActiveTools());
     const visibleNames = tools.map(({ name }) => name);
     if (!owners.hasVisibleTools(ownerModel)) {
@@ -53,10 +48,8 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
     }
     selection.capture(
       EXTERNAL_SCOPE,
-      visibleNames.filter(
-        (name) => !currentManagedNames.has(name) && !owners.owns(name)
-      ),
-      activeNames
+      visibleNames.filter((name) => !currentManagedNames.has(name) && !owners.owns(name)),
+      activeNames,
     );
     return activeNames;
   };
@@ -64,7 +57,7 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
   const apply = (
     ctx: ExtensionContext,
     captureSelection = true,
-    previousModel?: Model<Api>
+    previousModel?: Model<Api>,
   ): void => {
     const activeNames = captureSelection
       ? captureCurrentSelection(previousModel)
@@ -92,23 +85,13 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
       .getAllTools()
       .map(({ name }) => name)
       .filter((name) => !managedNames.has(name) && !owners.owns(name));
-    const external = selection.enabled(
-      EXTERNAL_SCOPE,
-      unmanagedNames,
-      activeNames
-    );
+    const external = selection.enabled(EXTERNAL_SCOPE, unmanagedNames, activeNames);
     const managed = selection
-      .enabled(
-        currentScope,
-        currentManagedNames,
-        profile ? currentManagedNames : activeNames
-      )
+      .enabled(currentScope, currentManagedNames, profile ? currentManagedNames : activeNames)
       .filter((name) => !owners.suppresses(name, ctx.model));
     const owned = owners.ownedActive(activeNames);
     pi.setActiveTools(
-      profile
-        ? [...external, ...managed, ...owned]
-        : [...managed, ...external, ...owned]
+      profile ? [...external, ...managed, ...owned] : [...managed, ...external, ...owned],
     );
   };
 
@@ -134,16 +117,14 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
         selection.setEnabled(
           currentManagedNames.has(name) ? currentScope : EXTERNAL_SCOPE,
           name,
-          enabled
+          enabled,
         );
         pi.setActiveTools([...activeNames]);
         selection.persist();
       });
     },
     prepareReload(ctx: ExtensionContext): void {
-      const suppressedNames = piToolNames().filter((name) =>
-        owners.suppresses(name, ctx.model)
-      );
+      const suppressedNames = piToolNames().filter((name) => owners.suppresses(name, ctx.model));
       const activeNames = new Set(pi.getActiveTools());
       pi.setActiveTools([
         ...selection.enabled(PI_SCOPE, suppressedNames, activeNames),
@@ -156,11 +137,7 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
     },
     start(ctx: ExtensionContext): void {
       currentManagedNames = new Set(piToolNames());
-      selection.capture(
-        PI_SCOPE,
-        currentManagedNames,
-        new Set(pi.getActiveTools())
-      );
+      selection.capture(PI_SCOPE, currentManagedNames, new Set(pi.getActiveTools()));
       captureCurrentSelection();
       selection.start(ctx);
       apply(ctx, false);

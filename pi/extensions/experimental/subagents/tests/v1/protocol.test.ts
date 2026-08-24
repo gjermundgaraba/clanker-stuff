@@ -1,9 +1,9 @@
 import { Value } from "typebox/value";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { V1SnapshotSchema } from "../../v1/protocol.js";
 
-const valid = (candidate: object): boolean =>
+const valid = <T>(candidate: T): boolean =>
   Value.Check(V1SnapshotSchema, {
     agents: [candidate],
     notifications: [],
@@ -122,7 +122,7 @@ describe("V1 durable protocol", () => {
         edge: "open",
         queue: [turn],
         status: "completed",
-      })
+      }),
     ).toBeTruthy();
     expect(
       valid({
@@ -130,7 +130,7 @@ describe("V1 durable protocol", () => {
         edge: "open",
         queue: [{ ...turn, phase: "pending" }],
         status: "completed",
-      })
+      }),
     ).toBeFalsy();
   });
 });

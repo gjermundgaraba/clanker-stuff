@@ -1,8 +1,7 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 const CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
 export const PI_SUBAGENTS_NAMESPACE = "pi_subagents";
@@ -29,44 +28,64 @@ export interface CollaborationContract {
   version: 1;
 }
 
-type JsonRecord = Record<string, unknown>;
+const WireValueSchema = Type.Unknown();
+type WireValue = Static<typeof WireValueSchema>;
+const JsonRecordSchema = Type.Record(Type.String(), WireValueSchema);
+type JsonRecord = Static<typeof JsonRecordSchema>;
+const StringSchema = Type.String();
+const FunctionSchema = Type.Function([], WireValueSchema);
 
 interface NestedToolContract {
   definition: ToolDefinition;
   outputSchema?: unknown;
 }
 
-const isRecord = (value: unknown): value is JsonRecord =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+interface CollaborationApi {
+  readonly events: {
+    emit(channel: string, request: CollaborationContractRequest): void;
+  };
+}
 
-const isToolDefinition = (value: unknown): value is ToolDefinition =>
+interface CollaborationContext {
+  readonly sessionManager: {
+    getSessionId(): string;
+  };
+}
+
+export interface CollaborationContractRequest {
+  readonly context: ExtensionContext;
+  readonly provide: (value: WireValue) => void;
+  readonly sessionId: string;
+}
+
+const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
+
+const isToolDefinition = (value: WireValue): value is ToolDefinition =>
   isRecord(value) &&
-  typeof value.description === "string" &&
-  typeof value.execute === "function" &&
-  typeof value.label === "string" &&
-  typeof value.name === "string" &&
+  Value.Check(StringSchema, value.description) &&
+  Value.Check(FunctionSchema, value.execute) &&
+  Value.Check(StringSchema, value.label) &&
+  Value.Check(StringSchema, value.name) &&
   isRecord(value.parameters);
 
-const isNestedToolContract = (value: unknown): value is NestedToolContract =>
+const isNestedToolContract = (value: WireValue): value is NestedToolContract =>
   isRecord(value) &&
   isToolDefinition(value.definition) &&
   (value.outputSchema === undefined || isRecord(value.outputSchema));
 
 const requestContract = (
-  pi: ExtensionAPI,
-  ctx: ExtensionContext
+  pi: CollaborationApi,
+  ctx: ExtensionContext & CollaborationContext,
 ): CollaborationContract | undefined => {
   let contract: CollaborationContract | undefined;
   pi.events.emit(CONTRACT_REQUEST, {
     context: ctx,
-    provide(value: unknown) {
+    provide(value: WireValue) {
       if (
         isRecord(value) &&
         value.version === 1 &&
         value.sessionId === ctx.sessionManager.getSessionId() &&
-        (value.protocol === "off" ||
-          value.protocol === "v1" ||
-          value.protocol === "v2") &&
+        (value.protocol === "off" || value.protocol === "v1" || value.protocol === "v2") &&
         Array.isArray(value.nestedTools) &&
         value.nestedTools.every(isNestedToolContract)
       ) {
@@ -84,20 +103,18 @@ const requestContract = (
 };
 export const requestCollaborationContract = requestContract;
 
-const toolName = (tool: unknown): string | undefined =>
-  isRecord(tool) && tool.type === "function" && typeof tool.name === "string"
+const toolName = (tool: WireValue): string | undefined =>
+  isRecord(tool) && tool.type === "function" && Value.Check(StringSchema, tool.name)
     ? tool.name
     : undefined;
 
 const namespaceTools = (
-  tools: readonly unknown[],
-  contract: CollaborationContract | undefined
-): unknown[] => {
+  tools: readonly WireValue[],
+  contract: CollaborationContract | undefined,
+): WireValue[] => {
   const present = tools.flatMap((tool) => {
     const name = toolName(tool);
-    return name !== undefined && (V1_NAMES.has(name) || V2_NAMES.has(name))
-      ? [name]
-      : [];
+    return name !== undefined && (V1_NAMES.has(name) || V2_NAMES.has(name)) ? [name] : [];
   });
   if (present.length === 0) {
     return [...tools];
@@ -107,9 +124,7 @@ const namespaceTools = (
   const completeV2 = [...V2_NAMES].every((name) => presentSet.has(name));
   if (contract === undefined) {
     if (completeV1 || completeV2) {
-      throw new Error(
-        "Codex collaboration tools are active without a matching session contract"
-      );
+      throw new Error("Codex collaboration tools are active without a matching session contract");
     }
     return [...tools];
   }
@@ -117,19 +132,14 @@ const namespaceTools = (
     if (!completeV1 && !completeV2) {
       return [...tools];
     }
-    throw new Error(
-      "Codex collaboration tools are active without a matching session contract"
-    );
+    throw new Error("Codex collaboration tools are active without a matching session contract");
   }
   const expected = contract.protocol === "v1" ? V1_NAMES : V2_NAMES;
-  if (
-    present.length !== expected.size ||
-    present.some((name) => !expected.has(name))
-  ) {
+  if (present.length !== expected.size || present.some((name) => !expected.has(name))) {
     throw new Error("Codex collaboration tool family is incomplete or stale");
   }
   const selected: JsonRecord[] = [];
-  const remaining: unknown[] = [];
+  const remaining: WireValue[] = [];
   let insertionIndex = 0;
   let foundFirst = false;
   for (const tool of tools) {
@@ -145,9 +155,7 @@ const namespaceTools = (
     }
   }
   const members = selected
-    .toSorted((left, right) =>
-      (toolName(left) ?? "").localeCompare(toolName(right) ?? "", "en-US")
-    )
+    .toSorted((left, right) => (toolName(left) ?? "").localeCompare(toolName(right) ?? "", "en-US"))
     .map((tool) => {
       const parameters = isRecord(tool.parameters)
         ? { ...tool.parameters, additionalProperties: false }
@@ -168,10 +176,10 @@ const namespaceTools = (
 };
 
 export const rewriteCollaborationTools = (
-  payload: unknown,
-  pi: ExtensionAPI,
-  ctx: ExtensionContext
-): unknown => {
+  payload: WireValue,
+  pi: CollaborationApi,
+  ctx: ExtensionContext & CollaborationContext,
+) => {
   if (!isRecord(payload)) {
     return payload;
   }
@@ -182,12 +190,10 @@ export const rewriteCollaborationTools = (
     rewritten.tools = namespaceTools(tools, contract);
   }
   if (Array.isArray(input)) {
-    rewritten.input = input.map((item: unknown) =>
-      isRecord(item) &&
-      item.type === "additional_tools" &&
-      Array.isArray(item.tools)
+    rewritten.input = input.map((item: WireValue) =>
+      isRecord(item) && item.type === "additional_tools" && Array.isArray(item.tools)
         ? { ...item, tools: namespaceTools(item.tools, contract) }
-        : item
+        : item,
     );
   }
   return rewritten;

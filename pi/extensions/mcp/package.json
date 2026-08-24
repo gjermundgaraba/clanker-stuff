@@ -45,14 +45,16 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@modelcontextprotocol/node": "^2.0.0"
+    "@modelcontextprotocol/node": "^2.0.0",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "pi": {
     "extensions": [

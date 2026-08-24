@@ -1,5 +1,4 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
@@ -11,6 +10,9 @@ import {
   resolveActiveCheckpointBoundary,
   sha256Canonical,
 } from "../checkpoint.js";
+import type { CheckpointInput } from "../checkpoint.js";
+import { sessionEntry as entry } from "./fixtures.js";
+import type { WireValue } from "./fixtures.js";
 
 const compaction = (encryptedContent = "enc_new") => ({
   encrypted_content: encryptedContent,
@@ -26,9 +28,9 @@ const user = (text = "hello") => ({
 });
 
 interface CheckpointFixture {
-  [key: string]: unknown;
+  [key: string]: WireValue;
   identity: {
-    [key: string]: unknown;
+    [key: string]: WireValue;
     api: string;
     baseUrl: string | null;
     model: string;
@@ -37,7 +39,7 @@ interface CheckpointFixture {
   phase: string;
   protocol: string;
   reason: string;
-  replacement: unknown[];
+  replacement: WireValue[];
   replacementSha256: string;
   response: {
     id: string;
@@ -100,26 +102,16 @@ const validCheckpoint = (): CheckpointFixture => {
   };
 };
 
-const parseKind = (value: unknown) => {
+const parseKind = (value: CheckpointInput) => {
   const parsed = parseCheckpoint(value);
   return parsed.ok ? "ok" : "invalid";
 };
 
-const mutate = (
-  change: (checkpoint: ReturnType<typeof validCheckpoint>) => void
-) => {
+const mutate = (change: (checkpoint: ReturnType<typeof validCheckpoint>) => void) => {
   const checkpoint = structuredClone(validCheckpoint());
   change(checkpoint);
   return checkpoint;
 };
-
-const entry = (id: string, value: Record<string, unknown>): SessionEntry =>
-  ({
-    id,
-    parentId: null,
-    timestamp: "2026-07-30T12:34:56.000Z",
-    ...value,
-  }) as SessionEntry;
 
 describe("checkpoint protocol", () => {
   it("canonicalizes, hashes, parses immutably, and compares compatibility", () => {
@@ -134,14 +126,14 @@ describe("checkpoint protocol", () => {
         Object.fromEntries([
           ["b", 2],
           ["a", 1],
-        ])
+        ]),
       ),
       frozen: Object.isFrozen(parsed.checkpoint.replacement),
       hash: sha256Canonical(
         Object.fromEntries([
           ["b", 2],
           ["a", 1],
-        ])
+        ]),
       ),
       inputWasNotFrozen: !Object.isFrozen(source),
       parsedWasCloned: parsed.checkpoint !== source,
@@ -152,6 +144,8 @@ describe("checkpoint protocol", () => {
       inputWasNotFrozen: true,
       parsedWasCloned: true,
     });
+    expect(() => canonicalJson(new Date(0))).toThrow("non-JSON value");
+    expect(() => canonicalJson(/not-json/u)).toThrow("non-JSON value");
 
     expect([
       decideCheckpointCompatibility(parsed.checkpoint, {
@@ -184,10 +178,7 @@ describe("checkpoint protocol", () => {
 
   it("rejects corrupt, forbidden, non-canonical, and sensitive data", () => {
     const invalidCases: [string, unknown][] = [
-      [
-        "unknown top-level key",
-        { ...validCheckpoint(), authorization: "Bearer secret" },
-      ],
+      ["unknown top-level key", { ...validCheckpoint(), authorization: "Bearer secret" }],
       [
         "unknown identity metadata",
         mutate((value) => {
@@ -258,10 +249,7 @@ describe("checkpoint protocol", () => {
       [
         "compaction alias is not persisted",
         mutate((value) => {
-          value.replacement = [
-            user(),
-            { ...compaction(), type: "compaction_summary" },
-          ];
+          value.replacement = [user(), { ...compaction(), type: "compaction_summary" }];
         }),
       ],
       [
@@ -288,10 +276,7 @@ describe("checkpoint protocol", () => {
       [
         "provider-only compaction metadata",
         mutate((value) => {
-          value.replacement = [
-            user(),
-            { ...compaction(), metadata: { provider_only: true } },
-          ];
+          value.replacement = [user(), { ...compaction(), metadata: { provider_only: true } }];
         }),
       ],
       [
@@ -309,10 +294,7 @@ describe("checkpoint protocol", () => {
       [
         "tool item",
         mutate((value) => {
-          value.replacement = [
-            { call_id: "call-1", type: "function_call_output" },
-            compaction(),
-          ];
+          value.replacement = [{ call_id: "call-1", type: "function_call_output" }, compaction()];
         }),
       ],
       [
@@ -363,9 +345,7 @@ describe("checkpoint protocol", () => {
     ];
 
     expect(
-      invalidCases
-        .filter(([, value]) => parseKind(value) !== "invalid")
-        .map(([name]) => name)
+      invalidCases.filter(([, value]) => parseKind(value) !== "invalid").map(([name]) => name),
     ).toStrictEqual([]);
     expect(parseKind({ ...validCheckpoint(), version: 0 })).toBe("invalid");
     expect(parseKind({ ...validCheckpoint(), version: 4 })).toBe("invalid");
@@ -419,44 +399,25 @@ describe("checkpoint protocol", () => {
       type: "compaction",
     });
 
-    const native = resolveActiveCheckpointBoundary([
-      inline,
-      message,
-      lifecycle,
-      message,
-    ]);
-    const disabled = resolveActiveCheckpointBoundary([
-      inline,
-      lifecycle,
-      fallback,
-      message,
-    ]);
+    const native = resolveActiveCheckpointBoundary([inline, message, lifecycle, message]);
+    const disabled = resolveActiveCheckpointBoundary([inline, lifecycle, fallback, message]);
     const invalid = resolveActiveCheckpointBoundary([inline, message, corrupt]);
-    const invalidLifecycle = resolveActiveCheckpointBoundary([
-      inline,
-      corruptLifecycle,
-    ]);
+    const invalidLifecycle = resolveActiveCheckpointBoundary([inline, corruptLifecycle]);
     expect({
       disabled: disabled.kind,
       forkBeforeCheckpoint: resolveActiveCheckpointBoundary([message]).kind,
       invalid: {
-        carrier:
-          invalid.kind === "invalid-checkpoint" ? invalid.carrier : undefined,
+        carrier: invalid.kind === "invalid-checkpoint" ? invalid.carrier : undefined,
         kind: invalid.kind,
       },
       invalidLifecycle: {
         carrier:
-          invalidLifecycle.kind === "invalid-checkpoint"
-            ? invalidLifecycle.carrier
-            : undefined,
+          invalidLifecycle.kind === "invalid-checkpoint" ? invalidLifecycle.carrier : undefined,
         kind: invalidLifecycle.kind,
       },
       native: {
         carrier: native.kind === "checkpoint" ? native.carrier : undefined,
-        responseId:
-          native.kind === "checkpoint"
-            ? native.checkpoint.response.id
-            : undefined,
+        responseId: native.kind === "checkpoint" ? native.checkpoint.response.id : undefined,
         tailLength: native.kind === "checkpoint" ? native.tail.length : -1,
       },
     }).toStrictEqual({
@@ -516,16 +477,10 @@ describe("checkpoint protocol", () => {
     ] as const;
 
     expect(
-      cases.map(([prefix]) =>
-        canUseInlineLocalFallback([...prefix, inline], prefix.length)
-      )
+      cases.map(([prefix]) => canUseInlineLocalFallback([...prefix, inline], prefix.length)),
     ).toStrictEqual(cases.map(([, expected]) => expected));
     expect(
-      cases
-        .slice(1)
-        .map(([prefix]) =>
-          isPortableLifecycleCompaction(prefix, prefix.length - 1)
-        )
+      cases.slice(1).map(([prefix]) => isPortableLifecycleCompaction(prefix, prefix.length - 1)),
     ).toStrictEqual(cases.slice(1).map(([, expected]) => expected));
   });
 
@@ -544,7 +499,7 @@ describe("checkpoint protocol", () => {
       throw new Error(parsed.error);
     }
     const incompatible = structuredClone(source);
-    (incompatible.runtime as Record<string, unknown>).extra = true;
+    Object.assign(incompatible.runtime, { extra: true });
 
     expect({
       incompatible: parseKind(incompatible),

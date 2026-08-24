@@ -18,8 +18,10 @@ export const createVoiceRuntime = (pi: ExtensionAPI) => {
   let sessionStarted = false;
   const voice = createLazySingleton<VoiceController>(
     async (signal) => {
-      const [{ createVoiceController }, { registerVoiceTools }] =
-        await Promise.all([import("./controller.js"), import("./tools.js")]);
+      const [{ createVoiceController }, { registerVoiceTools }] = await Promise.all([
+        import("./controller.js"),
+        import("./tools.js"),
+      ]);
       signal.throwIfAborted();
       const controller = createVoiceController(pi);
       registerVoiceTools(pi, controller);
@@ -29,21 +31,16 @@ export const createVoiceRuntime = (pi: ExtensionAPI) => {
       if (sessionStarted && context !== undefined) {
         controller.sessionStart(context);
       }
-    }
+    },
   );
 
   return {
-    beforeAgentStart: (
-      event: BeforeAgentStartEvent
-    ): BeforeAgentStartEventResult =>
+    beforeAgentStart: (event: BeforeAgentStartEvent): BeforeAgentStartEventResult =>
       voice.get()?.beforeAgentStart(event) ?? {},
     messageStart: (event: MessageStartEvent): void => {
       voice.get()?.messageStart(event);
     },
-    runCommand: async (
-      args: string,
-      ctx: ExtensionCommandContext
-    ): Promise<void> => {
+    runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       context = ctx;
       const controller = await voice.load();
       await controller?.runCommand(args, ctx);

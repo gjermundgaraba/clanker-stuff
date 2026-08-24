@@ -1,20 +1,17 @@
 import { STATIC_BREATHING_DOT_FRAME } from "@clanker-stuff/pi-motion";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
 
 import { SidePanel } from "./panel.js";
 import { createSideConversation, isSideActivityActive } from "./session.js";
-import type { SideSessionController } from "./session.js";
+import type { SideConversation } from "./session.js";
 
 const SIDE_STATUS_KEY = "side";
 const SIDE_WIDE_COLUMNS = 120;
 
 interface ActiveSide {
   context: ExtensionContext;
-  conversation: SideSessionController;
+  conversation: SideConversation;
   disposed: boolean;
   finish?: () => void;
   handle?: OverlayHandle;
@@ -47,7 +44,7 @@ const updateStatus = (side: ActiveSide): void => {
   const { theme } = side.context.ui;
   side.context.ui.setStatus(
     SIDE_STATUS_KEY,
-    `${theme.fg(color, "SIDE ")}${theme.fg(frame.color, frame.marker)}${theme.fg(color, ` ${label}`)}`
+    `${theme.fg(color, "SIDE ")}${theme.fg(frame.color, frame.marker)}${theme.fg(color, ` ${label}`)}`,
   );
 };
 
@@ -72,10 +69,7 @@ export const createSideController = (pi: ExtensionAPI) => {
   const insertLatest = (side: ActiveSide): void => {
     const text = side.conversation.latestAssistantText();
     if (text === undefined) {
-      side.context.ui.notify(
-        "Side has no completed response to insert.",
-        "warning"
-      );
+      side.context.ui.notify("Side has no completed response to insert.", "warning");
       return;
     }
     hide(side);
@@ -113,10 +107,7 @@ export const createSideController = (pi: ExtensionAPI) => {
     await side.conversation.dispose();
   };
 
-  const openSide = async (
-    args: string,
-    ctx: ExtensionContext
-  ): Promise<void> => {
+  const openSide = async (args: string, ctx: ExtensionContext): Promise<void> => {
     if (ctx.mode !== "tui") {
       ctx.ui.notify("/side requires interactive TUI mode.", "warning");
       return;
@@ -136,10 +127,7 @@ export const createSideController = (pi: ExtensionAPI) => {
       return;
     }
     if (lifecycle.kind === "opening") {
-      ctx.ui.notify(
-        "Side is still opening. Use its editor once ready.",
-        "info"
-      );
+      ctx.ui.notify("Side is still opening. Use its editor once ready.", "info");
       return;
     }
     if (lifecycle.kind === "stopped") {
@@ -148,12 +136,9 @@ export const createSideController = (pi: ExtensionAPI) => {
 
     const opening = { context: ctx, kind: "opening" } as const;
     lifecycle = opening;
-    ctx.ui.setStatus(
-      SIDE_STATUS_KEY,
-      ctx.ui.theme.fg("warning", "SIDE ● opening")
-    );
+    ctx.ui.setStatus(SIDE_STATUS_KEY, ctx.ui.theme.fg("warning", "SIDE ● opening"));
 
-    let conversation: SideSessionController;
+    let conversation: SideConversation;
     try {
       conversation = await createSideConversation(ctx, pi.getThinkingLevel());
     } catch (error) {
@@ -162,7 +147,7 @@ export const createSideController = (pi: ExtensionAPI) => {
         ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
         ctx.ui.notify(
           `Failed to open side: ${error instanceof Error ? error.message : String(error)}`,
-          "error"
+          "error",
         );
       }
       return;
@@ -239,12 +224,10 @@ export const createSideController = (pi: ExtensionAPI) => {
             anchor: "top-right",
             nonCapturing: true,
             get width() {
-              return (tuiRef?.terminal.columns ?? 0) >= SIDE_WIDE_COLUMNS
-                ? "50%"
-                : "100%";
+              return (tuiRef?.terminal.columns ?? 0) >= SIDE_WIDE_COLUMNS ? "50%" : "100%";
             },
           },
-        }
+        },
       );
     } finally {
       await disposeSide(side);
@@ -259,7 +242,7 @@ export const createSideController = (pi: ExtensionAPI) => {
         ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
         ctx.ui.notify(
           `Side failed: ${error instanceof Error ? error.message : String(error)}`,
-          "error"
+          "error",
         );
       }
     })();

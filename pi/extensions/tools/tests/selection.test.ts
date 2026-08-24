@@ -1,5 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -19,7 +19,7 @@ const messageEntry = (id: string, parentId: string | null): SessionEntry => ({
 const toolsEntry = (
   id: string,
   parentId: string | null,
-  tools: Record<string, Record<string, boolean>>
+  tools: Record<string, Record<string, boolean>>,
 ): SessionEntry => ({
   customType: "tools-config",
   data: { tools },
@@ -46,9 +46,7 @@ describe("tool selection", () => {
 
     await host.emitSessionStart();
 
-    expect(new Set(host.getActiveTools())).toStrictEqual(
-      new Set(["read", "extra-tool"])
-    );
+    expect(new Set(host.getActiveTools())).toStrictEqual(new Set(["read", "extra-tool"]));
   });
 
   it("uses the session baseline on branches without tool state", async () => {
@@ -76,7 +74,7 @@ describe("tool selection", () => {
     await host.emitSessionTree();
 
     expect(new Set(host.getActiveTools())).toStrictEqual(
-      new Set(["read", "bash", "edit", "write"])
+      new Set(["read", "bash", "edit", "write"]),
     );
   });
 

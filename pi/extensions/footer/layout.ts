@@ -1,5 +1,3 @@
-/* oxlint-disable eslint/complexity, eslint/no-control-regex, eslint/no-nested-ternary, typescript/no-non-null-assertion -- bounded layout and terminal sanitizing are clearer as direct state machines */
-
 import type {
   FooterContent,
   FooterIconFamily,
@@ -8,12 +6,10 @@ import type {
   FooterTruncation,
   FooterWidgetIcon,
 } from "@clanker-stuff/footer-protocol";
+import { FooterWidgetGlyphMapSchema } from "@clanker-stuff/footer-protocol";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import {
-  sliceByColumn,
-  truncateToWidth,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Value } from "typebox/value";
 
 import { hasTerminalControl } from "./config.js";
 import type { FooterConfig } from "./config.js";
@@ -55,7 +51,21 @@ export interface FooterRenderState {
 export type FooterTheme = Pick<Theme, "bold" | "fg">;
 
 const GROUPS: RenderableWidget["group"][] = ["left", "center", "right"];
-const SGR_PATTERN = /^\u001B\[[0-9;]*m/u;
+const readSgr = (value: string, offset: number): string | undefined => {
+  if (value.codePointAt(offset) !== 0x1b || value[offset + 1] !== "[") {
+    return undefined;
+  }
+  let end = offset + 2;
+  while (end < value.length) {
+    const code = value.codePointAt(end) ?? 0;
+    if ((code >= 0x30 && code <= 0x39) || code === 0x3b) {
+      end += 1;
+      continue;
+    }
+    return code === 0x6d ? value.slice(offset, end + 1) : undefined;
+  }
+  return undefined;
+};
 
 interface FittedWidget extends RenderableWidget {
   rendered: string;
@@ -94,8 +104,7 @@ export const sanitizeNativeStatus = (value: string): string => {
   let index = 0;
   let sawSgr = false;
   while (index < value.length) {
-    const rest = value.slice(index);
-    const sgr = SGR_PATTERN.exec(rest)?.[0];
+    const sgr = readSgr(value, index);
     if (sgr !== undefined) {
       result += sgr;
       sawSgr = true;
@@ -160,11 +169,8 @@ const renderSpan = (span: FooterSpan, theme: FooterTheme): string => {
 const renderContent = (content: FooterContent, theme: FooterTheme): string =>
   content.map((span) => renderSpan(span, theme)).join("");
 
-const iconGlyph = (
-  icon: FooterWidgetIcon,
-  family: FooterIconFamily
-): string => {
-  if (typeof icon.glyphs === "string") {
+const iconGlyph = (icon: FooterWidgetIcon, family: FooterIconFamily): string => {
+  if (!Value.Check(FooterWidgetGlyphMapSchema, icon.glyphs)) {
     return icon.glyphs;
   }
   const order: FooterIconFamily[] =
@@ -185,21 +191,15 @@ const iconGlyph = (
 const renderLiveWidget = (
   widget: LiveWidget,
   family: FooterIconFamily,
-  theme: FooterTheme
+  theme: FooterTheme,
 ): string => {
   if (widget.source === "native") {
-    return sanitizeNativeStatus(
-      widget.snapshot.content.map((span) => span.text).join("")
-    );
+    return sanitizeNativeStatus(widget.snapshot.content.map((span) => span.text).join(""));
   }
 
-  const widgetIcon =
-    widget.snapshot.icon === false ? undefined : widget.snapshot.icon;
-  const icon = widgetIcon
-    ? sanitizePlainText(iconGlyph(widgetIcon, family))
-    : "";
-  const renderedIcon =
-    icon.length === 0 ? "" : `${theme.fg(widgetIcon?.tone ?? "dim", icon)} `;
+  const widgetIcon = widget.snapshot.icon === false ? undefined : widget.snapshot.icon;
+  const icon = widgetIcon ? sanitizePlainText(iconGlyph(widgetIcon, family)) : "";
+  const renderedIcon = icon.length === 0 ? "" : `${theme.fg(widgetIcon?.tone ?? "dim", icon)} `;
   const health =
     widget.snapshot.health?.state === "stale"
       ? ` ${theme.fg("warning", "!")}`
@@ -210,13 +210,8 @@ const renderLiveWidget = (
   return body.length === 0 ? "" : `${renderedIcon}${body}${health}`;
 };
 
-const isEnabled = (
-  widget: LiveWidget,
-  state: FooterRenderState,
-  aggregateId?: string
-): boolean => {
-  const aggregate =
-    aggregateId === undefined ? undefined : state.config.widgets[aggregateId];
+const isEnabled = (widget: LiveWidget, state: FooterRenderState, aggregateId?: string): boolean => {
+  const aggregate = aggregateId === undefined ? undefined : state.config.widgets[aggregateId];
   return (
     state.config.widgets[widget.snapshot.id]?.enabled ??
     aggregate?.enabled ??
@@ -225,9 +220,7 @@ const isEnabled = (
   );
 };
 
-const nativeWidgets = (
-  statuses: ReadonlyMap<string, string>
-): Map<string, LiveWidget> => {
+const nativeWidgets = (statuses: ReadonlyMap<string, string>): Map<string, LiveWidget> => {
   const widgets = new Map<string, LiveWidget>();
   for (const [key, raw] of statuses) {
     if (hasTerminalControl(key)) {
@@ -250,16 +243,9 @@ const nativeWidgets = (
   return widgets;
 };
 
-export const prepareFooter = (
-  state: FooterRenderState,
-  theme: FooterTheme
-): PreparedFooter => {
+export const prepareFooter = (state: FooterRenderState, theme: FooterTheme): PreparedFooter => {
   const native = nativeWidgets(state.nativeStatuses);
-  const live = new Map<string, LiveWidget>([
-    ...state.builtins,
-    ...state.rich,
-    ...native,
-  ]);
+  const live = new Map<string, LiveWidget>([...state.builtins, ...state.rich, ...native]);
   const explicit = new Set<string>();
   for (const row of state.config.rows) {
     for (const group of GROUPS) {
@@ -272,7 +258,7 @@ export const prepareFooter = (
   }
 
   const richAggregatePlaced = state.config.rows.some((row) =>
-    GROUPS.some((group) => row[group].includes("footer.widgets"))
+    GROUPS.some((group) => row[group].includes("footer.widgets")),
   );
   const rendered = new Map<string, string | undefined>();
   const widgetErrors: FooterWidgetRenderError[] = [];
@@ -299,11 +285,7 @@ export const prepareFooter = (
     const placementEligible = explicit.has(id) || richAggregatePlaced;
     if (
       placementEligible &&
-      isEnabled(
-        widget,
-        state,
-        explicit.has(id) ? undefined : "footer.widgets"
-      ) &&
+      isEnabled(widget, state, explicit.has(id) ? undefined : "footer.widgets") &&
       (render(id, widget)?.length ?? 0) > 0
     ) {
       for (const key of widget.snapshot.consumesStatusKeys ?? []) {
@@ -329,9 +311,7 @@ export const prepareFooter = (
                 .map(([id, widget]) => [id, widget, "footer.widgets"])
             : configuredId === "footer.statuses"
               ? [...native]
-                  .filter(
-                    ([id]) => !explicit.has(id) && !consumedStatuses.has(id)
-                  )
+                  .filter(([id]) => !explicit.has(id) && !consumedStatuses.has(id))
                   .toSorted(([left], [right]) => left.localeCompare(right))
                   .map(([id, widget]) => [id, widget, "footer.statuses"])
               : live.has(configuredId)
@@ -351,14 +331,11 @@ export const prepareFooter = (
           if (text === undefined || text.length === 0) {
             continue;
           }
-          row.push({
-            group,
-            id,
-            text,
-            ...(widget.snapshot.truncate === undefined
-              ? {}
-              : { truncate: widget.snapshot.truncate }),
-          });
+          row.push(
+            widget.snapshot.truncate === undefined
+              ? { group, id, text }
+              : { group, id, text, truncate: widget.snapshot.truncate },
+          );
         }
       }
     }
@@ -377,7 +354,7 @@ export const prepareFooter = (
 const renderGroup = (
   widgets: readonly FittedWidget[],
   group: RenderableWidget["group"],
-  separator: string
+  separator: string,
 ): RenderedGroup => {
   const text = widgets
     .filter((widget) => widget.group === group)
@@ -390,11 +367,9 @@ const align = (
   widgets: readonly FittedWidget[],
   width: number,
   separator: string,
-  groupGap: number
+  groupGap: number,
 ): string => {
-  const [left, center, right] = GROUPS.map((group) =>
-    renderGroup(widgets, group, separator)
-  );
+  const [left, center, right] = GROUPS.map((group) => renderGroup(widgets, group, separator));
 
   const hasLeft = left.width > 0;
   const hasCenter = center.width > 0;
@@ -413,33 +388,19 @@ const align = (
   const minimumCenter = leftEnd + (hasLeft ? groupGap : 0);
   const maximumCenter = rightStart - center.width - (hasRight ? groupGap : 0);
   const centered = Math.floor((width - center.width) / 2);
-  const centerStart = Math.max(
-    minimumCenter,
-    Math.min(centered, maximumCenter)
-  );
-  let line =
-    left.text + " ".repeat(Math.max(0, centerStart - left.width)) + center.text;
+  const centerStart = Math.max(minimumCenter, Math.min(centered, maximumCenter));
+  let line = left.text + " ".repeat(Math.max(0, centerStart - left.width)) + center.text;
   if (hasRight) {
-    line +=
-      " ".repeat(Math.max(0, rightStart - (centerStart + center.width))) +
-      right.text;
+    line += " ".repeat(Math.max(0, rightStart - (centerStart + center.width))) + right.text;
   }
   return line;
 };
 
 const truncationFor = (widget: RenderableWidget): FooterTruncation =>
   widget.truncate ??
-  (widget.group === "left"
-    ? "end"
-    : widget.group === "right"
-      ? "start"
-      : "middle");
+  (widget.group === "left" ? "end" : widget.group === "right" ? "start" : "middle");
 
-const truncate = (
-  text: string,
-  width: number,
-  direction: FooterTruncation
-): string => {
+const truncate = (text: string, width: number, direction: FooterTruncation): string => {
   const sourceWidth = widthOf(text);
   if (sourceWidth <= width) {
     return text;
@@ -455,12 +416,7 @@ const truncate = (
     return `${sliceByColumn(text, 0, contentWidth, true)}…`;
   }
   if (direction === "start") {
-    return `…${sliceByColumn(
-      text,
-      Math.max(0, sourceWidth - contentWidth),
-      contentWidth,
-      true
-    )}`;
+    return `…${sliceByColumn(text, Math.max(0, sourceWidth - contentWidth), contentWidth, true)}`;
   }
   const leftWidth = Math.ceil(contentWidth / 2);
   const rightWidth = contentWidth - leftWidth;
@@ -468,14 +424,11 @@ const truncate = (
     text,
     Math.max(0, sourceWidth - rightWidth),
     rightWidth,
-    true
+    true,
   )}`;
 };
 
-const allocateTextWidths = (
-  widths: readonly number[],
-  budget: number
-): number[] => {
+const allocateTextWidths = (widths: readonly number[], budget: number): number[] => {
   if (widths.reduce((total, width) => total + width, 0) <= budget) {
     return [...widths];
   }
@@ -483,10 +436,7 @@ const allocateTextWidths = (
   let high = Math.max(0, ...widths);
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    const used = widths.reduce(
-      (total, width) => total + Math.min(width, middle),
-      0
-    );
+    const used = widths.reduce((total, width) => total + Math.min(width, middle), 0);
     if (used <= budget) {
       low = middle;
     } else {
@@ -504,40 +454,32 @@ const allocateTextWidths = (
   return allocated;
 };
 
+type RowLayout = { decisions: FooterLayoutDecision[]; line: string };
+
 const fitRow = (
   source: readonly RenderableWidget[],
   width: number,
-  separator: string
-): { decisions: FooterLayoutDecision[]; line: string } => {
+  separator: string,
+): RowLayout => {
   const groupCount = new Set(source.map((widget) => widget.group)).size;
   let internalSeparators = 0;
   for (const group of GROUPS) {
     const members = source.filter((widget) => widget.group === group).length;
     internalSeparators += Math.max(0, members - 1);
   }
-  const desiredFixedWidth =
-    internalSeparators * widthOf(separator) + Math.max(0, groupCount - 1);
+  const desiredFixedWidth = internalSeparators * widthOf(separator) + Math.max(0, groupCount - 1);
   const originalWidths = source.map((widget) => widthOf(widget.text));
   const preserveSpacing =
-    desiredFixedWidth +
-      originalWidths.filter((originalWidth) => originalWidth > 0).length <=
-    width;
+    desiredFixedWidth + originalWidths.filter((originalWidth) => originalWidth > 0).length <= width;
   const fittedSeparator = preserveSpacing ? separator : "";
   const groupGap = preserveSpacing ? 1 : 0;
   const fixedWidth = preserveSpacing ? desiredFixedWidth : 0;
-  const budgets = allocateTextWidths(
-    originalWidths,
-    Math.max(0, width - fixedWidth)
-  );
+  const budgets = allocateTextWidths(originalWidths, Math.max(0, width - fixedWidth));
   const widgets: FittedWidget[] = source.map((widget, index) => ({
     ...widget,
     rendered: truncate(widget.text, budgets[index] ?? 0, truncationFor(widget)),
   }));
-  const line = truncateToWidth(
-    align(widgets, width, fittedSeparator, groupGap),
-    width,
-    ""
-  );
+  const line = truncateToWidth(align(widgets, width, fittedSeparator, groupGap), width, "");
   return {
     decisions: widgets.map((widget, index) => {
       const originalWidth = originalWidths[index] ?? 0;
@@ -558,7 +500,7 @@ const fitRow = (
 export const layoutFooterRows = (
   rows: readonly (readonly RenderableWidget[])[],
   width: number,
-  separator: string
+  separator: string,
 ): FooterLayoutResult => {
   const safeWidth = Math.max(0, Math.floor(width));
   if (safeWidth === 0) {
@@ -569,7 +511,7 @@ export const layoutFooterRows = (
           id: widget.id,
           outcome: "truncated" as const,
           reason: "terminal width is zero",
-        }))
+        })),
       ),
       duplicates: [],
       lines: [],
@@ -589,7 +531,7 @@ export const layoutFooterRows = (
 export const renderFooterState = (
   state: FooterRenderState,
   width: number,
-  theme: FooterTheme
+  theme: FooterTheme,
 ): FooterLayoutResult => {
   const prepared = prepareFooter(state, theme);
   const separator =

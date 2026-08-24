@@ -22,10 +22,7 @@ for (const directory of OUTPUT_DIRECTORIES) {
     const source = path.join(SOURCE_DIRECTORY, file);
     const output = path.join(outputDirectory, file);
     if (check) {
-      if (
-        !existsSync(output) ||
-        !readFileSync(output).equals(readFileSync(source))
-      ) {
+      if (!existsSync(output) || !readFileSync(output).equals(readFileSync(source))) {
         stale.push(path.relative(ROOT, output));
       }
     } else {
@@ -36,6 +33,6 @@ for (const directory of OUTPUT_DIRECTORIES) {
 
 if (stale.length > 0) {
   throw new Error(
-    `Generated Plannotator review scripts are stale:\n${stale.join("\n")}\nRun pnpm build:plannotator-review.`
+    `Generated Plannotator review scripts are stale:\n${stale.join("\n")}\nRun vp run build:plannotator-review.`,
   );
 }

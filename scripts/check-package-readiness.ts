@@ -14,14 +14,12 @@ const PI_PROVIDED = new Set([
 const EXPECTED_PI_PROVIDED_VERSION = "*";
 
 const ROOT_PACKAGE_NAME = "clanker-stuff";
-const EXPECTED_NODE_ENGINE = ">=24";
+const EXPECTED_NODE_ENGINE = ">=26";
 const EXPECTED_PACKAGE_MANAGER_PREFIX = "pnpm@";
 const EXPECTED_LICENSE = "MIT";
-const REPOSITORY_URL =
-  "git+https://github.com/gjermundgaraba/clanker-stuff.git";
+const REPOSITORY_URL = "git+https://github.com/gjermundgaraba/clanker-stuff.git";
 const BUGS_URL = "https://github.com/gjermundgaraba/clanker-stuff/issues";
-const HOMEPAGE_PREFIX =
-  "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
+const HOMEPAGE_PREFIX = "https://github.com/gjermundgaraba/clanker-stuff/tree/main/";
 const EXPERIMENTAL_README_WARNING = "**Experimental:**";
 
 const collectRuntimeTsFiles = (directory: string): string[] =>
@@ -35,8 +33,7 @@ const matchesPackageSpecifier = (specifier: string, packageName: string) =>
 
 const importedPiProvidedPackages = (directory: string): Set<string> => {
   const imported = new Set<string>();
-  const importRe =
-    /\b(?:import|export)\b[\s\S]*?\bfrom\s*["'](?<specifier>[^"']+)["']/gu;
+  const importRe = /\b(?:import|export)\b[\s\S]*?\bfrom\s*["'](?<specifier>[^"']+)["']/gu;
   for (const file of collectRuntimeTsFiles(directory)) {
     const text = readFileSync(file, "utf-8");
     for (const match of text.matchAll(importRe)) {
@@ -56,16 +53,12 @@ const importedPiProvidedPackages = (directory: string): Set<string> => {
 };
 
 const pathExistsForEntry = (packageDirectory: string, entry: string) =>
-  entry.includes("*") ||
-  entry.includes("?") ||
-  existsSync(path.join(packageDirectory, entry));
+  entry.includes("*") || entry.includes("?") || existsSync(path.join(packageDirectory, entry));
 
 const errors: string[] = [];
 const workspacePackages = readWorkspacePackages();
 const sharedRuntimePackages = new Set(
-  workspacePackages
-    .filter(({ dir }) => dir.startsWith("pi/packages/"))
-    .map(({ name }) => name)
+  workspacePackages.filter(({ dir }) => dir.startsWith("pi/packages/")).map(({ name }) => name),
 );
 const rootLicensePath = "LICENSE";
 const rootLicense = existsSync(rootLicensePath)
@@ -88,11 +81,9 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     if (pkg.private !== true) {
       errors.push(`${label}: root package must stay private`);
     }
-    if (
-      pkg.packageManager?.startsWith(EXPECTED_PACKAGE_MANAGER_PREFIX) !== true
-    ) {
+    if (pkg.packageManager?.startsWith(EXPECTED_PACKAGE_MANAGER_PREFIX) !== true) {
       errors.push(
-        `${label}: expected packageManager to start with ${EXPECTED_PACKAGE_MANAGER_PREFIX}`
+        `${label}: expected packageManager to start with ${EXPECTED_PACKAGE_MANAGER_PREFIX}`,
       );
     }
     continue;
@@ -132,14 +123,10 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
   }
   const isExtensionPackage = dir.startsWith("pi/extensions/");
-  const isExperimentalExtensionPackage = dir.startsWith(
-    "pi/extensions/experimental/"
-  );
+  const isExperimentalExtensionPackage = dir.startsWith("pi/extensions/experimental/");
   if (isExtensionPackage) {
     if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {
-      errors.push(
-        `${label}: extension package must include keyword pi-package`
-      );
+      errors.push(`${label}: extension package must include keyword pi-package`);
     }
     if (
       pkg.pi === undefined ||
@@ -156,18 +143,16 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
     if (pkg.private !== isExperimentalExtensionPackage) {
       errors.push(
-        `${label}: ${isExperimentalExtensionPackage ? "experimental" : "stable"} extension packages must set private: ${isExperimentalExtensionPackage}`
+        `${label}: ${isExperimentalExtensionPackage ? "experimental" : "stable"} extension packages must set private: ${isExperimentalExtensionPackage}`,
       );
     }
     if (
       isExperimentalExtensionPackage &&
       existsSync(path.join(dir, "README.md")) &&
-      !readFileSync(path.join(dir, "README.md"), "utf-8").includes(
-        EXPERIMENTAL_README_WARNING
-      )
+      !readFileSync(path.join(dir, "README.md"), "utf-8").includes(EXPERIMENTAL_README_WARNING)
     ) {
       errors.push(
-        `${label}: experimental extension README must include ${EXPERIMENTAL_README_WARNING}`
+        `${label}: experimental extension README must include ${EXPERIMENTAL_README_WARNING}`,
       );
     }
   }
@@ -178,10 +163,7 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   if (pkg.private !== false) {
     errors.push(`${label}: publishable packages must set private: false`);
   }
-  if (
-    pkg.repository?.type !== "git" ||
-    pkg.repository?.url !== REPOSITORY_URL
-  ) {
+  if (pkg.repository?.type !== "git" || pkg.repository?.url !== REPOSITORY_URL) {
     errors.push(`${label}: expected repository URL ${REPOSITORY_URL}`);
   }
   if (pkg.repository?.directory !== dir) {
@@ -198,55 +180,37 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   }
 
   for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
-    if (
-      name.startsWith("@clanker-stuff/") &&
-      !sharedRuntimePackages.has(name)
-    ) {
+    if (name.startsWith("@clanker-stuff/") && !sharedRuntimePackages.has(name)) {
       errors.push(`${label}: unapproved shared runtime dependency ${name}`);
     }
     if (PI_PROVIDED.has(name)) {
-      errors.push(
-        `${label}: ${name} belongs in peerDependencies, not dependencies`
-      );
+      errors.push(`${label}: ${name} belongs in peerDependencies, not dependencies`);
     }
     if (version === "workspace:*") {
-      errors.push(
-        `${label}: use workspace:^ instead of workspace:* for ${name}`
-      );
+      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
     }
   }
 
   for (const [name, version] of Object.entries(pkg.peerDependencies ?? {})) {
-    if (
-      PI_PROVIDED.has(name) &&
-      name !== "typebox" &&
-      version !== EXPECTED_PI_PROVIDED_VERSION
-    ) {
-      errors.push(
-        `${label}: ${name} peer dependency should use "${EXPECTED_PI_PROVIDED_VERSION}"`
-      );
+    if (PI_PROVIDED.has(name) && name !== "typebox" && version !== EXPECTED_PI_PROVIDED_VERSION) {
+      errors.push(`${label}: ${name} peer dependency should use "${EXPECTED_PI_PROVIDED_VERSION}"`);
     }
     if (version === "workspace:*") {
-      errors.push(
-        `${label}: use workspace:^ instead of workspace:* for ${name}`
-      );
+      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
     }
   }
 
   for (const name of importedPiProvidedPackages(dir)) {
-    const expectedVersion =
-      name === "typebox" ? "*" : EXPECTED_PI_PROVIDED_VERSION;
+    const expectedVersion = name === "typebox" ? "*" : EXPECTED_PI_PROVIDED_VERSION;
     if (pkg.peerDependencies?.[name] !== expectedVersion) {
-      errors.push(
-        `${label}: imports ${name}; add peerDependencies.${name} = "${expectedVersion}"`
-      );
+      errors.push(`${label}: imports ${name}; add peerDependencies.${name} = "${expectedVersion}"`);
     }
   }
 }
 
 if (errors.length > 0) {
   console.error(
-    `Package readiness check failed with ${errors.length} issue${errors.length === 1 ? "" : "s"}:`
+    `Package readiness check failed with ${errors.length} issue${errors.length === 1 ? "" : "s"}:`,
   );
   for (const error of errors) {
     console.error(`- ${error}`);

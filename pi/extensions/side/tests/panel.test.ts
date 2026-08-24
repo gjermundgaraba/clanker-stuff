@@ -1,5 +1,4 @@
-import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createIdentityTheme,
@@ -7,7 +6,6 @@ import {
   createMockTui,
 } from "../../../tests/harness/tui.js";
 import { SidePanel } from "../panel.js";
-import type { SideSessionController } from "../session.js";
 
 describe("side panel", () => {
   it("preserves the editor draft when the side is already running", () => {
@@ -15,12 +13,12 @@ describe("side panel", () => {
     const panel = new SidePanel(
       createMockTui(),
       createIdentityTheme(),
-      createKeybindings() as unknown as KeybindingsManager,
+      createKeybindings(),
       {
         state: { activity: { kind: "running" }, transcript: [] },
         submit,
         subscribe: () => vi.fn<() => void>(),
-      } as unknown as SideSessionController,
+      },
       {
         getMainWorking: () => false,
         getWorkingMarker: () => "●",
@@ -29,7 +27,7 @@ describe("side panel", () => {
         onHide: vi.fn<() => void>(),
         onInsertLatest: vi.fn<() => void>(),
         onToggleFocus: vi.fn<() => void>(),
-      }
+      },
     );
 
     for (const character of "draft") {

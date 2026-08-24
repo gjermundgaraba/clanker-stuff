@@ -7,11 +7,14 @@ import { SubagentManager } from "./manager.js";
 const subagents = async (pi: ExtensionAPI) => {
   const paths = getExtensionStoragePaths("subagents");
   const loaded = await loadConfig(paths.configFile);
-  const manager = new SubagentManager(pi, {
+  const options = {
     config: loaded.config,
-    ...(loaded.error === undefined ? {} : { configError: loaded.error }),
     dataDir: paths.dataDir,
-  });
+  };
+  if (loaded.error !== undefined) {
+    Object.assign(options, { configError: loaded.error });
+  }
+  const manager = new SubagentManager(pi, options);
 
   pi.on("session_start", manager.start.bind(manager));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));

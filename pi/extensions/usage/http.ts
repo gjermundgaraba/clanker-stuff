@@ -19,15 +19,9 @@ export interface FetchJsonOptions {
   body?: string;
 }
 
-export type FetchJson = (
-  url: string,
-  options: FetchJsonOptions
-) => Promise<FetchJsonResult>;
+export type FetchJson = (url: string, options: FetchJsonOptions) => Promise<FetchJsonResult>;
 
-export const defaultFetchJson: FetchJson = async (
-  url,
-  options
-): Promise<FetchJsonResult> => {
+export const defaultFetchJson: FetchJson = async (url, options): Promise<FetchJsonResult> => {
   const signal = AbortSignal.timeout(options.timeoutMs);
 
   try {
@@ -67,8 +61,7 @@ export const defaultFetchJson: FetchJson = async (
     if (signal.aborted) {
       return { message: "request timed out", ok: false };
     }
-    const message =
-      error instanceof Error ? error.message : "network request failed";
+    const message = error instanceof Error ? error.message : "network request failed";
     return { message, ok: false };
   }
 };

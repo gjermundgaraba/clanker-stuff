@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchZaiUsage, parseZaiQuotaPayload } from "../../adapters/zai.js";
+import { fetchZaiUsage, parseZaiQuotaPayload, ZaiQuotaPayloadSchema } from "../../adapters/zai.js";
+import { Value } from "typebox/value";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
 
@@ -143,16 +144,13 @@ describe("zai usage", () => {
           limits: [{ percentage: 30, type: "CREDIT_LIMIT", unit: 3 }],
         },
       },
-      NOW
+      NOW,
     );
     expect(result.ok && result.snapshot.windows[0]?.remainingPercent).toBe(70);
   });
 
   it("surfaces the error envelope returned with HTTP 200", () => {
-    const result = parseZaiQuotaPayload(
-      { code: 401, msg: "token expired or incorrect", success: false },
-      NOW
-    );
+    const result = parseZaiQuotaPayload({ code: 401, msg: "token expired or incorrect" }, NOW);
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "token expired or incorrect" },
       ok: false,
@@ -171,7 +169,7 @@ describe("zai usage", () => {
           ],
         },
       },
-      NOW
+      NOW,
     );
     expect(result.ok && result.snapshot.windows).toStrictEqual([
       {
@@ -183,7 +181,9 @@ describe("zai usage", () => {
   });
 
   it("rejects invalid payloads", () => {
-    const result = parseZaiQuotaPayload({ code: "200" }, NOW);
+    const invalidCode = { code: "200" };
+    expect(Value.Check(ZaiQuotaPayloadSchema, invalidCode)).toBe(false);
+    const result = parseZaiQuotaPayload(undefined, NOW);
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "invalid usage payload" },
       ok: false,
@@ -191,10 +191,7 @@ describe("zai usage", () => {
   });
 
   it("fails when no usable limits are present", () => {
-    const result = parseZaiQuotaPayload(
-      { code: 200, data: { limits: [] } },
-      NOW
-    );
+    const result = parseZaiQuotaPayload({ code: 200, data: { limits: [] } }, NOW);
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "no usage windows in response" },
       ok: false,
@@ -208,9 +205,7 @@ describe("zai usage", () => {
       fetchJson,
       now: () => NOW,
     });
-    expect(fetchJson.mock.calls[0]?.[0]).toBe(
-      "https://api.z.ai/api/monitor/usage/quota/limit"
-    );
+    expect(fetchJson.mock.calls[0]?.[0]).toBe("https://api.z.ai/api/monitor/usage/quota/limit");
     expect(fetchJson.mock.calls[0]?.[1]?.headers).toMatchObject({
       Authorization: "Bearer k",
     });

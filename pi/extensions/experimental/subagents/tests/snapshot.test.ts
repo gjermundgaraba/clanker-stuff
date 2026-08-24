@@ -3,7 +3,7 @@ import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   boundDurableText,
@@ -42,9 +42,7 @@ describe("atomic control store", () => {
       const [file] = await readdir(path.join(directory, "trees"));
       assert.ok(file);
       const controlPath = path.join(directory, "trees", file);
-      expect(JSON.parse(await readFile(controlPath, "utf-8"))).toStrictEqual(
-        snapshot
-      );
+      expect(JSON.parse(await readFile(controlPath, "utf-8"))).toStrictEqual(snapshot);
       const info = await lstat(controlPath);
       expect(info.isFile()).toBeTruthy();
     } finally {
@@ -159,9 +157,7 @@ describe("atomic control store", () => {
   it("bounds the serialized representation of durable text", () => {
     const result = boundDurableText("\0".repeat(100), 64);
 
-    expect(
-      Buffer.byteLength(JSON.stringify(result), "utf-8") - 2
-    ).toBeLessThanOrEqual(64);
+    expect(Buffer.byteLength(JSON.stringify(result), "utf-8") - 2).toBeLessThanOrEqual(64);
     expect(result.endsWith("…")).toBeTruthy();
   });
 });

@@ -1,5 +1,3 @@
-/* eslint-disable promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch */
-
 export class BrowserMediaSession {
   #channel;
   #closed = false;
@@ -47,9 +45,7 @@ export class BrowserMediaSession {
         this.#peer.connectionState === "failed" ||
         this.#peer.connectionState === "disconnected"
       ) {
-        this.#fail(
-          new Error(`WebRTC connection ${this.#peer.connectionState}.`)
-        );
+        this.#fail(new Error(`WebRTC connection ${this.#peer.connectionState}.`));
       }
     };
     this.#channel.addEventListener("open", () => {
@@ -80,19 +76,11 @@ export class BrowserMediaSession {
 
   async acceptAnswer(answer) {
     await this.#peer.setRemoteDescription({ sdp: answer, type: "answer" });
-    await withTimeout(
-      this.#ready,
-      10_000,
-      "Realtime data channel did not open."
-    );
+    await withTimeout(this.#ready, 10_000, "Realtime data channel did not open.");
   }
 
   waitUntilConfigured() {
-    return withTimeout(
-      this.#configured,
-      10_000,
-      "Realtime session was not configured."
-    );
+    return withTimeout(this.#configured, 10_000, "Realtime session was not configured.");
   }
 
   setMuted(muted) {
@@ -122,13 +110,10 @@ export class BrowserMediaSession {
   #handleMessage(raw) {
     try {
       const event = JSON.parse(String(raw));
-      if (!event || typeof event !== "object" || Array.isArray(event)) {
+      if (!(event instanceof Object) || Array.isArray(event)) {
         return;
       }
-      if (
-        event.type === "session.started" ||
-        event.type === "session.updated"
-      ) {
+      if (event.type === "session.started" || event.type === "session.updated") {
         this.resolveConfigured();
       }
       const parsed = parseMediaEvent(event);
@@ -148,16 +133,13 @@ export class BrowserMediaSession {
 }
 
 const parseMediaEvent = (event) => {
-  if (
-    event.type === "session.usage.updated" &&
-    event.usage_limit?.status === "approaching"
-  ) {
+  if (event.type === "session.usage.updated" && event.usage_limit?.status === "approaching") {
     return { type: "usage-warning" };
   }
   if (event.type === "error") {
     return {
       message:
-        typeof event.error?.message === "string"
+        event.error?.message?.constructor === String
           ? event.error.message
           : "Unknown realtime error.",
       type: "error",
@@ -176,6 +158,6 @@ const withTimeout = (promise, timeoutMs, message) =>
       (error) => {
         clearTimeout(timeout);
         reject(error);
-      }
+      },
     );
   });

@@ -7,10 +7,7 @@ Use native status integration for universal compatibility. Use the rich protocol
 Existing `setStatus()` extensions work without a footer dependency:
 
 ```ts
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   let context: ExtensionContext | undefined;

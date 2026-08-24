@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_CONFIG } from "../config.js";
 import {
@@ -28,9 +28,7 @@ describe("Pi model-facing collaboration contract", () => {
 
     const root = v2RootPrompt(config, 2);
     expect({
-      customUsage: root.includes(
-        "Use the project-specific delegation workflow."
-      ),
+      customUsage: root.includes("Use the project-specific delegation workflow."),
       defaultUsage: root.includes("Keep immediate blockers local"),
       delegation: root.includes("Explicit delegation is enabled."),
       mailbox: root.includes("Message Type: MESSAGE | FINAL_ANSWER"),
@@ -45,10 +43,10 @@ describe("Pi model-facing collaboration contract", () => {
     expect(child).toContain("You are V2 subagent Sage at /root/review.");
     expect(child).not.toContain("Complete the concrete assigned task");
     expect(v2ChildCapabilityPrompt(config, true)).toContain(
-      "Use the eligible-child collaboration workflow."
+      "Use the eligible-child collaboration workflow.",
     );
     expect(v2ChildCapabilityPrompt(config, false)).not.toContain(
-      "Use the eligible-child collaboration workflow."
+      "Use the eligible-child collaboration workflow.",
     );
   });
 
@@ -58,11 +56,9 @@ describe("Pi model-facing collaboration contract", () => {
       prompts: { delegation: "proactive" as const },
     };
 
+    expect(v2ChildCapabilityPrompt(proactive, true)).toContain("Proactive delegation is enabled.");
     expect(v2ChildCapabilityPrompt(proactive, true)).toContain(
-      "Proactive delegation is enabled."
-    );
-    expect(v2ChildCapabilityPrompt(proactive, true)).toContain(
-      "Descendants receive these tools only when their own resolved models declare V2."
+      "Descendants receive these tools only when their own resolved models declare V2.",
     );
     const ineligible = v2ChildCapabilityPrompt(proactive, false);
     expect(ineligible).toContain("does not provide V2 collaboration tools");
@@ -76,23 +72,21 @@ describe("Pi model-facing collaboration contract", () => {
     expect(root).toContain("Explicit delegation is enabled.");
 
     expect(v1ChildPrompt(DEFAULT_CONFIG, "agent-id", "Atlas")).toContain(
-      "You do not have collaboration tools."
+      "You do not have collaboration tools.",
     );
     expect(v1SpawnDescription(DEFAULT_CONFIG)).toContain(
-      "Delegate non-blocking work with a clear, disjoint scope."
+      "Delegate non-blocking work with a clear, disjoint scope.",
     );
   });
 
   it("never promises uniform child tools in the V2 spawn description", () => {
-    expect(v2SpawnDescription()).toContain(
-      "only when its resolved model declares V2"
-    );
+    expect(v2SpawnDescription()).toContain("only when its resolved model declares V2");
     expect(v2SpawnDescription()).not.toContain("same tools");
   });
 
   it("uses the supported Codex error envelope wording", () => {
     expect(formatV2ErrorCompletion("boom")).toBe(
-      "Agent errored: boom\n\nThis agent's turn failed. If you still need this agent, use the available collaboration tools to give it another task."
+      "Agent errored: boom\n\nThis agent's turn failed. If you still need this agent, use the available collaboration tools to give it another task.",
     );
   });
 });

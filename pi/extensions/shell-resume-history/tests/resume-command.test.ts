@@ -1,15 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  access,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
@@ -53,26 +48,25 @@ describe("resume command", () => {
   it("queues the current persisted session when pi quits", async () => {
     const { cwd, inbox } = await setup();
     const sessionDir = path.join(tempRoot ?? "", "sessions");
-    const sessionFile = path.join(sessionDir, "session.jsonl");
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(sessionFile, "{}\n");
+    const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
+    sessionManager.appendMessage(fauxAssistantMessage("test"));
+    const sessionFile = sessionManager.getSessionFile();
+    if (sessionFile === undefined) {
+      throw new Error("Expected a persisted test session");
+    }
     const host = createExtensionHost(() => {});
     const ctx = host.createContext({
       cwd,
-      sessionManager: {
-        getSessionDir: () => sessionDir,
-        getSessionFile: () => sessionFile,
-        getSessionId: () => "full-session-id",
-      } as never,
+      sessionManager,
     });
 
     await recordResumeCommand("quit", ctx);
 
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(1);
-    await expect(
-      readFile(path.join(inbox, messages[0]), "utf-8")
-    ).resolves.toBe(`pi --session ${sessionFile}\n`);
+    await expect(readFile(path.join(inbox, messages[0]), "utf-8")).resolves.toBe(
+      `pi --session ${sessionFile}\n`,
+    );
   });
 
   it("quotes a custom session file", async () => {
@@ -85,31 +79,23 @@ describe("resume command", () => {
     expect(
       formatResumeCommand({
         sessionFile,
-      })
+      }),
     ).toBe(`pi --session '${sessionFile.replaceAll("'", String.raw`'\''`)}'`);
   });
 
   it("does not queue history for replacement sessions or non-TUI modes", async () => {
     const { cwd, inbox } = await setup();
     const sessionDir = path.join(tempRoot ?? "", "sessions");
-    const sessionFile = path.join(sessionDir, "session.jsonl");
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(sessionFile, "{}\n");
+    const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
+    sessionManager.appendMessage(fauxAssistantMessage("test"));
+    const sessionFile = sessionManager.getSessionFile();
+    if (sessionFile === undefined) {
+      throw new Error("Expected a persisted test session");
+    }
     const host = createExtensionHost(() => {});
-    const sessionManager = {
-      getSessionDir: () => sessionDir,
-      getSessionFile: () => sessionFile,
-      getSessionId: () => "full-session-id",
-    } as never;
 
-    await recordResumeCommand(
-      "reload",
-      host.createContext({ cwd, sessionManager })
-    );
-    await recordResumeCommand(
-      "quit",
-      host.createContext({ cwd, mode: "print", sessionManager })
-    );
+    await recordResumeCommand("reload", host.createContext({ cwd, sessionManager }));
+    await recordResumeCommand("quit", host.createContext({ cwd, mode: "print", sessionManager }));
 
     await expect(readdir(inbox)).resolves.toStrictEqual([]);
   });
@@ -117,12 +103,10 @@ describe("resume command", () => {
   it("does not queue missing session files", async () => {
     const { cwd, inbox } = await setup();
     const host = createExtensionHost(() => {});
+    const sessionManager = SessionManager.inMemory(cwd, { id: "full-session-id" });
     const ctx = host.createContext({
       cwd,
-      sessionManager: {
-        getSessionFile: () => path.join(cwd, "missing-session.jsonl"),
-        getSessionId: () => "full-session-id",
-      } as never,
+      sessionManager,
     });
 
     await recordResumeCommand("quit", ctx);
@@ -142,24 +126,16 @@ describe("resume command", () => {
     expect(messages).toHaveLength(2);
     expect(messages.every((name) => name.endsWith(".command"))).toBeTruthy();
     const contents = await Promise.all(
-      messages.map((name) => readFile(path.join(inbox, name), "utf-8"))
+      messages.map((name) => readFile(path.join(inbox, name), "utf-8")),
     );
-    expect(contents.toSorted()).toStrictEqual([
-      "pi --session first\n",
-      "pi --session second\n",
-    ]);
+    expect(contents.toSorted()).toStrictEqual(["pi --session first\n", "pi --session second\n"]);
   });
 
   it.skipIf(!hasCommand("fish"))(
     "fish uses a private inbox and imports queued commands",
     async () => {
       await setup();
-      const script = path.resolve(
-        import.meta.dirname,
-        "..",
-        "shell",
-        "fish.fish"
-      );
+      const script = path.resolve(import.meta.dirname, "..", "shell", "fish.fish");
       const command = "pi --session fish-session";
 
       const output = execFileSync(
@@ -187,7 +163,7 @@ describe("resume command", () => {
             TEST_COMMAND: command,
             fish_history: "",
           },
-        }
+        },
       );
 
       const [shellInbox, historyEntry] = output.trim().split("\n");
@@ -195,19 +171,14 @@ describe("resume command", () => {
       await expect(access(shellInbox)).rejects.toMatchObject({
         code: "ENOENT",
       });
-    }
+    },
   );
 
   it.skipIf(!hasCommand("zsh"))(
     "zsh uses a private inbox and imports queued commands",
     async () => {
       await setup();
-      const script = path.resolve(
-        import.meta.dirname,
-        "..",
-        "shell",
-        "zsh.zsh"
-      );
+      const script = path.resolve(import.meta.dirname, "..", "shell", "zsh.zsh");
       const command = "pi --session zsh-session";
 
       const output = execFileSync(
@@ -234,7 +205,7 @@ describe("resume command", () => {
             SCRIPT_PATH: script,
             TEST_COMMAND: command,
           },
-        }
+        },
       );
 
       const [shellInbox, historyEntry] = output.trim().split("\n");
@@ -242,6 +213,6 @@ describe("resume command", () => {
       await expect(access(shellInbox)).rejects.toMatchObject({
         code: "ENOENT",
       });
-    }
+    },
   );
 });

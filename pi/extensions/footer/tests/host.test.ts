@@ -1,22 +1,18 @@
-/* oxlint-disable vitest/max-expects -- one host lifecycle is the behavior under test */
-
 import {
   FOOTER_PROTOCOL_VERSION,
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
+  parseFooterReadyMessage,
 } from "@clanker-stuff/footer-protocol";
 import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
+import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import { createIdentityTheme } from "../../../tests/harness/tui.js";
-import {
-  cloneFooterConfig,
-  createFooterConfigStore,
-  DEFAULT_CONFIG,
-} from "../config.js";
+import { createIdentityTheme, createMockTui } from "../../../tests/harness/tui.js";
+import { cloneFooterConfig, createFooterConfigStore, DEFAULT_CONFIG } from "../config.js";
 import type { FooterConfig } from "../config.js";
 import { readGitStatus } from "../git.js";
 import extension from "../index.js";
@@ -24,11 +20,21 @@ import extension from "../index.js";
 vi.mock(import("../config.js"), { spy: true });
 vi.mock(import("../git.js"), { spy: true });
 
-type FooterFactory = Exclude<
-  Parameters<ExtensionContext["ui"]["setFooter"]>[0],
-  undefined
->;
+type FooterFactory = Exclude<Parameters<ExtensionContext["ui"]["setFooter"]>[0], undefined>;
 type FooterComponent = ReturnType<FooterFactory>;
+
+const model = (id: string, name: string): Model<"openai-responses"> => ({
+  api: "openai-responses",
+  baseUrl: "https://example.com",
+  contextWindow: 100_000,
+  cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0 },
+  id,
+  input: ["text"],
+  maxTokens: 10_000,
+  name,
+  provider: "test",
+  reasoning: true,
+});
 
 describe("footer host", () => {
   it("answers late ready requests for the active runtime", async () => {
@@ -41,7 +47,10 @@ describe("footer host", () => {
     const host = createExtensionHost(extension);
     const ready: string[] = [];
     host.events.on(FOOTER_READY_EVENT, (value) => {
-      ready.push((value as { instanceId: string }).instanceId);
+      const message = parseFooterReadyMessage(value);
+      if (message !== undefined) {
+        ready.push(message.instanceId);
+      }
     });
     const context = host.createContext();
 
@@ -58,9 +67,7 @@ describe("footer host", () => {
 
   it("does not finish an in-flight start after shutdown", async () => {
     const pending = Promise.withResolvers<{ config: FooterConfig }>();
-    const load = vi.fn<() => Promise<{ config: FooterConfig }>>(
-      () => pending.promise
-    );
+    const load = vi.fn<() => Promise<{ config: FooterConfig }>>(() => pending.promise);
     vi.mocked(createFooterConfigStore).mockReturnValue({
       load,
       path: "/tmp/footer.json",
@@ -136,11 +143,8 @@ describe("footer host", () => {
       },
     });
     vi.mocked(readGitStatus).mockResolvedValue(null);
-    vi.spyOn(Date, "now").mockReturnValue(
-      Date.parse("2025-01-01T00:05:00.000Z")
-    );
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2025-01-01T00:05:00.000Z"));
     const statuses = new Map<string, string>();
-    const requestRender = vi.fn<() => void>();
     const getEntries = vi.fn<() => []>(() => []);
     let failTopLevelRender = false;
     const theme = createIdentityTheme();
@@ -159,15 +163,13 @@ describe("footer host", () => {
     let component: FooterComponent | undefined;
     const setFooter: ExtensionContext["ui"]["setFooter"] = (factory) => {
       component?.dispose?.();
-      component =
-        factory === undefined
-          ? undefined
-          : factory({ requestRender } as never, theme, footerData);
+      component = factory === undefined ? undefined : factory(createMockTui(), theme, footerData);
     };
     const host = createExtensionHost(extension);
+    const sessionManager = host.createContext().sessionManager;
     let ready: { instanceId: string } | undefined;
     host.events.on(FOOTER_READY_EVENT, (value) => {
-      ready = value as { instanceId: string };
+      ready = parseFooterReadyMessage(value);
     });
     const context = host.createContext({
       cwd: "/tmp/project",
@@ -176,23 +178,8 @@ describe("footer host", () => {
         percent: 42,
         tokens: 42,
       }),
-      model: {
-        id: "demo",
-        name: "Demo",
-        provider: "test",
-        reasoning: true,
-      } as never,
-      modelRegistry: {
-        getAvailable: () => [],
-        getProviderDisplayName: (provider: string) => provider,
-      } as never,
-      sessionManager: {
-        getEntries,
-        getHeader: () => ({
-          timestamp: "2025-01-01T00:00:00.000Z",
-        }),
-        getSessionName: () => "test",
-      } as never,
+      model: model("demo", "Demo"),
+      sessionManager: { ...sessionManager, getEntries },
       thinkingLevel: "high",
       ui: { setFooter },
     });
@@ -237,13 +224,12 @@ describe("footer host", () => {
     expect(getEntries).toHaveBeenCalledTimes(2);
 
     await host.emit("agent_settled", { type: "agent_settled" }, context);
+    expect(getEntries).toHaveBeenCalledTimes(2);
     await host.emit("session_tree", { type: "session_tree" }, context);
+    expect(getEntries).toHaveBeenCalledTimes(3);
     await host.emit("session_compact", { type: "session_compact" }, context);
-    await host.emit(
-      "session_info_changed",
-      { type: "session_info_changed" },
-      context
-    );
+    expect(getEntries).toHaveBeenCalledTimes(4);
+    await host.emit("session_info_changed", { type: "session_info_changed" }, context);
     expect(getEntries).toHaveBeenCalledTimes(5);
 
     await host.emit(
@@ -251,19 +237,14 @@ describe("footer host", () => {
       { type: "model_select" },
       {
         ...context,
-        model: {
-          id: "demo2",
-          name: "Demo2",
-          provider: "test",
-          reasoning: true,
-        } as never,
-      }
+        model: model("demo2", "Demo2"),
+      },
     );
     expect(component?.render(120).join("\n")).toContain("Demo2");
     await host.emit(
       "thinking_level_select",
       { type: "thinking_level_select" },
-      { ...context, thinkingLevel: "medium" }
+      { ...context, thinkingLevel: "medium" },
     );
     expect(component?.render(120).join("\n")).toContain("medium");
 

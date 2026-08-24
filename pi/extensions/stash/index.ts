@@ -8,8 +8,7 @@ export default function stashExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => stash.start(ctx));
 
   pi.registerShortcut("ctrl+s", {
-    description:
-      "Stash current editor text, or pop the latest stash when empty",
+    description: "Stash current editor text, or pop the latest stash when empty",
     handler: (ctx) => stash.toggle(ctx),
   });
 

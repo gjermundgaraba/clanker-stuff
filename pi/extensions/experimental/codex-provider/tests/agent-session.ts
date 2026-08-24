@@ -35,12 +35,10 @@ interface RealCodexSessionOptions {
 }
 
 /** Creates a real AgentSession through public Pi APIs. */
-export const createRealCodexSession = async (
-  options: RealCodexSessionOptions
-) => {
+export const createRealCodexSession = async (options: RealCodexSessionOptions) => {
   const agentDir = path.join(
     options.rootDir,
-    `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   await mkdir(agentDir, { recursive: true });
 

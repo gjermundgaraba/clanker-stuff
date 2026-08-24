@@ -1,14 +1,11 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { installTransportProbe } from "../scripts/live-multi-compaction.js";
 
 const originalFetch = globalThis.fetch;
-const originalWebSocket = Object.getOwnPropertyDescriptor(
-  globalThis,
-  "WebSocket"
-);
+const originalWebSocket = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
 
 describe("live stream-fault probe", () => {
   afterEach(() => {
@@ -34,11 +31,11 @@ describe("live stream-fault probe", () => {
             start(controller) {
               controller.enqueue(new Uint8Array([1, 2]));
             },
-          })
+          }),
         );
       }
       return new Response(
-        'data: {"type":"response.failed","response":{"error":{"code":"ordinary_failure"}}}\n\n'
+        'data: {"type":"response.failed","response":{"error":{"code":"ordinary_failure"}}}\n\n',
       );
     };
     const probe = installTransportProbe("sse", true, true);
@@ -53,7 +50,7 @@ describe("live stream-fault probe", () => {
         delay(100).then(() => {
           throw new Error("fault timed out");
         }),
-      ])
+      ]),
     ).rejects.toThrow("Injected client-side stream fault");
 
     const ordinary = await fetch("https://api.openai.com/v1/responses", {

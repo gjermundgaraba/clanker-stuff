@@ -1,31 +1,10 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { contentText, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "../../../tests/harness/agent-session.js";
 import type { AgentSessionHarness } from "../../../tests/harness/agent-session.js";
 import { VoiceCoordinator } from "../coordinator.js";
-
-const messageText = (message: {
-  content: string | readonly unknown[];
-}): string => {
-  if (typeof message.content === "string") {
-    return message.content;
-  }
-  return message.content
-    .flatMap((part) =>
-      part !== null &&
-      typeof part === "object" &&
-      "type" in part &&
-      part.type === "text" &&
-      "text" in part &&
-      typeof part.text === "string"
-        ? [part.text]
-        : []
-    )
-    .join("\n")
-    .trim();
-};
 
 describe("voice coordinator AgentSession routing", () => {
   let harness: AgentSessionHarness | undefined;
@@ -63,7 +42,7 @@ describe("voice coordinator AgentSession routing", () => {
 
           pi.on("message_start", (event) => {
             if (event.message.role === "user") {
-              nextCoordinator.accept(messageText(event.message));
+              nextCoordinator.accept(contentText(event.message.content).trim());
             }
           });
           pi.on("turn_end", (event) => {
@@ -77,7 +56,7 @@ describe("voice coordinator AgentSession routing", () => {
                 prompt: "prompt-b",
               });
             }
-            nextCoordinator.finish(messageText(event.message));
+            nextCoordinator.finish(contentText(event.message.content).trim());
           });
           pi.on("agent_settled", () => {
             nextCoordinator.settled();
@@ -85,10 +64,7 @@ describe("voice coordinator AgentSession routing", () => {
         },
       ],
     });
-    harness.setResponses([
-      fauxAssistantMessage("answer-a"),
-      fauxAssistantMessage("answer-b"),
-    ]);
+    harness.setResponses([fauxAssistantMessage("answer-a"), fauxAssistantMessage("answer-b")]);
 
     coordinator?.enqueue({
       binding: { callId: "call-1", delegationId: "a" },

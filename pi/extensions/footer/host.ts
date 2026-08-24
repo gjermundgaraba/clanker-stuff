@@ -1,5 +1,3 @@
-/* oxlint-disable eslint/no-use-before-define, eslint/no-plusplus, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, unicorn/consistent-function-scoping, unicorn/no-useless-collection-argument -- lifecycle helpers stay adjacent to their state */
-
 import { randomUUID } from "node:crypto";
 
 import {
@@ -7,8 +5,9 @@ import {
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
-  isFooterReadyRequestMessage,
+  parseFooterReadyRequestMessage,
 } from "@clanker-stuff/footer-protocol";
+import type { FooterProtocolInput } from "@clanker-stuff/footer-protocol";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -38,12 +37,7 @@ export interface ProtocolErrorRecord {
   timestamp: number;
 }
 
-export type FooterLifecycleState =
-  | "starting"
-  | "active"
-  | "disabled"
-  | "replaced"
-  | "stopped";
+export type FooterLifecycleState = "starting" | "active" | "disabled" | "replaced" | "stopped";
 
 export interface HostRuntime {
   builtins: Map<string, LiveWidget>;
@@ -68,9 +62,7 @@ const sessionCanRender = (config: FooterConfig): boolean =>
   config.enabled &&
   config.widgets["footer.session"]?.enabled !== false &&
   config.rows.some((row) =>
-    [row.left, row.center, row.right].some((group) =>
-      group.includes("footer.session")
-    )
+    [row.left, row.center, row.right].some((group) => group.includes("footer.session")),
   );
 
 const gitCanRender = (config: FooterConfig): boolean =>
@@ -79,8 +71,8 @@ const gitCanRender = (config: FooterConfig): boolean =>
     (id) =>
       config.widgets[id]?.enabled !== false &&
       config.rows.some((row) =>
-        [row.left, row.center, row.right].some((group) => group.includes(id))
-      )
+        [row.left, row.center, row.right].some((group) => group.includes(id)),
+      ),
   );
 
 export const createFooterHost = (pi: ExtensionAPI) => {
@@ -92,38 +84,29 @@ export const createFooterHost = (pi: ExtensionAPI) => {
   let sessionTimer: ReturnType<typeof setInterval> | undefined;
   let startGeneration = 0;
 
-  const addCollectorError = (active: HostRuntime, value: unknown): void => {
-    const message = summary(
-      value instanceof Error ? value.message : String(value)
-    );
+  const addCollectorError = (active: HostRuntime, cause: unknown): void => {
+    const message = summary(cause instanceof Error ? cause.message : String(cause));
     if (active.collectorErrors.at(-1) !== message) {
       active.collectorErrors.push(message);
       active.collectorErrors.splice(
         0,
-        Math.max(0, active.collectorErrors.length - RETAINED_COLLECTOR_ERRORS)
+        Math.max(0, active.collectorErrors.length - RETAINED_COLLECTOR_ERRORS),
       );
     }
   };
 
-  const recordProtocolError = (
-    active: HostRuntime,
-    errorClass: string,
-    message: string
-  ): void => {
+  const recordProtocolError = (active: HostRuntime, errorClass: string, message: string): void => {
     active.protocolErrors.unshift({
       class: errorClass,
       message: summary(message),
       timestamp: Date.now(),
     });
-    active.protocolErrors.length = Math.min(
-      active.protocolErrors.length,
-      MAX_PROTOCOL_ERRORS
-    );
+    active.protocolErrors.length = Math.min(active.protocolErrors.length, MAX_PROTOCOL_ERRORS);
     if (!active.notifiedProtocolErrors.has(errorClass)) {
       active.notifiedProtocolErrors.add(errorClass);
       active.context.ui.notify(
         `Footer rejected a ${errorClass} protocol message; run /footer doctor`,
-        "warning"
+        "warning",
       );
     }
   };
@@ -174,7 +157,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
           rebuildBuiltins(active);
         }
       })
-      .catch((error: unknown) => {
+      .catch((error) => {
         if (runtime === active && generation === active.gitGeneration) {
           addCollectorError(active, error);
         }
@@ -184,8 +167,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
   const renderState = (active: HostRuntime): FooterRenderState => ({
     builtins: active.builtins,
     config: active.config,
-    nativeStatuses:
-      active.footerData?.getExtensionStatuses() ?? new Map<string, string>(),
+    nativeStatuses: active.footerData?.getExtensionStatuses() ?? new Map<string, string>(),
     rich: active.rich,
   });
 
@@ -216,7 +198,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
             active.lifecycle = "replaced";
             active.context.ui.notify(
               "Footer was replaced by another extension; run /footer doctor",
-              "warning"
+              "warning",
             );
           }
           syncTimer(active);
@@ -226,16 +208,9 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         },
         render(width: number): string[] {
           try {
-            active.lastLayout = renderFooterState(
-              renderState(active),
-              width,
-              theme
-            );
+            active.lastLayout = renderFooterState(renderState(active), width, theme);
             for (const error of active.lastLayout.widgetErrors) {
-              addCollectorError(
-                active,
-                `widget ${summary(error.id)}: ${summary(error.message)}`
-              );
+              addCollectorError(active, `widget ${summary(error.id)}: ${summary(error.message)}`);
             }
             return active.lastLayout.lines;
           } catch (error) {
@@ -297,11 +272,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
       return;
     }
     sessionTimer = setInterval(() => {
-      if (
-        runtime === active &&
-        active.lifecycle === "active" &&
-        sessionCanRender(active.config)
-      ) {
+      if (runtime === active && active.lifecycle === "active" && sessionCanRender(active.config)) {
         rebuildBuiltins(active);
       }
     }, SESSION_TICK_MS);
@@ -340,7 +311,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     runtime = undefined;
   };
 
-  const handleWidgetMessage = (value: unknown): void => {
+  const handleWidgetMessage = (value: FooterProtocolInput): void => {
     const active = runtime;
     if (!active || active.lifecycle === "stopped") {
       return;
@@ -360,11 +331,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     }
     const { id } = validated.value.widget;
     if (!active.rich.has(id) && active.rich.size >= MAX_RICH_WIDGETS) {
-      recordProtocolError(
-        active,
-        "capacity",
-        `rich widget limit ${MAX_RICH_WIDGETS} reached`
-      );
+      recordProtocolError(active, "capacity", `rich widget limit ${MAX_RICH_WIDGETS} reached`);
       return;
     }
     active.rich.set(id, {
@@ -383,18 +350,13 @@ export const createFooterHost = (pi: ExtensionAPI) => {
   };
 
   const listenForProtocolMessages = (): void => {
-    protocolUnsubscribe ??= pi.events.on(
-      FOOTER_WIDGET_EVENT,
-      handleWidgetMessage
-    );
-    readyRequestUnsubscribe ??= pi.events.on(
-      FOOTER_READY_REQUEST_EVENT,
-      (value) => {
-        if (runtime !== undefined && isFooterReadyRequestMessage(value)) {
-          emitReady(runtime);
-        }
+    protocolUnsubscribe ??= pi.events.on(FOOTER_WIDGET_EVENT, handleWidgetMessage);
+    readyRequestUnsubscribe ??= pi.events.on(FOOTER_READY_REQUEST_EVENT, (value) => {
+      const request = parseFooterReadyRequestMessage(value);
+      if (runtime !== undefined && request !== undefined) {
+        emitReady(runtime);
       }
-    );
+    });
   };
 
   const updateContext = (ctx: ExtensionContext): HostRuntime | undefined => {
@@ -417,10 +379,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         refreshSessionTotals(active);
       }
     },
-    runCommand: async (
-      args: string,
-      ctx: ExtensionCommandContext
-    ): Promise<void> => {
+    runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const active = runtime;
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/footer requires TUI mode", "info");
@@ -441,15 +400,11 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         { showFooterEditor, showFooterTextView },
       ] = await Promise.all([import("./diagnostics.js"), import("./ui.js")]);
       if (command === "inspect") {
-        await showFooterTextView(ctx, "Footer inspect", () =>
-          inspectLines(active, Date.now())
-        );
+        await showFooterTextView(ctx, "Footer inspect", () => inspectLines(active, Date.now()));
         return;
       }
       if (command === "doctor") {
-        await showFooterTextView(ctx, "Footer doctor", () =>
-          doctorLines(active, configStore.path)
-        );
+        await showFooterTextView(ctx, "Footer doctor", () => doctorLines(active, configStore.path));
         return;
       }
 
@@ -469,11 +424,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         },
         renderPreview: (config, width) => {
           try {
-            return renderFooterState(
-              { ...renderState(active), config },
-              width,
-              ctx.ui.theme
-            ).lines;
+            return renderFooterState({ ...renderState(active), config }, width, ctx.ui.theme).lines;
           } catch {
             return [];
           }

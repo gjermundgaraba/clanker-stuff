@@ -4,10 +4,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { access } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  ExtensionContext,
-  TruncationResult,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, TruncationResult } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, getShellConfig } from "@earendil-works/pi-coding-agent";
 
 import { ProcessOutput } from "./process-output.js";
@@ -71,15 +68,11 @@ const killProcessTree = (child: ChildProcessWithoutNullStreams) => {
     return;
   }
   if (process.platform === "win32") {
-    const taskkill = spawn(
-      "taskkill",
-      ["/F", "/T", "/PID", String(child.pid)],
-      {
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-      }
-    );
+    const taskkill = spawn("taskkill", ["/F", "/T", "/PID", String(child.pid)], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
     taskkill.on("error", () => {
       child.kill("SIGKILL");
     });
@@ -95,12 +88,9 @@ const killProcessTree = (child: ChildProcessWithoutNullStreams) => {
 
 const createShellEnvironment = (ctx: ExtensionContext) => {
   const env = { ...process.env };
-  const pathKey =
-    Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
   const binDirectory = path.join(getAgentDir(), "bin");
-  const pathEntries = (env[pathKey] ?? "")
-    .split(path.delimiter)
-    .filter(Boolean);
+  const pathEntries = (env[pathKey] ?? "").split(path.delimiter).filter(Boolean);
   if (!pathEntries.includes(binDirectory)) {
     env[pathKey] = [binDirectory, ...pathEntries].join(path.delimiter);
   }
@@ -225,7 +215,7 @@ const spawnShell = async (options: {
 const wait = async (
   session: ProcessSession,
   yieldMs: number | undefined,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
 ) => {
   if (signal?.aborted === true) {
     session.process.kill();
@@ -245,7 +235,7 @@ const wait = async (
           () => {
             elapsed.resolve(null);
           },
-          Math.max(0, yieldMs)
+          Math.max(0, yieldMs),
         );
         try {
           await Promise.race([session.exitPromise, elapsed.promise]);
@@ -271,7 +261,7 @@ const drainOutput = async (session: ProcessSession, exited: boolean) => {
 const formatOutput = async (
   session: ProcessSession,
   sessionId: number,
-  durationMs: number
+  durationMs: number,
 ): Promise<ProcessResult> => {
   // Freeze status before the async file flush. If the process exits during the
   // flush, keep the session for one final poll so no late output is dropped.
@@ -349,9 +339,7 @@ export class ProcessManager {
         };
       } catch (error) {
         output.current.append(
-          Buffer.from(
-            `${error instanceof Error ? error.message : String(error)}\n`
-          )
+          Buffer.from(`${error instanceof Error ? error.message : String(error)}\n`),
         );
         lifecycle = { exitCode: null, status: "killed" };
       }
@@ -368,21 +356,15 @@ export class ProcessManager {
     this.nextSessionId += 1;
     this.sessions.set(sessionId, session);
 
-    const result = await this.poll(
-      sessionId,
-      session,
-      options.yieldMs,
-      options.signal
-    );
+    const result = await this.poll(sessionId, session, options.yieldMs, options.signal);
     if (result.status !== "running") {
       return result;
     }
     if (this.sessions.size > MAX_SESSIONS) {
       const entries = [...this.sessions].filter(([id]) => id !== sessionId);
       const candidate =
-        entries.find(
-          ([, storedSession]) => storedSession.lifecycle.status !== "running"
-        ) ?? entries[0];
+        entries.find(([, storedSession]) => storedSession.lifecycle.status !== "running") ??
+        entries[0];
       const [candidateId, candidateSession] = candidate;
       this.sessions.delete(candidateId);
       candidateSession.process.kill();
@@ -411,12 +393,7 @@ export class ProcessManager {
       session.process.write(options.chars);
     }
 
-    return await this.poll(
-      options.sessionId,
-      session,
-      options.yieldMs,
-      options.signal
-    );
+    return await this.poll(options.sessionId, session, options.yieldMs, options.signal);
   }
 
   async dispose(): Promise<void> {
@@ -430,7 +407,7 @@ export class ProcessManager {
       sessions.map(async (session) => {
         await session.exitPromise;
         await session.output.current.discard();
-      })
+      }),
     );
   }
 
@@ -438,7 +415,7 @@ export class ProcessManager {
     sessionId: number,
     session: ProcessSession,
     yieldMs: number | undefined,
-    signal: AbortSignal | undefined
+    signal: AbortSignal | undefined,
   ): Promise<ProcessResult> {
     const startedAt = Date.now();
     try {

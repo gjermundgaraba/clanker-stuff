@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   fetchXaiUsage,
@@ -30,7 +30,7 @@ describe("xai monthly parsing", () => {
     expect(
       parseXaiMonthlyPayload({
         config: { monthlyLimit: 0, used: 5 },
-      })?.remainingPercent
+      })?.remainingPercent,
     ).toBe(0);
   });
 });
@@ -62,7 +62,7 @@ describe("xai weekly parsing", () => {
           billingPeriodEnd: "2026-07-28T00:00:00.000Z",
           currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY" },
         },
-      })
+      }),
     ).toBeUndefined();
   });
 
@@ -73,7 +73,7 @@ describe("xai weekly parsing", () => {
           creditUsagePercent: 10,
           currentPeriod: { type: "USAGE_PERIOD_TYPE_MONTHLY" },
         },
-      })
+      }),
     ).toBeUndefined();
   });
 });
@@ -88,7 +88,7 @@ describe("xai combined payloads", () => {
         },
       },
       undefined,
-      1000
+      1000,
     );
     expect(result).toStrictEqual({
       ok: true,
@@ -118,17 +118,16 @@ describe("xai combined payloads", () => {
           prepaidBalance: { val: 1084 },
         },
       },
-      1000
+      1000,
     );
     expect(result.ok).toBeTruthy();
     if (!result.ok) {
       return;
     }
     expect(result.snapshot.creditsRemaining).toBe(1084);
-    expect(
-      result.snapshot.windows.find((window) => window.id === "week")
-        ?.remainingPercent
-    ).toBe(0);
+    expect(result.snapshot.windows.find((window) => window.id === "week")?.remainingPercent).toBe(
+      0,
+    );
   });
 });
 

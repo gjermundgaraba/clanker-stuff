@@ -11,7 +11,7 @@ const FILE_LOADERS = ["exec_command", "exec", "bash"] as const;
 
 export const exposeSkillsWithoutRead = (
   event: BeforeAgentStartEvent,
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
 ): BeforeAgentStartEventResult | undefined => {
   const { selectedTools } = event.systemPromptOptions;
   if (
@@ -28,13 +28,9 @@ export const exposeSkillsWithoutRead = (
     return undefined;
   }
 
-  const catalog = formatSkillsForPrompt(
-    event.systemPromptOptions.skills ?? []
-  ).replace(
+  const catalog = formatSkillsForPrompt(event.systemPromptOptions.skills ?? []).replace(
     READ_GUIDANCE,
-    `Use the \`${loader}\` tool to load a skill's file when the task matches its description.`
+    `Use the \`${loader}\` tool to load a skill's file when the task matches its description.`,
   );
-  return catalog.length > 0
-    ? { systemPrompt: `${event.systemPrompt}${catalog}` }
-    : undefined;
+  return catalog.length > 0 ? { systemPrompt: `${event.systemPrompt}${catalog}` } : undefined;
 };

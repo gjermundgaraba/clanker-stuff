@@ -1,5 +1,3 @@
-/* eslint-disable no-use-before-define, func-style, max-classes-per-file */
-
 import { randomUUID } from "node:crypto";
 
 import { WebSocket } from "ws";
@@ -7,12 +5,11 @@ import { WebSocket } from "ws";
 import { createCodexDesktopAttestationHeader } from "./device-attestation.js";
 import { frameChunks } from "./stream.js";
 import type { VoiceTrace } from "./trace.js";
-import {
-  buildContinuityItems,
-  ContinuityTranscript,
-  HandoffTranscript,
-} from "./transcript.js";
-import type { TranscriptEntry, TranscriptRole } from "./transcript.js";
+import { buildContinuityItems, ContinuityTranscript, HandoffTranscript } from "./transcript.js";
+import type { ContinuityItem, TranscriptEntry, TranscriptRole } from "./transcript.js";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 const CALL_URL = "https://chatgpt.com/backend-api/codex/realtime/calls";
 const SIDEBAND_URL = "wss://api.openai.com/v1/live";
@@ -233,10 +230,47 @@ interface TranscriptEvent {
   text: string;
 }
 
+const RealtimeEventSchema = Type.Object({
+  error: Type.Optional(Type.Object({ message: Type.Optional(Type.String()) })),
+  item: Type.Optional(
+    Type.Object({
+      content: Type.Optional(
+        Type.Array(
+          Type.Object({
+            text: Type.Optional(Type.String()),
+            type: Type.Optional(Type.String()),
+          }),
+        ),
+      ),
+      id: Type.Optional(Type.String()),
+      target: Type.Optional(Type.String()),
+      text: Type.Optional(Type.String()),
+      type: Type.Optional(Type.String()),
+    }),
+  ),
+  turn: Type.Optional(
+    Type.Object({
+      id: Type.Optional(Type.String()),
+      role: Type.Optional(Type.String()),
+      transcript: Type.Optional(Type.String()),
+    }),
+  ),
+  type: Type.String(),
+});
+
+type RealtimeEvent = Static<typeof RealtimeEventSchema>;
+
+export interface DelegationContextFrame {
+  channel: "commentary" | "speakable";
+  content: { text: string; type: "input_text" }[];
+  delegation_item_id: string;
+  type: "delegation.context.append";
+}
+
 interface RealtimeControlOptions {
   auth: VoiceAuth;
   callId: string;
-  initialItems: Record<string, unknown>[];
+  initialItems: ContinuityItem[];
   onDelegation: (event: Omit<VoiceDelegation, "transcriptDelta">) => void;
   onError: (error: Error) => void;
   onTranscript: (event: TranscriptEvent) => void;
@@ -244,6 +278,20 @@ interface RealtimeControlOptions {
   threadId: string;
   trace?: VoiceTrace;
 }
+
+export interface VoiceSessionControl {
+  readonly callId: string;
+  appendHandoffMessage: (
+    delegationId: string,
+    channel: "commentary" | "speakable",
+    text: string,
+  ) => boolean;
+  close: () => void;
+  createCall: (offer: string) => Promise<string>;
+  mediaReady: () => void;
+}
+
+type RealtimeControlFactory = (options: RealtimeControlOptions) => VoiceSessionControl;
 
 export interface VoiceSessionOptions {
   initialTranscript?: readonly TranscriptEntry[];
@@ -270,19 +318,25 @@ type RenewalState =
     };
 
 export class VoiceSession {
-  private active: RealtimeControl | undefined;
-  private creating: RealtimeControl | undefined;
+  private active: VoiceSessionControl | undefined;
+  private readonly controlFactory: RealtimeControlFactory;
+  private creating: VoiceSessionControl | undefined;
   private generation = 0;
   private readonly continuity: ContinuityTranscript;
   private readonly handoffTranscript = new HandoffTranscript();
   private readonly inFlightDelegations = new Set<string>();
   private readonly options: VoiceSessionOptions;
-  private pending: RealtimeControl | undefined;
+  private pending: VoiceSessionControl | undefined;
   private renewal: RenewalState = { kind: "idle" };
   private readonly sessionId = randomUUID();
 
-  constructor(options: VoiceSessionOptions) {
+  constructor(
+    options: VoiceSessionOptions,
+    controlFactory: RealtimeControlFactory = (controlOptions) =>
+      new RealtimeControl(controlOptions),
+  ) {
     this.options = options;
+    this.controlFactory = controlFactory;
     this.continuity = new ContinuityTranscript(options.initialTranscript);
   }
 
@@ -295,7 +349,7 @@ export class VoiceSession {
       this.active = control;
       return control.answer;
     } catch (error) {
-      const normalized = normalizeError(error);
+      const normalized = error instanceof Error ? error : new Error(String(error));
       if (generation !== this.generation) {
         throw normalized;
       }
@@ -328,13 +382,11 @@ export class VoiceSession {
       this.pending = control;
       return control.answer;
     } catch (error) {
-      const normalized = normalizeError(error);
+      const normalized = error instanceof Error ? error : new Error(String(error));
       if (generation !== this.generation) {
         throw normalized;
       }
-      this.options.onError(
-        `Replacement voice call failed: ${normalized.message}`
-      );
+      this.options.onError(`Replacement voice call failed: ${normalized.message}`);
       throw normalized;
     }
   }
@@ -402,14 +454,14 @@ export class VoiceSession {
 
   private async createControl(
     offer: string,
-    generation: number
-  ): Promise<RealtimeControl & { answer: string }> {
+    generation: number,
+  ): Promise<VoiceSessionControl & { answer: string }> {
     const auth = await this.options.resolveAuth();
     if (generation !== this.generation) {
       throw new Error("Voice call creation was cancelled.");
     }
     const callId = randomUUID();
-    const control = new RealtimeControl({
+    const control = this.controlFactory({
       auth,
       callId,
       initialItems: buildContinuityItems(this.continuity.recent()),
@@ -425,9 +477,7 @@ export class VoiceSession {
       onError: (error) => {
         if (control === this.pending) {
           this.pending = undefined;
-          this.options.onError(
-            `Replacement voice call failed: ${error.message}`
-          );
+          this.options.onError(`Replacement voice call failed: ${error.message}`);
           return;
         }
         if (control === this.active) {
@@ -480,18 +530,14 @@ export class VoiceSession {
   }
 
   private clearRenewalTimer(): void {
-    if (
-      this.renewal.kind === "scheduled" ||
-      this.renewal.kind === "retry_scheduled"
-    ) {
+    if (this.renewal.kind === "scheduled" || this.renewal.kind === "retry_scheduled") {
       clearTimeout(this.renewal.timer);
     }
   }
 
   private requestRenewalIfReady(): void {
     if (
-      (this.renewal.kind !== "due" &&
-        this.renewal.kind !== "retry_scheduled") ||
+      (this.renewal.kind !== "due" && this.renewal.kind !== "retry_scheduled") ||
       this.inFlightDelegations.size > 0 ||
       !this.active
     ) {
@@ -519,21 +565,13 @@ export class VoiceSession {
   private sendHandoffMessage(
     binding: DelegationBinding,
     channel: "commentary" | "speakable",
-    text: string
+    text: string,
   ): boolean {
     const normalized = text.trim();
-    if (
-      !this.active ||
-      binding.callId !== this.active.callId ||
-      normalized.length === 0
-    ) {
+    if (!this.active || binding.callId !== this.active.callId || normalized.length === 0) {
       return false;
     }
-    return this.active.appendHandoffMessage(
-      binding.delegationId,
-      channel,
-      normalized
-    );
+    return this.active.appendHandoffMessage(binding.delegationId, channel, normalized);
   }
 
   private closeCalls(): void {
@@ -550,15 +588,14 @@ export class VoiceSession {
   }
 }
 
-class RealtimeControl {
+class RealtimeControl implements VoiceSessionControl {
   readonly callId: string;
   private callAbort: AbortController | undefined;
   private closing = false;
   private readonly options: RealtimeControlOptions;
   private readonly seenDelegationIds = new Set<string>();
   private socket: WebSocket | undefined;
-  private status: "closed" | "connecting" | "connected" | "active" | "failed" =
-    "closed";
+  private status: "closed" | "connecting" | "connected" | "active" | "failed" = "closed";
 
   constructor(options: RealtimeControlOptions) {
     this.options = options;
@@ -590,7 +627,7 @@ class RealtimeControl {
           sessionId: this.options.sessionId,
           threadId: this.options.threadId,
         },
-        attestation
+        attestation,
       );
       const body = {
         sdp: offer,
@@ -605,17 +642,14 @@ class RealtimeControl {
         body: JSON.stringify(body),
         headers: { ...headers, "Content-Type": "application/json" },
         method: "POST",
-        signal: AbortSignal.any([
-          abort.signal,
-          AbortSignal.timeout(CALL_REQUEST_TIMEOUT_MS),
-        ]),
+        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(CALL_REQUEST_TIMEOUT_MS)]),
       });
       this.assertCurrentCall(abort);
       if (!response.ok) {
         const responseText = await response.text();
         const detail = responseText.slice(0, 2000);
         throw new Error(
-          `Realtime call creation failed: HTTP ${response.status}${detail.length > 0 ? ` ${detail}` : ""}`
+          `Realtime call creation failed: HTTP ${response.status}${detail.length > 0 ? ` ${detail}` : ""}`,
         );
       }
 
@@ -630,10 +664,10 @@ class RealtimeControl {
         status: response.status,
       });
       this.assertCurrentCall(abort);
-      const socket = new WebSocket(
-        `${SIDEBAND_URL}/${encodeURIComponent(upstreamCallId)}`,
-        { headers, maxPayload: MAX_SIDEBAND_BYTES }
-      );
+      const socket = new WebSocket(`${SIDEBAND_URL}/${encodeURIComponent(upstreamCallId)}`, {
+        headers,
+        maxPayload: MAX_SIDEBAND_BYTES,
+      });
       this.socket = socket;
       await this.waitForSocket(socket);
       this.assertCurrentCall(abort);
@@ -641,7 +675,7 @@ class RealtimeControl {
       this.status = "connected";
       return answer;
     } catch (error) {
-      this.fail(error);
+      this.fail(error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
   }
@@ -656,7 +690,7 @@ class RealtimeControl {
   appendHandoffMessage(
     delegationId: string,
     channel: "commentary" | "speakable",
-    text: string
+    text: string,
   ): boolean {
     if (this.status !== "active") {
       return false;
@@ -743,36 +777,28 @@ class RealtimeControl {
   }
 
   private assertCurrentCall(abort: AbortController): void {
-    if (
-      abort.signal.aborted ||
-      this.callAbort !== abort ||
-      this.status !== "connecting"
-    ) {
+    if (abort.signal.aborted || this.callAbort !== abort || this.status !== "connecting") {
       throw abort.signal.reason instanceof Error
         ? abort.signal.reason
         : new Error("Voice call creation was cancelled.");
     }
   }
 
-  private handleMessage(data: unknown): void {
-    let event: Record<string, unknown>;
+  private handleMessage(text: string): void {
+    let raw: unknown;
     try {
-      const parsed: unknown = JSON.parse(String(data));
-      if (!isRecord(parsed)) {
-        return;
-      }
-      event = parsed;
+      raw = JSON.parse(text);
     } catch (error) {
-      this.fail(error);
+      this.fail(error instanceof Error ? error : new Error(String(error)));
       return;
     }
+    if (!Value.Check(RealtimeEventSchema, raw)) {
+      return;
+    }
+    const event = Value.Parse(RealtimeEventSchema, raw);
 
     if (event.type === "error") {
-      const message =
-        isRecord(event.error) && typeof event.error.message === "string"
-          ? event.error.message
-          : "Unknown realtime protocol error.";
-      this.fail(new Error(message));
+      this.fail(new Error(event.error?.message ?? "Unknown realtime protocol error."));
       return;
     }
 
@@ -782,10 +808,7 @@ class RealtimeControl {
     }
 
     const delegation = parseDelegation(event);
-    if (
-      delegation === undefined ||
-      !rememberDelegationId(this.seenDelegationIds, delegation.id)
-    ) {
+    if (delegation === undefined || !rememberDelegationId(this.seenDelegationIds, delegation.id)) {
       return;
     }
     this.options.onDelegation({
@@ -797,7 +820,7 @@ class RealtimeControl {
     });
   }
 
-  private send(event: Record<string, unknown>): void {
+  private send(event: DelegationContextFrame): void {
     if (this.socket === undefined) {
       throw new Error("Realtime sideband is not connected.");
     }
@@ -806,15 +829,14 @@ class RealtimeControl {
     this.socket.send(data);
   }
 
-  private fail(error: unknown): void {
+  private fail(error: Error): void {
     if (this.closing || this.status === "closed" || this.status === "failed") {
       return;
     }
     this.status = "failed";
-    const normalized = normalizeError(error);
-    this.callAbort?.abort(normalized);
+    this.callAbort?.abort(error);
     this.callAbort = undefined;
-    this.options.onError(normalized);
+    this.options.onError(error);
     try {
       this.socket?.close();
     } catch {
@@ -824,69 +846,58 @@ class RealtimeControl {
   }
 }
 
-export function parseTranscriptEvent(
-  event: Record<string, unknown>
-): TranscriptEvent | undefined {
+export function parseTranscriptEvent(event: RealtimeEvent): TranscriptEvent | undefined {
+  const item = event.item;
   if (
-    (event.type === "input_transcript.added" ||
-      event.type === "output_transcript.added") &&
-    isRecord(event.item) &&
-    typeof event.item.text === "string"
+    (event.type === "input_transcript.added" || event.type === "output_transcript.added") &&
+    item?.text !== undefined
   ) {
     return {
       delta: true,
       role: event.type === "input_transcript.added" ? "user" : "assistant",
-      text: event.item.text,
+      text: item.text,
     };
   }
 
+  const turn = event.turn;
   if (
     event.type === "turn.done" &&
-    isRecord(event.turn) &&
-    (event.turn.role === "user" || event.turn.role === "assistant") &&
-    typeof event.turn.transcript === "string"
+    (turn?.role === "user" || turn?.role === "assistant") &&
+    turn.transcript !== undefined
   ) {
     return {
       delta: false,
-      role: event.turn.role,
-      text: event.turn.transcript,
+      role: turn.role,
+      text: turn.transcript,
     };
   }
 
   return undefined;
 }
 
-function parseDelegation(
-  event: Record<string, unknown>
-): { id: string; input: string } | undefined {
+function parseDelegation(event: RealtimeEvent): { id: string; input: string } | undefined {
+  const item = event.item;
   if (
     event.type !== "delegation.created" ||
-    !isRecord(event.item) ||
-    event.item.type !== "delegation" ||
-    event.item.target !== "client" ||
-    typeof event.item.id !== "string" ||
-    event.item.id.length === 0 ||
-    !Array.isArray(event.item.content)
+    item?.type !== "delegation" ||
+    item.target !== "client" ||
+    item.id === undefined ||
+    item.id.length === 0 ||
+    item.content === undefined
   ) {
     return undefined;
   }
 
-  const input = event.item.content
-    .filter(
-      (content): content is Record<string, unknown> =>
-        isRecord(content) && content.type === "input_text"
-    )
-    .map((content) => (typeof content.text === "string" ? content.text : ""))
+  const input = item.content
+    .filter((content) => content.type === "input_text")
+    .map((content) => content.text ?? "")
     .join("")
     .trim()
     .slice(0, MAX_DELEGATION_CHARS);
-  return input ? { id: event.item.id, input } : undefined;
+  return input ? { id: item.id, input } : undefined;
 }
 
-export function rememberDelegationId(
-  seen: Set<string>,
-  delegationId: string
-): boolean {
+export function rememberDelegationId(seen: Set<string>, delegationId: string): boolean {
   if (seen.has(delegationId)) {
     return false;
   }
@@ -900,13 +911,11 @@ export function rememberDelegationId(
   return true;
 }
 
-export function sessionConfig(
-  initialItems: Record<string, unknown>[]
-): Record<string, unknown> {
+export function sessionConfig(initialItems: ContinuityItem[]) {
   return {
     audio: { output: { voice: VOICE_NAME } },
     delegation: { type: "client" },
-    ...(initialItems.length > 0 ? { initial_items: initialItems } : {}),
+    initial_items: initialItems.length > 0 ? initialItems : undefined,
     instructions: VOICE_INSTRUCTIONS,
     model: VOICE_MODEL,
   };
@@ -915,8 +924,8 @@ export function sessionConfig(
 export function delegationContextEvents(
   delegationId: string,
   channel: "commentary" | "speakable",
-  text: string
-): Record<string, unknown>[] {
+  text: string,
+): DelegationContextFrame[] {
   const tag = channel === "commentary" ? "STATUS" : "COMPLETE";
   return frameChunks(`[${tag}] ${text}`, CONTEXT_FRAME_BYTES).map((frame) => ({
     channel,
@@ -933,8 +942,8 @@ function chatgptHeaders(
     sessionId: string;
     threadId: string;
   },
-  attestation: string
-): Record<string, string> {
+  attestation: string,
+) {
   return {
     Authorization: `Bearer ${auth.accessToken}`,
     "chatgpt-account-id": auth.accountId,
@@ -955,10 +964,6 @@ function parseCallId(location: string | null): string | undefined {
   return withoutQuery?.split("/").findLast(Boolean);
 }
 
-function normalizeError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
-}
-
 function bindingKey(binding: DelegationBinding): string {
   return `${binding.callId}\0${binding.delegationId}`;
 }
@@ -971,8 +976,4 @@ function rawDataText(data: WebSocket.RawData): string {
     return Buffer.concat(data).toString("utf-8");
   }
   return Buffer.from(data).toString("utf-8");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

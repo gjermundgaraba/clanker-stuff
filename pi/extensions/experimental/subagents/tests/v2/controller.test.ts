@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { DEFAULT_CONFIG } from "../../config.js";
 import type { RoleConfig } from "../../config.js";
@@ -10,29 +9,18 @@ import { TreeCoordinator } from "../../coordinator.js";
 import { NicknamePool } from "../../nicknames.js";
 import { PermanentChildError } from "../../permanent-error.js";
 import type { ChildRuntimeFactory } from "../../runtime.js";
-import {
-  freshSnapshot,
-  createMemoryControlStore,
-  rootBinding,
-} from "../../snapshot.js";
+import { freshSnapshot, createMemoryControlStore, rootBinding } from "../../snapshot.js";
 import { V2Controller } from "../../v2/controller.js";
-import {
-  createChildContext,
-  FakeChildRuntime,
-} from "../fixtures/child-runtime.js";
+import { createChildContext, FakeChildRuntime } from "../fixtures/child-runtime.js";
 
 const setup = async (
   maximum = 3,
   roles: Record<string, RoleConfig> = {},
-  failPersistence = false
+  failPersistence = false,
 ) => {
   const root = rootBinding("v2-test");
   const coordinator = new TreeCoordinator();
-  await coordinator.install(
-    createMemoryControlStore(),
-    freshSnapshot("v2", root),
-    true
-  );
+  await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), true);
   const runtimes: FakeChildRuntime[] = [];
   const config = {
     ...structuredClone(DEFAULT_CONFIG),
@@ -41,19 +29,14 @@ const setup = async (
   };
   const prompts: string[] = [];
   const runtimeLoads: PromiseWithResolvers<FakeChildRuntime>[] = [];
-  const createRuntime = vi.fn<ChildRuntimeFactory>(
-    async ({ identity, prompt }) => {
-      prompts.push(prompt);
-      const pending = runtimeLoads.shift();
-      const runtime =
-        pending === undefined
-          ? new FakeChildRuntime(identity)
-          : await pending.promise;
-      runtime.failPersistence = failPersistence;
-      runtimes.push(runtime);
-      return runtime;
-    }
-  );
+  const createRuntime = vi.fn<ChildRuntimeFactory>(async ({ identity, prompt }) => {
+    prompts.push(prompt);
+    const pending = runtimeLoads.shift();
+    const runtime = pending === undefined ? new FakeChildRuntime(identity) : await pending.promise;
+    runtime.failPersistence = failPersistence;
+    runtimes.push(runtime);
+    return runtime;
+  });
   const controller = new V2Controller({
     config,
     coordinator,
@@ -68,11 +51,7 @@ const setup = async (
     })(),
     nicknames: new NicknamePool(config, () => 0),
   });
-  controller.setRoot(
-    { getActiveTools: () => ["read"] } as ExtensionAPI,
-    undefined,
-    false
-  );
+  controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
   return {
     controller,
     coordinator,
@@ -94,7 +73,7 @@ describe("V2 controller", () => {
         message: "work",
         taskName: "worker",
       },
-      ctx
+      ctx,
     );
     expect(spawned.task_name).toBe("/root/worker");
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
@@ -137,7 +116,7 @@ describe("V2 controller", () => {
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     await controller.sendMessage("/root", "worker", "context", ctx);
@@ -145,11 +124,9 @@ describe("V2 controller", () => {
     await vi.waitFor(() =>
       expect(
         coordinator.state.protocolLatch === "v2"
-          ? coordinator.state.state.communications.some(
-              ({ content }) => content === "context"
-            )
-          : true
-      ).toBeFalsy()
+          ? coordinator.state.state.communications.some(({ content }) => content === "context")
+          : true,
+      ).toBeFalsy(),
     );
   });
 
@@ -160,7 +137,7 @@ describe("V2 controller", () => {
       await controller.spawn(
         "/root",
         { forkTurns: "none", message: "work", taskName: "worker" },
-        ctx
+        ctx,
       );
       await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
       const [runtime] = runtimes;
@@ -182,7 +159,7 @@ describe("V2 controller", () => {
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     const [runtime] = runtimes;
@@ -208,7 +185,7 @@ describe("V2 controller", () => {
       expect(controller.list("/root")[1]).toMatchObject({
         lastAnswer: "second done",
         status: "completed",
-      })
+      }),
     );
   });
 
@@ -218,15 +195,15 @@ describe("V2 controller", () => {
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
 
     await vi.waitFor(() =>
       expect(
         coordinator.state.protocolLatch === "v2"
           ? coordinator.state.state.nodes[0]?.status
-          : undefined
-      ).toBe("errored")
+          : undefined,
+      ).toBe("errored"),
     );
     expect(controller.rootDeliveries()).toHaveLength(1);
   });
@@ -236,7 +213,7 @@ describe("V2 controller", () => {
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     const turn = runtimes[0]?.turns[0];
@@ -253,22 +230,18 @@ describe("V2 controller", () => {
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     await vi.waitFor(() =>
       expect(
         coordinator.state.protocolLatch === "v2"
           ? coordinator.state.state.nodes[0]?.status
-          : undefined
-      ).toBe("running")
+          : undefined,
+      ).toBe("running"),
     );
 
     await controller.reset();
-    controller.setRoot(
-      { getActiveTools: () => ["read"] } as ExtensionAPI,
-      undefined,
-      false
-    );
+    controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     await controller.restore(ctx);
 
     expect(coordinator.state).toMatchObject({
@@ -277,9 +250,7 @@ describe("V2 controller", () => {
       },
     });
     expect(
-      coordinator.state.protocolLatch === "v2"
-        ? coordinator.state.state.nodes[0]
-        : {}
+      coordinator.state.protocolLatch === "v2" ? coordinator.state.state.nodes[0] : {},
     ).not.toHaveProperty("activeDeliveryId");
     expect(runtimes).toHaveLength(1);
   });
@@ -334,21 +305,12 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
-    controller.setRoot(
-      { getActiveTools: () => ["read"] } as ExtensionAPI,
-      undefined,
-      false
-    );
+    controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
 
     await controller.restore(createChildContext());
 
     await vi.waitFor(() => expect(runtimes).toHaveLength(3));
-    expect(attempts).toStrictEqual([
-      "/root/first",
-      "/root/second",
-      "/root/third",
-      "/root/first",
-    ]);
+    expect(attempts).toStrictEqual(["/root/first", "/root/second", "/root/third", "/root/first"]);
     expect(runtimes.map(({ calls }) => calls[0]?.content)).toStrictEqual([
       expect.stringContaining("second message"),
       expect.stringContaining("third message"),
@@ -392,16 +354,12 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
-    controller.setRoot(
-      { getActiveTools: () => ["read"] } as ExtensionAPI,
-      undefined,
-      false
-    );
+    controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     const ctx = createChildContext();
 
-    await expect(
-      controller.sendMessage("/root", "worker", "first", ctx)
-    ).rejects.toThrow("load failed");
+    await expect(controller.sendMessage("/root", "worker", "first", ctx)).rejects.toThrow(
+      "load failed",
+    );
     await controller.sendMessage("/root", "worker", "second", ctx);
 
     expect(attempts).toBe(2);
@@ -446,11 +404,7 @@ describe("V2 controller", () => {
         dataDir: "/tmp/subagent-test",
         nicknames: new NicknamePool(DEFAULT_CONFIG, () => 0),
       });
-      controller.setRoot(
-        { getActiveTools: () => ["read"] } as ExtensionAPI,
-        undefined,
-        false
-      );
+      controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
 
       await controller.restore(createChildContext());
       await vi.waitFor(() => expect(attempts).toBe(1));
@@ -467,7 +421,7 @@ describe("V2 controller", () => {
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "first", taskName: "first" },
-      ctx
+      ctx,
     );
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     const [runtime] = runtimes;
@@ -480,25 +434,19 @@ describe("V2 controller", () => {
     await vi.waitFor(() => expect(controller.rootDeliveries()).toHaveLength(1));
 
     await expect(
-      controller.spawn(
-        "/root",
-        { forkTurns: "none", message: "second", taskName: "second" },
-        ctx
-      )
+      controller.spawn("/root", { forkTurns: "none", message: "second", taskName: "second" }, ctx),
     ).rejects.toThrow("residency limit");
 
-    // oxlint-disable-next-line unicorn/no-useless-undefined -- PromiseWithResolvers requires its undefined value argument.
     disposal.resolve(undefined);
     await vi.waitFor(() =>
       expect(
-        controller.list("/root").find(({ path }) => path === "/root/first")
-          ?.resident
-      ).toBeFalsy()
+        controller.list("/root").find(({ path }) => path === "/root/first")?.resident,
+      ).toBeFalsy(),
     );
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "second", taskName: "second" },
-      ctx
+      ctx,
     );
   });
 
@@ -507,17 +455,13 @@ describe("V2 controller", () => {
 
     await expect(
       Promise.all([
-        controller.spawn(
-          "/root",
-          { forkTurns: "none", message: "first", taskName: "first" },
-          ctx
-        ),
+        controller.spawn("/root", { forkTurns: "none", message: "first", taskName: "first" }, ctx),
         controller.spawn(
           "/root",
           { forkTurns: "none", message: "second", taskName: "second" },
-          ctx
+          ctx,
         ),
-      ])
+      ]),
     ).resolves.toHaveLength(2);
   });
 
@@ -526,14 +470,10 @@ describe("V2 controller", () => {
     const first = controller.spawn(
       "/root",
       { forkTurns: "none", message: "first", taskName: "worker" },
-      ctx
+      ctx,
     );
     await expect(
-      controller.spawn(
-        "/root",
-        { forkTurns: "none", message: "second", taskName: "worker" },
-        ctx
-      )
+      controller.spawn("/root", { forkTurns: "none", message: "second", taskName: "worker" }, ctx),
     ).rejects.toThrow("Agent is already being created: /root/worker");
     await first;
 
@@ -543,11 +483,7 @@ describe("V2 controller", () => {
   it("releases nickname and residency claims after runtime creation fails", async () => {
     const root = rootBinding("v2-reservation-release");
     const coordinator = new TreeCoordinator();
-    await coordinator.install(
-      createMemoryControlStore(),
-      freshSnapshot("v2", root),
-      true
-    );
+    await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), true);
     const config = {
       ...structuredClone(DEFAULT_CONFIG),
       max_concurrent_threads_per_session: 1,
@@ -567,44 +503,25 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
-    controller.setRoot(
-      { getActiveTools: () => ["read"] } as ExtensionAPI,
-      undefined,
-      false
-    );
+    controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     const ctx = createChildContext();
 
     await expect(
-      controller.spawn(
-        "/root",
-        { forkTurns: "none", message: "first", taskName: "first" },
-        ctx
-      )
+      controller.spawn("/root", { forkTurns: "none", message: "first", taskName: "first" }, ctx),
     ).rejects.toThrow("creation failed");
     await expect(
-      controller.spawn(
-        "/root",
-        { forkTurns: "none", message: "second", taskName: "second" },
-        ctx
-      )
+      controller.spawn("/root", { forkTurns: "none", message: "second", taskName: "second" }, ctx),
     ).resolves.toMatchObject({ nickname: "Atlas" });
 
     expect(attempts).toBe(2);
   });
 
   it("redrains queued mail when a failed spawn releases residency", async () => {
-    const {
-      controller,
-      coordinator,
-      createRuntime,
-      ctx,
-      runtimeLoads,
-      runtimes,
-    } = await setup(1);
+    const { controller, coordinator, createRuntime, ctx, runtimeLoads, runtimes } = await setup(1);
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     const firstTurn = runtimes[0]?.turns[0];
@@ -612,9 +529,8 @@ describe("V2 controller", () => {
     firstTurn.settled.resolve({ status: "completed", text: "done" });
     await vi.waitFor(() =>
       expect(
-        controller.list("/root").find(({ path }) => path === "/root/worker")
-          ?.resident
-      ).toBeFalsy()
+        controller.list("/root").find(({ path }) => path === "/root/worker")?.resident,
+      ).toBeFalsy(),
     );
 
     const failedDelivery = new FakeChildRuntime("/root/worker");
@@ -625,16 +541,14 @@ describe("V2 controller", () => {
     failedLoad.resolve(failedDelivery);
     runtimeLoads.push(failedLoad);
     await controller.sendMessage("/root", "worker", "queued context", ctx);
-    await vi.waitFor(() =>
-      expect(failedDelivery.dispose).toHaveBeenCalledOnce()
-    );
+    await vi.waitFor(() => expect(failedDelivery.dispose).toHaveBeenCalledOnce());
 
     const blockedSpawn = Promise.withResolvers<FakeChildRuntime>();
     runtimeLoads.push(blockedSpawn);
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "block", taskName: "blocker" },
-      ctx
+      ctx,
     );
     void spawning.catch(() => {});
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(3));
@@ -648,21 +562,17 @@ describe("V2 controller", () => {
       expect(
         coordinator.state.protocolLatch === "v2"
           ? coordinator.state.state.communications.some(
-              ({ content }) => content === "queued context"
+              ({ content }) => content === "queued context",
             )
-          : true
-      ).toBeFalsy()
+          : true,
+      ).toBeFalsy(),
     );
   });
 
   it("rolls back a spawn aborted during runtime creation", async () => {
     const root = rootBinding("v2-aborted-spawn");
     const coordinator = new TreeCoordinator();
-    await coordinator.install(
-      createMemoryControlStore(),
-      freshSnapshot("v2", root),
-      true
-    );
+    await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), true);
     const config = structuredClone(DEFAULT_CONFIG);
     const runtimeReady = Promise.withResolvers<FakeChildRuntime>();
     const controller = new V2Controller({
@@ -672,17 +582,13 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
-    controller.setRoot(
-      { getActiveTools: () => ["read"] } as ExtensionAPI,
-      undefined,
-      false
-    );
+    controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     const abort = new AbortController();
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
       createChildContext(),
-      abort.signal
+      abort.signal,
     );
     abort.abort(new Error("cancelled"));
     const runtime = new FakeChildRuntime("/root/worker");
@@ -701,7 +607,7 @@ describe("V2 controller", () => {
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     void spawning.catch(() => {});
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
@@ -713,11 +619,7 @@ describe("V2 controller", () => {
     await Promise.resolve();
     expect(stopped).toBeFalsy();
     await expect(
-      controller.spawn(
-        "/root",
-        { forkTurns: "none", message: "late work", taskName: "late" },
-        ctx
-      )
+      controller.spawn("/root", { forkTurns: "none", message: "late work", taskName: "late" }, ctx),
     ).rejects.toThrow("Subagent controller is shutting down");
     expect(createRuntime).toHaveBeenCalledOnce();
 
@@ -736,18 +638,14 @@ describe("V2 controller", () => {
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     void spawning.catch(() => {});
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
 
     const reset = controller.reset();
     await expect(
-      controller.spawn(
-        "/root",
-        { forkTurns: "none", message: "late work", taskName: "late" },
-        ctx
-      )
+      controller.spawn("/root", { forkTurns: "none", message: "late work", taskName: "late" }, ctx),
     ).rejects.toThrow("Subagent controller is shutting down");
 
     const staleRuntime = new FakeChildRuntime("/root/worker");
@@ -760,18 +658,17 @@ describe("V2 controller", () => {
       controller.spawn(
         "/root",
         { forkTurns: "none", message: "new work", taskName: "worker" },
-        ctx
-      )
+        ctx,
+      ),
     ).resolves.toMatchObject({ task_name: "/root/worker" });
   });
 
   it("waits for an in-flight runtime load during shutdown", async () => {
-    const { controller, createRuntime, ctx, runtimeLoads, runtimes } =
-      await setup();
+    const { controller, createRuntime, ctx, runtimeLoads, runtimes } = await setup();
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "first", taskName: "worker" },
-      ctx
+      ctx,
     );
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     const firstTurn = runtimes[0]?.turns[0];
@@ -779,9 +676,8 @@ describe("V2 controller", () => {
     firstTurn.settled.resolve({ status: "completed", text: "done" });
     await vi.waitFor(() =>
       expect(
-        controller.list("/root").find(({ path }) => path === "/root/worker")
-          ?.resident
-      ).toBeFalsy()
+        controller.list("/root").find(({ path }) => path === "/root/worker")?.resident,
+      ).toBeFalsy(),
     );
 
     const pending = Promise.withResolvers<FakeChildRuntime>();
@@ -816,15 +712,13 @@ describe("V2 controller", () => {
         message: "first",
         taskName: "worker",
       },
-      ctx
+      ctx,
     );
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     const firstTurn = runtimes[0]?.turns[0];
     assert.ok(firstTurn);
     firstTurn.settled.resolve({ status: "completed", text: "done" });
-    await vi.waitFor(() =>
-      expect(controller.list("/root")[1]?.resident).toBeFalsy()
-    );
+    await vi.waitFor(() => expect(controller.list("/root")[1]?.resident).toBeFalsy());
 
     await controller.followUp("/root", "worker", "second", ctx);
 
@@ -834,7 +728,7 @@ describe("V2 controller", () => {
       expect(controller.list("/root")[1]).toMatchObject({
         lastAnswer: "done",
         status: "running",
-      })
+      }),
     );
   });
 
@@ -871,15 +765,11 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
-    controller.setRoot(
-      { getActiveTools: () => ["read"] } as ExtensionAPI,
-      undefined,
-      false
-    );
+    controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
 
-    await expect(
-      controller.interrupt("/root", "worker")
-    ).resolves.toStrictEqual({ previous_status: "pending_init" });
+    await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
+      previous_status: "pending_init",
+    });
     expect(coordinator.state).toMatchObject({
       state: {
         communications: [],
@@ -893,7 +783,7 @@ describe("V2 controller", () => {
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
-      ctx
+      ctx,
     );
     const [runtime] = runtimes;
     assert.ok(runtime);
@@ -909,15 +799,13 @@ describe("V2 controller", () => {
     const interrupting = controller.interrupt("/root", "worker", abort.signal);
     void interrupting.catch(() => {});
     abort.abort(new Error("cancelled"));
-    // oxlint-disable-next-line unicorn/no-useless-undefined -- PromiseWithResolvers requires its undefined value argument.
     delivery.resolve(undefined);
 
     await expect(interrupting).rejects.toThrow("cancelled");
     expect(abortRuntime).not.toHaveBeenCalled();
-    expect(
-      controller.list("/root").find(({ path }) => path === "/root/worker")
-        ?.status
-    ).toBe("running");
+    expect(controller.list("/root").find(({ path }) => path === "/root/worker")?.status).toBe(
+      "running",
+    );
   });
 
   it("subscribes before checking mailbox activity", async () => {

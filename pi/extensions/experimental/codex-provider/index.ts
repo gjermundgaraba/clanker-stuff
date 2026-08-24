@@ -16,9 +16,7 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
     type: "boolean",
   });
 
-  pi.registerProvider(
-    createLazyCodexProvider(runtime.catalog, runtime.loadProvider)
-  );
+  pi.registerProvider(createLazyCodexProvider(runtime.catalog, runtime.loadProvider));
   registerCheckpointRenderer(pi);
   registerCodexTools(pi, footer.setCodeMode);
 
@@ -32,15 +30,11 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
     handler: (args, ctx) => runtime.command(args, ctx),
   });
 
-  pi.on("session_start", (event, ctx) =>
-    runtime.sessionStart(ctx, event.reason === "startup")
-  );
+  pi.on("session_start", (event, ctx) => runtime.sessionStart(ctx, event.reason === "startup"));
   pi.on("model_select", (event, ctx) => {
     runtime.modelSelect(event, ctx);
   });
-  pi.on("before_agent_start", (event, ctx) =>
-    exposeSkillsWithoutRead(event, ctx)
-  );
+  pi.on("before_agent_start", (event, ctx) => exposeSkillsWithoutRead(event, ctx));
   pi.on("before_agent_start", (_event, ctx) => runtime.beforeAgentStart(ctx));
   pi.on("agent_settled", (_event, ctx) => {
     runtime.agentSettled(ctx);
@@ -52,17 +46,11 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => {
     footer.dispose();
   });
-  pi.on("session_before_compact", (event, ctx) =>
-    runtime.beforeCompact(event, ctx)
-  );
+  pi.on("session_before_compact", (event, ctx) => runtime.beforeCompact(event, ctx));
   pi.on("session_compact", (event, ctx) => {
     runtime.sessionCompact(event, ctx);
   });
   pi.on("context", (event, ctx) => runtime.context(event, ctx));
-  pi.on("before_provider_request", (event, ctx) =>
-    runtime.beforeProviderRequest(event, ctx)
-  );
-  pi.on("before_provider_headers", (event, ctx) =>
-    runtime.beforeProviderHeaders(event, ctx)
-  );
+  pi.on("before_provider_request", (event, ctx) => runtime.beforeProviderRequest(event, ctx));
+  pi.on("before_provider_headers", (event, ctx) => runtime.beforeProviderHeaders(event, ctx));
 }

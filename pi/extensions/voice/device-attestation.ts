@@ -1,17 +1,18 @@
-/* eslint-disable no-use-before-define, complexity, func-style */
-
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+
 const DEFAULT_CODEX_APP_PATH = "/Applications/ChatGPT.app";
 const DEFAULT_BUNDLE_IDENTIFIER = "com.openai.codex";
 const ATTESTATION_TOKEN_VERSION = "v1";
 const PROCESS_APP_SESSION_ID = randomUUID();
 const requireNative = createRequire(import.meta.url);
-// oxlint-disable-next-line typescript/strict-void-return -- Node exposes a promisify implementation for execFile
 const execFileAsync = promisify(execFile);
 const MACOS_SIGNALS_SCRIPT = `
 ObjC.import('AppKit')
@@ -31,7 +32,7 @@ let defaultSignalsPromise: Promise<DeviceAttestationSignals> | undefined;
 
 interface DeviceCheckResult {
   supported?: boolean;
-  tokenBase64?: string;
+  tokenBase64: string;
   latencyMs?: number;
 }
 
@@ -60,33 +61,27 @@ export interface CodexDesktopAttestationOptions {
 }
 
 export async function createCodexDesktopAttestationHeader(
-  options: CodexDesktopAttestationOptions = {}
+  options: CodexDesktopAttestationOptions = {},
 ): Promise<string> {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
   if (platform !== "darwin" || arch !== "arm64") {
     throw new Error(
-      `Codex Desktop DeviceCheck attestation requires macOS arm64; received ${platform} ${arch}.`
+      `Codex Desktop DeviceCheck attestation requires macOS arm64; received ${platform} ${arch}.`,
     );
   }
 
   const appPath = options.codexAppPath ?? DEFAULT_CODEX_APP_PATH;
   const addonPath =
-    options.addonPath ??
-    path.join(appPath, "Contents", "Resources", "native", "devicecheck.node");
+    options.addonPath ?? path.join(appPath, "Contents", "Resources", "native", "devicecheck.node");
 
-  let addon: unknown;
+  let addon: DeviceCheckAddon;
   try {
     addon = (options.loadAddon ?? loadDeviceCheckAddon)(addonPath);
   } catch (error) {
     throw new Error(
       `Could not load Codex Desktop DeviceCheck from ${addonPath}: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error }
-    );
-  }
-  if (!isDeviceCheckAddon(addon)) {
-    throw new Error(
-      `Codex Desktop DeviceCheck at ${addonPath} does not export generateToken().`
+      { cause: error },
     );
   }
 
@@ -97,24 +92,19 @@ export async function createCodexDesktopAttestationHeader(
   } catch (error) {
     throw new Error(
       `Codex Desktop DeviceCheck token generation failed: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error }
+      { cause: error },
     );
   }
   if (result.supported !== true) {
-    throw new Error(
-      "Codex Desktop DeviceCheck reported that attestation is unavailable."
-    );
+    throw new Error("Codex Desktop DeviceCheck reported that attestation is unavailable.");
   }
-  if (
-    typeof result.tokenBase64 !== "string" ||
-    result.tokenBase64.trim().length === 0
-  ) {
+  if (result.tokenBase64.trim().length === 0) {
     throw new Error("Codex Desktop DeviceCheck returned no token.");
   }
 
   const latencyMs =
-    Number.isFinite(result.latencyMs) && Number(result.latencyMs) >= 0
-      ? Number(result.latencyMs)
+    result.latencyMs !== undefined && Number.isFinite(result.latencyMs) && result.latencyMs >= 0
+      ? result.latencyMs
       : Math.max(0, performance.now() - startedAt);
   const token = buildCodexDesktopAttestationToken({
     bundleIdentifier: options.bundleIdentifier ?? DEFAULT_BUNDLE_IDENTIFIER,
@@ -142,57 +132,46 @@ export function buildCodexDesktopAttestationToken(input: {
 }
 
 function loadDeviceCheckAddon(addonPath: string): DeviceCheckAddon {
-  const addon: unknown = requireNative(addonPath);
-  if (!isDeviceCheckAddon(addon)) {
-    throw new Error("The DeviceCheck module does not export generateToken().");
-  }
-  return addon;
+  return requireNative(addonPath);
 }
+
+const MacosSignalsSchema = Type.Object({
+  height: Type.Optional(Type.Number()),
+  languages: Type.Optional(Type.Array(Type.String())),
+  locale: Type.Optional(Type.String()),
+  scale: Type.Optional(Type.Number()),
+  timezone: Type.Optional(Type.String()),
+  width: Type.Optional(Type.Number()),
+});
+
+type MacosSignals = Static<typeof MacosSignalsSchema>;
 
 async function resolveDefaultSignals(): Promise<DeviceAttestationSignals> {
   const resolved = Intl.DateTimeFormat().resolvedOptions();
-  const fallbackLocale = boundedText(
-    resolved.locale.length > 0 ? resolved.locale : "unknown",
-    64
-  );
-  let macos: {
-    languages?: unknown;
-    locale?: unknown;
-    timezone?: unknown;
-    width?: unknown;
-    height?: unknown;
-    scale?: unknown;
-  } = {};
+  const fallbackLocale = boundedText(resolved.locale.length > 0 ? resolved.locale : "unknown", 64);
+  let macos: MacosSignals = {};
   try {
     const { stdout } = await execFileAsync(
       "/usr/bin/osascript",
       ["-l", "JavaScript", "-e", MACOS_SIGNALS_SCRIPT],
-      { encoding: "utf-8", timeout: 2000 }
+      { encoding: "utf-8", timeout: 2000 },
     );
     const parsed: unknown = JSON.parse(stdout);
-    if (isRecord(parsed)) {
-      macos = parsed;
+    if (Value.Check(MacosSignalsSchema, parsed)) {
+      macos = Value.Parse(MacosSignalsSchema, parsed);
     }
   } catch {
     // Fall back to Node's locale and timezone signals.
   }
   const locale =
-    typeof macos.locale === "string"
-      ? boundedText(
-          macos.locale.split("@", 1)[0]?.replaceAll("_", "-") ?? fallbackLocale,
-          64
-        )
+    macos.locale !== undefined
+      ? boundedText(macos.locale.split("@", 1)[0]?.replaceAll("_", "-") ?? fallbackLocale, 64)
       : fallbackLocale;
-  const languages = Array.isArray(macos.languages)
-    ? macos.languages.filter(
-        (value): value is string => typeof value === "string"
-      )
-    : [];
+  const languages = macos.languages ?? [];
   const width = finiteNonNegative(macos.width);
   const height = finiteNonNegative(macos.height);
   const scale = finiteNonNegative(macos.scale);
-  const timezone =
-    typeof macos.timezone === "string" ? macos.timezone : resolved.timeZone;
+  const timezone = macos.timezone !== undefined ? macos.timezone : resolved.timeZone;
   return {
     appSessionId: PROCESS_APP_SESSION_ID,
     locale,
@@ -241,15 +220,13 @@ function cborIntegerPair(key: number, value: number): Buffer {
 }
 
 function cborNumber(value: number): Buffer {
-  return Number.isSafeInteger(value) && value >= 0
-    ? cborUnsigned(value)
-    : cborFloat(value);
+  return Number.isSafeInteger(value) && value >= 0 ? cborUnsigned(value) : cborFloat(value);
 }
 
 function cborUnsigned(value: number): Buffer {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new TypeError(
-      `CBOR unsigned integer must be a non-negative safe integer; received ${value}.`
+      `CBOR unsigned integer must be a non-negative safe integer; received ${value}.`,
     );
   }
   return cborLength(0, value);
@@ -273,9 +250,7 @@ function cborText(value: string): Buffer {
 function cborLength(majorType: number, value: number): Buffer {
   const prefix = majorType * 32;
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(
-      `CBOR length must be a non-negative safe integer; received ${value}.`
-    );
+    throw new Error(`CBOR length must be a non-negative safe integer; received ${value}.`);
   }
   if (value < 24) {
     return Buffer.from([prefix + value]);
@@ -302,21 +277,6 @@ function boundedText(value: string, maxLength: number): string {
   return value.slice(0, maxLength);
 }
 
-function finiteNonNegative(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? value
-    : null;
-}
-
-function isDeviceCheckAddon(value: unknown): value is DeviceCheckAddon {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "generateToken" in value &&
-    typeof value.generateToken === "function"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function finiteNonNegative(value: number | undefined): number | null {
+  return value !== undefined && Number.isFinite(value) && value >= 0 ? value : null;
 }

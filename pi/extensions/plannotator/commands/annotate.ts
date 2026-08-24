@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import {
   findAnnotationTarget,
@@ -32,7 +29,7 @@ export const createAnnotateHandler =
     if (target === undefined) {
       ctx.ui.notify(
         "Usage: /plannotator-annotate <file | folder | URL> [--markdown] [--no-jina] [--gate]",
-        "error"
+        "error",
       );
       return;
     }
@@ -52,15 +49,12 @@ export const createAnnotateHandler =
 
         const feedback = outcome.feedback.trim();
         if (feedback.length === 0) {
-          ctx.ui.notify(
-            "Plannotator annotation closed without feedback.",
-            "info"
-          );
+          ctx.ui.notify("Plannotator annotation closed without feedback.", "info");
           return;
         }
         pi.sendUserMessage(
           `# Markdown Annotations\n\nFile: ${target}\n\n${feedback}\n\nPlease address the annotation feedback above.`,
-          { deliverAs: "followUp" }
+          { deliverAs: "followUp" },
         );
       },
       openedMessage: "Plannotator annotation opened.",

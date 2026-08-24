@@ -6,6 +6,7 @@ import type { FooterIconFamily } from "@clanker-stuff/footer-protocol";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 export interface FooterRowConfig {
@@ -28,10 +29,9 @@ export interface FooterConfig {
 }
 
 const STRICT = { additionalProperties: false } as const;
-const WidgetOverrideSchema = Type.Object(
-  { enabled: Type.Optional(Type.Boolean()) },
-  STRICT
-);
+const FooterConfigInputSchema = Type.Unknown();
+type FooterConfigInput = Static<typeof FooterConfigInputSchema>;
+const WidgetOverrideSchema = Type.Object({ enabled: Type.Optional(Type.Boolean()) }, STRICT);
 const WidgetIdSchema = Type.String({ maxLength: 256, minLength: 1 });
 const RowSchema = Type.Object(
   {
@@ -39,22 +39,18 @@ const RowSchema = Type.Object(
     left: Type.Array(WidgetIdSchema),
     right: Type.Array(WidgetIdSchema),
   },
-  STRICT
+  STRICT,
 );
 const FooterConfigSchema = Type.Object(
   {
     enabled: Type.Boolean(),
-    iconFamily: Type.Union([
-      Type.Literal("ascii"),
-      Type.Literal("unicode"),
-      Type.Literal("nerd"),
-    ]),
+    iconFamily: Type.Union([Type.Literal("ascii"), Type.Literal("unicode"), Type.Literal("nerd")]),
     rows: Type.Array(RowSchema, { maxItems: 3, minItems: 1 }),
     separator: Type.String({ maxLength: 8 }),
     version: Type.Literal(1),
     widgets: Type.Record(Type.String(), WidgetOverrideSchema),
   },
-  STRICT
+  STRICT,
 );
 
 export const DEFAULT_CONFIG: FooterConfig = {
@@ -123,7 +119,7 @@ const validateId = (id: string): void => {
   }
 };
 
-export const parseFooterConfig = (value: unknown): FooterConfig => {
+export const parseFooterConfig = (value: FooterConfigInput): FooterConfig => {
   if (!Value.Check(FooterConfigSchema, value)) {
     throw new Error("config must be a strict object");
   }
@@ -141,11 +137,8 @@ export const parseFooterConfig = (value: unknown): FooterConfig => {
         throw new Error("widget override ID is invalid");
       }
       validateId(id);
-      return [
-        id,
-        override.enabled === undefined ? {} : { enabled: override.enabled },
-      ];
-    })
+      return [id, override.enabled === undefined ? {} : { enabled: override.enabled }];
+    }),
   );
   return {
     enabled: value.enabled,
@@ -161,20 +154,14 @@ export const parseFooterConfig = (value: unknown): FooterConfig => {
   };
 };
 
-export const cloneFooterConfig = (config: FooterConfig): FooterConfig =>
-  structuredClone(config);
+export const cloneFooterConfig = (config: FooterConfig): FooterConfig => structuredClone(config);
 
-const errorCode = (error: unknown): string | undefined =>
-  typeof error === "object" && error !== null && "code" in error
-    ? String(error.code)
-    : undefined;
+const errorCode = (cause: unknown): string | undefined =>
+  cause instanceof Object && "code" in cause ? String(cause.code) : undefined;
 
-export const getFooterConfigPath = (): string =>
-  getExtensionStoragePaths("footer").configFile;
+export const getFooterConfigPath = (): string => getExtensionStoragePaths("footer").configFile;
 
-export const createFooterConfigStore = (
-  configPath = getFooterConfigPath()
-): FooterConfigStore => {
+export const createFooterConfigStore = (configPath = getFooterConfigPath()): FooterConfigStore => {
   const targetPath = path.resolve(configPath);
   return {
     async load() {
@@ -210,14 +197,10 @@ export const createFooterConfigStore = (
         await mkdir(path.dirname(targetPath), { recursive: true });
         const temporary = `${targetPath}.tmp-${process.pid}-${randomUUID()}`;
         try {
-          await writeFile(
-            temporary,
-            `${JSON.stringify(validated, null, 2)}\n`,
-            {
-              encoding: "utf-8",
-              mode: 0o600,
-            }
-          );
+          await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
+            encoding: "utf-8",
+            mode: 0o600,
+          });
           await rename(temporary, targetPath);
         } finally {
           await rm(temporary, { force: true });

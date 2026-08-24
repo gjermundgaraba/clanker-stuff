@@ -40,19 +40,22 @@
   },
   "dependencies": {
     "@clanker-stuff/lazy-singleton": "workspace:^",
-    "electron": "43.2.0",
-    "ws": "^8.21.1"
+    "electron": "43.4.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "pi": {
     "extensions": [

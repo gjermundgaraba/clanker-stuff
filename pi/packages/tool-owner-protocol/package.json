@@ -27,11 +27,16 @@
   "publishConfig": {
     "access": "public"
   },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   }
 }

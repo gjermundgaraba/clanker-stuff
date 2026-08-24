@@ -1,8 +1,5 @@
-import type {
-  ExtensionUIContext,
-  KeybindingsManager,
-} from "@earendil-works/pi-coding-agent";
-import { expect } from "vitest";
+import type { ExtensionUIContext, KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import { expect } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
@@ -11,18 +8,14 @@ import {
 } from "../../../tests/harness/tui.js";
 import { runAskQuestionPrompt } from "../dialog/controller.js";
 import askQuestion from "../index.js";
-import { parseQuestionsFromParameters } from "../tool.js";
-import type {
-  buildCancelledToolResult,
-  buildSuccessToolResult,
-} from "../tool.js";
+import { executeAskQuestion, parseQuestionsFromParameters } from "../tool.js";
+import type { AskQuestionParameters } from "../tool.js";
+import type { buildCancelledToolResult, buildSuccessToolResult } from "../tool.js";
 
-type FlowResult = Awaited<ReturnType<typeof runAskQuestionPrompt>>;
-type AskQuestionKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
 interface HarnessOptions {
   customKeys?: string[];
   mode?: "json" | "rpc" | "tui";
-  customKeybindings?: AskQuestionKeybindings;
+  customKeybindings?: KeybindingsManager;
   custom?: ExtensionUIContext["custom"];
   signal?: AbortSignal;
 }
@@ -71,8 +64,8 @@ export const expectCancelledResult = (result: ToolResult): CancelledDetails => {
 };
 
 export const executeTool = async (
-  params: unknown,
-  options: HarnessOptions = {}
+  params: AskQuestionParameters,
+  options: HarnessOptions = {},
 ): Promise<{
   result: ToolResult;
   abortCalls: number;
@@ -81,41 +74,41 @@ export const executeTool = async (
   const host = createAskQuestionHost();
   const blockedEvents: unknown[] = [];
   host.events.on("herdr:blocked", (data) => blockedEvents.push(data));
-  const customUi = createCustomUiDriver<FlowResult>({
+  const customUi = createCustomUiDriver({
     keybindings: options.customKeybindings ?? DEFAULT_KEYBINDINGS,
     keys: options.customKeys ?? [],
   });
   let abortCalls = 0;
 
-  const ctx = host.createContext({
-    ...(options.mode === undefined ? {} : { mode: options.mode }),
+  const base = {
     abort: () => {
       abortCalls += 1;
     },
     ui: {
       custom: options.custom ?? customUi.custom,
     },
-  });
+  };
+  const ctx = host.createContext(
+    options.mode === undefined ? base : { ...base, mode: options.mode },
+  );
 
-  const result = (await host.runTool("ask_question", params, {
-    ctx,
-    signal: options.signal,
-  })) as ToolResult;
+  const result = await executeAskQuestion(host, params, options.signal, ctx);
 
   return { abortCalls, blockedEvents, result };
 };
 
 export const renderFlowWithKeys = async (
-  params: unknown,
+  params: AskQuestionParameters,
   keys: string[],
-  keybindings: AskQuestionKeybindings = DEFAULT_KEYBINDINGS
+  keybindings: KeybindingsManager = DEFAULT_KEYBINDINGS,
 ): Promise<string> => {
   const host = createAskQuestionHost();
-  const customUi = createCustomUiDriver<FlowResult>({
+  const abortController = new AbortController();
+  const customUi = createCustomUiDriver({
     captureRender: "after",
     keybindings,
     keys,
-    resolveWith: { cancelled: true, reason: "user_cancelled" },
+    onAfterCapture: () => abortController.abort(),
   });
   const ctx = host.createContext({
     ui: {
@@ -123,7 +116,7 @@ export const renderFlowWithKeys = async (
     },
   });
 
-  await runAskQuestionPrompt(ctx, parseQuestionsFromParameters(params));
+  await runAskQuestionPrompt(ctx, parseQuestionsFromParameters(params), abortController.signal);
 
   return customUi.getLastRender() ?? "";
 };

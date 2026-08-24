@@ -1,23 +1,26 @@
 import { once } from "node:events";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import type { Server } from "node:http";
 import path from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { z } from "zod/v4";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import mcp from "../index.js";
-import {
-  PersistentMcpOAuthProvider,
-  startOAuthCallbackServer,
-} from "../oauth.js";
+import { PersistentMcpOAuthProvider, startOAuthCallbackServer } from "../oauth.js";
 import { FIXTURE_ACCESS_TOKEN } from "./fixtures/http-server.js";
 import { setupMcpTest } from "./helpers.js";
+
+const listeningPort = (server: Server): number => {
+  return z.object({ port: z.number() }).parse(server.address()).port;
+};
 
 const availablePort = async (): Promise<number> => {
   const server = createServer();
   server.listen(0, "localhost");
   await once(server, "listening");
-  const { port } = server.address() as { port: number };
+  const port = listeningPort(server);
   server.close();
   await once(server, "close");
   return port;
@@ -46,9 +49,7 @@ describe("mcp oauth", () => {
       }
       const [, url] = message.split("\n");
       if (url === undefined) {
-        authorization.reject(
-          new Error("OAuth authorization URL was not shown")
-        );
+        authorization.reject(new Error("OAuth authorization URL was not shown"));
         return;
       }
       void fetch(url).then(authorization.resolve, authorization.reject);
@@ -62,9 +63,9 @@ describe("mcp oauth", () => {
 
     expect(notify).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^Authorize MCP server remote:\nhttps?:\/\/.+\nWaiting for OAuth authorization\.\.\.$/u
+        /^Authorize MCP server remote:\nhttps?:\/\/.+\nWaiting for OAuth authorization\.\.\.$/u,
       ),
-      "info"
+      "info",
     );
 
     const result = await host.runTool("mcp_remote__search", {
@@ -75,9 +76,7 @@ describe("mcp oauth", () => {
       type: "text",
     });
     expect(
-      JSON.parse(
-        await readFile(path.join(t.dataDir, "mcp-oauth.json"), "utf-8")
-      )
+      JSON.parse(await readFile(path.join(t.dataDir, "mcp-oauth.json"), "utf-8")),
     ).toMatchObject({
       servers: {
         remote: {
@@ -98,7 +97,7 @@ describe("mcp oauth", () => {
           clientSecret: "client-secret",
           scopes: "tools resources",
         },
-        vi.fn<() => void>()
+        vi.fn<() => void>(),
       );
 
       await expect(provider.clientInformation()).resolves.toStrictEqual({
@@ -106,16 +105,14 @@ describe("mcp oauth", () => {
         client_secret: "client-secret",
       });
       expect(provider.clientMetadata.scope).toBe("tools resources");
-      expect(provider.redirectUrl.toString()).toBe(
-        "http://localhost:33419/callback"
-      );
+      expect(provider.redirectUrl.toString()).toBe("http://localhost:33419/callback");
     });
 
     it("persists dynamic client information and tokens per server", async () => {
       const provider = new PersistentMcpOAuthProvider(
         "remote",
         { scopes: "tools" },
-        vi.fn<() => void>()
+        vi.fn<() => void>(),
       );
 
       await provider.saveClientInformation({ client_id: "dynamic-client" });
@@ -133,9 +130,7 @@ describe("mcp oauth", () => {
         refresh_token: "refresh-token",
       });
       expect(
-        JSON.parse(
-          await readFile(path.join(t.dataDir, "mcp-oauth.json"), "utf-8")
-        )
+        JSON.parse(await readFile(path.join(t.dataDir, "mcp-oauth.json"), "utf-8")),
       ).toMatchObject({
         servers: {
           remote: {
@@ -152,7 +147,7 @@ describe("mcp oauth", () => {
         const provider = new PersistentMcpOAuthProvider(
           "remote",
           { scopes: "tools" },
-          vi.fn<() => void>()
+          vi.fn<() => void>(),
         );
 
         await provider.saveTokens({
@@ -162,14 +157,14 @@ describe("mcp oauth", () => {
         const file = await stat(path.join(t.dataDir, "mcp-oauth.json"));
 
         expect(file.mode % 0o1000).toBe(0o600);
-      }
+      },
     );
 
     it("round-trips the SEP-2352 issuer stamp on stored credentials", async () => {
       const provider = new PersistentMcpOAuthProvider(
         "remote",
         { scopes: "tools" },
-        vi.fn<() => void>()
+        vi.fn<() => void>(),
       );
 
       // saveClientInformation then saveTokens mirrors the SDK auth flow; the
@@ -199,7 +194,7 @@ describe("mcp oauth", () => {
       const provider = new PersistentMcpOAuthProvider(
         "remote",
         { scopes: "tools" },
-        vi.fn<() => void>()
+        vi.fn<() => void>(),
       );
       await provider.saveClientInformation({ client_id: "dynamic-client" });
       await provider.saveTokens({
@@ -222,7 +217,7 @@ describe("mcp oauth", () => {
       const provider = new PersistentMcpOAuthProvider(
         "remote",
         { scopes: "tools" },
-        vi.fn<() => void>()
+        vi.fn<() => void>(),
       );
       await provider.saveClientInformation({ client_id: "dynamic-client" });
       await provider.saveTokens({
@@ -238,9 +233,7 @@ describe("mcp oauth", () => {
 
       await expect(provider.clientInformation()).resolves.toBeUndefined();
       await expect(provider.tokens()).resolves.toBeUndefined();
-      await expect(provider.codeVerifier()).rejects.toThrow(
-        "No MCP OAuth code verifier saved"
-      );
+      await expect(provider.codeVerifier()).rejects.toThrow("No MCP OAuth code verifier saved");
       await expect(provider.discoveryState()).resolves.toBeUndefined();
     });
 
@@ -248,7 +241,7 @@ describe("mcp oauth", () => {
       const provider = new PersistentMcpOAuthProvider(
         "remote",
         { clientId: "static-client", scopes: "tools" },
-        vi.fn<() => void>()
+        vi.fn<() => void>(),
       );
 
       await provider.invalidateCredentials("all");
@@ -261,29 +254,21 @@ describe("mcp oauth", () => {
 
     it("rejects malformed persisted OAuth state", async () => {
       await mkdir(t.dataDir, { recursive: true });
-      await writeFile(
-        path.join(t.dataDir, "mcp-oauth.json"),
-        '{"servers":null}\n',
-        "utf-8"
-      );
+      await writeFile(path.join(t.dataDir, "mcp-oauth.json"), '{"servers":null}\n', "utf-8");
       const provider = new PersistentMcpOAuthProvider(
         "remote",
         { scopes: "tools" },
-        vi.fn<() => void>()
+        vi.fn<() => void>(),
       );
 
-      await expect(provider.tokens()).rejects.toThrow(
-        "invalid MCP OAuth state"
-      );
+      await expect(provider.tokens()).rejects.toThrow("invalid MCP OAuth state");
 
       await writeFile(
         path.join(t.dataDir, "mcp-oauth.json"),
         '{"servers":{"remote":{"tokens":{"access_token":42}}}}\n',
-        "utf-8"
+        "utf-8",
       );
-      await expect(provider.tokens()).rejects.toThrow(
-        "invalid MCP OAuth state"
-      );
+      await expect(provider.tokens()).rejects.toThrow("invalid MCP OAuth state");
     });
   });
 
@@ -292,13 +277,11 @@ describe("mcp oauth", () => {
       const port = await availablePort();
       const server = await startOAuthCallbackServer(
         new URL(`http://localhost:${port}/callback`),
-        "expected-state"
+        "expected-state",
       );
       try {
         const wait = server.waitForCode();
-        const callback = fetch(
-          `http://localhost:${port}/callback?error=access_denied&state=wrong`
-        );
+        const callback = fetch(`http://localhost:${port}/callback?error=access_denied&state=wrong`);
         await expect(wait).rejects.toThrow("MCP OAuth callback state mismatch");
         await callback;
       } finally {
@@ -310,12 +293,12 @@ describe("mcp oauth", () => {
       const port = await availablePort();
       const server = await startOAuthCallbackServer(
         new URL(`http://localhost:${port}/callback`),
-        "expected-state"
+        "expected-state",
       );
       try {
         const wait = server.waitForCode();
         await fetch(
-          `http://localhost:${port}/callback?code=code-1&state=expected-state&iss=${encodeURIComponent("https://issuer.example")}`
+          `http://localhost:${port}/callback?code=code-1&state=expected-state&iss=${encodeURIComponent("https://issuer.example")}`,
         );
         await expect(wait).resolves.toStrictEqual({
           code: "code-1",
@@ -329,15 +312,13 @@ describe("mcp oauth", () => {
     it("rejects waitForCode when the abort signal fires", async () => {
       const server = await startOAuthCallbackServer(
         new URL("http://localhost:0/callback"),
-        "expected-state"
+        "expected-state",
       );
       try {
         const controller = new AbortController();
         const wait = server.waitForCode(controller.signal);
         queueMicrotask(() => controller.abort());
-        await expect(wait).rejects.toThrow(
-          "MCP OAuth authorization was cancelled"
-        );
+        await expect(wait).rejects.toThrow("MCP OAuth authorization was cancelled");
       } finally {
         await server.close();
       }
@@ -347,13 +328,10 @@ describe("mcp oauth", () => {
       const squatter = createServer();
       squatter.listen(0, "localhost");
       await once(squatter, "listening");
-      const { port } = squatter.address() as { port: number };
+      const port = listeningPort(squatter);
       try {
         await expect(
-          startOAuthCallbackServer(
-            new URL(`http://localhost:${port}/callback`),
-            "expected-state"
-          )
+          startOAuthCallbackServer(new URL(`http://localhost:${port}/callback`), "expected-state"),
         ).rejects.toMatchObject({ code: "EADDRINUSE" });
       } finally {
         squatter.close();

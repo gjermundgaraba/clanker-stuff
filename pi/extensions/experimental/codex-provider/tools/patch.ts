@@ -50,16 +50,13 @@ const getHeaderPath = (header: string, prefix: string): string => {
   return path;
 };
 
-// oxlint-disable-next-line eslint/complexity -- parses the closed Codex patch grammar
 const parsePatch = (patch: string): PatchOperation[] => {
   const lines = patch.replaceAll("\r\n", "\n").split("\n");
   if (lines.at(-1) === "") {
     lines.pop();
   }
   if (lines.shift() !== "*** Begin Patch" || lines.pop() !== "*** End Patch") {
-    throw new Error(
-      "Patch must start with *** Begin Patch and end with *** End Patch"
-    );
+    throw new Error("Patch must start with *** Begin Patch and end with *** End Patch");
   }
 
   const operations: PatchOperation[] = [];
@@ -153,12 +150,7 @@ const parsePatch = (patch: string): PatchOperation[] => {
   return operations;
 };
 
-const findSequence = (
-  source: string[],
-  expected: string[],
-  start: number,
-  eof = false
-): number => {
+const findSequence = (source: string[], expected: string[], start: number, eof = false): number => {
   if (expected.length === 0) {
     return eof ? source.length : start;
   }
@@ -195,42 +187,27 @@ const findSequence = (
 const findAnchor = (source: string[], anchor: string, start: number) =>
   source.findIndex((line, index) => index >= start && line.includes(anchor));
 
-const applySections = (
-  content: string,
-  sections: UpdateSection[],
-  filePath: string
-) => {
+const applySections = (content: string, sections: UpdateSection[], filePath: string) => {
   const finalNewline = content.endsWith("\n");
-  let source =
-    content.length === 0 ? [] : content.replace(/\n$/u, "").split("\n");
+  let source = content.length === 0 ? [] : content.replace(/\n$/u, "").split("\n");
   let cursor = 0;
 
   for (const section of sections) {
     if (section.anchor !== undefined) {
       const anchorIndex = findAnchor(source, section.anchor, cursor);
       if (anchorIndex === -1) {
-        throw new Error(
-          `Could not find patch context "${section.anchor}" in ${filePath}`
-        );
+        throw new Error(`Could not find patch context "${section.anchor}" in ${filePath}`);
       }
       cursor = anchorIndex + 1;
     }
 
-    const oldLines = section.lines
-      .filter((line) => line.kind !== "+")
-      .map((line) => line.text);
-    const newLines = section.lines
-      .filter((line) => line.kind !== "-")
-      .map((line) => line.text);
+    const oldLines = section.lines.filter((line) => line.kind !== "+").map((line) => line.text);
+    const newLines = section.lines.filter((line) => line.kind !== "-").map((line) => line.text);
     const offset = findSequence(source, oldLines, cursor, section.eof);
     if (offset === -1) {
       throw new Error(`Could not find patch hunk in ${filePath}`);
     }
-    source = [
-      ...source.slice(0, offset),
-      ...newLines,
-      ...source.slice(offset + oldLines.length),
-    ];
+    source = [...source.slice(0, offset), ...newLines, ...source.slice(offset + oldLines.length)];
     cursor = offset + newLines.length;
   }
 
@@ -244,10 +221,7 @@ const withQueues = async <T>(paths: string[], operation: () => Promise<T>) => {
     if (path === undefined) {
       return await operation();
     }
-    return await withFileMutationQueue(
-      path,
-      async () => await enter(index + 1)
-    );
+    return await withFileMutationQueue(path, async () => await enter(index + 1));
   };
   return await enter(0);
 };
@@ -255,7 +229,7 @@ const withQueues = async <T>(paths: string[], operation: () => Promise<T>) => {
 export const applyPatch = async (
   patch: string,
   cwd: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<PatchResult> => {
   const mutation = { started: false };
   const throwIfAborted = () => {
@@ -271,7 +245,6 @@ export const applyPatch = async (
     throwIfAborted();
     const sourcePath = resolvePath(operation.path, cwd);
     if (operation.kind === "add") {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- patch operations are ordered
       await withFileMutationQueue(sourcePath, async () => {
         throwIfAborted();
         await mkdir(nodePath.dirname(sourcePath), { recursive: true });
@@ -287,7 +260,6 @@ export const applyPatch = async (
     }
 
     if (operation.kind === "delete") {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- patch operations are ordered
       await withFileMutationQueue(sourcePath, async () => {
         throwIfAborted();
         mutation.started = true;
@@ -298,10 +270,7 @@ export const applyPatch = async (
     }
 
     const destinationPath =
-      operation.moveTo === undefined
-        ? sourcePath
-        : resolvePath(operation.moveTo, cwd);
-    // oxlint-disable-next-line eslint/no-await-in-loop -- patch operations are ordered
+      operation.moveTo === undefined ? sourcePath : resolvePath(operation.moveTo, cwd);
     await withQueues([sourcePath, destinationPath], async () => {
       throwIfAborted();
       let updated: string | undefined;
@@ -322,11 +291,14 @@ export const applyPatch = async (
         await rename(sourcePath, destinationPath);
       }
     });
-    changes.push({
-      ...(typeof operation.moveTo === "string" ? { from: operation.path } : {}),
+    const change: PatchChange = {
       kind: "update",
       path: operation.moveTo ?? operation.path,
-    });
+    };
+    if (operation.moveTo !== undefined) {
+      change.from = operation.path;
+    }
+    changes.push(change);
   }
 
   return {

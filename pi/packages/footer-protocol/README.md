@@ -11,8 +11,5 @@ npm install @clanker-stuff/footer-protocol
 ## Usage
 
 ```ts
-import {
-  FOOTER_PROTOCOL_VERSION,
-  FOOTER_WIDGET_EVENT,
-} from "@clanker-stuff/footer-protocol";
+import { FOOTER_PROTOCOL_VERSION, FOOTER_WIDGET_EVENT } from "@clanker-stuff/footer-protocol";
 ```

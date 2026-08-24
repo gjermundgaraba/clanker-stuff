@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_CONFIG } from "../config.js";
 import { NicknamePool } from "../nicknames.js";
@@ -10,7 +10,7 @@ describe(NicknamePool, () => {
         ...DEFAULT_CONFIG,
         roles: { reviewer: { nicknames: ["Scout"] } },
       },
-      () => 0
+      () => 0,
     );
     const reserved = new Set<string>();
     const choose = () => {
@@ -19,10 +19,6 @@ describe(NicknamePool, () => {
       return nickname;
     };
 
-    expect([choose(), choose(), choose()]).toStrictEqual([
-      "Scout",
-      "Scout 2",
-      "Scout 3",
-    ]);
+    expect([choose(), choose(), choose()]).toStrictEqual(["Scout", "Scout 2", "Scout 3"]);
   });
 });

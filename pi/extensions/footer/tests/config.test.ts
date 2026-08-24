@@ -2,13 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import {
-  createFooterConfigStore,
-  DEFAULT_CONFIG,
-  parseFooterConfig,
-} from "../config.js";
+import { createFooterConfigStore, DEFAULT_CONFIG, parseFooterConfig } from "../config.js";
 
 describe("footer config store", () => {
   let directory: string | undefined;
@@ -31,14 +27,12 @@ describe("footer config store", () => {
     await expect(readFile(configPath, "utf-8")).resolves.toContain('"unknown"');
 
     await store.save(DEFAULT_CONFIG);
-    expect(JSON.parse(await readFile(configPath, "utf-8"))).toStrictEqual(
-      DEFAULT_CONFIG
-    );
+    expect(JSON.parse(await readFile(configPath, "utf-8"))).toStrictEqual(DEFAULT_CONFIG);
   });
 
   it("uses an absolute mutation-queue key", () => {
     expect(createFooterConfigStore("relative/footer.json").path).toBe(
-      path.resolve("relative/footer.json")
+      path.resolve("relative/footer.json"),
     );
   });
 });
@@ -54,7 +48,7 @@ describe(parseFooterConfig, () => {
         unknown: true,
         version: 1,
         widgets: {},
-      })
+      }),
     ).toThrow("strict object");
   });
 
@@ -68,7 +62,7 @@ describe(parseFooterConfig, () => {
         separator: "·",
         version: 1,
         widgets: {},
-      })
+      }),
     ).toThrow("terminal controls");
     expect(() =>
       parseFooterConfig({
@@ -78,7 +72,7 @@ describe(parseFooterConfig, () => {
         separator: "·",
         version: 1,
         widgets: { [nativeId]: { enabled: false } },
-      })
+      }),
     ).toThrow("terminal controls");
   });
 });

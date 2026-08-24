@@ -30,12 +30,17 @@
   "publishConfig": {
     "access": "public"
   },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "pi": {
     "extensions": [

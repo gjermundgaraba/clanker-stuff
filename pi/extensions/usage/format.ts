@@ -1,31 +1,20 @@
 import { providerDisplayName } from "./providers.js";
-import type {
-  SupportedProvider,
-  UsageSnapshot,
-  UsageWindow,
-  UsageWindowId,
-} from "./providers.js";
+import type { SupportedProvider, UsageSnapshot, UsageWindow, UsageWindowId } from "./providers.js";
 
-const WINDOW_ORDER: Record<UsageWindowId, number> = {
+const WINDOW_ORDER = {
   "5h": 0,
   "7d": 2,
   day: 1,
   month: 4,
   week: 3,
-};
+} satisfies Record<UsageWindowId, number>;
 
 const orderWindows = (windows: UsageWindow[]): UsageWindow[] =>
-  windows.toSorted(
-    (left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id]
-  );
+  windows.toSorted((left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id]);
 
-export const sanitizeUsageText = (value: string): string =>
-  value.replaceAll(/\p{Cc}/gu, "");
+export const sanitizeUsageText = (value: string): string => value.replaceAll(/\p{Cc}/gu, "");
 
-export const formatResetDuration = (
-  resetsAt: string,
-  nowMs: number = Date.now()
-): string => {
+export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()): string => {
   const resetMs = Date.parse(resetsAt);
   if (Number.isNaN(resetMs)) {
     return "unknown";
@@ -78,10 +67,7 @@ const formatCreditsAmount = (value: number): string => {
   return String(rounded);
 };
 
-export const formatDetail = (
-  snapshot: UsageSnapshot,
-  nowMs: number = Date.now()
-): string => {
+export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()): string => {
   const lines: string[] = [];
   const title = providerDisplayName(snapshot.provider);
   const plan =
@@ -96,7 +82,7 @@ export const formatDetail = (
         ? "resets unknown"
         : `resets in ${formatResetDuration(window.resetsAt, nowMs)}`;
     lines.push(
-      `${sanitizeUsageText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`
+      `${sanitizeUsageText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`,
     );
   }
 
@@ -107,15 +93,13 @@ export const formatDetail = (
   return lines.join("\n");
 };
 
-export const formatProviderError = (
-  provider: SupportedProvider,
-  message: string
-): string => `usage: ${provider}: ${sanitizeUsageText(message)}`;
+export const formatProviderError = (provider: SupportedProvider, message: string): string =>
+  `usage: ${provider}: ${sanitizeUsageText(message)}`;
 
 export const formatRefreshFailed = (
   provider: SupportedProvider,
   message: string,
   fetchedAt: number,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
 ): string =>
   `usage: ${provider}: refresh failed (${sanitizeUsageText(message)}); showing cached data from ${formatAge(fetchedAt, nowMs)}`;

@@ -13,7 +13,7 @@ const packageJson = (name: string) =>
   `${JSON.stringify(
     { name, private: true, scripts: { test: "node --test" }, type: "module" },
     null,
-    2
+    2,
   )}\n`;
 
 const inventorySpec = `# Inventory ledger
@@ -292,7 +292,7 @@ const continuityPrompts = [
     "Return exactly artifacts, channel, regions, and rolloutPercent. Invalid channel or rollout throws TypeError.",
   ].map(
     (decision, index) =>
-      `Release review phase ${index + 1}/5. Remember this decision for the final implementation: ${decision}\nDo not edit files yet. Reply only with PHASE-${index + 1}-RECORDED.\n\n${continuityFiller}`
+      `Release review phase ${index + 1}/5. Remember this decision for the final implementation: ${decision}\nDo not edit files yet. Reply only with PHASE-${index + 1}-RECORDED.\n\n${continuityFiller}`,
   ),
   "Resume the release review. Implement every decision from phases 1 through 5 in src/release.js, then run the tests. Do not ask me to restate them and do not add dependencies.",
 ];

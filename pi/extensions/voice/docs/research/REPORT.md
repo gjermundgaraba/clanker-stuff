@@ -86,19 +86,19 @@ The evidence is more consistent with a later re-delegation than an immediate tra
 
 ### Codex runtime
 
-| Item | Observed value |
-| --- | --- |
-| Application | `/Applications/Codex.app` |
-| Version | `26.721.41059` |
-| Build | `5848` |
-| Bundle ID | `com.openai.codex` |
-| Signing team | OpenAI `2DC432GLL2`, hardened runtime, notarized |
-| Executable SHA-256 | `d7bd5eacb7f59c42240e6c5dc62eebdeca9d09a0b59ed4c3ac3e2b55ef8d9336` |
-| `app.asar` SHA-256 | `da39a51b06fb4c728d418b8f0f05fc8fd8c6b1f74c4fb4d47c20c7914a798f45` |
-| Bundled CLI | `codex-cli 0.146.0-alpha.3.1` |
-| CLI SHA-256 | `6d8be49e49751554df16572369e636cbe02c84b208cad3dc35528c846eeca223` |
-| Matching public tag | `rust-v0.146.0-alpha.3.1` (annotated tag `1128ef2c0eec791d1c6aeff0ecbb9f3f89b0aab2`) |
-| Peeled source commit | `ff75c5b939c477c49eb1bd5248da6dab71b109d1` |
+| Item                 | Observed value                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Application          | `/Applications/Codex.app`                                                            |
+| Version              | `26.721.41059`                                                                       |
+| Build                | `5848`                                                                               |
+| Bundle ID            | `com.openai.codex`                                                                   |
+| Signing team         | OpenAI `2DC432GLL2`, hardened runtime, notarized                                     |
+| Executable SHA-256   | `d7bd5eacb7f59c42240e6c5dc62eebdeca9d09a0b59ed4c3ac3e2b55ef8d9336`                   |
+| `app.asar` SHA-256   | `da39a51b06fb4c728d418b8f0f05fc8fd8c6b1f74c4fb4d47c20c7914a798f45`                   |
+| Bundled CLI          | `codex-cli 0.146.0-alpha.3.1`                                                        |
+| CLI SHA-256          | `6d8be49e49751554df16572369e636cbe02c84b208cad3dc35528c846eeca223`                   |
+| Matching public tag  | `rust-v0.146.0-alpha.3.1` (annotated tag `1128ef2c0eec791d1c6aeff0ecbb9f3f89b0aab2`) |
+| Peeled source commit | `ff75c5b939c477c49eb1bd5248da6dab71b109d1`                                           |
 
 `git ls-remote` resolves that annotated tag to the pinned commit. The installed version, binary strings, and runtime file/line metadata are consistent with the tagged source, but no reproducible-build attestation ties the installed bytes to it.
 
@@ -162,18 +162,18 @@ Every A/B pair used the same stimulus file. Synthetic injection removes room, mi
 
 ## Exact realtime configuration
 
-| Setting | Codex | Pi |
-| --- | --- | --- |
-| Front model | `gpt-live-1-codex` | `gpt-live-1-boulder-alpha` |
-| Voice | `maple` | `cove` |
-| Delegation | `{ "type": "client" }` | `{ "type": "client" }` |
-| Codex protocol version | `v3` | Not sent through app-server |
-| Prompt characters | `12,067` | `1,525` |
-| Prompt UTF-8 bytes including newline | `12,164` | `1,526` |
-| Prompt SHA-256 | `15cd9c76a427548414c7194b7b1f9f666dc160092aa960ad460715a5ea85347b` | `314fe9eee7018c40cd765644e2d223a4ad31f65991443b14aca3a1c40d83dab5` |
-| Startup context | `includeStartupContext: false` | `initial_items` only on continuity |
-| Tail flush | `flushTranscriptTailOnSessionEnd: true` | Local tail-flush message |
-| Coordinator output mode | `bemTags` | Ordinary streamed Pi text |
+| Setting                              | Codex                                                              | Pi                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Front model                          | `gpt-live-1-codex`                                                 | `gpt-live-1-boulder-alpha`                                         |
+| Voice                                | `maple`                                                            | `cove`                                                             |
+| Delegation                           | `{ "type": "client" }`                                             | `{ "type": "client" }`                                             |
+| Codex protocol version               | `v3`                                                               | Not sent through app-server                                        |
+| Prompt characters                    | `12,067`                                                           | `1,525`                                                            |
+| Prompt UTF-8 bytes including newline | `12,164`                                                           | `1,526`                                                            |
+| Prompt SHA-256                       | `15cd9c76a427548414c7194b7b1f9f666dc160092aa960ad460715a5ea85347b` | `314fe9eee7018c40cd765644e2d223a4ad31f65991443b14aca3a1c40d83dab5` |
+| Startup context                      | `includeStartupContext: false`                                     | `initial_items` only on continuity                                 |
+| Tail flush                           | `flushTranscriptTailOnSessionEnd: true`                            | Local tail-flush message                                           |
+| Coordinator output mode              | `bemTags`                                                          | Ordinary streamed Pi text                                          |
 
 One Codex context capture had a 75-character capability appendix:
 
@@ -215,15 +215,15 @@ The full prompts, rather than this summary, are the authoritative evidence.
 
 For the first action/meta handoff in `codex-action-meta-2b`, Codex created a dedicated thread with:
 
-| Setting | Value |
-| --- | --- |
-| Thread source | `realtime_voice` |
-| Model | `gpt-5.6-terra` |
-| Reasoning | `low`, detailed summary, all-turn context |
-| CWD | `/Users/gg/Documents/Codex/2026-07-28/realtime-voice-chat-11` |
-| Approval policy | `never` |
-| Permissions | `:danger-full-access` |
-| Dynamic namespace | `codex_app`, 19 complete schemas |
+| Setting           | Value                                                         |
+| ----------------- | ------------------------------------------------------------- |
+| Thread source     | `realtime_voice`                                              |
+| Model             | `gpt-5.6-terra`                                               |
+| Reasoning         | `low`, detailed summary, all-turn context                     |
+| CWD               | `/Users/gg/Documents/Codex/2026-07-28/realtime-voice-chat-11` |
+| Approval policy   | `never`                                                       |
+| Permissions       | `:danger-full-access`                                         |
+| Dynamic namespace | `codex_app`, 19 complete schemas                              |
 
 The first captured logical `response.create` request is 121,766 compact JSON bytes. Its eight input items were:
 
@@ -346,10 +346,10 @@ In the observed action runs, Pi gave GPT-Live two representations when the coord
 
 ### Context routing
 
-| Scenario | Codex | Pi |
-| --- | --- | --- |
-| Context question alone | 1 handoff; “lemme check what's in front of you” | 0 handoffs; directly said it only knew shared session content |
-| Food then context | Food answered directly; context produced 1 handoff | Food answered directly; context produced 0 handoffs |
+| Scenario               | Codex                                              | Pi                                                            |
+| ---------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| Context question alone | 1 handoff; “lemme check what's in front of you”    | 0 handoffs; directly said it only knew shared session content |
+| Food then context      | Food answered directly; context produced 1 handoff | Food answered directly; context produced 0 handoffs           |
 
 This is the clearest observed routing difference, consistent across two related but non-repeated scenarios. Codex's mandatory screen-context ambiguity rule covered “working on here”; Pi's policy did not.
 
@@ -357,11 +357,11 @@ This is the clearest observed routing difference, consistent across two related 
 
 The same 12.681-second stimulus was run three times per implementation.
 
-| Run | Codex handoffs | Codex meta behavior | Pi handoffs | Pi meta behavior |
-| --- | --: | --- | --: | --- |
-| 1 | 1 | Continued with the Git result | 1 | Said it asked “the execution side” |
-| 2 | 1 | Said it “used the orchestrator” | 1 | Said it needed the live repo and combined the result |
-| 3 | 2 | Delegated the meta-question, then denied a separate orchestrator | 1 | Directly explained it needed to run Git and combined the result |
+| Run | Codex handoffs | Codex meta behavior                                              | Pi handoffs | Pi meta behavior                                                |
+| --- | -------------: | ---------------------------------------------------------------- | ----------: | --------------------------------------------------------------- |
+| 1   |              1 | Continued with the Git result                                    |           1 | Said it asked “the execution side”                              |
+| 2   |              1 | Said it “used the orchestrator”                                  |           1 | Said it needed the live repo and combined the result            |
+| 3   |              2 | Delegated the meta-question, then denied a separate orchestrator |           1 | Directly explained it needed to run Git and combined the result |
 
 Findings:
 
@@ -391,13 +391,13 @@ The persisted Pi session is:
 
 Relevant original records:
 
-| JSONL line | Timestamp | Event |
-| --: | --- | --- |
-| 747 | `19:54:47.972Z` | First long research-plan delegation |
-| 748 | `19:56:33.404Z` | Pi assistant begins a tool-only turn |
-| 752 | `19:56:33.952Z` | Same long delegation inserted again |
-| 763 | `20:02:13.178Z` | First “not sure what you're hearing” delegation |
-| 767 | `20:24:30.530Z` | Same phrase delegated again |
+| JSONL line | Timestamp       | Event                                           |
+| ---------: | --------------- | ----------------------------------------------- |
+|        747 | `19:54:47.972Z` | First long research-plan delegation             |
+|        748 | `19:56:33.404Z` | Pi assistant begins a tool-only turn            |
+|        752 | `19:56:33.952Z` | Same long delegation inserted again             |
+|        763 | `20:02:13.178Z` | First “not sure what you're hearing” delegation |
+|        767 | `20:24:30.530Z` | Same phrase delegated again                     |
 
 ### What this proves
 

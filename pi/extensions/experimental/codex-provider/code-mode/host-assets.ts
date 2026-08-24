@@ -2,7 +2,11 @@
 // @howaboua/pi-codex-conversion 3.0.4 (MIT).
 export const HOST_RELEASE = "rust-v0.145.0";
 
-export const HOST_ASSETS = {
+interface HostAssetIndex {
+  [key: string]: readonly [string, string] | undefined;
+}
+
+export const HOST_ASSETS: HostAssetIndex = {
   "darwin-arm64": [
     "codex-code-mode-host-aarch64-apple-darwin.tar.gz",
     "75f9306834aa8913b5c1f91ff72f1f6b9441e5a92cd5d64b8e605cf54668460c",
@@ -34,11 +38,9 @@ export const codeModeHostBinaryName = (platform: string) =>
 
 export const resolveCodeModeHostAsset = (
   platform: string,
-  arch: string
+  arch: string,
 ): readonly [string, string] => {
-  const asset = (
-    HOST_ASSETS as Record<string, readonly [string, string] | undefined>
-  )[`${platform}-${arch}`];
+  const asset = HOST_ASSETS[`${platform}-${arch}`];
   if (!asset) {
     throw new Error(`Unsupported code-mode platform: ${platform}-${arch}`);
   }

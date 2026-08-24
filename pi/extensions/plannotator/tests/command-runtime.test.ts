@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { tokenizeArguments } from "../command-runtime.js";
 import { exited, setup, signaled } from "./helpers.js";
@@ -7,14 +7,9 @@ vi.mock(import("../command-runtime.js"), { spy: true });
 
 describe("command runtime", () => {
   it("tokenizes quotes and escapes", () => {
-    expect(
-      tokenizeArguments(`--gate "docs/my file.md" 'two words' escaped\\ value`)
-    ).toStrictEqual([
-      "--gate",
-      "docs/my file.md",
-      "two words",
-      "escaped value",
-    ]);
+    expect(tokenizeArguments(`--gate "docs/my file.md" 'two words' escaped\\ value`)).toStrictEqual(
+      ["--gate", "docs/my file.md", "two words", "escaped value"],
+    );
   });
 
   it.each([`"unterminated`, `'unterminated`, "trailing\\"])(
@@ -24,7 +19,7 @@ describe("command runtime", () => {
       await host.runCommand("plannotator-review", args, ctx);
       expect(pending).toHaveLength(0);
       expect(host.getNotifications().at(-1)).toMatchObject({ type: "error" });
-    }
+    },
   );
 
   it("returns before the CLI completes", async () => {
@@ -46,9 +41,7 @@ describe("command runtime", () => {
     pending[0].options.onStderr?.("Plannotator session rea");
     expect(host.getNotifications()).toHaveLength(1);
 
-    pending[0].options.onStderr?.(
-      "dy:\nhttps://plannotator.example/review\nOpening review...\n"
-    );
+    pending[0].options.onStderr?.("dy:\nhttps://plannotator.example/review\nOpening review...\n");
 
     expect(host.getNotifications().slice(1)).toStrictEqual([
       { message: "Plannotator session ready:", type: "info" },
@@ -66,7 +59,7 @@ describe("command runtime", () => {
       exited("", {
         code: 2,
         stderr: "Fetching pull request...\nbad repository\n",
-      })
+      }),
     );
 
     await vi.waitFor(() => {
@@ -77,9 +70,7 @@ describe("command runtime", () => {
     });
     for (const message of ["Fetching pull request...", "bad repository"]) {
       expect(
-        host
-          .getNotifications()
-          .filter((notification) => notification.message.includes(message))
+        host.getNotifications().filter((notification) => notification.message.includes(message)),
       ).toHaveLength(1);
     }
   });
@@ -93,7 +84,7 @@ describe("command runtime", () => {
       exited("", {
         code: 2,
         stderr: "Fetching pull request...\nbad repository",
-      })
+      }),
     );
 
     await vi.waitFor(() => {
@@ -172,20 +163,17 @@ describe("command runtime", () => {
       label: "unexpected signal",
       message: "Plannotator code review: terminated by SIGTERM",
     },
-  ])(
-    "reports $label as an error notification",
-    async ({ completion, message }) => {
-      const { ctx, host, pending } = setup();
-      await host.runCommand("plannotator-review", "", ctx);
-      pending[0].resolve(completion);
-      await vi.waitFor(() => {
-        expect(host.getNotifications().at(-1)).toStrictEqual({
-          message,
-          type: "error",
-        });
+  ])("reports $label as an error notification", async ({ completion, message }) => {
+    const { ctx, host, pending } = setup();
+    await host.runCommand("plannotator-review", "", ctx);
+    pending[0].resolve(completion);
+    await vi.waitFor(() => {
+      expect(host.getNotifications().at(-1)).toStrictEqual({
+        message,
+        type: "error",
       });
-    }
-  );
+    });
+  });
 
   it("reports asynchronous spawn failures", async () => {
     const { ctx, host, pending } = setup();
@@ -212,20 +200,17 @@ describe("command runtime", () => {
       },
       message: "Plannotator code review: spawn plannotator EIO",
     },
-  ])(
-    "flushes an unterminated stderr tail before $message",
-    async (testCase) => {
-      const { ctx, host, pending } = setup();
-      await host.runCommand("plannotator-review", "", ctx);
-      pending[0].options.onStderr?.("final stderr detail");
-      testCase.finish(pending);
+  ])("flushes an unterminated stderr tail before $message", async (testCase) => {
+    const { ctx, host, pending } = setup();
+    await host.runCommand("plannotator-review", "", ctx);
+    pending[0].options.onStderr?.("final stderr detail");
+    testCase.finish(pending);
 
-      await vi.waitFor(() => {
-        expect(host.getNotifications().slice(1)).toStrictEqual([
-          { message: "final stderr detail", type: "info" },
-          { message: testCase.message, type: "error" },
-        ]);
-      });
-    }
-  );
+    await vi.waitFor(() => {
+      expect(host.getNotifications().slice(1)).toStrictEqual([
+        { message: "final stderr detail", type: "info" },
+        { message: testCase.message, type: "error" },
+      ]);
+    });
+  });
 });

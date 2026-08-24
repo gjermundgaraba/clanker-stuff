@@ -10,18 +10,10 @@ export type PublicAgentStatus =
 interface AgentStatusSource {
   error?: string;
   lastAnswer?: string;
-  status:
-    | "pending"
-    | "running"
-    | "interrupted"
-    | "completed"
-    | "errored"
-    | "shutdown";
+  status: "pending" | "running" | "interrupted" | "completed" | "errored" | "shutdown";
 }
 
-export const publicStatus = (
-  agent: AgentStatusSource | undefined
-): PublicAgentStatus => {
+export const publicStatus = (agent: AgentStatusSource | undefined): PublicAgentStatus => {
   if (agent === undefined) {
     return "not_found";
   }

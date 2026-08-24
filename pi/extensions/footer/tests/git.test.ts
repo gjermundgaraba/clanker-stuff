@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { parseGitStatus } from "../git.js";
 
@@ -12,8 +12,8 @@ describe("git status", () => {
           "1 M. N... 100644 100644 100644 a b file",
           "1 .M N... 100644 100644 100644 a b other",
           "? untracked",
-        ].join("\n")
-      )
+        ].join("\n"),
+      ),
     ).toStrictEqual({
       ahead: 2,
       behind: 1,

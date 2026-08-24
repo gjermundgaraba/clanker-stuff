@@ -1,17 +1,9 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Value } from "typebox/value";
+import type { Static } from "typebox";
 
-import type {
-  AnswerEntry,
-  AskQuestionFlowResult,
-  Question,
-  QuestionOption,
-} from "./questions.js";
+import type { AnswerEntry, AskQuestionFlowResult, Question, QuestionOption } from "./questions.js";
 
 const MIN_QUESTIONS = 1;
 export const MAX_QUESTIONS = 5;
@@ -27,19 +19,17 @@ const AskQuestionOptionSchema = Type.Object(
   {
     details: Type.Optional(
       Type.String({
-        description:
-          "Optional rationale shown on demand. Explain suggested defaults here.",
+        description: "Optional rationale shown on demand. Explain suggested defaults here.",
         maxLength: MAX_OPTION_DETAILS,
-      })
+      }),
     ),
     label: Type.String({
-      description:
-        "User-visible option label. Add '(Suggested)' for likely defaults.",
+      description: "User-visible option label. Add '(Suggested)' for likely defaults.",
       maxLength: MAX_OPTION_LABEL,
       minLength: 1,
     }),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 
 const AskQuestionQuestionSchema = Type.Object(
@@ -51,9 +41,8 @@ const AskQuestionQuestionSchema = Type.Object(
     }),
     multiSelect: Type.Optional(
       Type.Boolean({
-        description:
-          "Allow choosing several options. Defaults to one choice per question.",
-      })
+        description: "Allow choosing several options. Defaults to one choice per question.",
+      }),
     ),
     options: Type.Array(AskQuestionOptionSchema, {
       description:
@@ -65,7 +54,7 @@ const AskQuestionQuestionSchema = Type.Object(
       Type.String({
         description: "Optional placeholder/helper text",
         maxLength: MAX_PLACEHOLDER,
-      })
+      }),
     ),
     question: Type.String({
       description: "Full question prompt",
@@ -73,7 +62,7 @@ const AskQuestionQuestionSchema = Type.Object(
       minLength: 1,
     }),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 
 export const AskQuestionParametersSchema = Type.Object(
@@ -84,8 +73,10 @@ export const AskQuestionParametersSchema = Type.Object(
       minItems: MIN_QUESTIONS,
     }),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
+
+export type AskQuestionParameters = Static<typeof AskQuestionParametersSchema>;
 
 export interface AskQuestionSuccessDetails {
   cancelled: false;
@@ -101,17 +92,15 @@ export interface AskQuestionCancelledDetails {
 const EXPLICIT_OTHER_OPTION_ERROR =
   "Do not include an 'Other' option; the UI provides it automatically";
 
-const DISPLAY_CONTROL_PATTERN =
-  // oxlint-disable-next-line eslint/no-control-regex -- terminal controls are the intended match.
-  /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/gu;
 const sanitizeDisplayText = (value: string): string =>
-  value.replaceAll(DISPLAY_CONTROL_PATTERN, "");
+  Array.from(value, (char) => {
+    const code = char.codePointAt(0) ?? 0;
+    return code <= 0x09 || (code >= 0x0b && code <= 0x1f) || (code >= 0x7f && code <= 0x9f)
+      ? ""
+      : char;
+  }).join("");
 
-export const parseQuestionsFromParameters = (params: unknown): Question[] => {
-  if (!Value.Check(AskQuestionParametersSchema, params)) {
-    throw new Error("Invalid ask_question input");
-  }
-
+export const parseQuestionsFromParameters = (params: AskQuestionParameters): Question[] => {
   const questions: Question[] = [];
 
   for (const questionValue of params.questions) {
@@ -126,32 +115,28 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
     }
 
     const seenOptionLabels = new Set<string>();
-    const options: QuestionOption[] = questionValue.options.map(
-      (optionValue) => {
-        const details =
-          optionValue.details === undefined
-            ? undefined
-            : sanitizeDisplayText(optionValue.details);
-        const label = sanitizeDisplayText(optionValue.label).trim();
-        const normalizedLabel = label.toLowerCase();
-        if (label === "") {
-          throw new Error("Option labels must not be blank");
-        }
-        if (normalizedLabel === "other") {
-          throw new Error(EXPLICIT_OTHER_OPTION_ERROR);
-        }
-        if (seenOptionLabels.has(normalizedLabel)) {
-          throw new Error(`Duplicate option label: ${label}`);
-        }
-
-        seenOptionLabels.add(normalizedLabel);
-        return {
-          details,
-          kind: "option",
-          label,
-        };
+    const options: QuestionOption[] = questionValue.options.map((optionValue) => {
+      const details =
+        optionValue.details === undefined ? undefined : sanitizeDisplayText(optionValue.details);
+      const label = sanitizeDisplayText(optionValue.label).trim();
+      const normalizedLabel = label.toLowerCase();
+      if (label === "") {
+        throw new Error("Option labels must not be blank");
       }
-    );
+      if (normalizedLabel === "other") {
+        throw new Error(EXPLICIT_OTHER_OPTION_ERROR);
+      }
+      if (seenOptionLabels.has(normalizedLabel)) {
+        throw new Error(`Duplicate option label: ${label}`);
+      }
+
+      seenOptionLabels.add(normalizedLabel);
+      return {
+        details,
+        kind: "option",
+        label,
+      };
+    });
 
     options.push({
       kind: "other",
@@ -170,10 +155,7 @@ export const parseQuestionsFromParameters = (params: unknown): Question[] => {
   return questions;
 };
 
-export const buildSummaryContent = (
-  questions: Question[],
-  answers: AnswerEntry[]
-): string => {
+export const buildSummaryContent = (questions: Question[], answers: AnswerEntry[]): string => {
   const lines: string[] = ["User answered:"];
 
   for (const [index, question] of questions.entries()) {
@@ -181,11 +163,9 @@ export const buildSummaryContent = (
     lines.push(
       `- [${question.header}] ${question.question} -> ${answer
         .map((selection) => selection.label)
-        .join(", ")}`
+        .join(", ")}`,
     );
-    const notedSelections = answer.filter(
-      ({ note }) => note !== undefined && note.length > 0
-    );
+    const notedSelections = answer.filter(({ note }) => note !== undefined && note.length > 0);
     if (notedSelections.length > 0) {
       lines.push("  notes:");
       for (const selection of notedSelections) {
@@ -197,13 +177,21 @@ export const buildSummaryContent = (
   return lines.join("\n");
 };
 
+interface AskQuestionSuccessResult {
+  content: { text: string; type: "text" }[];
+  details: AskQuestionSuccessDetails;
+}
+
+interface AskQuestionCancelledResult {
+  content: { text: string; type: "text" }[];
+  details: AskQuestionCancelledDetails;
+  terminate: true;
+}
+
 export const buildSuccessToolResult = (
   questions: Question[],
-  flow: Extract<AskQuestionFlowResult, { cancelled: false }>
-): {
-  content: { type: "text"; text: string }[];
-  details: AskQuestionSuccessDetails;
-} => {
+  flow: Extract<AskQuestionFlowResult, { cancelled: false }>,
+): AskQuestionSuccessResult => {
   const details: AskQuestionSuccessDetails = {
     answers: flow.answers,
     cancelled: false,
@@ -212,8 +200,7 @@ export const buildSuccessToolResult = (
   return {
     content: [
       {
-        text: truncateHead(buildSummaryContent(questions, flow.answers))
-          .content,
+        text: truncateHead(buildSummaryContent(questions, flow.answers)).content,
         type: "text",
       },
     ],
@@ -222,12 +209,8 @@ export const buildSuccessToolResult = (
 };
 
 export const buildCancelledToolResult = (
-  reason: AskQuestionCancelledDetails["reason"]
-): {
-  content: { type: "text"; text: string }[];
-  details: AskQuestionCancelledDetails;
-  terminate: true;
-} => {
+  reason: AskQuestionCancelledDetails["reason"],
+): AskQuestionCancelledResult => {
   const text =
     reason === "external_aborted"
       ? "ask-question was cancelled because the run was aborted."
@@ -250,10 +233,10 @@ export const buildCancelledToolResult = (
 };
 
 export const executeAskQuestion = async (
-  pi: ExtensionAPI,
-  params: unknown,
+  pi: Pick<ExtensionAPI, "events">,
+  params: AskQuestionParameters,
   signal: AbortSignal | undefined,
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
 ) => {
   const questions = parseQuestionsFromParameters(params);
 

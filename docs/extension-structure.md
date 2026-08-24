@@ -135,7 +135,7 @@ Do not create package-wide catch-all tests such as `mcp.test.ts`. Put shared set
 
 Every extension package directory under `pi/extensions/` or `pi/extensions/experimental/` must be a workspace package with `package.json`, `README.md`, and `LICENSE`. Its package export and `pi.extensions` entry both point to `./index.ts`. Expose another package path only for an intentional shared protocol; internal test seams are not public API.
 
-Stable extension packages set `private` to `false`. Experimental extension packages set it to `true`, carry an explicit instability warning in their README, and keep the eventual stable package name. Promote one by moving it directly under `pi/extensions/`, correcting the relative depth of imports that reach outside the package, removing the warning, making its package metadata publishable, and running `pnpm check:all`.
+Stable extension packages set `private` to `false`. Experimental extension packages set it to `true`, carry an explicit instability warning in their README, and keep the eventual stable package name. Promote one by moving it directly under `pi/extensions/`, correcting the relative depth of imports that reach outside the package, removing the warning, making its package metadata publishable, and running `vp run ready`.
 
 Shared runtime libraries belong under `pi/packages/` and must be real workspace dependencies. Add one only when at least two published extensions need the same behavior; do not create generic common or utilities packages.
 

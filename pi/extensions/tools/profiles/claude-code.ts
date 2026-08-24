@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/sort-keys -- preserve native harness field order */
 import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -7,6 +6,14 @@ import { prepareForegroundArguments } from "./arguments.js";
 import type { HarnessProfile } from "./types.js";
 
 const strict = { additionalProperties: false } as const;
+const bashParameters = Type.Object(
+  {
+    command: Type.String(),
+    description: Type.Optional(Type.String()),
+    timeout: Type.Optional(Type.Integer({ maximum: 600_000, minimum: 1 })),
+  },
+  strict,
+);
 const CLAUDE_CODE_MODEL_IDS = new Set([
   "claude-sonnet-5",
   "claude-opus-5",
@@ -23,8 +30,7 @@ export const claudeCodeProfile: HarnessProfile = {
     defineTool({
       name: "Read",
       label: "Read",
-      description:
-        "Reads a file from the local filesystem. Use offset and limit for long files.",
+      description: "Reads a file from the local filesystem. Use offset and limit for long files.",
       parameters: Type.Object(
         {
           file_path: Type.String({
@@ -33,7 +39,7 @@ export const claudeCodeProfile: HarnessProfile = {
           offset: Type.Optional(Type.Integer({ minimum: 0 })),
           limit: Type.Optional(Type.Integer({ minimum: 1 })),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.read(
@@ -42,7 +48,7 @@ export const claudeCodeProfile: HarnessProfile = {
             offset: params.offset === undefined ? undefined : params.offset + 1,
             path: params.file_path,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -57,12 +63,12 @@ export const claudeCodeProfile: HarnessProfile = {
           }),
           content: Type.String({ description: "The content to write" }),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.write(
           { content: params.content, path: params.file_path },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -80,7 +86,7 @@ export const claudeCodeProfile: HarnessProfile = {
           new_string: Type.String(),
           replace_all: Type.Optional(Type.Boolean({ default: false })),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.replace(
@@ -90,7 +96,7 @@ export const claudeCodeProfile: HarnessProfile = {
             path: params.file_path,
             replaceAll: params.replace_all,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -103,12 +109,12 @@ export const claudeCodeProfile: HarnessProfile = {
           pattern: Type.String(),
           path: Type.Optional(Type.String()),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.findFiles(
           { path: params.path, pattern: params.pattern },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -122,7 +128,7 @@ export const claudeCodeProfile: HarnessProfile = {
           path: Type.Optional(Type.String()),
           glob: Type.Optional(Type.String()),
           output_mode: Type.Optional(
-            StringEnum(["content", "files_with_matches", "count"] as const)
+            StringEnum(["content", "files_with_matches", "count"] as const),
           ),
           "-A": Type.Optional(Type.Integer({ minimum: 0 })),
           "-B": Type.Optional(Type.Integer({ minimum: 0 })),
@@ -131,7 +137,7 @@ export const claudeCodeProfile: HarnessProfile = {
           head_limit: Type.Optional(Type.Integer({ minimum: 1 })),
           multiline: Type.Optional(Type.Boolean()),
         },
-        strict
+        strict,
       ),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.grep(
@@ -147,7 +153,7 @@ export const claudeCodeProfile: HarnessProfile = {
             path: params.path,
             pattern: params.pattern,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),
@@ -155,24 +161,15 @@ export const claudeCodeProfile: HarnessProfile = {
       name: "Bash",
       label: "Bash",
       description: "Executes a shell command and returns its output.",
-      parameters: Type.Object(
-        {
-          command: Type.String(),
-          description: Type.Optional(Type.String()),
-          timeout: Type.Optional(
-            Type.Integer({ maximum: 600_000, minimum: 1 })
-          ),
-        },
-        strict
-      ),
-      prepareArguments: prepareForegroundArguments,
+      parameters: bashParameters,
+      prepareArguments: prepareForegroundArguments(bashParameters),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         return await operations.runShell(
           {
             command: params.command,
             timeoutMs: params.timeout,
           },
-          { ctx, onUpdate, signal, toolCallId }
+          { ctx, onUpdate, signal, toolCallId },
         );
       },
     }),

@@ -8,9 +8,10 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createRealCodexSession } from "./agent-session.js";
+import type { WireValue } from "./fixtures.js";
 
 type RegistrationStrategy = "factory" | "resources_discover" | "session_start";
 type OrderedHook =
@@ -24,7 +25,7 @@ interface HookRecord {
   label: string;
 }
 
-const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
+const event = (value: WireValue) => `data: ${JSON.stringify(value)}\n\n`;
 
 const assistantResponse = () => {
   const message = {
@@ -88,16 +89,12 @@ const assistantResponse = () => {
     {
       headers: { "content-type": "text/event-stream" },
       status: 200,
-    }
+    },
   );
 };
 
 const orderedProbe =
-  (
-    label: string,
-    strategy: RegistrationStrategy,
-    records: HookRecord[]
-  ): ExtensionFactory =>
+  (label: string, strategy: RegistrationStrategy, records: HookRecord[]): ExtensionFactory =>
   (pi) => {
     const register = () => {
       pi.on("context", () => {
@@ -130,15 +127,10 @@ const expectTargetBeforeAdversary = (records: readonly HookRecord[]) => {
     "session_before_compact",
   ];
   for (const hook of hooks) {
-    const labels = records
-      .filter((record) => record.hook === hook)
-      .map((record) => record.label);
+    const labels = records.filter((record) => record.hook === hook).map((record) => record.label);
     expect(labels.length).toBeGreaterThanOrEqual(2);
     for (let index = 0; index < labels.length; index += 2) {
-      expect(labels.slice(index, index + 2)).toStrictEqual([
-        "target",
-        "adversary",
-      ]);
+      expect(labels.slice(index, index + 2)).toStrictEqual(["target", "adversary"]);
     }
   }
 };
@@ -155,11 +147,7 @@ describe("public Pi hook ordering", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each([
-    "factory",
-    "session_start",
-    "resources_discover",
-  ] satisfies RegistrationStrategy[])(
+  it.each(["factory", "session_start", "resources_discover"] satisfies RegistrationStrategy[])(
     "keeps a later extension after a target using %s registration",
     async (strategy) => {
       expect.hasAssertions();
@@ -167,7 +155,7 @@ describe("public Pi hook ordering", () => {
       const records: HookRecord[] = [];
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => assistantResponse())
+        vi.fn(async () => assistantResponse()),
       );
       const session = await createRealCodexSession({
         compaction: {
@@ -191,7 +179,7 @@ describe("public Pi hook ordering", () => {
         session.dispose();
         await rm(paths.rootDir, { force: true, recursive: true });
       }
-    }
+    },
   );
 
   it("preserves the same non-terminal order after extension reload", async () => {
@@ -200,7 +188,7 @@ describe("public Pi hook ordering", () => {
     const records: HookRecord[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => assistantResponse())
+      vi.fn(async () => assistantResponse()),
     );
     const session = await createRealCodexSession({
       compaction: {
@@ -228,17 +216,14 @@ describe("public Pi hook ordering", () => {
     }
   });
 
-  it.each([
-    "session_start",
-    "resources_discover",
-  ] satisfies RegistrationStrategy[])(
+  it.each(["session_start", "resources_discover"] satisfies RegistrationStrategy[])(
     "does not restore %s-deferred request hooks after reload",
     async (strategy) => {
       const paths = await workspace(`codex-order-reload-${strategy}-`);
       const records: HookRecord[] = [];
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => assistantResponse())
+        vi.fn(async () => assistantResponse()),
       );
       const session = await createRealCodexSession({
         compaction: {
@@ -264,7 +249,7 @@ describe("public Pi hook ordering", () => {
         session.dispose();
         await rm(paths.rootDir, { force: true, recursive: true });
       }
-    }
+    },
   );
 
   it("uses package-list order but allows any later package to take the terminal slot", async () => {
@@ -286,14 +271,11 @@ describe("public Pi hook ordering", () => {
               name: `order-${name}`,
               pi: { extensions: ["index.ts"] },
               type: "module",
-            })
+            }),
           ),
-          writeFile(
-            path.join(directory, "index.ts"),
-            "export default () => {};\n"
-          ),
+          writeFile(path.join(directory, "index.ts"), "export default () => {};\n"),
         ]);
-      })
+      }),
     );
     await Promise.all([
       writeFile(localExtension, "export default () => {};\n"),
@@ -316,9 +298,7 @@ describe("public Pi hook ordering", () => {
 
     try {
       await loader.reload();
-      expect(
-        loader.getExtensions().extensions.map((extension) => extension.path)
-      ).toStrictEqual([
+      expect(loader.getExtensions().extensions.map((extension) => extension.path)).toStrictEqual([
         cliExtension,
         localExtension,
         path.join(packageA, "index.ts"),
@@ -327,9 +307,7 @@ describe("public Pi hook ordering", () => {
 
       settings.setPackages([packageB, packageA]);
       await loader.reload();
-      expect(
-        loader.getExtensions().extensions.map((extension) => extension.path)
-      ).toStrictEqual([
+      expect(loader.getExtensions().extensions.map((extension) => extension.path)).toStrictEqual([
         cliExtension,
         localExtension,
         path.join(packageB, "index.ts"),

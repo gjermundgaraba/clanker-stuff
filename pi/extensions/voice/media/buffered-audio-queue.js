@@ -2,11 +2,7 @@ const copyInput = (input, output, start = 0) => {
   if (!input) {
     return;
   }
-  for (
-    let index = start;
-    index < output.length && index < input.length;
-    index += 1
-  ) {
+  for (let index = start; index < output.length && index < input.length; index += 1) {
     output[index] = input[index] ?? 0;
   }
 };
@@ -57,12 +53,8 @@ export class BufferedAudioQueue {
       this.phase = "live";
       return;
     }
-    const discarded = Math.max(
-      0,
-      firstSignalOffset - this.options.preRollSamples
-    );
-    this.readOffset =
-      (this.readOffset + discarded) % this.options.capacitySamples;
+    const discarded = Math.max(0, firstSignalOffset - this.options.preRollSamples);
+    this.readOffset = (this.readOffset + discarded) % this.options.capacitySamples;
     this.length -= discarded;
     this.phase = "replaying";
   }
@@ -76,8 +68,7 @@ export class BufferedAudioQueue {
         this.readOffset = (this.readOffset + 1) % this.options.capacitySamples;
         this.length -= 1;
       }
-      const writeOffset =
-        (this.readOffset + this.length) % this.options.capacitySamples;
+      const writeOffset = (this.readOffset + this.length) % this.options.capacitySamples;
       this.samples[writeOffset] = sample;
       this.length += 1;
     }
@@ -86,10 +77,7 @@ export class BufferedAudioQueue {
   #findFirstSignalOffset() {
     for (let index = 0; index < this.length; index += 1) {
       const offset = (this.readOffset + index) % this.options.capacitySamples;
-      if (
-        Math.abs(this.samples[offset] ?? 0) >=
-        this.options.leadingSilenceThreshold
-      ) {
+      if (Math.abs(this.samples[offset] ?? 0) >= this.options.leadingSilenceThreshold) {
         return index;
       }
     }
@@ -98,9 +86,7 @@ export class BufferedAudioQueue {
 
   #hasSignal(input) {
     return (
-      input?.some(
-        (sample) => Math.abs(sample) >= this.options.leadingSilenceThreshold
-      ) ?? false
+      input?.some((sample) => Math.abs(sample) >= this.options.leadingSilenceThreshold) ?? false
     );
   }
 

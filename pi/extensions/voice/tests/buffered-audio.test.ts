@@ -1,34 +1,8 @@
-import { describe, expect, it } from "vitest";
-
-interface AudioQueue {
-  phase: string;
-  process: (input: Float32Array | undefined, output: Float32Array) => void;
-  release: () => void;
-}
-
-type AudioQueueConstructor = new (options: {
-  capacitySamples: number;
-  leadingSilenceThreshold: number;
-  preRollSamples: number;
-}) => AudioQueue;
-
-const loadQueue = async (): Promise<AudioQueueConstructor> => {
-  const modulePath = "../media/buffered-audio-queue.js";
-  const imported: unknown = await import(modulePath);
-  if (
-    imported === null ||
-    typeof imported !== "object" ||
-    !("BufferedAudioQueue" in imported) ||
-    typeof imported.BufferedAudioQueue !== "function"
-  ) {
-    throw new Error("BufferedAudioQueue was not exported.");
-  }
-  return imported.BufferedAudioQueue as AudioQueueConstructor;
-};
+import { describe, expect, it } from "vite-plus/test";
 
 describe("buffered microphone audio", () => {
   it("replays from before speech and then returns to live audio", async () => {
-    const BufferedAudioQueue = await loadQueue();
+    const { BufferedAudioQueue } = await import("../media/buffered-audio-queue.js");
     const queue = new BufferedAudioQueue({
       capacitySamples: 12,
       leadingSilenceThreshold: 0.003,
@@ -36,10 +10,7 @@ describe("buffered microphone audio", () => {
     });
     const initialOutput = new Float32Array(6);
 
-    queue.process(
-      Float32Array.from([0, 0, 0, 0.001, 0.01, 0.02]),
-      initialOutput
-    );
+    queue.process(Float32Array.from([0, 0, 0, 0.001, 0.01, 0.02]), initialOutput);
     expect([...initialOutput]).toStrictEqual([0, 0, 0, 0, 0, 0]);
 
     queue.release();

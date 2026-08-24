@@ -1,23 +1,57 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { Type, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { Context } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { Value } from "typebox/value";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createAgentSessionHarness } from "./agent-session.js";
 import type { AgentSessionHarness } from "./agent-session.js";
 
+const TestProviderPayloadSchema = Type.Object(
+  {
+    messages: Type.Array(
+      Type.Object(
+        {
+          content: Type.Unknown(),
+          role: Type.String(),
+        },
+        { additionalProperties: true },
+      ),
+    ),
+  },
+  { additionalProperties: true },
+);
+
+const HarnessPayloadSchema = Type.Intersect([
+  TestProviderPayloadSchema,
+  Type.Object({
+    metadata: Type.Object({ harness: Type.String() }),
+    systemPrompt: Type.String(),
+  }),
+]);
+
+const lastUserText = (context: Context): string => {
+  const content = context.messages.findLast((message) => message.role === "user")?.content;
+  if (Array.isArray(content)) {
+    return content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+  }
+  return content ?? "[non-string]";
+};
+
 const createPayloadExtension =
   (marker: string) =>
   (pi: ExtensionAPI): void => {
-    pi.on("before_provider_request", (event) => ({
-      ...(event.payload && typeof event.payload === "object"
-        ? event.payload
-        : {}),
-      metadata: { harness: marker },
-      systemPrompt: marker,
-    }));
+    pi.on("before_provider_request", (event) => {
+      const payload = Value.Parse(TestProviderPayloadSchema, event.payload);
+      return {
+        ...payload,
+        metadata: { harness: marker },
+        systemPrompt: marker,
+      };
+    });
   };
 
 describe("agent-session harness", () => {
@@ -40,68 +74,36 @@ describe("agent-session harness", () => {
       ],
     });
 
-    harness.setResponses([
-      (context) => {
-        const lastUserMessage = context.messages.findLast(
-          (message) => message.role === "user"
-        );
-        return fauxAssistantMessage(
-          typeof lastUserMessage?.content === "string"
-            ? `seen:${lastUserMessage.content}`
-            : "seen:[non-string]"
-        );
-      },
-    ]);
+    harness.setResponses([(context) => fauxAssistantMessage(`seen:${lastUserText(context)}`)]);
 
     await harness.prompt("hello world");
 
-    const assistant = harness
-      .messages()
-      .findLast((message) => message.role === "assistant");
-    const user = harness
-      .messages()
-      .findLast((message) => message.role === "user");
+    const assistant = harness.messages().findLast((message) => message.role === "assistant");
+    const user = harness.messages().findLast((message) => message.role === "user");
     expect(assistant?.role).toBe("assistant");
     expect(JSON.stringify(user)).toContain("[ext] hello world");
     expect(harness.getPendingResponseCount()).toBe(0);
   });
 
-  it("applies context-like before_provider_request payload changes to the wrapped faux provider context", async () => {
+  it("captures transformed before_provider_request payloads without treating wire data as context", async () => {
     harness = await createAgentSessionHarness({
       extensionFactories: [
         (pi: ExtensionAPI) => {
           pi.on("before_provider_request", (event) => {
-            if (!event.payload || typeof event.payload !== "object") {
-              return;
-            }
-
-            const payload = event.payload as Record<string, unknown>;
-            const messages = Array.isArray(payload.messages)
-              ? [...payload.messages]
-              : [];
-            let lastUserMessageIndex = -1;
-
-            for (let i = messages.length - 1; i >= 0; i -= 1) {
-              const message = messages[i];
-              if (
-                !!message &&
-                typeof message === "object" &&
-                "role" in message &&
-                (message as { role?: unknown }).role === "user"
-              ) {
-                lastUserMessageIndex = i;
-                break;
-              }
-            }
+            const payload = Value.Parse(TestProviderPayloadSchema, event.payload);
+            const messages = [...payload.messages];
+            const lastUserMessageIndex = messages.findLastIndex(
+              (message) => message.role === "user",
+            );
 
             if (lastUserMessageIndex < 0) {
               return payload;
             }
 
-            const lastUserMessage = messages[lastUserMessageIndex] as Record<
-              string,
-              unknown
-            >;
+            const lastUserMessage = messages[lastUserMessageIndex];
+            if (lastUserMessage === undefined) {
+              return payload;
+            }
             messages[lastUserMessageIndex] = {
               ...lastUserMessage,
               content: "[wrapped] question",
@@ -115,25 +117,17 @@ describe("agent-session harness", () => {
         },
       ],
     });
-    harness.setResponses([
-      (context) => {
-        const lastUserMessage = context.messages.findLast(
-          (message) => message.role === "user"
-        );
-        return fauxAssistantMessage(
-          typeof lastUserMessage?.content === "string"
-            ? `seen:${lastUserMessage.content}`
-            : "seen:[non-string]"
-        );
-      },
-    ]);
+    harness.setResponses([(context) => fauxAssistantMessage(`seen:${lastUserText(context)}`)]);
 
     await harness.prompt("question");
 
-    const assistant = harness
-      .messages()
-      .findLast((message) => message.role === "assistant");
+    const assistant = harness.messages().findLast((message) => message.role === "assistant");
     expect(JSON.stringify(assistant)).toContain("seen:[wrapped] question");
+    expect(
+      harness
+        .lastProviderPayload(TestProviderPayloadSchema)
+        .messages.findLast((message) => message.role === "user")?.content,
+    ).toBe("[wrapped] question");
   });
 
   it("preserves non-context before_provider_request payload fields for assertions", async () => {
@@ -141,10 +135,7 @@ describe("agent-session harness", () => {
       extensionFactories: [
         (pi: ExtensionAPI) => {
           pi.on("before_provider_request", (event) => {
-            const payload =
-              event.payload && typeof event.payload === "object"
-                ? (event.payload as Record<string, unknown>)
-                : {};
+            const payload = Value.Parse(TestProviderPayloadSchema, event.payload);
 
             return {
               ...payload,
@@ -160,7 +151,16 @@ describe("agent-session harness", () => {
 
     await harness.prompt("question");
 
-    const payload = harness.lastProviderPayload() as Record<string, unknown>;
+    const payload = harness.lastProviderPayload(
+      Type.Intersect([
+        TestProviderPayloadSchema,
+        Type.Object({
+          headers: Type.Record(Type.String(), Type.String()),
+          metadata: Type.Object({ harness: Type.Boolean() }),
+          temperature: Type.Number(),
+        }),
+      ]),
+    );
     expect(payload.temperature).toBe(0);
     expect(payload.headers).toStrictEqual({ "x-test": "1" });
     expect(payload.metadata).toStrictEqual({ harness: true });
@@ -175,9 +175,7 @@ describe("agent-session harness", () => {
 
     await harness.prompt("question");
 
-    const assistant = harness
-      .messages()
-      .findLast((message) => message.role === "assistant");
+    const assistant = harness.messages().findLast((message) => message.role === "assistant");
     expect(JSON.stringify(assistant)).toContain("reply");
   });
 
@@ -190,9 +188,7 @@ describe("agent-session harness", () => {
     expect(harness.eventsOfType("agent_start")).toHaveLength(1);
     expect(harness.eventsOfType("agent_end")).toHaveLength(1);
     expect(harness.messages().map((message) => message.role)).toContain("user");
-    expect(harness.messages().map((message) => message.role)).toContain(
-      "assistant"
-    );
+    expect(harness.messages().map((message) => message.role)).toContain("assistant");
   });
 
   it("isolates simultaneous harness response queues and provider payloads", async () => {
@@ -213,7 +209,7 @@ describe("agent-session harness", () => {
           firstStarted.resolve(null);
           await firstRelease.promise;
           return fauxAssistantMessage(
-            `first:${context.systemPrompt}:${JSON.stringify(context.messages)}`
+            `first:${context.systemPrompt}:${JSON.stringify(context.messages)}`,
           );
         },
       ]);
@@ -222,7 +218,7 @@ describe("agent-session harness", () => {
           secondStarted.resolve(null);
           await secondRelease.promise;
           return fauxAssistantMessage(
-            `second:${context.systemPrompt}:${JSON.stringify(context.messages)}`
+            `second:${context.systemPrompt}:${JSON.stringify(context.messages)}`,
           );
         },
       ]);
@@ -239,14 +235,8 @@ describe("agent-session harness", () => {
 
       const firstMessages = JSON.stringify(first.messages());
       const secondMessages = JSON.stringify(second.messages());
-      const firstPayload = first.lastProviderPayload() as Record<
-        string,
-        unknown
-      >;
-      const secondPayload = second.lastProviderPayload() as Record<
-        string,
-        unknown
-      >;
+      const firstPayload = first.lastProviderPayload(HarnessPayloadSchema);
+      const secondPayload = second.lastProviderPayload(HarnessPayloadSchema);
       expect({
         first: {
           hasOtherPrompt: firstMessages.includes("beta"),
@@ -298,18 +288,14 @@ describe("agent-session harness", () => {
 
     await harness.prompt("question");
 
-    expect(harness.messages().map((message) => message.role)).toContain(
-      "assistant"
-    );
+    expect(harness.messages().map((message) => message.role)).toContain("assistant");
   });
 
   it("leaves faux auth unconfigured when requested", async () => {
     harness = await createAgentSessionHarness({ withConfiguredAuth: false });
     harness.setResponses([fauxAssistantMessage("unused")]);
 
-    await expect(harness.prompt("question")).rejects.toThrow(
-      "No API key found for faux"
-    );
+    await expect(harness.prompt("question")).rejects.toThrow("No API key found for faux");
     expect(harness.getPendingResponseCount()).toBe(1);
   });
 
@@ -321,15 +307,12 @@ describe("agent-session harness", () => {
     const deferred = await harness.session.modelRuntime.completeSimple(
       model,
       { messages: [] },
-      { deferred: true }
+      { deferred: true },
     );
     if (!deferred.deferred) {
       throw new Error("Expected faux provider to return a deferred handle");
     }
-    const completed = await harness.session.modelRuntime.fetchDeferred(
-      model,
-      deferred.deferred
-    );
+    const completed = await harness.session.modelRuntime.fetchDeferred(model, deferred.deferred);
 
     harness.setResponses([
       () => {

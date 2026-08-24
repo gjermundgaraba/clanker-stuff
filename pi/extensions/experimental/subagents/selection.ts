@@ -6,9 +6,7 @@ export type Protocol = Exclude<ProtocolMode, "auto">;
 
 const automatic = (model: Model<Api> | undefined): Protocol => {
   const declared =
-    model !== undefined && "multiAgentVersion" in model
-      ? model.multiAgentVersion
-      : undefined;
+    model !== undefined && "multiAgentVersion" in model ? model.multiAgentVersion : undefined;
   if (declared === "disabled") {
     return "off";
   }
@@ -21,7 +19,7 @@ export const modelKey = (model: Model<Api> | undefined): string | undefined =>
 export const resolveProtocol = (
   model: Model<Api> | undefined,
   overrides: Readonly<Record<string, ProtocolMode>>,
-  inherited?: Protocol
+  inherited?: Protocol,
 ): Protocol => {
   const exact = modelKey(model);
   const exactOverride = exact === undefined ? undefined : overrides[exact];

@@ -1,14 +1,7 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import {
-  createAgentSession,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import type {
-  AgentSession,
-  AgentSessionEvent,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createSideConversation,
@@ -16,23 +9,28 @@ import {
   SideSessionController,
   stableSnapshotMessages,
 } from "../session.js";
+import type { SideAgentSession, SideConversationContext } from "../session.js";
 
-vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    createAgentSession: vi.fn<typeof actual.createAgentSession>(),
-  };
+const createSession = (overrides: Partial<SideAgentSession> = {}): SideAgentSession => ({
+  abort: async () => await Promise.resolve(),
+  bindExtensions: async () => await Promise.resolve(),
+  dispose: () => {},
+  extensionRunner: { emit: async () => await Promise.resolve() },
+  hasExtensionHandlers: () => false,
+  isStreaming: false,
+  prompt: async () => await Promise.resolve(),
+  subscribe: () => () => {},
+  ...overrides,
 });
 
 describe("side session", () => {
   it("returns to idle when a handled prompt emits no agent events", async () => {
     const prompt = vi.fn<(text: string) => Promise<void>>(async () => {});
-    const controller = new SideSessionController({
-      isStreaming: false,
-      prompt,
-      subscribe: () => () => {},
-    } as unknown as AgentSession);
+    const controller = new SideSessionController(
+      createSession({
+        prompt,
+      }),
+    );
 
     expect(controller.submit("first command")).toBeTruthy();
     await vi.waitFor(() => {
@@ -43,28 +41,27 @@ describe("side session", () => {
       expect(controller.state.activity.kind).toBe("idle");
     });
 
-    expect(prompt.mock.calls).toStrictEqual([
-      ["first command"],
-      ["second command"],
-    ]);
+    expect(prompt.mock.calls).toStrictEqual([["first command"], ["second command"]]);
   });
 
   it("clears streaming activity when a prompt rejects after an update", async () => {
-    const prompt = Promise.withResolvers<null>();
+    const prompt = Promise.withResolvers<void>();
     let listener: ((event: AgentSessionEvent) => void) | undefined;
-    const controller = new SideSessionController({
-      isStreaming: false,
-      prompt: () => prompt.promise,
-      subscribe: (next: (event: AgentSessionEvent) => void) => {
-        listener = next;
-        return () => {};
-      },
-    } as unknown as AgentSession);
+    const controller = new SideSessionController(
+      createSession({
+        prompt: () => prompt.promise,
+        subscribe: (next: (event: AgentSessionEvent) => void) => {
+          listener = next;
+          return () => {};
+        },
+      }),
+    );
 
     expect(controller.submit("stream")).toBeTruthy();
+    const partial = fauxAssistantMessage("partial");
     listener?.({
-      assistantMessageEvent: {} as never,
-      message: fauxAssistantMessage("partial"),
+      assistantMessageEvent: { partial, type: "start" },
+      message: partial,
       type: "message_update",
     });
     expect(controller.state.activity.kind).toBe("streaming");
@@ -80,61 +77,53 @@ describe("side session", () => {
   });
 
   it("binds child extensions without access to the main UI", async () => {
-    const binding = Promise.withResolvers<null>();
-    const bindExtensions = vi.fn<() => Promise<null>>(() => binding.promise);
-    vi.mocked(createAgentSession).mockResolvedValueOnce({
-      session: {
-        bindExtensions,
-        isStreaming: false,
-        subscribe: () => () => {},
-      },
-    } as never);
-    const ctx = {
+    const binding = Promise.withResolvers<void>();
+    const bindExtensions = vi.fn<() => Promise<void>>(() => binding.promise);
+    const session = createSession({ bindExtensions });
+    const createAgentSession = vi.fn(async () => ({ session }));
+    const ctx: SideConversationContext = {
       cwd: process.cwd(),
       isProjectTrusted: () => true,
-      mode: "tui",
-      model: {} as never,
+      model: undefined,
       sessionManager: SessionManager.inMemory(),
-      ui: {} as never,
-    } as unknown as ExtensionContext;
-
-    const conversation = createSideConversation(ctx, "off");
+    };
+    const conversation = createSideConversation(ctx, "off", createAgentSession);
     let returned = false;
     void conversation.then(() => {
       returned = true;
     });
     await vi.waitFor(() => {
+      expect(createAgentSession).toHaveBeenCalledOnce();
       expect(bindExtensions).toHaveBeenCalledWith({
         mode: "print",
       });
     });
     expect(returned).toBeFalsy();
 
-    binding.resolve(null);
+    binding.resolve();
     await expect(conversation).resolves.toBeInstanceOf(SideSessionController);
   });
 
   it("emits session_shutdown to child extensions before disposal", async () => {
     const order: string[] = [];
-    const session = {
+    const emit = vi.fn<() => Promise<void>>(async () => {
+      order.push("emit");
+      await Promise.resolve();
+    });
+    const session = createSession({
       dispose: vi.fn<() => void>(() => {
         order.push("dispose");
       }),
       extensionRunner: {
-        emit: vi.fn<() => Promise<void>>(async () => {
-          order.push("emit");
-          await Promise.resolve();
-        }),
+        emit,
       },
       hasExtensionHandlers: () => true,
-      isStreaming: false,
-      subscribe: () => () => {},
-    } as unknown as AgentSession;
+    });
 
     const controller = new SideSessionController(session);
     await controller.dispose();
 
-    expect(session.extensionRunner.emit).toHaveBeenCalledWith({
+    expect(emit).toHaveBeenCalledWith({
       reason: "quit",
       type: "session_shutdown",
     });
@@ -150,17 +139,12 @@ describe("side session", () => {
     });
     parent.appendMessage(
       fauxAssistantMessage(
-        [
-          { text: "Reading it", type: "text" },
-          fauxToolCall("read", {}, { id: "call-1" }),
-        ],
-        { stopReason: "toolUse" }
-      )
+        [{ text: "Reading it", type: "text" }, fauxToolCall("read", {}, { id: "call-1" })],
+        { stopReason: "toolUse" },
+      ),
     );
 
-    const snapshot = stableSnapshotMessages(
-      parent.buildSessionContext().messages
-    );
+    const snapshot = stableSnapshotMessages(parent.buildSessionContext().messages);
 
     expect(snapshot).toHaveLength(1);
     expect(snapshot[0]?.role).toBe("user");
@@ -184,8 +168,6 @@ describe("side session", () => {
     expect(boundary).toMatchObject({
       role: "user",
     });
-    expect(boundary?.role === "user" && boundary.content).toContain(
-      "Side conversation boundary"
-    );
+    expect(boundary?.role === "user" && boundary.content).toContain("Side conversation boundary");
   });
 });

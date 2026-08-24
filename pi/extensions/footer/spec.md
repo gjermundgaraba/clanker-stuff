@@ -84,12 +84,11 @@ This file contains only the acceptance gates for `footer/`. Normative behavior l
 Before cutover:
 
 ```bash
-pnpm test:unit footer
-pnpm test:integration footer
-pnpm test:smoke footer
-pnpm exec ultracite check footer
-pnpm typecheck
-pnpm check:all
+vp test --project unit pi/extensions/footer
+vp test --project integration pi/extensions/footer
+vp test --project smoke pi/extensions/footer
+vp check pi/extensions/footer
+vp run ready
 ```
 
 Cutover also requires:

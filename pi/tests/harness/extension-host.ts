@@ -1,3 +1,9 @@
+import {
+  InMemoryCredentialStore,
+  Type,
+  fauxAssistantMessage,
+  validateToolArguments,
+} from "@earendil-works/pi-ai";
 import type { Provider } from "@earendil-works/pi-ai";
 import type {
   AutocompleteProviderFactory,
@@ -27,23 +33,29 @@ import {
   createSyntheticSourceInfo,
   DefaultResourceLoader,
   ExtensionRunner,
+  ModelRegistry,
+  ModelRuntime,
+  SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
-import { vi } from "vitest";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+import { vi } from "vite-plus/test";
 
 import { createIdentityTheme } from "./tui.js";
 
 type ExtensionEventName = string;
-type ContextOverrides = Omit<Partial<ExtensionCommandContext>, "ui"> & {
+type ContextOverrides = Omit<
+  Partial<ExtensionCommandContext>,
+  "modelRegistry" | "sessionManager" | "ui"
+> & {
+  modelRegistry?: Partial<ExtensionContext["modelRegistry"]>;
+  sessionManager?: Partial<ExtensionContext["sessionManager"]>;
   ui?: Partial<ExtensionCommandContext["ui"]>;
 };
-type ToolExecute = NonNullable<
-  Parameters<ExtensionAPI["registerTool"]>[0]["execute"]
->;
-type EditorFactory = Parameters<
-  ExtensionCommandContext["ui"]["setEditorComponent"]
->[0];
+type ToolExecute = NonNullable<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>;
+type EditorFactory = Parameters<ExtensionCommandContext["ui"]["setEditorComponent"]>[0];
 type MessageRenderer = Parameters<ExtensionAPI["registerMessageRenderer"]>[1];
 type NativeProvider = Provider;
 interface RunToolOptions {
@@ -72,32 +84,40 @@ const TEST_SOURCE_INFO = createSyntheticSourceInfo("<test>", {
 });
 let nextHostId = 0;
 
+const InputEventResultSchema = Type.Union([
+  Type.Object({ action: Type.Literal("continue") }),
+  Type.Object({
+    action: Type.Literal("transform"),
+    images: Type.Optional(
+      Type.Array(
+        Type.Object({
+          data: Type.String(),
+          mimeType: Type.String(),
+          type: Type.Literal("image"),
+        }),
+      ),
+    ),
+    text: Type.String(),
+  }),
+  Type.Object({ action: Type.Literal("handled") }),
+]);
+const ToolArgumentsSchema = Type.Record(Type.String(), Type.Unknown());
+type ToolArguments = Static<typeof ToolArgumentsSchema>;
+interface IncompleteTarget {}
+
+// SAFETY: This test-only proxy exposes only implemented members and fails immediately for every other Pi API call.
+const incomplete = <T>(value: IncompleteTarget): T =>
+  new Proxy(value, {
+    get(target, property) {
+      if (Reflect.has(target, property)) {
+        return Object.getOwnPropertyDescriptor(target, property)?.value;
+      }
+      throw new Error(`Extension host does not implement ${String(property)}`);
+    },
+  }) as T;
+
 const createTurnEndEvent = (event?: Partial<TurnEndEvent>): TurnEndEvent => ({
-  message:
-    event?.message ??
-    ({
-      api: "faux",
-      content: [{ text: "done", type: "text" }],
-      model: "faux-1",
-      provider: "faux",
-      role: "assistant",
-      stopReason: "stop",
-      timestamp: Date.now(),
-      usage: {
-        cacheRead: 0,
-        cacheWrite: 0,
-        cost: {
-          cacheRead: 0,
-          cacheWrite: 0,
-          input: 0,
-          output: 0,
-          total: 0,
-        },
-        input: 0,
-        output: 0,
-        totalTokens: 0,
-      },
-    } as TurnEndEvent["message"]),
+  message: event?.message ?? fauxAssistantMessage("done"),
   toolResults: event?.toolResults ?? [],
   turnIndex: event?.turnIndex ?? 0,
   type: "turn_end",
@@ -106,13 +126,13 @@ const createTurnEndEvent = (event?: Partial<TurnEndEvent>): TurnEndEvent => ({
 const createToolInfo = (name: string): ToolInfo => ({
   description: name,
   name,
-  parameters: {} as never,
+  parameters: Type.Object({}),
   sourceInfo: TEST_SOURCE_INFO,
 });
 
 export const createExtensionHost = (
   extensionFactory: (pi: ExtensionAPI) => void | Promise<void>,
-  options: ExtensionHostOptions = {}
+  options: ExtensionHostOptions = {},
 ) => {
   const sessionId = options.sessionId ?? `test-session-${(nextHostId += 1)}`;
   const emptyCommands = new Map<string, RegisteredCommand>();
@@ -140,13 +160,9 @@ export const createExtensionHost = (
   let nextAppendedEntryId = 1;
   let editorFactory: EditorFactory | undefined;
   let sessionName: string | undefined;
-  let thinkingLevel = "off" as ReturnType<ExtensionAPI["getThinkingLevel"]>;
-  let activeTools = [
-    ...(options.activeTools ?? ["read", "bash", "edit", "write"]),
-  ];
-  const baseToolInfos = (
-    options.allTools ?? ["read", "bash", "edit", "write"]
-  ).map(createToolInfo);
+  let thinkingLevel: ReturnType<ExtensionAPI["getThinkingLevel"]> = "off";
+  let activeTools = [...(options.activeTools ?? ["read", "bash", "edit", "write"])];
+  const baseToolInfos = (options.allTools ?? ["read", "bash", "edit", "write"]).map(createToolInfo);
   const knownToolNames = new Set(baseToolInfos.map(({ name }) => name));
   let allToolInfos = [...baseToolInfos];
   let editorText = "";
@@ -159,9 +175,7 @@ export const createExtensionHost = (
     }
 
     const extensionTools = [...extension.tools.values()];
-    const extensionToolNames = new Set(
-      extensionTools.map(({ definition }) => definition.name)
-    );
+    const extensionToolNames = new Set(extensionTools.map(({ definition }) => definition.name));
     allToolInfos = [
       ...baseToolInfos.filter(({ name }) => !extensionToolNames.has(name)),
       ...extensionTools.map(({ definition, sourceInfo }) => ({
@@ -183,8 +197,7 @@ export const createExtensionHost = (
     }
   };
 
-  const getEntry = (entryId: string) =>
-    entries.find((entry) => entry.id === entryId);
+  const getEntry = (entryId: string) => entries.find((entry) => entry.id === entryId);
 
   const getBranch = (fromId?: string) => {
     const targetId = fromId ?? leafId;
@@ -211,119 +224,124 @@ export const createExtensionHost = (
   const emitHandlers = async <TEvent>(
     eventName: ExtensionEventName,
     event: TEvent,
-    ctx: ExtensionContext
+    ctx: ExtensionContext,
   ) => {
     const eventHandlers = getHandlers().get(eventName) ?? [];
-    const runAt = async (
-      index: number,
-      results: unknown[]
-    ): Promise<unknown[]> => {
+    const runAt = async (index: number, results: unknown[]): Promise<unknown[]> => {
       if (index >= eventHandlers.length) {
         return results;
       }
-      results.push(await eventHandlers[index](event as never, ctx));
+      results.push(await eventHandlers[index](event, ctx));
       return await runAt(index + 1, results);
     };
     return await runAt(0, []);
   };
 
   const buildContext = (overrides: ContextOverrides = {}) => {
-    const notify = vi.fn<(...args: never[]) => unknown>(
-      (message: string, type?: string) => {
-        notifications.push({ message, type });
-      }
-    );
+    const notify = vi.fn<ExtensionCommandContext["ui"]["notify"]>((message, type) => {
+      notifications.push({ message, type });
+    });
 
-    const setWidget = vi.fn<(...args: never[]) => unknown>(
-      (key: string, content: string[] | undefined) => {
-        widgetState.set(key, content?.join("\n"));
-      }
-    ) as ExtensionCommandContext["ui"]["setWidget"];
+    type WidgetFactory = Exclude<
+      Parameters<ExtensionCommandContext["ui"]["setWidget"]>[1],
+      undefined
+    >;
+    function setWidget(key: string, content: string[] | undefined): void;
+    function setWidget(key: string, content: WidgetFactory | undefined): void;
+    function setWidget(key: string, content: string[] | WidgetFactory | undefined): void {
+      widgetState.set(key, Array.isArray(content) ? content.join("\n") : undefined);
+    }
 
-    const onTerminalInput = vi.fn<(...args: never[]) => unknown>(
-      (handler: TerminalInputHandler) => {
-        terminalInputHandlers.add(handler);
-        return () => {
-          terminalInputHandlers.delete(handler);
-        };
-      }
-    );
+    const onTerminalInput = vi.fn<ExtensionCommandContext["ui"]["onTerminalInput"]>((handler) => {
+      terminalInputHandlers.add(handler);
+      return () => {
+        terminalInputHandlers.delete(handler);
+      };
+    });
 
-    const ui = {
-      addAutocompleteProvider: vi.fn<(...args: never[]) => unknown>(
-        (factory: AutocompleteProviderFactory) => {
+    const custom: ExtensionCommandContext["ui"]["custom"] = async () => {
+      await Promise.resolve();
+      throw new Error("Tests using ui.custom must provide ctx.ui.custom explicitly");
+    };
+
+    const ui = incomplete<ExtensionCommandContext["ui"]>({
+      addAutocompleteProvider: vi.fn<ExtensionCommandContext["ui"]["addAutocompleteProvider"]>(
+        (factory) => {
           autocompleteProviderFactories.push(factory);
-        }
+        },
       ),
-      custom: vi.fn<(...args: never[]) => unknown>(async () => {
-        await Promise.resolve();
-        throw new Error(
-          "Tests using ui.custom must provide ctx.ui.custom explicitly"
-        );
-      }) as ExtensionCommandContext["ui"]["custom"],
-      getEditorComponent: vi.fn<(...args: never[]) => unknown>(
-        () => editorFactory
+      custom: vi.fn<ExtensionCommandContext["ui"]["custom"]>(custom),
+      getEditorComponent: vi.fn<ExtensionCommandContext["ui"]["getEditorComponent"]>(
+        () => editorFactory,
       ),
-      getEditorText: vi.fn<(...args: never[]) => unknown>(() => editorText),
+      getEditorText: vi.fn<ExtensionCommandContext["ui"]["getEditorText"]>(() => editorText),
       notify,
       onTerminalInput,
-      select: vi.fn<(...args: never[]) => unknown>(
-        async (): Promise<string | undefined> => {
-          await Promise.resolve();
-          return undefined;
-        }
-      ),
-      setEditorComponent: vi.fn<(...args: never[]) => unknown>(
-        (factory: EditorFactory | undefined) => {
-          editorFactory = factory;
-        }
-      ),
-      setEditorText: vi.fn<(...args: never[]) => unknown>((text: string) => {
+      select: vi.fn<ExtensionCommandContext["ui"]["select"]>(async () => {
+        await Promise.resolve();
+        return undefined;
+      }),
+      setEditorComponent: vi.fn<ExtensionCommandContext["ui"]["setEditorComponent"]>((factory) => {
+        editorFactory = factory;
+      }),
+      setEditorText: vi.fn<ExtensionCommandContext["ui"]["setEditorText"]>((text) => {
         editorText = text;
       }),
-      setFooter: vi.fn<(...args: never[]) => unknown>(),
-      setStatus: vi.fn<(...args: never[]) => unknown>(
-        (key: string, text: string | undefined) => {
-          statuses.set(key, text);
-        }
-      ),
+      setFooter: vi.fn<ExtensionCommandContext["ui"]["setFooter"]>(),
+      setStatus: vi.fn<ExtensionCommandContext["ui"]["setStatus"]>((key, text) => {
+        statuses.set(key, text);
+      }),
       setWidget,
       theme: createIdentityTheme(),
-    } as unknown as ExtensionCommandContext["ui"];
+    });
 
-    const baseContext = {
-      abort: vi.fn<(...args: never[]) => unknown>(),
-      cwd: process.cwd(),
-      getContextUsage: vi.fn<(...args: never[]) => unknown>(
-        (): undefined => undefined
+    const sessionManagerOverrides = overrides.sessionManager;
+    const defaultSessionManager = incomplete<ExtensionContext["sessionManager"]>({
+      buildContextEntries:
+        sessionManagerOverrides?.buildContextEntries?.bind(sessionManagerOverrides) ?? getBranch,
+      getBranch: sessionManagerOverrides?.getBranch?.bind(sessionManagerOverrides) ?? getBranch,
+      getEntries:
+        sessionManagerOverrides?.getEntries?.bind(sessionManagerOverrides) ?? (() => [...entries]),
+      getEntry: sessionManagerOverrides?.getEntry?.bind(sessionManagerOverrides) ?? getEntry,
+      getLeafEntry:
+        sessionManagerOverrides?.getLeafEntry?.bind(sessionManagerOverrides) ??
+        (() => (leafId ? getEntry(leafId) : undefined)),
+      getLeafId:
+        sessionManagerOverrides?.getLeafId?.bind(sessionManagerOverrides) ?? (() => leafId),
+      getSessionFile:
+        sessionManagerOverrides?.getSessionFile?.bind(sessionManagerOverrides) ?? (() => undefined),
+      getSessionId:
+        sessionManagerOverrides?.getSessionId?.bind(sessionManagerOverrides) ?? (() => sessionId),
+    });
+    Object.assign(defaultSessionManager, sessionManagerOverrides);
+
+    const modelRegistry = incomplete<ExtensionContext["modelRegistry"]>({
+      find: vi.fn<ExtensionContext["modelRegistry"]["find"]>(() => undefined),
+      getProviderAuth: vi.fn<ExtensionContext["modelRegistry"]["getProviderAuth"]>(
+        async () => undefined,
       ),
+    });
+    Object.assign(modelRegistry, overrides.modelRegistry);
+
+    const baseContext = incomplete<ExtensionCommandContext>({
+      abort: vi.fn<ExtensionCommandContext["abort"]>(),
+      cwd: process.cwd(),
+      getContextUsage: vi.fn<ExtensionCommandContext["getContextUsage"]>(() => undefined),
       hasUI: options.hasUI ?? true,
-      isIdle: vi.fn<(...args: never[]) => unknown>(() => true),
-      isProjectTrusted: vi.fn<(...args: never[]) => unknown>(() => true),
+      isIdle: vi.fn<ExtensionCommandContext["isIdle"]>(() => true),
+      isProjectTrusted: vi.fn<ExtensionCommandContext["isProjectTrusted"]>(() => true),
       mode: "tui" as const,
       model: options.model,
-      modelRegistry: {
-        find: vi.fn<(...args: never[]) => unknown>(() => null),
-        getProviderAuth: vi.fn<(...args: never[]) => unknown>(
-          async (): Promise<undefined> => {
-            await Promise.resolve();
-          }
-        ),
-      } as unknown as ExtensionContext["modelRegistry"],
-      sessionManager: {
-        buildContextEntries: getBranch,
-        getBranch,
-        getEntries: () => [...entries],
-        getLeafId: () => leafId,
-        getSessionFile: vi.fn<() => string | undefined>(),
-        getSessionId: () => sessionId,
-      },
+      modelRegistry,
+      sessionManager: defaultSessionManager,
       ui,
-    } as unknown as ExtensionCommandContext;
+    });
 
     return {
       ...baseContext,
       ...overrides,
+      modelRegistry,
+      sessionManager: defaultSessionManager,
       ui: {
         ...ui,
         ...overrides.ui,
@@ -390,9 +408,7 @@ export const createExtensionHost = (
 
     const loaded = resourceLoader.getExtensions();
     if (loaded.errors.length > 0) {
-      throw new Error(
-        loaded.errors.map(({ error, path }) => `${path}: ${error}`).join("\n")
-      );
+      throw new Error(loaded.errors.map(({ error, path }) => `${path}: ${error}`).join("\n"));
     }
 
     [extension] = loaded.extensions;
@@ -404,17 +420,16 @@ export const createExtensionHost = (
       loaded.runtime.flagValues.set(name, value);
     }
 
-    const runnerContext = buildContext();
+    const runnerModelRuntime = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(),
+      modelsPath: null,
+    });
     const runner = new ExtensionRunner(
       loaded.extensions,
       loaded.runtime,
       process.cwd(),
-      runnerContext.sessionManager as unknown as ConstructorParameters<
-        typeof ExtensionRunner
-      >[3],
-      runnerContext.modelRegistry as unknown as ConstructorParameters<
-        typeof ExtensionRunner
-      >[4]
+      SessionManager.inMemory(process.cwd()),
+      new ModelRegistry(runnerModelRuntime),
     );
     const contextActions: ExtensionContextActions = {
       abort: vi.fn<ExtensionContextActions["abort"]>(),
@@ -447,7 +462,7 @@ export const createExtensionHost = (
   const emit = async <TEvent>(
     eventName: ExtensionEventName,
     event: TEvent,
-    ctx = buildContext()
+    ctx = buildContext(),
   ) => {
     await ready;
     return await emitHandlers(eventName, event, ctx);
@@ -456,28 +471,26 @@ export const createExtensionHost = (
   const emitSessionStart = async (
     ctx = buildContext(),
     reason: SessionStartEvent["reason"] = "startup",
-    previousSessionFile?: string
+    previousSessionFile?: string,
   ) => {
     const event: SessionStartEvent = {
-      ...(previousSessionFile === undefined ? {} : { previousSessionFile }),
       reason,
       type: "session_start",
     };
+    if (previousSessionFile !== undefined) {
+      event.previousSessionFile = previousSessionFile;
+    }
 
     await emit("session_start", event, ctx);
   };
 
   const emitSessionTree = async (ctx = buildContext()) => {
-    await emit(
-      "session_tree",
-      { newLeafId: leafId, oldLeafId: null, type: "session_tree" },
-      ctx
-    );
+    await emit("session_tree", { newLeafId: leafId, oldLeafId: null, type: "session_tree" }, ctx);
   };
 
   const emitSessionShutdown = async (
     ctx = buildContext(),
-    reason: SessionShutdownEvent["reason"] = "quit"
+    reason: SessionShutdownEvent["reason"] = "quit",
   ) => {
     const event: SessionShutdownEvent = {
       reason,
@@ -487,26 +500,21 @@ export const createExtensionHost = (
     await emit("session_shutdown", event, ctx);
   };
 
-  const emitInput = async (
-    event: InputEvent,
-    ctx = buildContext()
-  ): Promise<InputEventResult> => {
+  const emitInput = async (event: InputEvent, ctx = buildContext()): Promise<InputEventResult> => {
     await ready;
     const inputHandlers = getHandlers().get("input") ?? [];
 
     const runAt = async (
       index: number,
-      currentEvent: InputEvent
-    ): Promise<
-      InputEventResult | { kind: "continue"; currentEvent: InputEvent }
-    > => {
+      currentEvent: InputEvent,
+    ): Promise<InputEventResult | { kind: "continue"; currentEvent: InputEvent }> => {
       if (index >= inputHandlers.length) {
         return { currentEvent, kind: "continue" };
       }
 
-      const result = (await inputHandlers[index](currentEvent, ctx)) as
-        | InputEventResult
-        | undefined;
+      const rawResult = await inputHandlers[index](currentEvent, ctx);
+      const result =
+        rawResult === undefined ? undefined : Value.Parse(InputEventResultSchema, rawResult);
       if (!result || result.action === "continue") {
         return await runAt(index + 1, currentEvent);
       }
@@ -534,10 +542,7 @@ export const createExtensionHost = (
     }
 
     const { currentEvent } = final;
-    if (
-      currentEvent.text !== event.text ||
-      currentEvent.images !== event.images
-    ) {
+    if (currentEvent.text !== event.text || currentEvent.images !== event.images) {
       const transformed: InputEventResult = {
         action: "transform",
         text: currentEvent.text,
@@ -551,10 +556,7 @@ export const createExtensionHost = (
     return { action: "continue" };
   };
 
-  const emitTurnEnd = async (
-    event?: Partial<TurnEndEvent>,
-    ctx = buildContext()
-  ) => {
+  const emitTurnEnd = async (event?: Partial<TurnEndEvent>, ctx = buildContext()) => {
     await emit("turn_end", createTurnEndEvent(event), ctx);
   };
 
@@ -570,9 +572,9 @@ export const createExtensionHost = (
 
   const runTool = async (
     name: string,
-    params: unknown,
+    params: ToolArguments,
     ctxOrOptions: ExtensionCommandContext | RunToolOptions = buildContext(),
-    toolRunOptions: RunToolOptions = {}
+    toolRunOptions: RunToolOptions = {},
   ) => {
     await ready;
     const tool = extension?.tools.get(name);
@@ -588,22 +590,40 @@ export const createExtensionHost = (
           }
         : ctxOrOptions;
 
+    const rawParams = Value.Parse(ToolArgumentsSchema, params);
     const preparedParams = tool.definition.prepareArguments
-      ? tool.definition.prepareArguments(params)
-      : (params as never);
+      ? tool.definition.prepareArguments(rawParams)
+      : rawParams;
+    const preparedRecord = Value.Parse(ToolArgumentsSchema, preparedParams);
+    const validatedParams = validateToolArguments(
+      {
+        description: tool.definition.description,
+        name: tool.definition.name,
+        parameters: tool.definition.parameters,
+      },
+      {
+        arguments: preparedRecord,
+        id: runOptions.toolCallId ?? name,
+        name,
+        type: "toolCall",
+      },
+    );
+    const parsedParams = Value.Parse(tool.definition.parameters, validatedParams);
 
     return await tool.definition.execute(
       runOptions.toolCallId ?? name,
-      preparedParams,
+      parsedParams,
       runOptions.signal,
       runOptions.onUpdate,
-      runOptions.ctx ?? buildContext()
+      runOptions.ctx ?? buildContext(),
     );
   };
 
   const runShortcut = async (name: string, ctx = buildContext()) => {
     await ready;
-    const shortcut = extension?.shortcuts.get(name as never);
+    const shortcut = [...(extension?.shortcuts.values() ?? [])].find(
+      (candidate) => candidate.shortcut === name,
+    );
     if (!shortcut) {
       throw new Error(`Extension shortcut not registered: ${name}`);
     }
@@ -645,10 +665,8 @@ export const createExtensionHost = (
     getMarkdownTransformer(): MarkdownTransformer | undefined {
       return extension?.markdownTransformer;
     },
-    getMessageRenderer(customType: string) {
-      return extension?.messageRenderers.get(customType) as
-        | MessageRenderer
-        | undefined;
+    getMessageRenderer(customType: string): MessageRenderer | undefined {
+      return extension?.messageRenderers.get(customType);
     },
     getNotifications() {
       return [...notifications];
@@ -688,9 +706,7 @@ export const createExtensionHost = (
       leafId = id;
     },
     terminalInput(data: string) {
-      const results = [...terminalInputHandlers].map((handler) =>
-        handler(data)
-      );
+      const results = [...terminalInputHandlers].map((handler) => handler(data));
       return {
         consumed: results.some((result) => result?.consume),
         results,

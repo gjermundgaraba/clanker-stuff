@@ -1,120 +1,25 @@
-/* oxlint-disable eslint/complexity -- one validation pass preserves stable protocol error classes */
-
-import { FOOTER_PROTOCOL_VERSION } from "@clanker-stuff/footer-protocol";
+import {
+  FOOTER_PROTOCOL_VERSION,
+  FooterWidgetGlyphMapSchema,
+  parseFooterWidgetMessage,
+  parseFooterWidgetSnapshot,
+} from "@clanker-stuff/footer-protocol";
 import type {
   FooterContent,
+  FooterProtocolInput,
   FooterSpan,
   FooterWidgetHealth,
   FooterWidgetIcon,
   FooterWidgetMessage,
   FooterWidgetSnapshot,
 } from "@clanker-stuff/footer-protocol";
-import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; class: string; message: string };
 
-const STRICT = { additionalProperties: false } as const;
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)+$/u;
-
-const ToneSchema = Type.Union([
-  Type.Literal("text"),
-  Type.Literal("dim"),
-  Type.Literal("muted"),
-  Type.Literal("accent"),
-  Type.Literal("success"),
-  Type.Literal("warning"),
-  Type.Literal("error"),
-]);
-const TruncationSchema = Type.Union([
-  Type.Literal("start"),
-  Type.Literal("middle"),
-  Type.Literal("end"),
-]);
-const HealthStateSchema = Type.Union([
-  Type.Literal("loading"),
-  Type.Literal("ready"),
-  Type.Literal("stale"),
-  Type.Literal("error"),
-]);
-const SpanSchema = Type.Object(
-  {
-    bold: Type.Optional(Type.Boolean()),
-    text: Type.String({ maxLength: 1024 }),
-    tone: Type.Optional(ToneSchema),
-  },
-  STRICT
-);
-const ContentSchema = Type.Array(SpanSchema, { maxItems: 32 });
-const IconGlyphMapSchema = Type.Object(
-  {
-    ascii: Type.Optional(Type.String({ maxLength: 16 })),
-    nerd: Type.Optional(Type.String({ maxLength: 16 })),
-    unicode: Type.Optional(Type.String({ maxLength: 16 })),
-  },
-  STRICT
-);
-const IconSchema = Type.Union([
-  Type.Literal(false),
-  Type.Object(
-    {
-      glyphs: Type.Union([Type.String({ maxLength: 16 }), IconGlyphMapSchema]),
-      tone: Type.Optional(ToneSchema),
-    },
-    STRICT
-  ),
-]);
-const DefaultsSchema = Type.Object(
-  { enabled: Type.Optional(Type.Boolean()) },
-  STRICT
-);
-const HealthSchema = Type.Object(
-  {
-    message: Type.Optional(Type.String({ maxLength: 512 })),
-    state: HealthStateSchema,
-    updatedAt: Type.Optional(Type.Number()),
-  },
-  STRICT
-);
-const ConsumedStatusKeysSchema = Type.Array(
-  Type.String({ maxLength: 128, minLength: 1 }),
-  { maxItems: 16 }
-);
-const SnapshotShapeSchema = Type.Object(
-  {
-    consumesStatusKeys: Type.Optional(Type.Unknown()),
-    content: Type.Unknown(),
-    defaults: Type.Optional(Type.Unknown()),
-    health: Type.Optional(Type.Unknown()),
-    icon: Type.Optional(Type.Unknown()),
-    id: Type.Unknown(),
-    label: Type.Unknown(),
-    truncate: Type.Optional(Type.Unknown()),
-  },
-  STRICT
-);
-const InstanceIdSchema = Type.String({ maxLength: 128, minLength: 1 });
-const RemoveMessageSchema = Type.Object(
-  {
-    id: Type.Unknown(),
-    instanceId: InstanceIdSchema,
-    protocol: Type.Literal(FOOTER_PROTOCOL_VERSION),
-    type: Type.Literal("remove"),
-  },
-  STRICT
-);
-const UpsertMessageSchema = Type.Object(
-  {
-    instanceId: InstanceIdSchema,
-    protocol: Type.Literal(FOOTER_PROTOCOL_VERSION),
-    type: Type.Literal("upsert"),
-    widget: Type.Unknown(),
-  },
-  STRICT
-);
-const RichWidgetIdSchema = Type.String({ maxLength: 128, minLength: 1 });
 
 const codePointLength = (value: string): number => {
   let length = 0;
@@ -140,26 +45,15 @@ const hasUnsafeRichText = (value: string): boolean => {
   return false;
 };
 
-const validText = (
-  value: unknown,
-  maximum: number,
-  allowEmpty = true
-): value is string =>
-  typeof value === "string" &&
+const validText = (value: string, maximum: number, allowEmpty = true): boolean =>
   (allowEmpty || value.length > 0) &&
   codePointLength(value) <= maximum &&
   !hasUnsafeRichText(value);
 
-export const validateRichWidgetId = (value: unknown): value is string =>
-  Value.Check(RichWidgetIdSchema, value) &&
-  ID_PATTERN.test(value) &&
-  !value.startsWith("footer.") &&
-  !value.startsWith("status:");
+export const validateRichWidgetId = (value: string): boolean =>
+  ID_PATTERN.test(value) && !value.startsWith("footer.") && !value.startsWith("status:");
 
-const parseContent = (value: unknown): FooterContent | undefined => {
-  if (!Value.Check(ContentSchema, value)) {
-    return undefined;
-  }
+const copyContent = (value: FooterContent): FooterContent | undefined => {
   const spans: FooterSpan[] = [];
   let length = 0;
   for (const candidate of value) {
@@ -170,70 +64,28 @@ const parseContent = (value: unknown): FooterContent | undefined => {
     if (length > 1024) {
       return undefined;
     }
-    spans.push({
-      text: candidate.text,
-      ...(candidate.tone === undefined ? {} : { tone: candidate.tone }),
-      ...(candidate.bold === undefined ? {} : { bold: candidate.bold }),
-    });
+    spans.push({ ...candidate });
   }
   return spans;
 };
 
-const parseIcon = (value: unknown): FooterWidgetIcon | false | undefined => {
-  if (!Value.Check(IconSchema, value)) {
-    return undefined;
-  }
+const copyIcon = (value: FooterWidgetIcon | false): FooterWidgetIcon | false | undefined => {
   if (value === false) {
     return false;
   }
-  if (typeof value.glyphs === "string") {
-    if (!validText(value.glyphs, 16)) {
+  if (Value.Check(FooterWidgetGlyphMapSchema, value.glyphs)) {
+    if (Object.values(value.glyphs).some((glyph) => glyph !== undefined && !validText(glyph, 16))) {
       return undefined;
     }
-    return {
-      glyphs: value.glyphs,
-      ...(value.tone === undefined ? {} : { tone: value.tone }),
-    };
+    return { ...value, glyphs: { ...value.glyphs } };
   }
-  if (
-    Object.values(value.glyphs).some(
-      (glyph) => glyph !== undefined && !validText(glyph, 16)
-    )
-  ) {
-    return undefined;
-  }
-  return {
-    glyphs: Object.fromEntries(
-      Object.entries(value.glyphs).filter((entry) => entry[1] !== undefined)
-    ),
-    ...(value.tone === undefined ? {} : { tone: value.tone }),
-  };
+  return validText(value.glyphs, 16) ? { ...value } : undefined;
 };
 
-const parseHealth = (value: unknown): FooterWidgetHealth | undefined => {
-  if (
-    !Value.Check(HealthSchema, value) ||
-    (value.message !== undefined && !validText(value.message, 512))
-  ) {
-    return undefined;
-  }
-  return {
-    state: value.state,
-    ...(value.message === undefined ? {} : { message: value.message }),
-    ...(value.updatedAt === undefined ? {} : { updatedAt: value.updatedAt }),
-  };
-};
+const copyHealth = (value: FooterWidgetHealth): FooterWidgetHealth | undefined =>
+  value.message === undefined || validText(value.message, 512) ? { ...value } : undefined;
 
-export const validateFooterWidgetSnapshot = (
-  value: unknown
-): ValidationResult<FooterWidgetSnapshot> => {
-  if (!Value.Check(SnapshotShapeSchema, value)) {
-    return {
-      class: "schema",
-      message: "widget must be a strict object",
-      ok: false,
-    };
-  }
+const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterWidgetSnapshot> => {
   if (!validateRichWidgetId(value.id)) {
     return {
       class: "id",
@@ -244,7 +96,7 @@ export const validateFooterWidgetSnapshot = (
   if (!validText(value.label, 80, false)) {
     return { class: "text", message: "widget label is invalid", ok: false };
   }
-  const content = parseContent(value.content);
+  const content = copyContent(value.content);
   if (!content) {
     return {
       class: "content",
@@ -252,106 +104,75 @@ export const validateFooterWidgetSnapshot = (
       ok: false,
     };
   }
-  const icon = value.icon === undefined ? undefined : parseIcon(value.icon);
+  const icon = value.icon === undefined ? undefined : copyIcon(value.icon);
   if (value.icon !== undefined && icon === undefined) {
     return { class: "icon", message: "widget icon is invalid", ok: false };
   }
-  if (
-    value.defaults !== undefined &&
-    !Value.Check(DefaultsSchema, value.defaults)
-  ) {
-    return {
-      class: "defaults",
-      message: "widget display defaults are invalid",
-      ok: false,
-    };
-  }
-  const health =
-    value.health === undefined ? undefined : parseHealth(value.health);
+  const health = value.health === undefined ? undefined : copyHealth(value.health);
   if (value.health !== undefined && health === undefined) {
     return { class: "health", message: "widget health is invalid", ok: false };
   }
-  let consumesStatusKeys: string[] | undefined;
-  if (value.consumesStatusKeys !== undefined) {
-    if (
-      !Value.Check(ConsumedStatusKeysSchema, value.consumesStatusKeys) ||
-      !value.consumesStatusKeys.every((key) => validText(key, 128, false))
-    ) {
-      return {
-        class: "fallback",
-        message: "consumed status keys are invalid",
-        ok: false,
-      };
-    }
-    consumesStatusKeys = [...value.consumesStatusKeys];
-  }
-  if (
-    value.truncate !== undefined &&
-    !Value.Check(TruncationSchema, value.truncate)
-  ) {
+  if (value.consumesStatusKeys?.some((key) => !validText(key, 128, false)) === true) {
     return {
-      class: "truncate",
-      message: "widget truncation hint is invalid",
+      class: "fallback",
+      message: "consumed status keys are invalid",
       ok: false,
     };
-  }
-  let defaults: FooterWidgetSnapshot["defaults"];
-  if (value.defaults !== undefined) {
-    defaults =
-      value.defaults.enabled === undefined
-        ? {}
-        : { enabled: value.defaults.enabled };
   }
   return {
     ok: true,
     value: {
+      ...value,
+      consumesStatusKeys:
+        value.consumesStatusKeys === undefined ? undefined : [...value.consumesStatusKeys],
       content,
-      id: value.id,
-      label: value.label,
-      ...(icon === undefined ? {} : { icon }),
-      ...(defaults === undefined ? {} : { defaults }),
-      ...(health === undefined ? {} : { health }),
-      ...(consumesStatusKeys === undefined ? {} : { consumesStatusKeys }),
-      ...(value.truncate === undefined ? {} : { truncate: value.truncate }),
+      defaults: value.defaults === undefined ? undefined : { ...value.defaults },
+      health,
+      icon,
     },
   };
 };
 
+export const validateFooterWidgetSnapshot = (
+  value: FooterProtocolInput,
+): ValidationResult<FooterWidgetSnapshot> => {
+  const parsed = parseFooterWidgetSnapshot(value);
+  return parsed === undefined
+    ? { class: "schema", message: "widget must match the protocol schema", ok: false }
+    : validateSnapshot(parsed);
+};
+
 export const validateFooterWidgetMessage = (
-  value: unknown
+  value: FooterProtocolInput,
 ): ValidationResult<FooterWidgetMessage> => {
-  if (
-    Value.Check(RemoveMessageSchema, value) &&
-    validateRichWidgetId(value.id)
-  ) {
+  const parsed = parseFooterWidgetMessage(value);
+  if (parsed === undefined) {
     return {
-      ok: true,
-      value: {
-        id: value.id,
-        instanceId: value.instanceId,
-        protocol: FOOTER_PROTOCOL_VERSION,
-        type: "remove",
-      },
+      class: "message",
+      message: "widget message must match the protocol schema",
+      ok: false,
     };
   }
-  if (Value.Check(UpsertMessageSchema, value)) {
-    const widget = validateFooterWidgetSnapshot(value.widget);
-    if (!widget.ok) {
-      return widget;
-    }
-    return {
-      ok: true,
-      value: {
-        instanceId: value.instanceId,
-        protocol: FOOTER_PROTOCOL_VERSION,
-        type: "upsert",
-        widget: widget.value,
-      },
-    };
+  if (parsed.type === "remove") {
+    return validateRichWidgetId(parsed.id)
+      ? {
+          ok: true,
+          value: {
+            ...parsed,
+            protocol: FOOTER_PROTOCOL_VERSION,
+          },
+        }
+      : { class: "id", message: "widget id is invalid or reserved", ok: false };
   }
-  return {
-    class: "message",
-    message: "widget message type is invalid",
-    ok: false,
-  };
+  const widget = validateSnapshot(parsed.widget);
+  return widget.ok
+    ? {
+        ok: true,
+        value: {
+          ...parsed,
+          protocol: FOOTER_PROTOCOL_VERSION,
+          widget: widget.value,
+        },
+      }
+    : widget;
 };

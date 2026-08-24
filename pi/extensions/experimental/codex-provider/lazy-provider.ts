@@ -7,7 +7,7 @@ type CodexProvider = Provider<"openai-codex-responses">;
 
 export const createLazyCodexProvider = (
   catalog: CodexModelCatalog,
-  load: () => Promise<CodexProvider>
+  load: () => Promise<CodexProvider>,
 ): CodexProvider => {
   const fallback = catalog.base;
   let loaded: CodexProvider | undefined;

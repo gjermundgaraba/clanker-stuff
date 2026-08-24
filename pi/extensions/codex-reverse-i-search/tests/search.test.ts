@@ -1,10 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import type { HistoryItem } from "../history.js";
 import { createSearch } from "../search.js";
-
-/* oxlint-disable vitest/max-expects -- interaction tests assert each state transition directly */
 
 const item = (text: string, timestamp: number): HistoryItem => ({
   text,
@@ -99,9 +97,7 @@ describe("reverse search", () => {
   });
 
   it("treats regex syntax as literal search text", () => {
-    const { begin, ctx, host } = createHarness([
-      item("find [literal].* text", 100),
-    ]);
+    const { begin, ctx, host } = createHarness([item("find [literal].* text", 100)]);
 
     begin();
     host.terminalInput("[literal].*");
@@ -125,9 +121,7 @@ describe("reverse search", () => {
 
   it("removes one Unicode grapheme on backspace", () => {
     const family = "👨‍👩‍👧‍👦";
-    const { begin, ctx, host } = createHarness([
-      item(`ship ${family} now`, 100),
-    ]);
+    const { begin, ctx, host } = createHarness([item(`ship ${family} now`, 100)]);
     ctx.ui.setEditorText("draft");
 
     begin();
@@ -139,9 +133,7 @@ describe("reverse search", () => {
   });
 
   it("restores the draft when reset", () => {
-    const { begin, ctx, host, reset } = createHarness([
-      item("Known prompt", 100),
-    ]);
+    const { begin, ctx, host, reset } = createHarness([item("Known prompt", 100)]);
     ctx.ui.setEditorText("unfinished draft");
 
     begin();
@@ -153,9 +145,7 @@ describe("reverse search", () => {
   });
 
   it("accepts bracketed paste without leaking terminal sequences", () => {
-    const { begin, ctx, host } = createHarness([
-      item("deploy production", 100),
-    ]);
+    const { begin, ctx, host } = createHarness([item("deploy production", 100)]);
     ctx.ui.setEditorText("draft");
 
     begin();

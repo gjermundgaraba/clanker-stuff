@@ -1,20 +1,10 @@
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  DefaultResourceLoader,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import * as packageEntry from "../index.js";
@@ -37,9 +27,7 @@ const CODEX_TOOLS = [
   "wait",
 ] as const;
 const NPM_ENV = Object.fromEntries(
-  Object.entries(process.env).filter(
-    ([key]) => !key.toLowerCase().startsWith("npm_config_")
-  )
+  Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
 );
 
 const loadPackage = async (packageRoot: string, rootDir: string) => {
@@ -75,21 +63,17 @@ describe("codex-provider package", () => {
     const agentDir = path.join(tempRoot, "agent");
     vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
     const result = await loadPackage(PACKAGE_ROOT, tempRoot);
-    const extension = result.extensions.find(
-      ({ resolvedPath }) => resolvedPath === EXPECTED_ENTRY
-    );
+    const extension = result.extensions.find(({ resolvedPath }) => resolvedPath === EXPECTED_ENTRY);
 
     expect({
       commands: ["code-mode", "codex-provider", "fast"].filter((command) =>
-        extension?.commands.has(command)
+        extension?.commands.has(command),
       ),
       entryRenderer: extension?.entryRenderers?.has(CHECKPOINT_CUSTOM_TYPE),
       errors: result.errors,
       exports: Object.keys(packageEntry),
       fastFlag: extension?.flags.has("fast"),
-      sensitiveHooks: SENSITIVE_HOOKS.filter((hook) =>
-        extension?.handlers.has(hook)
-      ),
+      sensitiveHooks: SENSITIVE_HOOKS.filter((hook) => extension?.handlers.has(hook)),
       tools: CODEX_TOOLS.filter((tool) => extension?.tools.has(tool)),
     }).toStrictEqual({
       commands: ["code-mode", "codex-provider", "fast"],
@@ -101,9 +85,7 @@ describe("codex-provider package", () => {
       tools: [...CODEX_TOOLS],
     });
     expect(
-      existsSync(
-        path.join(agentDir, "data", "codex-provider", "codex-provider.sqlite")
-      )
+      existsSync(path.join(agentDir, "data", "codex-provider", "codex-provider.sqlite")),
     ).toBeFalsy();
   });
 
@@ -170,7 +152,7 @@ describe("codex-provider package", () => {
         "package/tools/process.ts",
         "package/tools/register.ts",
         "package/tools/selection.ts",
-      ].toSorted()
+      ].toSorted(),
     );
     const installDir = path.join(tempRoot, "install");
     mkdirSync(installDir);
@@ -182,19 +164,19 @@ describe("codex-provider package", () => {
             "@clanker-stuff/codex-provider": `file:${tarball}`,
             "@clanker-stuff/footer-protocol": `file:${path.resolve(
               PACKAGE_ROOT,
-              "../../../packages/footer-protocol"
+              "../../../packages/footer-protocol",
             )}`,
             "@clanker-stuff/lazy-singleton": `file:${path.resolve(
               PACKAGE_ROOT,
-              "../../../packages/lazy-singleton"
+              "../../../packages/lazy-singleton",
             )}`,
             "@clanker-stuff/pi-extension-paths": `file:${path.resolve(
               PACKAGE_ROOT,
-              "../../../packages/extension-paths"
+              "../../../packages/extension-paths",
             )}`,
             "@clanker-stuff/tool-owner-protocol": `file:${path.resolve(
               PACKAGE_ROOT,
-              "../../../packages/tool-owner-protocol"
+              "../../../packages/tool-owner-protocol",
             )}`,
             "@earendil-works/pi-ai": "0.84.2",
             "@earendil-works/pi-coding-agent": "0.84.2",
@@ -204,28 +186,22 @@ describe("codex-provider package", () => {
           private: true,
         },
         null,
-        2
-      )}\n`
+        2,
+      )}\n`,
     );
-    execFileSync(
-      "npm",
-      ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
-      {
-        cwd: installDir,
-        env: NPM_ENV,
-        stdio: "pipe",
-      }
-    );
+    execFileSync("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
+      cwd: installDir,
+      env: NPM_ENV,
+      stdio: "pipe",
+    });
     const installedPackage = path.join(
       installDir,
       "node_modules",
       "@clanker-stuff",
-      "codex-provider"
+      "codex-provider",
     );
     expect(
-      JSON.parse(
-        readFileSync(path.join(installedPackage, "package.json"), "utf-8")
-      )
+      JSON.parse(readFileSync(path.join(installedPackage, "package.json"), "utf-8")),
     ).toMatchObject({
       dependencies: {
         "@clanker-stuff/footer-protocol": "^0.1.0",
@@ -242,14 +218,11 @@ describe("codex-provider package", () => {
       },
       private: true,
     });
-    const installed = await loadPackage(
-      installedPackage,
-      path.join(tempRoot, "runtime")
-    );
+    const installed = await loadPackage(installedPackage, path.join(tempRoot, "runtime"));
     expect({
       errors: installed.errors,
       extensions: installed.extensions.map(({ resolvedPath }) =>
-        path.relative(installedPackage, resolvedPath)
+        path.relative(installedPackage, resolvedPath),
       ),
     }).toStrictEqual({
       errors: [],

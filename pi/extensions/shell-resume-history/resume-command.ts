@@ -3,10 +3,7 @@ import { existsSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  ExtensionContext,
-  SessionShutdownEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 
 export const INBOX_ENV = "PI_SHELL_RESUME_HISTORY_DIR";
 
@@ -21,14 +18,8 @@ export interface ResumeCommandSession {
   sessionFile: string | undefined;
 }
 
-export const formatResumeCommand = ({
-  sessionFile,
-}: ResumeCommandSession): string | undefined => {
-  if (
-    sessionFile === undefined ||
-    sessionFile.length === 0 ||
-    !existsSync(sessionFile)
-  ) {
+export const formatResumeCommand = ({ sessionFile }: ResumeCommandSession): string | undefined => {
+  if (sessionFile === undefined || sessionFile.length === 0 || !existsSync(sessionFile)) {
     return undefined;
   }
 
@@ -37,7 +28,7 @@ export const formatResumeCommand = ({
 
 export const enqueueResumeCommand = async (
   command: string,
-  inbox = process.env[INBOX_ENV]
+  inbox = process.env[INBOX_ENV],
 ): Promise<void> => {
   if (inbox === undefined || inbox.length === 0) {
     return;
@@ -62,7 +53,7 @@ export const enqueueResumeCommand = async (
 
 export const recordResumeCommand = async (
   reason: SessionShutdownEvent["reason"],
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
 ): Promise<void> => {
   if (reason !== "quit" || ctx.mode !== "tui") {
     return;

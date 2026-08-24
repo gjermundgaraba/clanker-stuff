@@ -3,13 +3,13 @@ import nodePath from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { StatementSync } from "node:sqlite";
 
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const SCHEMA_VERSION = 1;
 
-export type CodexObservationKind =
-  | "compaction"
-  | "context-frame-failure"
-  | "request";
+export type CodexObservationKind = "compaction" | "context-frame-failure" | "request";
 
 export interface CodexObservation {
   readonly data: unknown;
@@ -17,13 +17,17 @@ export interface CodexObservation {
   readonly timestamp: number;
 }
 
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
-const isObservationKind = (value: unknown): value is CodexObservationKind =>
-  value === "compaction" ||
-  value === "context-frame-failure" ||
-  value === "request";
+const ObservationRowSchema = Type.Object({
+  data: Type.String(),
+  kind: Type.Union([
+    Type.Literal("compaction"),
+    Type.Literal("context-frame-failure"),
+    Type.Literal("request"),
+  ]),
+  timestamp: Type.Number(),
+});
 
 export class CodexObservability {
   #database?: DatabaseSync;
@@ -61,11 +65,11 @@ export class CodexObservability {
     }
   }
 
-  record(
+  record<T>(
     sessionId: string,
     kind: CodexObservationKind,
-    data: unknown,
-    timestamp = Date.now()
+    data: T,
+    timestamp = Date.now(),
   ): boolean {
     try {
       const database = this.#open();
@@ -73,14 +77,9 @@ export class CodexObservability {
         return false;
       }
       this.#insert ??= database.prepare(
-        "INSERT INTO events (timestamp, session_id, kind, data) VALUES (?, ?, ?, ?)"
+        "INSERT INTO events (timestamp, session_id, kind, data) VALUES (?, ?, ?, ?)",
       );
-      this.#insert.run(
-        timestamp,
-        sessionId,
-        kind,
-        JSON.stringify(data) ?? null
-      );
+      this.#insert.run(timestamp, sessionId, kind, JSON.stringify(data) ?? null);
       this.#lastError = undefined;
       return true;
     } catch (error) {
@@ -100,21 +99,18 @@ export class CodexObservability {
           `SELECT timestamp, kind, data
            FROM events
            WHERE session_id = ?
-           ORDER BY id DESC`
+           ORDER BY id DESC`,
         )
         .all(sessionId);
-      return rows.map((row) => {
-        if (
-          typeof row.data !== "string" ||
-          !isObservationKind(row.kind) ||
-          typeof row.timestamp !== "number"
-        ) {
+      return rows.map((row): CodexObservation => {
+        if (!Value.Check(ObservationRowSchema, row)) {
           throw new TypeError("SQLite returned an invalid observation row");
         }
+        const parsed = Value.Parse(ObservationRowSchema, row);
         return {
-          data: JSON.parse(row.data) as unknown,
-          kind: row.kind,
-          timestamp: row.timestamp,
+          data: JSON.parse(parsed.data),
+          kind: parsed.kind,
+          timestamp: parsed.timestamp,
         };
       });
     } catch (error) {
@@ -133,10 +129,7 @@ export class CodexObservability {
       database = new DatabaseSync(this.path);
       database.exec("PRAGMA busy_timeout = 0");
       database.exec("PRAGMA journal_mode = WAL");
-      if (
-        database.prepare("PRAGMA user_version").get()?.user_version !==
-        SCHEMA_VERSION
-      ) {
+      if (database.prepare("PRAGMA user_version").get()?.user_version !== SCHEMA_VERSION) {
         database.exec(`
           DROP TABLE IF EXISTS events;
           PRAGMA user_version = ${SCHEMA_VERSION};
@@ -153,9 +146,7 @@ export class CodexObservability {
         CREATE INDEX IF NOT EXISTS events_session
           ON events(session_id, id);
       `);
-      database
-        .prepare("DELETE FROM events WHERE timestamp < ?")
-        .run(Date.now() - RETENTION_MS);
+      database.prepare("DELETE FROM events WHERE timestamp < ?").run(Date.now() - RETENTION_MS);
       this.#database = database;
       return database;
     } catch (error) {

@@ -2,15 +2,10 @@ import { mkdtemp, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { fauxProvider } from "@earendil-works/pi-ai";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import {
-  cloneModelRuntime,
-  finalFromMessages,
-  isSubagentHostExtensionPath,
-} from "../runtime.js";
+import { cloneModelRuntime, finalFromMessages, isSubagentHostExtensionPath } from "../runtime.js";
 
 describe("child runtime results", () => {
   it.each([
@@ -25,7 +20,7 @@ describe("child runtime results", () => {
           role: "assistant",
           stopReason: "stop",
         },
-      ])
+      ]),
     ).toStrictEqual({ status: "completed" });
   });
 
@@ -37,7 +32,7 @@ describe("child runtime results", () => {
           role: "assistant",
           stopReason: "stop",
         },
-      ])
+      ]),
     ).toStrictEqual({ status: "completed", text: "  finished  " });
   });
 
@@ -87,14 +82,12 @@ describe("child model runtime", () => {
   });
 
   it("keeps usable credentials when another provider lookup fails", async () => {
-    const agentDir = await mkdtemp(
-      path.join(os.tmpdir(), "subagents-runtime-")
-    );
+    const agentDir = await mkdtemp(path.join(os.tmpdir(), "subagents-runtime-"));
     process.env.PI_CODING_AGENT_DIR = agentDir;
     const source = {
       getAll: () =>
-        ["broken", "openai"].map(
-          (provider) => ({ id: "model", provider }) as Model<Api>
+        ["broken", "openai"].map((provider) =>
+          fauxProvider({ models: [{ id: "model" }], provider }).getModel(),
         ),
       getApiKeyForProvider: (provider: string) =>
         provider === "broken"
@@ -104,10 +97,10 @@ describe("child model runtime", () => {
         configured: true,
         source: "runtime" as const,
       }),
-      getRegisteredNativeProvider: () => {},
-      getRegisteredProviderConfig: () => {},
+      getRegisteredNativeProvider: () => undefined,
+      getRegisteredProviderConfig: () => undefined,
       getRegisteredProviderIds: () => [],
-    } as unknown as ModelRegistry;
+    };
 
     try {
       const runtime = await cloneModelRuntime(source, "openai");
@@ -120,26 +113,22 @@ describe("child model runtime", () => {
   });
 
   it("fails when the selected provider credential cannot be copied", async () => {
-    const agentDir = await mkdtemp(
-      path.join(os.tmpdir(), "subagents-runtime-")
-    );
+    const agentDir = await mkdtemp(path.join(os.tmpdir(), "subagents-runtime-"));
     process.env.PI_CODING_AGENT_DIR = agentDir;
     const source = {
-      getAll: () => [{ id: "model", provider: "broken" } as Model<Api>],
+      getAll: () => [fauxProvider({ models: [{ id: "model" }], provider: "broken" }).getModel()],
       getApiKeyForProvider: () => Promise.reject(new Error("broken auth")),
       getProviderAuthStatus: () => ({
         configured: true,
         source: "runtime" as const,
       }),
-      getRegisteredNativeProvider: () => {},
-      getRegisteredProviderConfig: () => {},
+      getRegisteredNativeProvider: () => undefined,
+      getRegisteredProviderConfig: () => undefined,
       getRegisteredProviderIds: () => [],
-    } as unknown as ModelRegistry;
+    };
 
     try {
-      await expect(cloneModelRuntime(source, "broken")).rejects.toThrow(
-        "broken auth"
-      );
+      await expect(cloneModelRuntime(source, "broken")).rejects.toThrow("broken auth");
     } finally {
       await rm(agentDir, { force: true, recursive: true });
     }

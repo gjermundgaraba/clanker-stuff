@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/no-use-before-define, eslint/no-plusplus, promise/prefer-await-to-then, promise/prefer-await-to-callbacks -- framed subprocess protocol requires explicit deferreds and callbacks */
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -14,14 +13,11 @@ import {
   parseHostMessage,
   parseRuntimeResponse,
   runtimeOutcome,
+  runtimeResponseFromValue,
   toWireToolDefinition,
 } from "./protocol.js";
-import type { HostMessage } from "./protocol.js";
-import type {
-  NestedTool,
-  RuntimeResponse,
-  ToolExecutionContext,
-} from "./types.js";
+import type { DelegateResponse, HostMessage, HostResultValue } from "./protocol.js";
+import type { NestedTool, RuntimeResponse, ToolExecutionContext } from "./types.js";
 
 const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 const MAX_QUEUED_WRITE_BYTES = 128 * 1024 * 1024;
@@ -31,9 +27,29 @@ const STARTUP_TIMEOUT_MS = 10_000;
 interface Pending {
   context?: ToolExecutionContext;
   reject: (error: Error) => void;
-  resolve: (value: unknown) => void;
+  resolve: (value: HostResultValue | null) => void;
   tools?: Map<string, NestedTool>;
 }
+
+type HostRequest =
+  | { method: "session/shutdown" | "session/open"; sessionId: string }
+  | {
+      method: "session/execute";
+      request: {
+        enabled_tools: ReturnType<typeof toWireToolDefinition>[];
+        max_output_tokens: number | null;
+        source: string;
+        tool_call_id: string;
+        yield_time_ms: number;
+      };
+      sessionId: string;
+    }
+  | {
+      method: "session/wait";
+      request: { cell_id: string; yield_time_ms: number };
+      sessionId: string;
+    }
+  | { cellId: string; method: "session/terminate"; sessionId: string };
 
 export class CodeModeHostClient {
   private readonly binary: string;
@@ -42,7 +58,7 @@ export class CodeModeHostClient {
   private readonly delegateRuntime = new CodeModeDelegateRuntime((message) => {
     this.send(message);
   });
-  private readonly initial = new Map<number, Pending>();
+  private readonly initial = new Map<number, PromiseWithResolvers<HostResultValue>>();
   private readonly pending = new Map<number, Pending>();
   private queuedWriteBytes = 0;
   private ready: Promise<void> | undefined;
@@ -90,14 +106,14 @@ export class CodeModeHostClient {
     source: string,
     context: ToolExecutionContext,
     signal: AbortSignal | undefined,
-    tools: NestedTool[]
+    tools: NestedTool[],
   ): Promise<RuntimeResponse> {
     throwIfAborted(signal);
     await this.start(signal);
     throwIfAborted(signal);
     const { code, maxOutputTokens, yieldTimeMs } = parseExecSource(source);
     const id = ++this.requestId;
-    const initial = Promise.withResolvers<unknown>();
+    const initial = Promise.withResolvers<HostResultValue>();
     this.initial.set(id, initial);
     void initial.promise.catch(() => null);
     const toolSet = new Map(
@@ -107,7 +123,7 @@ export class CodeModeHostClient {
           namespace: tool.namespace,
         }),
         tool,
-      ])
+      ]),
     );
     const started = this.requestWithId(
       id,
@@ -123,7 +139,7 @@ export class CodeModeHostClient {
         sessionId: this.sessionId,
       },
       context,
-      toolSet
+      toolSet,
     );
     let cellId: string | undefined;
     const abort = () => {
@@ -147,9 +163,7 @@ export class CodeModeHostClient {
         throw abortError();
       }
       return {
-        ...this.delegateRuntime.attach(
-          parseRuntimeResponse(await initial.promise)
-        ),
+        ...this.delegateRuntime.attach(runtimeResponseFromValue(await initial.promise)),
         maxOutputTokens: maxOutputTokens ?? 10_000,
       };
     } catch (error) {
@@ -164,7 +178,7 @@ export class CodeModeHostClient {
     cellId: string,
     yieldTimeMs: number,
     context: ToolExecutionContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<RuntimeResponse> {
     throwIfAborted(signal);
     await this.start(signal);
@@ -179,7 +193,7 @@ export class CodeModeHostClient {
           request: { cell_id: cellId, yield_time_ms: yieldTimeMs },
           sessionId: this.sessionId,
         },
-        context
+        context,
       );
       const wrapped = runtimeOutcome(value);
       if (wrapped === undefined || wrapped === null) {
@@ -192,7 +206,7 @@ export class CodeModeHostClient {
   async terminate(
     cellId: string,
     context: ToolExecutionContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<RuntimeResponse> {
     throwIfAborted(signal);
     await this.start(signal);
@@ -207,13 +221,11 @@ export class CodeModeHostClient {
           method: "session/terminate",
           sessionId: this.sessionId,
         },
-        context
+        context,
       );
       const wrapped = runtimeOutcome(value);
       if (wrapped === undefined || wrapped === null) {
-        throw new Error(
-          "Code-mode host returned an invalid termination outcome"
-        );
+        throw new Error("Code-mode host returned an invalid termination outcome");
       }
       return this.delegateRuntime.attach(parseRuntimeResponse(wrapped));
     });
@@ -267,8 +279,8 @@ export class CodeModeHostClient {
           new Error(
             `Code-mode host exited with code ${code ?? "unknown"}${
               this.stderr.trim() ? `: ${this.stderr.trim()}` : ""
-            }`
-          )
+            }`,
+          ),
         );
       }
     });
@@ -292,7 +304,7 @@ export class CodeModeHostClient {
   private async abortableOperation<T>(
     id: number,
     signal: AbortSignal | undefined,
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
   ): Promise<T> {
     const abort = () => {
       const error = abortError();
@@ -312,19 +324,19 @@ export class CodeModeHostClient {
   }
 
   private request(
-    request: Record<string, unknown>,
-    context?: ToolExecutionContext
-  ): Promise<unknown> {
+    request: HostRequest,
+    context?: ToolExecutionContext,
+  ): Promise<HostResultValue | null> {
     return this.requestWithId(++this.requestId, request, context);
   }
 
   private requestWithId(
     id: number,
-    request: Record<string, unknown>,
+    request: HostRequest,
     context?: ToolExecutionContext,
-    tools?: Map<string, NestedTool>
-  ): Promise<unknown> {
-    const result = Promise.withResolvers<unknown>();
+    tools?: Map<string, NestedTool>,
+  ): Promise<HostResultValue | null> {
+    const result = Promise.withResolvers<HostResultValue | null>();
     this.pending.set(id, {
       context,
       reject: result.reject,
@@ -349,7 +361,18 @@ export class CodeModeHostClient {
     initial?.reject(error);
   }
 
-  private send(message: unknown): void {
+  private send(
+    message:
+      | DelegateResponse
+      | {
+          optionalCapabilities: [];
+          requiredCapabilities: [];
+          supportedVersions: [1];
+          type: "connection/hello";
+        }
+      | { id: number; request: HostRequest; type: "operation/request" }
+      | { id: number; type: "operation/cancel" },
+  ): void {
     const { child } = this;
     if (child?.stdin.writable !== true) {
       throw new Error("Code-mode host is not running");
@@ -362,9 +385,7 @@ export class CodeModeHostClient {
     header.writeUInt32LE(payload.length);
     const frame = Buffer.concat([header, payload]);
     if (this.queuedWriteBytes + frame.length > MAX_QUEUED_WRITE_BYTES) {
-      throw new Error(
-        `Code-mode write queue exceeds ${MAX_QUEUED_WRITE_BYTES} bytes`
-      );
+      throw new Error(`Code-mode write queue exceeds ${MAX_QUEUED_WRITE_BYTES} bytes`);
     }
     this.queuedWriteBytes += frame.length;
     child.stdin.write(frame, (error) => {
@@ -380,9 +401,7 @@ export class CodeModeHostClient {
     while (this.buffer.length >= 4) {
       const length = this.buffer.readUInt32LE(0);
       if (length > MAX_FRAME_BYTES) {
-        this.failAll(
-          new Error(`Code-mode frame exceeds ${MAX_FRAME_BYTES} bytes`)
-        );
+        this.failAll(new Error(`Code-mode frame exceeds ${MAX_FRAME_BYTES} bytes`));
         return;
       }
       if (this.buffer.length < length + 4) {
@@ -391,9 +410,7 @@ export class CodeModeHostClient {
       const payload = this.buffer.subarray(4, length + 4);
       this.buffer = this.buffer.subarray(length + 4);
       try {
-        this.handleMessage(
-          parseHostMessage(JSON.parse(payload.toString("utf-8")))
-        );
+        this.handleMessage(parseHostMessage(payload.toString("utf-8")));
       } catch (error) {
         this.failAll(error instanceof Error ? error : new Error(String(error)));
       }
@@ -410,11 +427,7 @@ export class CodeModeHostClient {
     if (message.type === "connection/rejected") {
       const pending = this.pending.get(0);
       this.pending.delete(0);
-      pending?.reject(
-        new Error(
-          `Code-mode handshake rejected: ${JSON.stringify(message.reason)}`
-        )
-      );
+      pending?.reject(new Error(`Code-mode handshake rejected: ${JSON.stringify(message.reason)}`));
       return;
     }
     if (message.type === "operation/response") {
@@ -429,11 +442,7 @@ export class CodeModeHostClient {
       }
       const { value } = message.result;
       const cellId = executionCellId(value);
-      if (
-        cellId !== undefined &&
-        cellId.length > 0 &&
-        pending.context !== undefined
-      ) {
+      if (cellId !== undefined && cellId.length > 0 && pending.context !== undefined) {
         this.delegateRuntime.bindCell(cellId, pending.context, pending.tools);
       }
       pending.resolve(value);
@@ -464,10 +473,7 @@ export class CodeModeHostClient {
   }
 
   private failAll(error: Error): void {
-    for (const pending of [
-      ...this.pending.values(),
-      ...this.initial.values(),
-    ]) {
+    for (const pending of [...this.pending.values(), ...this.initial.values()]) {
       pending.reject(error);
     }
     this.pending.clear();
@@ -495,10 +501,7 @@ const throwIfAborted = (signal?: AbortSignal) => {
   }
 };
 
-const abortable = async <T>(
-  promise: Promise<T>,
-  signal: AbortSignal | undefined
-): Promise<T> => {
+const abortable = async <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> => {
   throwIfAborted(signal);
   if (!signal) {
     return await promise;

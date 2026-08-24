@@ -1,10 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import {
-  AskQuestionParametersSchema,
-  MAX_QUESTIONS,
-  executeAskQuestion,
-} from "./tool.js";
+import { AskQuestionParametersSchema, MAX_QUESTIONS, executeAskQuestion } from "./tool.js";
 
 export default function askQuestion(pi: ExtensionAPI) {
   pi.registerTool({
@@ -23,7 +19,6 @@ export default function askQuestion(pi: ExtensionAPI) {
       "For ask_question, set multiSelect only when several answers are valid at once.",
       `For ask_question, ask at most ${MAX_QUESTIONS} questions per call; use multiple ask_question calls if needed.`,
     ],
-    promptSnippet:
-      "Ask structured clarification questions and return machine-readable answers",
+    promptSnippet: "Ask structured clarification questions and return machine-readable answers",
   });
 }

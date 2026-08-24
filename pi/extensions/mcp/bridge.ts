@@ -1,19 +1,17 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
-import type { CallToolResult } from "@modelcontextprotocol/client";
-import { Type } from "typebox";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/client";
 import type { TSchema } from "typebox";
 
 const TOOL_NAME_PREFIX = "mcp_";
-const OPEN_OBJECT_SCHEMA = Type.Object({}, { additionalProperties: true });
 
 export type PiToolContent =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
 
 export const activateTools = (
-  pi: ExtensionAPI,
-  toolNames: readonly string[]
+  pi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools">,
+  toolNames: readonly string[],
 ): void => {
   const active = pi.getActiveTools();
   const activeSet = new Set(active);
@@ -36,16 +34,10 @@ const sanitizeNameComponent = (value: string): string => {
   return /^[0-9]/u.test(normalized) ? `_${normalized}` : normalized;
 };
 
-export const toGeneratedToolName = (
-  serverName: string,
-  toolName: string
-): string =>
+export const toGeneratedToolName = (serverName: string, toolName: string): string =>
   `${TOOL_NAME_PREFIX}${sanitizeNameComponent(serverName)}__${sanitizeNameComponent(toolName)}`;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const safeJson = (value: unknown): string => {
+const safeJson = <T>(value: T): string => {
   try {
     return JSON.stringify(value, null, 2);
   } catch {
@@ -53,36 +45,26 @@ const safeJson = (value: unknown): string => {
   }
 };
 
-export const toToolParametersSchema = (inputSchema: unknown): TSchema =>
-  isRecord(inputSchema) && inputSchema.type === "object"
-    ? inputSchema
-    : OPEN_OBJECT_SCHEMA;
+export const toToolParametersSchema = (inputSchema: Tool["inputSchema"]): TSchema => inputSchema;
 
-export const normalizeToolArguments = (
-  args: unknown
-): Record<string, unknown> => (isRecord(args) ? args : {});
+export interface PiContentConversion {
+  content: PiToolContent[];
+  fullText: string;
+  truncated: boolean;
+}
 
 export const mcpResultToPiContent = (
   result: CallToolResult,
-  overflowPath?: string
-): { content: PiToolContent[]; fullText: string; truncated: boolean } => {
+  overflowPath?: string,
+): PiContentConversion => {
   const items = result.content;
   const text: string[] = [];
   const images: PiToolContent[] = [];
 
   for (const item of items) {
-    if (
-      isRecord(item) &&
-      item.type === "text" &&
-      typeof item.text === "string"
-    ) {
+    if (item.type === "text") {
       text.push(item.text);
-    } else if (
-      isRecord(item) &&
-      item.type === "image" &&
-      typeof item.data === "string" &&
-      typeof item.mimeType === "string"
-    ) {
+    } else if (item.type === "image") {
       images.push({ data: item.data, mimeType: item.mimeType, type: "image" });
     } else {
       text.push(safeJson(item));

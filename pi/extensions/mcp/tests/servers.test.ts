@@ -1,27 +1,39 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import {
-  SdkErrorCode,
-  SdkHttpError,
-  StreamableHTTPClientTransport,
-} from "@modelcontextprotocol/client";
-import type { Client, Transport } from "@modelcontextprotocol/client";
-import { describe, expect, it, vi } from "vitest";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { mcpResultToPiContent } from "../bridge.js";
-import type {
-  McpClientConnection,
-  McpConnectionFactory,
-} from "../connection.js";
+import type { McpClient, McpClientConnection, McpConnectionFactory } from "../connection.js";
 import mcp from "../index.js";
 import { McpServerPool } from "../servers.js";
+import type { McpToolRegistry } from "../servers.js";
 import { fixtureServer, setupMcpTest } from "./helpers.js";
+
+const PersistedMcpToolDetailsSchema = Type.Object({ outputPath: Type.String() });
+
+const createToolRegistry = (onRegister?: McpToolRegistry["registerTool"]): McpToolRegistry => ({
+  getActiveTools: () => [],
+  getAllTools: () => [],
+  registerTool(tool) {
+    onRegister?.(tool);
+  },
+  setActiveTools: vi.fn<McpToolRegistry["setActiveTools"]>(),
+});
+
+const createEmptyClient = (): McpClient => ({
+  callTool: vi.fn<McpClient["callTool"]>(async () => ({ content: [] })),
+  listTools: vi.fn<McpClient["listTools"]>(async () => ({ tools: [] })),
+});
+
+type RegisteredToolExecutor = (
+  toolCallId: string,
+  signal?: AbortSignal,
+) => Promise<AgentToolResult<unknown>>;
 
 describe("mcp server pool", () => {
   const t = setupMcpTest();
@@ -33,15 +45,15 @@ describe("mcp server pool", () => {
     const load = pool.loadServer({
       connectionFactory: () => connection.promise,
       interactive: false,
-      pi: {} as ExtensionAPI,
+      pi: createToolRegistry(),
       serverName: "slow",
     });
 
     const shutdown = pool.closeAll();
     connection.resolve({
-      client: {} as Client,
+      client: createEmptyClient(),
       close,
-      transport: {} as Transport,
+      transport: {},
     });
 
     await expect(load).rejects.toThrow("This operation was aborted");
@@ -51,32 +63,21 @@ describe("mcp server pool", () => {
 
   it("coalesces concurrent initial loads for one server", async () => {
     const connection = Promise.withResolvers<McpClientConnection>();
-    const connectionFactory = vi.fn<McpConnectionFactory>(
-      async () => await connection.promise
-    );
-    const registerTool = vi.fn<ExtensionAPI["registerTool"]>();
-    const setActiveTools = vi.fn<ExtensionAPI["setActiveTools"]>();
+    const connectionFactory = vi.fn<McpConnectionFactory>(async () => await connection.promise);
     const pool = new McpServerPool();
     const options = {
       connectionFactory,
       interactive: false,
-      pi: {
-        getActiveTools: () => [],
-        getAllTools: () => [],
-        registerTool,
-        setActiveTools,
-      } as unknown as ExtensionAPI,
+      pi: createToolRegistry(),
       serverName: "shared",
     };
 
     const first = pool.loadServer(options);
     const second = pool.loadServer(options);
     connection.resolve({
-      client: {
-        listTools: async () => ({ tools: [] }),
-      } as unknown as Client,
+      client: createEmptyClient(),
       close: vi.fn<() => Promise<void>>(async () => {}),
-      transport: {} as Transport,
+      transport: {},
     });
 
     await expect(Promise.all([first, second])).resolves.toStrictEqual([
@@ -89,16 +90,9 @@ describe("mcp server pool", () => {
 
   it("does not keep a canceled caller behind a shared load", async () => {
     const connection = Promise.withResolvers<McpClientConnection>();
-    const connectionFactory = vi.fn<McpConnectionFactory>(
-      async () => await connection.promise
-    );
+    const connectionFactory = vi.fn<McpConnectionFactory>(async () => await connection.promise);
     const pool = new McpServerPool();
-    const pi = {
-      getActiveTools: () => [],
-      getAllTools: () => [],
-      registerTool: vi.fn<ExtensionAPI["registerTool"]>(),
-      setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>(),
-    } as unknown as ExtensionAPI;
+    const pi = createToolRegistry();
     const options = {
       connectionFactory,
       interactive: false,
@@ -114,11 +108,9 @@ describe("mcp server pool", () => {
     await expect(queued).rejects.toMatchObject({ name: "AbortError" });
     expect(connectionFactory).toHaveBeenCalledOnce();
     connection.resolve({
-      client: {
-        listTools: async () => ({ tools: [] }),
-      } as unknown as Client,
+      client: createEmptyClient(),
       close: vi.fn<() => Promise<void>>(async () => {}),
-      transport: {} as Transport,
+      transport: {},
     });
     await first;
     await pool.closeAll();
@@ -126,28 +118,19 @@ describe("mcp server pool", () => {
 
   it("retries a failed concurrent load with the later caller's options", async () => {
     const firstAttempt = Promise.withResolvers<null>();
-    const connectionFactory = vi.fn<McpConnectionFactory>(
-      async (interactive) => {
-        if (!interactive) {
-          await firstAttempt.promise;
-          throw new Error("background authorization failed");
-        }
-        return {
-          client: {
-            listTools: async () => ({ tools: [] }),
-          } as unknown as Client,
-          close: vi.fn<() => Promise<void>>(async () => {}),
-          transport: {} as Transport,
-        };
+    const connectionFactory = vi.fn<McpConnectionFactory>(async (interactive) => {
+      if (!interactive) {
+        await firstAttempt.promise;
+        throw new Error("background authorization failed");
       }
-    );
+      return {
+        client: createEmptyClient(),
+        close: vi.fn<() => Promise<void>>(async () => {}),
+        transport: {},
+      };
+    });
     const pool = new McpServerPool();
-    const pi = {
-      getActiveTools: () => [],
-      getAllTools: () => [],
-      registerTool: vi.fn<ExtensionAPI["registerTool"]>(),
-      setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>(),
-    } as unknown as ExtensionAPI;
+    const pi = createToolRegistry();
     const background = pool.loadServer({
       connectionFactory,
       interactive: false,
@@ -164,10 +147,7 @@ describe("mcp server pool", () => {
 
     await expect(background).rejects.toThrow("background authorization failed");
     await expect(interactive).resolves.toMatchObject({ serverName: "shared" });
-    expect(connectionFactory.mock.calls.map(([value]) => value)).toStrictEqual([
-      false,
-      true,
-    ]);
+    expect(connectionFactory.mock.calls.map(([value]) => value)).toStrictEqual([false, true]);
     await pool.closeAll();
   });
 
@@ -198,72 +178,56 @@ describe("mcp server pool", () => {
         listTools: async () => ({
           tools: [{ inputSchema: { type: "object" }, name: "search" }],
         }),
-      } as unknown as Client,
+      } satisfies McpClient,
       close: vi.fn<() => Promise<void>>(async () => {}),
-      transport: new StreamableHTTPClientTransport(
-        new URL("http://localhost/mcp"),
-        { sessionId: "expired" }
-      ),
+      transport: { sessionId: "expired" },
     };
     const replacementConnection: McpClientConnection = {
       client: {
-        callTool: async (
-          _request: unknown,
-          options?: { signal?: AbortSignal }
-        ) => {
+        callTool: async (_request, options) => {
           options?.signal?.throwIfAborted();
           return { content: [{ text: "ok", type: "text" }] };
         },
-      } as unknown as Client,
+        listTools: async () => ({ tools: [] }),
+      } satisfies McpClient,
       close: vi.fn<() => Promise<void>>(async () => {}),
-      transport: {} as Transport,
+      transport: {},
     };
     let connects = 0;
-    const connectionFactory = vi.fn<McpConnectionFactory>(
-      async (_interactive, signal) => {
-        connects += 1;
-        if (connects === 1) {
-          return staleConnection;
-        }
-        reconnectStarted.resolve(signal);
-        return await replacement.promise;
+    const connectionFactory = vi.fn<McpConnectionFactory>(async (_interactive, signal) => {
+      connects += 1;
+      if (connects === 1) {
+        return staleConnection;
       }
-    );
-    let tool: ToolDefinition | undefined;
+      reconnectStarted.resolve(signal);
+      return await replacement.promise;
+    });
+    let executeTool: RegisteredToolExecutor | undefined;
     const pool = new McpServerPool();
+    const executeContext = t.createExtensionHost(() => {}).createContext();
     await pool.loadServer({
       connectionFactory,
       interactive: false,
-      pi: {
-        getActiveTools: () => [],
-        getAllTools: () => [],
-        registerTool: (definition: ToolDefinition) => {
-          tool = definition;
-        },
-        setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>(),
-      } as unknown as ExtensionAPI,
+      pi: createToolRegistry((definition) => {
+        executeTool = (toolCallId, signal) =>
+          definition.execute(
+            toolCallId,
+            Value.Parse(definition.parameters, {}),
+            signal,
+            undefined,
+            executeContext,
+          );
+      }),
       serverName: "remote",
     });
-    if (!tool) {
+    if (!executeTool) {
       throw new Error("MCP tool was not registered");
     }
 
     const firstController = new AbortController();
-    const first = tool.execute(
-      "first",
-      {},
-      firstController.signal,
-      undefined,
-      {} as ExtensionContext
-    );
+    const first = executeTool("first", firstController.signal);
     const reconnectSignal = await reconnectStarted.promise;
-    const second = tool.execute(
-      "second",
-      {},
-      undefined,
-      undefined,
-      {} as ExtensionContext
-    );
+    const second = executeTool("second");
     await vi.waitFor(() => {
       expect(staleCallTool).toHaveBeenCalledTimes(2);
     });
@@ -358,15 +322,11 @@ describe("mcp server pool", () => {
       toolName: "search",
       truncated: true,
     });
-    const overflow = await readFile(
-      (result.details as { outputPath: string }).outputPath,
-      "utf-8"
-    );
+    const details = Value.Parse(PersistedMcpToolDetailsSchema, result.details);
+    const overflow = await readFile(details.outputPath, "utf-8");
     expect(Buffer.byteLength(overflow)).toBeGreaterThan(50_000);
     expect(result.content[0]).toMatchObject({
-      text: expect.stringContaining(
-        (result.details as { outputPath: string }).outputPath
-      ),
+      text: expect.stringContaining(details.outputPath),
     });
     expect(JSON.stringify(result)).not.toContain("mcpResult");
   });
@@ -386,28 +346,24 @@ describe("mcp server pool", () => {
     await Promise.all(
       Array.from(
         { length: 6 },
-        async (_, index) =>
-          await host.runTool("mcp_github__search", { query: String(index) })
-      )
+        async (_, index) => await host.runTool("mcp_github__search", { query: String(index) }),
+      ),
     );
     const latest = await host.runTool("mcp_github__search", {
       query: "latest",
     });
-    const latestPath = (latest.details as { outputPath: string }).outputPath;
+    const latestPath = Value.Parse(PersistedMcpToolDetailsSchema, latest.details).outputPath;
     const resultDirectory = path.join(t.dataDir, "results");
     const entries = await readdir(resultDirectory);
     const files = await Promise.all(
-      entries.map(
-        async (entry) => await stat(path.join(resultDirectory, entry))
-      )
+      entries.map(async (entry) => await stat(path.join(resultDirectory, entry))),
     );
 
     expect({
       count: entries.length,
       hasLatest: entries.includes(path.basename(latestPath)),
       perFileBounded: files.every((file) => file.size <= 1024 * 1024),
-      totalBounded:
-        files.reduce((total, file) => total + file.size, 0) <= 5 * 1024 * 1024,
+      totalBounded: files.reduce((total, file) => total + file.size, 0) <= 5 * 1024 * 1024,
     }).toStrictEqual({
       count: 5,
       hasLatest: true,
@@ -416,9 +372,7 @@ describe("mcp server pool", () => {
     });
     const latestOutput = await readFile(latestPath, "utf-8");
     expect(latestOutput).not.toContain("�");
-    expect(latestOutput).toMatch(
-      /^😀+[\s\S]*\[MCP persisted output truncated\]\n$/u
-    );
+    expect(latestOutput).toMatch(/^😀+[\s\S]*\[MCP persisted output truncated\]\n$/u);
     expect(latest.content[0]).toMatchObject({
       text: expect.stringContaining("persisted output:"),
     });
@@ -440,19 +394,16 @@ describe("mcp server pool", () => {
 
     const paths: string[] = [];
     for (let index = 0; index < 11; index += 1) {
-      // oxlint-disable-next-line no-await-in-loop -- call order defines retention age
       const result = await host.runTool("mcp_github__search", {
         query: String(index),
       });
-      paths.push((result.details as { outputPath: string }).outputPath);
+      paths.push(Value.Parse(PersistedMcpToolDetailsSchema, result.details).outputPath);
     }
     const entries = await readdir(path.join(t.dataDir, "results"));
 
     expect(entries).toHaveLength(10);
     expect(entries).toContain(path.basename(paths.at(-1) ?? ""));
-    expect(
-      paths.filter((file) => entries.includes(path.basename(file)))
-    ).toHaveLength(10);
+    expect(paths.filter((file) => entries.includes(path.basename(file)))).toHaveLength(10);
   });
 
   it("persists truncated tool errors and includes their path", async () => {
@@ -474,16 +425,13 @@ describe("mcp server pool", () => {
       failure = error;
     }
     const message = failure instanceof Error ? failure.message : "";
-    const outputPath = /persisted output: (?<path>[^;\]]+)/u.exec(message)
-      ?.groups?.path;
+    const outputPath = /persisted output: (?<path>[^;\]]+)/u.exec(message)?.groups?.path;
 
     expect(message).toMatch(
-      /returned an error: failure[\s\S]*\[MCP output truncated: kept .*\]\n\[image:image\/png\]$/u
+      /returned an error: failure[\s\S]*\[MCP output truncated: kept .*\]\n\[image:image\/png\]$/u,
     );
     expect(outputPath).toBeTypeOf("string");
-    await expect(readFile(outputPath ?? "", "utf-8")).resolves.toContain(
-      "failure\nfailure\n"
-    );
+    await expect(readFile(outputPath ?? "", "utf-8")).resolves.toContain("failure\nfailure\n");
   });
 
   it("rejects generated tool-name collisions", async () => {

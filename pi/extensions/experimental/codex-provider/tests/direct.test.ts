@@ -1,19 +1,20 @@
-/* oxlint-disable eslint/class-methods-use-this -- process manager test double delegates to shared spies */
 import { rm } from "node:fs/promises";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import {
-  createCodexDirectTools,
-  truncateCodexOutput,
-} from "../tools/direct.js";
+import { createCodexDirectTools, truncateCodexOutput } from "../tools/direct.js";
 import { ProcessOutput } from "../tools/process-output.js";
 import type { ProcessManager, ProcessResult } from "../tools/process.js";
+import { createToolsModel, wireRecord } from "./fixtures.js";
+
+type ProcessModule = { ProcessManager: new () => ProcessManager };
+type StartOptions = Parameters<ProcessManager["start"]>[0];
+type ContinueOptions = Parameters<ProcessManager["continue"]>[0];
 
 const processManager = vi.hoisted(() => ({
   construct: vi.fn<() => void>(),
-  continue: vi.fn<(options: unknown) => Promise<ProcessResult>>(async () => ({
+  continue: vi.fn<(options: ContinueOptions) => Promise<ProcessResult>>(async () => ({
     durationMs: 0,
     exitCode: 0,
     output: "continued",
@@ -21,7 +22,7 @@ const processManager = vi.hoisted(() => ({
     status: "exited",
   })),
   dispose: vi.fn<() => Promise<void>>(async () => await Promise.resolve()),
-  start: vi.fn<(options: unknown) => Promise<ProcessResult>>(async () => ({
+  start: vi.fn<(options: StartOptions) => Promise<ProcessResult>>(async () => ({
     durationMs: 0,
     exitCode: 0,
     output: "started",
@@ -29,6 +30,10 @@ const processManager = vi.hoisted(() => ({
     status: "exited",
   })),
 }));
+const createPolicyModel = (codexOutputTokenLimit: number) => ({
+  ...createToolsModel("gpt-5.6-sol", true),
+  codexOutputTokenLimit,
+});
 
 vi.mock(import("../tools/process.js"), () => {
   const mocked = {
@@ -37,16 +42,15 @@ vi.mock(import("../tools/process.js"), () => {
         processManager.construct();
       }
 
-      continue = (options: unknown) => processManager.continue(options);
+      continue = (options: ContinueOptions) => processManager.continue(options);
 
       dispose = () => processManager.dispose();
 
-      start = (options: unknown) => processManager.start(options);
+      start = (options: StartOptions) => processManager.start(options);
     },
   };
-  return mocked as unknown as {
-    ProcessManager: new () => ProcessManager;
-  };
+  // SAFETY: Vitest replaces this nominal class with a structural double implementing every method the direct tools exercise.
+  return Object.assign({} as ProcessModule, mocked);
 });
 
 describe("Codex direct tools", () => {
@@ -66,15 +70,11 @@ describe("Codex direct tools", () => {
       }
     });
 
-    await expect(
-      host.runTool("exec_command", { cmd: "echo first" })
-    ).rejects.toThrow("load failed");
-    await expect(
-      host.runTool("exec_command", { cmd: "echo second" })
-    ).resolves.toMatchObject({
-      content: [
-        { text: "started\n\nProcess exited with code 0.", type: "text" },
-      ],
+    await expect(host.runTool("exec_command", { cmd: "echo first" })).rejects.toThrow(
+      "load failed",
+    );
+    await expect(host.runTool("exec_command", { cmd: "echo second" })).resolves.toMatchObject({
+      content: [{ text: "started\n\nProcess exited with code 0.", type: "text" }],
     });
     await direct?.dispose();
 
@@ -135,13 +135,7 @@ describe("Codex direct tools", () => {
         truncatedBy: "tokens",
       },
     });
-    expect(
-      (
-        result.details as {
-          requestedBudgetTruncation?: Record<string, unknown>;
-        }
-      ).requestedBudgetTruncation
-    ).not.toHaveProperty("content");
+    expect(wireRecord(result.details).requestedBudgetTruncation).not.toHaveProperty("content");
     expect(continued.content).toStrictEqual([
       {
         text: [
@@ -156,7 +150,7 @@ describe("Codex direct tools", () => {
       },
     ]);
     expect(processManager.continue).toHaveBeenCalledWith(
-      expect.objectContaining({ yieldMs: 5000 })
+      expect.objectContaining({ yieldMs: 5000 }),
     );
   });
 
@@ -194,8 +188,7 @@ describe("Codex direct tools", () => {
         cmd: "large output",
         max_output_tokens: 4,
       });
-      const text =
-        result.content[0]?.type === "text" ? result.content[0].text : "";
+      const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 
       expect(text).toContain("HEAD");
       expect(text).toContain("TAIL");
@@ -252,7 +245,7 @@ describe("Codex direct tools", () => {
 
         expect(result.content[0]).toMatchObject({
           text: expect.stringContaining(
-            `Warning: truncated output (original token count: ${expectedTokens})`
+            `Warning: truncated output (original token count: ${expectedTokens})`,
           ),
         });
         const [content] = result.content;
@@ -271,7 +264,7 @@ describe("Codex direct tools", () => {
         await direct?.dispose();
         await rm(fullOutputPath, { force: true });
       }
-    }
+    },
   );
 
   it("caps raw output by model policy without hiding process control metadata", async () => {
@@ -291,19 +284,13 @@ describe("Codex direct tools", () => {
       }
     });
     const ctx = host.createContext({
-      model: {
-        ...host.createContext().model,
-        api: "openai-codex-responses",
-        codexOutputTokenLimit: 0,
-        id: "gpt-5.6-sol",
-        provider: "openai-codex",
-      } as never,
+      model: createPolicyModel(0),
     });
 
     const result = await host.runTool(
       "exec_command",
       { cmd: "long output", max_output_tokens: 1_000_000 },
-      ctx
+      ctx,
     );
     await direct?.dispose();
 
@@ -346,27 +333,22 @@ describe("Codex direct tools", () => {
       }
     });
     const staleModel = {
-      ...host.createContext().model,
-      api: "openai-codex-responses",
+      ...createToolsModel("gpt-5.6-sol", true),
       codexOutputTokenLimit: 100,
-      id: "gpt-5.6-sol",
-      provider: "openai-codex",
     };
-    const find = vi.fn<
-      (provider: string, modelId: string) => typeof staleModel
-    >(() => ({
+    const find = vi.fn<(provider: string, modelId: string) => typeof staleModel>(() => ({
       ...staleModel,
       codexOutputTokenLimit: 0,
     }));
     const ctx = host.createContext({
-      model: staleModel as never,
-      modelRegistry: { find } as never,
+      model: staleModel,
+      modelRegistry: { find },
     });
 
     const result = await host.runTool(
       "exec_command",
       { cmd: "current policy", max_output_tokens: 100 },
-      ctx
+      ctx,
     );
     await direct?.dispose();
 
@@ -390,19 +372,13 @@ describe("Codex direct tools", () => {
       }
     });
     const ctx = host.createContext({
-      model: {
-        ...host.createContext().model,
-        api: "openai-codex-responses",
-        codexOutputTokenLimit: 0,
-        id: "gpt-5.6-sol",
-        provider: "openai-codex",
-      } as never,
+      model: createPolicyModel(0),
     });
 
     const result = await host.runTool(
       "exec_command",
       { cmd: "long output", max_output_tokens: 2 },
-      ctx
+      ctx,
     );
     await direct?.dispose();
 
@@ -455,23 +431,15 @@ describe("Codex direct tools", () => {
       const result = await host.runTool("exec_command", {
         cmd: "large nested output",
       });
-      const codeMode = (
-        result.details as {
-          codeModeResult?: {
-            original_token_count?: number;
-            output: string;
-          };
-        }
-      ).codeModeResult;
+      const codeModeValue = wireRecord(result.details).codeModeResult;
+      const codeMode = codeModeValue === undefined ? undefined : wireRecord(codeModeValue);
 
       expect(codeMode?.output).toContain(
-        `Warning: truncated output (original token count: ${Math.ceil(rawOutput.length / 4)})`
+        `Warning: truncated output (original token count: ${Math.ceil(rawOutput.length / 4)})`,
       );
       expect(codeMode?.output).toContain("HEAD");
       expect(codeMode?.output).toContain("TAIL");
-      expect(codeMode?.original_token_count).toBe(
-        Math.ceil(rawOutput.length / 4)
-      );
+      expect(codeMode?.original_token_count).toBe(Math.ceil(rawOutput.length / 4));
     } finally {
       await direct?.dispose();
       await rm(fullOutputPath, { force: true });

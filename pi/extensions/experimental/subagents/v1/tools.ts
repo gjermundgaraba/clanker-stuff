@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { TProperties } from "typebox";
 
 import { DEFAULT_CONFIG, ThinkingSchema } from "../config.js";
 import type { AgentThinkingLevel, SubagentsConfig } from "../config.js";
@@ -27,18 +28,26 @@ interface SpawnArguments {
   model?: string;
   reasoning_effort?: AgentThinkingLevel;
 }
+export type V1ToolController = Pick<
+  V1Controller,
+  "close" | "resume" | "sendInput" | "spawn" | "wait"
+>;
 
-type JsonRecord = Record<string, unknown>;
-const closedObject = (
-  properties: JsonRecord,
-  required: readonly string[]
-): JsonRecord => ({
+type JsonValue =
+  | boolean
+  | null
+  | number
+  | string
+  | { readonly [key: string]: JsonValue }
+  | readonly JsonValue[];
+type JsonRecord = Record<string, JsonValue>;
+const closedObject = (properties: JsonRecord, required: readonly string[]) => ({
   additionalProperties: false,
   properties,
   required,
   type: "object",
 });
-const AGENT_STATUS_SCHEMA: JsonRecord = {
+const AGENT_STATUS_SCHEMA = {
   oneOf: [
     {
       enum: ["pending_init", "running", "interrupted", "shutdown", "not_found"],
@@ -47,59 +56,70 @@ const AGENT_STATUS_SCHEMA: JsonRecord = {
     closedObject({ completed: { type: ["string", "null"] } }, ["completed"]),
     closedObject({ errored: { type: "string" } }, ["errored"]),
   ],
-};
-const V1_OUTPUT_SCHEMAS: Readonly<Record<string, JsonRecord>> = {
-  close_agent: closedObject(
-    {
-      previous_status: {
-        allOf: [AGENT_STATUS_SCHEMA],
-        description: "The agent status observed before shutdown was requested.",
+} satisfies JsonRecord;
+const V1_OUTPUT_SCHEMAS = new Map<string, JsonRecord>(
+  Object.entries({
+    close_agent: closedObject(
+      {
+        previous_status: {
+          allOf: [AGENT_STATUS_SCHEMA],
+          description: "The agent status observed before shutdown was requested.",
+        },
       },
-    },
-    ["previous_status"]
-  ),
-  resume_agent: closedObject({ status: AGENT_STATUS_SCHEMA }, ["status"]),
-  send_input: closedObject(
-    {
-      submission_id: {
-        description: "Identifier for the queued input submission.",
-        type: "string",
+      ["previous_status"],
+    ),
+    resume_agent: closedObject({ status: AGENT_STATUS_SCHEMA }, ["status"]),
+    send_input: closedObject(
+      {
+        submission_id: {
+          description: "Identifier for the queued input submission.",
+          type: "string",
+        },
       },
-    },
-    ["submission_id"]
-  ),
-  spawn_agent: closedObject(
-    {
-      agent_id: {
-        description: "Thread identifier for the spawned agent.",
-        type: "string",
+      ["submission_id"],
+    ),
+    spawn_agent: closedObject(
+      {
+        agent_id: {
+          description: "Thread identifier for the spawned agent.",
+          type: "string",
+        },
+        nickname: {
+          description: "User-facing nickname for the spawned agent when available.",
+          type: ["string", "null"],
+        },
       },
-      nickname: {
-        description:
-          "User-facing nickname for the spawned agent when available.",
-        type: ["string", "null"],
+      ["agent_id", "nickname"],
+    ),
+    wait_agent: closedObject(
+      {
+        status: {
+          additionalProperties: AGENT_STATUS_SCHEMA,
+          description: "Final statuses keyed by agent id.",
+          type: "object",
+        },
+        timed_out: {
+          description:
+            "Whether the wait call returned due to timeout before any agent reached a final status.",
+          type: "boolean",
+        },
       },
-    },
-    ["agent_id", "nickname"]
-  ),
-  wait_agent: closedObject(
-    {
-      status: {
-        additionalProperties: AGENT_STATUS_SCHEMA,
-        description: "Final statuses keyed by agent id.",
-        type: "object",
-      },
-      timed_out: {
-        description:
-          "Whether the wait call returned due to timeout before any agent reached a final status.",
-        type: "boolean",
-      },
-    },
-    ["status", "timed_out"]
-  ),
-};
+      ["status", "timed_out"],
+    ),
+  }),
+);
 const spawnCommon = (config: SubagentsConfig) => ({
-  ...(Object.keys(config.roles).length === 0
+  ...roleParameter(config),
+  fork_context: Type.Optional(
+    Type.Boolean({
+      description:
+        "True forks the current history; false or omitted starts with only the initial prompt.",
+    }),
+  ),
+  ...modelParameters(config),
+});
+const roleParameter = (config: SubagentsConfig) =>
+  Object.keys(config.roles).length === 0
     ? {}
     : {
         agent_type: Type.Optional(
@@ -107,41 +127,35 @@ const spawnCommon = (config: SubagentsConfig) => ({
             description: [
               "Agent type override for the new agent. Omit unless an explicit role is needed.",
               ...Object.entries(config.roles).map(([name, role]) =>
-                configuredRoleDescription(name, role)
+                configuredRoleDescription(name, role),
               ),
             ].join("\n"),
             minLength: 1,
-          })
+          }),
         ),
-      }),
-  fork_context: Type.Optional(
-    Type.Boolean({
-      description:
-        "True forks the current history; false or omitted starts with only the initial prompt.",
-    })
-  ),
-  ...(config.expose_spawn_agent_model_overrides
+      };
+const modelParameters = (config: SubagentsConfig) =>
+  config.expose_spawn_agent_model_overrides
     ? {
         model: Type.Optional(
           Type.String({
             description:
               "Model override. Use a model id, or provider/model when the id is ambiguous.",
             minLength: 1,
-          })
+          }),
         ),
         reasoning_effort: Type.Optional({
           ...ThinkingSchema,
           description: REASONING_EFFORT_DESCRIPTION,
         }),
       }
-    : {}),
-});
+    : {};
 const SendCommon = {
   interrupt: Type.Optional(
     Type.Boolean({
       description:
         "True interrupts current work and handles this input immediately; false or omitted queues it.",
-    })
+    }),
   ),
   target: Type.String({
     description: "Agent id to message, from spawn_agent.",
@@ -149,38 +163,33 @@ const SendCommon = {
   }),
 };
 
-const result = (value: unknown) => ({
+const result = <T>(value: T) => ({
   content: [{ text: JSON.stringify(value), type: "text" as const }],
   details: value,
 });
 
 export const registerV1Tools = (
   pi: ExtensionAPI,
-  controller: V1Controller,
+  controller: V1ToolController,
   beforeExecute: (ctx: ExtensionContext) => void,
-  config: SubagentsConfig = DEFAULT_CONFIG
+  config: SubagentsConfig = DEFAULT_CONFIG,
 ): NestedToolContract[] => {
-  const spawnParameters = Type.Unsafe<SpawnArguments>(
-    Type.Object(
-      {
-        ...spawnCommon(config),
-        items: Type.Optional(
-          Type.Array(V1InputItemSchema, {
-            description: "Structured input items. Use either items or message.",
-            minItems: 1,
-          })
-        ),
-        message: Type.Optional(
-          Type.String({
-            description:
-              "Initial plain-text task. Use either message or items.",
-            minLength: 1,
-          })
-        ),
-      },
-      STRICT
-    )
-  );
+  const spawnProperties: TProperties = {};
+  Object.assign(spawnProperties, spawnCommon(config), {
+    items: Type.Optional(
+      Type.Array(V1InputItemSchema, {
+        description: "Structured input items. Use either items or message.",
+        minItems: 1,
+      }),
+    ),
+    message: Type.Optional(
+      Type.String({
+        description: "Initial plain-text task. Use either message or items.",
+        minLength: 1,
+      }),
+    ),
+  });
+  const spawnParameters = Type.Unsafe<SpawnArguments>(Type.Object(spawnProperties, STRICT));
   const definitions: ToolDefinition[] = [
     defineTool({
       description: v1SpawnDescription(config),
@@ -189,10 +198,7 @@ export const registerV1Tools = (
         return result(
           await controller.spawn(
             {
-              agentType:
-                typeof params.agent_type === "string"
-                  ? params.agent_type
-                  : undefined,
+              agentType: params.agent_type,
               forkContext: params.fork_context ?? false,
               items: params.items,
               message: params.message,
@@ -200,8 +206,8 @@ export const registerV1Tools = (
               thinking: params.reasoning_effort,
             },
             ctx,
-            signal
-          )
+            signal,
+          ),
         );
       },
       executionMode: "parallel",
@@ -225,8 +231,8 @@ export const registerV1Tools = (
               message: "message" in params ? params.message : undefined,
             },
             ctx,
-            signal
-          )
+            signal,
+          ),
         );
       },
       executionMode: "parallel",
@@ -237,20 +243,18 @@ export const registerV1Tools = (
           ...SendCommon,
           items: Type.Optional(
             Type.Array(V1InputItemSchema, {
-              description:
-                "Structured input items. Use either items or message.",
+              description: "Structured input items. Use either items or message.",
               minItems: 1,
-            })
+            }),
           ),
           message: Type.Optional(
             Type.String({
-              description:
-                "Plain-text input to send. Use either message or items.",
+              description: "Plain-text input to send. Use either message or items.",
               minLength: 1,
-            })
+            }),
           ),
         },
-        STRICT
+        STRICT,
       ),
       promptSnippet: "Send more work to an open agent",
     }),
@@ -273,13 +277,7 @@ export const registerV1Tools = (
         "Wait for agents to reach a final status. Completed statuses may include the final message. Returns an empty status object on timeout; prefer longer waits over polling.",
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
-        return result(
-          await controller.wait(
-            params.targets,
-            params.timeout_ms ?? 30_000,
-            signal
-          )
-        );
+        return result(await controller.wait(params.targets, params.timeout_ms ?? 30_000, signal));
       },
       executionMode: "parallel",
       label: "Wait for Agent",
@@ -287,18 +285,16 @@ export const registerV1Tools = (
       parameters: Type.Object(
         {
           targets: Type.Array(Type.String({ minLength: 1 }), {
-            description:
-              "Agent ids to wait on. Multiple ids wait for whichever finishes first.",
+            description: "Agent ids to wait on. Multiple ids wait for whichever finishes first.",
             minItems: 1,
           }),
           timeout_ms: Type.Optional(
             Type.Number({
-              description:
-                "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
-            })
+              description: "Timeout in milliseconds. Defaults to 30000, min 10000, max 3600000.",
+            }),
           ),
         },
-        STRICT
+        STRICT,
       ),
       promptSnippet: "Wait for one or more UUID-addressed agents",
     }),
@@ -313,10 +309,7 @@ export const registerV1Tools = (
       executionMode: "parallel",
       label: "Close Agent",
       name: "close_agent",
-      parameters: Type.Object(
-        { target: Type.String({ minLength: 1 }) },
-        STRICT
-      ),
+      parameters: Type.Object({ target: Type.String({ minLength: 1 }) }, STRICT),
       promptSnippet: "Close an agent when it is no longer needed",
     }),
   ];
@@ -325,6 +318,6 @@ export const registerV1Tools = (
   }
   return definitions.map((definition) => ({
     definition,
-    outputSchema: V1_OUTPUT_SCHEMAS[definition.name],
+    outputSchema: V1_OUTPUT_SCHEMAS.get(definition.name),
   }));
 };

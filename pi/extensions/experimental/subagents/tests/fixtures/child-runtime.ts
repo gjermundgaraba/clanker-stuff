@@ -1,18 +1,13 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
 import { PermanentChildError } from "../../permanent-error.js";
-import type {
-  ChildRuntime,
-  ChildTurnOutcome,
-  PromptInput,
-  RuntimeMessage,
-} from "../../runtime.js";
+import type { ChildRuntime, ChildTurnOutcome, PromptInput, RuntimeMessage } from "../../runtime.js";
 
 interface VoidDeferred {
   promise: Promise<void>;
-  reject: (reason?: unknown) => void;
+  reject: (cause?: unknown) => void;
   resolve: () => void;
 }
 
@@ -22,7 +17,6 @@ const createVoidDeferred = (): VoidDeferred => {
     promise: deferred.promise,
     reject: deferred.reject,
     resolve: () => {
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- PromiseWithResolvers requires its undefined value argument.
       deferred.resolve(undefined);
     },
   };
@@ -69,11 +63,7 @@ export class FakeChildRuntime implements ChildRuntime {
     return this.streaming;
   }
 
-  sendMessage(
-    message: RuntimeMessage,
-    onEnqueued?: () => void,
-    startIfIdle = false
-  ) {
+  sendMessage(message: RuntimeMessage, onEnqueued?: () => void, startIfIdle = false) {
     this.calls.push(message);
     this.beforeSendMessage?.();
     if (startIfIdle && !this.streaming) {
@@ -119,11 +109,4 @@ export class FakeChildRuntime implements ChildRuntime {
 }
 
 export const createChildContext = (): ExtensionContext =>
-  ({
-    cwd: process.cwd(),
-    isProjectTrusted: () => true,
-    model: undefined,
-    modelRegistry: { find: vi.fn<() => void>() },
-    sessionManager: SessionManager.inMemory(),
-    thinkingLevel: "medium",
-  }) as unknown as ExtensionContext;
+  createExtensionHost(() => {}).createContext();

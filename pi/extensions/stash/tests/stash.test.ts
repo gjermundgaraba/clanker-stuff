@@ -3,7 +3,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
@@ -40,8 +42,10 @@ const getStorePath = (agentDir: string, cwd: string) =>
     agentDir,
     "data",
     "stash",
-    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`
+    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`,
   );
+
+const StashStoreSchema = Type.Object({ entries: Type.Array(Type.String()) });
 
 describe("stash", () => {
   const envRestorers: (() => void)[] = [];
@@ -54,13 +58,12 @@ describe("stash", () => {
   };
 
   const readStore = async (directory: string, cwd: string) =>
-    JSON.parse(await readFile(getStorePath(directory, cwd), "utf-8")) as {
-      entries: string[];
-    };
+    Value.Parse(
+      StashStoreSchema,
+      JSON.parse(await readFile(getStorePath(directory, cwd), "utf-8")),
+    );
 
-  const createHarness = async (
-    options: { cwd?: string; mode?: "json" | "rpc" | "tui" } = {}
-  ) => {
+  const createHarness = async (options: { cwd?: string; mode?: "json" | "rpc" | "tui" } = {}) => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext({
       cwd: options.cwd ?? process.cwd(),
@@ -81,7 +84,7 @@ describe("stash", () => {
             text,
             type: "input",
           },
-          ctx
+          ctx,
         );
       },
       notifications() {
@@ -139,7 +142,6 @@ describe("stash", () => {
     const harness = await createHarness({ cwd });
 
     for (let index = 1; index <= 12; index += 1) {
-      // oxlint-disable-next-line no-await-in-loop -- stash writes are intentionally sequential
       await harness.stash(`draft ${index}`);
     }
 
@@ -149,12 +151,11 @@ describe("stash", () => {
     });
     const store = await readStore(agentDir, cwd);
     expect(store.entries).toStrictEqual(
-      Array.from({ length: 10 }, (_, index) => `draft ${index + 3}`)
+      Array.from({ length: 10 }, (_, index) => `draft ${index + 3}`),
     );
 
     const restored = await createHarness({ cwd });
     for (let index = 12; index >= 3; index -= 1) {
-      // oxlint-disable-next-line no-await-in-loop -- each pop observes the previous mutation
       await restored.popStash();
       expect(restored.editorText()).toBe(`draft ${index}`);
     }
@@ -193,10 +194,7 @@ describe("stash", () => {
   });
 
   it("keeps in-memory stash behavior when persistence fails", async () => {
-    const invalidAgentDir = path.join(
-      await createTempDir("stash-agent-parent-"),
-      "file"
-    );
+    const invalidAgentDir = path.join(await createTempDir("stash-agent-parent-"), "file");
     await writeFile(invalidAgentDir, "not a directory", "utf-8");
     envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: invalidAgentDir }));
     const harness = await createHarness({
@@ -439,7 +437,7 @@ describe("stash", () => {
     const ctx = harness.host.createContext({ hasUI: false });
 
     await expect(harness.host.runCommand("pop-stash", "", ctx)).rejects.toThrow(
-      "pop-stash requires interactive UI"
+      "pop-stash requires interactive UI",
     );
   });
 
@@ -456,11 +454,7 @@ describe("stash", () => {
     await harness.popStash();
     expect(harness.editorText()).toBe("second");
 
-    await harness.host.emit(
-      "turn_start",
-      { turnIndex: 0, type: "turn_start" },
-      ctx
-    );
+    await harness.host.emit("turn_start", { turnIndex: 0, type: "turn_start" }, ctx);
 
     harness.ctx.ui.setEditorText("");
     await harness.popStash();
@@ -488,17 +482,9 @@ describe("stash", () => {
     await harness.stash("single draft");
     await harness.input("go", "interactive");
 
-    await harness.host.emit(
-      "turn_start",
-      { turnIndex: 0, type: "turn_start" },
-      ctx
-    );
+    await harness.host.emit("turn_start", { turnIndex: 0, type: "turn_start" }, ctx);
 
-    await harness.host.emit(
-      "turn_start",
-      { turnIndex: 1, type: "turn_start" },
-      ctx
-    );
+    await harness.host.emit("turn_start", { turnIndex: 1, type: "turn_start" }, ctx);
 
     harness.ctx.ui.setEditorText("");
     await harness.popStash();

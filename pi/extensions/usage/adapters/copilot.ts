@@ -22,28 +22,24 @@ const CopilotUsagePayloadSchema = Type.Object({
     Type.Object({
       chat: Type.Optional(CopilotQuotaSchema),
       premium_interactions: Type.Optional(CopilotQuotaSchema),
-    })
+    }),
   ),
 });
 
 const parseQuotaWindow = (
   quota: Static<typeof CopilotQuotaSchema> | undefined,
   label: string,
-  resetsAt: string | undefined
+  resetsAt: string | undefined,
 ): UsageWindow | undefined => {
-  if (
-    quota === undefined ||
-    quota.unlimited === true ||
-    quota.percent_remaining === undefined
-  ) {
+  if (quota === undefined || quota.unlimited === true || quota.percent_remaining === undefined) {
     return undefined;
   }
   return makeUsageWindow("month", quota.percent_remaining, resetsAt, label);
 };
 
 export const parseCopilotUsagePayload = (
-  payload: unknown,
-  nowMs: number = Date.now()
+  payload: Static<typeof CopilotUsagePayloadSchema> | undefined,
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   if (!Value.Check(CopilotUsagePayloadSchema, payload)) {
     return usageFailure("invalid usage payload");
@@ -51,11 +47,7 @@ export const parseCopilotUsagePayload = (
 
   const resetsAt = parseIso(payload.quota_reset_date_utc);
   const windows = [
-    parseQuotaWindow(
-      payload.quota_snapshots?.premium_interactions,
-      "Premium",
-      resetsAt
-    ),
+    parseQuotaWindow(payload.quota_snapshots?.premium_interactions, "Premium", resetsAt),
     parseQuotaWindow(payload.quota_snapshots?.chat, "Chat", resetsAt),
   ].filter(isDefined);
 
@@ -66,9 +58,7 @@ export const parseCopilotUsagePayload = (
   });
 };
 
-export const fetchCopilotUsage = async (
-  deps: AdapterDeps
-): Promise<UsageFetchResult> => {
+export const fetchCopilotUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, "github-copilot");
   if (!auth.ok) {
@@ -87,7 +77,12 @@ export const fetchCopilotUsage = async (
   });
 
   if (response.ok) {
-    return parseCopilotUsagePayload(response.json, now());
+    return parseCopilotUsagePayload(
+      Value.Check(CopilotUsagePayloadSchema, response.json)
+        ? Value.Parse(CopilotUsagePayloadSchema, response.json)
+        : undefined,
+      now(),
+    );
   }
 
   return usageFailure(response.message);

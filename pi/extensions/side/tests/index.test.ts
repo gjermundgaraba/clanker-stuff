@@ -1,20 +1,18 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 
 const controller = vi.hoisted(() => ({
   closeOnTreeChange: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
-    async () => await Promise.resolve()
+    async () => await Promise.resolve(),
   ),
   dispose: vi.fn<() => Promise<void>>(async () => await Promise.resolve()),
   launch: vi.fn<(args: string, ctx: ExtensionContext) => Promise<void>>(
-    async () => await Promise.resolve()
+    async () => await Promise.resolve(),
   ),
-  toggle: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
-    async () => await Promise.resolve()
-  ),
+  toggle: vi.fn<(ctx: ExtensionContext) => Promise<void>>(async () => await Promise.resolve()),
 }));
 const createController = vi.hoisted(() => vi.fn<() => void>());
 

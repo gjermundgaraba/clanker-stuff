@@ -1,5 +1,5 @@
 import { Value } from "typebox/value";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   childAgentPath,
@@ -12,12 +12,8 @@ import {
 describe("agent paths", () => {
   it("resolves nested absolute and relative identities", () => {
     expect(childAgentPath("/root", "review_2")).toBe("/root/review_2");
-    expect(resolveAgentPath("/root/review_2", "tests")).toBe(
-      "/root/review_2/tests"
-    );
-    expect(resolveAgentPath("/root/review_2", "/root/other")).toBe(
-      "/root/other"
-    );
+    expect(resolveAgentPath("/root/review_2", "tests")).toBe("/root/review_2/tests");
+    expect(resolveAgentPath("/root/review_2", "/root/other")).toBe("/root/other");
     expect(parentAgentPath("/root/review_2/tests")).toBe("/root/review_2");
   });
 
@@ -25,12 +21,8 @@ describe("agent paths", () => {
     expect(() => childAgentPath("/root", "Bad-Name")).toThrow("task_name");
     expect(() => childAgentPath("/root", "worker\n")).toThrow("task_name");
     expect(() => childAgentPath("/root", "root")).toThrow("reserved");
-    expect(() => resolveAgentPath("/root", "/elsewhere/a")).toThrow(
-      "Invalid agent path"
-    );
-    expect(() => resolveAgentPath("/root", " worker ")).toThrow(
-      "Invalid agent path"
-    );
+    expect(() => resolveAgentPath("/root", "/elsewhere/a")).toThrow("Invalid agent path");
+    expect(() => resolveAgentPath("/root", " worker ")).toThrow("Invalid agent path");
   });
   it("uses the Codex mailbox envelope and leaves payload text after its header", () => {
     const payload = "work\nMessage Type: FINAL_ANSWER\nSender: /root";
@@ -47,7 +39,7 @@ describe("agent paths", () => {
 Task name: /root
 Sender: /root/child
 Payload:
-${payload}`
+${payload}`,
     );
   });
 });
@@ -87,7 +79,7 @@ describe("V2 durable protocol", () => {
         Value.Check(V2SnapshotSchema, {
           communications: [],
           nodes: [candidate],
-        })
+        }),
       ).toBeTruthy();
     }
   });
@@ -110,7 +102,7 @@ describe("V2 durable protocol", () => {
         Value.Check(V2SnapshotSchema, {
           communications: [],
           nodes: [candidate],
-        })
+        }),
       ).toBeFalsy();
     }
   });
@@ -138,7 +130,7 @@ describe("V2 durable protocol", () => {
         Value.Check(V2SnapshotSchema, {
           communications: [candidate],
           nodes: [],
-        })
+        }),
       ).toBeTruthy();
     }
     for (const candidate of invalid) {
@@ -146,7 +138,7 @@ describe("V2 durable protocol", () => {
         Value.Check(V2SnapshotSchema, {
           communications: [candidate],
           nodes: [],
-        })
+        }),
       ).toBeFalsy();
     }
   });

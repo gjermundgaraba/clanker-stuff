@@ -1,12 +1,8 @@
 import type { AuthResult } from "@earendil-works/pi-ai";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { ProviderAuthClient } from "../auth.js";
-import {
-  providerAuthClientFromContext,
-  resolveAccessToken,
-  resolveOAuthAccess,
-} from "../auth.js";
+import { providerAuthClientFromContext, resolveAccessToken, resolveOAuthAccess } from "../auth.js";
 import { absent } from "./adapters/helpers.js";
 
 describe("provider auth client", () => {
@@ -17,19 +13,14 @@ describe("provider auth client", () => {
         auth: { apiKey: "copilot-api-token" },
         source: "OAuth",
       });
-    const client = providerAuthClientFromContext(
-      { modelRegistry: { getProviderAuth } },
-      () => ({
-        access: "copilot-api-token",
-        expires: Date.now() + 60_000,
-        refresh: "github-oauth-token",
-        type: "oauth",
-      })
-    );
+    const client = providerAuthClientFromContext({ modelRegistry: { getProviderAuth } }, () => ({
+      access: "copilot-api-token",
+      expires: Date.now() + 60_000,
+      refresh: "github-oauth-token",
+      type: "oauth",
+    }));
 
-    await expect(
-      client.getProviderAuth("github-copilot")
-    ).resolves.toStrictEqual({
+    await expect(client.getProviderAuth("github-copilot")).resolves.toStrictEqual({
       auth: { apiKey: "github-oauth-token" },
       source: "OAuth",
     });
@@ -46,9 +37,7 @@ describe("access token resolution", () => {
       }),
     };
 
-    await expect(
-      resolveAccessToken(client, "anthropic")
-    ).resolves.toStrictEqual({
+    await expect(resolveAccessToken(client, "anthropic")).resolves.toStrictEqual({
       ok: true,
       value: { accessToken: "sk-ant-key" },
     });

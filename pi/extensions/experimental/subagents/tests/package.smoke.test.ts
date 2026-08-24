@@ -2,11 +2,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 
-import {
-  DefaultResourceLoader,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -41,8 +38,8 @@ describe("subagents package", () => {
           entry.startsWith("package/scripts/") ||
           entry === "package/docs/codex-model-facing-contract.md" ||
           entry === "package/docs/codex-parity.md" ||
-          entry === "package/docs/codex-reference.md"
-      )
+          entry === "package/docs/codex-reference.md",
+      ),
     ).toBeFalsy();
 
     const extracted = path.join(tempRoot, "extracted");

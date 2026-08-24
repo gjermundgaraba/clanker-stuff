@@ -2,12 +2,14 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
+  CodexBarHistorySchema,
   parseCodexBarHistory,
   runCodexBarUsage,
 } from "../../adapters/opencode.js";
+import { Value } from "typebox/value";
 
 interface HistoryEntryFixture {
   capturedAt: string;
@@ -20,16 +22,16 @@ interface HistoryWindowFixture {
   name: string;
 }
 
-const window = (
-  name: string,
-  entries: HistoryEntryFixture[]
-): HistoryWindowFixture => ({ entries, name });
+const window = (name: string, entries: HistoryEntryFixture[]): HistoryWindowFixture => ({
+  entries,
+  name,
+});
 
 const sampleHistory = (overrides?: {
   monthly?: HistoryEntryFixture[];
   session?: HistoryEntryFixture[];
   weekly?: HistoryEntryFixture[];
-}): unknown => ({
+}) => ({
   unscoped: [
     window(
       "session",
@@ -39,7 +41,7 @@ const sampleHistory = (overrides?: {
           resetsAt: "2026-08-07T03:11:00Z",
           usedPercent: 0,
         },
-      ]
+      ],
     ),
     window(
       "weekly",
@@ -49,7 +51,7 @@ const sampleHistory = (overrides?: {
           resetsAt: "2026-08-10T00:00:00Z",
           usedPercent: 100,
         },
-      ]
+      ],
     ),
     window(
       "monthly",
@@ -59,7 +61,7 @@ const sampleHistory = (overrides?: {
           resetsAt: "2026-08-27T21:13:10Z",
           usedPercent: 80,
         },
-      ]
+      ],
     ),
   ],
 });
@@ -67,8 +69,8 @@ const sampleHistory = (overrides?: {
 const accountsHistory = (
   accountKey: string,
   windows: HistoryWindowFixture[],
-  preferred?: string
-): unknown => ({
+  preferred?: string,
+) => ({
   accounts: { [accountKey]: windows },
   preferredAccountKey: preferred ?? accountKey,
   unscoped: [],
@@ -136,7 +138,7 @@ describe("codexbar history parsing", () => {
           },
         ],
       }),
-      NOW
+      NOW,
     );
 
     expect(result).toStrictEqual({
@@ -175,10 +177,7 @@ describe("codexbar history parsing", () => {
     if (!result.ok) {
       return;
     }
-    expect(result.snapshot.windows.map((w) => w.id)).toStrictEqual([
-      "5h",
-      "month",
-    ]);
+    expect(result.snapshot.windows.map((w) => w.id)).toStrictEqual(["5h", "month"]);
   });
 
   it("reads windows from accounts when unscoped is empty", () => {
@@ -199,7 +198,7 @@ describe("codexbar history parsing", () => {
           },
         ]),
       ]),
-      NOW
+      NOW,
     );
 
     expect(result.ok).toBeTruthy();
@@ -215,14 +214,10 @@ describe("codexbar history parsing", () => {
     const result = parseCodexBarHistory(
       accountsHistory(
         "acct-preferred",
-        [
-          window("session", [
-            { capturedAt: "2026-08-06T22:11:01Z", usedPercent: 10 },
-          ]),
-        ],
-        "acct-preferred"
+        [window("session", [{ capturedAt: "2026-08-06T22:11:01Z", usedPercent: 10 }])],
+        "acct-preferred",
       ),
-      NOW
+      NOW,
     );
 
     expect(result.ok).toBeTruthy();
@@ -233,14 +228,13 @@ describe("codexbar history parsing", () => {
   });
 
   it("rejects malformed history structure", () => {
-    expect(
-      parseCodexBarHistory({ unscoped: "not-an-array" }, 1).ok
-    ).toBeFalsy();
+    expect(Value.Check(CodexBarHistorySchema, { unscoped: "not-an-array" })).toBe(false);
   });
 
   it("rejects non-object input", () => {
-    expect(parseCodexBarHistory("not json", 1).ok).toBeFalsy();
-    expect(parseCodexBarHistory(null, 1).ok).toBeFalsy();
+    const malformed = "not json";
+    expect(Value.Check(CodexBarHistorySchema, malformed)).toBe(false);
+    expect(Value.Check(CodexBarHistorySchema, null)).toBe(false);
     expect(parseCodexBarHistory(undefined, 1).ok).toBeFalsy();
   });
 
@@ -261,7 +255,7 @@ describe("codexbar history parsing", () => {
         session: [invalid],
         weekly: [invalid],
       }),
-      NOW
+      NOW,
     );
 
     expect(result).toMatchObject({
@@ -277,7 +271,7 @@ describe("codexbar history parsing", () => {
       sampleHistory({
         session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
       }),
-      now
+      now,
     );
 
     expect(result.ok).toBeFalsy();
@@ -294,7 +288,7 @@ describe("codexbar history parsing", () => {
       sampleHistory({
         session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
       }),
-      now
+      now,
     );
 
     expect(result.ok).toBeTruthy();
@@ -318,7 +312,7 @@ describe("codexbar history parsing", () => {
           ]),
         ],
       },
-      NOW
+      NOW,
     );
 
     expect(result).toMatchObject({
@@ -338,8 +332,7 @@ describe("reading codexbar history from disk", () => {
     expect(result).toStrictEqual({
       error: {
         kind: "unavailable",
-        message:
-          "CodexBar history not found (open CodexBar so it can fetch usage from the web)",
+        message: "CodexBar history not found (open CodexBar so it can fetch usage from the web)",
       },
       ok: false,
     });

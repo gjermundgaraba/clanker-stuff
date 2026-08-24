@@ -1,19 +1,13 @@
-import type {
-  ExtensionContext,
-  InputEvent,
-  UserBashEvent,
-} from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 
 const search = vi.hoisted(() => ({
-  dispose: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
-    async () => await Promise.resolve()
-  ),
+  dispose: vi.fn<(ctx: ExtensionContext) => Promise<void>>(async () => await Promise.resolve()),
   importHistory: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
-    async () => await Promise.resolve()
+    async () => await Promise.resolve(),
   ),
   open: vi.fn<(ctx: ExtensionContext) => void>(),
   recordBash: vi.fn<(event: UserBashEvent, ctx: ExtensionContext) => void>(),
@@ -56,9 +50,9 @@ describe("codex-reverse-i-search registration", () => {
     await host.emit("user_bash", bash, ctx);
     await host.emitSessionShutdown(ctx);
 
-    expect(
-      host.getRegisteredCommands().get("reverse-i-search-import")?.description
-    ).toBe("Import prompt history from existing sessions");
+    expect(host.getRegisteredCommands().get("reverse-i-search-import")?.description).toBe(
+      "Import prompt history from existing sessions",
+    );
     expect({
       dispose: search.dispose.mock.calls,
       importHistory: search.importHistory.mock.calls,

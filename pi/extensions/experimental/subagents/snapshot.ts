@@ -1,14 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  chmod,
-  lstat,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
@@ -22,15 +13,14 @@ import { V2SnapshotSchema } from "./v2/protocol.js";
 export const MAX_CONTROL_BYTES = 16 * 1024 * 1024;
 export const MAX_DURABLE_RESULT_BYTES = 256 * 1024;
 const TERMINAL_RECORD_OVERHEAD_BYTES = 4096;
-const MAX_TERMINAL_GROWTH_BYTES =
-  3 * MAX_DURABLE_RESULT_BYTES + TERMINAL_RECORD_OVERHEAD_BYTES;
+const MAX_TERMINAL_GROWTH_BYTES = 3 * MAX_DURABLE_RESULT_BYTES + TERMINAL_RECORD_OVERHEAD_BYTES;
 
 const RootBindingSchema = Type.Object(
   {
     sessionFile: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
     sessionId: Type.String({ minLength: 1 }),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 const Common = {
   nicknames: Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true }),
@@ -44,7 +34,7 @@ export const SnapshotSchema = Type.Union([
       ...Common,
       protocolLatch: Type.Literal("off"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -52,7 +42,7 @@ export const SnapshotSchema = Type.Union([
       protocolLatch: Type.Literal("v1"),
       state: V1SnapshotSchema,
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -60,7 +50,7 @@ export const SnapshotSchema = Type.Union([
       protocolLatch: Type.Literal("v2"),
       state: V2SnapshotSchema,
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
 ]);
 export type RootBinding = Static<typeof RootBindingSchema>;
@@ -70,10 +60,7 @@ const SUCCESSFUL_WRITE: Error | undefined = undefined;
 export interface ControlStore {
   readonly persistent: boolean;
   load: () => Promise<SubagentsSnapshot | undefined>;
-  write: (
-    serialized: string,
-    onCommit: () => void
-  ) => Promise<Error | undefined>;
+  write: (serialized: string, onCommit: () => void) => Promise<Error | undefined>;
 }
 
 const assertUnique = (values: readonly string[], label: string): void => {
@@ -82,10 +69,7 @@ const assertUnique = (values: readonly string[], label: string): void => {
   }
 };
 
-const sameMembers = (
-  left: readonly string[],
-  right: readonly string[]
-): boolean => {
+const sameMembers = (left: readonly string[], right: readonly string[]): boolean => {
   const leftMembers = new Set(left);
   return (
     left.length === right.length &&
@@ -94,45 +78,38 @@ const sameMembers = (
   );
 };
 
-const assertV1Semantics = (
-  snapshot: Extract<SubagentsSnapshot, { protocolLatch: "v1" }>
-): void => {
+const assertV1Semantics = (snapshot: Extract<SubagentsSnapshot, { protocolLatch: "v1" }>): void => {
   const { agents, notifications } = snapshot.state;
   const agentIds = new Set(agents.map(({ id }) => id));
   assertUnique(
     agents.map(({ id }) => id),
-    "V1 agent ids"
+    "V1 agent ids",
   );
   assertUnique(
     agents.map(({ sessionFile }) => sessionFile),
-    "V1 session files"
+    "V1 session files",
   );
   assertUnique(
     notifications.map(({ id }) => id),
-    "V1 notification ids"
+    "V1 notification ids",
   );
   const turnIds = agents.flatMap((agent) => [
     ...(agent.active === undefined ? [] : [agent.active.id]),
     ...agent.queue.map(({ id }) => id),
   ]);
   assertUnique(turnIds, "V1 turn ids");
-  assertUnique(
-    [...turnIds, ...notifications.map(({ id }) => id)],
-    "V1 turn and notification ids"
-  );
+  assertUnique([...turnIds, ...notifications.map(({ id }) => id)], "V1 turn and notification ids");
   if (
     !sameMembers(
       snapshot.nicknames,
-      agents.map(({ nickname }) => nickname)
+      agents.map(({ nickname }) => nickname),
     )
   ) {
     throw new Error("V1 nickname reservations do not match its agents");
   }
   for (const notification of notifications) {
     if (!agentIds.has(notification.agentId)) {
-      throw new Error(
-        `V1 notification references an unknown agent: ${notification.id}`
-      );
+      throw new Error(`V1 notification references an unknown agent: ${notification.id}`);
     }
   }
 };
@@ -144,19 +121,16 @@ type V2Node = V2Snapshot["nodes"][number];
 const assertV2Node = (
   node: V2Node,
   nodePaths: ReadonlySet<string>,
-  communicationsById: ReadonlyMap<string, V2Communication>
+  communicationsById: ReadonlyMap<string, V2Communication>,
 ): void => {
   const parent = node.path.slice(0, node.path.lastIndexOf("/"));
   if (!nodePaths.has(parent)) {
     throw new Error(`V2 agent has no durable parent: ${node.path}`);
   }
-  const activeCommunication = communicationsById.get(
-    node.activeDeliveryId ?? ""
-  );
+  const activeCommunication = communicationsById.get(node.activeDeliveryId ?? "");
   if (
     node.status === "pending" &&
-    (activeCommunication?.delivery !== "turn" ||
-      activeCommunication.to !== node.path)
+    (activeCommunication?.delivery !== "turn" || activeCommunication.to !== node.path)
   ) {
     throw new Error(`Pending V2 agent has no task mail: ${node.path}`);
   }
@@ -168,52 +142,43 @@ const assertV2Node = (
 const assertV2Communication = (
   communication: V2Communication,
   nodePaths: ReadonlySet<string>,
-  nodesByPath: ReadonlyMap<string, V2Node>
+  nodesByPath: ReadonlyMap<string, V2Node>,
 ): void => {
   if (!nodePaths.has(communication.from) || !nodePaths.has(communication.to)) {
-    throw new Error(
-      `V2 communication references an unknown agent: ${communication.id}`
-    );
+    throw new Error(`V2 communication references an unknown agent: ${communication.id}`);
   }
   if (
     communication.delivery === "turn" &&
     nodesByPath.get(communication.to)?.activeDeliveryId !== communication.id
   ) {
-    throw new Error(
-      `V2 task mail is not owned by its target: ${communication.id}`
-    );
+    throw new Error(`V2 task mail is not owned by its target: ${communication.id}`);
   }
 };
 
-const assertV2Semantics = (
-  snapshot: Extract<SubagentsSnapshot, { protocolLatch: "v2" }>
-): void => {
+const assertV2Semantics = (snapshot: Extract<SubagentsSnapshot, { protocolLatch: "v2" }>): void => {
   const { communications, nodes } = snapshot.state;
   const communicationsById = new Map(
-    communications.map((communication) => [communication.id, communication])
+    communications.map((communication) => [communication.id, communication]),
   );
   assertUnique(
     nodes.map(({ path: pathname }) => pathname),
-    "V2 agent paths"
+    "V2 agent paths",
   );
   assertUnique(
     nodes.map(({ sessionFile }) => sessionFile),
-    "V2 session files"
+    "V2 session files",
   );
   assertUnique(
     communications.map(({ id }) => id),
-    "V2 communication ids"
+    "V2 communication ids",
   );
   assertUnique(
     nodes.flatMap(({ activeDeliveryId }) =>
-      activeDeliveryId === undefined ? [] : [activeDeliveryId]
+      activeDeliveryId === undefined ? [] : [activeDeliveryId],
     ),
-    "V2 active-delivery ids"
+    "V2 active-delivery ids",
   );
-  const nodePaths = new Set([
-    "/root",
-    ...nodes.map(({ path: pathname }) => pathname),
-  ]);
+  const nodePaths = new Set(["/root", ...nodes.map(({ path: pathname }) => pathname)]);
   const nodesByPath = new Map(nodes.map((node) => [node.path, node]));
   const nodeNicknames = nodes.map(({ nickname }) => nickname);
   if (!sameMembers(snapshot.nicknames, nodeNicknames)) {
@@ -241,19 +206,44 @@ const assertSnapshotSemantics = (snapshot: SubagentsSnapshot): void => {
   assertV2Semantics(snapshot);
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+type JsonValue = boolean | JsonObject | JsonValue[] | null | number | string | undefined;
+interface JsonObject {
+  [key: string]: JsonValue;
+}
+interface LegacyTurn extends JsonObject {
+  phase?: "pending" | "running";
+}
+interface LegacyAgent extends JsonObject {
+  queue: LegacyTurn[];
+}
+interface LegacyV1Snapshot extends JsonObject {
+  protocolLatch: "v1";
+  state: JsonObject & { agents: LegacyAgent[] };
+}
+const LegacyV1SnapshotSchema = Type.Unsafe<LegacyV1Snapshot>(
+  Type.Object(
+    {
+      protocolLatch: Type.Literal("v1"),
+      state: Type.Object(
+        {
+          agents: Type.Array(
+            Type.Object(
+              {
+                queue: Type.Array(Type.Object({}, { additionalProperties: true })),
+              },
+              { additionalProperties: true },
+            ),
+          ),
+        },
+        { additionalProperties: true },
+      ),
+    },
+    { additionalProperties: true },
+  ),
+);
 
-const isUnknownArray = (value: unknown): value is unknown[] =>
-  Array.isArray(value);
-
-const migrateLegacyV1QueuePhases = (value: unknown): unknown => {
-  if (
-    !isRecord(value) ||
-    value.protocolLatch !== "v1" ||
-    !isRecord(value.state) ||
-    !isUnknownArray(value.state.agents)
-  ) {
+const migrateLegacyV1QueuePhases = (value: JsonValue): JsonValue => {
+  if (!Value.Check(LegacyV1SnapshotSchema, value)) {
     return value;
   }
   return {
@@ -261,16 +251,10 @@ const migrateLegacyV1QueuePhases = (value: unknown): unknown => {
     state: {
       ...value.state,
       agents: value.state.agents.map((agent) => {
-        if (!isRecord(agent) || !isUnknownArray(agent.queue)) {
-          return agent;
-        }
         return {
           ...agent,
           queue: agent.queue.map((turn) => {
-            if (
-              !isRecord(turn) ||
-              (turn.phase !== "pending" && turn.phase !== "running")
-            ) {
+            if (turn.phase !== "pending" && turn.phase !== "running") {
               return turn;
             }
             const migrated = { ...turn };
@@ -283,10 +267,7 @@ const migrateLegacyV1QueuePhases = (value: unknown): unknown => {
   };
 };
 
-const assertSnapshot = (
-  value: unknown,
-  expectedRoot: RootBinding
-): SubagentsSnapshot => {
+const assertSnapshot = (value: JsonValue, expectedRoot: RootBinding): SubagentsSnapshot => {
   if (!Value.Check(SnapshotSchema, value)) {
     throw new Error("Invalid subagent control snapshot");
   }
@@ -300,8 +281,7 @@ const assertSnapshot = (
   return value;
 };
 
-const serializedSize = (serialized: string): number =>
-  Buffer.byteLength(serialized, "utf-8");
+const serializedSize = (serialized: string): number => Buffer.byteLength(serialized, "utf-8");
 
 const encodedTextSize = (value: string): number =>
   Buffer.byteLength(JSON.stringify(value), "utf-8") - 2;
@@ -312,17 +292,15 @@ const terminalHeadroom = (snapshot: SubagentsSnapshot): number => {
   }
   const activeCount =
     snapshot.protocolLatch === "v1"
-      ? snapshot.state.agents.filter(({ active }) => active !== undefined)
-          .length
-      : snapshot.state.nodes.filter(
-          ({ status }) => status === "pending" || status === "running"
-        ).length;
+      ? snapshot.state.agents.filter(({ active }) => active !== undefined).length
+      : snapshot.state.nodes.filter(({ status }) => status === "pending" || status === "running")
+          .length;
   return activeCount * MAX_TERMINAL_GROWTH_BYTES;
 };
 
 export const serializeSnapshot = (
   snapshot: SubagentsSnapshot,
-  reserveTerminalHeadroom = false
+  reserveTerminalHeadroom = false,
 ): string => {
   if (!Value.Check(SnapshotSchema, snapshot)) {
     throw new Error("Invalid subagent control state");
@@ -336,16 +314,13 @@ export const serializeSnapshot = (
     throw new Error(
       reserveTerminalHeadroom
         ? "Subagent operation would leave insufficient terminal-state headroom"
-        : "Subagent control state exceeds its maximum size"
+        : "Subagent control state exceeds its maximum size",
     );
   }
   return serialized;
 };
 
-export const boundDurableText = (
-  value: string,
-  maximum = MAX_DURABLE_RESULT_BYTES
-): string => {
+export const boundDurableText = (value: string, maximum = MAX_DURABLE_RESULT_BYTES): string => {
   if (encodedTextSize(value) <= maximum) {
     return value;
   }
@@ -358,29 +333,21 @@ export const boundDurableText = (
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
     const end =
-      middle > 0 && /[\uD800-\uDBFF]/u.test(value[middle - 1] ?? "")
-        ? middle - 1
-        : middle;
+      middle > 0 && /[\uD800-\uDBFF]/u.test(value[middle - 1] ?? "") ? middle - 1 : middle;
     if (encodedTextSize(`${value.slice(0, end)}${marker}`) <= maximum) {
       low = middle;
     } else {
       high = middle - 1;
     }
   }
-  const end =
-    low > 0 && /[\uD800-\uDBFF]/u.test(value[low - 1] ?? "") ? low - 1 : low;
+  const end = low > 0 && /[\uD800-\uDBFF]/u.test(value[low - 1] ?? "") ? low - 1 : low;
   return `${value.slice(0, end)}${marker}`;
 };
 
-export const createMemoryControlStore = (
-  snapshot?: SubagentsSnapshot
-): ControlStore => {
+export const createMemoryControlStore = (snapshot?: SubagentsSnapshot): ControlStore => {
   let current = snapshot === undefined ? undefined : structuredClone(snapshot);
   return {
-    load: () =>
-      Promise.resolve(
-        current === undefined ? undefined : structuredClone(current)
-      ),
+    load: () => Promise.resolve(current === undefined ? undefined : structuredClone(current)),
     persistent: false,
     write: (serialized, onCommit) => {
       current = Value.Decode(SnapshotSchema, JSON.parse(serialized));
@@ -411,12 +378,7 @@ class FileControlStore implements ControlStore {
       try {
         info = await lstat(this.#filePath);
       } catch (error) {
-        if (
-          error !== null &&
-          typeof error === "object" &&
-          "code" in error &&
-          error.code === "ENOENT"
-        ) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
           missing = true;
         } else {
           throw error;
@@ -431,19 +393,13 @@ class FileControlStore implements ControlStore {
           throw new Error("Subagent control state exceeds its maximum size");
         }
         const contents = await readFile(this.#filePath, "utf-8");
-        snapshot = assertSnapshot(
-          migrateLegacyV1QueuePhases(JSON.parse(contents)),
-          this.#root
-        );
+        snapshot = assertSnapshot(migrateLegacyV1QueuePhases(JSON.parse(contents)), this.#root);
       }
       return snapshot;
     });
   }
 
-  async write(
-    serialized: string,
-    onCommit: () => void
-  ): Promise<Error | undefined> {
+  async write(serialized: string, onCommit: () => void): Promise<Error | undefined> {
     if (serializedSize(serialized) > MAX_CONTROL_BYTES) {
       throw new Error("Subagent control state exceeds its maximum size");
     }
@@ -455,14 +411,7 @@ class FileControlStore implements ControlStore {
           throw new Error("Subagent control state must be a regular file");
         }
       } catch (error) {
-        if (
-          !(
-            error !== null &&
-            typeof error === "object" &&
-            "code" in error &&
-            error.code === "ENOENT"
-          )
-        ) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
           throw error;
         }
       }
@@ -490,7 +439,7 @@ class FileControlStore implements ControlStore {
         } catch (error) {
           return new Error(
             `Subagent control state was renamed but directory sync failed: ${error instanceof Error ? error.message : String(error)}`,
-            { cause: error }
+            { cause: error },
           );
         }
         return SUCCESSFUL_WRITE;
@@ -519,36 +468,24 @@ class FileControlStore implements ControlStore {
     await Promise.all(
       entries
         .filter((entry) => entry.name.startsWith(prefix) && entry.isFile())
-        .map((entry) =>
-          rm(path.join(this.#directory, entry.name), { force: true })
-        )
+        .map((entry) => rm(path.join(this.#directory, entry.name), { force: true })),
     );
   }
 }
 
-const normalizedRootFile = (sessionFile: string): string =>
-  path.resolve(sessionFile);
+const normalizedRootFile = (sessionFile: string): string => path.resolve(sessionFile);
 
-export const rootBinding = (
-  sessionId: string,
-  sessionFile?: string
-): RootBinding => ({
-  sessionFile:
-    sessionFile === undefined ? null : normalizedRootFile(sessionFile),
+export const rootBinding = (sessionId: string, sessionFile?: string): RootBinding => ({
+  sessionFile: sessionFile === undefined ? null : normalizedRootFile(sessionFile),
   sessionId,
 });
 
-export const createControlStore = (
-  dataDir: string,
-  root: RootBinding
-): ControlStore => {
+export const createControlStore = (dataDir: string, root: RootBinding): ControlStore => {
   if (root.sessionFile === null) {
     return createMemoryControlStore();
   }
   const directory = path.resolve(dataDir, "trees");
-  const key = createHash("sha256")
-    .update(`${root.sessionFile}\0${root.sessionId}`)
-    .digest("hex");
+  const key = createHash("sha256").update(`${root.sessionFile}\0${root.sessionId}`).digest("hex");
   return new FileControlStore(directory, path.join(directory, `${key}.json`), {
     ...root,
     sessionFile: normalizedRootFile(root.sessionFile),
@@ -557,7 +494,7 @@ export const createControlStore = (
 
 export const freshSnapshot = (
   protocol: "off" | "v1" | "v2",
-  root: RootBinding
+  root: RootBinding,
 ): SubagentsSnapshot => {
   const common = {
     nicknames: [],

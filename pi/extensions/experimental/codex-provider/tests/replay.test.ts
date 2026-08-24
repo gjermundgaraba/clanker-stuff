@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { RETAINED_USER_IMAGE_PLACEHOLDER } from "../checkpoint.js";
 import {
@@ -39,7 +39,7 @@ const user = (
         text: string;
         type: string;
       }
-  )[]
+  )[],
 ) => ({
   content,
   role: "user",
@@ -58,10 +58,8 @@ const agentMessage = (text: string) => ({
 const serializedMarker = (edge: "end" | "start", nonce: string) =>
   textUser(frameMarkerText(edge, nonce));
 
-const canOmitAssistantError = (message: {
-  role: string;
-  stopReason?: string;
-}) => message.role === "assistant" && message.stopReason === "error";
+const canOmitAssistantError = (message: { role: string; stopReason?: string }) =>
+  message.role === "assistant" && message.stopReason === "error";
 
 describe("request framing and finalized replay", () => {
   it("frames one baseline while preserving fresh prefix/suffix and removes the lifecycle marker", () => {
@@ -80,7 +78,7 @@ describe("request framing and finalized replay", () => {
       [marker, oldBaseline, liveTail],
       [liveTail],
       start,
-      end
+      end,
     );
     if (framed.kind !== "ok") {
       throw new Error("Fixture did not frame");
@@ -95,7 +93,7 @@ describe("request framing and finalized replay", () => {
         serializedMarker("end", nonce),
         textUser("fresh suffix"),
       ],
-      nonce
+      nonce,
     );
     if (extracted.kind !== "ok") {
       throw new Error("Fixture markers did not extract");
@@ -106,10 +104,8 @@ describe("request framing and finalized replay", () => {
 
     expect({
       context: framed.messages,
-      markerCount:
-        JSON.stringify(rewritten).match(/codex-provider:frame/gu)?.length,
-      opaqueCount: rewritten.filter((item) => item.type === "compaction")
-        .length,
+      markerCount: JSON.stringify(rewritten).match(/codex-provider:frame/gu)?.length,
+      opaqueCount: rewritten.filter((item) => item.type === "compaction").length,
       replay: rewritten,
     }).toStrictEqual({
       context: [prefix, start, liveTail, end, suffix],
@@ -129,23 +125,21 @@ describe("request framing and finalized replay", () => {
     const stale = "0198abcd-0000-7000-8000-000000000001";
     const start = serializedMarker("start", nonce);
     const end = serializedMarker("end", nonce);
-    const cases = [
-      [],
-      [start],
-      [start, start, end],
-      [start, end, end],
-      [end, start],
-    ];
+    const cases = [[], [start], [start, start, end], [start, end, end], [end, start]];
 
-    expect(
-      cases.map((input) => extractFinalizedFrame(input, nonce).kind)
-    ).toStrictEqual(["invalid", "invalid", "invalid", "invalid", "invalid"]);
+    expect(cases.map((input) => extractFinalizedFrame(input, nonce).kind)).toStrictEqual([
+      "invalid",
+      "invalid",
+      "invalid",
+      "invalid",
+      "invalid",
+    ]);
     const malformed = textUser("[codex-provider:frame:start:not-a-uuid!]");
     const staleStart = serializedMarker("start", stale);
     const staleEnd = serializedMarker("end", stale);
     const unrelated = extractFinalizedFrame(
       [malformed, staleStart, start, textUser("body"), end, staleEnd],
-      nonce
+      nonce,
     );
     expect(unrelated).toStrictEqual({
       framed: [textUser("body")],
@@ -163,9 +157,13 @@ describe("request framing and finalized replay", () => {
         timestamp: 1,
       },
     ];
-    const reordered = JSON.parse(
-      '[{"timestamp":1,"role":"user","content":[{"type":"text","text":"same"}]}]'
-    ) as typeof baseline;
+    const reordered: typeof baseline = [
+      {
+        timestamp: 1,
+        role: "user",
+        content: [{ type: "text", text: "same" }],
+      },
+    ];
     const start = {
       content: [{ text: "START", type: "text" }],
       role: "user",
@@ -177,9 +175,7 @@ describe("request framing and finalized replay", () => {
       timestamp: 3,
     };
 
-    expect(
-      frameContiguousBaseline(reordered, baseline, [], start, end)
-    ).toStrictEqual({
+    expect(frameContiguousBaseline(reordered, baseline, [], start, end)).toStrictEqual({
       framed: [],
       kind: "ok",
       messages: [start, end],
@@ -187,48 +183,24 @@ describe("request framing and finalized replay", () => {
       suffix: [],
     });
     expect(
-      frameContiguousBaseline(
-        [...reordered, ...reordered],
-        baseline,
-        [],
-        start,
-        end
-      ).kind
+      frameContiguousBaseline([...reordered, ...reordered], baseline, [], start, end).kind,
     ).toBe("ambiguous");
   });
 
   it.each([
     ["user", { content: "same", role: "user" }],
     ["assistant", { content: [], role: "assistant", stopReason: "stop" }],
-    [
-      "toolResult",
-      { content: [], role: "toolResult", toolCallId: "call", toolName: "read" },
-    ],
-    [
-      "bashExecution",
-      { command: "pwd", output: "/tmp", role: "bashExecution" },
-    ],
+    ["toolResult", { content: [], role: "toolResult", toolCallId: "call", toolName: "read" }],
+    ["bashExecution", { command: "pwd", output: "/tmp", role: "bashExecution" }],
     ["custom", { content: "same", customType: "test", role: "custom" }],
-    [
-      "branchSummary",
-      { fromId: "entry", role: "branchSummary", summary: "same" },
-    ],
-    [
-      "compactionSummary",
-      { role: "compactionSummary", summary: "same", tokensBefore: 1 },
-    ],
+    ["branchSummary", { fromId: "entry", role: "branchSummary", summary: "same" }],
+    ["compactionSummary", { role: "compactionSummary", summary: "same", tokensBefore: 1 }],
   ])("matches %s messages across top-level timestamp drift", (_role, value) => {
     const persisted = { ...value, timestamp: 1 };
     const live = { ...value, timestamp: 2 };
     const start = { content: "START", role: "user", timestamp: 3 };
     const end = { content: "END", role: "user", timestamp: 4 };
-    const framed = frameContiguousBaseline(
-      [live],
-      [persisted],
-      [persisted],
-      start,
-      end
-    );
+    const framed = frameContiguousBaseline([live], [persisted], [persisted], start, end);
 
     expect(framed.kind).toBe("ok");
     if (framed.kind !== "ok") {
@@ -249,23 +221,12 @@ describe("request framing and finalized replay", () => {
     const duplicate = { ...persisted, timestamp: 3 };
     const marker = { content: "marker", role: "user", timestamp: 4 };
 
+    expect(frameContiguousBaseline([changed], [persisted], [persisted], marker, marker).kind).toBe(
+      "missing",
+    );
     expect(
-      frameContiguousBaseline(
-        [changed],
-        [persisted],
-        [persisted],
-        marker,
-        marker
-      ).kind
-    ).toBe("missing");
-    expect(
-      frameContiguousBaseline(
-        [persisted, duplicate],
-        [persisted],
-        [persisted],
-        marker,
-        marker
-      ).kind
+      frameContiguousBaseline([persisted, duplicate], [persisted], [persisted], marker, marker)
+        .kind,
     ).toBe("ambiguous");
   });
 
@@ -304,7 +265,7 @@ describe("request framing and finalized replay", () => {
       segment,
       start,
       end,
-      canOmitAssistantError
+      canOmitAssistantError,
     );
     const retained = frameContiguousBaseline(
       baseline,
@@ -312,7 +273,7 @@ describe("request framing and finalized replay", () => {
       segment,
       start,
       end,
-      canOmitAssistantError
+      canOmitAssistantError,
     );
 
     expect({ aligned, retained }).toStrictEqual({
@@ -343,7 +304,7 @@ describe("replacement and token policy", () => {
         agentMessage("Message Type: FINAL_ANSWER\nfinished"),
         agentMessage("x".repeat(40_004)),
       ],
-      compaction()
+      compaction(),
     );
 
     expect(result.map((item) => item.type)).toStrictEqual([
@@ -357,11 +318,11 @@ describe("replacement and token policy", () => {
     const exactBudget = textUser("x".repeat(64_000 * 4));
     const first = buildCheckpointReplacement(
       [textUser("old"), exactBudget],
-      compaction("enc_first")
+      compaction("enc_first"),
     );
     const repeated = buildCheckpointReplacement(
       first.filter((item) => item.type === "message"),
-      compaction("enc_second")
+      compaction("enc_second"),
     );
 
     expect({
@@ -374,7 +335,7 @@ describe("replacement and token policy", () => {
         .flatMap((item) =>
           item.content
             .filter((content) => content.type === "input_text")
-            .map((content) => content.text.length)
+            .map((content) => content.text.length),
         ),
     }).toStrictEqual({
       encryptedItems: ["enc_second"],
@@ -387,42 +348,38 @@ describe("replacement and token policy", () => {
     const boundary = buildCheckpointReplacement(
       [textUser("old-old"), textUser("middle1234"), textUser("new")],
       compaction(),
-      3
+      3,
     );
     const imageOnly = user([image()]);
     const imageResult = buildCheckpointReplacement(
       [textUser("old"), imageOnly, textUser("new")],
       compaction(),
-      100
+      100,
     );
     const transientImageResult = buildTransientCheckpointReplacement(
       [textUser("old"), imageOnly, textUser("new")],
       compaction(),
-      2
+      2,
     );
     const budgetedImageResult = buildTransientCheckpointReplacement(
       [imageOnly],
       compaction(),
-      Math.ceil(FIXED_IMAGE_BYTE_ESTIMATE / 4)
+      Math.ceil(FIXED_IMAGE_BYTE_ESTIMATE / 4),
     );
     const hugeImageResult = buildCheckpointReplacement(
       [user([image(`data:image/png;base64,${"A".repeat(2_000_000)}`)])],
       compaction(),
-      100
+      100,
     );
     expect(JSON.stringify(hugeImageResult).length).toBeLessThan(1000);
-    const unicode = truncateMiddleToTokenBudget(
-      "😀😀😀😀😀😀😀😀😀😀\nsecond line with text\n",
-      8
-    );
+    const unicode = truncateMiddleToTokenBudget("😀😀😀😀😀😀😀😀😀😀\nsecond line with text\n", 8);
     const zeroBudget = truncateMiddleToTokenBudget("abcdef", 0);
 
     expect({
       boundary,
       budgetedImageResult,
       imageOnly: imageResult,
-      persistedImageData:
-        JSON.stringify(imageResult).includes("data:image/png"),
+      persistedImageData: JSON.stringify(imageResult).includes("data:image/png"),
       transientImageResult,
       unicode,
       unicodeTokens: tokensForUtf8(unicode),
@@ -446,22 +403,15 @@ describe("replacement and token policy", () => {
 
   it("estimates model-visible bytes safely and applies 90/95 percent boundaries", () => {
     const shortImage = user([image("data:image/png;base64,AA")]);
-    const hugeImage = user([
-      image(`data:image/png;base64,${"A".repeat(100_000)}`),
-    ]);
-    const shortEstimate = estimateModelVisibleTokens("instructions", [
-      shortImage,
-    ]);
-    const hugeEstimate = estimateModelVisibleTokens("instructions", [
-      hugeImage,
-    ]);
+    const hugeImage = user([image(`data:image/png;base64,${"A".repeat(100_000)}`)]);
+    const shortEstimate = estimateModelVisibleTokens("instructions", [shortImage]);
+    const hugeEstimate = estimateModelVisibleTokens("instructions", [hugeImage]);
 
     expect({
       decisions: contextWindowDecision(1000),
       fractionalUnavailable: contextWindowDecision(1000.5),
       imageEstimatesMatch: shortEstimate === hugeEstimate,
-      instructionsIncluded:
-        shortEstimate > estimateModelVisibleTokens("", [shortImage]),
+      instructionsIncluded: shortEstimate > estimateModelVisibleTokens("", [shortImage]),
       nonFiniteUnavailable: contextWindowDecision(Number.POSITIVE_INFINITY),
       triggerAtBoundary: shouldAutoCompact(900, 1000),
     }).toStrictEqual({
@@ -490,8 +440,7 @@ describe("replacement and token policy", () => {
       supported,
       supportedIdentity: supported === input,
       unsupported,
-      unsupportedContainsBase64:
-        JSON.stringify(unsupported).includes("SECRET_"),
+      unsupportedContainsBase64: JSON.stringify(unsupported).includes("SECRET_"),
     }).toStrictEqual({
       supported: input,
       supportedIdentity: true,
@@ -675,22 +624,9 @@ describe("trailing output shrinking", () => {
     ];
     const input = [oldOutput, marker, ...suffix];
     const shrunk = shrinkTrailingOutputs(input, "instructions", 0);
-    const newestOnlyInput = [
-      oldOutput,
-      marker,
-      suffix[0],
-      suffix[1],
-      { ...suffix[2], tools: [] },
-    ];
-    const newestOnlyLimit = estimateModelVisibleTokens(
-      "instructions",
-      newestOnlyInput
-    );
-    const newestOnly = shrinkTrailingOutputs(
-      input,
-      "instructions",
-      newestOnlyLimit
-    );
+    const newestOnlyInput = [oldOutput, marker, suffix[0], suffix[1], { ...suffix[2], tools: [] }];
+    const newestOnlyLimit = estimateModelVisibleTokens("instructions", newestOnlyInput);
+    const newestOnly = shrinkTrailingOutputs(input, "instructions", newestOnlyLimit);
 
     expect({
       custom: shrunk.at(-2),

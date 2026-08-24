@@ -13,7 +13,9 @@ coverage/
 # Editors and operating systems
 .DS_Store
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 
 # Local AI tooling
 .agents/

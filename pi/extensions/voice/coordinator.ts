@@ -22,8 +22,8 @@ type HandoffPhase =
       kind: "accepted";
     };
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const errorMessage = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
 const MAX_QUEUED_HANDOFFS = 20;
 
 export class VoiceCoordinator {
@@ -39,7 +39,7 @@ export class VoiceCoordinator {
     if (this.queue.length >= MAX_QUEUED_HANDOFFS) {
       this.options.complete(
         handoff.binding,
-        "I could not queue that request because too many voice requests are already waiting."
+        "I could not queue that request because too many voice requests are already waiting.",
       );
       return;
     }
@@ -48,10 +48,7 @@ export class VoiceCoordinator {
   }
 
   accept(prompt: string): boolean {
-    if (
-      this.phase.kind !== "submitted" ||
-      this.phase.handoff.prompt !== prompt
-    ) {
+    if (this.phase.kind !== "submitted" || this.phase.handoff.prompt !== prompt) {
       return false;
     }
     this.phase = { handoff: this.phase.handoff, kind: "accepted" };
@@ -60,8 +57,7 @@ export class VoiceCoordinator {
 
   sendStatus(text: string): boolean {
     return (
-      this.phase.kind === "accepted" &&
-      this.options.status(this.phase.handoff.binding, text.trim())
+      this.phase.kind === "accepted" && this.options.status(this.phase.handoff.binding, text.trim())
     );
   }
 
@@ -91,7 +87,7 @@ export class VoiceCoordinator {
       this.finish(
         deferredFailure !== undefined && deferredFailure.length > 0
           ? deferredFailure
-          : "The Pi session stopped before producing a final response."
+          : "The Pi session stopped before producing a final response.",
       );
       return;
     }
@@ -100,10 +96,7 @@ export class VoiceCoordinator {
     }
     const { handoff } = this.phase;
     this.phase = { kind: "idle" };
-    this.options.complete(
-      handoff.binding,
-      "I could not submit that request to the Pi session."
-    );
+    this.options.complete(handoff.binding, "I could not submit that request to the Pi session.");
     void this.pump();
   }
 
@@ -134,13 +127,12 @@ export class VoiceCoordinator {
     } catch (error) {
       if (
         this.phase === validating ||
-        (this.phase.kind === "submitted" &&
-          this.phase.handoff === validating.handoff)
+        (this.phase.kind === "submitted" && this.phase.handoff === validating.handoff)
       ) {
         this.phase = { kind: "idle" };
         this.options.complete(
           handoff.binding,
-          `I could not use the current Pi coordinator: ${errorMessage(error).slice(0, 240)}`
+          `I could not use the current Pi coordinator: ${errorMessage(error).slice(0, 240)}`,
         );
       }
     } finally {

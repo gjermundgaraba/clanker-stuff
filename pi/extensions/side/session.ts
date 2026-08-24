@@ -1,8 +1,5 @@
 import { contentText } from "@earendil-works/pi-ai";
-import type {
-  AssistantMessage,
-  ModelThinkingLevel,
-} from "@earendil-works/pi-ai";
+import type { AssistantMessage, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
   buildSessionContext,
   convertToLlm,
@@ -12,11 +9,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  AgentSession,
-  AgentSessionEvent,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const SIDE_SYSTEM_PROMPT = `You are in a multi-turn side conversation forked from the main Pi session.
 
@@ -49,49 +42,69 @@ export interface SideConversationState {
   transcript: SideTranscriptItem[];
 }
 
-export const isSideActivityActive = (activity: SideActivity): boolean =>
-  activity.kind !== "idle";
+export interface SideConversation {
+  dispose(): Promise<void>;
+  latestAssistantText(): string | undefined;
+  readonly state: SideConversationState;
+  submit(text: string): boolean;
+  subscribe(listener: () => void): () => void;
+}
+
+export interface SideAgentSession {
+  abort(): Promise<void>;
+  bindExtensions(bindings: { mode: "print" }): Promise<void>;
+  dispose(): void;
+  readonly extensionRunner: {
+    emit(event: { reason: "quit"; type: "session_shutdown" }): Promise<void>;
+  };
+  hasExtensionHandlers(eventType: string): boolean;
+  readonly isStreaming: boolean;
+  prompt(text: string): Promise<void>;
+  subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+}
+
+export type SideConversationContext = Pick<
+  ExtensionContext,
+  "cwd" | "isProjectTrusted" | "model" | "sessionManager"
+>;
+
+type SideAgentSessionFactory = (
+  options: Parameters<typeof createAgentSession>[0],
+) => Promise<{ session: SideAgentSession }>;
+
+export const isSideActivityActive = (activity: SideActivity): boolean => activity.kind !== "idle";
 
 type ParentSession = Pick<SessionManager, "getEntries" | "getLeafId">;
-type SessionMessage = ReturnType<
-  typeof buildSessionContext
->["messages"][number];
+type SessionMessage = ReturnType<typeof buildSessionContext>["messages"][number];
 
 export const stableSnapshotMessages = (
-  messages: readonly SessionMessage[]
+  messages: readonly SessionMessage[],
 ): ReturnType<typeof convertToLlm> => {
   const completedToolCalls = new Set(
     messages
       .filter(
         (message): message is Extract<SessionMessage, { role: "toolResult" }> =>
-          message.role === "toolResult"
+          message.role === "toolResult",
       )
-      .map((message) => message.toolCallId)
+      .map((message) => message.toolCallId),
   );
 
   const incompleteAssistantIndex = messages.findIndex(
     (message) =>
       message.role === "assistant" &&
-      message.content.some(
-        (part) => part.type === "toolCall" && !completedToolCalls.has(part.id)
-      )
+      message.content.some((part) => part.type === "toolCall" && !completedToolCalls.has(part.id)),
   );
 
   const stable =
-    incompleteAssistantIndex === -1
-      ? [...messages]
-      : messages.slice(0, incompleteAssistantIndex);
+    incompleteAssistantIndex === -1 ? [...messages] : messages.slice(0, incompleteAssistantIndex);
   return convertToLlm(structuredClone(stable));
 };
 
-export const createSideSessionManager = (
-  parent: ParentSession,
-  cwd: string
-): SessionManager => {
+export const createSideSessionManager = (parent: ParentSession, cwd: string): SessionManager => {
   const side = SessionManager.inMemory(cwd);
 
   for (const message of stableSnapshotMessages(
-    buildSessionContext(parent.getEntries(), parent.getLeafId()).messages
+    buildSessionContext(parent.getEntries(), parent.getLeafId()).messages,
   )) {
     side.appendMessage(message);
   }
@@ -103,23 +116,21 @@ export const createSideSessionManager = (
   return side;
 };
 
-export class SideSessionController {
+export class SideSessionController implements SideConversation {
   readonly state: SideConversationState = {
     activity: { kind: "idle" },
     transcript: [],
   };
 
   private readonly listeners = new Set<() => void>();
-  private readonly session: AgentSession;
+  private readonly session: SideAgentSession;
   private disposePromise?: Promise<void>;
   private disposed = false;
   private unsubscribe?: () => void;
 
-  constructor(session: AgentSession) {
+  constructor(session: SideAgentSession) {
     this.session = session;
-    this.state.activity = session.isStreaming
-      ? { kind: "running" }
-      : { kind: "idle" };
+    this.state.activity = session.isStreaming ? { kind: "running" } : { kind: "idle" };
     this.unsubscribe = session.subscribe((event) => {
       this.handleEvent(event);
     });
@@ -153,11 +164,8 @@ export class SideSessionController {
 
   latestAssistantText(): string | undefined {
     const item = this.state.transcript.findLast(
-      (
-        candidate
-      ): candidate is Extract<SideTranscriptItem, { kind: "assistant" }> =>
-        candidate.kind === "assistant" &&
-        contentText(candidate.message.content).trim().length > 0
+      (candidate): candidate is Extract<SideTranscriptItem, { kind: "assistant" }> =>
+        candidate.kind === "assistant" && contentText(candidate.message.content).trim().length > 0,
     );
     return item ? contentText(item.message.content).trim() : undefined;
   }
@@ -214,8 +222,7 @@ export class SideSessionController {
         });
         this.state.activity = { kind: "running" };
         if (event.message.stopReason === "error") {
-          this.state.statusMessage =
-            event.message.errorMessage ?? "Side response failed.";
+          this.state.statusMessage = event.message.errorMessage ?? "Side response failed.";
         }
       }
     } else if (event.type === "tool_execution_start") {
@@ -229,7 +236,7 @@ export class SideSessionController {
     } else if (event.type === "tool_execution_end") {
       const tool = this.state.transcript.find(
         (item): item is Extract<SideTranscriptItem, { kind: "tool" }> =>
-          item.kind === "tool" && item.id === event.toolCallId
+          item.kind === "tool" && item.id === event.toolCallId,
       );
       if (tool) {
         tool.status = event.isError ? "error" : "done";
@@ -252,10 +259,7 @@ export class SideSessionController {
     }
   }
 
-  private async runPrompt(
-    prompt: string,
-    submission: SideActivity
-  ): Promise<void> {
+  private async runPrompt(prompt: string, submission: SideActivity): Promise<void> {
     try {
       await this.session.prompt(prompt);
       if (this.state.activity === submission) {
@@ -273,9 +277,10 @@ export class SideSessionController {
 }
 
 export const createSideConversation = async (
-  ctx: ExtensionContext,
-  thinkingLevel: ModelThinkingLevel
-): Promise<SideSessionController> => {
+  ctx: SideConversationContext,
+  thinkingLevel: ModelThinkingLevel,
+  createSession: SideAgentSessionFactory = createAgentSession,
+): Promise<SideConversation> => {
   const settingsManager = SettingsManager.create(ctx.cwd, getAgentDir(), {
     projectTrusted: ctx.isProjectTrusted(),
   });
@@ -287,7 +292,7 @@ export const createSideConversation = async (
   });
   await resourceLoader.reload();
 
-  const { session } = await createAgentSession({
+  const { session } = await createSession({
     agentDir: getAgentDir(),
     cwd: ctx.cwd,
     model: ctx.model,

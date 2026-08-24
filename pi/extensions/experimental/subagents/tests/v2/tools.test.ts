@@ -1,16 +1,43 @@
+import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
 import { DEFAULT_CONFIG } from "../../config.js";
-import type { V2Controller } from "../../v2/controller.js";
 import { registerV2Tools } from "../../v2/tools.js";
+import type { V2ToolController } from "../../v2/tools.js";
+
+const controller = (overrides: Partial<V2ToolController> = {}): V2ToolController => ({
+  followUp: () => Promise.resolve(),
+  interrupt: () => Promise.resolve({ previous_status: "not_found" }),
+  list: () => [],
+  sendMessage: () => Promise.resolve(),
+  spawn: () => Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" }),
+  wait: () => Promise.resolve({ message: "Wait completed.", timed_out: false }),
+  ...overrides,
+});
+const PropertiesSchema = Type.Object(
+  {
+    properties: Type.Record(Type.String(), Type.Unknown()),
+  },
+  { additionalProperties: true },
+);
+const properties = <T>(schema: T) => {
+  if (!Value.Check(PropertiesSchema, schema)) {
+    throw new Error("Expected object schema properties");
+  }
+  return schema.properties;
+};
 
 describe("V2 model contract", () => {
   it("matches Codex argument names, result shapes, and live-list semantics", async () => {
-    const spawnCalls: unknown[][] = [];
-    const controller = {
-      followUp: () => Promise.resolve({}),
+    const spawnCall = vi.fn<V2ToolController["spawn"]>((..._args) =>
+      Promise.resolve({
+        nickname: "Atlas",
+        task_name: "/root/worker",
+      }),
+    );
+    const tools = controller({
       interrupt: () => Promise.resolve({ previous_status: "running" }),
       list: () => [
         { path: "/root", resident: true, status: "running" },
@@ -26,19 +53,10 @@ describe("V2 model contract", () => {
           status: "interrupted",
         },
       ],
-      sendMessage: () => Promise.resolve({}),
-      spawn: (...args: unknown[]) => {
-        spawnCalls.push(args);
-        return Promise.resolve({
-          nickname: "Atlas",
-          task_name: "/root/worker",
-        });
-      },
-      wait: () =>
-        Promise.resolve({ message: "Wait completed.", timed_out: false }),
-    } as unknown as V2Controller;
+      spawn: spawnCall,
+    });
     const host = createExtensionHost((pi) => {
-      registerV2Tools(pi, controller, "/root", () => {});
+      registerV2Tools(pi, tools, "/root", () => {});
     });
     await host.ready;
 
@@ -46,15 +64,13 @@ describe("V2 model contract", () => {
     if (!spawn) {
       throw new Error("Expected spawn_agent");
     }
-    const parameters = spawn.parameters as typeof spawn.parameters & {
-      properties?: Record<string, unknown>;
-    };
+    const schemaProperties = properties(spawn.parameters);
     expect({
       description: spawn.description,
-      forkTurns: JSON.stringify(parameters.properties?.fork_turns),
-      hasThinking: "thinking" in (parameters.properties ?? {}),
-      names: Object.keys(parameters.properties ?? {}).toSorted(),
-      reasoning: JSON.stringify(parameters.properties?.reasoning_effort),
+      forkTurns: JSON.stringify(schemaProperties.fork_turns),
+      hasThinking: "thinking" in schemaProperties,
+      names: Object.keys(schemaProperties).toSorted(),
+      reasoning: JSON.stringify(schemaProperties.reasoning_effort),
       schemaAcceptsReasoning: Value.Check(spawn.parameters, {
         message: "work",
         reasoning_effort: "high",
@@ -64,13 +80,7 @@ describe("V2 model contract", () => {
       description: expect.not.stringContaining("same tools"),
       forkTurns: expect.stringContaining("positive integer string"),
       hasThinking: false,
-      names: [
-        "fork_turns",
-        "message",
-        "model",
-        "reasoning_effort",
-        "task_name",
-      ],
+      names: ["fork_turns", "message", "model", "reasoning_effort", "task_name"],
       reasoning: expect.stringContaining("Reasoning effort override"),
       schemaAcceptsReasoning: true,
     });
@@ -79,7 +89,7 @@ describe("V2 model contract", () => {
         message: "work",
         reasoning_effort: "high",
         task_name: "worker",
-      })
+      }),
     ).resolves.toMatchObject({
       content: [{ text: '{"task_name":"/root/worker"}', type: "text" }],
       details: {
@@ -87,7 +97,7 @@ describe("V2 model contract", () => {
         task_name: "/root/worker",
       },
     });
-    expect(spawnCalls[0]?.[1]).toMatchObject({ thinking: "high" });
+    expect(spawnCall.mock.calls[0]?.[1]).toMatchObject({ thinking: "high" });
 
     const [sendResult, listResult] = await Promise.all([
       host.runTool("send_message", {
@@ -117,7 +127,7 @@ describe("V2 model contract", () => {
 
   it("accepts below-minimum wait timeouts for runtime clamping", async () => {
     const host = createExtensionHost((pi) => {
-      registerV2Tools(pi, {} as unknown as V2Controller, "/root", () => {});
+      registerV2Tools(pi, controller(), "/root", () => {});
     });
     await host.ready;
     const wait = host.getRegisteredTools().get("wait_agent")?.definition;
@@ -138,38 +148,29 @@ describe("V2 model contract", () => {
     ["+3", 3],
     ["0003", 3],
     ["18446744073709551615", Number.MAX_SAFE_INTEGER],
-  ] as const)(
-    "normalizes Codex-compatible fork_turns %j",
-    async (value, expected) => {
-      const spawn = vi.fn<(...args: unknown[]) => Promise<unknown>>(
-        (..._args) =>
-          Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" })
-      );
-      const host = createExtensionHost((pi) => {
-        registerV2Tools(
-          pi,
-          { spawn } as unknown as V2Controller,
-          "/root",
-          () => {}
-        );
-      });
-      await host.ready;
+  ] as const)("normalizes Codex-compatible fork_turns %j", async (value, expected) => {
+    const spawn = vi.fn<V2ToolController["spawn"]>((..._args) =>
+      Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" }),
+    );
+    const host = createExtensionHost((pi) => {
+      registerV2Tools(pi, controller({ spawn }), "/root", () => {});
+    });
+    await host.ready;
 
-      await host.runTool("spawn_agent", {
-        fork_turns: value,
-        message: "work",
-        task_name: "worker",
-      });
+    await host.runTool("spawn_agent", {
+      fork_turns: value,
+      message: "work",
+      task_name: "worker",
+    });
 
-      expect(spawn.mock.calls[0]?.[1]).toMatchObject({ forkTurns: expected });
-    }
-  );
+    expect(spawn.mock.calls[0]?.[1]).toMatchObject({ forkTurns: expected });
+  });
 
   it.each(["000", "18446744073709551616", "0x10", "1_0", "-1"])(
     "rejects invalid fork_turns %j",
     async (forkTurns) => {
       const host = createExtensionHost((pi) => {
-        registerV2Tools(pi, {} as unknown as V2Controller, "/root", () => {});
+        registerV2Tools(pi, controller(), "/root", () => {});
       });
       await host.ready;
 
@@ -178,27 +179,17 @@ describe("V2 model contract", () => {
           fork_turns: forkTurns,
           message: "work",
           task_name: "worker",
-        })
-      ).rejects.toThrow(
-        "fork_turns must be `none`, `all`, or a positive integer string"
-      );
-    }
+        }),
+      ).rejects.toThrow("fork_turns must be `none`, `all`, or a positive integer string");
+    },
   );
 
   it("projects role-enabled and model-overrides-hidden spawn profiles", async () => {
-    const spawn = vi.fn<
-      (...args: unknown[]) => Promise<{
-        nickname: string;
-        task_name: string;
-      }>
-    >((..._args) =>
-      Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" })
+    const spawn = vi.fn<V2ToolController["spawn"]>((..._args) =>
+      Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" }),
     );
-    const controller = {
-      spawn,
-    } as unknown as V2Controller;
     const host = createExtensionHost((pi) => {
-      registerV2Tools(pi, controller, "/root", () => {}, {
+      registerV2Tools(pi, controller({ spawn }), "/root", () => {}, {
         ...DEFAULT_CONFIG,
         expose_spawn_agent_model_overrides: false,
         roles: {
@@ -210,17 +201,18 @@ describe("V2 model contract", () => {
     });
     await host.ready;
     const definition = host.getRegisteredTools().get("spawn_agent")?.definition;
-    const parameters = definition?.parameters as
-      | { properties?: Record<string, unknown> }
-      | undefined;
-    expect(Object.keys(parameters?.properties ?? {}).toSorted()).toStrictEqual([
+    if (definition === undefined) {
+      throw new Error("Expected spawn_agent");
+    }
+    const schemaProperties = properties(definition.parameters);
+    expect(Object.keys(schemaProperties).toSorted()).toStrictEqual([
       "agent_type",
       "fork_turns",
       "message",
       "task_name",
     ]);
-    expect(JSON.stringify(parameters?.properties?.agent_type)).toContain(
-      "Reviews the requested implementation."
+    expect(JSON.stringify(schemaProperties.agent_type)).toContain(
+      "Reviews the requested implementation.",
     );
 
     await host.runTool("spawn_agent", {

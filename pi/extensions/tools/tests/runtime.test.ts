@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -11,13 +11,7 @@ const profileCases = [
   },
   {
     id: "grok-4.5",
-    names: [
-      "run_terminal_cmd",
-      "read_file",
-      "search_replace",
-      "grep",
-      "list_dir",
-    ],
+    names: ["run_terminal_cmd", "read_file", "search_replace", "grep", "list_dir"],
   },
   {
     id: "glm-5.2",
@@ -33,37 +27,18 @@ describe("native harness routing", () => {
   it.each(profileCases)("activates $id", async (profile) => {
     const host = createExtensionHost(extension, {
       activeTools: ["read", "bash", "ask_question"],
-      allTools: [
-        "read",
-        "bash",
-        "edit",
-        "write",
-        "grep",
-        "find",
-        "ls",
-        "ask_question",
-      ],
+      allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
       model: createModel(profile.id),
     });
 
     await host.emitSessionStart();
 
-    expect(host.getActiveTools()).toStrictEqual([
-      "ask_question",
-      ...profile.names,
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...profile.names]);
     expect([...host.getRegisteredTools().keys()]).toStrictEqual(profile.names);
     for (const tool of host.getRegisteredTools().values()) {
-      expect(tool.definition.parameters).toHaveProperty(
-        "additionalProperties",
-        false
-      );
-      expect(tool.definition.parameters).not.toHaveProperty(
-        "properties.run_in_background"
-      );
-      expect(tool.definition.parameters).not.toHaveProperty(
-        "properties.is_background"
-      );
+      expect(tool.definition.parameters).toHaveProperty("additionalProperties", false);
+      expect(tool.definition.parameters).not.toHaveProperty("properties.run_in_background");
+      expect(tool.definition.parameters).not.toHaveProperty("properties.is_background");
     }
   });
 
@@ -96,7 +71,7 @@ describe("native harness routing", () => {
         command: "true",
         description: "check",
         [legacyKey]: true,
-      })
+      }),
     ).toStrictEqual({ command: "true", description: "check" });
   });
 
@@ -117,7 +92,7 @@ describe("native harness routing", () => {
         source: "set",
         type: "model_select",
       },
-      ctx
+      ctx,
     );
 
     const kimiRead = host.getRegisteredTools().get("Read")?.definition;
@@ -139,22 +114,11 @@ describe("native harness routing", () => {
     const claude = createModel("claude-opus-5");
     const host = createExtensionHost(extension, {
       activeTools: ["read", "ask_question"],
-      allTools: [
-        "read",
-        "bash",
-        "edit",
-        "write",
-        "grep",
-        "find",
-        "ls",
-        "ask_question",
-      ],
+      allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
       model: claude,
     });
     await host.emitSessionStart();
-    host.setActiveTools(
-      host.getActiveTools().filter((name) => name !== "Read")
-    );
+    host.setActiveTools(host.getActiveTools().filter((name) => name !== "Read"));
 
     const kimi = createModel("kimi-k3");
     await host.emit(
@@ -165,7 +129,7 @@ describe("native harness routing", () => {
         source: "set",
         type: "model_select",
       },
-      host.createContext({ model: kimi })
+      host.createContext({ model: kimi }),
     );
 
     expect(host.getActiveTools()).not.toContain("Read");
@@ -181,9 +145,9 @@ describe("native harness routing", () => {
       model: grok,
     });
     await host.emitSessionStart();
-    expect(
-      host.getRegisteredTools().get("grep")?.definition.parameters
-    ).toHaveProperty("properties.-i");
+    expect(host.getRegisteredTools().get("grep")?.definition.parameters).toHaveProperty(
+      "properties.-i",
+    );
 
     const deepseek = createModel("deepseek-v4-pro");
     await host.emit(
@@ -194,7 +158,7 @@ describe("native harness routing", () => {
         source: "set",
         type: "model_select",
       },
-      host.createContext({ model: deepseek })
+      host.createContext({ model: deepseek }),
     );
 
     const restored = host.getRegisteredTools().get("grep")?.definition;
@@ -221,7 +185,7 @@ describe("native harness routing", () => {
         source: "set",
         type: "model_select",
       },
-      host.createContext({ model: deepseek })
+      host.createContext({ model: deepseek }),
     );
 
     expect(host.getActiveTools()).toStrictEqual(["read", "ask_question"]);

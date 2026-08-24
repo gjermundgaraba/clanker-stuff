@@ -1,9 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import {
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Editor } from "@earendil-works/pi-tui";
 
 import {
@@ -48,20 +44,13 @@ const truncateLine = (text: string, width: number): string => {
     return "";
   }
   const truncated = truncateToWidth(text, width, "…");
-  if (
-    text.includes("\u001B") ||
-    !truncated.endsWith(ANSI_RESET_BEFORE_ELLIPSIS)
-  ) {
+  if (text.includes("\u001B") || !truncated.endsWith(ANSI_RESET_BEFORE_ELLIPSIS)) {
     return truncated;
   }
   return `${truncated.slice(0, -ANSI_RESET_BEFORE_ELLIPSIS.length)}…`;
 };
 
-const wrapWithPrefix = (
-  prefix: string,
-  text: string,
-  width: number
-): string[] => {
+const wrapWithPrefix = (prefix: string, text: string, width: number): string[] => {
   if (width <= 0) {
     return [""];
   }
@@ -80,7 +69,7 @@ const wrapWithPrefix = (
   const indent = " ".repeat(prefixWidth);
   const available = width - prefixWidth;
   return wrapTextWithAnsi(text, available).map((line, index) =>
-    truncateLine(`${index === 0 ? prefix : indent}${line}`, width)
+    truncateLine(`${index === 0 ? prefix : indent}${line}`, width),
   );
 };
 
@@ -90,19 +79,14 @@ const pushPreviewLines = (
   add: (line: string) => void,
   wrappedPreview: string[],
   maxLines: number,
-  morePrefix: string
+  morePrefix: string,
 ) => {
   for (const previewLine of wrappedPreview.slice(0, maxLines)) {
     lines.push(previewLine);
   }
   if (wrappedPreview.length > maxLines) {
     const remaining = wrappedPreview.length - maxLines;
-    add(
-      theme.fg(
-        "dim",
-        `${morePrefix}+${remaining} more line${remaining === 1 ? "" : "s"}`
-      )
-    );
+    add(theme.fg("dim", `${morePrefix}+${remaining} more line${remaining === 1 ? "" : "s"}`));
   }
 };
 
@@ -114,7 +98,7 @@ const renderOptionRow = (
   width: number,
   lines: string[],
   add: (line: string) => void,
-  addWrapped: (prefix: string, text: string) => void
+  addWrapped: (prefix: string, text: string) => void,
 ) => {
   const { helpText, theme } = view;
   const option = question.options[index];
@@ -135,16 +119,13 @@ const renderOptionRow = (
   } else {
     color = "text";
   }
-  const detailsMarker =
-    typeof option.details === "string" && option.details !== "" ? " *" : "";
-  add(
-    `${prefix}${theme.fg(color, `${marker} ${index + 1}. ${option.label}${detailsMarker}`)}`
-  );
+  const detailsMarker = option.details !== undefined && option.details !== "" ? " *" : "";
+  add(`${prefix}${theme.fg(color, `${marker} ${index + 1}. ${option.label}${detailsMarker}`)}`);
 
   const optionText = state.textByOptionIndex[index];
   if (isOtherOption(option)) {
     if (selected) {
-      if (typeof optionText === "string" && optionText !== "") {
+      if (optionText !== undefined && optionText !== "") {
         const wrappedPreview = wrapWithPrefix("    text: ", optionText, width);
         pushPreviewLines(
           theme,
@@ -152,7 +133,7 @@ const renderOptionRow = (
           add,
           wrappedPreview,
           MAX_OPTION_TEXT_PREVIEW_LINES,
-          "    … "
+          "    … ",
         );
       } else {
         add(theme.fg("muted", "    text: (not set)"));
@@ -160,24 +141,18 @@ const renderOptionRow = (
     }
 
     if (highlighted) {
-      const multiHint = question.multiSelect
-        ? ` (${formatKeyLabel("space")} toggles)`
-        : "";
+      const multiHint = question.multiSelect ? ` (${formatKeyLabel("space")} toggles)` : "";
       add(theme.fg("dim", `    Press ${helpText.confirm} to edit${multiHint}`));
     }
     return;
   }
 
-  if (selected && typeof optionText === "string" && optionText !== "") {
+  if (selected && optionText !== undefined && optionText !== "") {
     addWrapped("    note: ", optionText);
   }
 };
 
-const renderQuestionPanel = (
-  view: PromptView,
-  questionIndex: number,
-  width: number
-): string[] => {
+const renderQuestionPanel = (view: PromptView, questionIndex: number, width: number): string[] => {
   const { sessions, theme } = view;
   const { question, state } = sessions[questionIndex];
   const lines: string[] = [];
@@ -191,26 +166,17 @@ const renderQuestionPanel = (
   };
 
   addWrapped("", question.question);
-  if (typeof question.placeholder === "string" && question.placeholder !== "") {
+  if (question.placeholder !== undefined && question.placeholder !== "") {
     addWrapped("Hint: ", theme.fg("muted", question.placeholder));
   }
   lines.push("");
 
   for (let index = 0; index < question.options.length; index += 1) {
-    renderOptionRow(
-      view,
-      question,
-      state,
-      index,
-      width,
-      lines,
-      add,
-      addWrapped
-    );
+    renderOptionRow(view, question, state, index, width, lines, add, addWrapped);
   }
 
   const details = question.options[state.cursor]?.details;
-  if (typeof details === "string" && details !== "") {
+  if (details !== undefined && details !== "") {
     lines.push("");
     add(theme.bold("Details"));
     addWrapped("", theme.fg("muted", details));
@@ -253,11 +219,7 @@ const renderSubmitPanel = (view: PromptView, width: number): string[] => {
   return lines;
 };
 
-const renderTabBar = (
-  view: PromptView,
-  maxWidth: number,
-  add: (line: string) => void
-) => {
+const renderTabBar = (view: PromptView, maxWidth: number, add: (line: string) => void) => {
   const { currentTab, sessions, theme } = view;
   const tabs: string[] = [];
   for (const [index, { question, state }] of sessions.entries()) {
@@ -275,7 +237,7 @@ const renderTabBar = (
   tabs.push(
     submitActive
       ? theme.bg("selectedBg", theme.fg("text", submitText))
-      : theme.fg(allQuestionsComplete(sessions) ? "success" : "dim", submitText)
+      : theme.fg(allQuestionsComplete(sessions) ? "success" : "dim", submitText),
   );
 
   let row = "";

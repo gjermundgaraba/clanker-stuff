@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { FooterWidgetGlyphMapSchema } from "@clanker-stuff/footer-protocol";
+import { Value } from "typebox/value";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   validateFooterWidgetMessage,
@@ -20,17 +22,15 @@ describe("protocol validation", () => {
         protocol: 1,
         type: "upsert",
         widget: snapshot,
-      }).ok
+      }).ok,
     ).toBeTruthy();
     expect(
       validateFooterWidgetSnapshot({
         ...snapshot,
         content: [{ text: "\u001B[31munsafe" }],
-      }).ok
+      }).ok,
     ).toBeFalsy();
-    expect(
-      validateFooterWidgetSnapshot({ ...snapshot, extra: true }).ok
-    ).toBeFalsy();
+    expect(validateFooterWidgetSnapshot({ ...snapshot, extra: true }).ok).toBeFalsy();
   });
 
   it("copies validated icon glyph maps", () => {
@@ -47,7 +47,7 @@ describe("protocol validation", () => {
     if (
       icon === undefined ||
       icon === false ||
-      typeof icon.glyphs === "string"
+      !Value.Check(FooterWidgetGlyphMapSchema, icon.glyphs)
     ) {
       throw new Error("expected glyph map");
     }
@@ -56,11 +56,7 @@ describe("protocol validation", () => {
   });
 
   it("validates optional truncation hints", () => {
-    expect(
-      validateFooterWidgetSnapshot({ ...snapshot, truncate: "middle" }).ok
-    ).toBeTruthy();
-    expect(
-      validateFooterWidgetSnapshot({ ...snapshot, truncate: "sideways" }).ok
-    ).toBeFalsy();
+    expect(validateFooterWidgetSnapshot({ ...snapshot, truncate: "middle" }).ok).toBeTruthy();
+    expect(validateFooterWidgetSnapshot({ ...snapshot, truncate: "sideways" }).ok).toBeFalsy();
   });
 });

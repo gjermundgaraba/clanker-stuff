@@ -4,11 +4,7 @@ import { Value } from "typebox/value";
 
 import { resolveAccessToken } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
-import type {
-  UsageFetchResult,
-  UsageWindow,
-  UsageWindowId,
-} from "../providers.js";
+import type { UsageFetchResult, UsageWindow, UsageWindowId } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
 import { isDefined, makeUsageWindow } from "./util.js";
@@ -24,13 +20,13 @@ const ZaiLimitSchema = Type.Object({
   usage: Type.Optional(Type.Number()),
 });
 
-const ZaiQuotaPayloadSchema = Type.Object({
+export const ZaiQuotaPayloadSchema = Type.Object({
   code: Type.Optional(Type.Number()),
   data: Type.Optional(
     Type.Object({
       level: Type.Optional(Type.String()),
       limits: Type.Optional(Type.Array(ZaiLimitSchema)),
-    })
+    }),
   ),
   msg: Type.Optional(Type.String()),
 });
@@ -80,11 +76,7 @@ const parseLimitEntry = (limit: ZaiLimit): UsageWindow | undefined => {
   if (remainingPercent === undefined || id === undefined) {
     return undefined;
   }
-  return makeUsageWindow(
-    id,
-    remainingPercent,
-    epochMsToIso(limit.nextResetTime)
-  );
+  return makeUsageWindow(id, remainingPercent, epochMsToIso(limit.nextResetTime));
 };
 
 const planLabelFromLevel = (level: string | undefined): string | undefined =>
@@ -93,8 +85,8 @@ const planLabelFromLevel = (level: string | undefined): string | undefined =>
     : `${level[0].toUpperCase()}${level.slice(1)}`;
 
 export const parseZaiQuotaPayload = (
-  payload: unknown,
-  nowMs: number = Date.now()
+  payload: Static<typeof ZaiQuotaPayloadSchema> | undefined,
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   if (!Value.Check(ZaiQuotaPayloadSchema, payload)) {
     return usageFailure("invalid usage payload");
@@ -103,29 +95,22 @@ export const parseZaiQuotaPayload = (
   const { code } = payload;
   if (code !== undefined && code !== 200) {
     const message =
-      payload.msg !== undefined && payload.msg.length > 0
-        ? payload.msg
-        : `API ${code}`;
+      payload.msg !== undefined && payload.msg.length > 0 ? payload.msg : `API ${code}`;
     return usageFailure(message);
   }
 
-  const windows = (payload.data?.limits ?? [])
-    .map(parseLimitEntry)
-    .filter(isDefined);
+  const windows = (payload.data?.limits ?? []).map(parseLimitEntry).filter(isDefined);
 
   const planLabel = planLabelFromLevel(payload.data?.level);
 
-  return usageResult({
-    fetchedAt: nowMs,
-    ...(planLabel === undefined ? {} : { planLabel }),
-    provider: "zai",
-    windows,
-  });
+  return usageResult(
+    planLabel === undefined
+      ? { fetchedAt: nowMs, provider: "zai", windows }
+      : { fetchedAt: nowMs, planLabel, provider: "zai", windows },
+  );
 };
 
-export const fetchZaiUsage = async (
-  deps: AdapterDeps
-): Promise<UsageFetchResult> => {
+export const fetchZaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, "zai");
   if (!auth.ok) {
@@ -140,7 +125,12 @@ export const fetchZaiUsage = async (
   });
 
   if (response.ok) {
-    return parseZaiQuotaPayload(response.json, now());
+    return parseZaiQuotaPayload(
+      Value.Check(ZaiQuotaPayloadSchema, response.json)
+        ? Value.Parse(ZaiQuotaPayloadSchema, response.json)
+        : undefined,
+      now(),
+    );
   }
 
   return usageFailure(response.message);

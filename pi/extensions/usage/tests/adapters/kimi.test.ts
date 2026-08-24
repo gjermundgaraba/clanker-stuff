@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchKimiUsage, parseKimiUsagePayload } from "../../adapters/kimi.js";
 import type { FetchJson } from "../../http.js";
@@ -49,9 +49,7 @@ describe("kimi usage", () => {
   });
 
   it("fails when nothing has a positive limit", () => {
-    expect(
-      parseKimiUsagePayload({ limits: [], usage: { limit: 0 } }, NOW).ok
-    ).toBeFalsy();
+    expect(parseKimiUsagePayload({ limits: [], usage: { limit: 0 } }, NOW).ok).toBeFalsy();
   });
 
   it("requests the coding usage endpoint with bearer auth", async () => {

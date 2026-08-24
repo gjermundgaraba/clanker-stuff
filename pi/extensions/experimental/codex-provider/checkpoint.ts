@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 import { CHECKPOINT_CUSTOM_TYPE } from "./checkpoint-marker.js";
 
@@ -9,12 +12,9 @@ export { CHECKPOINT_CUSTOM_TYPE } from "./checkpoint-marker.js";
 export const CHECKPOINT_PROTOCOL = "openai-responses-compaction-v2";
 export const CHECKPOINT_SCHEMA = "clanker.codex-provider/checkpoint";
 export const RETAINED_USER_TOKEN_BUDGET = 64_000;
-export const RETAINED_USER_IMAGE_PLACEHOLDER =
-  "image content omitted from compacted history";
+export const RETAINED_USER_IMAGE_PLACEHOLDER = "image content omitted from compacted history";
 export const REMOTE_USER_IMAGE_PLACEHOLDER =
   "image content omitted because remote image URLs are not supported";
-
-const SHA256_PATTERN = /^[\da-f]{64}$/u;
 
 export interface InputTextItem {
   readonly text: string;
@@ -67,6 +67,10 @@ export type CheckpointReplacementItem =
   | CanonicalCompactionItem
   | CheckpointUserInputItem
   | CheckpointAgentMessageItem;
+
+type MutableCompactionItem = {
+  -readonly [K in keyof CanonicalCompactionItem]: CanonicalCompactionItem[K];
+};
 
 export interface Checkpoint {
   readonly identity: {
@@ -150,91 +154,180 @@ export type ActiveCheckpointBoundary =
       readonly kind: "pi-compaction";
     };
 
-type JsonRecord = Record<string, unknown>;
+const strict = { additionalProperties: false };
+const WireValueSchema = Type.Unknown();
+export type CheckpointInput = Static<typeof WireValueSchema>;
+type WireValue = CheckpointInput;
 
-const isUnknownArray = (value: unknown): value is unknown[] =>
-  Array.isArray(value);
-
-const isCheckpointPhase = (value: unknown): value is Checkpoint["phase"] =>
-  value === "mid-turn" ||
-  value === "overflow-retry" ||
-  value === "pre-sampling" ||
-  value === "standalone";
-
-const isCheckpointReason = (value: unknown): value is Checkpoint["reason"] =>
-  value === "manual" || value === "overflow" || value === "threshold";
-
-const isRecord = (value: unknown): value is JsonRecord => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-};
+const StringValueSchema = Type.String();
+const BooleanValueSchema = Type.Boolean();
+const NumberValueSchema = Type.Number();
+const UnknownArraySchema = Type.Array(Type.Unknown());
+const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
+type UnknownRecord = Static<typeof UnknownRecordSchema>;
+const IdentifierSchema = Type.String({
+  maxLength: 1024,
+  minLength: 1,
+  pattern: "^(?!\\s)(?![\\s\\S]*\\s$)(?![\\s\\S]*[\\x00-\\x1F\\x7F])[\\s\\S]+$",
+});
+const NonnegativeSafeIntegerSchema = Type.Integer({
+  maximum: Number.MAX_SAFE_INTEGER,
+  minimum: 0,
+});
+const MetadataSchema = Type.Object({ turn_id: Type.Optional(IdentifierSchema) }, strict);
+const InputTextItemSchema = Type.Object(
+  { text: Type.String(), type: Type.Literal("input_text") },
+  strict,
+);
+const InputImageItemSchema = Type.Object(
+  {
+    image_url: Type.String({ pattern: "^[dD][aA][tT][aA]:[iI][mM][aA][gG][eE]/" }),
+    type: Type.Literal("input_image"),
+  },
+  strict,
+);
+const RealUserInputItemSchema = Type.Object(
+  {
+    content: Type.Array(Type.Union([InputTextItemSchema, InputImageItemSchema]), { minItems: 1 }),
+    role: Type.Literal("user"),
+    type: Type.Literal("message"),
+  },
+  strict,
+);
+const CheckpointUserInputItemSchema = Type.Object(
+  {
+    content: Type.Array(InputTextItemSchema, { minItems: 1 }),
+    role: Type.Literal("user"),
+    type: Type.Literal("message"),
+  },
+  strict,
+);
+const EncryptedContentSchema = Type.Object(
+  {
+    encrypted_content: Type.String({ minLength: 1 }),
+    type: Type.Literal("encrypted_content"),
+  },
+  strict,
+);
+const CheckpointAgentMessageItemSchema = Type.Object(
+  {
+    author: IdentifierSchema,
+    content: Type.Array(Type.Union([InputTextItemSchema, EncryptedContentSchema]), {
+      minItems: 1,
+    }),
+    id: Type.Optional(IdentifierSchema),
+    internal_chat_message_metadata_passthrough: Type.Optional(MetadataSchema),
+    recipient: IdentifierSchema,
+    type: Type.Literal("agent_message"),
+  },
+  strict,
+);
+const CanonicalCompactionItemSchema = Type.Object(
+  {
+    encrypted_content: Type.String({ minLength: 1 }),
+    id: Type.Optional(IdentifierSchema),
+    internal_chat_message_metadata_passthrough: Type.Optional(MetadataSchema),
+    type: Type.Literal("compaction"),
+  },
+  strict,
+);
+const CompactionWireSchema = Type.Object(
+  {
+    encrypted_content: Type.String({ minLength: 1 }),
+    id: Type.Optional(IdentifierSchema),
+    internal_chat_message_metadata_passthrough: Type.Optional(MetadataSchema),
+    metadata: Type.Optional(Type.Unknown()),
+    type: Type.Union([Type.Literal("compaction"), Type.Literal("compaction_summary")]),
+  },
+  strict,
+);
+const CheckpointReplacementSchema = Type.Array(
+  Type.Union([
+    CheckpointUserInputItemSchema,
+    CheckpointAgentMessageItemSchema,
+    CanonicalCompactionItemSchema,
+  ]),
+  { minItems: 1 },
+);
+const CheckpointSchema = Type.Object(
+  {
+    identity: Type.Object(
+      {
+        api: Type.Literal("openai-codex-responses"),
+        baseUrl: Type.Union([Type.String(), Type.Null()]),
+        model: IdentifierSchema,
+        provider: Type.Literal("openai-codex"),
+      },
+      strict,
+    ),
+    phase: Type.Union([
+      Type.Literal("mid-turn"),
+      Type.Literal("overflow-retry"),
+      Type.Literal("pre-sampling"),
+      Type.Literal("standalone"),
+    ]),
+    protocol: Type.Literal("openai-responses-compaction-v2"),
+    reason: Type.Union([
+      Type.Literal("manual"),
+      Type.Literal("overflow"),
+      Type.Literal("threshold"),
+    ]),
+    replacement: CheckpointReplacementSchema,
+    replacementSha256: Type.String({ pattern: "^[\\da-f]{64}$" }),
+    response: Type.Object(
+      {
+        id: IdentifierSchema,
+        usage: Type.Object(
+          {
+            cacheRead: NonnegativeSafeIntegerSchema,
+            cacheWrite: NonnegativeSafeIntegerSchema,
+            input: NonnegativeSafeIntegerSchema,
+            output: NonnegativeSafeIntegerSchema,
+            totalTokens: NonnegativeSafeIntegerSchema,
+          },
+          strict,
+        ),
+      },
+      strict,
+    ),
+    runtime: Type.Object(
+      {
+        compHash: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+        currentWindowId: IdentifierSchema,
+        effectiveTokenLimit: NonnegativeSafeIntegerSchema,
+        previousWindowId: Type.Union([IdentifierSchema, Type.Null()]),
+        requestSchemaVersion: Type.Literal(1),
+        windowNumber: NonnegativeSafeIntegerSchema,
+      },
+      strict,
+    ),
+    schema: Type.Literal("clanker.codex-provider/checkpoint"),
+    sourceTokens: NonnegativeSafeIntegerSchema,
+    version: Type.Literal(1),
+  },
+  strict,
+);
+const LifecycleMarkerSchema = Type.Object({ type: Type.Literal(CHECKPOINT_CUSTOM_TYPE) });
+const LifecycleDetailsSchema = Type.Object(
+  { checkpoint: Type.Unknown(), type: Type.Literal(CHECKPOINT_CUSTOM_TYPE) },
+  strict,
+);
+const ReadableSummarySchema = Type.String({ pattern: "\\S" });
 
 const validationError = (message: string): never => {
   throw new Error(message);
 };
 
-const expectRecord = (value: unknown, path: string): JsonRecord => {
-  if (!isRecord(value)) {
-    throw new Error(`${path} must be a plain object`);
-  }
-  return value;
-};
-
-const expectExactKeys = (
-  value: JsonRecord,
-  allowedKeys: readonly string[],
-  path: string
-) => {
-  const allowed = new Set(allowedKeys);
-  const unknown = Object.keys(value).find((key) => !allowed.has(key));
-  if (unknown !== undefined) {
-    validationError(`${path}.${unknown} is not recognized`);
-  }
-};
-
-const expectIdentifier = (value: unknown, path: string): string => {
-  let hasControlCharacter = false;
-  if (typeof value === "string") {
-    for (const character of value) {
-      const codePoint = character.codePointAt(0) ?? 0;
-      if (codePoint <= 31 || codePoint === 127) {
-        hasControlCharacter = true;
-        break;
-      }
+const isPlainRecord = (value: WireValue): value is UnknownRecord => {
+  try {
+    if (!Value.Check(UnknownRecordSchema, value)) {
+      return false;
     }
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
   }
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > 1024 ||
-    value !== value.trim() ||
-    hasControlCharacter
-  ) {
-    throw new Error(`${path} must be a non-empty identifier`);
-  }
-  return value;
-};
-
-const expectString = (value: unknown, path: string): string =>
-  typeof value === "string"
-    ? value
-    : validationError(`${path} must be a string`);
-
-const expectNonnegativeInteger = (value: unknown, path: string): number => {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${path} must be a nonnegative safe integer`);
-  }
-  return value;
-};
-
-const expectSha256 = (value: unknown, path: string): string => {
-  if (typeof value !== "string" || !SHA256_PATTERN.test(value)) {
-    throw new Error(`${path} must be a lowercase SHA-256 digest`);
-  }
-  return value;
 };
 
 export const normalizeBaseUrl = (value: string | null | undefined) => {
@@ -258,474 +351,134 @@ export const normalizeBaseUrl = (value: string | null | undefined) => {
     url.search ||
     url.hash
   ) {
-    validationError(
-      "baseUrl must be an HTTP(S) URL without credentials or query"
-    );
+    validationError("baseUrl must be an HTTP(S) URL without credentials or query");
   }
   const path = url.pathname.replace(/\/+$/u, "");
   return `${url.origin}${path}`;
 };
 
-const parseMetadata = (
-  value: unknown,
-  path: string
-): CanonicalCompactionItem["internal_chat_message_metadata_passthrough"] => {
-  if (value === undefined) {
-    return undefined;
-  }
-  const metadata = expectRecord(value, path);
-  expectExactKeys(metadata, ["turn_id"], path);
-  if (metadata.turn_id === undefined) {
-    return {};
-  }
-  return { turn_id: expectIdentifier(metadata.turn_id, `${path}.turn_id`) };
-};
-
 export const parseCompactionItem = (
-  value: unknown,
+  value: WireValue,
   options: {
     readonly allowAlias?: boolean;
     readonly allowResponseMetadata?: boolean;
-  } = {}
+  } = {},
 ): CanonicalCompactionItem => {
-  const item = expectRecord(value, "compaction");
-  expectExactKeys(
-    item,
-    [
-      "encrypted_content",
-      "id",
-      "internal_chat_message_metadata_passthrough",
-      ...(options.allowResponseMetadata === true ? ["metadata"] : []),
-      "type",
-    ],
-    "compaction"
-  );
-  if (
-    item.type !== "compaction" &&
-    !(options.allowAlias === true && item.type === "compaction_summary")
-  ) {
+  if (!Value.Check(CompactionWireSchema, value)) {
+    throw new Error("compaction is invalid");
+  }
+  const item = Value.Clone(Value.Parse(CompactionWireSchema, value));
+  if (item.type === "compaction_summary" && options.allowAlias !== true) {
     validationError("compaction.type is not canonical");
   }
-  const encryptedContent = expectString(
-    item.encrypted_content,
-    "compaction.encrypted_content"
-  );
-  if (encryptedContent.length === 0) {
-    validationError("compaction.encrypted_content must not be empty");
+  if ("metadata" in item && options.allowResponseMetadata !== true) {
+    validationError("compaction.metadata is not recognized");
   }
-
-  const parsed: {
-    encrypted_content: string;
-    id?: string;
-    internal_chat_message_metadata_passthrough?: {
-      turn_id?: string;
-    };
-    type: "compaction";
-  } = {
-    encrypted_content: encryptedContent,
+  const parsed: MutableCompactionItem = {
+    encrypted_content: item.encrypted_content,
     type: "compaction",
   };
   if (item.id !== undefined) {
-    parsed.id = expectIdentifier(item.id, "compaction.id");
+    parsed.id = item.id;
   }
-  const metadata = parseMetadata(
-    item.internal_chat_message_metadata_passthrough,
-    "compaction.internal_chat_message_metadata_passthrough"
-  );
-  if (metadata !== undefined) {
-    parsed.internal_chat_message_metadata_passthrough = metadata;
+  if (item.internal_chat_message_metadata_passthrough !== undefined) {
+    parsed.internal_chat_message_metadata_passthrough =
+      item.internal_chat_message_metadata_passthrough;
   }
   return parsed;
 };
 
 export const parseRealUserInputItem = (
-  value: unknown,
-  path = "replacement item"
+  value: WireValue,
+  path = "replacement item",
 ): RealUserInputItem => {
-  const item = expectRecord(value, path);
-  expectExactKeys(item, ["content", "role", "type"], path);
-  if (item.type !== "message" || item.role !== "user") {
-    validationError(`${path} must be a canonical user message`);
+  if (!Value.Check(RealUserInputItemSchema, value)) {
+    throw new Error(`${path} must be a canonical user message`);
   }
-  const rawContent = item.content;
-  if (!isUnknownArray(rawContent) || rawContent.length === 0) {
-    throw new Error(`${path}.content must be a non-empty array`);
-  }
-
-  const content = rawContent.map((rawContentItem, index) => {
-    const contentPath = `${path}.content[${index}]`;
-    const contentItem = expectRecord(rawContentItem, contentPath);
-    if (contentItem.type === "input_text") {
-      expectExactKeys(contentItem, ["text", "type"], contentPath);
-      return {
-        text: expectString(contentItem.text, `${contentPath}.text`),
-        type: "input_text" as const,
-      };
-    }
-    if (contentItem.type === "input_image") {
-      expectExactKeys(contentItem, ["image_url", "type"], contentPath);
-      const imageUrl = expectString(
-        contentItem.image_url,
-        `${contentPath}.image_url`
-      );
-      if (!/^data:image\//iu.test(imageUrl)) {
-        validationError(`${contentPath}.image_url must be an inline image`);
-      }
-      return {
-        image_url: imageUrl,
-        type: "input_image" as const,
-      };
-    }
-    return validationError(`${contentPath}.type is not permitted`);
-  });
-
-  return { content, role: "user", type: "message" };
+  return Value.Clone(Value.Parse(RealUserInputItemSchema, value));
 };
 
 export const parseAgentMessageItem = (
-  value: unknown,
-  path: string
+  value: WireValue,
+  path: string,
 ): CheckpointAgentMessageItem => {
-  const item = expectRecord(value, path);
-  expectExactKeys(
-    item,
-    [
-      "author",
-      "content",
-      "id",
-      "internal_chat_message_metadata_passthrough",
-      "recipient",
-      "type",
-    ],
-    path
-  );
-  if (item.type !== "agent_message") {
-    validationError(`${path}.type is not permitted`);
+  if (!Value.Check(CheckpointAgentMessageItemSchema, value)) {
+    throw new Error(`${path} must be a canonical agent message`);
   }
-  const rawContent = item.content;
-  if (!isUnknownArray(rawContent)) {
-    throw new Error(`${path}.content must be an array`);
-  }
-  if (rawContent.length === 0) {
-    validationError(`${path}.content must be a non-empty array`);
-  }
-  const content = rawContent.map((rawPart, index) => {
-    const contentPath = `${path}.content[${index}]`;
-    const part = expectRecord(rawPart, contentPath);
-    if (part.type === "input_text") {
-      expectExactKeys(part, ["text", "type"], contentPath);
-      return {
-        text: expectString(part.text, `${contentPath}.text`),
-        type: "input_text" as const,
-      };
-    }
-    if (part.type === "encrypted_content") {
-      expectExactKeys(part, ["encrypted_content", "type"], contentPath);
-      const encryptedContent = expectString(
-        part.encrypted_content,
-        `${contentPath}.encrypted_content`
-      );
-      if (encryptedContent.length === 0) {
-        validationError(`${contentPath}.encrypted_content must not be empty`);
-      }
-      return {
-        encrypted_content: encryptedContent,
-        type: "encrypted_content" as const,
-      };
-    }
-    return validationError(`${contentPath}.type is not permitted`);
-  });
-  const parsed: CheckpointAgentMessageItem = {
-    author: expectIdentifier(item.author, `${path}.author`),
-    content,
-    recipient: expectIdentifier(item.recipient, `${path}.recipient`),
-    type: "agent_message",
-  };
-  const id =
-    item.id === undefined ? undefined : expectIdentifier(item.id, `${path}.id`);
-  const metadata = parseMetadata(
-    item.internal_chat_message_metadata_passthrough,
-    `${path}.internal_chat_message_metadata_passthrough`
-  );
-  return {
-    ...parsed,
-    ...(id === undefined ? {} : { id }),
-    ...(metadata
-      ? { internal_chat_message_metadata_passthrough: metadata }
-      : {}),
-  };
+  return Value.Clone(Value.Parse(CheckpointAgentMessageItemSchema, value));
 };
 
-const parseReplacement = (
-  value: unknown
-): readonly CheckpointReplacementItem[] => {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("checkpoint.replacement must be a non-empty array");
-  }
-
-  let compactionCount = 0;
-  const rawReplacement: unknown[] = value;
-  const replacement = rawReplacement.map((item, index) => {
-    if (isRecord(item) && item.type === "compaction") {
-      compactionCount += 1;
-      if (index !== rawReplacement.length - 1) {
-        validationError("checkpoint compaction item must be final");
-      }
-      return parseCompactionItem(item);
-    }
-    if (isRecord(item) && item.type === "agent_message") {
-      return parseAgentMessageItem(item, `checkpoint.replacement[${index}]`);
-    }
-    const user = parseRealUserInputItem(
-      item,
-      `checkpoint.replacement[${index}]`
-    );
-    const textContent = user.content.filter(
-      (content): content is InputTextItem => content.type === "input_text"
-    );
-    if (textContent.length !== user.content.length) {
-      validationError("checkpoint replacement users must be text-only");
-    }
-    return { ...user, content: textContent } satisfies CheckpointUserInputItem;
-  });
-  if (compactionCount !== 1) {
-    validationError("checkpoint replacement requires exactly one compaction");
-  }
-  return replacement;
-};
-
-const parseIdentity = (value: unknown): Checkpoint["identity"] => {
-  const identity = expectRecord(value, "checkpoint.identity");
-  expectExactKeys(
-    identity,
-    ["api", "baseUrl", "model", "provider"],
-    "checkpoint.identity"
-  );
-  if (
-    identity.provider !== "openai-codex" ||
-    identity.api !== "openai-codex-responses"
-  ) {
-    validationError("checkpoint identity provider/API is not supported");
-  }
-  if (identity.baseUrl !== null && typeof identity.baseUrl !== "string") {
-    throw new Error("checkpoint.identity.baseUrl must be a string or null");
-  }
-  const baseUrl = normalizeBaseUrl(identity.baseUrl);
-  if (identity.baseUrl !== baseUrl) {
-    validationError("checkpoint.identity.baseUrl must be canonical");
-  }
-  return {
-    api: "openai-codex-responses",
-    baseUrl,
-    model: expectIdentifier(identity.model, "checkpoint.identity.model"),
-    provider: "openai-codex",
-  };
-};
-
-const parseUsage = (value: unknown): Checkpoint["response"]["usage"] => {
-  const usage = expectRecord(value, "checkpoint.response.usage");
-  expectExactKeys(
-    usage,
-    ["cacheRead", "cacheWrite", "input", "output", "totalTokens"],
-    "checkpoint.response.usage"
-  );
-  return {
-    cacheRead: expectNonnegativeInteger(
-      usage.cacheRead,
-      "checkpoint.response.usage.cacheRead"
-    ),
-    cacheWrite: expectNonnegativeInteger(
-      usage.cacheWrite,
-      "checkpoint.response.usage.cacheWrite"
-    ),
-    input: expectNonnegativeInteger(
-      usage.input,
-      "checkpoint.response.usage.input"
-    ),
-    output: expectNonnegativeInteger(
-      usage.output,
-      "checkpoint.response.usage.output"
-    ),
-    totalTokens: expectNonnegativeInteger(
-      usage.totalTokens,
-      "checkpoint.response.usage.totalTokens"
-    ),
-  };
-};
-
-const parseResponse = (value: unknown): Checkpoint["response"] => {
-  const response = expectRecord(value, "checkpoint.response");
-  expectExactKeys(response, ["id", "usage"], "checkpoint.response");
-  return {
-    id: expectIdentifier(response.id, "checkpoint.response.id"),
-    usage: parseUsage(response.usage),
-  };
-};
-
-const parseRuntime = (value: unknown): Checkpoint["runtime"] => {
-  const runtime = expectRecord(value, "checkpoint.runtime");
-  expectExactKeys(
-    runtime,
-    [
-      "compHash",
-      "currentWindowId",
-      "effectiveTokenLimit",
-      "previousWindowId",
-      "requestSchemaVersion",
-      "windowNumber",
-    ],
-    "checkpoint.runtime"
-  );
-  if (
-    runtime.compHash !== null &&
-    (typeof runtime.compHash !== "string" || runtime.compHash.length === 0)
-  ) {
-    validationError("checkpoint.runtime.compHash must be null or non-empty");
-  }
-  if (
-    runtime.previousWindowId !== null &&
-    typeof runtime.previousWindowId !== "string"
-  ) {
-    validationError(
-      "checkpoint.runtime.previousWindowId must be null or an identifier"
-    );
-  }
-  if (runtime.requestSchemaVersion !== 1) {
-    validationError("checkpoint.runtime.requestSchemaVersion is invalid");
-  }
-  return {
-    compHash: typeof runtime.compHash === "string" ? runtime.compHash : null,
-    currentWindowId: expectIdentifier(
-      runtime.currentWindowId,
-      "checkpoint.runtime.currentWindowId"
-    ),
-    effectiveTokenLimit: expectNonnegativeInteger(
-      runtime.effectiveTokenLimit,
-      "checkpoint.runtime.effectiveTokenLimit"
-    ),
-    previousWindowId:
-      runtime.previousWindowId === null
-        ? null
-        : expectIdentifier(
-            runtime.previousWindowId,
-            "checkpoint.runtime.previousWindowId"
-          ),
-    requestSchemaVersion: 1,
-    windowNumber: expectNonnegativeInteger(
-      runtime.windowNumber,
-      "checkpoint.runtime.windowNumber"
-    ),
-  };
-};
-
-const canonicalize = (value: unknown, ancestors: WeakSet<object>): string => {
+const canonicalize = (value: WireValue, ancestors: WeakSet<object>): string => {
   if (value === null) {
     return "null";
   }
-  if (typeof value === "string" || typeof value === "boolean") {
-    return JSON.stringify(value);
+  if (Value.Check(StringValueSchema, value) || Value.Check(BooleanValueSchema, value)) {
+    return JSON.stringify(value) ?? validationError("canonical JSON contains a non-JSON value");
   }
-  if (typeof value === "number") {
+  if (Value.Check(NumberValueSchema, value)) {
     if (!Number.isFinite(value)) {
       validationError("canonical JSON cannot contain non-finite numbers");
     }
-    return Object.is(value, -0) ? "0" : JSON.stringify(value);
+    return Object.is(value, -0)
+      ? "0"
+      : (JSON.stringify(value) ?? validationError("canonical JSON contains a non-JSON value"));
   }
-  if (typeof value !== "object") {
-    return validationError("canonical JSON contains a non-JSON value");
+  if (Value.Check(UnknownArraySchema, value)) {
+    if (ancestors.has(value)) {
+      return validationError("canonical JSON cannot contain cycles");
+    }
+    ancestors.add(value);
+    const serialized = `[${value.map((item) => canonicalize(item, ancestors)).join(",")}]`;
+    ancestors.delete(value);
+    return serialized;
   }
-  if (ancestors.has(value)) {
-    return validationError("canonical JSON cannot contain cycles");
-  }
-
-  ancestors.add(value);
-  let serialized: string;
-  if (Array.isArray(value)) {
-    serialized = `[${value
-      .map((item) => canonicalize(item, ancestors))
-      .join(",")}]`;
-  } else {
-    const record = expectRecord(value, "canonical JSON value");
-    serialized = `{${Object.keys(record)
+  if (isPlainRecord(value)) {
+    if (ancestors.has(value)) {
+      return validationError("canonical JSON cannot contain cycles");
+    }
+    ancestors.add(value);
+    const serialized = `{${Object.keys(value)
       .toSorted()
-      .map(
-        (key) =>
-          `${JSON.stringify(key)}:${canonicalize(record[key], ancestors)}`
-      )
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(value[key], ancestors)}`)
       .join(",")}}`;
+    ancestors.delete(value);
+    return serialized;
   }
-  ancestors.delete(value);
-  return serialized;
+  return validationError("canonical JSON contains a non-JSON value");
 };
 
-export const canonicalJson = (value: unknown) =>
-  canonicalize(value, new WeakSet());
+export const canonicalJson = (value: WireValue) => canonicalize(value, new WeakSet());
 
-export const sha256Canonical = (value: unknown) =>
+export const sha256Canonical = (value: WireValue) =>
   createHash("sha256").update(canonicalJson(value)).digest("hex");
 
-const parseCheckpointValue = (value: JsonRecord): Checkpoint => {
-  expectExactKeys(
-    value,
-    [
-      "identity",
-      "phase",
-      "protocol",
-      "reason",
-      "replacement",
-      "replacementSha256",
-      "response",
-      "runtime",
-      "schema",
-      "sourceTokens",
-      "version",
-    ],
-    "checkpoint"
+const parseCheckpointValue = (value: WireValue): Checkpoint => {
+  const checkpoint = Value.Clone(Value.Parse(CheckpointSchema, value));
+  const compactionIndexes = checkpoint.replacement.flatMap((item, index) =>
+    item.type === "compaction" ? [index] : [],
   );
-  if (
-    value.schema !== CHECKPOINT_SCHEMA ||
-    value.protocol !== CHECKPOINT_PROTOCOL ||
-    value.version !== 1
-  ) {
-    validationError("checkpoint schema/protocol/version is invalid");
+  if (compactionIndexes.length !== 1) {
+    validationError("checkpoint replacement requires exactly one compaction");
   }
-  const { phase, reason } = value;
-  if (!isCheckpointReason(reason)) {
-    throw new Error("checkpoint.reason is invalid");
+  if (compactionIndexes[0] !== checkpoint.replacement.length - 1) {
+    validationError("checkpoint compaction item must be final");
   }
-  if (!isCheckpointPhase(phase)) {
-    throw new Error("checkpoint.phase is invalid");
+  if (normalizeBaseUrl(checkpoint.identity.baseUrl) !== checkpoint.identity.baseUrl) {
+    validationError("checkpoint.identity.baseUrl must be canonical");
   }
-
-  const replacement = parseReplacement(value.replacement);
-  const replacementSha256 = expectSha256(
-    value.replacementSha256,
-    "checkpoint.replacementSha256"
-  );
-  if (sha256Canonical(replacement) !== replacementSha256) {
+  if (sha256Canonical(checkpoint.replacement) !== checkpoint.replacementSha256) {
     validationError("checkpoint replacement integrity does not match");
   }
-
-  return {
-    identity: parseIdentity(value.identity),
-    phase,
-    protocol: "openai-responses-compaction-v2" as const,
-    reason,
-    replacement,
-    replacementSha256,
-    response: parseResponse(value.response),
-    runtime: parseRuntime(value.runtime),
-    schema: CHECKPOINT_SCHEMA,
-    sourceTokens: expectNonnegativeInteger(
-      value.sourceTokens,
-      "checkpoint.sourceTokens"
-    ),
-    version: 1,
-  };
+  return checkpoint;
 };
 
 const deepFreeze = <T>(value: T): T => {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+  if (!Object.isFrozen(value) && Value.Check(UnknownArraySchema, value)) {
+    for (const child of value) {
+      deepFreeze(child);
+    }
+    Object.freeze(value);
+  } else if (!Object.isFrozen(value) && Value.Check(UnknownRecordSchema, value)) {
     for (const child of Object.values(value)) {
       deepFreeze(child);
     }
@@ -734,10 +487,10 @@ const deepFreeze = <T>(value: T): T => {
   return value;
 };
 
-export const parseCheckpoint = (value: unknown): CheckpointParseResult => {
-  if (!isRecord(value)) {
+export const parseCheckpoint = (value: WireValue): CheckpointParseResult => {
+  if (!Value.Check(CheckpointSchema, value)) {
     return {
-      error: "checkpoint must be a plain object",
+      error: "checkpoint is invalid",
       ok: false,
     };
   }
@@ -753,7 +506,7 @@ export const parseCheckpoint = (value: unknown): CheckpointParseResult => {
 
 export const decideCheckpointCompatibility = (
   checkpoint: Pick<Checkpoint, "identity" | "runtime">,
-  current: CheckpointIdentity
+  current: CheckpointIdentity,
 ): CompatibilityDecision => {
   if (checkpoint.identity.provider !== current.provider) {
     return { compatible: false, field: "provider" };
@@ -781,8 +534,8 @@ export const decideCheckpointCompatibility = (
   return { compatible: true };
 };
 
-const isReadablePortableLifecycleSummary = (summary: unknown) =>
-  typeof summary === "string" && summary.trim().length > 0;
+const isReadablePortableLifecycleSummary = (summary: WireValue) =>
+  Value.Check(ReadableSummarySchema, summary);
 
 export const resolveCheckpointCarrier = (entry: SessionEntry) => {
   if (entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE) {
@@ -798,22 +551,14 @@ export const resolveCheckpointCarrier = (entry: SessionEntry) => {
   if (entry.type !== "compaction") {
     return { kind: "none" } as const;
   }
-  if (
-    !isRecord(entry.details) ||
-    entry.details.type !== CHECKPOINT_CUSTOM_TYPE
-  ) {
+  if (!Value.Check(LifecycleMarkerSchema, entry.details)) {
     return { kind: "pi-compaction" } as const;
   }
-  try {
-    expectExactKeys(
-      entry.details,
-      ["checkpoint", "type"],
-      "compaction.details"
-    );
-  } catch {
+  if (!Value.Check(LifecycleDetailsSchema, entry.details)) {
     return { carrier: "lifecycle", kind: "invalid-checkpoint" } as const;
   }
-  const parsed = parseCheckpoint(entry.details.checkpoint);
+  const details = Value.Parse(LifecycleDetailsSchema, entry.details);
+  const parsed = parseCheckpoint(details.checkpoint);
   return parsed.ok
     ? ({
         carrier: "lifecycle",
@@ -825,7 +570,7 @@ export const resolveCheckpointCarrier = (entry: SessionEntry) => {
 
 export const isPortableLifecycleCompaction = (
   branch: readonly SessionEntry[],
-  lifecycleBoundaryIndex: number
+  lifecycleBoundaryIndex: number,
 ) => {
   const entry = branch[lifecycleBoundaryIndex];
   if (
@@ -842,7 +587,7 @@ export const isPortableLifecycleCompaction = (
 
 export const canUseInlineLocalFallback = (
   branch: readonly SessionEntry[],
-  inlineBoundaryIndex: number
+  inlineBoundaryIndex: number,
 ) => {
   const nearestCompactionIndex = branch
     .slice(0, inlineBoundaryIndex)
@@ -854,13 +599,11 @@ export const canUseInlineLocalFallback = (
   if (carrier.kind === "checkpoint" && carrier.carrier === "lifecycle") {
     return isPortableLifecycleCompaction(branch, nearestCompactionIndex);
   }
-  return !(
-    carrier.kind === "invalid-checkpoint" && carrier.carrier === "lifecycle"
-  );
+  return !(carrier.kind === "invalid-checkpoint" && carrier.carrier === "lifecycle");
 };
 
 export const resolveActiveCheckpointBoundary = (
-  branch: readonly SessionEntry[]
+  branch: readonly SessionEntry[],
 ): ActiveCheckpointBoundary => {
   for (let index = branch.length - 1; index >= 0; index -= 1) {
     const entry = branch[index];
@@ -872,9 +615,7 @@ export const resolveActiveCheckpointBoundary = (
       return carrier;
     }
     if (carrier.kind === "invalid-checkpoint") {
-      return carrier.carrier === "inline"
-        ? { ...carrier, boundaryIndex: index }
-        : carrier;
+      return carrier.carrier === "inline" ? { ...carrier, boundaryIndex: index } : carrier;
     }
     return {
       ...carrier,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { UsageCache } from "../cache.js";
 import type { UsageSnapshot } from "../providers.js";
@@ -40,8 +40,7 @@ describe("usage cache", () => {
   it("shares a single in-flight fetch across callers", async () => {
     const cache = new UsageCache({ now: () => 5000 });
     let starts = 0;
-    const { promise: gate, resolve: release } =
-      Promise.withResolvers<UsageSnapshot>();
+    const { promise: gate, resolve: release } = Promise.withResolvers<UsageSnapshot>();
 
     const fetcher = async () => {
       starts += 1;
@@ -58,7 +57,7 @@ describe("usage cache", () => {
         fetchedAt: 5000,
         provider: "xai",
         windows: [{ id: "month", label: "month", remainingPercent: 80 }],
-      })
+      }),
     );
 
     const [a, b] = await Promise.all([first, second]);
@@ -102,8 +101,6 @@ describe("usage cache", () => {
     }));
 
     expect(result.ok).toBeTruthy();
-    expect(
-      cache.getLastSuccess("openai-codex")?.windows[0]?.remainingPercent
-    ).toBe(10);
+    expect(cache.getLastSuccess("openai-codex")?.windows[0]?.remainingPercent).toBe(10);
   });
 });

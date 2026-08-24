@@ -13,5 +13,5 @@ export const tokenAuthClient = (token: string): ProviderAuthClient => ({
 });
 
 export const okFetch =
-  (json: unknown): FetchJson =>
+  <TJson>(json: TJson): FetchJson =>
   async () => ({ json, ok: true });

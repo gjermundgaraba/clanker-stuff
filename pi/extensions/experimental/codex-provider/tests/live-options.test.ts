@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   parseLiveInvocation,
@@ -8,7 +8,7 @@ import {
 
 const parse = (
   args: readonly string[],
-  environment: Readonly<Record<string, string | undefined>> = {}
+  environment: Readonly<Record<string, string | undefined>> = {},
 ) => parseLiveInvocation(args, environment);
 
 describe("live multi-compaction options", () => {
@@ -22,31 +22,25 @@ describe("live multi-compaction options", () => {
     [["--soak"], "soak", 10],
     [["--stream-fault"], "stream-fault", 2],
     [["--threshold"], "threshold", 3],
-  ] as const)(
-    "parses %j as the %s scenario with %i rounds",
-    (args, kind, rounds) => {
-      expect(parse(args)).toMatchObject({
-        kind,
-        process: "parent",
-        rounds,
-        transport: "sse",
-      });
-    }
-  );
+  ] as const)("parses %j as the %s scenario with %i rounds", (args, kind, rounds) => {
+    expect(parse(args)).toMatchObject({
+      kind,
+      process: "parent",
+      rounds,
+      transport: "sse",
+    });
+  });
 
   it.each([
     ["branch", "CODEX_COMPACTION_BRANCH_TRANSPORT", "--branch-child"],
     ["restart", "CODEX_COMPACTION_RESTART_TRANSPORT", "--restart-child"],
-  ] as const)(
-    "parses the internal %s child transport",
-    (_label, name, flag) => {
-      expect(parse([flag], { [name]: "websocket" })).toStrictEqual({
-        kind: flag.slice(2),
-        process: "child",
-        transport: "websocket",
-      });
-    }
-  );
+  ] as const)("parses the internal %s child transport", (_label, name, flag) => {
+    expect(parse([flag], { [name]: "websocket" })).toStrictEqual({
+      kind: flag.slice(2),
+      process: "child",
+      transport: "websocket",
+    });
+  });
 
   it.each([
     [[], "fallback", "--fallback"],
@@ -60,14 +54,8 @@ describe("live multi-compaction options", () => {
 
   it.each([
     [["--portable", "--fallback"], "Portable canary requires SSE"],
-    [
-      ["--real-window", "--websocket"],
-      "Real-window and mid-turn canaries require SSE",
-    ],
-    [
-      ["--mid-turn", "--websocket"],
-      "Real-window and mid-turn canaries require SSE",
-    ],
+    [["--real-window", "--websocket"], "Real-window and mid-turn canaries require SSE"],
+    [["--mid-turn", "--websocket"], "Real-window and mid-turn canaries require SSE"],
     [["--stream-fault", "--fallback"], "Stream-fault canary requires SSE"],
     [["--stream-fault", "--websocket"], "Stream-fault canary requires SSE"],
   ] as const)("rejects incompatible flags %j", (args, message) => {
@@ -83,7 +71,7 @@ describe("live multi-compaction options", () => {
     ["stream-fault", ["--stream-fault"]],
   ] as const)("requires two rounds for %s", (_kind, args) => {
     expect(() => parse(args, { CODEX_COMPACTION_LIVE_ROUNDS: "1" })).toThrow(
-      "Live canary requires at least 2 compactions"
+      "Live canary requires at least 2 compactions",
     );
   });
 
@@ -100,7 +88,7 @@ describe("live multi-compaction options", () => {
 
   it("validates the rounds override as a positive safe integer", () => {
     expect(() => parse([], { CODEX_COMPACTION_LIVE_ROUNDS: "1.5" })).toThrow(
-      "CODEX_COMPACTION_LIVE_ROUNDS must be a positive safe integer"
+      "CODEX_COMPACTION_LIVE_ROUNDS must be a positive safe integer",
     );
   });
 
@@ -125,15 +113,15 @@ describe("live multi-compaction options", () => {
   });
 
   it("does not let an invalid rounds environment block help", () => {
-    expect(
-      parse(["--help"], { CODEX_COMPACTION_LIVE_ROUNDS: "invalid" })
-    ).toMatchObject({ kind: "standard", rounds: 3, showHelp: true });
+    expect(parse(["--help"], { CODEX_COMPACTION_LIVE_ROUNDS: "invalid" })).toMatchObject({
+      kind: "standard",
+      rounds: 3,
+      showHelp: true,
+    });
   });
 
   it("validates transport values and retains mid-turn real-window semantics", () => {
-    expect(() => parseTransport("auto")).toThrow(
-      "Unknown transport mode: auto"
-    );
+    expect(() => parseTransport("auto")).toThrow("Unknown transport mode: auto");
     expect(usesRealWindow("mid-turn")).toBeTruthy();
     expect(usesRealWindow("real-window")).toBeTruthy();
     expect(usesRealWindow("standard")).toBeFalsy();

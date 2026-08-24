@@ -1,8 +1,5 @@
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
-import type {
-  ExtensionCommandContext,
-  ToolInfo,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { Container, SettingsList, Text } from "@earendil-works/pi-tui";
 import type { SettingItem } from "@earendil-works/pi-tui";
 
@@ -10,7 +7,7 @@ export const showToolsPicker = async (
   ctx: ExtensionCommandContext,
   tools: ToolInfo[],
   activeTools: Set<string>,
-  onToggle: (toolName: string, enabled: boolean) => void
+  onToggle: (toolName: string, enabled: boolean) => void,
 ): Promise<void> => {
   await ctx.ui.custom<null>((tui, theme, _keybindings, done) => {
     const items: SettingItem[] = tools.map((tool) => ({
@@ -20,9 +17,7 @@ export const showToolsPicker = async (
       values: ["enabled", "disabled"],
     }));
     const container = new Container();
-    container.addChild(
-      new Text(theme.fg("accent", theme.bold("Tool Configuration")), 0, 1)
-    );
+    container.addChild(new Text(theme.fg("accent", theme.bold("Tool Configuration")), 0, 1));
     const settings = new SettingsList(
       items,
       Math.min(items.length + 2, 15),
@@ -32,7 +27,7 @@ export const showToolsPicker = async (
       },
       () => {
         done(null);
-      }
+      },
     );
     container.addChild(settings);
 

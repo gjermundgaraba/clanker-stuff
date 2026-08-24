@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 
+import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
+
 import {
   RETAINED_USER_TOKEN_BUDGET,
   RETAINED_USER_IMAGE_PLACEHOLDER,
@@ -19,14 +23,20 @@ export const CONTEXT_WINDOW_TRUNCATED_OUTPUT_MESSAGE =
   "Output exceeded the available model context and was truncated";
 export const FIXED_IMAGE_BYTE_ESTIMATE = 7373;
 const FIXED_IMAGE_TOKEN_ESTIMATE = Math.ceil(FIXED_IMAGE_BYTE_ESTIMATE / 4);
-export const NON_VISION_USER_IMAGE_PLACEHOLDER =
-  "(image omitted: model does not support images)";
+export const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 export const FRAME_MARKER_PREFIX = "[codex-provider:frame:";
 
 const SYNTHETIC_OUTPUT_NAMESPACE = "90d38d3e-6a5b-4d52-bfe2-2f1e634bfac4";
 const encoder = new TextEncoder();
 
-export type ResponsesInputItem = Readonly<Record<string, unknown>>;
+const WireValueSchema = Type.Unknown();
+type WireValue = Static<typeof WireValueSchema>;
+const UnknownArraySchema = Type.Array(Type.Unknown());
+export const ResponsesInputItemSchema = Type.Record(Type.String(), Type.Unknown());
+export type ResponsesInputItem = Readonly<Static<typeof ResponsesInputItemSchema>>;
+const InputTextSchema = Type.Object({ text: Type.String(), type: Type.Literal("input_text") });
+const InputImageSchema = Type.Object({ type: Type.Literal("input_image") });
+const NonemptyStringSchema = Type.String({ minLength: 1 });
 
 export interface ContextWindowDecision {
   readonly autoCompactTokens: number;
@@ -56,29 +66,25 @@ export type FinalizedFrameResult =
       readonly suffix: readonly ResponsesInputItem[];
     };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+const isRecord = (value: WireValue): value is ResponsesInputItem =>
+  Value.Check(ResponsesInputItemSchema, value);
 
-const isUnknownArray = (value: unknown): value is unknown[] =>
-  Array.isArray(value);
+const isUnknownArray = (value: WireValue): value is WireValue[] =>
+  Value.Check(UnknownArraySchema, value);
 
 const utf8Bytes = (value: string) => encoder.encode(value).byteLength;
 
 export const frameMarkerText = (edge: "end" | "start", nonce: string) =>
   `${FRAME_MARKER_PREFIX}${edge}:${nonce}]`;
 
-const canonicalJsonValue = (value: unknown) => {
+const canonicalJsonValue = (value: WireValue) => {
   try {
     const serialized = JSON.stringify(
       isRecord(value)
-        ? Object.fromEntries(
-            Object.entries(value).filter(([key]) => key !== "timestamp")
-          )
-        : value
+        ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "timestamp"))
+        : value,
     );
-    return serialized === undefined
-      ? null
-      : canonicalJson(JSON.parse(serialized));
+    return serialized === undefined ? null : canonicalJson(JSON.parse(serialized));
   } catch {
     return null;
   }
@@ -90,7 +96,7 @@ export const frameContiguousBaseline = <T>(
   framedSegment: readonly T[],
   startMarker: T,
   endMarker: T,
-  canOmitBaselineMessage?: (message: T) => boolean
+  canOmitBaselineMessage?: (message: T) => boolean,
 ): ContextFrameResult<T> => {
   if (baseline.length === 0 || framedSegment.length > baseline.length) {
     return { kind: "missing" };
@@ -98,22 +104,14 @@ export const frameContiguousBaseline = <T>(
   const baselineValues = baseline.map(canonicalJsonValue);
   const messageValues = messages.map(canonicalJsonValue);
   const framedSegmentValues = framedSegment.map(canonicalJsonValue);
-  if (
-    [...baselineValues, ...messageValues, ...framedSegmentValues].includes(null)
-  ) {
+  if ([...baselineValues, ...messageValues, ...framedSegmentValues].includes(null)) {
     return { kind: "missing" };
   }
   const segmentOffset = baseline.length - framedSegment.length;
-  if (
-    framedSegmentValues.some(
-      (value, index) => value !== baselineValues[segmentOffset + index]
-    )
-  ) {
+  if (framedSegmentValues.some((value, index) => value !== baselineValues[segmentOffset + index])) {
     return { kind: "missing" };
   }
-  const omittable = baseline.map(
-    (message) => canOmitBaselineMessage?.(message) === true
-  );
+  const omittable = baseline.map((message) => canOmitBaselineMessage?.(message) === true);
   const requiredMessages = omittable.filter((value) => !value).length;
   if (requiredMessages > messages.length) {
     return { kind: "missing" };
@@ -127,11 +125,7 @@ export const frameContiguousBaseline = <T>(
     let messageIndex = start;
     let matched = true;
     const effectiveSegment: T[] = [];
-    for (
-      let baselineIndex = 0;
-      baselineIndex < baseline.length;
-      baselineIndex += 1
-    ) {
+    for (let baselineIndex = 0; baselineIndex < baseline.length; baselineIndex += 1) {
       if (
         messageIndex < messages.length &&
         baselineValues[baselineIndex] === messageValues[messageIndex]
@@ -171,10 +165,7 @@ export const frameContiguousBaseline = <T>(
   };
 };
 
-const serializedMarker = (
-  item: ResponsesInputItem,
-  nonce: string
-): "end" | "start" | undefined => {
+const serializedMarker = (item: ResponsesInputItem, nonce: string): "end" | "start" | undefined => {
   if (item.role !== "user" || !isUnknownArray(item.content)) {
     return undefined;
   }
@@ -182,11 +173,7 @@ const serializedMarker = (
     return undefined;
   }
   const [content] = item.content;
-  if (
-    !isRecord(content) ||
-    content.type !== "input_text" ||
-    typeof content.text !== "string"
-  ) {
+  if (!Value.Check(InputTextSchema, content)) {
     return undefined;
   }
   if (content.text === frameMarkerText("start", nonce)) {
@@ -197,7 +184,7 @@ const serializedMarker = (
 
 export const extractFinalizedFrame = (
   input: readonly ResponsesInputItem[],
-  nonce: string
+  nonce: string,
 ): FinalizedFrameResult => {
   const markers = input.flatMap((item, index) => {
     const edge = serializedMarker(item, nonce);
@@ -221,28 +208,24 @@ export const extractFinalizedFrame = (
 
 export const rewriteFramedInput = (
   frame: Extract<FinalizedFrameResult, { kind: "ok" }>,
-  replacement: readonly ResponsesInputItem[] = []
+  replacement: readonly ResponsesInputItem[] = [],
 ) => [...frame.prefix, ...replacement, ...frame.framed, ...frame.suffix];
 
 export const omitUnsupportedUserImages = (
   input: readonly ResponsesInputItem[],
-  supportsImages: boolean
+  supportsImages: boolean,
 ): readonly ResponsesInputItem[] => {
   if (supportsImages) {
     return input;
   }
   return input.map((item) => {
-    if (
-      item.type !== "message" ||
-      item.role !== "user" ||
-      !Array.isArray(item.content)
-    ) {
+    if (item.type !== "message" || item.role !== "user" || !Array.isArray(item.content)) {
       return item;
     }
     const content: unknown[] = [];
     let previousWasPlaceholder = false;
     for (const block of item.content) {
-      if (isRecord(block) && block.type === "input_image") {
+      if (Value.Check(InputImageSchema, block)) {
         if (!previousWasPlaceholder) {
           content.push({
             text: NON_VISION_USER_IMAGE_PLACEHOLDER,
@@ -267,34 +250,32 @@ export const tokensForUtf8 = (value: string) => {
   return Math.ceil(bytes / 4);
 };
 
-export const estimateModelVisibleItemTokens = (item: unknown) => {
+export const estimateModelVisibleItemTokens = (item: WireValue) => {
   let imageCount = 0;
   const serialized = JSON.stringify(
     item,
-    function modelVisibleReplacer(this: unknown, key: string, value: unknown) {
+    function modelVisibleReplacer(this: WireValue, key: string, value: WireValue) {
       if (
         key === "image_url" &&
         isRecord(this) &&
         this.type === "input_image" &&
-        typeof value === "string"
+        Value.Check(NonemptyStringSchema, value)
       ) {
         imageCount += 1;
         return "";
       }
       return value;
-    }
+    },
   );
   if (serialized === undefined) {
     throw new Error("Model-visible input is not JSON serializable");
   }
-  return Math.ceil(
-    (utf8Bytes(serialized) + imageCount * FIXED_IMAGE_BYTE_ESTIMATE) / 4
-  );
+  return Math.ceil((utf8Bytes(serialized) + imageCount * FIXED_IMAGE_BYTE_ESTIMATE) / 4);
 };
 
 export const estimateModelVisibleTokens = (
   instructions: string,
-  input: readonly unknown[]
+  input: readonly WireValue[],
 ): number => {
   let tokens = tokensForUtf8(instructions);
   for (const item of input) {
@@ -303,12 +284,9 @@ export const estimateModelVisibleTokens = (
   return tokens;
 };
 
-const percentOf = (value: number, percent: number) =>
-  Math.floor((value * percent) / 100);
+const percentOf = (value: number, percent: number) => Math.floor((value * percent) / 100);
 
-export const contextWindowDecision = (
-  contextWindow: number
-): ContextWindowDecision | undefined => {
+export const contextWindowDecision = (contextWindow: number): ContextWindowDecision | undefined => {
   if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0) {
     return undefined;
   }
@@ -318,21 +296,12 @@ export const contextWindowDecision = (
   };
 };
 
-export const shouldAutoCompact = (
-  estimatedTokens: number,
-  contextWindow: number
-) => {
+export const shouldAutoCompact = (estimatedTokens: number, contextWindow: number) => {
   const decision = contextWindowDecision(contextWindow);
-  return (
-    decision !== undefined && estimatedTokens >= decision.autoCompactTokens
-  );
+  return decision !== undefined && estimatedTokens >= decision.autoCompactTokens;
 };
 
-const splitForByteBudget = (
-  value: string,
-  beginningBytes: number,
-  endBytes: number
-) => {
+const splitForByteBudget = (value: string, beginningBytes: number, endBytes: number) => {
   const totalBytes = utf8Bytes(value);
   const tailTarget = Math.max(0, totalBytes - endBytes);
   let byteIndex = 0;
@@ -362,10 +331,7 @@ const splitForByteBudget = (
   };
 };
 
-export const truncateMiddleToTokenBudget = (
-  value: string,
-  maxTokens: number
-) => {
+export const truncateMiddleToTokenBudget = (value: string, maxTokens: number) => {
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 0) {
     throw new Error("maxTokens must be a nonnegative safe integer");
   }
@@ -384,14 +350,8 @@ export const truncateMiddleToTokenBudget = (
     return "";
   }
   const leftBudget = Math.floor(contentBudget / 2);
-  const { prefix, suffix } = splitForByteBudget(
-    value,
-    leftBudget,
-    contentBudget - leftBudget
-  );
-  const removedTokens = Math.ceil(
-    (totalBytes - utf8Bytes(prefix) - utf8Bytes(suffix)) / 4
-  );
+  const { prefix, suffix } = splitForByteBudget(value, leftBudget, contentBudget - leftBudget);
+  const removedTokens = Math.ceil((totalBytes - utf8Bytes(prefix) - utf8Bytes(suffix)) / 4);
   return `${prefix}…${removedTokens} tokens truncated…${suffix}`;
 };
 
@@ -399,16 +359,14 @@ const userMessageTextTokens = (item: RealUserInputItem) => {
   let tokens = 0;
   for (const content of item.content) {
     tokens +=
-      content.type === "input_text"
-        ? tokensForUtf8(content.text)
-        : FIXED_IMAGE_TOKEN_ESTIMATE;
+      content.type === "input_text" ? tokensForUtf8(content.text) : FIXED_IMAGE_TOKEN_ESTIMATE;
   }
   return Math.max(1, tokens);
 };
 
 const truncateUserMessage = (
   item: RealUserInputItem,
-  tokenBudget: number
+  tokenBudget: number,
 ): RealUserInputItem | undefined => {
   let remaining = tokenBudget;
   const content: RealUserContentItem[] = [];
@@ -433,20 +391,17 @@ const truncateUserMessage = (
       content.push({ text, type: "input_text" });
     }
   }
-  return content.length === 0
-    ? undefined
-    : { content, role: "user", type: "message" };
+  return content.length === 0 ? undefined : { content, role: "user", type: "message" };
 };
 
 const buildReplacement = (
   retainedItems: readonly (RealUserInputItem | CheckpointAgentMessageItem)[],
-  newCompaction: unknown,
-  tokenBudget: number
+  newCompaction: WireValue,
+  tokenBudget: number,
 ) => {
   const compaction = parseCompactionItem(newCompaction);
   let remaining = tokenBudget;
-  const retainedReversed: (RealUserInputItem | CheckpointAgentMessageItem)[] =
-    [];
+  const retainedReversed: (RealUserInputItem | CheckpointAgentMessageItem)[] = [];
 
   for (const item of retainedItems.toReversed()) {
     if (remaining === 0) {
@@ -485,9 +440,9 @@ const buildReplacement = (
 };
 
 export const buildCheckpointReplacement = (
-  provableItems: readonly unknown[],
-  newCompaction: unknown,
-  tokenBudget = RETAINED_USER_TOKEN_BUDGET
+  provableItems: readonly WireValue[],
+  newCompaction: WireValue,
+  tokenBudget = RETAINED_USER_TOKEN_BUDGET,
 ) => {
   if (!Number.isSafeInteger(tokenBudget) || tokenBudget < 0) {
     throw new Error("tokenBudget must be a nonnegative safe integer");
@@ -505,7 +460,7 @@ export const buildCheckpointReplacement = (
               text: RETAINED_USER_IMAGE_PLACEHOLDER,
               type: "input_text" as const,
             }
-          : content
+          : content,
       ),
     } satisfies CheckpointUserInputItem;
   });
@@ -513,9 +468,9 @@ export const buildCheckpointReplacement = (
 };
 
 export const buildTransientCheckpointReplacement = (
-  provableItems: readonly unknown[],
-  newCompaction: unknown,
-  tokenBudget = RETAINED_USER_TOKEN_BUDGET
+  provableItems: readonly WireValue[],
+  newCompaction: WireValue,
+  tokenBudget = RETAINED_USER_TOKEN_BUDGET,
 ) => {
   if (!Number.isSafeInteger(tokenBudget) || tokenBudget < 0) {
     throw new Error("tokenBudget must be a nonnegative safe integer");
@@ -524,15 +479,14 @@ export const buildTransientCheckpointReplacement = (
     provableItems.map((item, index) =>
       isRecord(item) && item.type === "agent_message"
         ? parseAgentMessageItem(item, `provableItems[${index}]`)
-        : parseRealUserInputItem(item, `provableItems[${index}]`)
+        : parseRealUserInputItem(item, `provableItems[${index}]`),
     ),
     newCompaction,
-    tokenBudget
+    tokenBudget,
   );
 };
 
-const uuidBytes = (uuid: string) =>
-  Buffer.from(uuid.replaceAll("-", ""), "hex");
+const uuidBytes = (uuid: string) => Buffer.from(uuid.replaceAll("-", ""), "hex");
 
 const formatUuid = (bytes: Uint8Array) => {
   const hex = Buffer.from(bytes).toString("hex");
@@ -547,9 +501,9 @@ const formatUuid = (bytes: Uint8Array) => {
 
 export const syntheticOutputId = (
   prefix: "ctco" | "fco" | "tso",
-  sourceItemId: unknown
+  sourceItemId: WireValue,
 ): string | undefined => {
-  if (typeof sourceItemId !== "string" || sourceItemId.length === 0) {
+  if (!Value.Check(NonemptyStringSchema, sourceItemId)) {
     return undefined;
   }
   const digest = createHash("sha1")
@@ -577,14 +531,12 @@ const outputFamily = (item: ResponsesInputItem): OutputFamily | undefined => {
 };
 
 const callId = (item: ResponsesInputItem) =>
-  typeof item.call_id === "string" && item.call_id.length > 0
-    ? item.call_id
-    : undefined;
+  Value.Check(NonemptyStringSchema, item.call_id) ? item.call_id : undefined;
 
 const familyKey = (family: OutputFamily, id: string) => `${family}:${id}`;
 
 const supportedCall = (
-  item: ResponsesInputItem
+  item: ResponsesInputItem,
 ):
   | {
       readonly callId: string;
@@ -610,32 +562,29 @@ const supportedCall = (
 
 const syntheticOutput = (
   item: ResponsesInputItem,
-  call: NonNullable<ReturnType<typeof supportedCall>>
-): ResponsesInputItem => {
+  call: NonNullable<ReturnType<typeof supportedCall>>,
+) => {
   const id = syntheticOutputId(call.prefix, item.id);
   if (call.family === "tool-search") {
     return {
-      ...(id === undefined ? {} : { id }),
       call_id: call.callId,
       execution: "client",
+      id,
       status: "completed",
       tools: [],
       type: "tool_search_output",
-    };
+    } satisfies ResponsesInputItem;
   }
   return {
-    ...(id === undefined ? {} : { id }),
     call_id: call.callId,
+    id,
     output: "aborted",
-    type:
-      call.family === "custom"
-        ? "custom_tool_call_output"
-        : "function_call_output",
-  };
+    type: call.family === "custom" ? "custom_tool_call_output" : "function_call_output",
+  } satisfies ResponsesInputItem;
 };
 
 export const normalizeToolHistory = (
-  input: readonly ResponsesInputItem[]
+  input: readonly ResponsesInputItem[],
 ): readonly ResponsesInputItem[] => {
   const validCalls = new Set<string>();
   for (const item of input) {
@@ -692,13 +641,8 @@ export const normalizeToolHistory = (
   return normalized;
 };
 
-const rewriteOutput = (
-  item: ResponsesInputItem
-): ResponsesInputItem | undefined => {
-  if (
-    item.type === "function_call_output" ||
-    item.type === "custom_tool_call_output"
-  ) {
+const rewriteOutput = (item: ResponsesInputItem): ResponsesInputItem | undefined => {
+  if (item.type === "function_call_output" || item.type === "custom_tool_call_output") {
     const output = isRecord(item.output)
       ? {
           ...item.output,
@@ -716,7 +660,7 @@ const rewriteOutput = (
 export const shrinkTrailingOutputs = (
   input: readonly ResponsesInputItem[],
   instructions: string,
-  effectiveTokenLimit: number
+  effectiveTokenLimit: number,
 ) => {
   if (!Number.isSafeInteger(effectiveTokenLimit) || effectiveTokenLimit < 0) {
     throw new Error("effectiveTokenLimit must be a nonnegative safe integer");

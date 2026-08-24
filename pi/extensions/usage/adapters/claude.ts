@@ -23,7 +23,7 @@ const ClaudeUsagePayloadSchema = Type.Object({
 
 const parseWindow = (
   raw: Static<typeof ClaudeWindowSchema> | undefined,
-  id: UsageWindow["id"]
+  id: UsageWindow["id"],
 ): UsageWindow | undefined => {
   if (raw === undefined) {
     return undefined;
@@ -32,8 +32,8 @@ const parseWindow = (
 };
 
 export const parseClaudeUsagePayload = (
-  payload: unknown,
-  nowMs: number = Date.now()
+  payload: Static<typeof ClaudeUsagePayloadSchema> | undefined,
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   if (!Value.Check(ClaudeUsagePayloadSchema, payload)) {
     return usageFailure("invalid usage payload");
@@ -51,9 +51,7 @@ export const parseClaudeUsagePayload = (
   });
 };
 
-export const fetchClaudeUsage = async (
-  deps: AdapterDeps
-): Promise<UsageFetchResult> => {
+export const fetchClaudeUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveOAuthAccess(deps.authClient, "anthropic");
   if (!auth.ok) {
@@ -69,7 +67,12 @@ export const fetchClaudeUsage = async (
   });
 
   if (response.ok) {
-    return parseClaudeUsagePayload(response.json, now());
+    return parseClaudeUsagePayload(
+      Value.Check(ClaudeUsagePayloadSchema, response.json)
+        ? Value.Parse(ClaudeUsagePayloadSchema, response.json)
+        : undefined,
+      now(),
+    );
   }
 
   return usageFailure(response.message);

@@ -38,11 +38,7 @@ export const parseGitStatus = (output: string): GitStatus => {
       untracked += 1;
       continue;
     }
-    if (
-      line.startsWith("1 ") ||
-      line.startsWith("2 ") ||
-      line.startsWith("u ")
-    ) {
+    if (line.startsWith("1 ") || line.startsWith("2 ") || line.startsWith("u ")) {
       const xy = line.slice(2, 4);
       if (!xy.startsWith(".")) {
         staged += 1;
@@ -58,21 +54,18 @@ export const parseGitStatus = (output: string): GitStatus => {
 
 export const readGitStatus = async (
   runtime: Pick<ExtensionAPI, "exec">,
-  cwd: string
+  cwd: string,
 ): Promise<GitStatus | null> => {
   try {
-    const result = await runtime.exec(
-      "git",
-      ["status", "--porcelain=v2", "--branch"],
-      { cwd, timeout: GIT_TIMEOUT_MS }
-    );
+    const result = await runtime.exec("git", ["status", "--porcelain=v2", "--branch"], {
+      cwd,
+      timeout: GIT_TIMEOUT_MS,
+    });
     return result.code === 0 ? parseGitStatus(result.stdout) : null;
   } catch {
     return null;
   }
 };
 
-export const sameGitStatus = (
-  left: GitStatus | null,
-  right: GitStatus | null
-): boolean => isDeepStrictEqual(left, right);
+export const sameGitStatus = (left: GitStatus | null, right: GitStatus | null): boolean =>
+  isDeepStrictEqual(left, right);

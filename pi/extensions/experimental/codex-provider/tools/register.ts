@@ -4,7 +4,7 @@ import { createCodexToolsController } from "./controller.js";
 
 export const registerCodexTools = (
   pi: ExtensionAPI,
-  setFooterActive: (active: boolean) => void = () => null
+  setFooterActive: (active: boolean) => void = () => null,
 ): void => {
   const tools = createCodexToolsController(pi, setFooterActive);
 
@@ -30,8 +30,6 @@ export const registerCodexTools = (
   pi.on("session_tree", (_event, ctx) => {
     tools.sync(ctx);
   });
-  pi.on("before_agent_start", (event, ctx) =>
-    tools.beforeAgentStart(event.systemPrompt, ctx)
-  );
+  pi.on("before_agent_start", (event, ctx) => tools.beforeAgentStart(event.systemPrompt, ctx));
   pi.on("session_shutdown", (event) => tools.shutdown(event.reason));
 };

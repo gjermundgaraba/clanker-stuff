@@ -18,10 +18,13 @@ import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Value } from "typebox/value";
 
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.ts";
 import { evaluationTasks } from "../evals/tasks.ts";
 import type { EvaluationTask } from "../evals/tasks.ts";
+import { isWireRecord as isRecord, NumberValueSchema, StringValueSchema } from "./wire.ts";
+import type { WireRecord as JsonRecord, WireValue } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
@@ -69,13 +72,8 @@ interface EvaluationResult {
   turns: number;
 }
 
-type JsonRecord = Record<string, unknown>;
-
-const isRecord = (value: unknown): value is JsonRecord =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Unknown evaluation error";
+const errorMessage = (cause: WireValue) =>
+  cause instanceof Error ? cause.message : "Unknown evaluation error";
 
 const emptyUsage = (): Usage => ({
   cacheRead: 0,
@@ -95,10 +93,10 @@ const emptyMetrics = (compactions: number | null = 0): Metrics => ({
   usage: emptyUsage(),
 });
 
-const number = (value: unknown) =>
-  typeof value === "number" && Number.isFinite(value) ? value : 0;
+const number = (value: WireValue) =>
+  Value.Check(NumberValueSchema, value) && Number.isFinite(value) ? value : 0;
 
-const addUsage = (metrics: Metrics, value: unknown, native = false) => {
+const addUsage = (metrics: Metrics, value: WireValue, native = false) => {
   if (!isRecord(value)) {
     return;
   }
@@ -122,31 +120,24 @@ const addUsage = (metrics: Metrics, value: unknown, native = false) => {
   metrics.usage.reasoning += number(value.reasoning);
   metrics.usage.total +=
     number(value.totalTokens) ||
-    number(value.input) +
-      number(value.output) +
-      number(value.cacheRead) +
-      number(value.cacheWrite);
+    number(value.input) + number(value.output) + number(value.cacheRead) + number(value.cacheWrite);
 };
 
-const sanitizeUsage = (value: unknown, native: boolean): Usage => {
+const sanitizeUsage = (value: WireValue, native: boolean): Usage => {
   const metrics = emptyMetrics();
   addUsage(metrics, value, native);
   return metrics.usage;
 };
 
-// oxlint-disable-next-line eslint/complexity -- one pass normalizes both supported runner event dialects
 const sanitizeEvent = (
   runner: Runner,
   turn: number,
   event: JsonRecord,
   metrics: Metrics,
-  startedAt: number
+  startedAt: number,
 ): JsonRecord | undefined => {
-  const type = typeof event.type === "string" ? event.type : "unknown";
-  if (
-    metrics.firstResponseMs === null &&
-    (type === "message_update" || type === "item.started")
-  ) {
+  const type = Value.Check(StringValueSchema, event.type) ? event.type : "unknown";
+  if (metrics.firstResponseMs === null && (type === "message_update" || type === "item.started")) {
     metrics.firstResponseMs = Date.now() - startedAt;
   }
   if (runner === "codex-cli") {
@@ -157,12 +148,9 @@ const sanitizeEvent = (
     if (
       type === "item.completed" &&
       item &&
-      [
-        "command_execution",
-        "file_change",
-        "mcp_tool_call",
-        "web_search",
-      ].includes(String(item.type))
+      ["command_execution", "file_change", "mcp_tool_call", "web_search"].includes(
+        String(item.type),
+      )
     ) {
       metrics.toolCalls += 1;
     }
@@ -183,13 +171,11 @@ const sanitizeEvent = (
       return undefined;
     }
     return {
-      ...(item?.type === undefined ? {} : { itemType: item.type }),
-      ...(type === "turn.completed"
-        ? { usage: sanitizeUsage(event.usage, true) }
-        : {}),
+      itemType: item?.type,
       runner,
       turn,
       type,
+      usage: type === "turn.completed" ? sanitizeUsage(event.usage, true) : undefined,
     };
   }
 
@@ -201,8 +187,7 @@ const sanitizeEvent = (
     entry?.type === "custom" &&
     entry.customType === CHECKPOINT_CUSTOM_TYPE;
   const extensionCheckpoint =
-    checkpointAppended ||
-    (type === "compaction_end" && details?.type === CHECKPOINT_CUSTOM_TYPE);
+    checkpointAppended || (type === "compaction_end" && details?.type === CHECKPOINT_CUSTOM_TYPE);
   if (checkpointAppended || (type === "compaction_end" && result)) {
     metrics.compactions = (metrics.compactions ?? 0) + 1;
   }
@@ -237,18 +222,14 @@ const sanitizeEvent = (
     return undefined;
   }
   return {
-    ...(event.aborted === undefined ? {} : { aborted: event.aborted }),
-    ...(event.isError === undefined ? {} : { isError: event.isError }),
-    ...(message?.role === undefined ? {} : { role: message.role }),
-    ...(event.reason === undefined ? {} : { reason: event.reason }),
-    ...(message?.stopReason === undefined
-      ? {}
-      : { stopReason: message.stopReason }),
-    ...(event.toolName === undefined ? {} : { toolName: event.toolName }),
-    ...(extensionCheckpoint ? { customType: CHECKPOINT_CUSTOM_TYPE } : {}),
-    ...(message?.usage === undefined
-      ? {}
-      : { usage: sanitizeUsage(message.usage, false) }),
+    aborted: event.aborted,
+    customType: extensionCheckpoint ? CHECKPOINT_CUSTOM_TYPE : undefined,
+    isError: event.isError,
+    role: message?.role,
+    reason: event.reason,
+    stopReason: message?.stopReason,
+    toolName: event.toolName,
+    usage: message?.usage === undefined ? undefined : sanitizeUsage(message.usage, false),
     runner,
     turn,
     type,
@@ -262,7 +243,7 @@ const runJsonProcess = async (
   env: NodeJS.ProcessEnv,
   input: string,
   timeoutMs: number,
-  onEvent: (event: JsonRecord) => void
+  onEvent: (event: JsonRecord) => void,
 ) => {
   const child = spawn(executable, args, {
     cwd,
@@ -272,7 +253,7 @@ const runJsonProcess = async (
   let timedOut = false;
   createInterface({ input: child.stdout }).on("line", (line) => {
     try {
-      const event: unknown = JSON.parse(line);
+      const event: WireValue = JSON.parse(line);
       if (isRecord(event)) {
         onEvent(event);
       }
@@ -310,7 +291,7 @@ export const command = (
   executable: string,
   args: readonly string[],
   cwd: string,
-  timeout = 60_000
+  timeout = 60_000,
 ) =>
   spawnSync(executable, args, {
     cwd,
@@ -323,7 +304,7 @@ export const codexArguments = (
   model: string,
   reasoning: string,
   cwd: string,
-  turnIndex: number
+  turnIndex: number,
 ) => {
   const base = [
     "--json",
@@ -343,11 +324,7 @@ export const codexArguments = (
     : ["exec", "resume", "--last", ...base, "-"];
 };
 
-const requireCommand = (
-  executable: string,
-  args: readonly string[],
-  cwd: string
-) => {
+const requireCommand = (executable: string, args: readonly string[], cwd: string) => {
   const result = command(executable, args, cwd);
   if (result.status !== 0) {
     throw new Error(`${executable} exited ${result.status}`);
@@ -381,7 +358,7 @@ const createFixture = (cwd: string, task: EvaluationTask) => {
       "-m",
       "fixture",
     ],
-    cwd
+    cwd,
   );
 };
 
@@ -389,8 +366,7 @@ const grade = (cwd: string, task: EvaluationTask): Grade => {
   const protectedFilesIntact = task.protectedFiles.every(
     (relativePath) =>
       existsSync(path.join(cwd, relativePath)) &&
-      readFileSync(path.join(cwd, relativePath), "utf-8") ===
-        task.files[relativePath]
+      readFileSync(path.join(cwd, relativePath), "utf-8") === task.files[relativePath],
   );
   const hiddenPath = path.join(cwd, "test/evaluation-hidden.test.js");
   mkdirSync(path.dirname(hiddenPath), { recursive: true });
@@ -402,9 +378,7 @@ const grade = (cwd: string, task: EvaluationTask): Grade => {
     rmSync(hiddenPath, { force: true });
   }
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  const tests = Number(
-    /^(?:#|ℹ) tests (?<count>\d+)$/mu.exec(output)?.groups?.count ?? 0
-  );
+  const tests = Number(/^(?:#|ℹ) tests (?<count>\d+)$/mu.exec(output)?.groups?.count ?? 0);
   return {
     passed: result.status === 0 && protectedFilesIntact,
     protectedFilesIntact,
@@ -455,15 +429,19 @@ export const applyExecutionOutcome = (
   base: Grade,
   succeeded: boolean,
   compactionRequired: boolean,
-  compactionObserved: boolean
-): Grade => ({
-  ...base,
-  ...(compactionRequired ? { compactionObserved } : {}),
-  passed:
-    base.passed && succeeded && (!compactionRequired || compactionObserved),
-});
+  compactionObserved: boolean,
+): Grade => {
+  const grade: Grade = {
+    ...base,
+    passed: base.passed && succeeded && (!compactionRequired || compactionObserved),
+  };
+  if (compactionRequired) {
+    grade.compactionObserved = compactionObserved;
+  }
+  return grade;
+};
 
-export const writeJsonReport = (target: string, report: unknown) => {
+export const writeJsonReport = (target: string, report: WireValue) => {
   const contents = `${JSON.stringify(report, null, 2)}\n`;
   const temporary = `${target}.tmp`;
   writeFileSync(temporary, contents);
@@ -479,17 +457,12 @@ const copyAuth = (source: string, prefix: string, extra?: string) => {
   chmodSync(target, 0o700);
   copyFileSync(auth, path.join(target, "auth.json"));
   chmodSync(path.join(target, "auth.json"), 0o600);
-  if (
-    extra !== undefined &&
-    extra.length > 0 &&
-    existsSync(path.join(source, extra))
-  ) {
+  if (extra !== undefined && extra.length > 0 && existsSync(path.join(source, extra))) {
     copyFileSync(path.join(source, extra), path.join(target, extra));
   }
   return target;
 };
 
-// oxlint-disable-next-line eslint/complexity -- one evaluation arm owns setup, execution, grading, and durable reporting
 const runEvaluation = async (
   runner: Runner,
   task: EvaluationTask,
@@ -499,7 +472,7 @@ const runEvaluation = async (
   timeoutMs: number,
   dryRun: boolean,
   repetition: number,
-  order: number
+  order: number,
 ): Promise<EvaluationResult> => {
   const cwd = path.join(runDirectory, "workspace");
   const metrics = emptyMetrics(runner === "codex-cli" ? null : 0);
@@ -528,7 +501,7 @@ const runEvaluation = async (
         ? copyAuth(
             process.env.CODEX_HOME ?? path.join(homedir(), ".codex"),
             "codex-provider-eval-codex-",
-            "models_cache.json"
+            "models_cache.json",
           )
         : copyAuth(getAgentDir(), "codex-provider-eval-pi-");
       const executable = isCodexCli ? "codex" : "pi";
@@ -559,7 +532,6 @@ const runEvaluation = async (
         const args = isCodexCli
           ? codexArguments(model, reasoning, cwd, turnIndex)
           : [...base, ...(turnIndex === 0 ? [] : ["--continue"])];
-        // oxlint-disable-next-line eslint/no-await-in-loop -- resumed turns must execute in order
         const outcome = await runJsonProcess(
           executable,
           args,
@@ -568,17 +540,11 @@ const runEvaluation = async (
           prompt,
           remaining,
           (event) => {
-            const sanitized = sanitizeEvent(
-              runner,
-              turnIndex + 1,
-              event,
-              metrics,
-              startedAt
-            );
+            const sanitized = sanitizeEvent(runner, turnIndex + 1, event, metrics, startedAt);
             if (sanitized) {
               sanitizedEvents.push(sanitized);
             }
-          }
+          },
         );
         exitCodes.push(outcome.exitCode);
         timedOut ||= outcome.timedOut;
@@ -599,25 +565,18 @@ const runEvaluation = async (
   if (
     error === undefined &&
     !dryRun &&
-    (timedOut ||
-      exitCodes.length !== prompts.length ||
-      exitCodes.some((code) => code !== 0))
+    (timedOut || exitCodes.length !== prompts.length || exitCodes.some((code) => code !== 0))
   ) {
-    error = timedOut
-      ? `Timed out after ${timeoutMs} ms`
-      : "Runner process failed";
+    error = timedOut ? `Timed out after ${timeoutMs} ms` : "Runner process failed";
   }
   const eventFile = path.join(runDirectory, "events.jsonl");
-  const events = path.relative(
-    path.resolve(runDirectory, "../../.."),
-    eventFile
-  );
+  const events = path.relative(path.resolve(runDirectory, "../../.."), eventFile);
   try {
     mkdirSync(runDirectory, { recursive: true });
     writeFileSync(
       eventFile,
       sanitizedEvents.map((event) => JSON.stringify(event)).join("\n") +
-        (sanitizedEvents.length > 0 ? "\n" : "")
+        (sanitizedEvents.length > 0 ? "\n" : ""),
     );
   } catch (caughtError) {
     error ??= `Event report failed: ${errorMessage(caughtError)}`;
@@ -631,23 +590,19 @@ const runEvaluation = async (
     }
   }
   const compactionRequired =
-    !dryRun &&
-    runner === "pi-extension" &&
-    task.requiresExtensionCompaction === true;
+    !dryRun && runner === "pi-extension" && task.requiresExtensionCompaction === true;
   const compactionObserved = sanitizedEvents.some(
-    (event) => event.customType === CHECKPOINT_CUSTOM_TYPE
+    (event) => event.customType === CHECKPOINT_CUSTOM_TYPE,
   );
   const executionSucceeded =
     error === undefined &&
     !timedOut &&
-    (dryRun ||
-      (exitCodes.length === prompts.length &&
-        exitCodes.every((code) => code === 0)));
+    (dryRun || (exitCodes.length === prompts.length && exitCodes.every((code) => code === 0)));
   const evaluationGrade = applyExecutionOutcome(
     baseGrade,
     executionSucceeded,
     compactionRequired,
-    compactionObserved
+    compactionObserved,
   );
   if (compactionRequired && !compactionObserved && error === undefined) {
     error = "Required OpenAI checkpoint was not observed";
@@ -666,7 +621,7 @@ const runEvaluation = async (
   return {
     diff,
     dryRun,
-    ...(error === undefined ? {} : { error }),
+    error,
     events,
     exitCodes,
     grade: evaluationGrade,
@@ -686,9 +641,7 @@ const runnerOrder = (repetition: number): Runner[] => {
 };
 
 const average = (values: readonly number[]) =>
-  values.length === 0
-    ? 0
-    : values.reduce((sum, value) => sum + value, 0) / values.length;
+  values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 
 const summarize = (results: readonly EvaluationResult[]) =>
   Object.fromEntries(
@@ -697,27 +650,16 @@ const summarize = (results: readonly EvaluationResult[]) =>
       return [
         runner,
         {
-          averageElapsedMs: average(
-            selected.map((result) => result.metrics.elapsedMs)
-          ),
-          averageTotalTokens: average(
-            selected.map((result) => result.metrics.usage.total)
-          ),
-          compactions: selected.every(
-            (result) => result.metrics.compactions === null
-          )
+          averageElapsedMs: average(selected.map((result) => result.metrics.elapsedMs)),
+          averageTotalTokens: average(selected.map((result) => result.metrics.usage.total)),
+          compactions: selected.every((result) => result.metrics.compactions === null)
             ? null
-            : selected.reduce(
-                (sum, result) => sum + (result.metrics.compactions ?? 0),
-                0
-              ),
-          passRate: average(
-            selected.map((result) => (result.grade.passed ? 1 : 0))
-          ),
+            : selected.reduce((sum, result) => sum + (result.metrics.compactions ?? 0), 0),
+          passRate: average(selected.map((result) => (result.grade.passed ? 1 : 0))),
           runs: selected.length,
         },
       ];
-    })
+    }),
   );
 
 const smoke = () => {
@@ -736,7 +678,7 @@ const smoke = () => {
       type: "entry_appended",
     },
     checkpointMetrics,
-    Date.now()
+    Date.now(),
   );
   const compactionEvent = sanitizeEvent(
     "pi-extension",
@@ -746,14 +688,14 @@ const smoke = () => {
       type: "compaction_end",
     },
     checkpointMetrics,
-    Date.now()
+    Date.now(),
   );
   sanitizeEvent(
     "pi-extension",
     1,
     { aborted: true, result: undefined, type: "compaction_end" },
     checkpointMetrics,
-    Date.now()
+    Date.now(),
   );
   if (
     checkpointMetrics.compactions !== 2 ||
@@ -762,9 +704,7 @@ const smoke = () => {
   ) {
     throw new Error("Checkpoint event detection failed");
   }
-  const directory = mkdtempSync(
-    path.join(tmpdir(), "codex-provider-eval-smoke-")
-  );
+  const directory = mkdtempSync(path.join(tmpdir(), "codex-provider-eval-smoke-"));
   try {
     for (const task of evaluationTasks) {
       const fixture = path.join(directory, task.id);
@@ -780,9 +720,7 @@ const smoke = () => {
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
-  console.log(
-    `Smoke passed: ${evaluationTasks.length} graders and 3 runner CLIs`
-  );
+  console.log(`Smoke passed: ${evaluationTasks.length} graders and 3 runner CLIs`);
 };
 
 const help = () => {
@@ -808,14 +746,14 @@ const unexpectedFailure = (
   dryRun: boolean,
   repetition: number,
   order: number,
-  error: unknown
+  error: WireValue,
 ): EvaluationResult => ({
   diff: emptyDiff(),
   dryRun,
   error: `Evaluation infrastructure failed: ${errorMessage(error)}`,
   events: path.relative(
     path.resolve(runDirectory, "../../.."),
-    path.join(runDirectory, "events.jsonl")
+    path.join(runDirectory, "events.jsonl"),
   ),
   exitCodes: [],
   grade: failedGrade(),
@@ -858,12 +796,8 @@ const main = async () => {
     smoke();
     return;
   }
-  if (
-    !/^(?<level>minimal|low|medium|high|xhigh|max)$/u.test(values.reasoning)
-  ) {
-    throw new Error(
-      "--reasoning must be minimal, low, medium, high, xhigh, or max"
-    );
+  if (!/^(?<level>minimal|low|medium|high|xhigh|max)$/u.test(values.reasoning)) {
+    throw new Error("--reasoning must be minimal, low, medium, high, xhigh, or max");
   }
   const repetitions = Number(values.repetitions);
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 10) {
@@ -874,21 +808,19 @@ const main = async () => {
     throw new Error("--timeout-minutes must be positive");
   }
   const requested = new Set(values.task);
-  const unknown = [...requested].filter(
-    (id) => !evaluationTasks.some((task) => task.id === id)
-  );
+  const unknown = [...requested].filter((id) => !evaluationTasks.some((task) => task.id === id));
   if (unknown.length > 0) {
     throw new Error(`Unknown task: ${unknown.join(", ")}`);
   }
   const tasks = evaluationTasks.filter((task) =>
-    requested.size === 0 ? task.long !== true : requested.has(task.id)
+    requested.size === 0 ? task.long !== true : requested.has(task.id),
   );
   if (tasks.length === 0) {
     throw new Error("No tasks selected");
   }
   const timestamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
   const requestedOutput = path.resolve(
-    values.output ?? path.join(tmpdir(), `codex-provider-eval-${timestamp}`)
+    values.output ?? path.join(tmpdir(), `codex-provider-eval-${timestamp}`),
   );
   if (existsSync(requestedOutput)) {
     throw new Error(`Output already exists: ${requestedOutput}`);
@@ -938,11 +870,10 @@ const main = async () => {
           output,
           `repeat-${String(repetition).padStart(2, "0")}`,
           task.id,
-          runner
+          runner,
         );
         try {
           results.push(
-            // oxlint-disable-next-line eslint/no-await-in-loop -- evaluation arms run sequentially to avoid account-level interference
             await runEvaluation(
               runner,
               task,
@@ -952,8 +883,8 @@ const main = async () => {
               timeoutMinutes * 60_000,
               values["dry-run"] === true,
               repetition,
-              orderIndex + 1
-            )
+              orderIndex + 1,
+            ),
           );
         } catch (caughtError) {
           results.push(
@@ -964,8 +895,8 @@ const main = async () => {
               values["dry-run"] === true,
               repetition,
               orderIndex + 1,
-              caughtError
-            )
+              caughtError,
+            ),
           );
         }
         persist(false);
@@ -983,7 +914,7 @@ const main = async () => {
       runner: result.runner,
       task: result.task,
       tokens: result.metrics.usage.total,
-    }))
+    })),
   );
   console.log(`Results: ${resultPath}`);
 };

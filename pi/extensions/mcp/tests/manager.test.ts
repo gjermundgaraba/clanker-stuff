@@ -1,12 +1,9 @@
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  createMcpManagerConnection,
-  MCP_MANAGER_SERVER_NAME,
-} from "../manager.js";
+import { createMcpManagerConnection, MCP_MANAGER_SERVER_NAME } from "../manager.js";
 import type { McpManagerBackend } from "../manager.js";
 import { envVarRef, fixtureServer, setupMcpTest } from "./helpers.js";
 
@@ -46,14 +43,14 @@ describe("mcp manager", () => {
         config: fixtureServer(),
         name: "raw-server",
         scope: "global",
-      })
+      }),
     ).rejects.toThrow("already exists in the global config");
     await expect(
       host.runTool("mcp_mcp_manager__add_mcp", {
         config: fixtureServer(),
         name: MCP_MANAGER_SERVER_NAME,
         scope: "global",
-      })
+      }),
     ).rejects.toThrow("is reserved");
 
     await host.runTool("mcp_mcp_manager__remove_mcp", {
@@ -76,7 +73,7 @@ describe("mcp manager", () => {
         config: fixtureServer(),
         name: "project-server",
         scope: "project",
-      })
+      }),
     ).rejects.toThrow("requires a trusted project");
   });
 
@@ -96,9 +93,7 @@ describe("mcp manager", () => {
     expect(JSON.parse(await readFile(t.configPath, "utf-8"))).toStrictEqual({
       mcpServers: {},
     });
-    expect(
-      host.getRegisteredTools().has("mcp_mcp_manager__connect")
-    ).toBeTruthy();
+    expect(host.getRegisteredTools().has("mcp_mcp_manager__connect")).toBeTruthy();
   });
 
   it("connects a configured server through the manager", async () => {
@@ -144,13 +139,11 @@ describe("mcp manager", () => {
     const connection = await createMcpManagerConnection(backend);
     try {
       await connection.client.listTools();
-      expect(connection.client.getNegotiatedProtocolVersion()).toBe(
-        "2026-07-28"
-      );
+      expect(connection.client.getNegotiatedProtocolVersion()).toBe("2026-07-28");
       const controller = new AbortController();
       const call = connection.client.callTool(
         { arguments: { name: "slow" }, name: "connect" },
-        { signal: controller.signal }
+        { signal: controller.signal },
       );
       await vi.waitFor(() => expect(receivedSignal).toBeDefined());
 

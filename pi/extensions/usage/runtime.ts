@@ -7,17 +7,21 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import type { createUsageController } from "./controller.js";
+import type { UsageControllerDependencies } from "./controller.js";
 
 type UsageController = ReturnType<typeof createUsageController>;
 
-export const createUsageRuntime = (pi: ExtensionAPI) => {
+export const createUsageRuntime = (
+  pi: ExtensionAPI,
+  dependencies?: UsageControllerDependencies,
+) => {
   let pendingStart: ExtensionContext | undefined;
   let startupLoad: ReturnType<typeof setImmediate> | undefined;
   const usage = createLazySingleton<UsageController>(
     async (signal) => {
       const { createUsageController } = await import("./controller.js");
       signal.throwIfAborted();
-      return createUsageController(pi);
+      return createUsageController(pi, dependencies);
     },
     (controller) => {
       if (pendingStart !== undefined) {
@@ -25,7 +29,7 @@ export const createUsageRuntime = (pi: ExtensionAPI) => {
         pendingStart = undefined;
         controller.start(ctx);
       }
-    }
+    },
   );
   const loadStartup = async (ctx: ExtensionContext): Promise<void> => {
     try {
@@ -34,17 +38,14 @@ export const createUsageRuntime = (pi: ExtensionAPI) => {
       if (!usage.isStopped()) {
         ctx.ui.notify(
           `Usage failed to initialize: ${error instanceof Error ? error.message : String(error)}`,
-          "error"
+          "error",
         );
       }
     }
   };
 
   return {
-    runCommand: async (
-      args: string,
-      ctx: ExtensionCommandContext
-    ): Promise<void> => {
+    runCommand: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const controller = await usage.load();
       await controller?.runCommand(args, ctx);
     },

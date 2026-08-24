@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { patchEnv } from "../helpers/env.js";
 import { createTempDir } from "../helpers/fs.js";
@@ -20,9 +20,7 @@ describe("extension-smoke harness", () => {
     harness = undefined;
     restoreOuterHome?.();
     restoreOuterHome = undefined;
-    await Promise.all(
-      ownedTempDirs.map((dir) => rm(dir, { force: true, recursive: true }))
-    );
+    await Promise.all(ownedTempDirs.map((dir) => rm(dir, { force: true, recursive: true })));
     ownedTempDirs = [];
   });
 
@@ -48,7 +46,7 @@ export default function (pi: ExtensionAPI) {
         text: \`[linked:\${existsSync(join(os.homedir(), "leak.txt")) ? "outer" : "isolated"}] \${event.text}\`,
     }));
 }
-`
+`,
     );
 
     harness = await createExtensionSmokeHarness({
@@ -57,15 +55,12 @@ export default function (pi: ExtensionAPI) {
     const activeHarness = harness;
     activeHarness.setResponses([
       (context) => {
-        const lastUserMessage = context.messages.findLast(
-          (message) => message.role === "user"
-        );
+        const content = context.messages.findLast((message) => message.role === "user")?.content;
+        const text = Array.isArray(content)
+          ? content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+          : (content ?? "[non-string]");
 
-        return fauxAssistantMessage(
-          typeof lastUserMessage?.content === "string"
-            ? `seen:${lastUserMessage.content}`
-            : "seen:[non-string]"
-        );
+        return fauxAssistantMessage(`seen:${text}`);
       },
     ]);
 
@@ -80,17 +75,13 @@ export default function (pi: ExtensionAPI) {
             ".pi",
             "extensions",
             path.basename(extensionDir),
-            "index.ts"
-          )
-      )
+            "index.ts",
+          ),
+      ),
     ).toBeTruthy();
     expect(process.env.HOME).toBe(activeHarness.homeDir);
-    expect(JSON.stringify(activeHarness.messages())).toContain(
-      "[linked:isolated] hello smoke"
-    );
-    expect(JSON.stringify(activeHarness.messages())).not.toContain(
-      "[linked:outer]"
-    );
+    expect(JSON.stringify(activeHarness.messages())).toContain("[linked:isolated] hello smoke");
+    expect(JSON.stringify(activeHarness.messages())).not.toContain("[linked:outer]");
 
     const { homeDir, projectDir } = activeHarness;
     harness.cleanup();

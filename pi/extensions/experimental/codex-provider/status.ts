@@ -1,4 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 import {
   decideCheckpointCompatibility,
@@ -34,32 +36,62 @@ interface CheckpointRecord {
   readonly timestamp: string;
 }
 
-const phaseLabels: Record<Checkpoint["phase"], string> = {
+const phaseLabels = {
   "mid-turn": "while working",
   "overflow-retry": "context-limit recovery",
   "pre-sampling": "before reply",
   standalone: "between turns",
-};
+} satisfies Record<Checkpoint["phase"], string>;
 
-const reasonLabels: Record<Checkpoint["reason"], string> = {
+const reasonLabels = {
   manual: "manual",
   overflow: "automatic context limit",
   threshold: "automatic threshold",
-};
+} satisfies Record<Checkpoint["reason"], string>;
 
 const carrierLabels = {
   inline: "checkpoint entry",
   lifecycle: "Pi compaction",
 } as const;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+const ContextFrameFailureSchema = Type.Object({
+  baseline: Type.Object({ messageCount: Type.Integer({ minimum: 0 }) }),
+  event: Type.Object({ messageCount: Type.Integer({ minimum: 0 }) }),
+  frameResult: Type.Union([Type.Literal("ambiguous"), Type.Literal("missing")]),
+});
 
-const isNonnegativeInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const TransportFallbackSchema = Type.Object({
+  transport: Type.Object({
+    configured: Type.Union([
+      Type.Literal("auto"),
+      Type.Literal("websocket"),
+      Type.Literal("websocket-cached"),
+    ]),
+    fellBackToSse: Type.Literal(true),
+  }),
+});
 
-const optionalString = (value: unknown) =>
-  typeof value === "string" ? value : undefined;
+const RequestObservationSchema = Type.Object({
+  model: Type.Optional(Type.String()),
+  outcome: Type.Union([Type.Literal("length"), Type.Literal("stop"), Type.Literal("toolUse")]),
+  request: Type.Object({
+    cacheEnabled: Type.Boolean(),
+    cacheKeyHash: Type.Optional(Type.String()),
+    inputItemHashes: Type.Optional(Type.Array(Type.String())),
+    instructionsHash: Type.Optional(Type.String()),
+    stableRequestHash: Type.Optional(Type.String()),
+    toolsHash: Type.Optional(Type.String()),
+  }),
+  response: Type.Object({
+    cacheReadTokens: Type.Integer({ minimum: 0 }),
+    cacheWriteTokens: Type.Integer({ minimum: 0 }),
+    inputTokens: Type.Integer({ minimum: 0 }),
+  }),
+});
+
+const CompactionOutcomeSchema = Type.Object({
+  outcome: Type.String(),
+});
 
 const checkpoints = (entries: readonly SessionEntry[]) => {
   const unique = new Map<string, CheckpointRecord>();
@@ -82,51 +114,38 @@ const checkpoints = (entries: readonly SessionEntry[]) => {
   return { invalidCarriers, values: [...unique.values()] };
 };
 
-const observedContextFrameDiagnostics = (
-  observations: readonly CodexObservation[]
-) =>
+const observedContextFrameDiagnostics = (observations: readonly CodexObservation[]) =>
   observations.flatMap((observation) => {
     const { data } = observation;
     if (
       observation.kind !== "context-frame-failure" ||
-      !isRecord(data) ||
-      (data.frameResult !== "ambiguous" && data.frameResult !== "missing") ||
-      !isRecord(data.baseline) ||
-      !isRecord(data.event) ||
-      !isNonnegativeInteger(data.baseline.messageCount) ||
-      !isNonnegativeInteger(data.event.messageCount)
+      !Value.Check(ContextFrameFailureSchema, data)
     ) {
       return [];
     }
+    const parsed = Value.Parse(ContextFrameFailureSchema, data);
     return [
       {
-        baselineMessages: data.baseline.messageCount,
-        eventMessages: data.event.messageCount,
-        frameResult: data.frameResult,
+        baselineMessages: parsed.baseline.messageCount,
+        eventMessages: parsed.event.messageCount,
+        frameResult: parsed.frameResult,
         timestamp: observation.timestamp,
       },
     ];
   });
 
-const observedTransportFallbackDiagnostics = (
-  observations: readonly CodexObservation[]
-) =>
+const observedTransportFallbackDiagnostics = (observations: readonly CodexObservation[]) =>
   observations.flatMap((observation) => {
     const { data } = observation;
     if (
       (observation.kind !== "compaction" && observation.kind !== "request") ||
-      !isRecord(data) ||
-      !isRecord(data.transport) ||
-      data.transport.fellBackToSse !== true ||
-      (data.transport.configured !== "auto" &&
-        data.transport.configured !== "websocket" &&
-        data.transport.configured !== "websocket-cached")
+      !Value.Check(TransportFallbackSchema, data)
     ) {
       return [];
     }
     return [
       {
-        configuredTransport: data.transport.configured,
+        configuredTransport: Value.Parse(TransportFallbackSchema, data).transport.configured,
         timestamp: observation.timestamp,
       },
     ];
@@ -135,39 +154,23 @@ const observedTransportFallbackDiagnostics = (
 const requestObservations = (observations: readonly CodexObservation[]) =>
   observations.flatMap((observation) => {
     const { data } = observation;
-    if (
-      observation.kind !== "request" ||
-      !isRecord(data) ||
-      !isRecord(data.request) ||
-      !isRecord(data.response) ||
-      (data.outcome !== "length" &&
-        data.outcome !== "stop" &&
-        data.outcome !== "toolUse") ||
-      typeof data.request.cacheEnabled !== "boolean" ||
-      !isNonnegativeInteger(data.response.cacheReadTokens) ||
-      !isNonnegativeInteger(data.response.cacheWriteTokens) ||
-      !isNonnegativeInteger(data.response.inputTokens)
-    ) {
+    if (observation.kind !== "request" || !Value.Check(RequestObservationSchema, data)) {
       return [];
     }
-    const hashes = data.request.inputItemHashes;
+    const parsed = Value.Parse(RequestObservationSchema, data);
     return [
       {
-        cacheEnabled: data.request.cacheEnabled,
-        cacheKeyHash: optionalString(data.request.cacheKeyHash),
-        cacheReadTokens: data.response.cacheReadTokens,
-        cacheWriteTokens: data.response.cacheWriteTokens,
-        inputItemHashes:
-          Array.isArray(hashes) &&
-          hashes.every((value) => typeof value === "string")
-            ? hashes
-            : undefined,
-        inputTokens: data.response.inputTokens,
-        instructionsHash: optionalString(data.request.instructionsHash),
-        model: optionalString(data.model),
-        stableRequestHash: optionalString(data.request.stableRequestHash),
+        cacheEnabled: parsed.request.cacheEnabled,
+        cacheKeyHash: parsed.request.cacheKeyHash,
+        cacheReadTokens: parsed.response.cacheReadTokens,
+        cacheWriteTokens: parsed.response.cacheWriteTokens,
+        inputItemHashes: parsed.request.inputItemHashes,
+        inputTokens: parsed.response.inputTokens,
+        instructionsHash: parsed.request.instructionsHash,
+        model: parsed.model,
+        stableRequestHash: parsed.request.stableRequestHash,
         timestamp: observation.timestamp,
-        toolsHash: optionalString(data.request.toolsHash),
+        toolsHash: parsed.request.toolsHash,
       },
     ];
   });
@@ -191,16 +194,9 @@ const elapsed = (milliseconds: number) => {
   return `${Math.round(minutes / 60)}h`;
 };
 
-const commonPrefixLength = (
-  left: readonly string[],
-  right: readonly string[]
-) => {
+const commonPrefixLength = (left: readonly string[], right: readonly string[]) => {
   let index = 0;
-  while (
-    index < left.length &&
-    index < right.length &&
-    left[index] === right[index]
-  ) {
+  while (index < left.length && index < right.length && left[index] === right[index]) {
     index += 1;
   }
   return index;
@@ -209,9 +205,7 @@ const commonPrefixLength = (
 const changed = (left: string | undefined, right: string | undefined) =>
   left !== undefined && right !== undefined && left !== right;
 
-const cacheObservationLines = (
-  observations: readonly CodexObservation[]
-): string[] => {
+const cacheObservationLines = (observations: readonly CodexObservation[]): string[] => {
   const requests = requestObservations(observations);
   const latest = requests.at(0);
   const previous = requests.at(1);
@@ -228,14 +222,14 @@ const cacheObservationLines = (
       "  Previous: none recorded",
       latest.cacheEnabled
         ? "  Assessment: no earlier request is available for comparison"
-        : "  Assessment: prompt caching was disabled for this request"
+        : "  Assessment: prompt caching was disabled for this request",
     );
     return lines;
   }
 
   const previousResult = previous.cacheReadTokens > 0 ? "hit" : "miss";
   lines.push(
-    `  Previous: ${previousResult} ${elapsed(latest.timestamp - previous.timestamp)} earlier · ${number(previous.cacheReadTokens)} cache read`
+    `  Previous: ${previousResult} ${elapsed(latest.timestamp - previous.timestamp)} earlier · ${number(previous.cacheReadTokens)} cache read`,
   );
   const changes: string[] = [];
   if (latest.model !== previous.model) {
@@ -250,10 +244,7 @@ const cacheObservationLines = (
   if (changed(latest.toolsHash, previous.toolsHash)) {
     changes.push("tools changed");
   }
-  if (
-    changed(latest.stableRequestHash, previous.stableRequestHash) &&
-    changes.length === 0
-  ) {
+  if (changed(latest.stableRequestHash, previous.stableRequestHash) && changes.length === 0) {
     changes.push("request settings changed");
   }
 
@@ -262,7 +253,7 @@ const cacheObservationLines = (
   if (latestHashes && previousHashes) {
     const prefix = commonPrefixLength(previousHashes, latestHashes);
     lines.push(
-      `  Input prefix: ${number(prefix)} matching items · ${number(previousHashes.length)} previous · ${number(latestHashes.length)} latest`
+      `  Input prefix: ${number(prefix)} matching items · ${number(previousHashes.length)} previous · ${number(latestHashes.length)} latest`,
     );
     if (prefix < Math.min(previousHashes.length, latestHashes.length)) {
       changes.push(`input changed at item ${number(prefix + 1)}`);
@@ -279,7 +270,7 @@ const cacheObservationLines = (
     lines.push(`  Assessment: ${changes.join("; ")}`);
   } else {
     lines.push(
-      "  Assessment: no client-visible cause; key, request settings, and prior input prefix match, so the cache was cold or missed server-side"
+      "  Assessment: no client-visible cause; key, request settings, and prior input prefix match, so the cache was cold or missed server-side",
     );
   }
   return lines;
@@ -289,16 +280,13 @@ const compactionFailures = (observations: readonly CodexObservation[]) =>
   observations.filter(
     (observation) =>
       observation.kind === "compaction" &&
-      isRecord(observation.data) &&
-      observation.data.outcome !== "success"
+      Value.Check(CompactionOutcomeSchema, observation.data) &&
+      Value.Parse(CompactionOutcomeSchema, observation.data).outcome !== "success",
   );
 
 const tally = (values: readonly string[]) =>
   [...new Set(values)]
-    .map(
-      (value) =>
-        `${value} ${values.filter((candidate) => candidate === value).length}`
-    )
+    .map((value) => `${value} ${values.filter((candidate) => candidate === value).length}`)
     .join(", ");
 
 const sizeChange = (before: number, after: number) => {
@@ -317,10 +305,7 @@ const latestCheckpointLine = (record: CheckpointRecord | undefined) => {
     return "  Latest (current branch): none";
   }
   const { checkpoint } = record;
-  const replacementTokens = estimateModelVisibleTokens(
-    "",
-    checkpoint.replacement
-  );
+  const replacementTokens = estimateModelVisibleTokens("", checkpoint.replacement);
   return `  Latest (current branch): ~${number(checkpoint.sourceTokens)} → ~${number(replacementTokens)} estimated tokens · ${sizeChange(checkpoint.sourceTokens, replacementTokens)} · ${reasonLabels[checkpoint.reason]} · ${phaseLabels[checkpoint.phase]} · provider usage ${number(checkpoint.response.usage.totalTokens)}`;
 };
 
@@ -343,14 +328,14 @@ const recentLine = (records: readonly CheckpointRecord[]) => {
     .slice(-3)
     .map(
       ({ checkpoint, timestamp: value }) =>
-        `${timestamp(value)} ${reasonLabels[checkpoint.reason]} / ${phaseLabels[checkpoint.phase]}`
+        `${timestamp(value)} ${reasonLabels[checkpoint.reason]} / ${phaseLabels[checkpoint.phase]}`,
     );
   return `  Recent (current branch, max 3): ${recent.join("; ") || "none"}`;
 };
 
 const activeCheckpointText = (
   active: ReturnType<typeof resolveActiveCheckpointBoundary>,
-  identity: CheckpointIdentity | undefined
+  identity: CheckpointIdentity | undefined,
 ) => {
   if (active.kind === "invalid-checkpoint") {
     return `invalid · ${carrierLabels[active.carrier]}`;
@@ -364,19 +349,14 @@ const activeCheckpointText = (
   if (!identity) {
     return `valid · compatibility unavailable · provider window ${active.checkpoint.runtime.windowNumber} · ${carrierLabels[active.carrier]}`;
   }
-  const compatibility = decideCheckpointCompatibility(
-    active.checkpoint,
-    identity
-  );
+  const compatibility = decideCheckpointCompatibility(active.checkpoint, identity);
   const compatibilityText = compatibility.compatible
     ? "compatible"
     : `incompatible (${compatibility.field})`;
   return `valid · ${compatibilityText} · provider window ${active.checkpoint.runtime.windowNumber} · ${carrierLabels[active.carrier]}`;
 };
 
-export const formatCodexProviderStatus = (
-  options: CodexProviderStatusOptions
-): string => {
+export const formatCodexProviderStatus = (options: CodexProviderStatusOptions): string => {
   const branchCheckpoints = checkpoints(options.branch);
   const sessionCheckpoints = checkpoints(options.entries);
   const { observations } = options;
@@ -397,25 +377,19 @@ export const formatCodexProviderStatus = (
   const contextParts: string[] = [];
   if (context !== undefined) {
     contextParts.push(
-      `${context.tokens === null ? "unknown" : number(context.tokens)} / ${number(context.contextWindow)} tokens${context.percent === null ? "" : ` (${context.percent.toFixed(1)}%)`}`
+      `${context.tokens === null ? "unknown" : number(context.tokens)} / ${number(context.contextWindow)} tokens${context.percent === null ? "" : ` (${context.percent.toFixed(1)}%)`}`,
     );
   }
   if (options.current?.autoCompactTokens !== undefined) {
-    contextParts.push(
-      `compaction threshold ${number(options.current.autoCompactTokens)}`
-    );
+    contextParts.push(`compaction threshold ${number(options.current.autoCompactTokens)}`);
   }
 
   const latestFrame = observedFrames.at(0);
   const latestFallback = observedFallbacks.at(0);
   const observationCounts = {
-    compactions: observations.filter(
-      (observation) => observation.kind === "compaction"
-    ).length,
+    compactions: observations.filter((observation) => observation.kind === "compaction").length,
     frames: observedFrames.length,
-    requests: observations.filter(
-      (observation) => observation.kind === "request"
-    ).length,
+    requests: observations.filter((observation) => observation.kind === "request").length,
   };
   return [
     "Codex provider status",
@@ -439,8 +413,7 @@ export const formatCodexProviderStatus = (
     "Observability",
     `  Database: ${options.observabilityPath}`,
     `  Rows (session, 30 days): ${observationCounts.requests} requests · ${observationCounts.compactions} compactions · ${observationCounts.frames} replay blocks`,
-    ...(options.observabilityError === undefined ||
-    options.observabilityError.length === 0
+    ...(options.observabilityError === undefined || options.observabilityError.length === 0
       ? []
       : [`  Last database error: ${options.observabilityError}`]),
   ].join("\n");

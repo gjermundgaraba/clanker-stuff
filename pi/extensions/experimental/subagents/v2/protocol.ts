@@ -27,7 +27,7 @@ const CommunicationSchema = Type.Union([
       delivery: Type.Union([Type.Literal("queue"), Type.Literal("turn")]),
       kind: Type.Literal("NEW_TASK"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -35,7 +35,7 @@ const CommunicationSchema = Type.Union([
       delivery: Type.Literal("queue"),
       kind: Type.Union([Type.Literal("MESSAGE"), Type.Literal("FINAL_ANSWER")]),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
 ]);
 const PersistedAgentCommon = {
@@ -54,19 +54,16 @@ const PersistedAgentSchema = Type.Union([
       error: Type.Optional(Type.Never()),
       status: Type.Union([Type.Literal("pending"), Type.Literal("running")]),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
       ...PersistedAgentCommon,
       activeDeliveryId: Type.Optional(Type.Never()),
       error: Type.Optional(Type.Never()),
-      status: Type.Union([
-        Type.Literal("completed"),
-        Type.Literal("interrupted"),
-      ]),
+      status: Type.Union([Type.Literal("completed"), Type.Literal("interrupted")]),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
   Type.Object(
     {
@@ -75,7 +72,7 @@ const PersistedAgentSchema = Type.Union([
       error: Type.String(),
       status: Type.Literal("errored"),
     },
-    { additionalProperties: false }
+    { additionalProperties: false },
   ),
 ]);
 export const V2SnapshotSchema = Type.Object(
@@ -83,7 +80,7 @@ export const V2SnapshotSchema = Type.Object(
     communications: Type.Array(CommunicationSchema),
     nodes: Type.Array(PersistedAgentSchema),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 
 export type AgentStatus = PersistedAgent["status"];
@@ -95,8 +92,7 @@ const SEGMENT_PATTERN = /^[a-z0-9_]+$/u;
 export const communicationEnvelope = (message: Communication): string =>
   `Message Type: ${message.kind}\nTask name: ${message.to}\nSender: ${message.from}\nPayload:\n${message.content}`;
 
-export const isAgentPath = (value: unknown): value is string =>
-  typeof value === "string" && PATH_PATTERN.test(value);
+export const isAgentPath = (value: string): boolean => PATH_PATTERN.test(value);
 
 const validatePath = (value: string): string => {
   if (!PATH_PATTERN.test(value)) {
@@ -106,14 +102,8 @@ const validatePath = (value: string): string => {
 };
 
 export const childAgentPath = (caller: string, taskName: string): string => {
-  if (
-    taskName.trim() !== taskName ||
-    taskName.at(-1) === "\n" ||
-    !SEGMENT_PATTERN.test(taskName)
-  ) {
-    throw new Error(
-      "task_name must contain only lowercase letters, digits, and underscores"
-    );
+  if (taskName.trim() !== taskName || taskName.at(-1) === "\n" || !SEGMENT_PATTERN.test(taskName)) {
+    throw new Error("task_name must contain only lowercase letters, digits, and underscores");
   }
   if (taskName === "root") {
     throw new Error("task_name root is reserved");

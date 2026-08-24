@@ -1,14 +1,36 @@
 import { Value } from "typebox/value";
-import { describe, expect, it, vi } from "vitest";
+import { Type } from "typebox";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
 import { DEFAULT_CONFIG } from "../../config.js";
-import type { V1Controller } from "../../v1/controller.js";
 import { registerV1Tools } from "../../v1/tools.js";
+import type { V1ToolController } from "../../v1/tools.js";
+
+const controller = (overrides: Partial<V1ToolController> = {}): V1ToolController => ({
+  close: () => Promise.resolve({ previous_status: "not_found" }),
+  resume: () => Promise.resolve({ status: "not_found" }),
+  sendInput: () => Promise.resolve({ submission_id: "submission" }),
+  spawn: () => Promise.resolve({ agent_id: "agent-id", nickname: "Atlas" }),
+  wait: () => Promise.resolve({ status: {}, timed_out: false }),
+  ...overrides,
+});
+const PropertiesSchema = Type.Object(
+  {
+    properties: Type.Record(Type.String(), Type.Unknown()),
+  },
+  { additionalProperties: true },
+);
+const properties = <T>(schema: T) => {
+  if (!Value.Check(PropertiesSchema, schema)) {
+    throw new Error("Expected object schema properties");
+  }
+  return schema.properties;
+};
 
 describe("V1 model contract", () => {
   it("exposes Codex-compatible schemas and JSON results", async () => {
-    const controller = {
+    const tools = controller({
       close: () => Promise.resolve({ previous_status: { completed: "done" } }),
       resume: () => Promise.resolve({ status: "interrupted" }),
       sendInput: () => Promise.resolve({ submission_id: "submission" }),
@@ -18,9 +40,9 @@ describe("V1 model contract", () => {
           status: { "agent-id": { completed: "done" } },
           timed_out: false,
         }),
-    } as unknown as V1Controller;
+    });
     const host = createExtensionHost((pi) => {
-      registerV1Tools(pi, controller, () => {});
+      registerV1Tools(pi, tools, () => {});
     });
     await host.ready;
 
@@ -28,46 +50,34 @@ describe("V1 model contract", () => {
     if (!spawn) {
       throw new Error("Expected spawn_agent");
     }
-    const parameters = spawn.parameters as typeof spawn.parameters & {
-      properties?: Record<string, unknown>;
-    };
+    const schemaProperties = properties(spawn.parameters);
     expect({
       description: spawn.description,
-      reasoning: JSON.stringify(parameters.properties?.reasoning_effort),
+      reasoning: JSON.stringify(schemaProperties.reasoning_effort),
       schemaAcceptsAgentType: Value.Check(spawn.parameters, {
         agent_type: "reviewer",
         message: "work",
       }),
       schemaAcceptsMessage: Value.Check(spawn.parameters, { message: "work" }),
-      schemaNames: Object.keys(parameters.properties ?? {}).toSorted(),
+      schemaNames: Object.keys(schemaProperties).toSorted(),
     }).toStrictEqual({
       description: expect.stringContaining(
-        "Delegate non-blocking work with a clear, disjoint scope."
+        "Delegate non-blocking work with a clear, disjoint scope.",
       ),
       reasoning: expect.stringContaining("Reasoning effort override"),
       schemaAcceptsAgentType: false,
       schemaAcceptsMessage: true,
-      schemaNames: [
-        "fork_context",
-        "items",
-        "message",
-        "model",
-        "reasoning_effort",
-      ],
+      schemaNames: ["fork_context", "items", "message", "model", "reasoning_effort"],
     });
-    await expect(
-      host.runTool("spawn_agent", { message: "work" })
-    ).resolves.toMatchObject({
-      content: [
-        { text: '{"agent_id":"agent-id","nickname":"Atlas"}', type: "text" },
-      ],
+    await expect(host.runTool("spawn_agent", { message: "work" })).resolves.toMatchObject({
+      content: [{ text: '{"agent_id":"agent-id","nickname":"Atlas"}', type: "text" }],
       details: { agent_id: "agent-id", nickname: "Atlas" },
     });
     await expect(
       host.runTool("wait_agent", {
         targets: ["agent-id"],
         timeout_ms: 30_000,
-      })
+      }),
     ).resolves.toMatchObject({
       details: {
         status: { "agent-id": { completed: "done" } },
@@ -78,7 +88,7 @@ describe("V1 model contract", () => {
 
   it("advertises numeric wait timeouts and leaves integer decoding to runtime", async () => {
     const host = createExtensionHost((pi) => {
-      registerV1Tools(pi, {} as unknown as V1Controller, () => {});
+      registerV1Tools(pi, controller(), () => {});
     });
     await host.ready;
     const wait = host.getRegisteredTools().get("wait_agent")?.definition;
@@ -100,13 +110,12 @@ describe("V1 model contract", () => {
 
   it("advertises provider-compatible object roots and leaves input choice validation to runtime", async () => {
     const host = createExtensionHost((pi) => {
-      registerV1Tools(pi, {} as unknown as V1Controller, () => {});
+      registerV1Tools(pi, controller(), () => {});
     });
     await host.ready;
 
     for (const name of ["spawn_agent", "send_input"]) {
-      const parameters = host.getRegisteredTools().get(name)?.definition
-        .parameters as Record<string, unknown> | undefined;
+      const parameters = host.getRegisteredTools().get(name)?.definition.parameters;
       expect(parameters).toMatchObject({
         additionalProperties: false,
         type: "object",
@@ -141,9 +150,8 @@ describe("V1 model contract", () => {
   });
 
   it("advertises only configured roles and includes their descriptions", async () => {
-    const controller = {} as unknown as V1Controller;
     const host = createExtensionHost((pi) => {
-      registerV1Tools(pi, controller, () => {}, {
+      registerV1Tools(pi, controller(), () => {}, {
         ...structuredClone(DEFAULT_CONFIG),
         roles: {
           reviewer: {
@@ -157,19 +165,17 @@ describe("V1 model contract", () => {
     if (!spawn) {
       throw new Error("Expected spawn_agent");
     }
-    const parameters = spawn.parameters as typeof spawn.parameters & {
-      properties?: Record<string, unknown>;
-    };
+    const schemaProperties = properties(spawn.parameters);
 
-    expect(Object.keys(parameters.properties ?? {})).toContain("agent_type");
-    expect(JSON.stringify(parameters.properties?.agent_type)).toContain(
-      "reviewer: Reviews changes for correctness."
+    expect(Object.keys(schemaProperties)).toContain("agent_type");
+    expect(JSON.stringify(schemaProperties.agent_type)).toContain(
+      "reviewer: Reviews changes for correctness.",
     );
   });
 
   it("hides model overrides from the strict spawn schema", async () => {
     const host = createExtensionHost((pi) => {
-      registerV1Tools(pi, {} as unknown as V1Controller, () => {}, {
+      registerV1Tools(pi, controller(), () => {}, {
         ...structuredClone(DEFAULT_CONFIG),
         expose_spawn_agent_model_overrides: false,
       });
@@ -179,11 +185,9 @@ describe("V1 model contract", () => {
     if (!definition) {
       throw new Error("Expected spawn_agent");
     }
-    const parameters = definition.parameters as typeof definition.parameters & {
-      properties?: Record<string, unknown>;
-    };
+    const schemaProperties = properties(definition.parameters);
 
-    expect(Object.keys(parameters.properties ?? {}).toSorted()).toStrictEqual([
+    expect(Object.keys(schemaProperties).toSorted()).toStrictEqual([
       "fork_context",
       "items",
       "message",
@@ -192,19 +196,20 @@ describe("V1 model contract", () => {
       Value.Check(definition.parameters, {
         message: "work",
         model: "provider/model",
-      })
+      }),
     ).toBeFalsy();
   });
 
   it("preserves configured agent_type while hiding only model overrides", async () => {
-    const controller = {
-      spawn: vi.fn<V1Controller["spawn"]>(async () => ({
-        agent_id: "agent-id",
-        nickname: "Atlas",
-      })),
-    } as unknown as V1Controller;
+    const spawn = vi.fn<V1ToolController["spawn"]>(async () => ({
+      agent_id: "agent-id",
+      nickname: "Atlas",
+    }));
+    const tools = controller({
+      spawn,
+    });
     const host = createExtensionHost((pi) => {
-      registerV1Tools(pi, controller, () => {}, {
+      registerV1Tools(pi, tools, () => {}, {
         ...structuredClone(DEFAULT_CONFIG),
         expose_spawn_agent_model_overrides: false,
         roles: { reviewer: { description: "Review changes." } },
@@ -215,11 +220,9 @@ describe("V1 model contract", () => {
     if (!definition) {
       throw new Error("Expected spawn_agent");
     }
-    const parameters = definition.parameters as typeof definition.parameters & {
-      properties?: Record<string, unknown>;
-    };
+    const schemaProperties = properties(definition.parameters);
 
-    expect(Object.keys(parameters.properties ?? {}).toSorted()).toStrictEqual([
+    expect(Object.keys(schemaProperties).toSorted()).toStrictEqual([
       "agent_type",
       "fork_context",
       "items",
@@ -229,7 +232,7 @@ describe("V1 model contract", () => {
       agent_type: "reviewer",
       message: "work",
     });
-    expect(controller.spawn).toHaveBeenCalledWith(
+    expect(spawn).toHaveBeenCalledWith(
       {
         agentType: "reviewer",
         forkContext: false,
@@ -239,7 +242,7 @@ describe("V1 model contract", () => {
         thinking: undefined,
       },
       expect.anything(),
-      undefined
+      undefined,
     );
   });
 });

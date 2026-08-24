@@ -1,8 +1,5 @@
-import type {
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import mcp from "../index.js";
@@ -10,11 +7,9 @@ import mcp from "../index.js";
 const loader = vi.hoisted(() => ({
   dispose: vi.fn<() => Promise<void>>(async () => await Promise.resolve()),
   pickAndLoad: vi.fn<(ctx: ExtensionCommandContext) => Promise<void>>(
-    async () => await Promise.resolve()
+    async () => await Promise.resolve(),
   ),
-  restore: vi.fn<(ctx: ExtensionContext) => Promise<void>>(
-    async () => await Promise.resolve()
-  ),
+  restore: vi.fn<(ctx: ExtensionContext) => Promise<void>>(async () => await Promise.resolve()),
 }));
 const createLoader = vi.hoisted(() => vi.fn<() => void>());
 

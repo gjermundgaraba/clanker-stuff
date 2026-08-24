@@ -1,18 +1,15 @@
-import type {
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 
 const controller = vi.hoisted(() => ({
   dispose: vi.fn<() => void>(),
-  runCommand:
-    vi.fn<(args: string, ctx: ExtensionCommandContext) => Promise<void>>(),
+  runCommand: vi.fn<(args: string, ctx: ExtensionCommandContext) => Promise<void>>(),
   start: vi.fn<(ctx: ExtensionContext) => void>(),
-  trackModel: vi.fn<(ctx: ExtensionContext, model: unknown) => void>(),
+  trackModel:
+    vi.fn<(ctx: ExtensionContext, model: { provider?: string } | null | undefined) => void>(),
 }));
 const createController = vi.hoisted(() => vi.fn<() => void>());
 

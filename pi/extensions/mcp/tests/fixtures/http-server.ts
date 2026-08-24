@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import {
@@ -12,27 +11,31 @@ import {
 } from "@modelcontextprotocol/server";
 
 import { createFixtureMcpServer } from "./mcp-server.js";
+import { z } from "zod/v4";
 
 export const FIXTURE_ACCESS_TOKEN = "fixture-access-token";
 
-const sendJson = (res: ServerResponse, value: unknown, status = 200): void => {
-  res
-    .writeHead(status, { "Content-Type": "application/json" })
-    .end(JSON.stringify(value));
+type JsonValue = boolean | null | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+const sendJson = (res: ServerResponse, value: JsonValue, status = 200): void => {
+  res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(value));
 };
 
-const readJson = async (req: IncomingMessage): Promise<unknown> => {
-  const chunks: Buffer[] = [];
+const readJsonObject = async (req: IncomingMessage): Promise<Record<string, JsonValue>> => {
+  const chunks: Uint8Array[] = [];
   for await (const chunk of req) {
-    chunks.push(chunk as Buffer);
+    if (!(chunk instanceof Uint8Array)) {
+      throw new TypeError("Expected an HTTP request body byte chunk");
+    }
+    chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+  return z.record(z.string(), z.json()).parse(JSON.parse(Buffer.concat(chunks).toString("utf-8")));
 };
 
 export const startMcpHttpFixture = async (
   oauth = false,
   expireSessionOnce = false,
-  pauseInitialization = false
+  pauseInitialization = false,
 ) => {
   const mcpHandler = createMcpHandler(() => createFixtureMcpServer());
   const initializationGate = Promise.withResolvers<null>();
@@ -41,8 +44,7 @@ export const startMcpHttpFixture = async (
   let sessionExpired = false;
   const handleMcpRequest = toNodeHandler({
     async fetch(request, options) {
-      const body =
-        request.method === "POST" ? await request.clone().json() : undefined;
+      const body = request.method === "POST" ? await request.clone().json() : undefined;
       if (pauseInitialization && isInitializeRequest(body)) {
         initializationStarted.resolve(null);
         await initializationGate.promise;
@@ -68,19 +70,13 @@ export const startMcpHttpFixture = async (
   });
   let issuer = "";
 
-  const handleNodeRequest = async (
-    req: IncomingMessage,
-    res: ServerResponse
-  ): Promise<void> => {
+  const handleNodeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       const origin = `http://${req.headers.host ?? "localhost"}`;
       const url = new URL(req.url ?? "/", origin);
 
       if (url.pathname === "/mcp") {
-        if (
-          oauth &&
-          req.headers.authorization !== `Bearer ${FIXTURE_ACCESS_TOKEN}`
-        ) {
+        if (oauth && req.headers.authorization !== `Bearer ${FIXTURE_ACCESS_TOKEN}`) {
           res
             .writeHead(401, {
               "Content-Type": "application/json",
@@ -139,7 +135,7 @@ export const startMcpHttpFixture = async (
 
       if (url.pathname === "/register" && req.method === "POST") {
         sendJson(res, {
-          ...((await readJson(req)) as Record<string, unknown>),
+          ...(await readJsonObject(req)),
           client_id: "fixture-client-id",
           client_secret: "fixture-client-secret",
         });
@@ -166,7 +162,7 @@ export const startMcpHttpFixture = async (
   const server = createServer((req, res) => void handleNodeRequest(req, res));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
-  const { port } = server.address() as AddressInfo;
+  const { port } = z.object({ port: z.number() }).parse(server.address());
   issuer = `http://127.0.0.1:${port}`;
 
   return {

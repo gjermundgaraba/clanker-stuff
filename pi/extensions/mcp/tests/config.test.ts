@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { listMcpServers, loadMcpConfig, McpConfigSchema } from "../config.js";
 import { envVarRef, setupMcpTest } from "./helpers.js";
@@ -26,8 +26,7 @@ describe("MCP config schema validation", () => {
         mcpServers: {
           interactive: {
             oauth: {
-              authServerMetadataUrl:
-                "https://auth.example.com/.well-known/openid-configuration",
+              authServerMetadataUrl: "https://auth.example.com/.well-known/openid-configuration",
               callbackPort: 33_418,
               clientId: "client-id",
               clientName: "pi MCP",
@@ -45,7 +44,7 @@ describe("MCP config schema validation", () => {
             url: "https://machine.example.com",
           },
         },
-      }).success
+      }).success,
     ).toBeTruthy();
   });
 
@@ -73,7 +72,7 @@ describe("MCP config schema validation", () => {
             url: "https://mcp.example.com",
           },
         },
-      }).success
+      }).success,
     ).toBeFalsy();
     expect(
       McpConfigSchema.safeParse({
@@ -84,7 +83,7 @@ describe("MCP config schema validation", () => {
             type: "stdio",
           },
         },
-      }).success
+      }).success,
     ).toBeFalsy();
   });
 });
@@ -103,17 +102,17 @@ describe(loadMcpConfig, () => {
       },
     });
 
-    await expect(
-      loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })
-    ).resolves.toStrictEqual({
-      mcpServers: {
-        project: {
-          oauth: {},
-          type: "streamable-http",
-          url: "https://project.example.com/mcp",
+    await expect(loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })).resolves.toStrictEqual(
+      {
+        mcpServers: {
+          project: {
+            oauth: {},
+            type: "streamable-http",
+            url: "https://project.example.com/mcp",
+          },
         },
       },
-    });
+    );
   });
 
   it("merges global and project-local servers with local taking precedence", async () => {
@@ -130,17 +129,17 @@ describe(loadMcpConfig, () => {
       },
     });
 
-    await expect(
-      loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })
-    ).resolves.toStrictEqual({
-      mcpServers: {
-        global: { type: "http", url: "https://global.example.com" },
-        project: { command: "/usr/bin/project-mcp", type: "stdio" },
-        shared: { type: "http", url: "https://new.example.com" },
+    await expect(loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })).resolves.toStrictEqual(
+      {
+        mcpServers: {
+          global: { type: "http", url: "https://global.example.com" },
+          project: { command: "/usr/bin/project-mcp", type: "stdio" },
+          shared: { type: "http", url: "https://new.example.com" },
+        },
       },
-    });
+    );
     await expect(
-      listMcpServers({ cwd: t.projectDir, projectTrusted: true })
+      listMcpServers({ cwd: t.projectDir, projectTrusted: true }),
     ).resolves.toStrictEqual([
       { name: "global", scope: "global" },
       { name: "shared", scope: "project" },
@@ -161,7 +160,7 @@ describe(loadMcpConfig, () => {
     });
 
     await expect(
-      loadMcpConfig({ cwd: t.projectDir, projectTrusted: false })
+      loadMcpConfig({ cwd: t.projectDir, projectTrusted: false }),
     ).resolves.toStrictEqual({
       mcpServers: {
         global: { type: "http", url: "https://global.example.com" },
@@ -174,12 +173,12 @@ describe(loadMcpConfig, () => {
     await writeFile(
       t.localConfigPath,
       JSON.stringify({ mcpServers: { bad: { type: "stdio" } } }),
-      "utf-8"
+      "utf-8",
     );
 
-    await expect(
-      loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })
-    ).rejects.toThrow(/invalid config .*mcp\.json/u);
+    await expect(loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })).rejects.toThrow(
+      /invalid config .*mcp\.json/u,
+    );
   });
 
   it("expands Claude-style environment variables", async () => {
@@ -254,11 +253,9 @@ describe(loadMcpConfig, () => {
       },
     });
 
-    await expect(listMcpServers({})).resolves.toStrictEqual([
-      { name: "remote", scope: "global" },
-    ]);
+    await expect(listMcpServers({})).resolves.toStrictEqual([{ name: "remote", scope: "global" }]);
     await expect(loadMcpConfig()).rejects.toThrow(
-      "missing environment variable in MCP config: MCP_TEST_MISSING_TOKEN"
+      "missing environment variable in MCP config: MCP_TEST_MISSING_TOKEN",
     );
   });
 });

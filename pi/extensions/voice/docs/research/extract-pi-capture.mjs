@@ -1,14 +1,51 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import {
-  appendFileSync,
-  createReadStream,
-  readdirSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, createReadStream, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+
+const VoiceEnvelopeSchema = Type.Object({
+  detail: Type.Object({
+    body: Type.Optional(
+      Type.Object({ session: Type.Optional(Type.Object({ instructions: Type.String() })) }),
+    ),
+    data: Type.Optional(Type.String()),
+    line: Type.Optional(Type.String()),
+  }),
+  kind: Type.String(),
+  timestamp: Type.String(),
+});
+const MediaMessageSchema = Type.Object({
+  data: Type.Optional(
+    Type.Object({
+      capturePoint: Type.String(),
+      data: Type.String(),
+    }),
+  ),
+  event: Type.Optional(Type.String()),
+  kind: Type.Optional(Type.String()),
+});
+const RealtimeEventSchema = Type.Object({
+  item: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  turn: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  type: Type.String(),
+});
+const PiEnvelopeSchema = Type.Object({
+  detail: Type.Optional(Type.Unknown()),
+  kind: Type.String(),
+  timestamp: Type.String(),
+});
+
+const parseJson = (text, schema, source) => {
+  try {
+    return Value.Parse(schema, JSON.parse(text));
+  } catch {
+    throw new Error(`${source} contained unexpected JSON.`);
+  }
+};
 
 import { createEvidenceSnapshot } from "./evidence-snapshot.mjs";
 
@@ -22,26 +59,24 @@ const evidenceDirectory = evidenceSnapshot.directory;
 let published = false;
 
 const writeJson = (name, value) => {
-  writeFileSync(
-    path.join(evidenceDirectory, name),
-    `${JSON.stringify(value, null, 2)}\n`,
-    { mode: 0o600 }
-  );
+  writeFileSync(path.join(evidenceDirectory, name), `${JSON.stringify(value, null, 2)}\n`, {
+    mode: 0o600,
+  });
 };
 
 const writeNdjson = (name, values) => {
   writeFileSync(
     path.join(evidenceDirectory, name),
     `${values.map((value) => JSON.stringify(value)).join("\n")}\n`,
-    { mode: 0o600 }
+    { mode: 0o600 },
   );
 };
 
-const readNdjson = async (file, visit) => {
+const readNdjson = async (file, schema, visit) => {
   const lines = createInterface({ input: createReadStream(file) });
   for await (const line of lines) {
     if (line) {
-      visit(JSON.parse(line));
+      visit(parseJson(line, schema, file));
     }
   }
 };
@@ -52,7 +87,7 @@ try {
   const mediaEvents = [];
   const sideband = [];
   const mediaFiles = new Map();
-  await readNdjson(path.join(captureDirectory, "voice.ndjson"), (envelope) => {
+  await readNdjson(path.join(captureDirectory, "voice.ndjson"), VoiceEnvelopeSchema, (envelope) => {
     if (envelope.kind === "realtime.call.request") {
       callRequest = envelope;
     } else if (envelope.kind === "realtime.call.response") {
@@ -60,24 +95,28 @@ try {
     } else if (envelope.kind === "realtime.sideband.received") {
       sideband.push({
         direction: "received",
-        event: JSON.parse(envelope.detail.data),
+        event: parseJson(
+          envelope.detail.data,
+          RealtimeEventSchema,
+          "received realtime sideband event",
+        ),
         timestamp: envelope.timestamp,
       });
     } else if (envelope.kind === "realtime.sideband.sent") {
       sideband.push({
         direction: "sent",
-        event: JSON.parse(envelope.detail.data),
+        event: parseJson(envelope.detail.data, RealtimeEventSchema, "sent realtime sideband event"),
         timestamp: envelope.timestamp,
       });
     } else if (envelope.kind.startsWith("media.")) {
       const message =
         envelope.kind === "media.received"
-          ? JSON.parse(envelope.detail.line)
+          ? parseJson(envelope.detail.line, MediaMessageSchema, "voice media event")
           : undefined;
       if (
         message?.event === "trace" &&
         message.kind === "media-chunk" &&
-        typeof message.data?.data === "string"
+        message.data !== undefined
       ) {
         const { capturePoint, data } = message.data;
         let file = mediaFiles.get(capturePoint);
@@ -98,7 +137,7 @@ try {
   }
 
   const piEvents = [];
-  await readNdjson(path.join(captureDirectory, "pi.ndjson"), (event) => {
+  await readNdjson(path.join(captureDirectory, "pi.ndjson"), PiEnvelopeSchema, (event) => {
     piEvents.push(event);
   });
 
@@ -117,7 +156,7 @@ try {
   writeFileSync(
     path.join(evidenceDirectory, "realtime-prompt.md"),
     `${callRequest.detail.body.session.instructions}\n`,
-    { mode: 0o600 }
+    { mode: 0o600 },
   );
   writeNdjson("native-sideband.ndjson", sideband);
   writeNdjson("media-events.ndjson", mediaEvents);
@@ -127,7 +166,7 @@ try {
     "provider-requests.json",
     piEvents
       .filter(({ kind }) => kind === "before_provider_request")
-      .map(({ detail, timestamp }) => ({ detail, timestamp }))
+      .map(({ detail, timestamp }) => ({ detail, timestamp })),
   );
 
   const sha256 = async (file) => {
@@ -142,15 +181,11 @@ try {
   for (const name of readdirSync(evidenceDirectory)
     .filter((candidate) => candidate !== "SHA256SUMS")
     .toSorted()) {
-    evidenceHashes.push(
-      `${await sha256(path.join(evidenceDirectory, name))}  ${name}`
-    );
+    evidenceHashes.push(`${await sha256(path.join(evidenceDirectory, name))}  ${name}`);
   }
-  writeFileSync(
-    path.join(evidenceDirectory, "SHA256SUMS"),
-    `${evidenceHashes.join("\n")}\n`,
-    { mode: 0o600 }
-  );
+  writeFileSync(path.join(evidenceDirectory, "SHA256SUMS"), `${evidenceHashes.join("\n")}\n`, {
+    mode: 0o600,
+  });
 
   evidenceSnapshot.publish();
   published = true;
@@ -164,8 +199,8 @@ try {
         turns: turns.length,
       },
       null,
-      2
-    )}\n`
+      2,
+    )}\n`,
   );
 } finally {
   if (!published) {

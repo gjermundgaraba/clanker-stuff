@@ -7,16 +7,10 @@ export interface ClosableCdpClient {
   close(): void;
 }
 
-export class TargetAttachmentRegistry<
-  Client extends ClosableCdpClient,
-  Target extends CdpTarget,
-> {
+export class TargetAttachmentRegistry<Client extends ClosableCdpClient, Target extends CdpTarget> {
   constructor(
-    attach: (
-      target: Target,
-      isOwner: () => boolean
-    ) => Client | Promise<Client>,
-    onAttachError: (error: unknown, target: Target) => void
+    attach: (target: Target, isOwner: () => boolean) => Client | Promise<Client>,
+    onAttachError: (error: Error, target: Target) => void,
   );
 
   claim(target: Target): {

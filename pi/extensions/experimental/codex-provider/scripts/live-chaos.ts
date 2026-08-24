@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { ok as assert } from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import type { ChildProcess } from "node:child_process";
 import {
   chmod,
   copyFile,
@@ -20,18 +19,21 @@ import type { Readable } from "node:stream";
 import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
 
 import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
+import { isWireRecord as isRecord } from "./wire.ts";
+import type { WireValue } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
 const LIVE_RUNNER = path.join(import.meta.dirname, "live-multi-compaction.ts");
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
-  configuredModel !== undefined && configuredModel.length > 0
-    ? configuredModel
-    : "gpt-5.6-sol";
+  configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+interface CrashChild {
+  kill(signal: "SIGKILL"): boolean;
+  once(event: "error", listener: (error: Error) => void): this;
+  once(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+}
 
 export const removeCopiedAuth = (agentDir: string) =>
   rm(path.join(agentDir, "auth.json"), { force: true });
@@ -60,7 +62,7 @@ const runRpc = async () => {
           reserveTokens: 1000,
         },
       })}\n`,
-      { mode: 0o600 }
+      { mode: 0o600 },
     );
     client = new RpcClient({
       args: [
@@ -78,10 +80,7 @@ const runRpc = async () => {
         "--thinking",
         "minimal",
       ],
-      cliPath: path.join(
-        PACKAGE_ROOT,
-        "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
-      ),
+      cliPath: path.join(PACKAGE_ROOT, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
       cwd,
       env: { PI_CODING_AGENT_DIR: agentDir },
       model: LIVE_MODEL,
@@ -93,49 +92,42 @@ const runRpc = async () => {
     await client.promptAndWait(
       `RPC CONCURRENCY SOURCE. Reply only READY.\n${"r".repeat(20_000)}`,
       undefined,
-      120_000
+      120_000,
     );
     const concurrent = await Promise.allSettled([
       client.compact("first concurrent RPC compaction"),
       client.compact("second concurrent RPC compaction"),
     ]);
     const concurrentResults = concurrent.map((result) =>
-      result.status === "rejected" ? String(result.reason) : "fulfilled"
+      result.status === "rejected" ? String(result.reason) : "fulfilled",
     );
     assert(
       concurrent.every(
         (result) =>
-          result.status === "rejected" &&
-          String(result.reason).includes("Compaction cancelled")
+          result.status === "rejected" && String(result.reason).includes("Compaction cancelled"),
       ),
-      `Concurrent RPC results were ${concurrentResults.join(", ")}`
+      `Concurrent RPC results were ${concurrentResults.join(", ")}`,
     );
     const cancelledEntries = await client.getEntries();
     assert(
       cancelledEntries.entries.every((entry) => entry.type !== "compaction"),
-      "Cancelled concurrent RPC compaction persisted a compaction entry"
+      "Cancelled concurrent RPC compaction persisted a compaction entry",
     );
 
     await client.compact("recovery RPC compaction");
     const recoveredEntries = await client.getEntries();
-    const compactions = recoveredEntries.entries.filter(
-      (entry) => entry.type === "compaction"
-    );
+    const compactions = recoveredEntries.entries.filter((entry) => entry.type === "compaction");
     assert(compactions.length === 1, "RPC recovery did not persist once");
     const [compaction] = compactions;
     assert(
       compaction !== undefined &&
         isRecord(compaction.details) &&
         compaction.details.type === CHECKPOINT_CUSTOM_TYPE,
-      "RPC recovery checkpoint details are missing"
+      "RPC recovery checkpoint details are missing",
     );
     const parsed = parseCheckpoint(compaction.details.checkpoint);
     assert(parsed.ok, "RPC recovery checkpoint is invalid");
-    await client.promptAndWait(
-      "RPC RECOVERY REPLAY. Reply only RECOVERED.",
-      undefined,
-      120_000
-    );
+    await client.promptAndWait("RPC RECOVERY REPLAY. Reply only RECOVERED.", undefined, 120_000);
     const state = await client.getState();
     console.log(
       JSON.stringify(
@@ -147,8 +139,8 @@ const runRpc = async () => {
           status: "passed",
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     try {
@@ -160,7 +152,7 @@ const runRpc = async () => {
 };
 
 const findCheckpoint = async (
-  root: string
+  root: string,
 ): Promise<
   | {
       readonly count: number;
@@ -176,22 +168,20 @@ const findCheckpoint = async (
       continue;
     }
     const sessionFile = path.join(sessionDir, name);
-    // oxlint-disable-next-line no-await-in-loop -- stop at the first session containing a checkpoint
     const contents = await readFile(sessionFile, "utf-8");
     const entries = contents
       .trim()
       .split("\n")
       .flatMap((line) => {
         try {
-          const value: unknown = JSON.parse(line);
+          const value: WireValue = JSON.parse(line);
           return isRecord(value) ? [value] : [];
         } catch {
           return [];
         }
       });
     const checkpoints = entries.filter(
-      (entry) =>
-        entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE
+      (entry) => entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE,
     );
     const latest = checkpoints.at(-1);
     if (latest === undefined) {
@@ -216,8 +206,8 @@ export const waitForCrashCheckpoint = ({
   stdout,
   timeoutMs = 600_000,
 }: {
-  readonly child: ChildProcess;
-  readonly find: (root: string) => Promise<unknown>;
+  readonly child: CrashChild;
+  readonly find: (root: string) => Promise<object | undefined>;
   readonly pollIntervalMs?: number;
   readonly stdout: Readable;
   readonly timeoutMs?: number;
@@ -236,7 +226,7 @@ export const waitForCrashCheckpoint = ({
     }
     lines.close();
   };
-  const fail = (error: unknown) => {
+  const fail = (error: WireValue) => {
     if (settled) {
       return;
     }
@@ -263,11 +253,9 @@ export const waitForCrashCheckpoint = ({
   AbortSignal.timeout(timeoutMs).addEventListener(
     "abort",
     () => {
-      fail(
-        new Error("Crash canary did not persist a checkpoint in 10 minutes")
-      );
+      fail(new Error("Crash canary did not persist a checkpoint in 10 minutes"));
     },
-    { once: true }
+    { once: true },
   );
 
   lines.on("line", (line) => {
@@ -306,10 +294,7 @@ const runCrash = async () => {
     find: findCheckpoint,
     stdout: child.stdout,
   });
-  assert(
-    killed && root !== undefined,
-    "Crash child was not killed after persistence"
-  );
+  assert(killed && root !== undefined, "Crash child was not killed after persistence");
   const persisted = await findCheckpoint(root);
   assert(persisted !== undefined, "Killed child left no durable checkpoint");
 
@@ -330,10 +315,7 @@ const runCrash = async () => {
     stdio: "inherit",
   });
   const result: unknown = JSON.parse(await readFile(resultFile, "utf-8"));
-  assert(
-    isRecord(result) && result.status === "passed",
-    "Crash restart failed"
-  );
+  assert(isRecord(result) && result.status === "passed", "Crash restart failed");
   console.log(
     JSON.stringify(
       {
@@ -344,8 +326,8 @@ const runCrash = async () => {
         status: "passed",
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 };
 

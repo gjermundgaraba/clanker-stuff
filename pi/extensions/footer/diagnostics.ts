@@ -37,10 +37,7 @@ export const editorWidgets = (runtime: HostRuntime): FooterEditorWidget[] => {
     source: widget.source,
   }));
   for (const [key, value] of runtime.footerData?.getExtensionStatuses() ?? []) {
-    if (
-      !hasTerminalControl(key) &&
-      visibleWidth(sanitizeNativeStatus(value)) > 0
-    ) {
+    if (!hasTerminalControl(key) && visibleWidth(sanitizeNativeStatus(value)) > 0) {
       widgets.push({
         id: `status:${key}`,
         label: key,
@@ -58,7 +55,7 @@ export const editorWidgets = (runtime: HostRuntime): FooterEditorWidget[] => {
       id: "footer.statuses",
       label: "Native statuses",
       source: "builtin",
-    }
+    },
   );
   return widgets.toSorted((left, right) => left.id.localeCompare(right.id));
 };
@@ -75,8 +72,7 @@ const placementFor = (runtime: HostRuntime, id: string): string => {
   return "aggregate or unavailable";
 };
 
-const plainContent = (content: FooterContent): string =>
-  content.map((span) => span.text).join("");
+const plainContent = (content: FooterContent): string => content.map((span) => span.text).join("");
 
 const healthAge = (updatedAt: number | undefined, timestamp: number): string =>
   updatedAt === undefined
@@ -90,25 +86,17 @@ const healthLines = (widget: LiveWidget, timestamp: number): string[] => [
     : [`  health detail: ${summary(widget.snapshot.health.message)}`]),
 ];
 
-export const inspectLines = (
-  runtime: HostRuntime,
-  timestamp: number
-): string[] => {
+export const inspectLines = (runtime: HostRuntime, timestamp: number): string[] => {
   const byDecision = new Map(
     runtime.lastLayout?.decisions.map((decision) => [
       decision.id,
       `${decision.outcome}: ${decision.reason}`,
-    ])
+    ]),
   );
   const lines =
-    runtime.lastLayout?.duplicates.map(
-      (id) => `duplicate placement: ${summary(id)}`
-    ) ?? [];
-  for (const widget of [
-    ...runtime.builtins.values(),
-    ...runtime.rich.values(),
-  ].toSorted((left, right) =>
-    left.snapshot.id.localeCompare(right.snapshot.id)
+    runtime.lastLayout?.duplicates.map((id) => `duplicate placement: ${summary(id)}`) ?? [];
+  for (const widget of [...runtime.builtins.values(), ...runtime.rich.values()].toSorted(
+    (left, right) => left.snapshot.id.localeCompare(right.snapshot.id),
   )) {
     const { content } = widget.snapshot;
     lines.push(
@@ -118,15 +106,13 @@ export const inspectLines = (
       `  producer defaults: ${JSON.stringify(widget.snapshot.defaults ?? {})}`,
       `  user override: ${JSON.stringify(runtime.config.widgets[widget.snapshot.id] ?? {})}`,
       `  placement: ${placementFor(runtime, widget.snapshot.id)}`,
-      `  layout: ${byDecision.get(widget.snapshot.id) ?? "not rendered"}`
+      `  layout: ${byDecision.get(widget.snapshot.id) ?? "not rendered"}`,
     );
   }
   for (const [key, value] of runtime.footerData?.getExtensionStatuses() ?? []) {
     const id = `status:${key}`;
     const consumers = [...runtime.rich.values()]
-      .filter(
-        (widget) => widget.snapshot.consumesStatusKeys?.includes(key) === true
-      )
+      .filter((widget) => widget.snapshot.consumesStatusKeys?.includes(key) === true)
       .map((widget) => widget.snapshot.id)
       .toSorted();
     const layout =
@@ -139,16 +125,13 @@ export const inspectLines = (
       `  content: ${sanitizeNativeStatus(value)}`,
       `  user override: ${JSON.stringify(runtime.config.widgets[id] ?? {})}`,
       `  placement: ${placementFor(runtime, id)}`,
-      `  layout: ${summary(layout)}`
+      `  layout: ${summary(layout)}`,
     );
   }
   return lines.length === 0 ? ["No live widgets."] : lines;
 };
 
-export const doctorLines = (
-  runtime: HostRuntime,
-  configPath: string
-): string[] => {
+export const doctorLines = (runtime: HostRuntime, configPath: string): string[] => {
   const duplicates = duplicatePlacements(runtime.config);
   const lines = [
     `ownership: ${runtime.lifecycle}`,
@@ -158,10 +141,7 @@ export const doctorLines = (
     `rich widgets: ${[...runtime.rich.keys()].toSorted().map(summary).join(", ") || "none"}`,
     `duplicate placements: ${duplicates.map(summary).join(", ") || "none"}`,
   ];
-  if (
-    runtime.configLoaded.error !== undefined &&
-    runtime.configLoaded.error.length > 0
-  ) {
+  if (runtime.configLoaded.error !== undefined && runtime.configLoaded.error.length > 0) {
     lines.push(`config error: ${summary(runtime.configLoaded.error)}`);
   }
   lines.push(
@@ -171,9 +151,8 @@ export const doctorLines = (
     ...(runtime.protocolErrors.length === 0
       ? ["protocol errors: none"]
       : runtime.protocolErrors.map(
-          (error) =>
-            `${new Date(error.timestamp).toISOString()} ${error.class}: ${error.message}`
-        ))
+          (error) => `${new Date(error.timestamp).toISOString()} ${error.class}: ${error.message}`,
+        )),
   );
   return lines;
 };

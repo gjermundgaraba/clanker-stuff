@@ -1,16 +1,12 @@
 import { createMemoryControlStore, serializeSnapshot } from "./snapshot.js";
-import type {
-  ControlStore,
-  RootBinding,
-  SubagentsSnapshot,
-} from "./snapshot.js";
+import type { ControlStore, RootBinding, SubagentsSnapshot } from "./snapshot.js";
 
 type Listener = (state: SubagentsSnapshot) => void;
 
 const freeze = <T>(value: T): T => {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+  if (!Object.isFrozen(value)) {
     Object.freeze(value);
-    for (const child of Object.values(value)) {
+    for (const child of Object.values(Object(value))) {
       freeze(child);
     }
   }
@@ -50,11 +46,7 @@ export class TreeCoordinator {
     };
   }
 
-  async install(
-    store: ControlStore,
-    state: SubagentsSnapshot,
-    persist: boolean
-  ): Promise<void> {
+  async install(store: ControlStore, state: SubagentsSnapshot, persist: boolean): Promise<void> {
     await this.#enqueue(async () => {
       this.#store = store;
       this.#error = undefined;
@@ -71,7 +63,7 @@ export class TreeCoordinator {
   async installProvisional(
     store: ControlStore,
     state: SubagentsSnapshot,
-    activate: () => void
+    activate: () => void,
   ): Promise<void> {
     await this.#enqueue(() => {
       this.#store = store;
@@ -98,7 +90,7 @@ export class TreeCoordinator {
     options: {
       onCommit?: () => void;
       reserveTerminalHeadroom?: boolean;
-    } = {}
+    } = {},
   ): Promise<T> {
     let result!: T;
     await this.#enqueue(async () => {
@@ -106,11 +98,7 @@ export class TreeCoordinator {
       const draft = structuredClone(this.#state);
       result = mutate(draft);
       draft.revision += 1;
-      await this.#write(
-        freeze(draft),
-        options.reserveTerminalHeadroom ?? false,
-        options.onCommit
-      );
+      await this.#write(freeze(draft), options.reserveTerminalHeadroom ?? false, options.onCommit);
     });
     return result;
   }
@@ -138,7 +126,7 @@ export class TreeCoordinator {
   async #write(
     next: SubagentsSnapshot,
     reserveTerminalHeadroom: boolean,
-    onCommit?: () => void
+    onCommit?: () => void,
   ): Promise<void> {
     const serialized = serializeSnapshot(next, reserveTerminalHeadroom);
     try {

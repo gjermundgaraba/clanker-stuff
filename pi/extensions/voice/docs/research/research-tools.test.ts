@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { TargetAttachmentRegistry } from "./codex-runtime-recorder.mjs";
 
@@ -25,7 +25,7 @@ const temporaryDirectory = () => {
 };
 
 const deferred = <Value>() => {
-  let reject!: (error: unknown) => void;
+  let reject!: (error: Error) => void;
   let resolve!: (value: Value) => void;
   const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
     reject = rejectPromise;
@@ -48,8 +48,8 @@ describe("TargetAttachmentRegistry", () => {
       .fn()
       .mockImplementationOnce(() => first.promise)
       .mockResolvedValueOnce(secondClient);
-    const errors: unknown[] = [];
-    const registry = new TargetAttachmentRegistry(attach, (error: unknown) => {
+    const errors: Error[] = [];
+    const registry = new TargetAttachmentRegistry(attach, (error) => {
       errors.push(error);
     });
     const target = { id: "page-1", webSocketDebuggerUrl: "ws://first" };
@@ -142,17 +142,14 @@ describe("Pi capture extraction", () => {
       kind: "realtime.call.request",
       timestamp: "2026-01-01T00:00:00.000Z",
     };
-    writeFileSync(
-      path.join(captureDirectory, "voice.ndjson"),
-      `${JSON.stringify(callRequest)}\n`
-    );
+    writeFileSync(path.join(captureDirectory, "voice.ndjson"), `${JSON.stringify(callRequest)}\n`);
     writeFileSync(
       path.join(captureDirectory, "pi.ndjson"),
       `${JSON.stringify({
         detail: { request: "test" },
         kind: "before_provider_request",
         timestamp: "2026-01-01T00:00:01.000Z",
-      })}\n`
+      })}\n`,
     );
 
     const extractor = path.join(import.meta.dirname, "extract-pi-capture.mjs");
@@ -165,40 +162,28 @@ describe("Pi capture extraction", () => {
     expect(readdirSync(evidenceDirectory)).not.toContain("stale-user-file");
     expect(statSync(evidenceDirectory).mode & 0o777).toBe(0o700);
 
-    const sums = readFileSync(
-      path.join(evidenceDirectory, "SHA256SUMS"),
-      "utf-8"
-    ).trim();
+    const sums = readFileSync(path.join(evidenceDirectory, "SHA256SUMS"), "utf-8").trim();
     for (const line of sums.split("\n")) {
       const [expectedHash, name] = line.split("  ");
       const file = path.join(evidenceDirectory, name);
       expect(statSync(file).mode & 0o777).toBe(0o600);
-      expect(
-        createHash("sha256").update(readFileSync(file)).digest("hex")
-      ).toBe(expectedHash);
+      expect(createHash("sha256").update(readFileSync(file)).digest("hex")).toBe(expectedHash);
     }
     const priorRequest = readFileSync(
       path.join(evidenceDirectory, "realtime-call-request.json"),
-      "utf-8"
+      "utf-8",
     );
 
     writeFileSync(path.join(captureDirectory, "voice.ndjson"), "{bad json\n");
-    const failedRefresh = spawnSync(
-      process.execPath,
-      [extractor, captureDirectory],
-      { encoding: "utf-8" }
-    );
+    const failedRefresh = spawnSync(process.execPath, [extractor, captureDirectory], {
+      encoding: "utf-8",
+    });
     expect(failedRefresh.status).not.toBe(0);
+    expect(readFileSync(path.join(evidenceDirectory, "realtime-call-request.json"), "utf-8")).toBe(
+      priorRequest,
+    );
     expect(
-      readFileSync(
-        path.join(evidenceDirectory, "realtime-call-request.json"),
-        "utf-8"
-      )
-    ).toBe(priorRequest);
-    expect(
-      readdirSync(captureDirectory).filter((name) =>
-        name.startsWith(".evidence-tmp-")
-      )
+      readdirSync(captureDirectory).filter((name) => name.startsWith(".evidence-tmp-")),
     ).toEqual([]);
   });
 });
@@ -215,7 +200,7 @@ describe("Codex capture extraction", () => {
       `${JSON.stringify({
         message: { method: "thread/realtime/start", params: {} },
         timestamp: "2026-01-01T00:00:00.000Z",
-      })}\n`
+      })}\n`,
     );
     writeFileSync(
       path.join(captureDirectory, "renderer.ndjson"),
@@ -223,7 +208,7 @@ describe("Codex capture extraction", () => {
         detail: { data: JSON.stringify({ type: "session.started" }) },
         kind: "data-channel-received",
         timestamp: "2026-01-01T00:00:01.000Z",
-      })}\n`
+      })}\n`,
     );
     writeFileSync(
       path.join(captureDirectory, "app-server-1.stderr.bin"),
@@ -233,16 +218,13 @@ describe("Codex capture extraction", () => {
             'POST to https://chatgpt.com/backend-api/codex/realtime/calls: {"session":{"instructions":"test prompt"}}',
         },
         timestamp: "2026-01-01T00:00:02.000Z",
-      })}\n`
+      })}\n`,
     );
 
     const result = spawnSync(
       process.execPath,
-      [
-        path.join(import.meta.dirname, "extract-codex-capture.mjs"),
-        captureDirectory,
-      ],
-      { encoding: "utf-8" }
+      [path.join(import.meta.dirname, "extract-codex-capture.mjs"), captureDirectory],
+      { encoding: "utf-8" },
     );
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
@@ -252,7 +234,7 @@ describe("Codex capture extraction", () => {
     });
     expect(readdirSync(evidenceDirectory)).not.toContain("stale-user-file");
     expect(readdirSync(evidenceDirectory)).toEqual(
-      expect.arrayContaining(["RAW_SHA256SUMS", "SHA256SUMS"])
+      expect.arrayContaining(["RAW_SHA256SUMS", "SHA256SUMS"]),
     );
     expect(statSync(evidenceDirectory).mode & 0o777).toBe(0o700);
   });

@@ -1,6 +1,8 @@
 import type { AssistantMessage, Message, Usage } from "@earendil-works/pi-ai";
 import { convertResponsesMessages } from "@earendil-works/pi-ai/api/openai-responses-shared";
-import { describe, expect, it } from "vitest";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildFallbackAssistantIdMap,
@@ -10,6 +12,7 @@ import {
 import {
   extractFinalizedFrame,
   FRAME_MARKER_PREFIX,
+  ResponsesInputItemSchema,
   rewriteFramedInput,
 } from "../replay.js";
 import type { ResponsesInputItem } from "../replay.js";
@@ -35,10 +38,11 @@ const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
   "opencode",
   "azure-openai-responses",
 ]);
+const ResponsesInputSchema = Type.Array(ResponsesInputItemSchema);
 
 const assistant = (
   content: AssistantMessage["content"],
-  stopReason: AssistantMessage["stopReason"] = "stop"
+  stopReason: AssistantMessage["stopReason"] = "stop",
 ): AssistantMessage => ({
   api: SPIKE_MODEL.api,
   content,
@@ -57,14 +61,17 @@ const marker = (edge: "end" | "start", nonce: string): Message => ({
 });
 
 const serialize = (messages: readonly Message[]): ResponsesInputItem[] =>
-  structuredClone(
-    convertResponsesMessages(
-      SPIKE_MODEL,
-      { messages: [...messages] },
-      ALLOWED_TOOL_CALL_PROVIDERS,
-      { includeSystemPrompt: false }
-    )
-  ) as unknown as ResponsesInputItem[];
+  Value.Parse(
+    ResponsesInputSchema,
+    structuredClone(
+      convertResponsesMessages(
+        SPIKE_MODEL,
+        { messages: [...messages] },
+        ALLOWED_TOOL_CALL_PROVIDERS,
+        { includeSystemPrompt: false },
+      ),
+    ),
+  );
 
 const replacement: ResponsesInputItem[] = [
   {
@@ -81,11 +88,7 @@ const replacement: ResponsesInputItem[] = [
 
 const assertMarkerFreeParity = (live: readonly Message[]) => {
   const nonce = "phase-four";
-  const markerful = serialize([
-    marker("start", nonce),
-    ...live,
-    marker("end", nonce),
-  ]);
+  const markerful = serialize([marker("start", nonce), ...live, marker("end", nonce)]);
   const logical = serialize(live);
   const extracted = extractFinalizedFrame(markerful, nonce);
   expect(extracted.kind).toBe("ok");
@@ -93,12 +96,10 @@ const assertMarkerFreeParity = (live: readonly Message[]) => {
     return;
   }
   const mapping = buildFallbackAssistantIdMap(markerful, logical);
-  expect(
-    hasMarkerFreeStructuralParity(markerful, logical, nonce, mapping)
-  ).toBeTruthy();
+  expect(hasMarkerFreeStructuralParity(markerful, logical, nonce, mapping)).toBeTruthy();
   const corrected = correctFallbackAssistantIds(
     rewriteFramedInput(extracted, replacement),
-    mapping
+    mapping,
   );
   expect(corrected).toStrictEqual([...replacement, ...logical]);
 };
@@ -113,7 +114,7 @@ describe("pinned marker-free fallback assistant ID parity", () => {
         type: "toolCall",
       },
     ],
-    "toolUse"
+    "toolUse",
   );
   const splitResult: Message = {
     content: [{ text: "real split result", type: "text" }],
@@ -176,7 +177,7 @@ describe("pinned marker-free fallback assistant ID parity", () => {
               type: "toolCall",
             },
           ],
-          "toolUse"
+          "toolUse",
         ),
         {
           content: [{ text: "contents", type: "text" }],
@@ -216,17 +217,13 @@ describe("pinned marker-free fallback assistant ID parity", () => {
     ({ live }) => {
       expect.hasAssertions();
       assertMarkerFreeParity(live);
-    }
+    },
   );
 
   it("keeps marker-free fallback identity through repeated replacement", () => {
     expect.hasAssertions();
-    assertMarkerFreeParity([
-      assistant([{ text: "before repeated compaction", type: "text" }]),
-    ]);
-    assertMarkerFreeParity([
-      assistant([{ text: "after repeated compaction", type: "text" }]),
-    ]);
+    assertMarkerFreeParity([assistant([{ text: "before repeated compaction", type: "text" }])]);
+    assertMarkerFreeParity([assistant([{ text: "after repeated compaction", type: "text" }])]);
   });
 
   it("detects a start marker splitting a prefix call from a framed result", () => {
@@ -241,8 +238,7 @@ describe("pinned marker-free fallback assistant ID parity", () => {
     const mapping = buildFallbackAssistantIdMap(markerful, logical);
 
     expect({
-      markerSynthesizedOutput:
-        JSON.stringify(markerful).includes("No result provided"),
+      markerSynthesizedOutput: JSON.stringify(markerful).includes("No result provided"),
       parity: hasMarkerFreeStructuralParity(markerful, logical, nonce, mapping),
     }).toStrictEqual({
       markerSynthesizedOutput: true,
@@ -262,8 +258,7 @@ describe("pinned marker-free fallback assistant ID parity", () => {
     const mapping = buildFallbackAssistantIdMap(markerful, logical);
 
     expect({
-      markerSynthesizedOutput:
-        JSON.stringify(markerful).includes("No result provided"),
+      markerSynthesizedOutput: JSON.stringify(markerful).includes("No result provided"),
       parity: hasMarkerFreeStructuralParity(markerful, logical, nonce, mapping),
     }).toStrictEqual({
       markerSynthesizedOutput: true,
@@ -288,8 +283,8 @@ describe("pinned marker-free fallback assistant ID parity", () => {
             type: "message",
           },
         ],
-        { msg_pi_1: "msg_pi_0" }
-      )
+        { msg_pi_1: "msg_pi_0" },
+      ),
     ).toThrow("ambiguous");
   });
 });

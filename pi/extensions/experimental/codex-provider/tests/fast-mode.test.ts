@@ -1,18 +1,12 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { createFastModeState } from "../fast-mode.js";
+import { createFastModeConfigStore, createFastModeState } from "../fast-mode.js";
 import extension from "../index.js";
 import { SPIKE_MODEL } from "./fixtures.js";
 
@@ -36,6 +30,16 @@ describe("Codex fast mode", () => {
     vi.unstubAllEnvs();
   });
 
+  it("rejects extra fields in the persisted preference", async () => {
+    const configPath = path.join(agentDir, "codex-provider.json");
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(configPath, '{ "fast": true, "unexpected": false }\n');
+
+    await expect(createFastModeConfigStore(configPath).load()).rejects.toThrow(
+      'config must be exactly { "fast": boolean }',
+    );
+  });
+
   it("persists toggles globally and hides status for unsupported models", async () => {
     const first = createHost();
     const firstContext = first.createContext();
@@ -43,9 +47,7 @@ describe("Codex fast mode", () => {
     await first.emitSessionStart(firstContext);
     await first.runCommand("fast", "", firstContext);
     expect({
-      config: JSON.parse(
-        readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")
-      ),
+      config: JSON.parse(readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")),
       status: first.getStatus("codex-fast"),
     }).toStrictEqual({ config: { fast: true }, status: "⚡" });
 
@@ -57,7 +59,7 @@ describe("Codex fast mode", () => {
         source: "set",
         type: "model_select",
       },
-      first.createContext({ model: SPIKE_MODEL })
+      first.createContext({ model: SPIKE_MODEL }),
     );
     expect(first.getStatus("codex-fast")).toBeUndefined();
 
@@ -68,9 +70,7 @@ describe("Codex fast mode", () => {
 
     await second.runCommand("fast", "", secondContext);
     expect({
-      config: JSON.parse(
-        readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")
-      ),
+      config: JSON.parse(readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")),
       status: second.getStatus("codex-fast"),
     }).toStrictEqual({
       config: { fast: false },
@@ -80,10 +80,7 @@ describe("Codex fast mode", () => {
 
   it("uses --fast only for the initial session", async () => {
     mkdirSync(agentDir, { recursive: true });
-    writeFileSync(
-      path.join(agentDir, "codex-provider.json"),
-      '{ "fast": false }\n'
-    );
+    writeFileSync(path.join(agentDir, "codex-provider.json"), '{ "fast": false }\n');
     const host = createHost({ fast: true });
     const ctx = host.createContext();
 
@@ -106,17 +103,13 @@ describe("Codex fast mode", () => {
 
     expect(host.getStatus("codex-fast")).toBeUndefined();
     expect(
-      JSON.parse(
-        readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")
-      )
+      JSON.parse(readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")),
     ).toStrictEqual({ fast: false });
   });
 
   it("serializes startup loading before toggles", async () => {
     const loading = Promise.withResolvers<boolean>();
-    const save = vi.fn<(enabled: boolean) => Promise<void>>(
-      async () => await Promise.resolve()
-    );
+    const save = vi.fn<(enabled: boolean) => Promise<void>>(async () => await Promise.resolve());
     let api: ExtensionAPI | undefined;
     const host = createExtensionHost((pi) => {
       api = pi;

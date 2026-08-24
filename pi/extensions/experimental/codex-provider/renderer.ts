@@ -2,21 +2,21 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "./checkpoint.js";
-import type { Checkpoint } from "./checkpoint.js";
+import type { Checkpoint, CheckpointInput } from "./checkpoint.js";
 import { estimateModelVisibleTokens } from "./replay.js";
 
-const phaseLabels: Record<Checkpoint["phase"], string> = {
+const phaseLabels = {
   "mid-turn": "While the agent was working",
   "overflow-retry": "While recovering from the context limit",
   "pre-sampling": "Before the model replied",
   standalone: "Between turns",
-};
+} satisfies Record<Checkpoint["phase"], string>;
 
-const reasonLabels: Record<Checkpoint["reason"], string> = {
+const reasonLabels = {
   manual: "Manual — requested by you",
   overflow: "Automatic — context limit exceeded",
   threshold: "Automatic — context threshold reached",
-};
+} satisfies Record<Checkpoint["reason"], string>;
 
 const formatNumber = (value: number) => value.toLocaleString("en-US");
 
@@ -33,18 +33,15 @@ const formatSizeChange = (before: number, after: number) => {
 };
 
 export const formatCheckpointEntry = (
-  data: unknown,
-  expanded = false
+  data: CheckpointInput,
+  expanded = false,
 ): string | undefined => {
   const parsed = parseCheckpoint(data);
   if (!parsed.ok) {
     return undefined;
   }
   const { checkpoint } = parsed;
-  const replacementTokens = estimateModelVisibleTokens(
-    "",
-    checkpoint.replacement
-  );
+  const replacementTokens = estimateModelVisibleTokens("", checkpoint.replacement);
   const { usage } = checkpoint.response;
   const lines = [
     `✓ Context compacted successfully · Model: ${checkpoint.identity.model}`,
@@ -55,11 +52,9 @@ export const formatCheckpointEntry = (
     `Checkpoint: saved and validated · Provider window: ${formatNumber(checkpoint.runtime.windowNumber)}`,
   ];
   if (expanded) {
-    const retainedUsers = checkpoint.replacement.filter(
-      (item) => item.type === "message"
-    ).length;
+    const retainedUsers = checkpoint.replacement.filter((item) => item.type === "message").length;
     const retainedAgents = checkpoint.replacement.filter(
-      (item) => item.type === "agent_message"
+      (item) => item.type === "agent_message",
     ).length;
     lines.push(
       "Checkpoint details:",
@@ -69,7 +64,7 @@ export const formatCheckpointEntry = (
       `Compaction hash: ${checkpoint.runtime.compHash ?? "none"}`,
       `Schema: ${checkpoint.schema} v${checkpoint.version} · ${checkpoint.protocol} · request v${checkpoint.runtime.requestSchemaVersion}`,
       `Effective token limit: ${formatNumber(checkpoint.runtime.effectiveTokenLimit)}`,
-      `Replacement: ${formatNumber(checkpoint.replacement.length)} items · 1 compaction · ${formatNumber(retainedUsers)} user · ${formatNumber(retainedAgents)} agent`
+      `Replacement: ${formatNumber(checkpoint.replacement.length)} items · 1 compaction · ${formatNumber(retainedUsers)} user · ${formatNumber(retainedAgents)} agent`,
     );
   }
   return lines.join("\n");
@@ -78,8 +73,6 @@ export const formatCheckpointEntry = (
 export const registerCheckpointRenderer = (pi: ExtensionAPI) => {
   pi.registerEntryRenderer(CHECKPOINT_CUSTOM_TYPE, (entry, options, theme) => {
     const text = formatCheckpointEntry(entry.data, options.expanded);
-    return text === undefined
-      ? undefined
-      : new Text(theme.fg("accent", text), 1, 0);
+    return text === undefined ? undefined : new Text(theme.fg("accent", text), 1, 0);
   });
 };

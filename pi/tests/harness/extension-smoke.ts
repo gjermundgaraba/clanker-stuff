@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
+import { Type } from "@earendil-works/pi-ai";
+import type { Static } from "typebox";
+
 import { patchEnv } from "../helpers/env.js";
 import { createTempDir, linkDirectory } from "../helpers/fs.js";
 import { createAgentSessionHarness } from "./agent-session.js";
-import type {
-  ExtensionUIContext,
-  FauxModelDefinition,
-} from "./agent-session.js";
+import type { ExtensionUIContext, FauxModelDefinition } from "./agent-session.js";
 
 export interface ExtensionSmokeHarnessOptions {
   extensions?: string[];
@@ -18,55 +18,57 @@ export interface ExtensionSmokeHarnessOptions {
   withConfiguredAuth?: boolean;
 }
 
-type ProviderMessageContent =
-  | string
-  | { type?: string; text?: string }[]
-  | undefined;
+type ProviderMessageContent = string | { type?: string; text?: string }[] | undefined;
 
-interface ProviderPayloadWithMessages {
-  messages?: {
-    role?: string;
-    content?: ProviderMessageContent;
-  }[];
-}
+const ProviderPayloadWithMessagesSchema = Type.Object(
+  {
+    messages: Type.Optional(
+      Type.Array(
+        Type.Object({
+          content: Type.Optional(
+            Type.Union([
+              Type.String(),
+              Type.Array(
+                Type.Object({
+                  text: Type.Optional(Type.String()),
+                  type: Type.Optional(Type.String()),
+                }),
+              ),
+            ]),
+          ),
+          role: Type.Optional(Type.String()),
+        }),
+      ),
+    ),
+  },
+  { additionalProperties: true },
+);
 
 const noopRestore = () => {
   /* noop */
 };
 
 const extractTextContent = (content: ProviderMessageContent): string => {
-  if (typeof content === "string") {
-    return content;
-  }
-
   if (Array.isArray(content)) {
-    return content
-      .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
-      .join("\n");
+    return content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("\n");
   }
 
-  return "";
+  return content ?? "";
 };
 
-const lastUserTextFromPayload = (payload: unknown): string => {
-  const messages = (payload as ProviderPayloadWithMessages | undefined)
-    ?.messages;
-  const content = (messages ?? []).findLast(
-    (message) => message.role === "user"
-  )?.content;
+const lastUserTextFromPayload = (
+  payload: Static<typeof ProviderPayloadWithMessagesSchema> | undefined,
+): string => {
+  const content = (payload?.messages ?? []).findLast((message) => message.role === "user")?.content;
 
   return extractTextContent(content);
 };
 
-export const createExtensionSmokeHarness = async (
-  options: ExtensionSmokeHarnessOptions
-) => {
+export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarnessOptions) => {
   let projectDir: string | undefined;
   let homeDir: string | undefined;
   let restoreEnv = noopRestore;
-  let harness:
-    | Awaited<ReturnType<typeof createAgentSessionHarness>>
-    | undefined;
+  let harness: Awaited<ReturnType<typeof createAgentSessionHarness>> | undefined;
   let cleanedUp = false;
 
   const cleanup = () => {
@@ -104,20 +106,14 @@ export const createExtensionSmokeHarness = async (
 
     await Promise.all(
       (options.extensions ?? []).map(async (extensionPath) => {
-        await linkDirectory(
-          extensionPath,
-          path.join(extensionsDir, path.basename(extensionPath))
-        );
-      })
+        await linkDirectory(extensionPath, path.join(extensionsDir, path.basename(extensionPath)));
+      }),
     );
 
     harness = await createAgentSessionHarness({
       cwd: projectDir,
       models: options.models,
-      settings:
-        options.packages === undefined
-          ? undefined
-          : { packages: options.packages },
+      settings: options.packages === undefined ? undefined : { packages: options.packages },
       skillPaths: options.skillPaths,
       uiContext: options.uiContext,
       withConfiguredAuth: options.withConfiguredAuth,
@@ -128,7 +124,13 @@ export const createExtensionSmokeHarness = async (
       cleanup,
       homeDir,
       lastUserText() {
-        return lastUserTextFromPayload(harness?.lastProviderPayload());
+        try {
+          return lastUserTextFromPayload(
+            harness?.lastProviderPayload(ProviderPayloadWithMessagesSchema),
+          );
+        } catch {
+          return "";
+        }
       },
       projectDir,
     };
@@ -138,6 +140,4 @@ export const createExtensionSmokeHarness = async (
   }
 };
 
-export type ExtensionSmokeHarness = Awaited<
-  ReturnType<typeof createExtensionSmokeHarness>
->;
+export type ExtensionSmokeHarness = Awaited<ReturnType<typeof createExtensionSmokeHarness>>;

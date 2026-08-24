@@ -1,4 +1,6 @@
-/* eslint-disable max-classes-per-file */
+import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 
 export type TranscriptRole = "assistant" | "user";
 
@@ -6,6 +8,24 @@ export interface TranscriptEntry {
   role: TranscriptRole;
   text: string;
 }
+
+export interface ContinuityItem {
+  content: { text: string; type: "input_text" }[];
+  role: "user";
+  type: "message";
+}
+
+const PersistedEntrySchema = Type.Object({
+  role: Type.Union([Type.Literal("assistant"), Type.Literal("user")]),
+  text: Type.String(),
+});
+
+export const PersistedVoiceDataSchema = Type.Object({
+  branchId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  entries: Type.Optional(Type.Array(PersistedEntrySchema)),
+});
+
+export type PersistedVoiceData = Static<typeof PersistedVoiceDataSchema>;
 
 const CONTINUITY_MAX_ITEMS = 10;
 const CONTINUITY_MAX_ITEM_CHARS = 1200;
@@ -25,10 +45,7 @@ const boundHandoffText = (text: string): string => {
 };
 
 const escapeXml = (value: string): string =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 export class HandoffTranscript {
   private readonly entries: TranscriptEntry[] = [];
@@ -69,9 +86,7 @@ export class HandoffTranscript {
     const normalized = boundHandoffText(input.trim());
     if (
       normalized &&
-      !this.entries.some(
-        (entry) => entry.role === "user" && entry.text.trim() === normalized
-      )
+      !this.entries.some((entry) => entry.role === "user" && entry.text.trim() === normalized)
     ) {
       this.entries.push({ role: "user", text: normalized });
     }
@@ -88,10 +103,7 @@ export class HandoffTranscript {
     if (this.entries.length > HANDOFF_MAX_ITEMS) {
       this.entries.splice(0, this.entries.length - HANDOFF_MAX_ITEMS);
     }
-    let totalChars = this.entries.reduce(
-      (total, entry) => total + entry.text.length,
-      0
-    );
+    let totalChars = this.entries.reduce((total, entry) => total + entry.text.length, 0);
     while (this.entries.length > 1 && totalChars > HANDOFF_MAX_TOTAL_CHARS) {
       const removed = this.entries.shift();
       totalChars -= removed?.text.length ?? 0;
@@ -137,45 +149,34 @@ export class ContinuityTranscript {
 
 const formatTranscript = (transcript: readonly TranscriptEntry[]): string =>
   transcript
-    .map(
-      (entry) =>
-        `${entry.role === "user" ? "user" : "assistant"}: ${entry.text}`
-    )
+    .map((entry) => `${entry.role === "user" ? "user" : "assistant"}: ${entry.text}`)
     .join("\n");
 
 export const formatDelegation = (
   input: string,
-  transcriptDelta: readonly TranscriptEntry[]
+  transcriptDelta: readonly TranscriptEntry[],
 ): string => {
   const transcript = formatTranscript(transcriptDelta);
   return [
     "<realtime_delegation>",
     `  <input>${escapeXml(input)}</input>`,
-    ...(transcript
-      ? ["  <transcript_delta>", escapeXml(transcript), "  </transcript_delta>"]
-      : []),
+    ...(transcript ? ["  <transcript_delta>", escapeXml(transcript), "  </transcript_delta>"] : []),
     "</realtime_delegation>",
   ].join("\n");
 };
 
-export const formatTranscriptTail = (
-  transcriptDelta: readonly TranscriptEntry[]
-): string => {
+export const formatTranscriptTail = (transcriptDelta: readonly TranscriptEntry[]): string => {
   const transcript = formatTranscript(transcriptDelta);
   return [
     "<realtime_delegation>",
     "  <source>transcript_tail_flush</source>",
     "  <input>The user just ended their realtime session. Here is the remaining handoff/transcript tail. You probably do not have to do anything; acknowledge the handoff unless the transcript itself asks for something.</input>",
-    ...(transcript
-      ? ["  <transcript_delta>", escapeXml(transcript), "  </transcript_delta>"]
-      : []),
+    ...(transcript ? ["  <transcript_delta>", escapeXml(transcript), "  </transcript_delta>"] : []),
     "</realtime_delegation>",
   ].join("\n");
 };
 
-export const buildContinuityItems = (
-  transcript: readonly TranscriptEntry[]
-): Record<string, unknown>[] => {
+export const buildContinuityItems = (transcript: readonly TranscriptEntry[]): ContinuityItem[] => {
   const recent = transcript.slice(-CONTINUITY_MAX_ITEMS);
   if (recent.length === 0) {
     return [];
@@ -184,7 +185,7 @@ export const buildContinuityItems = (
   const formatted = recent
     .map(
       (entry) =>
-        `${entry.role === "user" ? "USER" : "ASSISTANT"}: ${entry.text.slice(0, CONTINUITY_MAX_ITEM_CHARS)}`
+        `${entry.role === "user" ? "USER" : "ASSISTANT"}: ${entry.text.slice(0, CONTINUITY_MAX_ITEM_CHARS)}`,
     )
     .join("\n");
   const text = `## Conversation continuity
@@ -210,48 +211,23 @@ ${formatted}
   ];
 };
 
-export const parsePersistedTranscript = (value: unknown): TranscriptEntry[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .filter(
-      (entry): entry is Record<string, unknown> =>
-        entry !== null && typeof entry === "object" && !Array.isArray(entry)
-    )
-    .flatMap<TranscriptEntry>((entry) => {
-      const { role } = entry;
-      if (
-        (role !== "assistant" && role !== "user") ||
-        typeof entry.text !== "string"
-      ) {
-        return [];
-      }
-      const text = entry.text.trim().slice(0, CONTINUITY_MAX_ITEM_CHARS);
-      return text ? [{ role, text }] : [];
-    })
+export const parsePersistedTranscript = (
+  entries: readonly TranscriptEntry[] | undefined,
+): TranscriptEntry[] =>
+  (entries ?? [])
+    .map(({ role, text }) => ({ role, text: text.trim().slice(0, CONTINUITY_MAX_ITEM_CHARS) }))
+    .filter(({ text }) => text.length > 0)
     .slice(-CONTINUITY_MAX_ITEMS);
-};
 
 export const messageText = (message: {
-  content: string | readonly unknown[];
-}): string =>
-  (typeof message.content === "string" ? [message.content] : message.content)
-    .flatMap((part) => {
-      if (typeof part === "string") {
-        return [part];
-      }
-      if (
-        part !== null &&
-        typeof part === "object" &&
-        "type" in part &&
-        part.type === "text" &&
-        "text" in part &&
-        typeof part.text === "string"
-      ) {
-        return [part.text];
-      }
-      return [];
-    })
-    .join("\n")
-    .trim();
+  content: UserMessage["content"] | AssistantMessage["content"];
+}): string => {
+  const { content } = message;
+  if (Array.isArray(content)) {
+    return content
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n")
+      .trim();
+  }
+  return content.trim();
+};

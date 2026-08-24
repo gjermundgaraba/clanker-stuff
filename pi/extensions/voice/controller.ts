@@ -7,8 +7,10 @@ import type {
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
-import { isRecord, resolveVoiceAuth, validateCoordinator } from "./auth.js";
+import { resolveVoiceAuth, validateCoordinator } from "./auth.js";
 import { COORDINATOR_INSTRUCTIONS, VoiceCoordinator } from "./coordinator.js";
+import { Value } from "typebox/value";
+
 import { MediaProcess } from "./media-process.js";
 import type { VoiceAuth, VoiceDelegation, VoiceState } from "./realtime.js";
 import { VoiceSession } from "./realtime.js";
@@ -19,20 +21,15 @@ import {
   formatTranscriptTail,
   messageText,
   parsePersistedTranscript,
+  PersistedVoiceDataSchema,
 } from "./transcript.js";
-import type { TranscriptEntry } from "./transcript.js";
+import type { PersistedVoiceData, TranscriptEntry } from "./transcript.js";
 
 const STATUS_KEY = "voice";
 const CONTINUITY_ENTRY = "voice-continuity";
 const VOICE_TOOL_NAME_SET = new Set<string>(VOICE_TOOL_NAMES);
 
-type RuntimeState =
-  | "stopped"
-  | "starting"
-  | "connecting"
-  | "active"
-  | "paused"
-  | "failed";
+type RuntimeState = "stopped" | "starting" | "connecting" | "active" | "paused" | "failed";
 
 export const createVoiceController = (pi: ExtensionAPI) => {
   const trace = createVoiceTrace();
@@ -51,10 +48,7 @@ export const createVoiceController = (pi: ExtensionAPI) => {
     if (active) {
       next.push(...VOICE_TOOL_NAMES);
     }
-    if (
-      next.length !== current.length ||
-      next.some((name, index) => name !== current[index])
-    ) {
+    if (next.length !== current.length || next.some((name, index) => name !== current[index])) {
       pi.setActiveTools(next);
     }
   };
@@ -112,22 +106,16 @@ export const createVoiceController = (pi: ExtensionAPI) => {
     if (signature === persistedTranscriptSignature) {
       return;
     }
-    pi.appendEntry(CONTINUITY_ENTRY, {
-      ...(branchId === undefined ? {} : { branchId }),
-      entries,
-    });
+    pi.appendEntry(CONTINUITY_ENTRY, branchId === undefined ? { entries } : { branchId, entries });
     persistedTranscriptSignature = signature;
   };
 
-  const stop = (
-    options: { flushTail?: boolean; persist?: boolean } = {}
-  ): void => {
+  const stop = (options: { flushTail?: boolean; persist?: boolean } = {}): void => {
     startupGeneration += 1;
     if (options.persist !== false) {
       persistContinuity();
     }
-    const transcriptTail =
-      options.flushTail === false ? [] : (voice?.takeTranscriptTail() ?? []);
+    const transcriptTail = options.flushTail === false ? [] : (voice?.takeTranscriptTail() ?? []);
     coordinator.reset();
     media?.stop();
     voice?.dispose();
@@ -271,22 +259,23 @@ export const createVoiceController = (pi: ExtensionAPI) => {
 
   const restoreContinuity = (ctx: ExtensionContext): void => {
     const branch = ctx.sessionManager.getBranch();
-    const branchDepth = new Map(
-      branch.map(({ id }, index) => [id, index] as const)
-    );
-    let continuityData: Record<string, unknown> | undefined;
+    const branchDepth = new Map(branch.map(({ id }, index) => [id, index] as const));
+    let continuityData: PersistedVoiceData | undefined;
     let continuityDepth = Number.NEGATIVE_INFINITY;
     for (const entry of ctx.sessionManager.getEntries()) {
       if (entry.type !== "custom" || entry.customType !== CONTINUITY_ENTRY) {
         continue;
       }
-      const data = isRecord(entry.data) ? entry.data : undefined;
+      if (!Value.Check(PersistedVoiceDataSchema, entry.data)) {
+        continue;
+      }
+      const data = Value.Parse(PersistedVoiceDataSchema, entry.data);
       let depth: number | undefined;
-      if (!data || !("branchId" in data)) {
+      if (data.branchId === undefined) {
         depth = branchDepth.get(entry.id);
       } else if (data.branchId === null) {
         depth = branch.length === 0 ? -1 : undefined;
-      } else if (typeof data.branchId === "string") {
+      } else {
         depth = branchDepth.get(data.branchId);
       }
       if (depth !== undefined && depth >= continuityDepth) {
@@ -299,14 +288,8 @@ export const createVoiceController = (pi: ExtensionAPI) => {
   };
 
   return {
-    beforeAgentStart: (
-      event: BeforeAgentStartEvent
-    ): BeforeAgentStartEventResult => {
-      if (
-        voice === undefined ||
-        runtimeState === "stopped" ||
-        runtimeState === "failed"
-      ) {
+    beforeAgentStart: (event: BeforeAgentStartEvent): BeforeAgentStartEventResult => {
+      if (voice === undefined || runtimeState === "stopped" || runtimeState === "failed") {
         setVoiceToolsActive(false);
         return {};
       }
@@ -321,8 +304,7 @@ export const createVoiceController = (pi: ExtensionAPI) => {
       }
       return active;
     },
-    finish: (spokenSummary: string): boolean =>
-      coordinator.finish(spokenSummary),
+    finish: (spokenSummary: string): boolean => coordinator.finish(spokenSummary),
     messageStart: (event: MessageStartEvent): void => {
       if (event.message.role === "user") {
         coordinator.accept(messageText(event.message));
@@ -380,11 +362,7 @@ export const createVoiceController = (pi: ExtensionAPI) => {
     },
     toggle,
     turnEnd: (event: TurnEndEvent): void => {
-      if (
-        !voice ||
-        event.message.role !== "assistant" ||
-        event.message.stopReason === "toolUse"
-      ) {
+      if (!voice || event.message.role !== "assistant" || event.message.stopReason === "toolUse") {
         return;
       }
       const finalText = messageText(event.message);
@@ -394,7 +372,7 @@ export const createVoiceController = (pi: ExtensionAPI) => {
           : `Pi encountered an error: ${event.message.errorMessage}`;
       if (event.message.stopReason === "error") {
         coordinator.deferFailure(
-          finalText || errorText || "The Pi coordinator encountered an error."
+          finalText || errorText || "The Pi coordinator encountered an error.",
         );
         return;
       }
@@ -403,7 +381,7 @@ export const createVoiceController = (pi: ExtensionAPI) => {
           errorText ||
           (event.message.stopReason === "aborted"
             ? "That request was interrupted before it completed."
-            : "The Pi coordinator returned no response.")
+            : "The Pi coordinator returned no response."),
       );
     },
   };

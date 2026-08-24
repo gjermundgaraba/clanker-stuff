@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createLazySingleton } from "../index.js";
 
@@ -44,7 +44,7 @@ describe("lazy singleton", () => {
   it("stops terminally and disposes an in-flight result once", async () => {
     const loading = Promise.withResolvers<{ id: string }>();
     const dispose = vi.fn<(value: { id: string }) => Promise<void>>(
-      async () => await Promise.resolve()
+      async () => await Promise.resolve(),
     );
     const singleton = createLazySingleton(() => loading.promise);
 

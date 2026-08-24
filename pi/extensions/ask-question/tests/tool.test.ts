@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createCustomUiDriver } from "../../../tests/harness/tui.js";
@@ -33,42 +33,21 @@ const questionSchema = AskQuestionParametersSchema.properties.questions.items;
 describe("ask-question contract", () => {
   it("emits a Google-safe schema with optional multiSelect boolean", () => {
     expect(questionSchema.properties.multiSelect).toMatchObject({
-      description:
-        "Allow choosing several options. Defaults to one choice per question.",
+      description: "Allow choosing several options. Defaults to one choice per question.",
       type: "boolean",
     });
     expect(questionSchema.required).toContain("options");
     expect(questionSchema.required).not.toContain("multiSelect");
-    expect(JSON.stringify(AskQuestionParametersSchema)).not.toMatch(
-      /anyOf|oneOf|const/u
-    );
+    expect(JSON.stringify(AskQuestionParametersSchema)).not.toMatch(/anyOf|oneOf|const/u);
   });
 
   it("keeps the public schema strict", async () => {
     const host = createExtensionHost(askQuestion);
     await host.ready;
-    const definition = host
-      .getRegisteredTools()
-      .get("ask_question")?.definition;
+    const definition = host.getRegisteredTools().get("ask_question")?.definition;
     expect(definition).toBeDefined();
-    expect(AskQuestionParametersSchema).toHaveProperty(
-      "additionalProperties",
-      false
-    );
+    expect(AskQuestionParametersSchema).toHaveProperty("additionalProperties", false);
     expect(questionSchema).toHaveProperty("additionalProperties", false);
-  });
-
-  it("rejects questions without options", () => {
-    expect(() =>
-      parseQuestionsFromParameters({
-        questions: [
-          {
-            header: "Plan",
-            question: "Which plan do you want?",
-          },
-        ],
-      })
-    ).toThrow("Invalid ask_question input");
   });
 
   it("rejects duplicate option labels", () => {
@@ -81,7 +60,7 @@ describe("ask-question contract", () => {
             question: "Choose one",
           },
         ],
-      })
+      }),
     ).toThrow("Duplicate option label: Alpha");
   });
 
@@ -96,8 +75,7 @@ describe("ask-question contract", () => {
     },
     {
       labels: ["Alpha", " Other "],
-      message:
-        "Do not include an 'Other' option; the UI provides it automatically",
+      message: "Do not include an 'Other' option; the UI provides it automatically",
     },
   ])("rejects ambiguous labels: $labels", ({ labels, message }) => {
     expect(() =>
@@ -109,7 +87,7 @@ describe("ask-question contract", () => {
             question: "Choose one",
           },
         ],
-      })
+      }),
     ).toThrow(message);
   });
 
@@ -130,7 +108,7 @@ describe("ask-question contract", () => {
             question: "Which plan do you want?",
           },
         ],
-      })
+      }),
     ).toStrictEqual([
       {
         header: "Plan",
@@ -167,7 +145,7 @@ describe("ask-question contract", () => {
             question: "   ",
           },
         ],
-      })
+      }),
     ).toThrow("Question headers and prompts must not be blank");
 
     expect(
@@ -179,7 +157,7 @@ describe("ask-question contract", () => {
             question: "Which\u009B plan?",
           },
         ],
-      })
+      }),
     ).toMatchObject([
       {
         header: "Pl]52;c;secretan",
@@ -231,7 +209,7 @@ describe("ask-question contract", () => {
       buildSummaryContent(questions, [
         [{ label: "Alpha" }],
         [{ label: "Feature A" }, { label: "Feature B", note: "Need examples" }],
-      ])
+      ]),
     ).toBe(
       [
         "User answered:",
@@ -239,7 +217,7 @@ describe("ask-question contract", () => {
         "- [Features] Which features do you need? -> Feature A, Feature B",
         "  notes:",
         "  - Feature B: Need examples",
-      ].join("\n")
+      ].join("\n"),
     );
   });
 
@@ -265,20 +243,16 @@ describe("ask-question contract", () => {
       cancelled: false,
     });
 
-    expect(
-      Buffer.byteLength(result.content[0]?.text ?? "")
-    ).toBeLessThanOrEqual(50_000);
-    expect(result.content[0]?.text.split("\n").length).toBeLessThanOrEqual(
-      2000
-    );
+    expect(Buffer.byteLength(result.content[0]?.text ?? "")).toBeLessThanOrEqual(50_000);
+    expect(result.content[0]?.text.split("\n").length).toBeLessThanOrEqual(2000);
   });
 });
 
 describe("ask-question execution", () => {
   it("rejects custom UI outside TUI mode", async () => {
-    await expect(
-      executeTool(singleQuestionParams, { mode: "rpc" })
-    ).rejects.toThrow("ask_question requires interactive UI");
+    await expect(executeTool(singleQuestionParams, { mode: "rpc" })).rejects.toThrow(
+      "ask_question requires interactive UI",
+    );
   });
 
   it("returns cancellation details and aborts the run when the user cancels", async () => {

@@ -3,12 +3,13 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 const { basename, join } = path;
 const traceDirectory = process.env.CODEX_VOICE_TRACE_DIR;
 const realCli =
-  process.env.CODEX_REAL_CLI_PATH ??
-  "/Applications/ChatGPT.app/Contents/Resources/codex";
+  process.env.CODEX_REAL_CLI_PATH ?? "/Applications/ChatGPT.app/Contents/Resources/codex";
 
 if (!traceDirectory) {
   process.stderr.write("CODEX_VOICE_TRACE_DIR is required.\n");
@@ -19,44 +20,37 @@ mkdirSync(traceDirectory, { mode: 0o700, recursive: true });
 
 const processId = process.pid;
 const stem = `app-server-${processId}`;
-const inputBytes = createWriteStream(
-  join(traceDirectory, `${stem}.stdin.bin`),
-  {
-    mode: 0o600,
-  }
-);
-const outputBytes = createWriteStream(
-  join(traceDirectory, `${stem}.stdout.bin`),
-  { mode: 0o600 }
-);
-const errorBytes = createWriteStream(
-  join(traceDirectory, `${stem}.stderr.bin`),
-  {
-    mode: 0o600,
-  }
-);
+const inputBytes = createWriteStream(join(traceDirectory, `${stem}.stdin.bin`), {
+  mode: 0o600,
+});
+const outputBytes = createWriteStream(join(traceDirectory, `${stem}.stdout.bin`), { mode: 0o600 });
+const errorBytes = createWriteStream(join(traceDirectory, `${stem}.stderr.bin`), {
+  mode: 0o600,
+});
 const events = createWriteStream(join(traceDirectory, `${stem}.rpc.ndjson`), {
   mode: 0o600,
 });
 let sequence = 0;
+const RpcMessageSchema = Type.Record(Type.String(), Type.Unknown());
 
 const record = (direction, line) => {
   sequence += 1;
   let message;
   try {
-    message = JSON.parse(line);
+    const value = JSON.parse(line);
+    message = Value.Check(RpcMessageSchema, value) ? value : undefined;
   } catch {
     message = undefined;
   }
   events.write(
     `${JSON.stringify({
       direction,
-      ...(message === undefined ? { line } : {}),
+      line: message === undefined ? line : undefined,
       message,
       monotonicNs: process.hrtime.bigint().toString(),
       sequence,
       timestamp: new Date().toISOString(),
-    })}\n`
+    })}\n`,
   );
 };
 
@@ -97,9 +91,9 @@ writeFileSync(
       startedAt: new Date().toISOString(),
     },
     null,
-    2
+    2,
   )}\n`,
-  { mode: 0o600 }
+  { mode: 0o600 },
 );
 
 const environment = { ...process.env };
@@ -117,9 +111,9 @@ writeFileSync(
       startedAt: new Date().toISOString(),
     },
     null,
-    2
+    2,
   )}\n`,
-  { mode: 0o600 }
+  { mode: 0o600 },
 );
 
 const relay = (source, destination, byteLog, lines) => {
@@ -148,9 +142,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 }
 
 child.on("error", (error) => {
-  process.stderr.write(
-    `Failed to start ${basename(realCli)}: ${error.message}\n`
-  );
+  process.stderr.write(`Failed to start ${basename(realCli)}: ${error.message}\n`);
 });
 
 child.on("close", (code, signal) => {
@@ -167,7 +159,7 @@ child.on("close", (code, signal) => {
       sequence,
       signal,
       timestamp: new Date().toISOString(),
-    })}\n`
+    })}\n`,
   );
   process.exitCode = code ?? (signal ? 1 : 0);
 });

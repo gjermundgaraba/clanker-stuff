@@ -1,12 +1,8 @@
 import { Editor } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createKeybindings } from "../../../../tests/harness/tui.js";
-import {
-  MAX_ANSWER_BYTES,
-  MAX_ANSWER_LINES,
-  boundAnswerText,
-} from "../../dialog/controller.js";
+import { MAX_ANSWER_BYTES, MAX_ANSWER_LINES, boundAnswerText } from "../../dialog/controller.js";
 import {
   KEY_ENTER,
   KEY_SPACE,
@@ -48,7 +44,7 @@ describe("ask-question dialog controller", () => {
   it("bounds answers by UTF-8 bytes and lines", () => {
     const bytes = boundAnswerText("🦄".repeat(MAX_ANSWER_BYTES));
     const lines = boundAnswerText(
-      Array.from({ length: MAX_ANSWER_LINES + 5 }, () => "x").join("\n")
+      Array.from({ length: MAX_ANSWER_LINES + 5 }, () => "x").join("\n"),
     );
 
     expect(Buffer.byteLength(bytes)).toBe(MAX_ANSWER_BYTES);
@@ -79,7 +75,7 @@ describe("ask-question dialog controller", () => {
           KEY_TAB,
           "y",
         ],
-      }
+      },
     );
 
     const details = expectSuccessResult(result);
@@ -98,24 +94,13 @@ describe("ask-question dialog controller", () => {
     });
 
     const details = expectSuccessResult(result);
-    expect(details.answers).toStrictEqual([
-      [{ label: "Alpha" }],
-      [{ label: "Feature A" }],
-    ]);
+    expect(details.answers).toStrictEqual([[{ label: "Alpha" }], [{ label: "Feature A" }]]);
   });
 
   it("supports the implicit Other field for single-select questions", async () => {
     const { result } = await executeTool(singleQuestionParams, {
       customKeybindings: VIM_STYLE_KEYBINDINGS,
-      customKeys: [
-        "j",
-        "j",
-        "y",
-        ..."Enterprise self-hosted",
-        KEY_ENTER,
-        KEY_TAB,
-        "y",
-      ],
+      customKeys: ["j", "j", "y", ...Array.from("Enterprise self-hosted"), KEY_ENTER, KEY_TAB, "y"],
     });
 
     const details = expectSuccessResult(result);
@@ -146,12 +131,12 @@ describe("ask-question dialog controller", () => {
           "j",
           "j",
           "y",
-          ..."Custom integration",
+          ...Array.from("Custom integration"),
           KEY_ENTER,
           KEY_TAB,
           "y",
         ],
-      }
+      },
     );
 
     const details = expectSuccessResult(result);
@@ -183,16 +168,8 @@ describe("ask-question dialog controller", () => {
       ],
     };
 
-    const withHint = await renderFlowWithKeys(
-      params,
-      ["y"],
-      VIM_STYLE_KEYBINDINGS
-    );
-    const afterMove = await renderFlowWithKeys(
-      params,
-      ["y", "j"],
-      VIM_STYLE_KEYBINDINGS
-    );
+    const withHint = await renderFlowWithKeys(params, ["y"], VIM_STYLE_KEYBINDINGS);
+    const afterMove = await renderFlowWithKeys(params, ["y", "j"], VIM_STYLE_KEYBINDINGS);
 
     expect(withHint).toContain("This question is incomplete");
     expect(afterMove).not.toContain("This question is incomplete");
@@ -217,7 +194,7 @@ describe("ask-question dialog controller", () => {
       customKeys: [
         KEY_ENTER,
         "\u001B[110u",
-        ..."Needs approval",
+        ...Array.from("Needs approval"),
         KEY_ENTER,
         KEY_TAB,
         KEY_ENTER,

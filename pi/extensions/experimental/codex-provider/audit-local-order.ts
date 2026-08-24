@@ -4,11 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import {
-  DefaultResourceLoader,
-  SettingsManager,
-  VERSION,
-} from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, SettingsManager, VERSION } from "@earendil-works/pi-coding-agent";
 
 const TARGET_PATH = realpathSync(path.join(import.meta.dirname, "index.ts"));
 const SUPPORTED_PI_VERSION = "0.84.2";
@@ -29,23 +25,18 @@ export const auditLocalOrder = async (options?: {
   readonly piVersion?: string;
 }): Promise<LocalOrderAuditResult> => {
   if (VERSION !== SUPPORTED_PI_VERSION) {
-    throw new Error(
-      `Unsupported audit SDK version ${VERSION}; expected ${SUPPORTED_PI_VERSION}`
-    );
+    throw new Error(`Unsupported audit SDK version ${VERSION}; expected ${SUPPORTED_PI_VERSION}`);
   }
   const piVersion =
-    options?.piVersion ??
-    execFileSync("pi", ["--version"], { encoding: "utf-8" }).trim();
+    options?.piVersion ?? execFileSync("pi", ["--version"], { encoding: "utf-8" }).trim();
   if (piVersion !== SUPPORTED_PI_VERSION) {
     throw new Error(
-      `Unsupported Pi executable version ${piVersion}; expected ${SUPPORTED_PI_VERSION}`
+      `Unsupported Pi executable version ${piVersion}; expected ${SUPPORTED_PI_VERSION}`,
     );
   }
   const cwd = path.resolve(options?.cwd ?? process.cwd());
   const agentDir = path.resolve(
-    options?.agentDir ??
-      process.env.PI_CODING_AGENT_DIR ??
-      path.join(os.homedir(), ".pi", "agent")
+    options?.agentDir ?? process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"),
   );
   const settingsManager = SettingsManager.create(cwd, agentDir, {
     projectTrusted: true,
@@ -66,10 +57,8 @@ export const auditLocalOrder = async (options?: {
     if (result.errors.length > 0) {
       throw new Error(
         `Extension loading diagnostics:\n${result.errors
-          .map(
-            ({ error, path: diagnosticPath }) => `${diagnosticPath}: ${error}`
-          )
-          .join("\n")}`
+          .map(({ error, path: diagnosticPath }) => `${diagnosticPath}: ${error}`)
+          .join("\n")}`,
       );
     }
     return result.extensions.map((extension) => ({
@@ -80,20 +69,18 @@ export const auditLocalOrder = async (options?: {
   const extensions = await resolveExtensions();
   const reloaded = await resolveExtensions();
   if (
-    JSON.stringify(
-      extensions.map(({ path: extensionPath }) => extensionPath)
-    ) !==
+    JSON.stringify(extensions.map(({ path: extensionPath }) => extensionPath)) !==
     JSON.stringify(reloaded.map(({ path: extensionPath }) => extensionPath))
   ) {
     throw new Error("Resolved extension order changed after reload");
   }
   const targetCount = extensions.filter(
-    ({ path: extensionPath }) => extensionPath === TARGET_PATH
+    ({ path: extensionPath }) => extensionPath === TARGET_PATH,
   ).length;
   const finalPath = extensions.at(-1)?.path;
   if (targetCount !== 1 || finalPath !== TARGET_PATH) {
     throw new Error(
-      `Expected ${TARGET_PATH} exactly once and last; resolved ${targetCount} occurrence(s), final path ${finalPath ?? "(none)"}`
+      `Expected ${TARGET_PATH} exactly once and last; resolved ${targetCount} occurrence(s), final path ${finalPath ?? "(none)"}`,
     );
   }
   return {

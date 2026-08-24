@@ -1,11 +1,4 @@
-import {
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setImmediate as yieldImmediate } from "node:timers/promises";
 
@@ -24,6 +17,8 @@ import type {
   ExtensionFactory,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 import { isThinkingLevel } from "./config.js";
 import { PermanentChildError } from "./permanent-error.js";
@@ -40,16 +35,16 @@ const canonicalExtensionPath = (candidate: string): string => {
     return path.resolve(candidate);
   }
 };
-const SUBAGENT_HOST_PATH = canonicalExtensionPath(
-  path.resolve(import.meta.dirname, "index.ts")
-);
+const SUBAGENT_HOST_PATH = canonicalExtensionPath(path.resolve(import.meta.dirname, "index.ts"));
 export const isSubagentHostExtensionPath = (candidate: string): boolean =>
   canonicalExtensionPath(candidate) === SUBAGENT_HOST_PATH;
 
 export interface RuntimeMessage {
   content: string;
   customType: string;
-  details: Record<string, unknown> & { communicationId: string };
+  details: {
+    communicationId: string;
+  };
 }
 
 export interface PromptInput {
@@ -82,7 +77,7 @@ export interface ChildRuntime {
   sendMessage: (
     message: RuntimeMessage,
     onEnqueued?: () => void,
-    startIfIdle?: boolean
+    startIfIdle?: boolean,
   ) => ChildDelivery;
   startTurn: (input: PromptInput) => ChildTurn;
   readonly sessionFile: string;
@@ -104,34 +99,65 @@ export interface ChildRuntimeRequest {
   trusted: boolean;
 }
 
-export type ChildRuntimeFactory = (
-  request: ChildRuntimeRequest
-) => Promise<ChildRuntime>;
+export type ChildRuntimeFactory = (request: ChildRuntimeRequest) => Promise<ChildRuntime>;
+type RuntimeModelSource = Pick<
+  ModelRegistry,
+  | "getAll"
+  | "getApiKeyForProvider"
+  | "getProviderAuthStatus"
+  | "getRegisteredNativeProvider"
+  | "getRegisteredProviderConfig"
+  | "getRegisteredProviderIds"
+>;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const IdentitySchema = Type.Object(
+  {
+    identity: Type.String(),
+  },
+  { additionalProperties: true },
+);
+const TextContentSchema = Type.Object(
+  {
+    text: Type.String(),
+    type: Type.Literal("text"),
+  },
+  { additionalProperties: true },
+);
+const AssistantCandidateSchema = Type.Object(
+  {
+    content: Type.Optional(Type.Array(Type.Unknown())),
+    errorMessage: Type.Optional(Type.Unknown()),
+    role: Type.Literal("assistant"),
+    stopReason: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+const CommunicationDetailsSchema = Type.Object(
+  {
+    communicationId: Type.String(),
+  },
+  { additionalProperties: true },
+);
+const StringSchema = Type.String();
 
 const findModel = (
   registry: ModelRegistry,
   provider: string,
-  modelId: string
-): Model<Api> | undefined =>
-  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ModelRegistry.find accepts provider and model IDs.
-  registry.find(provider, modelId);
+  modelId: string,
+): Model<Api> | undefined => registry.find(provider, modelId);
 
-const restoreError = (error: unknown): PermanentChildError =>
-  error instanceof PermanentChildError
-    ? error
-    : new PermanentChildError(
-        error instanceof Error ? error.message : String(error),
-        { cause: error }
-      );
+const restoreError = (cause: unknown): PermanentChildError =>
+  cause instanceof PermanentChildError
+    ? cause
+    : new PermanentChildError(cause instanceof Error ? cause.message : String(cause), {
+        cause,
+      });
 
 const validateRestoredSession = (
   sessionFile: string,
   sessionDir: string,
   identity: string,
-  cwd: string
+  cwd: string,
 ): SessionManager => {
   try {
     const resolvedDirectory = realpathSync(sessionDir);
@@ -143,37 +169,28 @@ const validateRestoredSession = (
       relative.startsWith(`..${path.sep}`) ||
       path.isAbsolute(relative)
     ) {
-      throw new PermanentChildError(
-        "Child session file escapes the session directory"
-      );
+      throw new PermanentChildError("Child session file escapes the session directory");
     }
     const info = lstatSync(sessionFile);
     if (info.isSymbolicLink() || !info.isFile() || info.size === 0) {
-      throw new PermanentChildError(
-        "Child session file must be a nonempty regular file"
-      );
+      throw new PermanentChildError("Child session file must be a nonempty regular file");
     }
     const session = SessionManager.open(resolvedFile, resolvedDirectory, cwd);
     const identities = session
       .getBranch()
       .filter(
         (entry): entry is Extract<typeof entry, { type: "custom" }> =>
-          entry.type === "custom" &&
-          entry.customType === SUBAGENT_IDENTITY_ENTRY_TYPE
+          entry.type === "custom" && entry.customType === SUBAGENT_IDENTITY_ENTRY_TYPE,
       );
     if (
       identities.length !== 1 ||
-      !isRecord(identities[0]?.data) ||
+      !Value.Check(IdentitySchema, identities[0]?.data) ||
       identities[0].data.identity !== identity
     ) {
-      throw new PermanentChildError(
-        "Child session file belongs to a different agent"
-      );
+      throw new PermanentChildError("Child session file belongs to a different agent");
     }
     if (lastPersistedEntryId(resolvedFile) !== session.getLeafId()) {
-      throw new PermanentChildError(
-        "Child session branch is not fully persisted"
-      );
+      throw new PermanentChildError("Child session branch is not fully persisted");
     }
     return session;
   } catch (error) {
@@ -181,10 +198,7 @@ const validateRestoredSession = (
   }
 };
 
-const createMaterializedSession = (
-  request: ChildRuntimeRequest,
-  sessionDir: string
-): { fresh: boolean; session: SessionManager } => {
+const createMaterializedSession = (request: ChildRuntimeRequest, sessionDir: string) => {
   mkdirSync(sessionDir, { mode: 0o700, recursive: true });
   const directoryInfo = lstatSync(sessionDir);
   if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
@@ -198,7 +212,7 @@ const createMaterializedSession = (
         request.sessionFile,
         sessionDir,
         request.identity,
-        request.cwd
+        request.cwd,
       ),
     };
   }
@@ -229,46 +243,43 @@ const createMaterializedSession = (
   }
 };
 
-export const finalFromMessages = (
-  messages: readonly unknown[]
-): ChildTurnOutcome => {
+export const finalFromMessages = (messages: readonly unknown[]): ChildTurnOutcome => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index];
-    if (!isRecord(candidate) || candidate.role !== "assistant") {
+    if (!Value.Check(AssistantCandidateSchema, candidate)) {
       continue;
     }
     const text = Array.isArray(candidate.content)
       ? candidate.content
-          .filter(
-            (item): item is Record<string, unknown> =>
-              isRecord(item) && item.type === "text"
-          )
-          .map((item) => (typeof item.text === "string" ? item.text : ""))
+          .filter((item) => Value.Check(TextContentSchema, item))
+          .map((item) => item.text)
           .join("")
       : undefined;
     if (candidate.stopReason === "error") {
       return {
-        error:
-          typeof candidate.errorMessage === "string"
-            ? candidate.errorMessage
-            : "Agent failed",
+        error: Value.Check(StringSchema, candidate.errorMessage)
+          ? candidate.errorMessage
+          : "Agent failed",
         status: "errored",
       };
     }
     if (candidate.stopReason === "aborted") {
       return { status: "interrupted" };
     }
-    return {
+    const completed: Extract<ChildTurnOutcome, { status: "completed" }> = {
       status: "completed",
-      ...(text === undefined || text.trim() === "" ? {} : { text }),
     };
+    if (text !== undefined && text.trim() !== "") {
+      completed.text = text;
+    }
+    return completed;
   }
   return { status: "completed" };
 };
 
 export const cloneModelRuntime = async (
-  source: ModelRegistry,
-  requiredProvider?: string
+  source: RuntimeModelSource,
+  requiredProvider?: string,
 ): Promise<ModelRuntime> => {
   const agentDir = getAgentDir();
   const runtime = await ModelRuntime.create({
@@ -304,7 +315,7 @@ export const cloneModelRuntime = async (
           throw error;
         }
       }
-    })
+    }),
   );
   return runtime;
 };
@@ -319,7 +330,7 @@ const ignored = async (promise: Promise<unknown>): Promise<void> => {
 
 interface VoidDeferred {
   promise: Promise<void>;
-  reject: (reason?: unknown) => void;
+  reject: (cause?: unknown) => void;
   resolve: () => void;
 }
 
@@ -329,7 +340,6 @@ const createVoidDeferred = (): VoidDeferred => {
     promise: deferred.promise,
     reject: deferred.reject,
     resolve: () => {
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- PromiseWithResolvers requires its undefined value argument.
       deferred.resolve(undefined);
     },
   };
@@ -343,32 +353,28 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   if (sessionFile === undefined) {
     throw new Error("Child session is not persistent");
   }
-  let createdSession:
-    | Awaited<ReturnType<typeof createAgentSession>>["session"]
-    | undefined;
+  let createdSession: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   try {
     const restored = sessionManager.buildSessionContext();
     let selectedModel = request.model;
     let selectedThinking = request.thinkingLevel;
     if (!materialized.fresh) {
       if (restored.model === null) {
-        throw new PermanentChildError(
-          "Restored child session has no selected model"
-        );
+        throw new PermanentChildError("Restored child session has no selected model");
       }
       selectedModel = findModel(
         request.modelRegistry,
         restored.model.provider,
-        restored.model.modelId
+        restored.model.modelId,
       );
       if (selectedModel === undefined) {
         throw new PermanentChildError(
-          `Unable to resolve restored child model ${restored.model.provider}/${restored.model.modelId}`
+          `Unable to resolve restored child model ${restored.model.provider}/${restored.model.modelId}`,
         );
       }
       if (!isThinkingLevel(restored.thinkingLevel)) {
         throw new PermanentChildError(
-          `Invalid restored child thinking level: ${restored.thinkingLevel}`
+          `Invalid restored child thinking level: ${restored.thinkingLevel}`,
         );
       }
       selectedThinking = restored.thinkingLevel;
@@ -378,31 +384,28 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     let poisonError: PermanentChildError | undefined;
     const poisoned = Promise.withResolvers<never>();
     void ignored(poisoned.promise);
-    const poison = (error: unknown): PermanentChildError => {
+    const poison = (cause: unknown): PermanentChildError => {
       if (poisonError !== undefined) {
         return poisonError;
       }
       poisonError =
-        error instanceof PermanentChildError
-          ? error
-          : new PermanentChildError(
-              error instanceof Error ? error.message : String(error),
-              { cause: error }
-            );
+        cause instanceof PermanentChildError
+          ? cause
+          : new PermanentChildError(cause instanceof Error ? cause.message : String(cause), {
+              cause,
+            });
       poisoned.reject(poisonError);
       if (createdSession !== undefined) {
-        // oxlint-disable-next-line promise/no-promise-in-callback -- poisoning is synchronous; abort is observed separately.
         void ignored(createdSession.abort());
       }
       return poisonError;
     };
     const assertHealthy = (): void => {
       if (poisonError instanceof Error) {
-        // oxlint-disable-next-line eslint/no-throw-literal -- the narrowed value is a PermanentChildError.
         throw poisonError;
       }
     };
-    const verifyLeaf = async (expectedMessage?: unknown): Promise<void> => {
+    const verifyLeaf = async <T>(expectedMessage?: T): Promise<void> => {
       const entry =
         expectedMessage === undefined
           ? sessionManager.getLeafEntry()
@@ -410,16 +413,15 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
               .getBranch()
               .findLast(
                 (candidate) =>
-                  candidate.type === "message" &&
-                  candidate.message === expectedMessage
+                  candidate.type === "message" && candidate.message === expectedMessage,
               );
       if (entry === undefined) {
         throw poison(
           new Error(
             expectedMessage === undefined
               ? "Session has no persisted leaf"
-              : "Expected session message was not appended"
-          )
+              : "Expected session message was not appended",
+          ),
         );
       }
       try {
@@ -432,13 +434,13 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       const entry = sessionManager.getLeafEntry();
       if (
         entry?.type !== "custom_message" ||
-        !isRecord(entry.details) ||
+        !Value.Check(CommunicationDetailsSchema, entry.details) ||
         entry.details.communicationId !== deliveryId
       ) {
         throw poison(
           new Error(
-            `Communication ${deliveryId} was not durably identified in the child transcript`
-          )
+            `Communication ${deliveryId} was not durably identified in the child transcript`,
+          ),
         );
       }
       try {
@@ -449,10 +451,9 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     };
 
     const { promptOptions } = request;
-    const appendedPrompt = [
-      promptOptions?.appendSystemPrompt,
-      request.prompt,
-    ].filter((value): value is string => Boolean(value));
+    const appendedPrompt = [promptOptions?.appendSystemPrompt, request.prompt].filter(
+      (value): value is string => Boolean(value),
+    );
     const agentDir = getAgentDir();
     const settingsManager = SettingsManager.create(request.cwd, agentDir, {
       projectTrusted: request.trusted,
@@ -464,9 +465,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         assertHealthy();
         await cursor.verify();
         if (cursor.parentId !== sessionManager.getLeafId()) {
-          throw poison(
-            new Error("Child transcript is behind its in-memory session")
-          );
+          throw poison(new Error("Child transcript is behind its in-memory session"));
         }
         assertHealthy();
       });
@@ -478,9 +477,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       }),
       appendSystemPrompt: appendedPrompt,
       cwd: request.cwd,
-      extensionFactories: [
-        { factory: hostBridge, hidden: true, name: "subagents-child" },
-      ],
+      extensionFactories: [{ factory: hostBridge, hidden: true, name: "subagents-child" }],
       extensionsOverride: (base) => {
         const extensions = base.extensions.filter((extension) => {
           const keep =
@@ -500,9 +497,9 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
                 extensionPath === CHILD_BRIDGE_PATH &&
                 error.startsWith("Tool ") &&
                 [...excludedExtensionPaths].some((excludedPath) =>
-                  error.endsWith(`conflicts with ${excludedPath}`)
+                  error.endsWith(`conflicts with ${excludedPath}`),
                 )
-              )
+              ),
           ),
           extensions,
         };
@@ -522,18 +519,12 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     await resourceLoader.reload();
     const loadedExtensions = resourceLoader.getExtensions();
     const bridgeError = loadedExtensions.errors.find(
-      ({ path: extensionPath }) => extensionPath === CHILD_BRIDGE_PATH
+      ({ path: extensionPath }) => extensionPath === CHILD_BRIDGE_PATH,
     );
     if (bridgeError !== undefined) {
-      throw new Error(
-        `Unable to load the required child bridge: ${bridgeError.error}`
-      );
+      throw new Error(`Unable to load the required child bridge: ${bridgeError.error}`);
     }
-    if (
-      !loadedExtensions.extensions.some(
-        (extension) => extension.path === CHILD_BRIDGE_PATH
-      )
-    ) {
+    if (!loadedExtensions.extensions.some((extension) => extension.path === CHILD_BRIDGE_PATH)) {
       throw new Error("Unable to load the required child bridge");
     }
 
@@ -541,10 +532,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       agentDir,
       cwd: request.cwd,
       model: selectedModel,
-      modelRuntime: await cloneModelRuntime(
-        request.modelRegistry,
-        selectedModel?.provider
-      ),
+      modelRuntime: await cloneModelRuntime(request.modelRegistry, selectedModel?.provider),
       resourceLoader,
       sessionManager,
       settingsManager,
@@ -581,10 +569,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
     const unsubscribe = session.subscribe((event) => {
       if (event.type === "message_start" && event.message.role === "custom") {
-        if (
-          isRecord(event.message.details) &&
-          typeof event.message.details.communicationId === "string"
-        ) {
+        if (Value.Check(CommunicationDetailsSchema, event.message.details)) {
           customStarts.push(event.message.details.communicationId);
         }
         return;
@@ -630,8 +615,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       }
       if (
         event.type === "message_end" &&
-        (event.message.role === "assistant" ||
-          event.message.role === "toolResult")
+        (event.message.role === "assistant" || event.message.role === "toolResult")
       ) {
         queueMicrotask(() => {
           void ignored(verifyLeaf(event.message));
@@ -671,8 +655,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           await cursor.barrier();
           assertHealthy();
           const { messages } = session.state;
-          const index =
-            boundary === undefined ? -1 : messages.lastIndexOf(boundary);
+          const index = boundary === undefined ? -1 : messages.lastIndexOf(boundary);
           return finalFromMessages(messages.slice(index + 1));
         } catch (error) {
           accepted.reject(error);
@@ -741,7 +724,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
               {
                 deliverAs: "steer",
                 triggerTurn: streaming,
-              }
+              },
             );
             onEnqueued?.();
           } catch (error) {
@@ -763,7 +746,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           createdSession.extensionRunner.emit({
             reason: "quit",
             type: "session_shutdown",
-          })
+          }),
         );
         createdSession.dispose();
       }

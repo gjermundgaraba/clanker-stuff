@@ -29,7 +29,7 @@ export class ProcessOutput {
   private totalBytes = 0;
   private readonly tempFilePath = path.join(
     tmpdir(),
-    `pi-process-${randomBytes(8).toString("hex")}.log`
+    `pi-process-${randomBytes(8).toString("hex")}.log`,
   );
 
   constructor() {
@@ -59,8 +59,7 @@ export class ProcessOutput {
     await this.finishStream();
     const tailTruncation = truncateTail(this.tail);
     const totalLines = this.completedLines + (this.hasOpenLine ? 1 : 0);
-    const truncated =
-      totalLines > DEFAULT_MAX_LINES || this.totalBytes > DEFAULT_MAX_BYTES;
+    const truncated = totalLines > DEFAULT_MAX_LINES || this.totalBytes > DEFAULT_MAX_BYTES;
     const truncation: TruncationResult = {
       ...tailTruncation,
       maxBytes: DEFAULT_MAX_BYTES,
@@ -69,8 +68,7 @@ export class ProcessOutput {
       totalLines,
       truncated,
       truncatedBy: truncated
-        ? (tailTruncation.truncatedBy ??
-          (this.totalBytes > DEFAULT_MAX_BYTES ? "bytes" : "lines"))
+        ? (tailTruncation.truncatedBy ?? (this.totalBytes > DEFAULT_MAX_BYTES ? "bytes" : "lines"))
         : null,
     };
     if (!truncated) {
@@ -92,11 +90,7 @@ export class ProcessOutput {
 
     let newlines = 0;
     let lastNewline = -1;
-    for (
-      let index = text.indexOf("\n");
-      index !== -1;
-      index = text.indexOf("\n", index + 1)
-    ) {
+    for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) {
       newlines += 1;
       lastNewline = index;
     }

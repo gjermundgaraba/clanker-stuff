@@ -3,15 +3,9 @@ import {
   TOOL_OWNER_PROTOCOL_VERSION,
   TOOL_OWNER_REQUEST_EVENT,
 } from "@clanker-stuff/tool-owner-protocol";
-import type {
-  ToolOwnerRegistration,
-  ToolOwnerRequest,
-} from "@clanker-stuff/tool-owner-protocol";
+import type { ToolOwnerRegistration, ToolOwnerRequest } from "@clanker-stuff/tool-owner-protocol";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const createToolOwners = (pi: ExtensionAPI) => {
   let registration: ToolOwnerRegistration | undefined;
@@ -68,9 +62,7 @@ export const createToolOwners = (pi: ExtensionAPI) => {
       return true;
     },
     suppresses(name: string, model?: Model<Api>): boolean {
-      return (
-        resolveRegistration()?.suppressedNames(model).includes(name) ?? false
-      );
+      return resolveRegistration()?.suppressedNames(model).includes(name) ?? false;
     },
   };
 };

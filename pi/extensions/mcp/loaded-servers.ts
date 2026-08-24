@@ -1,22 +1,17 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
-export const loadedServerNames = (
-  branch: readonly SessionEntry[]
-): string[] => {
+export const loadedServerNames = (branch: readonly SessionEntry[]): string[] => {
   const names = new Set<string>();
+  const dataSchema = Type.Object({ serverName: Type.String({ minLength: 1 }) });
   for (const entry of branch) {
     if (entry.type !== "custom" || entry.customType !== "mcp-server-loaded") {
       continue;
     }
     const { data } = entry;
-    if (
-      typeof data === "object" &&
-      data !== null &&
-      "serverName" in data &&
-      typeof data.serverName === "string" &&
-      data.serverName !== ""
-    ) {
-      names.add(data.serverName);
+    if (Value.Check(dataSchema, data)) {
+      names.add(Value.Parse(dataSchema, data).serverName);
     }
   }
   return [...names];

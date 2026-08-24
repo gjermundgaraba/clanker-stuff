@@ -100,8 +100,7 @@ Messages for another instance are ignored. Contributors retain their latest stat
 ### Snapshot
 
 ```ts
-type FooterTone =
-  "text" | "dim" | "muted" | "accent" | "success" | "warning" | "error";
+type FooterTone = "text" | "dim" | "muted" | "accent" | "success" | "warning" | "error";
 
 interface FooterSpan {
   text: string;

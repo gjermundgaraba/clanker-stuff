@@ -1,9 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  fetchCopilotUsage,
-  parseCopilotUsagePayload,
-} from "../../adapters/copilot.js";
+import { fetchCopilotUsage, parseCopilotUsagePayload } from "../../adapters/copilot.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, tokenAuthClient } from "./helpers.js";
 
@@ -36,9 +33,7 @@ describe("copilot usage", () => {
   });
 
   it("fails when no quota snapshots are present", () => {
-    expect(
-      parseCopilotUsagePayload({ quota_snapshots: {} }, NOW).ok
-    ).toBeFalsy();
+    expect(parseCopilotUsagePayload({ quota_snapshots: {} }, NOW).ok).toBeFalsy();
   });
 
   it("requests the Copilot endpoint with its required headers", async () => {

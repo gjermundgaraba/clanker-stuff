@@ -61,10 +61,10 @@ const TRANSPORT_FLAGS = [
   ["--websocket", "websocket"],
 ] as const satisfies readonly (readonly [string, TransportMode])[];
 
-const assertOption: (
-  condition: boolean,
-  message: string
-) => asserts condition = (condition, message) => {
+const assertOption: (condition: boolean, message: string) => asserts condition = (
+  condition,
+  message,
+) => {
   if (!condition) {
     throw new Error(message);
   }
@@ -72,11 +72,10 @@ const assertOption: (
 
 const selected = <Value extends string>(
   args: readonly string[],
-  choices: readonly (readonly [string, Value])[]
-): Value[] =>
-  choices.flatMap(([flag, value]) => (args.includes(flag) ? [value] : []));
+  choices: readonly (readonly [string, Value])[],
+): Value[] => choices.flatMap(([flag, value]) => (args.includes(flag) ? [value] : []));
 
-const DEFAULT_ROUNDS: Readonly<Record<ParentScenarioKind, number>> = {
+const DEFAULT_ROUNDS = {
   branch: 2,
   capabilities: 3,
   "mid-turn": 2,
@@ -86,7 +85,7 @@ const DEFAULT_ROUNDS: Readonly<Record<ParentScenarioKind, number>> = {
   standard: 3,
   "stream-fault": 2,
   threshold: 3,
-};
+} as const satisfies Readonly<Record<ParentScenarioKind, number>>;
 
 const allowsOneRound = (kind: ParentScenarioKind): boolean =>
   kind === "capabilities" || kind === "portable" || kind === "threshold";
@@ -94,21 +93,18 @@ const allowsOneRound = (kind: ParentScenarioKind): boolean =>
 const positiveInteger = (
   environment: Readonly<Record<string, string | undefined>>,
   name: string,
-  fallback: number
+  fallback: number,
 ): number => {
   const raw = environment[name];
   const value = raw === undefined ? fallback : Number(raw);
-  assertOption(
-    Number.isSafeInteger(value) && value > 0,
-    `${name} must be a positive safe integer`
-  );
+  assertOption(Number.isSafeInteger(value) && value > 0, `${name} must be a positive safe integer`);
   return value;
 };
 
 export const parseTransport = (value: string): TransportMode => {
   assertOption(
     value === "fallback" || value === "sse" || value === "websocket",
-    `Unknown transport mode: ${value}`
+    `Unknown transport mode: ${value}`,
   );
   return value;
 };
@@ -117,28 +113,21 @@ const parseParentTransport = (args: readonly string[]): TransportMode => {
   const transports = selected(args, TRANSPORT_FLAGS);
   assertOption(
     transports.length <= 1,
-    "Choose only one transport: --sse, --websocket, or --fallback"
+    "Choose only one transport: --sse, --websocket, or --fallback",
   );
   return transports[0] ?? "sse";
 };
 
-const assertTransportAllowed = (
-  kind: ParentScenarioKind,
-  transport: TransportMode
-) => {
+const assertTransportAllowed = (kind: ParentScenarioKind, transport: TransportMode) => {
   assertOption(
     kind !== "portable" || transport === "sse",
-    "Portable canary requires SSE request inspection"
+    "Portable canary requires SSE request inspection",
   );
   assertOption(
-    (kind !== "real-window" && kind !== "mid-turn") ||
-      transport !== "websocket",
-    "Real-window and mid-turn canaries require SSE request inspection"
+    (kind !== "real-window" && kind !== "mid-turn") || transport !== "websocket",
+    "Real-window and mid-turn canaries require SSE request inspection",
   );
-  assertOption(
-    kind !== "stream-fault" || transport === "sse",
-    "Stream-fault canary requires SSE"
-  );
+  assertOption(kind !== "stream-fault" || transport === "sse", "Stream-fault canary requires SSE");
 };
 
 const childTransportEnvironmentName = (kind: ChildScenarioKind): string =>
@@ -148,22 +137,22 @@ const childTransportEnvironmentName = (kind: ChildScenarioKind): string =>
 
 export const parseLiveInvocation = (
   args: readonly string[],
-  environment: Readonly<Record<string, string | undefined>>
+  environment: Readonly<Record<string, string | undefined>>,
 ): LiveInvocation => {
   const transport = parseParentTransport(args);
   const parentKinds = selected(args, PARENT_FLAGS);
   const childKinds = selected(args, CHILD_FLAGS);
   assertOption(
     parentKinds.length <= 1,
-    "Choose only one behavior mode: --branch, --capabilities, --portable, --real-window, --mid-turn, --soak, --stream-fault, or --threshold"
+    "Choose only one behavior mode: --branch, --capabilities, --portable, --real-window, --mid-turn, --soak, --stream-fault, or --threshold",
   );
   assertOption(
     childKinds.length <= 1,
-    "Choose only one child mode: --branch-child or --restart-child"
+    "Choose only one child mode: --branch-child or --restart-child",
   );
   assertOption(
     parentKinds.length === 0 || childKinds.length === 0,
-    "Parent behavior modes cannot be combined with child modes"
+    "Parent behavior modes cannot be combined with child modes",
   );
 
   const [childKind] = childKinds;
@@ -171,8 +160,8 @@ export const parseLiveInvocation = (
     const transportName = childTransportEnvironmentName(childKind);
     const childTransport = environment[transportName];
     assertOption(
-      typeof childTransport === "string" && childTransport.length > 0,
-      `${transportName} is required`
+      childTransport !== undefined && childTransport.length > 0,
+      `${transportName} is required`,
     );
     return {
       kind: childKind,
@@ -185,15 +174,8 @@ export const parseLiveInvocation = (
   assertTransportAllowed(kind, transport);
   const rounds = args.includes("--help")
     ? DEFAULT_ROUNDS[kind]
-    : positiveInteger(
-        environment,
-        "CODEX_COMPACTION_LIVE_ROUNDS",
-        DEFAULT_ROUNDS[kind]
-      );
-  assertOption(
-    allowsOneRound(kind) || rounds >= 2,
-    "Live canary requires at least 2 compactions"
-  );
+    : positiveInteger(environment, "CODEX_COMPACTION_LIVE_ROUNDS", DEFAULT_ROUNDS[kind]);
+  assertOption(allowsOneRound(kind) || rounds >= 2, "Live canary requires at least 2 compactions");
   return {
     kind,
     process: "parent",

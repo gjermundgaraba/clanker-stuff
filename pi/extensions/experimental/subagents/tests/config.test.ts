@@ -1,6 +1,5 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { fauxProvider } from "@earendil-works/pi-ai";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   DEFAULT_CONFIG,
@@ -8,6 +7,9 @@ import {
   parseModelOverride,
   resolveChildSettings,
 } from "../config.js";
+
+const model = (provider: string, id: string) =>
+  fauxProvider({ models: [{ id }], provider }).getModel();
 
 describe(parseConfig, () => {
   it("accepts strict protocol, role, and prompt configuration", () => {
@@ -36,7 +38,7 @@ describe(parseConfig, () => {
           },
         },
         version: 1,
-      })
+      }),
     ).toMatchObject({
       expose_spawn_agent_model_overrides: false,
       max_concurrent_threads_per_session: 2,
@@ -57,30 +59,22 @@ describe(parseConfig, () => {
         parseConfig({
           max_concurrent_threads_per_session: max,
           version: 1,
-        })
+        }),
       ).toThrow("strict");
     }
   });
 
   it("accepts Codex-style bare model ids when resolution is unambiguous", () => {
-    const models = [
-      { id: "shared", provider: "parent" },
-      { id: "shared", provider: "other" },
-      { id: "unique", provider: "other" },
-    ] as Model<Api>[];
+    const models = [model("parent", "shared"), model("other", "shared"), model("other", "unique")];
     const registry = {
       find: (provider: string, id: string) =>
         models.find((model) => model.provider === provider && model.id === id),
       getAll: () => models,
-    } as ModelRegistry;
+    };
 
-    expect(parseModelOverride("shared", registry, models[0])?.provider).toBe(
-      "parent"
-    );
+    expect(parseModelOverride("shared", registry, models[0])?.provider).toBe("parent");
     expect(parseModelOverride("unique", registry, models[0])).toBe(models[2]);
-    expect(() => parseModelOverride("shared", registry)).toThrow(
-      "Ambiguous model"
-    );
+    expect(() => parseModelOverride("shared", registry)).toThrow("Ambiguous model");
   });
 
   it("requires provider-selecting roles to name their model", () => {
@@ -88,7 +82,7 @@ describe(parseConfig, () => {
       parseConfig({
         roles: { reviewer: { provider: "other" } },
         version: 1,
-      })
+      }),
     ).toThrow("Role reviewer must set model when provider is set");
   });
 
@@ -97,30 +91,21 @@ describe(parseConfig, () => {
       parseConfig({
         roles: { "My Role": { description: "invalid" } },
         version: 1,
-      })
+      }),
     ).toThrow("config must be a strict version 1 object");
   });
 
   it("resolves a role's bare model against the parent provider", () => {
-    const parentRoleModel = {
-      id: "role-model",
-      provider: "parent",
-    } as Model<Api>;
-    const requestedProviderRoleModel = {
-      id: "role-model",
-      provider: "requested",
-    } as Model<Api>;
-    const requested = {
-      id: "request-model",
-      provider: "requested",
-    } as Model<Api>;
+    const parentRoleModel = model("parent", "role-model");
+    const requestedProviderRoleModel = model("requested", "role-model");
+    const requested = model("requested", "request-model");
     const registry = {
       find: (provider: string, id: string) =>
         [parentRoleModel, requestedProviderRoleModel, requested].find(
-          (model) => model.provider === provider && model.id === id
+          (model) => model.provider === provider && model.id === id,
         ),
       getAll: () => [parentRoleModel, requestedProviderRoleModel, requested],
-    } as ModelRegistry;
+    };
 
     expect(
       resolveChildSettings(
@@ -132,9 +117,9 @@ describe(parseConfig, () => {
         "requested/request-model",
         undefined,
         registry,
-        { id: "parent-model", provider: "parent" } as Model<Api>,
-        "off"
-      ).model
+        model("parent", "parent-model"),
+        "off",
+      ).model,
     ).toBe(parentRoleModel);
   });
 });

@@ -1,10 +1,6 @@
-/* eslint-disable max-classes-per-file, vitest/prefer-import-in-mock */
-
-import type {
-  ExtensionContext,
-  SessionEntry,
-} from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Model } from "@earendil-works/pi-ai";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -23,8 +19,8 @@ interface FakeVoiceSession {
 }
 
 const fakes = vi.hoisted(() => ({
-  media: [] as FakeMediaProcess[],
-  voices: [] as FakeVoiceSession[],
+  media: Array<FakeMediaProcess>(),
+  voices: Array<FakeVoiceSession>(),
 }));
 
 vi.mock("../media-process.js", () => ({
@@ -45,16 +41,12 @@ vi.mock("../media-process.js", () => ({
 vi.mock("../realtime.js", () => ({
   VoiceSession: class {
     readonly abortRenew = vi.fn<() => void>();
-    readonly acceptOffer = vi.fn<() => Promise<string>>(() =>
-      Promise.resolve("")
-    );
+    readonly acceptOffer = vi.fn<() => Promise<string>>(() => Promise.resolve(""));
     readonly commitRenew = vi.fn<() => Promise<void>>(() => Promise.resolve());
     readonly dispose = vi.fn<() => void>();
     readonly endCall = vi.fn<() => void>();
     readonly recentTranscript = vi.fn<() => TranscriptEntry[]>(() => []);
-    readonly renewOffer = vi.fn<() => Promise<string>>(() =>
-      Promise.resolve("")
-    );
+    readonly renewOffer = vi.fn<() => Promise<string>>(() => Promise.resolve(""));
     readonly sendComplete = vi.fn<() => boolean>(() => true);
     readonly sendStatus = vi.fn<() => boolean>(() => true);
     readonly takeTranscriptTail = vi.fn<() => []>(() => []);
@@ -69,27 +61,39 @@ vi.mock("../realtime.js", () => ({
 }));
 
 const createVoiceContext = (host: ReturnType<typeof createExtensionHost>) => {
-  const model = { id: "coordinator", provider: "test" };
+  const model = {
+    api: "faux",
+    baseUrl: "http://localhost:0",
+    contextWindow: 1000,
+    cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0 },
+    id: "coordinator",
+    input: ["text"],
+    maxTokens: 100,
+    name: "Coordinator",
+    provider: "test",
+    reasoning: false,
+  } satisfies Model<"faux">;
   const payload = Buffer.from(
     JSON.stringify({
       "https://api.openai.com/auth": {
         chatgpt_account_id: "account-1",
       },
-    })
+    }),
   ).toString("base64url");
+  const modelRegistry = Object.assign(host.createContext().modelRegistry, {
+    getAll: () => [model],
+    getApiKeyAndHeaders: async () => {
+      await Promise.resolve();
+      return { ok: true as const };
+    },
+    getProviderAuth: async () => {
+      await Promise.resolve();
+      return { auth: { apiKey: `x.${payload}.x` } };
+    },
+  });
   return host.createContext({
-    model: model as ExtensionContext["model"],
-    modelRegistry: {
-      getAll: () => [model],
-      getApiKeyAndHeaders: async () => {
-        await Promise.resolve();
-        return { ok: true };
-      },
-      getProviderAuth: async () => {
-        await Promise.resolve();
-        return { auth: { apiKey: `x.${payload}.x` } };
-      },
-    } as unknown as ExtensionContext["modelRegistry"],
+    model,
+    modelRegistry,
   });
 };
 
@@ -97,7 +101,7 @@ describe("voice controller", () => {
   it("requires pi's interactive TUI mode", async () => {
     const host = createExtensionHost(extension);
     await expect(
-      host.runShortcut("ctrl+shift+v", host.createContext({ mode: "json" }))
+      host.runShortcut("ctrl+shift+v", host.createContext({ mode: "json" })),
     ).rejects.toThrow("interactive TUI");
   });
 
@@ -147,12 +151,7 @@ describe("voice controller", () => {
     await host.emitSessionStart(ctx);
 
     expect(host.getStatus("voice")).toBeUndefined();
-    expect(host.getActiveTools()).toStrictEqual([
-      "read",
-      "bash",
-      "edit",
-      "write",
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["read", "bash", "edit", "write"]);
   });
 });
 
@@ -183,12 +182,7 @@ describe("voice startup ownership", () => {
       "end_realtime_voice_call",
     ]);
     await host.runCommand("voice", "stop", ctx);
-    expect(host.getActiveTools()).toStrictEqual([
-      "read",
-      "bash",
-      "edit",
-      "write",
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["read", "bash", "edit", "write"]);
 
     const secondStart = host.runCommand("voice", "start", ctx);
     await vi.waitFor(() => {
@@ -247,9 +241,7 @@ describe("voice startup ownership", () => {
     if (!(activeVoice && activeMedia)) {
       throw new Error("expected active voice session");
     }
-    activeVoice.recentTranscript.mockReturnValue([
-      { role: "user", text: "keep this call active" },
-    ]);
+    activeVoice.recentTranscript.mockReturnValue([{ role: "user", text: "keep this call active" }]);
     activeVoice.options.onState("active");
     activeMedia.startResult.resolve(null);
     await starting;
@@ -257,7 +249,7 @@ describe("voice startup ownership", () => {
     await host.emit(
       "session_before_tree",
       { preparation: { oldLeafId: null }, type: "session_before_tree" },
-      ctx
+      ctx,
     );
 
     expect(activeMedia.stop).not.toHaveBeenCalled();
@@ -311,9 +303,7 @@ describe("voice startup ownership", () => {
     expect(firstVoice.options.initialTranscript).toStrictEqual([
       { role: "user", text: "branch A" },
     ]);
-    firstVoice.recentTranscript.mockReturnValue([
-      { role: "user", text: "unsaved branch A" },
-    ]);
+    firstVoice.recentTranscript.mockReturnValue([{ role: "user", text: "unsaved branch A" }]);
 
     await host.emit(
       "session_before_tree",
@@ -321,14 +311,11 @@ describe("voice startup ownership", () => {
         preparation: { oldLeafId: branchA.id },
         type: "session_before_tree",
       },
-      ctx
+      ctx,
     );
     const continuityEntries = host
       .getAppendedEntries()
-      .filter(
-        (entry) =>
-          entry.type === "custom" && entry.customType === "voice-continuity"
-      );
+      .filter((entry) => entry.type === "custom" && entry.customType === "voice-continuity");
     expect(continuityEntries.at(-1)).toMatchObject({
       data: { entries: [{ role: "user", text: "unsaved branch A" }] },
     });
@@ -361,9 +348,7 @@ describe("voice startup ownership", () => {
     expect(secondVoice.options.initialTranscript).toStrictEqual([
       { role: "assistant", text: "branch B" },
     ]);
-    secondVoice.recentTranscript.mockReturnValue([
-      { role: "assistant", text: "branch B" },
-    ]);
+    secondVoice.recentTranscript.mockReturnValue([{ role: "assistant", text: "branch B" }]);
     secondMedia.startResult.resolve(null);
     await secondStart;
     await host.runCommand("voice", "stop", ctx);

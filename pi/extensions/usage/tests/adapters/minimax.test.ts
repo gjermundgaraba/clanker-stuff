@@ -1,9 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  fetchMinimaxUsage,
-  parseMinimaxUsagePayload,
-} from "../../adapters/minimax.js";
+import { fetchMinimaxUsage, parseMinimaxUsagePayload } from "../../adapters/minimax.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
 
@@ -50,7 +47,7 @@ describe("minimax usage", () => {
     const result = parseMinimaxUsagePayload(
       { base_resp: { status_code: 1002, status_msg: "invalid token" } },
       "minimax",
-      NOW
+      NOW,
     );
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "invalid token" },
@@ -62,7 +59,7 @@ describe("minimax usage", () => {
     const fetchJson = vi.fn<FetchJson>(okFetch(payload));
     const result = await fetchMinimaxUsage(
       { authClient: tokenAuthClient("mm-token"), fetchJson, now: () => NOW },
-      "minimax-cn"
+      "minimax-cn",
     );
     expect(fetchJson.mock.calls[0]?.[0]).toContain("minimaxi.com");
     expect(result.ok && result.snapshot.provider).toBe("minimax-cn");

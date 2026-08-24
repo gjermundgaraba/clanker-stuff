@@ -12,10 +12,7 @@ import { isDefined, makeUsageWindow, parseIso } from "./util.js";
 const BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";
 const CREDITS_URL = `${BILLING_URL}?format=credits`;
 
-const MoneySchema = Type.Union([
-  Type.Number(),
-  Type.Object({ val: Type.Number() }),
-]);
+const MoneySchema = Type.Union([Type.Number(), Type.Object({ val: Type.Number() })]);
 
 const XaiConfigSchema = Type.Object({
   billingPeriodEnd: Type.Optional(Type.String()),
@@ -24,7 +21,7 @@ const XaiConfigSchema = Type.Object({
     Type.Object({
       end: Type.Optional(Type.String()),
       type: Type.Optional(Type.String()),
-    })
+    }),
   ),
   monthlyLimit: Type.Optional(MoneySchema),
   prepaidBalance: Type.Optional(MoneySchema),
@@ -35,22 +32,23 @@ const XaiPayloadSchema = Type.Object({
   config: XaiConfigSchema,
 });
 
-const configFromPayload = (
-  payload: unknown
-): Static<typeof XaiConfigSchema> | undefined =>
-  Value.Check(XaiPayloadSchema, payload) ? payload.config : undefined;
+type XaiConfig = Static<typeof XaiConfigSchema>;
+export type XaiPayload = Static<typeof XaiPayloadSchema>;
 
-const moneyValue = (
-  value: Static<typeof MoneySchema> | undefined
-): number | undefined => (typeof value === "number" ? value : value?.val);
+const MoneyNumberSchema = Type.Number();
+const MoneyObjectSchema = Type.Object({ val: Type.Number() });
 
-export const parseXaiMonthlyPayload = (
-  payload: unknown
-): UsageWindow | undefined => {
-  const config = configFromPayload(payload);
-  if (config === undefined) {
-    return undefined;
+const moneyValue = (value: XaiConfig["monthlyLimit"]): number | undefined => {
+  if (Value.Check(MoneyNumberSchema, value)) {
+    return value;
   }
+  return Value.Check(MoneyObjectSchema, value)
+    ? Value.Parse(MoneyObjectSchema, value).val
+    : undefined;
+};
+
+export const parseXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undefined => {
+  const config = payload.config;
   const monthlyLimit = moneyValue(config.monthlyLimit);
   const used = moneyValue(config.used);
   if (monthlyLimit === undefined || used === undefined) {
@@ -71,13 +69,8 @@ export const parseXaiMonthlyPayload = (
   return makeUsageWindow("month", remainingPercent, resetsAt);
 };
 
-export const parseXaiWeeklyPayload = (
-  payload: unknown
-): UsageWindow | undefined => {
-  const config = configFromPayload(payload);
-  if (config === undefined) {
-    return undefined;
-  }
+export const parseXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefined => {
+  const config = payload.config;
 
   const { currentPeriod } = config;
   if (
@@ -93,43 +86,35 @@ export const parseXaiWeeklyPayload = (
     return undefined;
   }
 
-  const resetsAt =
-    parseIso(currentPeriod?.end) ?? parseIso(config.billingPeriodEnd);
+  const resetsAt = parseIso(currentPeriod?.end) ?? parseIso(config.billingPeriodEnd);
 
   return makeUsageWindow("week", 100 - usagePercent, resetsAt);
 };
 
-const parseXaiPrepaidBalance = (payload: unknown): number | undefined => {
-  const config = configFromPayload(payload);
-  if (config === undefined) {
-    return undefined;
-  }
-  return moneyValue(config.prepaidBalance);
-};
+const parseXaiPrepaidBalance = (payload: XaiPayload): number | undefined =>
+  moneyValue(payload.config.prepaidBalance);
 
 export const parseXaiUsagePayloads = (
-  monthlyPayload: unknown,
-  weeklyPayload: unknown,
-  nowMs: number = Date.now()
+  monthlyPayload: XaiPayload | undefined,
+  weeklyPayload: XaiPayload | undefined,
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   const windows = [
-    parseXaiMonthlyPayload(monthlyPayload),
-    parseXaiWeeklyPayload(weeklyPayload),
+    monthlyPayload === undefined ? undefined : parseXaiMonthlyPayload(monthlyPayload),
+    weeklyPayload === undefined ? undefined : parseXaiWeeklyPayload(weeklyPayload),
   ].filter(isDefined);
 
-  const creditsRemaining = parseXaiPrepaidBalance(weeklyPayload);
+  const creditsRemaining =
+    weeklyPayload === undefined ? undefined : parseXaiPrepaidBalance(weeklyPayload);
 
-  return usageResult({
-    fetchedAt: nowMs,
-    provider: "xai",
-    windows,
-    ...(creditsRemaining === undefined ? {} : { creditsRemaining }),
-  });
+  return usageResult(
+    creditsRemaining === undefined
+      ? { fetchedAt: nowMs, provider: "xai", windows }
+      : { creditsRemaining, fetchedAt: nowMs, provider: "xai", windows },
+  );
 };
 
-export const fetchXaiUsage = async (
-  deps: AdapterDeps
-): Promise<UsageFetchResult> => {
+export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveOAuthAccess(deps.authClient, "xai");
   if (!auth.ok) {
@@ -163,9 +148,14 @@ export const fetchXaiUsage = async (
   }
 
   const weekly = await weeklyPromise;
+  const weeklyJson = weekly !== null && weekly.ok ? weekly.json : undefined;
   return parseXaiUsagePayloads(
-    monthly.json,
-    weekly !== null && weekly.ok ? weekly.json : undefined,
-    now()
+    Value.Check(XaiPayloadSchema, monthly.json)
+      ? Value.Parse(XaiPayloadSchema, monthly.json)
+      : undefined,
+    weeklyJson !== undefined && Value.Check(XaiPayloadSchema, weeklyJson)
+      ? Value.Parse(XaiPayloadSchema, weeklyJson)
+      : undefined,
+    now(),
   );
 };

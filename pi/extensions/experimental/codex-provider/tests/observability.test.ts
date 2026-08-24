@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
 
 import { CodexObservability } from "../observability.js";
 
@@ -19,12 +19,7 @@ describe("SQLite observations", () => {
     const store = new CodexObservability(databasePath);
 
     expect([
-      store.record(
-        "session-a",
-        "request",
-        { value: "old" },
-        now - 31 * 86_400_000
-      ),
+      store.record("session-a", "request", { value: "old" }, now - 31 * 86_400_000),
       store.record("session-a", "request", { value: "new" }, now),
       store.record("session-b", "compaction", { value: "other" }, now),
       store.record("session-a", "request", { value: 1n }, now),

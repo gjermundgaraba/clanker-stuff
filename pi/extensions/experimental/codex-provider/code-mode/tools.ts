@@ -1,35 +1,29 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
-/* oxlint-disable eslint/no-use-before-define, eslint/no-nested-ternary, eslint/class-methods-use-this, eslint/complexity -- tool definitions read top-down while rendering handles each trace state */
 import { validateToolArguments } from "@earendil-works/pi-ai";
-import type {
-  AgentToolResult,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { Static } from "typebox";
+import { Value } from "typebox/value";
 
 import type { CodeModeHostClient } from "./host-client.js";
-import {
-  DEFAULT_CODE_MODE_OUTPUT_TOKENS,
-  MAX_CODE_MODE_OUTPUT_TOKENS,
-} from "./protocol.js";
+import { DEFAULT_CODE_MODE_OUTPUT_TOKENS, MAX_CODE_MODE_OUTPUT_TOKENS } from "./protocol.js";
 import type {
   NestedTool,
   RuntimeContentItem,
   RuntimeResponse,
   RuntimeToolResult,
   RuntimeToolTrace,
+  RuntimeValue,
 } from "./types.js";
+import { RuntimeToolTraceSchema } from "./types.js";
 
 const DEFAULT_WAIT_MS = 10_000;
-const SUPPORTED_IMAGE_MIME_TYPES = new Set([
-  "image/gif",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 const strict = { additionalProperties: false } as const;
+const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
+type JsonRecord = Static<typeof JsonRecordSchema>;
 
 const EXEC_PARAMETERS = Type.Object({ code: Type.String() }, strict);
 const WAIT_PARAMETERS = Type.Object(
@@ -40,14 +34,12 @@ const WAIT_PARAMETERS = Type.Object(
         default: DEFAULT_CODE_MODE_OUTPUT_TOKENS,
         maximum: MAX_CODE_MODE_OUTPUT_TOKENS,
         minimum: 1,
-      })
+      }),
     ),
     terminate: Type.Optional(Type.Boolean()),
-    yield_time_ms: Type.Optional(
-      Type.Integer({ default: DEFAULT_WAIT_MS, minimum: 0 })
-    ),
+    yield_time_ms: Type.Optional(Type.Integer({ default: DEFAULT_WAIT_MS, minimum: 0 })),
   },
-  strict
+  strict,
 );
 
 const EXEC_DESCRIPTION = `Run JavaScript code to orchestrate/compose tool calls
@@ -100,17 +92,17 @@ export interface CodeModeToolDescriptor {
   readonly outputSchema?: unknown;
 }
 
-type CodeModeClientFactory = (
-  signal: AbortSignal
-) => Promise<CodeModeHostClient>;
+type CodeModeClientFactory = (signal: AbortSignal) => Promise<CodeModeHostClient>;
 
 export interface CodeModeRuntimeOptions {
   createClient?: CodeModeClientFactory;
 }
 
 const createCodeModeHostClient: CodeModeClientFactory = async (signal) => {
-  const [{ ensureCodeModeHostBinary }, { CodeModeHostClient }] =
-    await Promise.all([import("./binary.js"), import("./host-client.js")]);
+  const [{ ensureCodeModeHostBinary }, { CodeModeHostClient }] = await Promise.all([
+    import("./binary.js"),
+    import("./host-client.js"),
+  ]);
   const binary = await ensureCodeModeHostBinary(signal);
   return new CodeModeHostClient(binary);
 };
@@ -120,16 +112,12 @@ export class CodeModeRuntime {
   private nestedToolDescriptors: readonly CodeModeToolDescriptor[] = [];
 
   constructor(options: CodeModeRuntimeOptions = {}) {
-    this.client = createLazySingleton(
-      options.createClient ?? createCodeModeHostClient
-    );
+    this.client = createLazySingleton(options.createClient ?? createCodeModeHostClient);
   }
 
   createTools(): ToolDefinition[] {
     const currentByName = () =>
-      new Map(
-        this.nestedTools().map((tool) => [tool.definition.name, tool] as const)
-      );
+      new Map(this.nestedTools().map((tool) => [tool.definition.name, tool] as const));
     return [
       defineTool({
         constrainedSampling: {
@@ -147,7 +135,7 @@ export class CodeModeRuntime {
               toolCallId: id,
             },
             signal,
-            this.nestedTools()
+            this.nestedTools(),
           );
           return toCodeModeToolResult(response);
         },
@@ -155,22 +143,15 @@ export class CodeModeRuntime {
         name: "exec",
         parameters: EXEC_PARAMETERS,
         renderCall(args, theme) {
-          const source =
-            typeof args.code === "string" ? args.code : "(invalid source)";
+          const source = args.code ?? "(invalid source)";
           return new Text(
             `${theme.fg("toolTitle", theme.bold("exec"))}\n${theme.fg("toolOutput", source)}`,
             0,
-            0
+            0,
           );
         },
         renderResult(result, options, theme, context) {
-          return renderCodeModeResult(
-            result,
-            options,
-            theme,
-            context,
-            currentByName()
-          );
+          return renderCodeModeResult(result, options, theme, context, currentByName());
         },
       }),
       defineTool({
@@ -189,7 +170,7 @@ export class CodeModeRuntime {
                   params.cell_id,
                   params.yield_time_ms ?? DEFAULT_WAIT_MS,
                   executionContext,
-                  signal
+                  signal,
                 );
           return toCodeModeToolResult(response, params.max_tokens);
         },
@@ -199,22 +180,13 @@ export class CodeModeRuntime {
         renderCall(args, theme) {
           const action = args.terminate === true ? "terminate" : "wait";
           return new Text(
-            theme.fg(
-              "toolTitle",
-              theme.bold(`${action} ${args.cell_id ?? ""}`)
-            ),
+            theme.fg("toolTitle", theme.bold(`${action} ${args.cell_id ?? ""}`)),
             0,
-            0
+            0,
           );
         },
         renderResult(result, options, theme, context) {
-          return renderCodeModeResult(
-            result,
-            options,
-            theme,
-            context,
-            currentByName()
-          );
+          return renderCodeModeResult(result, options, theme, context, currentByName());
         },
       }),
     ];
@@ -229,7 +201,7 @@ export class CodeModeRuntime {
       .toSorted((left, right) => left.name.localeCompare(right.name))
       .map(
         (tool) =>
-          `### \`${tool.name}\`\n${tool.definition.description}\n\nUsage: \`${tool.usage}\``
+          `### \`${tool.name}\`\n${tool.definition.description}\n\nUsage: \`${tool.usage}\``,
       );
     return `Tools available in exec:\n\n${lines.join("\n\n")}`;
   };
@@ -240,9 +212,7 @@ export class CodeModeRuntime {
     });
   }
 
-  private async getClient(
-    signal: AbortSignal | undefined
-  ): Promise<CodeModeHostClient> {
+  private async getClient(signal: AbortSignal | undefined): Promise<CodeModeHostClient> {
     signal?.throwIfAborted();
     const client = await abortable(this.client.load(), signal);
     if (client === undefined) {
@@ -256,10 +226,7 @@ export class CodeModeRuntime {
   }
 }
 
-const abortable = async <T>(
-  promise: Promise<T>,
-  signal: AbortSignal | undefined
-): Promise<T> => {
+const abortable = async <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> => {
   signal?.throwIfAborted();
   if (signal === undefined) {
     return await promise;
@@ -276,28 +243,23 @@ const abortable = async <T>(
   }
 };
 
-export const toNestedTool = (
-  descriptor: CodeModeToolDescriptor
-): NestedTool => {
+export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => {
   const { definition, namespace, outputSchema } = descriptor;
   const freeformProperty = freeformInputProperty(definition);
-  return {
+  const nested: NestedTool = {
     definition,
     kind: freeformProperty === undefined ? "function" : "freeform",
     name: codeModeName(definition.name, namespace),
-    ...(namespace === undefined ? {} : { namespace }),
-    ...(outputSchema === undefined ? {} : { outputSchema }),
     async invoke(input, context, signal) {
       signal.throwIfAborted();
-      const argumentsValue =
-        freeformProperty === undefined ? input : { [freeformProperty]: input };
-      const prepared: unknown = definition.prepareArguments
+      const argumentsValue = freeformProperty === undefined ? input : { [freeformProperty]: input };
+      const prepared: RuntimeValue = definition.prepareArguments
         ? definition.prepareArguments(argumentsValue)
         : argumentsValue;
       if (!isRecord(prepared)) {
         throw new TypeError(`Invalid arguments for ${definition.name}`);
       }
-      const validated: unknown = validateToolArguments(definition, {
+      const validated: RuntimeValue = validateToolArguments(definition, {
         arguments: prepared,
         id: context.toolCallId ?? `code-mode-${definition.name}`,
         name: definition.name,
@@ -311,7 +273,7 @@ export const toNestedTool = (
         (update) => {
           context.onUpdate?.(update);
         },
-        context.extensionContext
+        context.extensionContext,
       );
       const normalized = normalizeResult(result);
       context.captureResult?.(normalized);
@@ -319,11 +281,16 @@ export const toNestedTool = (
     },
     usage: usageFor(codeModeName(definition.name, namespace)),
   };
+  if (namespace !== undefined) {
+    nested.namespace = namespace;
+  }
+  if (outputSchema !== undefined) {
+    nested.outputSchema = outputSchema;
+  }
+  return nested;
 };
 
-const freeformInputProperty = (
-  definition: ToolDefinition
-): string | undefined => {
+const freeformInputProperty = (definition: ToolDefinition): string | undefined => {
   if (
     definition.constrainedSampling === undefined ||
     definition.constrainedSampling === false ||
@@ -331,11 +298,9 @@ const freeformInputProperty = (
   ) {
     return undefined;
   }
-  const schema = definition.parameters as unknown;
+  const schema = definition.parameters;
   if (!isRecord(schema) || !isRecord(schema.properties)) {
-    throw new Error(
-      `Grammar-constrained tool ${definition.name} must have one string parameter`
-    );
+    throw new Error(`Grammar-constrained tool ${definition.name} must have one string parameter`);
   }
   const properties = Object.entries(schema.properties);
   if (
@@ -343,9 +308,7 @@ const freeformInputProperty = (
     !isRecord(properties[0]?.[1]) ||
     properties[0][1].type !== "string"
   ) {
-    throw new Error(
-      `Grammar-constrained tool ${definition.name} must have one string parameter`
-    );
+    throw new Error(`Grammar-constrained tool ${definition.name} must have one string parameter`);
   }
   return properties[0][0];
 };
@@ -382,8 +345,8 @@ const usageFor = (name: string) => {
 const nestedResultValue = (
   name: string,
   result: RuntimeToolResult,
-  outputSchema: unknown
-): unknown => {
+  outputSchema: RuntimeValue,
+): RuntimeValue => {
   const image = result.content.find((item) => item.type === "image");
   if (image?.type === "image") {
     assertSupportedImageMimeType(image.mimeType);
@@ -393,24 +356,22 @@ const nestedResultValue = (
     };
   }
   const output = result.content
-    .filter(
-      (item): item is { type: "text"; text: string } => item.type === "text"
-    )
+    .filter((item): item is { type: "text"; text: string } => item.type === "text")
     .map((item) => item.text)
     .join("\n");
   if (name === "view_image") {
     throw new Error(
-      "view_image did not return a supported image. Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first."
+      "view_image did not return a supported image. Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first.",
     );
   }
   if (outputSchema !== undefined) {
     try {
-      return JSON.parse(output) as unknown;
+      const parsed: unknown = JSON.parse(output);
+      return parsed;
     } catch (error) {
-      throw new Error(
-        `Nested tool ${name} declared structured output but returned invalid JSON`,
-        { cause: error }
-      );
+      throw new Error(`Nested tool ${name} declared structured output but returned invalid JSON`, {
+        cause: error,
+      });
     }
   }
   if (name === "exec_command" || name === "write_stdin") {
@@ -426,26 +387,18 @@ const nestedResultValue = (
   return output || "(no output)";
 };
 
-const normalizeResult = (
-  result: AgentToolResult<unknown>
-): RuntimeToolResult => ({
+const normalizeResult = (result: AgentToolResult<unknown>): RuntimeToolResult => ({
   content: result.content.filter(
     (
-      item
-    ): item is
-      | { type: "text"; text: string }
-      | { type: "image"; data: string; mimeType: string } =>
-      item.type === "text" || item.type === "image"
+      item,
+    ): item is { type: "text"; text: string } | { type: "image"; data: string; mimeType: string } =>
+      item.type === "text" || item.type === "image",
   ),
   details: result.details,
 });
 
-const toCodeModeToolResult = (
-  response: RuntimeResponse,
-  maxTokens?: number
-) => {
-  const scriptError =
-    response.kind === "result" ? response.errorText : undefined;
+const toCodeModeToolResult = (response: RuntimeResponse, maxTokens?: number) => {
+  const scriptError = response.kind === "result" ? response.errorText : undefined;
   const hasScriptError = scriptError !== undefined && scriptError.length > 0;
   const status = hasScriptError
     ? `Script error: ${scriptError}`
@@ -460,43 +413,35 @@ const toCodeModeToolResult = (
   const maxChars =
     Math.min(
       MAX_CODE_MODE_OUTPUT_TOKENS,
-      Math.max(
-        1,
-        maxTokens ?? response.maxOutputTokens ?? DEFAULT_CODE_MODE_OUTPUT_TOKENS
-      )
+      Math.max(1, maxTokens ?? response.maxOutputTokens ?? DEFAULT_CODE_MODE_OUTPUT_TOKENS),
     ) * 4;
   return {
-    content: [
-      { text: status, type: "text" as const },
-      ...truncateTextContent(output, maxChars),
-    ],
+    content: [{ text: status, type: "text" as const }, ...truncateTextContent(output, maxChars)],
     details: {
       cellId: response.cellId,
       codeMode: true,
       status: response.kind,
-      ...(response.traces ? { traces: response.traces } : {}),
-      ...(response.droppedTraceCount !== undefined &&
-      response.droppedTraceCount > 0
-        ? { droppedTraceCount: response.droppedTraceCount }
-        : {}),
-      ...(hasScriptError ? { scriptError } : {}),
+      traces: response.traces,
+      droppedTraceCount:
+        response.droppedTraceCount !== undefined && response.droppedTraceCount > 0
+          ? response.droppedTraceCount
+          : undefined,
+      scriptError: hasScriptError ? scriptError : undefined,
     },
   };
 };
 
 export const toPiContent = (
-  item: RuntimeContentItem
+  item: RuntimeContentItem,
 ):
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string }
   | undefined => {
-  if (item.type === "input_text" && typeof item.text === "string") {
+  if (item.type === "input_text" && item.text !== undefined) {
     return { text: item.text, type: "text" };
   }
-  if (item.type === "input_image" && typeof item.image_url === "string") {
-    const match = /^data:(?<mimeType>[^;,]+);base64,(?<data>.+)$/su.exec(
-      item.image_url
-    );
+  if (item.type === "input_image" && item.image_url !== undefined) {
+    const match = /^data:(?<mimeType>[^;,]+);base64,(?<data>.+)$/su.exec(item.image_url);
     if (
       match?.groups?.mimeType !== undefined &&
       match.groups.mimeType.length > 0 &&
@@ -518,18 +463,16 @@ export const toPiContent = (
 const assertSupportedImageMimeType = (mimeType: string): void => {
   if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType.toLowerCase())) {
     throw new Error(
-      `Unsupported Code Mode image type "${mimeType}". Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first.`
+      `Unsupported Code Mode image type "${mimeType}". Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first.`,
     );
   }
 };
 
 const truncateTextContent = <
-  T extends
-    | { type: "text"; text: string }
-    | { type: "image"; data: string; mimeType: string },
+  T extends { type: "text"; text: string } | { type: "image"; data: string; mimeType: string },
 >(
   content: T[],
-  maxChars: number
+  maxChars: number,
 ): T[] => {
   let remaining = maxChars;
   return content.flatMap((item) => {
@@ -557,17 +500,15 @@ const renderCodeModeResult = (
   options: { expanded: boolean; isPartial: boolean },
   theme: Parameters<NonNullable<ToolDefinition["renderResult"]>>[2],
   context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3],
-  tools: Map<string, NestedTool>
+  tools: Map<string, NestedTool>,
 ) => {
   const details = isRecord(result.details) ? result.details : {};
-  const traces = Array.isArray(details.traces)
-    ? details.traces.filter(isRuntimeToolTrace)
-    : [];
+  const traces = Array.isArray(details.traces) ? details.traces.filter(isRuntimeToolTrace) : [];
   const container = new Container();
   const { status } = details;
   let statusColor: "error" | "success" | "warning" = "success";
   let statusText = "✓ completed";
-  if (typeof details.scriptError === "string") {
+  if (details.scriptError !== undefined) {
     statusColor = "error";
     statusText = "✗ error";
   } else if (status === "running") {
@@ -589,25 +530,20 @@ const renderCodeModeResult = (
     };
     try {
       if (nested?.definition.renderCall) {
-        container.addChild(
-          nested.definition.renderCall(trace.input, theme, renderContext)
-        );
+        container.addChild(nested.definition.renderCall(trace.input, theme, renderContext));
       } else {
         container.addChild(
           new Text(
             theme.fg(
               trace.status === "error" ? "error" : "toolTitle",
-              `${trace.status === "done" ? "✓" : trace.status === "error" ? "✗" : "…"} ${trace.name}`
+              `${trace.status === "done" ? "✓" : trace.status === "error" ? "✗" : "…"} ${trace.name}`,
             ),
             0,
-            0
-          )
+            0,
+          ),
         );
       }
-      if (
-        trace.result !== undefined &&
-        nested?.definition.renderResult !== undefined
-      ) {
+      if (trace.result !== undefined && nested?.definition.renderResult !== undefined) {
         container.addChild(
           nested.definition.renderResult(
             {
@@ -619,17 +555,14 @@ const renderCodeModeResult = (
               isPartial: trace.status === "running",
             },
             theme,
-            renderContext
-          )
+            renderContext,
+          ),
         );
       } else if (trace.error !== undefined && trace.error.length > 0) {
         container.addChild(new Text(theme.fg("error", trace.error), 1, 0));
       } else if (options.expanded && trace.result !== undefined) {
         const text = trace.result.content
-          .filter(
-            (item): item is { type: "text"; text: string } =>
-              item.type === "text"
-          )
+          .filter((item): item is { type: "text"; text: string } => item.type === "text")
           .map((item) => item.text)
           .join("\n");
         if (text.length > 0) {
@@ -643,27 +576,7 @@ const renderCodeModeResult = (
   return container;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value: RuntimeValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
-const isRuntimeToolTrace = (value: unknown): value is RuntimeToolTrace =>
-  isRecord(value) &&
-  typeof value.id === "string" &&
-  typeof value.name === "string" &&
-  (value.status === "running" ||
-    value.status === "done" ||
-    value.status === "error") &&
-  (value.error === undefined || typeof value.error === "string") &&
-  (value.result === undefined || isRuntimeToolResult(value.result));
-
-const isRuntimeToolResult = (value: unknown): value is RuntimeToolResult =>
-  isRecord(value) &&
-  Array.isArray(value.content) &&
-  value.content.every(
-    (item: unknown) =>
-      isRecord(item) &&
-      ((item.type === "text" && typeof item.text === "string") ||
-        (item.type === "image" &&
-          typeof item.data === "string" &&
-          typeof item.mimeType === "string"))
-  );
+const isRuntimeToolTrace = (value: RuntimeValue): value is RuntimeToolTrace =>
+  Value.Check(RuntimeToolTraceSchema, value);

@@ -1,13 +1,8 @@
 import { readFile } from "node:fs/promises";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  commitRenewal,
-  createCall,
-  disposeCallMedia,
-  disposeLeg,
-} from "../media/call-media.js";
+import { commitRenewal, createCall, disposeCallMedia, disposeLeg } from "../media/call-media.js";
 import type { CallMediaLeg } from "../media/call-media.js";
 
 const createLeg = () => {
@@ -71,23 +66,15 @@ describe("voice media app", () => {
       warm.stop.mock.calls.length,
       warm.pause.mock.calls.length,
     ]).toStrictEqual([1, 1, 1, 1, 1, 1]);
-    expect([
-      active.leg.audio.srcObject,
-      warm.leg.audio.srcObject,
-    ]).toStrictEqual([null, null]);
+    expect([active.leg.audio.srcObject, warm.leg.audio.srcObject]).toStrictEqual([null, null]);
   });
 
   it("guards renewal requests and the final media swap with call identity", async () => {
-    const source = await readFile(
-      new URL("../media/app.js", import.meta.url),
-      "utf-8"
-    );
+    const source = await readFile(new URL("../media/app.js", import.meta.url), "utf-8");
 
     expect(source).toMatch(
-      /const originCall = currentCall;[\s\S]*currentCall === originCall[\s\S]*request\("renew_offer", offer, controller\.signal\)[\s\S]*request\("renew_commit", undefined, controller\.signal\)[\s\S]*requireCurrent\(\);[\s\S]*commitRenewal\(originCall, renewal\)/u
+      /const originCall = currentCall;[\s\S]*currentCall === originCall[\s\S]*request\("renew_offer", offer, controller\.signal\)[\s\S]*request\("renew_commit", undefined, controller\.signal\)[\s\S]*requireCurrent\(\);[\s\S]*commitRenewal\(originCall, renewal\)/u,
     );
-    expect(source).toContain(
-      'disposeCallMedia(closingCall, new Error("Voice call closed."));'
-    );
+    expect(source).toContain('disposeCallMedia(closingCall, new Error("Voice call closed."));');
   });
 });

@@ -4,18 +4,10 @@ import { Value } from "typebox/value";
 
 import { resolveOAuthAccess } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
-import type {
-  UsageFetchResult,
-  UsageWindow,
-  UsageWindowId,
-} from "../providers.js";
+import type { UsageFetchResult, UsageSnapshot, UsageWindow, UsageWindowId } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import {
-  isDefined,
-  makeUsageWindow,
-  windowIdFromLimitSeconds,
-} from "./util.js";
+import { isDefined, makeUsageWindow, windowIdFromLimitSeconds } from "./util.js";
 
 const WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const OPENAI_AUTH_CLAIM = "https://api.openai.com/auth";
@@ -34,13 +26,10 @@ const extractChatGptAccountId = (accessToken: string): string | undefined => {
 
   try {
     const padded =
-      payload.length % 4 === 0
-        ? payload
-        : `${payload}${"=".repeat(4 - (payload.length % 4))}`;
-    const json = Buffer.from(
-      padded.replaceAll("-", "+").replaceAll("_", "/"),
-      "base64"
-    ).toString("utf-8");
+      payload.length % 4 === 0 ? payload : `${payload}${"=".repeat(4 - (payload.length % 4))}`;
+    const json = Buffer.from(padded.replaceAll("-", "+").replaceAll("_", "/"), "base64").toString(
+      "utf-8",
+    );
     const parsed: unknown = JSON.parse(json);
     return Value.Check(ChatGptTokenPayloadSchema, parsed)
       ? parsed[OPENAI_AUTH_CLAIM].chatgpt_account_id
@@ -56,26 +45,21 @@ const CodexRateLimitWindowSchema = Type.Object({
   used_percent: Type.Number(),
 });
 
-const NullableCodexRateLimitWindowSchema = Type.Union([
-  CodexRateLimitWindowSchema,
-  Type.Null(),
-]);
+const NullableCodexRateLimitWindowSchema = Type.Union([CodexRateLimitWindowSchema, Type.Null()]);
 
 const CodexUsagePayloadSchema = Type.Object({
   credits: Type.Optional(
     Type.Object({
-      balance: Type.Optional(
-        Type.Union([Type.Number(), Type.String(), Type.Null()])
-      ),
+      balance: Type.Optional(Type.Union([Type.Number(), Type.String(), Type.Null()])),
       has_credits: Type.Optional(Type.Boolean()),
-    })
+    }),
   ),
   plan_type: Type.Optional(Type.String()),
   rate_limit: Type.Optional(
     Type.Object({
       primary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
       secondary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
-    })
+    }),
   ),
 });
 
@@ -84,7 +68,7 @@ type CodexRateLimitWindow = Static<typeof CodexRateLimitWindowSchema>;
 const mapWindow = (
   window: CodexRateLimitWindow | null | undefined,
   fallbackId: UsageWindowId,
-  nowMs: number
+  nowMs: number,
 ): UsageWindow | undefined => {
   if (window === null || window === undefined) {
     return undefined;
@@ -103,8 +87,8 @@ const mapWindow = (
 };
 
 export const parseCodexUsagePayload = (
-  payload: unknown,
-  nowMs: number = Date.now()
+  payload: Static<typeof CodexUsagePayloadSchema> | undefined,
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   if (!Value.Check(CodexUsagePayloadSchema, payload)) {
     return usageFailure("invalid usage payload");
@@ -116,30 +100,34 @@ export const parseCodexUsagePayload = (
   ].filter(isDefined);
 
   const planLabel = payload.plan_type;
-  const rawCreditsBalance = payload.credits?.balance;
-  const parsedCreditsBalance =
-    typeof rawCreditsBalance === "string" && rawCreditsBalance.trim() !== ""
-      ? Number(rawCreditsBalance)
-      : rawCreditsBalance;
-  const creditsRemaining =
-    payload.credits?.has_credits === true &&
-    typeof parsedCreditsBalance === "number" &&
-    Number.isFinite(parsedCreditsBalance)
-      ? parsedCreditsBalance
-      : undefined;
+  const NumberSchema = Type.Number();
+  const StringSchema = Type.String();
+  let creditsRemaining: number | undefined = undefined;
+  if (payload.credits?.has_credits === true) {
+    const balance = payload.credits.balance;
+    if (Value.Check(NumberSchema, balance) && Number.isFinite(balance)) {
+      creditsRemaining = balance;
+    } else if (Value.Check(StringSchema, balance) && balance.trim() !== "") {
+      const converted = Number(balance);
+      creditsRemaining = Number.isFinite(converted) ? converted : undefined;
+    }
+  }
 
-  return usageResult({
+  const snapshot: UsageSnapshot = {
     fetchedAt: nowMs,
     provider: "openai-codex",
     windows,
-    ...(planLabel === undefined ? {} : { planLabel }),
-    ...(creditsRemaining === undefined ? {} : { creditsRemaining }),
-  });
+  };
+  if (planLabel !== undefined) {
+    snapshot.planLabel = planLabel;
+  }
+  if (creditsRemaining !== undefined) {
+    snapshot.creditsRemaining = creditsRemaining;
+  }
+  return usageResult(snapshot);
 };
 
-export const fetchCodexUsage = async (
-  deps: AdapterDeps
-): Promise<UsageFetchResult> => {
+export const fetchCodexUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveOAuthAccess(deps.authClient, "openai-codex");
   if (!auth.ok) {
@@ -161,7 +149,12 @@ export const fetchCodexUsage = async (
   });
 
   if (response.ok) {
-    return parseCodexUsagePayload(response.json, now());
+    return parseCodexUsagePayload(
+      Value.Check(CodexUsagePayloadSchema, response.json)
+        ? Value.Parse(CodexUsagePayloadSchema, response.json)
+        : undefined,
+      now(),
+    );
   }
 
   return usageFailure(response.message);

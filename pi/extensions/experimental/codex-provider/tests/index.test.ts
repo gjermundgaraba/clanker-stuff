@@ -1,6 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
@@ -43,18 +43,18 @@ describe("Codex lifecycle loading", () => {
         systemPromptOptions: {},
         type: "before_agent_start",
       },
-      ctx
+      ctx,
     );
     await host.emit("context", { messages: [], type: "context" }, ctx);
     await host.emit(
       "before_provider_headers",
       { headers: {}, type: "before_provider_headers" },
-      ctx
+      ctx,
     );
     await host.emit(
       "before_provider_request",
       { payload: {}, type: "before_provider_request" },
-      ctx
+      ctx,
     );
     await host.emit(
       "session_before_compact",
@@ -64,7 +64,7 @@ describe("Codex lifecycle loading", () => {
         preparation: {},
         type: "session_before_compact",
       },
-      ctx
+      ctx,
     );
 
     expect(createCodexLifecycle).not.toHaveBeenCalled();

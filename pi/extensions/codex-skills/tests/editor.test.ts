@@ -1,9 +1,5 @@
-import type {
-  KeybindingsManager,
-  Theme,
-} from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, EditorTheme } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import {
@@ -30,33 +26,24 @@ const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   if (!factory) {
     throw new Error("Expected a custom editor factory");
   }
-  return factory(
-    createMockTui(),
-    editorTheme,
-    createKeybindings() as KeybindingsManager
-  );
+  return factory(createMockTui(), editorTheme, createKeybindings());
 };
 
 describe("skill mention editor", () => {
   it("highlights exact loaded skill mentions without changing editor text", () => {
     const host = createExtensionHost(() => {});
-    const baseTheme = createIdentityTheme();
-    const theme = {
-      ...baseTheme,
-      fg: (color: string, text: string) =>
-        color === "accent" ? `<accent>${text}</accent>` : text,
-    } as Theme;
+    const theme = Object.assign(createIdentityTheme(), {
+      fg: (color: string, text: string) => (color === "accent" ? `<accent>${text}</accent>` : text),
+    });
     const ctx = host.createContext({ ui: { theme } });
     installSkillMentionEditor(ctx, () => ["alpha", "plugin:deploy"]);
 
     const editor = createEditor(host);
     editor.setText("Use $alpha, $plugin:deploy, and not $alphabet or $PATH");
 
-    expect(editor.getText()).toBe(
-      "Use $alpha, $plugin:deploy, and not $alphabet or $PATH"
-    );
+    expect(editor.getText()).toBe("Use $alpha, $plugin:deploy, and not $alphabet or $PATH");
     expect(editor.render(80).join("\n")).toContain(
-      "Use <accent>$alpha</accent>, <accent>$plugin:deploy</accent>, and not $alphabet or $PATH"
+      "Use <accent>$alpha</accent>, <accent>$plugin:deploy</accent>, and not $alphabet or $PATH",
     );
   });
 
@@ -64,10 +51,9 @@ describe("skill mention editor", () => {
     const host = createExtensionHost(() => {});
     const context = host.createContext({
       ui: {
-        theme: {
-          ...createIdentityTheme(),
+        theme: Object.assign(createIdentityTheme(), {
           fg: (_color: string, text: string) => `<accent>${text}</accent>`,
-        } as Theme,
+        }),
       },
     });
     const previousEditor = {
@@ -88,23 +74,17 @@ describe("skill mention editor", () => {
 
   it("reads live skill names on every render", () => {
     const host = createExtensionHost(() => {});
-    const theme = {
-      ...createIdentityTheme(),
-      fg: (color: string, text: string) =>
-        color === "accent" ? `<accent>${text}</accent>` : text,
-    } as Theme;
+    const theme = Object.assign(createIdentityTheme(), {
+      fg: (color: string, text: string) => (color === "accent" ? `<accent>${text}</accent>` : text),
+    });
     const ctx = host.createContext({ ui: { theme } });
     let names = ["alpha"];
     installSkillMentionEditor(ctx, () => names);
     const editor = createEditor(host);
     editor.setText("Use $alpha and $beta");
 
-    expect(editor.render(80).join("\n")).toContain(
-      "Use <accent>$alpha</accent> and $beta"
-    );
+    expect(editor.render(80).join("\n")).toContain("Use <accent>$alpha</accent> and $beta");
     names = ["beta"];
-    expect(editor.render(80).join("\n")).toContain(
-      "Use $alpha and <accent>$beta</accent>"
-    );
+    expect(editor.render(80).join("\n")).toContain("Use $alpha and <accent>$beta</accent>");
   });
 });

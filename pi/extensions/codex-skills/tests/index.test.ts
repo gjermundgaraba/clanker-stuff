@@ -1,29 +1,22 @@
 import type {
   BeforeAgentStartEvent,
   BeforeAgentStartEventResult,
-  ExtensionAPI,
   ExtensionContext,
   InputEvent,
   InputEventResult,
   MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 
 const mentions = vi.hoisted(() => ({
   inject: vi.fn<
-    (
-      event: BeforeAgentStartEvent,
-      ctx: ExtensionContext
-    ) => Promise<BeforeAgentStartEventResult>
+    (event: BeforeAgentStartEvent, ctx: ExtensionContext) => Promise<BeforeAgentStartEventResult>
   >(async () => await Promise.resolve({})),
   injectStreaming: vi.fn<
-    (
-      event: InputEvent,
-      ctx: ExtensionContext
-    ) => Promise<InputEventResult | undefined>
+    (event: InputEvent, ctx: ExtensionContext) => Promise<InputEventResult | undefined>
   >(async () => {
     await Promise.resolve();
   }),
@@ -31,14 +24,9 @@ const mentions = vi.hoisted(() => ({
   render: vi.fn<MessageRenderer>(),
 }));
 const discoverOrchestrateSkill = vi.hoisted(() =>
-  vi.fn<
-    (
-      pi: ExtensionAPI,
-      ctx: ExtensionContext
-    ) => { skillPaths: string[] } | undefined
-  >(() => ({
+  vi.fn<typeof import("../orchestrate.js").discoverOrchestrateSkill>(() => ({
     skillPaths: ["/tmp/orchestrate/SKILL.md"],
-  }))
+  })),
 );
 
 vi.mock(import("../mentions.js"), () => ({
@@ -75,16 +63,13 @@ describe("codex-skills registration", () => {
         reason: "startup",
         type: "resources_discover",
       },
-      ctx
+      ctx,
     );
 
     expect(host.getMessageRenderer("codex-skills")).toBe(mentions.render);
     expect(mentions.install).toHaveBeenCalledExactlyOnceWith(ctx);
     expect(mentions.inject).toHaveBeenCalledExactlyOnceWith(event, ctx);
-    expect(mentions.injectStreaming).toHaveBeenCalledExactlyOnceWith(
-      input,
-      ctx
-    );
+    expect(mentions.injectStreaming).toHaveBeenCalledExactlyOnceWith(input, ctx);
     expect({
       calls: discoverOrchestrateSkill.mock.calls.length,
       context: discoverOrchestrateSkill.mock.calls[0]?.[1],

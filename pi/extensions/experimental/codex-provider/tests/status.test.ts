@@ -1,5 +1,4 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   CHECKPOINT_CUSTOM_TYPE,
@@ -9,18 +8,14 @@ import {
 } from "../checkpoint.js";
 import type { CodexObservation } from "../observability.js";
 import { formatCodexProviderStatus } from "../status.js";
+import { sessionEntry as createSessionEntry } from "./fixtures.js";
+import type { SessionEntryPayload } from "./fixtures.js";
 
-const sessionEntry = (
+const sessionEntry = <const Payload extends SessionEntryPayload>(
   id: string,
-  value: Record<string, unknown>,
-  parentId: string | null = null
-): SessionEntry =>
-  ({
-    id,
-    parentId,
-    timestamp: `2026-08-04T12:00:0${id.at(-1) ?? "0"}.000Z`,
-    ...value,
-  }) as SessionEntry;
+  value: Payload,
+  parentId: string | null = null,
+) => createSessionEntry(id, value, parentId, `2026-08-04T12:00:0${id.at(-1) ?? "0"}.000Z`);
 
 const EMPTY_OBSERVABILITY = {
   observabilityPath: ":memory:",
@@ -31,7 +26,7 @@ const requestObservation = (
   timestamp: number,
   cacheReadTokens: number,
   inputItemHashes: string[],
-  fellBackToSse = false
+  fellBackToSse = false,
 ): CodexObservation => ({
   data: {
     model: "gpt-5.3-codex",
@@ -59,7 +54,7 @@ const checkpoint = (
   responseId: string,
   reason: "manual" | "threshold",
   phase: "pre-sampling" | "standalone",
-  sourceTokens: number
+  sourceTokens: number,
 ) => {
   const replacement = [
     {
@@ -121,7 +116,7 @@ describe("Codex provider status", () => {
         tokensBefore: 1000,
         type: "compaction",
       },
-      "1"
+      "1",
     );
     const active = sessionEntry(
       "3",
@@ -130,7 +125,7 @@ describe("Codex provider status", () => {
         data: second,
         type: "custom",
       },
-      "2"
+      "2",
     );
     const report = formatCodexProviderStatus({
       branch: [inline, duplicateLifecycle, active],
@@ -246,14 +241,9 @@ describe("Codex provider status", () => {
 
   it("separates the active branch from abandoned session history", () => {
     const active = checkpoint("response-1", "manual", "standalone", 1000);
-    const abandoned = checkpoint(
-      "response-2",
-      "threshold",
-      "pre-sampling",
-      2000
-    );
+    const abandoned = checkpoint("response-2", "threshold", "pre-sampling", 2000);
     const root = sessionEntry("1", {
-      message: { role: "user" },
+      message: { content: "root", role: "user", timestamp: 1 },
       type: "message",
     });
     const branchCheckpoint = sessionEntry(
@@ -263,7 +253,7 @@ describe("Codex provider status", () => {
         data: active,
         type: "custom",
       },
-      "1"
+      "1",
     );
     const abandonedCheckpoint = sessionEntry(
       "3",
@@ -272,7 +262,7 @@ describe("Codex provider status", () => {
         data: abandoned,
         type: "custom",
       },
-      "1"
+      "1",
     );
 
     const report = formatCodexProviderStatus({
@@ -295,10 +285,10 @@ describe("Codex provider status", () => {
           `response-${value}`,
           value % 2 === 0 ? "threshold" : "manual",
           value % 2 === 0 ? "pre-sampling" : "standalone",
-          value * 1000
+          value * 1000,
         ),
         type: "custom",
-      })
+      }),
     );
     const report = formatCodexProviderStatus({
       branch,
@@ -306,9 +296,7 @@ describe("Codex provider status", () => {
       ...EMPTY_OBSERVABILITY,
       sessionId: "session-recent",
     });
-    const recent = report
-      .split("\n")
-      .find((line) => line.includes("Recent (current branch"));
+    const recent = report.split("\n").find((line) => line.includes("Recent (current branch"));
 
     expect(recent).not.toContain("12:00:01.000Z");
     expect(recent).toContain("12:00:02.000Z");
@@ -337,9 +325,7 @@ describe("Codex provider status", () => {
 
     expect(report).toContain("Checkpoint: invalid · Pi compaction");
     expect(report).toContain("Count: 0 current branch · 0 session");
-    expect(report).toContain(
-      "Invalid checkpoint entries: 1 current branch · 1 session"
-    );
+    expect(report).toContain("Invalid checkpoint entries: 1 current branch · 1 session");
     expect(report).not.toContain("CARRIER_SECRET");
   });
 });

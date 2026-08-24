@@ -1,5 +1,3 @@
-/* eslint-disable promise/avoid-new, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, promise/prefer-catch */
-
 export class CallLifecycle {
   #attempt;
   #nextAttemptId = 0;
@@ -25,11 +23,7 @@ export class CallLifecycle {
       id: this.#nextAttemptId,
       signal: controller.signal,
       timeout: setTimeout(() => {
-        if (
-          !this.isCurrent(attempt) ||
-          attempt.signal.aborted ||
-          this.#state === "active"
-        ) {
+        if (!this.isCurrent(attempt) || attempt.signal.aborted || this.#state === "active") {
           return;
         }
         controller.abort(new Error("Voice call startup timed out."));
@@ -57,11 +51,7 @@ export class CallLifecycle {
   }
 
   beginStop(reason) {
-    if (
-      this.#state === "closed" ||
-      this.#state === "stopping" ||
-      this.#state === "failed"
-    ) {
+    if (this.#state === "closed" || this.#state === "stopping" || this.#state === "failed") {
       return false;
     }
     this.#transition("stop");
@@ -71,11 +61,7 @@ export class CallLifecycle {
   }
 
   fail(attempt, error) {
-    if (
-      !this.isCurrent(attempt) ||
-      this.#state === "stopping" ||
-      this.#state === "closed"
-    ) {
+    if (!this.isCurrent(attempt) || this.#state === "stopping" || this.#state === "closed") {
       return false;
     }
     this.#transition("fail");
@@ -112,7 +98,7 @@ export class CallLifecycle {
         reject(
           attempt.signal.reason instanceof Error
             ? attempt.signal.reason
-            : new Error("Voice call stopped.")
+            : new Error("Voice call stopped."),
         );
       };
       attempt.signal.addEventListener("abort", rejectForAbort, { once: true });
@@ -133,7 +119,7 @@ export class CallLifecycle {
           finished = true;
           attempt.signal.removeEventListener("abort", rejectForAbort);
           reject(error);
-        }
+        },
       );
       if (attempt.signal.aborted) {
         rejectForAbort();

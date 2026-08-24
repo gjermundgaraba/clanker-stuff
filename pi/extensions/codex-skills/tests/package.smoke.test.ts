@@ -3,17 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  DefaultResourceLoader,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const NPM_ENV = Object.fromEntries(
-  Object.entries(process.env).filter(
-    ([key]) => !key.toLowerCase().startsWith("npm_config_")
-  )
+  Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
 );
 
 describe("codex-skills package", () => {
@@ -47,9 +42,7 @@ describe("codex-skills package", () => {
     await loader.reload();
 
     expect(loader.getExtensions().errors).toStrictEqual([]);
-    expect(
-      loader.getExtensions().extensions[0]?.handlers.has("resources_discover")
-    ).toBeTruthy();
+    expect(loader.getExtensions().extensions[0]?.handlers.has("resources_discover")).toBeTruthy();
     expect(loader.getSkills().skills).toStrictEqual([]);
   });
 
@@ -68,7 +61,7 @@ describe("codex-skills package", () => {
       })
         .trim()
         .split("\n")
-        .toSorted()
+        .toSorted(),
     ).toStrictEqual(
       [
         "package/LICENSE",
@@ -81,7 +74,7 @@ describe("codex-skills package", () => {
         "package/vendor/orchestrate/LICENSE",
         "package/vendor/orchestrate/SKILL.md",
         "package/vendor/orchestrate/UPSTREAM",
-      ].toSorted()
+      ].toSorted(),
     );
   });
 });

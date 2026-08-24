@@ -1,20 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  fetchCodexUsage,
-  parseCodexUsagePayload,
-} from "../../adapters/codex.js";
+import { fetchCodexUsage, parseCodexUsagePayload } from "../../adapters/codex.js";
 import type { ProviderAuthClient } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
 
 const makeJwt = (accountId: string): string => {
-  const header = Buffer.from(JSON.stringify({ alg: "none" })).toString(
-    "base64url"
-  );
+  const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
   const body = Buffer.from(
     JSON.stringify({
       "https://api.openai.com/auth": { chatgpt_account_id: accountId },
-    })
+    }),
   ).toString("base64url");
   return `${header}.${body}.sig`;
 };
@@ -38,7 +33,7 @@ describe("codex payload parsing", () => {
           },
         },
       },
-      now
+      now,
     );
 
     expect(result).toStrictEqual({
@@ -75,7 +70,7 @@ describe("codex payload parsing", () => {
           secondary_window: null,
         },
       },
-      now
+      now,
     );
 
     expect(result).toStrictEqual({
@@ -98,7 +93,7 @@ describe("codex payload parsing", () => {
           secondary_window: null,
         },
       },
-      now
+      now,
     );
 
     expect(result).toStrictEqual({
@@ -129,7 +124,7 @@ describe("codex payload parsing", () => {
           secondary_window: null,
         },
       },
-      now
+      now,
     );
 
     expect(result).toStrictEqual({
@@ -164,19 +159,16 @@ describe("codex payload parsing", () => {
           },
         },
       },
-      now
+      now,
     );
     expect(result.ok).toBeTruthy();
     if (!result.ok) {
       return;
     }
-    expect(result.snapshot.windows.map((window) => window.id)).toStrictEqual([
-      "5h",
-      "7d",
+    expect(result.snapshot.windows.map((window) => window.id)).toStrictEqual(["5h", "7d"]);
+    expect(result.snapshot.windows.map((window) => window.remainingPercent)).toStrictEqual([
+      60, 75,
     ]);
-    expect(
-      result.snapshot.windows.map((window) => window.remainingPercent)
-    ).toStrictEqual([60, 75]);
   });
 });
 

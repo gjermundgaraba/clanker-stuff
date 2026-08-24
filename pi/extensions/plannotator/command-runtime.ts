@@ -20,15 +20,8 @@ interface LaunchOptions {
 }
 
 export interface CommandRuntime {
-  launch: (
-    args: string[],
-    ctx: ExtensionCommandContext,
-    options: LaunchOptions
-  ) => void;
-  parseArguments: (
-    args: string,
-    ctx: ExtensionCommandContext
-  ) => string[] | undefined;
+  launch: (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions) => void;
+  parseArguments: (args: string, ctx: ExtensionCommandContext) => string[] | undefined;
   shutdown: () => Promise<void>;
 }
 
@@ -94,15 +87,11 @@ export const tokenizeArguments = (input: string): string[] => {
   return tokens;
 };
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const errorMessage = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
 
-export const notifyError = (
-  ctx: ExtensionCommandContext,
-  label: string,
-  error: unknown
-): void => {
-  ctx.ui.notify(`${label}: ${errorMessage(error)}`, "error");
+export const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown): void => {
+  ctx.ui.notify(`${label}: ${errorMessage(cause)}`, "error");
 };
 
 export const startPlannotatorCli: CliStarter = (args, options) =>
@@ -119,11 +108,7 @@ export const startPlannotatorCli: CliStarter = (args, options) =>
 export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
   const activeRuns = new Set<ActiveRun>();
 
-  const launch = (
-    args: string[],
-    ctx: ExtensionCommandContext,
-    options: LaunchOptions
-  ): void => {
+  const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
     let pendingStderr = "";
     let streamedStderr = "";
     const streamStderrLines = (chunk: string, flush = false): void => {
@@ -198,10 +183,7 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
     ctx.ui.notify(options.openedMessage, "info");
   };
 
-  const parseArguments = (
-    args: string,
-    ctx: ExtensionCommandContext
-  ): string[] | undefined => {
+  const parseArguments = (args: string, ctx: ExtensionCommandContext): string[] | undefined => {
     try {
       return tokenizeArguments(args);
     } catch (error) {

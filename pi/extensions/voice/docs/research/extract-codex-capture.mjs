@@ -15,6 +15,50 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+
+const RpcEnvelopeSchema = Type.Object({
+  message: Type.Optional(
+    Type.Object({
+      method: Type.Optional(Type.String()),
+      params: Type.Optional(Type.Object({ threadId: Type.Optional(Type.String()) })),
+    }),
+  ),
+});
+const RendererStringDataSchema = Type.String();
+const RendererDataSchema = Type.Union([
+  RendererStringDataSchema,
+  Type.Object({ byteLength: Type.Union([Type.Number(), Type.Null()]) }),
+]);
+const RendererEnvelopeSchema = Type.Object({
+  detail: Type.Optional(Type.Object({ data: Type.Optional(RendererDataSchema) })),
+  kind: Type.String(),
+  timestamp: Type.String(),
+});
+const StderrEnvelopeSchema = Type.Object({
+  fields: Type.Optional(Type.Object({ message: Type.Optional(Type.String()) })),
+  timestamp: Type.String(),
+});
+const RealtimeEventSchema = Type.Object({
+  item: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  turn: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  type: Type.String(),
+});
+const CallRequestSchema = Type.Object({
+  session: Type.Object({ instructions: Type.String() }),
+});
+const ChildSchema = Type.Object({ pid: Type.Number() });
+const ManifestSchema = Type.Object({ startedAt: Type.String() });
+const SqlEventsSchema = Type.Array(Type.Record(Type.String(), Type.Unknown()));
+
+const parseJson = (text, schema, source) => {
+  try {
+    return Value.Parse(schema, JSON.parse(text));
+  } catch {
+    throw new Error(`${source} contained unexpected JSON.`);
+  }
+};
 
 import { createEvidenceSnapshot } from "./evidence-snapshot.mjs";
 
@@ -28,26 +72,24 @@ const evidenceDirectory = evidenceSnapshot.directory;
 let published = false;
 
 const writeJson = (name, value) => {
-  writeFileSync(
-    path.join(evidenceDirectory, name),
-    `${JSON.stringify(value, null, 2)}\n`,
-    { mode: 0o600 }
-  );
+  writeFileSync(path.join(evidenceDirectory, name), `${JSON.stringify(value, null, 2)}\n`, {
+    mode: 0o600,
+  });
 };
 
 const writeNdjson = (name, values) => {
   writeFileSync(
     path.join(evidenceDirectory, name),
     `${values.map((value) => JSON.stringify(value)).join("\n")}\n`,
-    { mode: 0o600 }
+    { mode: 0o600 },
   );
 };
 
-const readNdjson = async (file, visit) => {
+const readNdjson = async (file, schema, visit) => {
   const lines = createInterface({ input: createReadStream(file) });
   for await (const line of lines) {
     if (line) {
-      visit(JSON.parse(line));
+      visit(parseJson(line, schema, file));
     }
   }
 };
@@ -56,12 +98,8 @@ try {
   const files = readdirSync(captureDirectory)
     .filter((name) => statSync(path.join(captureDirectory, name)).isFile())
     .toSorted();
-  const rpcFile = files.find((name) =>
-    /^app-server-\d+\.rpc\.ndjson$/u.test(name)
-  );
-  const stderrFile = files.find((name) =>
-    /^app-server-\d+\.stderr\.bin$/u.test(name)
-  );
+  const rpcFile = files.find((name) => /^app-server-\d+\.rpc\.ndjson$/u.test(name));
+  const stderrFile = files.find((name) => /^app-server-\d+\.stderr\.bin$/u.test(name));
   if (!rpcFile || !stderrFile) {
     throw new Error("Capture is missing app-server RPC or stderr evidence.");
   }
@@ -69,9 +107,9 @@ try {
   const appServerEvents = [];
   let realtimeStart;
   let threadStart;
-  await readNdjson(path.join(captureDirectory, rpcFile), (envelope) => {
+  await readNdjson(path.join(captureDirectory, rpcFile), RpcEnvelopeSchema, (envelope) => {
     const { message } = envelope;
-    if (!message || typeof message !== "object") {
+    if (!message) {
       return;
     }
     if (message.method === "thread/realtime/start") {
@@ -82,12 +120,7 @@ try {
     }
     if (
       message.method?.startsWith("thread/realtime/") ||
-      [
-        "item/completed",
-        "item/started",
-        "turn/completed",
-        "turn/started",
-      ].includes(message.method)
+      ["item/completed", "item/started", "turn/completed", "turn/started"].includes(message.method)
     ) {
       appServerEvents.push(envelope);
     }
@@ -98,6 +131,7 @@ try {
   let lastRendererTimestamp;
   await readNdjson(
     path.join(captureDirectory, "renderer.ndjson"),
+    RendererEnvelopeSchema,
     (envelope) => {
       lastRendererTimestamp = envelope.timestamp;
       if (
@@ -119,27 +153,34 @@ try {
       }
       if (
         envelope.kind === "data-channel-received" &&
-        typeof envelope.detail?.data === "string"
+        Value.Check(RendererStringDataSchema, envelope.detail?.data)
       ) {
-        const data = JSON.parse(envelope.detail.data);
+        const data = parseJson(
+          envelope.detail.data,
+          RealtimeEventSchema,
+          "renderer data-channel event",
+        );
         if (data.type === "session.started") {
           sessionStarted = data;
         }
       }
-    }
+    },
   );
 
   let callRequest;
   const sideband = [];
-  await readNdjson(path.join(captureDirectory, stderrFile), (envelope) => {
+  await readNdjson(path.join(captureDirectory, stderrFile), StderrEnvelopeSchema, (envelope) => {
     const message = envelope.fields?.message;
-    if (typeof message !== "string") {
+    if (message === undefined) {
       return;
     }
-    const callMarker =
-      "POST to https://chatgpt.com/backend-api/codex/realtime/calls";
+    const callMarker = "POST to https://chatgpt.com/backend-api/codex/realtime/calls";
     if (message.startsWith(callMarker)) {
-      callRequest = JSON.parse(message.slice(message.indexOf(": ") + 2));
+      callRequest = parseJson(
+        message.slice(message.indexOf(": ") + 2),
+        CallRequestSchema,
+        "native realtime call request",
+      );
       return;
     }
     for (const [direction, prefix] of [
@@ -149,7 +190,11 @@ try {
       if (message.startsWith(prefix)) {
         sideband.push({
           direction,
-          event: JSON.parse(message.slice(prefix.length)),
+          event: parseJson(
+            message.slice(prefix.length),
+            RealtimeEventSchema,
+            "native sideband event",
+          ),
           timestamp: envelope.timestamp,
         });
       }
@@ -172,7 +217,7 @@ try {
     writeFileSync(
       path.join(evidenceDirectory, "realtime-prompt.md"),
       `${callRequest.session.instructions}\n`,
-      { mode: 0o600 }
+      { mode: 0o600 },
     );
   }
   if (sessionStarted) {
@@ -194,23 +239,19 @@ try {
   });
 
   let nativeLogExport;
-  const childFile = files.find((name) =>
-    /^app-server-\d+\.child\.json$/u.test(name)
-  );
+  const childFile = files.find((name) => /^app-server-\d+\.child\.json$/u.test(name));
   const manifestFile = path.join(captureDirectory, "manifest.json");
-  const nativeLogDatabase = path.join(
-    process.env.HOME,
-    ".codex",
-    "logs_2.sqlite"
-  );
+  const nativeLogDatabase = path.join(process.env.HOME, ".codex", "logs_2.sqlite");
   if (childFile && existsSync(manifestFile) && existsSync(nativeLogDatabase)) {
-    const child = JSON.parse(
-      readFileSync(path.join(captureDirectory, childFile), "utf-8")
+    const child = parseJson(
+      readFileSync(path.join(captureDirectory, childFile), "utf-8"),
+      ChildSchema,
+      childFile,
     );
-    const manifest = JSON.parse(readFileSync(manifestFile, "utf-8"));
+    const manifest = parseJson(readFileSync(manifestFile, "utf-8"), ManifestSchema, manifestFile);
     const startedAtSeconds = Math.floor(Date.parse(manifest.startedAt) / 1000);
     const endedAtSeconds = Math.ceil(
-      Date.parse(lastRendererTimestamp ?? new Date().toISOString()) / 1000
+      Date.parse(lastRendererTimestamp ?? new Date().toISOString()) / 1000,
     );
     if (
       Number.isInteger(child.pid) &&
@@ -229,13 +270,14 @@ try {
         )
       ORDER BY ts, ts_nanos, id;
     `;
-      const result = spawnSync(
-        "sqlite3",
-        ["-readonly", "-json", nativeLogDatabase, query],
-        { encoding: "utf-8", maxBuffer: 256 * 1024 * 1024 }
-      );
+      const result = spawnSync("sqlite3", ["-readonly", "-json", nativeLogDatabase, query], {
+        encoding: "utf-8",
+        maxBuffer: 256 * 1024 * 1024,
+      });
       if (result.status === 0) {
-        const events = result.stdout.trim() ? JSON.parse(result.stdout) : [];
+        const events = result.stdout.trim()
+          ? parseJson(result.stdout, SqlEventsSchema, "sqlite3 output")
+          : [];
         writeJson("native-sqlite-events.json", events);
         nativeLogExport = { events: events.length, source: nativeLogDatabase };
       } else {
@@ -258,8 +300,7 @@ try {
   writeJson("capture-status.json", { missing, nativeLogExport, valid });
 
   const threadId =
-    realtimeStart?.message?.params?.threadId ??
-    threadStart?.message?.params?.threadId;
+    realtimeStart?.message?.params?.threadId ?? threadStart?.message?.params?.threadId;
   const sessionRoot = path.join(process.env.HOME, ".codex", "sessions");
   const rollout = threadId
     ? readdirSync(sessionRoot, { recursive: true })
@@ -309,32 +350,24 @@ try {
       (name) =>
         statSync(path.join(evidenceDirectory, name)).isFile() &&
         name !== "RAW_SHA256SUMS" &&
-        name !== "SHA256SUMS"
+        name !== "SHA256SUMS",
     )
     .toSorted();
   const evidenceHashes = [];
   for (const name of evidenceFiles) {
-    evidenceHashes.push(
-      `${await sha256(path.join(evidenceDirectory, name))}  ${name}`
-    );
+    evidenceHashes.push(`${await sha256(path.join(evidenceDirectory, name))}  ${name}`);
   }
-  writeFileSync(
-    path.join(evidenceDirectory, "SHA256SUMS"),
-    `${evidenceHashes.join("\n")}\n`,
-    { mode: 0o600 }
-  );
+  writeFileSync(path.join(evidenceDirectory, "SHA256SUMS"), `${evidenceHashes.join("\n")}\n`, {
+    mode: 0o600,
+  });
 
   const rawHashes = [];
   for (const name of files) {
-    rawHashes.push(
-      `${await sha256(path.join(captureDirectory, name))}  ${name}`
-    );
+    rawHashes.push(`${await sha256(path.join(captureDirectory, name))}  ${name}`);
   }
-  writeFileSync(
-    path.join(evidenceDirectory, "RAW_SHA256SUMS"),
-    `${rawHashes.join("\n")}\n`,
-    { mode: 0o600 }
-  );
+  writeFileSync(path.join(evidenceDirectory, "RAW_SHA256SUMS"), `${rawHashes.join("\n")}\n`, {
+    mode: 0o600,
+  });
 
   evidenceSnapshot.publish();
   published = true;
@@ -350,8 +383,8 @@ try {
         valid,
       },
       null,
-      2
-    )}\n`
+      2,
+    )}\n`,
   );
 } finally {
   if (!published) {

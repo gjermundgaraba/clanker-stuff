@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createExtensionSmokeHarness } from "../../../tests/harness/extension-smoke.js";
 import type { ExtensionSmokeHarness } from "../../../tests/harness/extension-smoke.js";
@@ -23,12 +23,11 @@ describe("cooperative footer discovery", () => {
     });
 
     expect(harness.extensionsResult.errors).toStrictEqual([]);
-    const footer = harness.extensionsResult.extensions.find(
-      ({ resolvedPath }) =>
-        resolvedPath.endsWith(path.join("footer", "index.ts"))
+    const footer = harness.extensionsResult.extensions.find(({ resolvedPath }) =>
+      resolvedPath.endsWith(path.join("footer", "index.ts")),
     );
     const usage = harness.extensionsResult.extensions.find(({ resolvedPath }) =>
-      resolvedPath.endsWith(path.join("usage", "index.ts"))
+      resolvedPath.endsWith(path.join("usage", "index.ts")),
     );
     expect(footer?.commands.has("footer")).toBeTruthy();
     expect(usage?.commands.has("usage")).toBeTruthy();

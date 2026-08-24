@@ -27,12 +27,7 @@ import type { PublicAgentStatus } from "../status.js";
 import { prepareInput } from "./input.js";
 import type { V1InputItem } from "./input.js";
 import { isFinalStatus, V1_TOOL_NAMES } from "./protocol.js";
-import type {
-  V1Notification,
-  V1PersistedAgent,
-  V1Snapshot,
-  V1Turn,
-} from "./protocol.js";
+import type { V1Notification, V1PersistedAgent, V1Snapshot, V1Turn } from "./protocol.js";
 
 const DEFAULT_MAX_OPEN_AGENTS = 6;
 const MAX_ERROR_LENGTH = 1000;
@@ -40,13 +35,9 @@ export const V1_NOTIFICATION_TYPE = "subagent-notification";
 
 type CallerContext = Pick<
   ExtensionContext,
-  | "cwd"
-  | "isProjectTrusted"
-  | "model"
-  | "modelRegistry"
-  | "sessionManager"
-  | "thinkingLevel"
+  "cwd" | "isProjectTrusted" | "model" | "modelRegistry" | "sessionManager" | "thinkingLevel"
 >;
+type ToolEndpoint = Pick<ExtensionAPI, "getActiveTools">;
 
 type RuntimeState =
   | { kind: "vacant" }
@@ -65,7 +56,7 @@ export interface V1ControllerDependencies {
   dataDir: string;
   id?: () => string;
   nicknames: NicknamePool;
-  onBackgroundError?: (error: unknown) => void;
+  onBackgroundError?: (cause: unknown) => void;
 }
 
 interface SpawnInput {
@@ -88,13 +79,16 @@ const bound = (value: string, maximum: number): string =>
 
 type OpenAgent = Extract<V1PersistedAgent, { edge: "open" }>;
 
-const agentIdentity = (agent: V1PersistedAgent) => ({
-  id: agent.id,
-  nickname: agent.nickname,
-  ...(agent.role === undefined ? {} : { role: agent.role }),
-  sessionFile: agent.sessionFile,
-  tools: agent.tools,
-});
+const agentIdentity = (agent: V1PersistedAgent) => {
+  const role = agent.role === undefined ? {} : { role: agent.role };
+  return {
+    id: agent.id,
+    nickname: agent.nickname,
+    ...role,
+    sessionFile: agent.sessionFile,
+    tools: agent.tools,
+  };
+};
 
 const retainedAnswer = (agent: V1PersistedAgent) =>
   agent.lastAnswer === undefined ? {} : { lastAnswer: agent.lastAnswer };
@@ -102,7 +96,7 @@ const retainedAnswer = (agent: V1PersistedAgent) =>
 const pendingAgent = (
   agent: V1PersistedAgent,
   active: V1Turn,
-  queue: V1Turn[]
+  queue: V1Turn[],
 ): Extract<V1PersistedAgent, { status: "pending" }> => ({
   ...agentIdentity(agent),
   ...retainedAnswer(agent),
@@ -115,7 +109,7 @@ const pendingAgent = (
 const runningAgent = (
   agent: V1PersistedAgent,
   active: V1Turn,
-  queue: V1Turn[]
+  queue: V1Turn[],
 ): Extract<V1PersistedAgent, { status: "running" }> => ({
   ...agentIdentity(agent),
   ...retainedAnswer(agent),
@@ -128,43 +122,52 @@ const runningAgent = (
 const interruptedAgent = (
   agent: V1PersistedAgent,
   queue: V1Turn[],
-  keepAnswer = true
-): Extract<V1PersistedAgent, { status: "interrupted" }> => ({
-  ...agentIdentity(agent),
-  ...(keepAnswer ? retainedAnswer(agent) : {}),
-  edge: "open",
-  queue,
-  status: "interrupted",
-});
+  keepAnswer = true,
+): Extract<V1PersistedAgent, { status: "interrupted" }> => {
+  const answer = keepAnswer ? retainedAnswer(agent) : {};
+  return {
+    ...agentIdentity(agent),
+    ...answer,
+    edge: "open",
+    queue,
+    status: "interrupted",
+  };
+};
 
 const completedAgent = (
   agent: V1PersistedAgent,
   queue: V1Turn[],
-  answer?: string
-): Extract<V1PersistedAgent, { status: "completed" }> => ({
-  ...agentIdentity(agent),
-  ...(answer === undefined ? {} : { lastAnswer: boundDurableText(answer) }),
-  edge: "open",
-  queue,
-  status: "completed",
-});
+  answer?: string,
+): Extract<V1PersistedAgent, { status: "completed" }> => {
+  const retained = answer === undefined ? {} : { lastAnswer: boundDurableText(answer) };
+  return {
+    ...agentIdentity(agent),
+    ...retained,
+    edge: "open",
+    queue,
+    status: "completed",
+  };
+};
 
 const erroredAgent = (
   agent: V1PersistedAgent,
   queue: V1Turn[],
   error: string,
-  keepAnswer: boolean
-): Extract<V1PersistedAgent, { status: "errored" }> => ({
-  ...agentIdentity(agent),
-  ...(keepAnswer ? retainedAnswer(agent) : {}),
-  edge: "open",
-  error: bound(error, MAX_ERROR_LENGTH),
-  queue,
-  status: "errored",
-});
+  keepAnswer: boolean,
+): Extract<V1PersistedAgent, { status: "errored" }> => {
+  const answer = keepAnswer ? retainedAnswer(agent) : {};
+  return {
+    ...agentIdentity(agent),
+    ...answer,
+    edge: "open",
+    error: bound(error, MAX_ERROR_LENGTH),
+    queue,
+    status: "errored",
+  };
+};
 
 const shutdownAgent = (
-  agent: V1PersistedAgent
+  agent: V1PersistedAgent,
 ): Extract<V1PersistedAgent, { status: "shutdown" }> => ({
   ...agentIdentity(agent),
   ...retainedAnswer(agent),
@@ -173,11 +176,7 @@ const shutdownAgent = (
   status: "shutdown",
 });
 
-const applyFinal = (
-  agent: OpenAgent,
-  final: ChildTurnOutcome,
-  queue: V1Turn[]
-): OpenAgent => {
+const applyFinal = (agent: OpenAgent, final: ChildTurnOutcome, queue: V1Turn[]): OpenAgent => {
   switch (final.status) {
     case "errored": {
       return erroredAgent(agent, queue, final.error, false);
@@ -197,7 +196,7 @@ const applyFinal = (
 
 const reportFailure = async (
   operation: Promise<unknown> | undefined,
-  report?: (error: unknown) => void
+  report?: (cause: unknown) => void,
 ): Promise<void> => {
   try {
     await operation;
@@ -216,7 +215,7 @@ export class V1Controller {
   readonly #maxOpenAgents: number;
   readonly #nicknames: NicknamePool;
   readonly #nicknameReservations = new Map<string, symbol>();
-  readonly #onBackgroundError: ((error: unknown) => void) | undefined;
+  readonly #onBackgroundError: ((cause: unknown) => void) | undefined;
   readonly #openReservations = new Map<symbol, string>();
   readonly #provisionalSpawns = new Set<Promise<null>>();
   readonly #queue = new KeyedSerialQueue();
@@ -224,7 +223,7 @@ export class V1Controller {
   readonly #waiters = new Map<string, Set<() => void>>();
   #closing = false;
   #promptOptions: BuildSystemPromptOptions | undefined;
-  #rootApi: ExtensionAPI | undefined;
+  #rootApi: ToolEndpoint | undefined;
 
   constructor(dependencies: V1ControllerDependencies) {
     this.#config = dependencies.config;
@@ -233,16 +232,15 @@ export class V1Controller {
     this.#dataDir = dependencies.dataDir;
     this.#id = dependencies.id ?? randomUUID;
     this.#maxOpenAgents =
-      dependencies.config.max_concurrent_threads_per_session ??
-      DEFAULT_MAX_OPEN_AGENTS;
+      dependencies.config.max_concurrent_threads_per_session ?? DEFAULT_MAX_OPEN_AGENTS;
     this.#nicknames = dependencies.nicknames;
     this.#onBackgroundError = dependencies.onBackgroundError;
   }
 
   setRoot(
-    api: ExtensionAPI,
+    api: ToolEndpoint,
     promptOptions: BuildSystemPromptOptions | undefined,
-    _running: boolean
+    _running: boolean,
   ): void {
     this.#rootApi = api;
     this.#promptOptions = promptOptions;
@@ -274,7 +272,7 @@ export class V1Controller {
         .agents.toSorted((left, right) => left.id.localeCompare(right.id))
         .map(
           (agent) =>
-            `${agent.id}  ${agent.nickname}  ${agent.status}  ${agent.edge}${this.#runtimeOwners.get(agent.id)?.state.kind === "ready" ? "  resident" : ""}`
+            `${agent.id}  ${agent.nickname}  ${agent.status}  ${agent.edge}${this.#runtimeOwners.get(agent.id)?.state.kind === "ready" ? "  resident" : ""}`,
         )
         .join("\n") || "No V1 agents"
     );
@@ -290,25 +288,19 @@ export class V1Controller {
         return;
       }
       draft.state.notifications = draft.state.notifications.filter(
-        (notification) => notification.id !== id
+        (notification) => notification.id !== id,
       );
     });
   }
 
   async restore(ctx: CallerContext): Promise<void> {
     const epoch = this.#epoch;
-    const openBefore = this.#state().agents.filter(
-      (agent) => agent.edge === "open"
-    );
+    const openBefore = this.#state().agents.filter((agent) => agent.edge === "open");
     const abandoned = new Set(
-      openBefore
-        .filter((agent) => agent.active?.phase === "running")
-        .map(({ id }) => id)
+      openBefore.filter((agent) => agent.active?.phase === "running").map(({ id }) => id),
     );
     if (abandoned.size > 0 || openBefore.length > this.#maxOpenAgents) {
-      const keep = new Set(
-        openBefore.slice(0, this.#maxOpenAgents).map(({ id }) => id)
-      );
+      const keep = new Set(openBefore.slice(0, this.#maxOpenAgents).map(({ id }) => id));
       await this.#coordinator.transact((draft) => {
         this.#assertEpoch(epoch);
         if (draft.protocolLatch !== "v1") {
@@ -326,18 +318,14 @@ export class V1Controller {
         }
       });
     }
-    const agents = this.#state().agents.filter(
-      (agent) => agent.edge === "open"
-    );
-    await Promise.all(
-      agents.map((agent) => this.#restoreAgent(agent, ctx, epoch))
-    );
+    const agents = this.#state().agents.filter((agent) => agent.edge === "open");
+    await Promise.all(agents.map((agent) => this.#restoreAgent(agent, ctx, epoch)));
   }
 
   async spawn(
     input: SpawnInput,
     ctx: CallerContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ agent_id: string; nickname: string }> {
     signal?.throwIfAborted();
     if (this.#closing) {
@@ -354,10 +342,7 @@ export class V1Controller {
       try {
         nickname = this.#nicknames.choose(
           input.agentType,
-          new Set([
-            ...this.#coordinator.state.nicknames,
-            ...this.#nicknameReservations.keys(),
-          ])
+          new Set([...this.#coordinator.state.nicknames, ...this.#nicknameReservations.keys()]),
         );
         this.#nicknameReservations.set(nickname, reservation);
         const prepared = await this.#prepare(input, ctx);
@@ -370,7 +355,7 @@ export class V1Controller {
           input.thinking,
           ctx.modelRegistry,
           ctx.model,
-          ctx.thinkingLevel
+          ctx.thinkingLevel,
         );
         const tools = this.#rootTools();
         runtime = await this.#createRuntime({
@@ -383,10 +368,7 @@ export class V1Controller {
           identity: id,
           model: settings.model,
           modelRegistry: ctx.modelRegistry,
-          prompt: [
-            v1ChildPrompt(this.#config, id, nickname),
-            settings.instructions,
-          ]
+          prompt: [v1ChildPrompt(this.#config, id, nickname), settings.instructions]
             .filter((value): value is string => Boolean(value))
             .join("\n\n"),
           promptOptions: this.#promptOptions,
@@ -412,15 +394,14 @@ export class V1Controller {
             if (draft.state.agents.some((agent) => agent.id === id)) {
               throw new Error(`Agent already exists: ${id}`);
             }
+            const role = input.agentType === undefined ? {} : { role: input.agentType };
             draft.state.agents.push({
               active: { ...turn, phase: "pending" },
               edge: "open" as const,
               id,
               nickname: claimedNickname,
               queue: [],
-              ...(input.agentType === undefined
-                ? {}
-                : { role: input.agentType }),
+              ...role,
               sessionFile,
               status: "pending" as const,
               tools,
@@ -432,7 +413,7 @@ export class V1Controller {
               provisionalRuntime.commit();
             },
             reserveTerminalHeadroom: true,
-          }
+          },
         );
         this.#assertEpoch(epoch);
         this.#runtimeOwners.set(id, {
@@ -446,10 +427,7 @@ export class V1Controller {
         throw error;
       } finally {
         this.#openReservations.delete(reservation);
-        if (
-          nickname !== undefined &&
-          this.#nicknameReservations.get(nickname) === reservation
-        ) {
+        if (nickname !== undefined && this.#nicknameReservations.get(nickname) === reservation) {
           this.#nicknameReservations.delete(nickname);
         }
       }
@@ -463,7 +441,7 @@ export class V1Controller {
     target: string,
     input: SendInput,
     ctx: CallerContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ submission_id: string }> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
@@ -497,28 +475,22 @@ export class V1Controller {
             if (draft.protocolLatch !== "v1") {
               throw new Error("V1 is not active");
             }
-            const index = draft.state.agents.findIndex(
-              ({ id }) => id === target
-            );
+            const index = draft.state.agents.findIndex(({ id }) => id === target);
             const agent = draft.state.agents[index];
             if (agent === undefined || agent.edge === "closed") {
               throw new Error(`Agent is not open: ${target}`);
             }
             if (input.interrupt || agent.active === undefined) {
-              draft.state.agents[index] = pendingAgent(
-                agent,
-                turn,
-                agent.queue
-              );
+              draft.state.agents[index] = pendingAgent(agent, turn, agent.queue);
             } else {
               agent.queue.push(turn);
             }
           },
-          { reserveTerminalHeadroom: true }
+          { reserveTerminalHeadroom: true },
         );
         this.#scheduleDelivery(target, ctx, epoch);
       },
-      epoch
+      epoch,
     );
     return { submission_id: submissionId };
   }
@@ -526,7 +498,7 @@ export class V1Controller {
   async resume(
     id: string,
     ctx: CallerContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ status: PublicAgentStatus }> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
@@ -552,9 +524,7 @@ export class V1Controller {
             if (draft.protocolLatch !== "v1") {
               throw new Error("V1 is not active");
             }
-            const index = draft.state.agents.findIndex(
-              (candidate) => candidate.id === id
-            );
+            const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
             const target = draft.state.agents[index];
             if (target === undefined) {
               throw new Error(`Unknown agent: ${id}`);
@@ -570,7 +540,7 @@ export class V1Controller {
           this.#openReservations.delete(reservation);
         }
       },
-      epoch
+      epoch,
     );
     return { status: publicStatus(this.#agent(id)) };
   }
@@ -578,7 +548,7 @@ export class V1Controller {
   async close(
     target: string,
     _ctx: CallerContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ previous_status: PublicAgentStatus }> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
@@ -615,14 +585,14 @@ export class V1Controller {
         this.#notifyWaiters(target);
         return { previous_status: previous };
       },
-      epoch
+      epoch,
     );
   }
 
   async wait(
     targets: readonly string[],
     timeoutMs: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{
     status: Record<string, PublicAgentStatus>;
     timed_out: boolean;
@@ -642,7 +612,7 @@ export class V1Controller {
           return agent === undefined || isFinalStatus(agent.status)
             ? [[id, publicStatus(agent)] as const]
             : [];
-        })
+        }),
       );
     const immediate = collect();
     if (Object.keys(immediate).length > 0) {
@@ -709,14 +679,14 @@ export class V1Controller {
 
   async #prepare(
     input: Pick<SpawnInput, "items" | "message">,
-    ctx: CallerContext
+    ctx: CallerContext,
   ): Promise<PromptInput> {
     return await prepareInput(
       input.message,
       input.items,
       ctx.cwd,
       this.#promptOptions?.skills ?? [],
-      ctx.isProjectTrusted()
+      ctx.isProjectTrusted(),
     );
   }
 
@@ -727,10 +697,10 @@ export class V1Controller {
       const open = new Set(
         this.#state()
           .agents.filter(({ edge }) => edge === "open")
-          .map((agent) => agent.id)
+          .map((agent) => agent.id),
       );
       const provisional = [...this.#openReservations.values()].filter(
-        (reservedId) => !open.has(reservedId)
+        (reservedId) => !open.has(reservedId),
       ).length;
       if (open.size + provisional >= this.#maxOpenAgents) {
         throw new Error(`V1 open-agent limit reached (${this.#maxOpenAgents})`);
@@ -745,16 +715,14 @@ export class V1Controller {
       throw new Error("The V1 root endpoint is not attached");
     }
     const v1ToolNames: ReadonlySet<string> = new Set(V1_TOOL_NAMES);
-    return this.#rootApi
-      .getActiveTools()
-      .filter((name) => !v1ToolNames.has(name));
+    return this.#rootApi.getActiveTools().filter((name) => !v1ToolNames.has(name));
   }
 
   async #load(
     id: string,
     ctx: CallerContext,
     allowClosed: boolean,
-    epoch: symbol
+    epoch: symbol,
   ): Promise<ChildRuntime> {
     this.#assertEpoch(epoch);
     const current = this.#agent(id);
@@ -823,11 +791,7 @@ export class V1Controller {
     }
   }
 
-  #scheduleDelivery(
-    id: string,
-    ctx: CallerContext,
-    epoch: symbol = this.#epoch
-  ): void {
+  #scheduleDelivery(id: string, ctx: CallerContext, epoch: symbol = this.#epoch): void {
     const started = this.#serial(
       id,
       async () => {
@@ -855,9 +819,7 @@ export class V1Controller {
               if (draft.protocolLatch !== "v1") {
                 return;
               }
-              const index = draft.state.agents.findIndex(
-                (candidate) => candidate.id === id
-              );
+              const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
               if (
                 index === -1 ||
                 draft.state.agents[index]?.status !== "pending" ||
@@ -866,11 +828,7 @@ export class V1Controller {
                 return;
               }
               const target = draft.state.agents[index];
-              draft.state.agents[index] = runningAgent(
-                target,
-                target.active,
-                target.queue
-              );
+              draft.state.agents[index] = runningAgent(target, target.active, target.queue);
             });
           } catch (error) {
             try {
@@ -884,7 +842,7 @@ export class V1Controller {
         }
         return active;
       },
-      epoch
+      epoch,
     );
     void this.#observeDelivery(id, started, epoch);
   }
@@ -893,7 +851,7 @@ export class V1Controller {
     id: string,
     attemptId: string,
     final: ChildTurnOutcome,
-    epoch: symbol
+    epoch: symbol,
   ): Promise<void> {
     let hasNext = false;
     await this.#coordinator.transact((draft) => {
@@ -901,15 +859,9 @@ export class V1Controller {
       if (draft.protocolLatch !== "v1") {
         return;
       }
-      const index = draft.state.agents.findIndex(
-        (candidate) => candidate.id === id
-      );
+      const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
       const agent = draft.state.agents[index];
-      if (
-        agent === undefined ||
-        agent.edge !== "open" ||
-        agent.active?.id !== attemptId
-      ) {
+      if (agent === undefined || agent.edge !== "open" || agent.active?.id !== attemptId) {
         return;
       }
       const [next, ...queue] = agent.queue;
@@ -946,9 +898,7 @@ export class V1Controller {
       if (draft.protocolLatch !== "v1") {
         return;
       }
-      const index = draft.state.agents.findIndex(
-        (candidate) => candidate.id === id
-      );
+      const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
       const agent = draft.state.agents[index];
       if (agent === undefined || agent.active !== undefined) {
         return;
@@ -960,11 +910,7 @@ export class V1Controller {
     });
   }
 
-  async #restoreAgent(
-    agent: V1PersistedAgent,
-    ctx: CallerContext,
-    epoch: symbol
-  ): Promise<void> {
+  async #restoreAgent(agent: V1PersistedAgent, ctx: CallerContext, epoch: symbol): Promise<void> {
     try {
       await this.#load(agent.id, ctx, false, epoch);
       if (agent.active?.phase === "pending") {
@@ -990,7 +936,7 @@ export class V1Controller {
         }
       | undefined
     >,
-    epoch: symbol
+    epoch: symbol,
   ): Promise<void> {
     let active:
       | {
@@ -1031,7 +977,7 @@ export class V1Controller {
             throw error;
           }
         },
-        epoch
+        epoch,
       );
     } catch (error) {
       try {
@@ -1048,7 +994,7 @@ export class V1Controller {
               await this.#retire(id);
             }
           },
-          epoch
+          epoch,
         );
       } catch (publicationError) {
         this.#onBackgroundError?.(publicationError);
@@ -1069,28 +1015,24 @@ export class V1Controller {
   }
 
   #takeRuntimeOperations(): Promise<void>[] {
-    const operations = [...this.#runtimeOwners.values()].flatMap(
-      ({ state }) => {
-        if (state.kind === "ready") {
-          return [
-            reportFailure(state.runtime.dispose(), this.#onBackgroundError),
-          ];
-        }
-        if (state.kind === "loading") {
-          return [reportFailure(state.promise)];
-        }
-        return [];
+    const operations = [...this.#runtimeOwners.values()].flatMap(({ state }) => {
+      if (state.kind === "ready") {
+        return [reportFailure(state.runtime.dispose(), this.#onBackgroundError)];
       }
-    );
+      if (state.kind === "loading") {
+        return [reportFailure(state.promise)];
+      }
+      return [];
+    });
     this.#runtimeOwners.clear();
     return operations;
   }
 
   async #markError(
     id: string,
-    error: unknown,
+    cause: unknown,
     attemptId: string | undefined,
-    epoch: symbol
+    epoch: symbol,
   ): Promise<void> {
     let hasNext = false;
     await this.#coordinator.transact((draft) => {
@@ -1098,9 +1040,7 @@ export class V1Controller {
       if (draft.protocolLatch !== "v1") {
         return;
       }
-      const index = draft.state.agents.findIndex(
-        (candidate) => candidate.id === id
-      );
+      const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
       const agent = draft.state.agents[index];
       if (
         agent === undefined ||
@@ -1113,8 +1053,8 @@ export class V1Controller {
         return;
       }
       const message = bound(
-        error instanceof Error ? error.message : String(error),
-        MAX_ERROR_LENGTH
+        cause instanceof Error ? cause.message : String(cause),
+        MAX_ERROR_LENGTH,
       );
       const notificationId = attemptId ?? agent.active?.id ?? this.#id();
       draft.state.notifications.push({
@@ -1173,7 +1113,7 @@ export class V1Controller {
   async #serial<T>(
     id: string,
     operation: () => Promise<T>,
-    epoch: symbol = this.#epoch
+    epoch: symbol = this.#epoch,
   ): Promise<T> {
     return await this.#queue.run(id, async () => {
       this.#assertEpoch(epoch);

@@ -23,11 +23,7 @@ import {
 import type { NicknamePool } from "../nicknames.js";
 import { PermanentChildError } from "../permanent-error.js";
 import { createChildRuntime } from "../runtime.js";
-import type {
-  ChildRuntime,
-  ChildRuntimeFactory,
-  ChildTurnOutcome,
-} from "../runtime.js";
+import type { ChildRuntime, ChildRuntimeFactory, ChildTurnOutcome } from "../runtime.js";
 import { boundDurableText } from "../snapshot.js";
 import { publicStatus } from "../status.js";
 import type { PublicAgentStatus } from "../status.js";
@@ -48,13 +44,9 @@ const V2_TOOL_SET: ReadonlySet<string> = new Set(V2_TOOL_NAMES);
 
 type CallerContext = Pick<
   ExtensionContext,
-  | "cwd"
-  | "isProjectTrusted"
-  | "model"
-  | "modelRegistry"
-  | "sessionManager"
-  | "thinkingLevel"
+  "cwd" | "isProjectTrusted" | "model" | "modelRegistry" | "sessionManager" | "thinkingLevel"
 >;
+type ToolEndpoint = Pick<ExtensionAPI, "getActiveTools">;
 
 interface RuntimeSlot {
   api?: ExtensionAPI;
@@ -101,7 +93,7 @@ export interface V2ControllerDependencies {
   dataDir: string;
   id?: () => string;
   nicknames: NicknamePool;
-  onBackgroundError?: (error: unknown) => void;
+  onBackgroundError?: (cause: unknown) => void;
 }
 
 type WaitActivity = "aborted" | "mailbox" | "steered" | "timed_out";
@@ -111,12 +103,11 @@ const bound = (value: string, maximum: number): string =>
 
 const findSelectedModel = (
   selected: CallerContext["model"],
-  registry: CallerContext["modelRegistry"]
+  registry: CallerContext["modelRegistry"],
 ) => {
   if (selected === undefined) {
     return selected;
   }
-  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ModelRegistry.find accepts provider and model IDs.
   return registry.find(selected.provider, selected.id) ?? selected;
 };
 
@@ -133,7 +124,7 @@ const runtimeMessage = (communication: Communication) => ({
 
 const reportFailure = async (
   operation: Promise<unknown> | undefined,
-  report?: (error: unknown) => void
+  report?: (cause: unknown) => void,
 ): Promise<void> => {
   try {
     await operation;
@@ -156,7 +147,7 @@ export class V2Controller {
   readonly #maxChildren: number;
   readonly #nicknames: NicknamePool;
   readonly #observedSequence = new Map<string, number>();
-  readonly #onBackgroundError: ((error: unknown) => void) | undefined;
+  readonly #onBackgroundError: ((cause: unknown) => void) | undefined;
   readonly #provisionalSpawns = new Set<Promise<null>>();
   readonly #queue = new KeyedSerialQueue();
   readonly #reservations = new Map<string, ReservationRecord>();
@@ -165,7 +156,7 @@ export class V2Controller {
   #closing = false;
   #nextSequence = 0;
   #promptOptions: BuildSystemPromptOptions | undefined;
-  #rootApi: ExtensionAPI | undefined;
+  #rootApi: ToolEndpoint | undefined;
   #rootRunning = false;
 
   constructor(dependencies: V2ControllerDependencies) {
@@ -174,16 +165,15 @@ export class V2Controller {
     this.#createRuntime = dependencies.createRuntime ?? createChildRuntime;
     this.#dataDir = dependencies.dataDir;
     this.#id = dependencies.id ?? randomUUID;
-    this.#maxChildren =
-      dependencies.config.max_concurrent_threads_per_session ?? 3;
+    this.#maxChildren = dependencies.config.max_concurrent_threads_per_session ?? 3;
     this.#nicknames = dependencies.nicknames;
     this.#onBackgroundError = dependencies.onBackgroundError;
   }
 
   setRoot(
-    api: ExtensionAPI,
+    api: ToolEndpoint,
     promptOptions: BuildSystemPromptOptions | undefined,
-    running: boolean
+    running: boolean,
   ): void {
     this.#rootApi = api;
     this.#promptOptions = promptOptions;
@@ -221,14 +211,11 @@ export class V2Controller {
       throw new Error(`Stale child endpoint: ${pathname}`);
     }
     slot.api = api;
-    const owns = () =>
-      this.#slots.get(pathname)?.token === token && slot.api === api;
+    const owns = () => this.#slots.get(pathname)?.token === token && slot.api === api;
     let collaborationEnabled = false;
     let sessionId: string | undefined;
     const unsubscribeContract = registerContractResponder(api, () =>
-      sessionId === undefined
-        ? undefined
-        : { nestedTools: [], protocol: "v2", sessionId }
+      sessionId === undefined ? undefined : { nestedTools: [], protocol: "v2", sessionId },
     );
     registerV2Tools(
       api,
@@ -239,20 +226,16 @@ export class V2Controller {
           throw new Error(`Stale child endpoint: ${pathname}`);
         }
       },
-      this.#config
+      this.#config,
     );
     const applyEligibility = (
       selected: CallerContext["model"],
-      registry: CallerContext["modelRegistry"]
+      registry: CallerContext["modelRegistry"],
     ) => {
       const resolved = findSelectedModel(selected, registry);
       collaborationEnabled = modelDeclaresV2(resolved);
-      const base = api
-        .getActiveTools()
-        .filter((name) => !V2_TOOL_SET.has(name));
-      api.setActiveTools(
-        collaborationEnabled ? [...base, ...V2_TOOL_NAMES] : base
-      );
+      const base = api.getActiveTools().filter((name) => !V2_TOOL_SET.has(name));
+      api.setActiveTools(collaborationEnabled ? [...base, ...V2_TOOL_NAMES] : base);
     };
     api.on("before_agent_start", (event, ctx) => {
       let response: { systemPrompt: string } | undefined;
@@ -302,14 +285,14 @@ export class V2Controller {
     return this.list(ROOT_AGENT_PATH)
       .map(
         (agent) =>
-          `${agent.path}  ${agent.status}${agent.nickname === undefined ? "" : `  ${agent.nickname}`}${agent.resident ? "  resident" : ""}`
+          `${agent.path}  ${agent.status}${agent.nickname === undefined ? "" : `  ${agent.nickname}`}${agent.resident ? "  resident" : ""}`,
       )
       .join("\n");
   }
 
   rootDeliveries(): readonly Communication[] {
     return this.#state().communications.filter(
-      (communication) => communication.to === ROOT_AGENT_PATH
+      (communication) => communication.to === ROOT_AGENT_PATH,
     );
   }
 
@@ -322,15 +305,11 @@ export class V2Controller {
     const abandoned = new Set(
       this.#state()
         .nodes.filter(({ status }) => status === "running")
-        .map(({ path }) => path)
+        .map(({ path }) => path),
     );
-    const pending = this.#state().nodes.filter(
-      ({ status }) => status === "pending"
-    );
+    const pending = this.#state().nodes.filter(({ status }) => status === "pending");
     if (abandoned.size > 0 || pending.length > this.#maxChildren) {
-      const interrupt = new Set(
-        pending.slice(this.#maxChildren).map(({ path }) => path)
-      );
+      const interrupt = new Set(pending.slice(this.#maxChildren).map(({ path }) => path));
       await this.#coordinator.transact((draft) => {
         this.#assertEpoch(epoch);
         if (draft.protocolLatch !== "v2") {
@@ -352,12 +331,12 @@ export class V2Controller {
           };
         });
         draft.state.communications = draft.state.communications.filter(
-          ({ id }) => !removed.has(id)
+          ({ id }) => !removed.has(id),
         );
       });
     }
     const communications = this.#state().communications.filter(
-      (communication) => communication.to !== ROOT_AGENT_PATH
+      (communication) => communication.to !== ROOT_AGENT_PATH,
     );
     for (const communication of communications) {
       this.#contexts.set(communication.to, ctx);
@@ -369,7 +348,7 @@ export class V2Controller {
     caller: string,
     input: SpawnInput,
     ctx: CallerContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ nickname: string; task_name: string }> {
     signal?.throwIfAborted();
     if (this.#closing) {
@@ -397,9 +376,9 @@ export class V2Controller {
           new Set([
             ...this.#coordinator.state.nicknames,
             ...[...this.#reservations.values()].flatMap((record) =>
-              record.nickname === undefined ? [] : [record.nickname]
+              record.nickname === undefined ? [] : [record.nickname],
             ),
-          ])
+          ]),
         );
         reservation.nickname = nickname;
         const tools = this.#requireEndpoint(caller).getActiveTools();
@@ -410,7 +389,7 @@ export class V2Controller {
           input.thinking,
           ctx.modelRegistry,
           ctx.model,
-          ctx.thinkingLevel
+          ctx.thinkingLevel,
         );
         const token = Symbol(pathname);
         slotToken = token;
@@ -423,17 +402,11 @@ export class V2Controller {
           },
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
-          history: forkHistory(
-            ctx.sessionManager.buildContextEntries(),
-            input.forkTurns
-          ),
+          history: forkHistory(ctx.sessionManager.buildContextEntries(), input.forkTurns),
           identity: pathname,
           model: settings.model,
           modelRegistry: ctx.modelRegistry,
-          prompt: [
-            v2ChildBasePrompt(this.#config, pathname, nickname),
-            settings.instructions,
-          ]
+          prompt: [v2ChildBasePrompt(this.#config, pathname, nickname), settings.instructions]
             .filter((value): value is string => Boolean(value))
             .join("\n\n"),
           promptOptions: this.#promptOptions,
@@ -467,11 +440,10 @@ export class V2Controller {
             if (draft.state.nodes.some((node) => node.path === pathname)) {
               throw new Error(`Agent already exists: ${pathname}`);
             }
+            const agentType = input.agentType === undefined ? {} : { agentType: input.agentType };
             draft.state.nodes.push({
               activeDeliveryId: communication.id,
-              ...(input.agentType === undefined
-                ? {}
-                : { agentType: input.agentType }),
+              ...agentType,
               nickname: claimedNickname,
               path: pathname,
               sessionFile,
@@ -486,7 +458,7 @@ export class V2Controller {
               provisionalRuntime.commit();
             },
             reserveTerminalHeadroom: true,
-          }
+          },
         );
         this.#assertEpoch(epoch);
         this.#contexts.set(pathname, ctx);
@@ -496,10 +468,7 @@ export class V2Controller {
         if (runtime !== undefined) {
           await runtime.rollback();
         }
-        if (
-          slotToken !== undefined &&
-          this.#slots.get(pathname)?.token === slotToken
-        ) {
+        if (slotToken !== undefined && this.#slots.get(pathname)?.token === slotToken) {
           this.#slots.delete(pathname);
         }
         throw error;
@@ -518,7 +487,7 @@ export class V2Controller {
     target: string,
     message: string,
     ctx: CallerContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
@@ -543,12 +512,12 @@ export class V2Controller {
             kind: "MESSAGE",
             to: resolved,
           },
-          epoch
+          epoch,
         );
         this.#contexts.set(resolved, ctx);
         this.#scheduleDelivery(communication.id, ctx, epoch);
       },
-      epoch
+      epoch,
     );
   }
 
@@ -557,7 +526,7 @@ export class V2Controller {
     target: string,
     message: string,
     ctx: CallerContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
@@ -573,19 +542,14 @@ export class V2Controller {
       async () => {
         const node = this.#requireNode(resolved);
         const runtime = this.#slots.get(resolved)?.runtime;
-        const running =
-          node.status === "running" &&
-          runtime !== undefined &&
-          runtime.isStreaming();
+        const running = node.status === "running" && runtime !== undefined && runtime.isStreaming();
         if (node.status === "pending") {
           throw new Error(`Agent is already running: ${resolved}`);
         }
         if (node.status === "running" && !running) {
           throw new Error(`Agent turn is still settling: ${resolved}`);
         }
-        const reservation = running
-          ? undefined
-          : await this.#reserveExecution(resolved, epoch);
+        const reservation = running ? undefined : await this.#reserveExecution(resolved, epoch);
         let lease: RuntimeLease | undefined;
         let published = false;
         try {
@@ -605,9 +569,7 @@ export class V2Controller {
               if (draft.protocolLatch !== "v2") {
                 return;
               }
-              const targetIndex = draft.state.nodes.findIndex(
-                ({ path }) => path === resolved
-              );
+              const targetIndex = draft.state.nodes.findIndex(({ path }) => path === resolved);
               const targetNode = draft.state.nodes[targetIndex];
               if (targetNode === undefined) {
                 throw new Error(`Unknown agent: ${resolved}`);
@@ -626,7 +588,7 @@ export class V2Controller {
                 };
               }
             },
-            { reserveTerminalHeadroom: true }
+            { reserveTerminalHeadroom: true },
           );
           published = true;
           this.#contexts.set(resolved, ctx);
@@ -642,14 +604,14 @@ export class V2Controller {
           }
         }
       },
-      epoch
+      epoch,
     );
   }
 
   async interrupt(
     caller: string,
     target: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ previous_status: PublicAgentStatus }> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
@@ -675,24 +637,18 @@ export class V2Controller {
               if (draft.protocolLatch !== "v2") {
                 return;
               }
-              const targetIndex = draft.state.nodes.findIndex(
-                ({ path }) => path === resolved
-              );
+              const targetIndex = draft.state.nodes.findIndex(({ path }) => path === resolved);
               const targetNode = draft.state.nodes[targetIndex];
               if (targetNode?.status !== "pending") {
                 return;
               }
-              const {
-                activeDeliveryId,
-                error: _error,
-                ...durableNode
-              } = targetNode;
+              const { activeDeliveryId, error: _error, ...durableNode } = targetNode;
               draft.state.nodes[targetIndex] = {
                 ...durableNode,
                 status: "interrupted",
               };
               draft.state.communications = draft.state.communications.filter(
-                ({ id }) => id !== activeDeliveryId
+                ({ id }) => id !== activeDeliveryId,
               );
             });
             return { previous_status: previous };
@@ -707,27 +663,18 @@ export class V2Controller {
             if (draft.protocolLatch !== "v2") {
               return;
             }
-            const targetIndex = draft.state.nodes.findIndex(
-              ({ path }) => path === resolved
-            );
+            const targetIndex = draft.state.nodes.findIndex(({ path }) => path === resolved);
             const targetNode = draft.state.nodes[targetIndex];
-            if (
-              targetNode?.status !== "pending" &&
-              targetNode?.status !== "running"
-            ) {
+            if (targetNode?.status !== "pending" && targetNode?.status !== "running") {
               return;
             }
-            const {
-              activeDeliveryId,
-              error: _error,
-              ...durableNode
-            } = targetNode;
+            const { activeDeliveryId, error: _error, ...durableNode } = targetNode;
             draft.state.nodes[targetIndex] = {
               ...durableNode,
               status: "interrupted",
             };
             draft.state.communications = draft.state.communications.filter(
-              ({ id }) => id !== activeDeliveryId
+              ({ id }) => id !== activeDeliveryId,
             );
           });
           try {
@@ -738,21 +685,19 @@ export class V2Controller {
         }
         return { previous_status: previous };
       },
-      epoch
+      epoch,
     );
   }
 
   list(
     caller: string,
-    prefix?: string
+    prefix?: string,
   ): (Pick<PersistedAgent, "path" | "status"> &
     Partial<Pick<PersistedAgent, "error" | "lastAnswer" | "nickname">> & {
       resident: boolean;
     })[] {
     const resolved =
-      prefix === undefined || prefix === ""
-        ? ROOT_AGENT_PATH
-        : resolveAgentPath(caller, prefix);
+      prefix === undefined || prefix === "" ? ROOT_AGENT_PATH : resolveAgentPath(caller, prefix);
     const root = {
       error: undefined,
       lastAnswer: undefined,
@@ -761,29 +706,30 @@ export class V2Controller {
       status: this.#rootRunning ? ("running" as const) : ("completed" as const),
     };
     return [root, ...this.#state().nodes]
-      .filter(
-        (node) => node.path === resolved || node.path.startsWith(`${resolved}/`)
-      )
+      .filter((node) => node.path === resolved || node.path.startsWith(`${resolved}/`))
       .toSorted((left, right) => left.path.localeCompare(right.path))
-      .map((node) => ({
-        ...(node.error === undefined ? {} : { error: node.error }),
-        ...(node.lastAnswer === undefined
-          ? {}
-          : { lastAnswer: node.lastAnswer }),
-        ...(node.nickname === undefined ? {} : { nickname: node.nickname }),
-        path: node.path,
-        resident:
-          node.path === ROOT_AGENT_PATH
-            ? this.#rootApi !== undefined
-            : this.#slots.get(node.path)?.runtime !== undefined,
-        status: node.status,
-      }));
+      .map((node) => {
+        const error = node.error === undefined ? {} : { error: node.error };
+        const lastAnswer = node.lastAnswer === undefined ? {} : { lastAnswer: node.lastAnswer };
+        const nickname = node.nickname === undefined ? {} : { nickname: node.nickname };
+        return {
+          ...error,
+          ...lastAnswer,
+          ...nickname,
+          path: node.path,
+          resident:
+            node.path === ROOT_AGENT_PATH
+              ? this.#rootApi !== undefined
+              : this.#slots.get(node.path)?.runtime !== undefined,
+          status: node.status,
+        };
+      });
   }
 
   async wait(
     caller: string,
     timeoutMs: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ message: string; timed_out: boolean }> {
     this.#requireNode(caller);
     if (!Number.isInteger(timeoutMs)) {
@@ -870,16 +816,10 @@ export class V2Controller {
     this.#deliveryRetries.clear();
     this.#contexts.clear();
     this.#reservations.clear();
-    await Promise.allSettled([
-      ...this.#settleSlots(slots),
-      ...provisionalSpawns,
-    ]);
+    await Promise.allSettled([...this.#settleSlots(slots), ...provisionalSpawns]);
   }
 
-  async #reserveExecution(
-    pathname: string,
-    epoch: symbol
-  ): Promise<ReservationRecord> {
+  async #reserveExecution(pathname: string, epoch: symbol): Promise<ReservationRecord> {
     const reservation: ReservationRecord = {
       identity: pathname,
       residency: false,
@@ -897,27 +837,20 @@ export class V2Controller {
       }
       const active = new Set(
         this.#state()
-          .nodes.filter(
-            ({ status }) => status === "pending" || status === "running"
-          )
-          .map(({ path }) => path)
+          .nodes.filter(({ status }) => status === "pending" || status === "running")
+          .map(({ path }) => path),
       );
       const provisional = [...this.#reservations.values()].filter(
-        ({ identity }) => !active.has(identity)
+        ({ identity }) => !active.has(identity),
       ).length;
       if (active.size + provisional >= this.#maxChildren) {
-        throw new Error(
-          `Subagent execution limit reached (${this.#maxChildren})`
-        );
+        throw new Error(`Subagent execution limit reached (${this.#maxChildren})`);
       }
       if (
         !this.#slots.has(pathname) &&
-        this.#slots.size + this.#residencyReservationCount() >=
-          this.#maxChildren
+        this.#slots.size + this.#residencyReservationCount() >= this.#maxChildren
       ) {
-        throw new Error(
-          `Subagent residency limit reached (${this.#maxChildren})`
-        );
+        throw new Error(`Subagent residency limit reached (${this.#maxChildren})`);
       }
       reservation.residency = !this.#slots.has(pathname);
       this.#reservations.set(pathname, reservation);
@@ -932,14 +865,10 @@ export class V2Controller {
   }
 
   #residencyReservationCount(): number {
-    return [...this.#reservations.values()].filter(({ residency }) => residency)
-      .length;
+    return [...this.#reservations.values()].filter(({ residency }) => residency).length;
   }
 
-  async #publishCommunication(
-    communication: Communication,
-    epoch: symbol
-  ): Promise<Communication> {
+  async #publishCommunication(communication: Communication, epoch: symbol): Promise<Communication> {
     await this.#coordinator.transact(
       (draft) => {
         this.#assertEpoch(epoch);
@@ -948,16 +877,12 @@ export class V2Controller {
         }
         draft.state.communications.push(communication);
       },
-      { reserveTerminalHeadroom: true }
+      { reserveTerminalHeadroom: true },
     );
     return communication;
   }
 
-  #scheduleDelivery(
-    id: string,
-    ctx: CallerContext,
-    epoch: symbol = this.#epoch
-  ): void {
+  #scheduleDelivery(id: string, ctx: CallerContext, epoch: symbol = this.#epoch): void {
     const communication = this.#communication(id);
     if (communication !== undefined) {
       this.#contexts.set(communication.to, ctx);
@@ -979,10 +904,9 @@ export class V2Controller {
       [...this.#deliveries.keys()].flatMap((id) => {
         const target = this.#communication(id)?.to;
         return target === undefined ? [] : [target];
-      })
+      }),
     );
-    let capacity =
-      this.#maxChildren - this.#slots.size - this.#residencyReservationCount();
+    let capacity = this.#maxChildren - this.#slots.size - this.#residencyReservationCount();
     for (const communication of this.#state().communications) {
       if (
         communication.to === ROOT_AGENT_PATH ||
@@ -1007,12 +931,7 @@ export class V2Controller {
       const delivery = this.#deliver(communication.id, context, epoch);
       this.#deliveries.set(communication.id, delivery);
       activeTargets.add(communication.to);
-      void this.#observeDelivery(
-        communication.id,
-        communication.to,
-        delivery,
-        epoch
-      );
+      void this.#observeDelivery(communication.id, communication.to, delivery, epoch);
     }
   }
 
@@ -1020,7 +939,7 @@ export class V2Controller {
     id: string,
     target: string,
     delivery: Promise<void>,
-    epoch: symbol
+    epoch: symbol,
   ): Promise<void> {
     try {
       await delivery;
@@ -1045,7 +964,7 @@ export class V2Controller {
           retry.timer = undefined;
           this.#drainDeliveries(epoch);
         },
-        Math.min(250 * 2 ** (attempts - 1), 30_000)
+        Math.min(250 * 2 ** (attempts - 1), 30_000),
       );
       timer.unref();
       this.#deliveryRetries.set(target, { attempts, timer });
@@ -1105,7 +1024,7 @@ export class V2Controller {
           }
           return started;
         },
-        epoch
+        epoch,
       );
       if (active === undefined) {
         return;
@@ -1127,7 +1046,7 @@ export class V2Controller {
             () => {
               this.#recordMailbox(current.to);
             },
-            current.kind === "NEW_TASK"
+            current.kind === "NEW_TASK",
           );
           await delivered.accepted;
           if (delivered.settled !== undefined) {
@@ -1147,16 +1066,12 @@ export class V2Controller {
         }
         await this.#removeCommunication(id, epoch);
         const node = this.#node(current.to);
-        if (
-          node !== undefined &&
-          node.status !== "pending" &&
-          node.status !== "running"
-        ) {
+        if (node !== undefined && node.status !== "pending" && node.status !== "running") {
           await this.#retire(current.to, lease.token);
         }
         return null;
       },
-      epoch
+      epoch,
     );
     if (active !== null) {
       void this.#observeTurn(active, id, epoch);
@@ -1170,21 +1085,14 @@ export class V2Controller {
       turn: ReturnType<ChildRuntime["startTurn"]>;
     },
     deliveryId: string,
-    epoch: symbol
+    epoch: symbol,
   ): Promise<void> {
     try {
       const final = await active.turn.settled;
       await this.#serial(
         active.current.to,
-        () =>
-          this.#finish(
-            active.current.to,
-            deliveryId,
-            final,
-            active.lease.token,
-            epoch
-          ),
-        epoch
+        () => this.#finish(active.current.to, deliveryId, final, active.lease.token, epoch),
+        epoch,
       );
     } catch (error) {
       try {
@@ -1195,13 +1103,13 @@ export class V2Controller {
               active.current.to,
               deliveryId,
               error,
-              epoch
+              epoch,
             );
             if (ownsDelivery) {
               await this.#retire(active.current.to, active.lease.token);
             }
           },
-          epoch
+          epoch,
         );
       } catch (publicationError) {
         this.#onBackgroundError?.(publicationError);
@@ -1209,39 +1117,29 @@ export class V2Controller {
     }
   }
 
-  async #acceptTurn(
-    communication: Communication,
-    epoch: symbol
-  ): Promise<void> {
+  async #acceptTurn(communication: Communication, epoch: symbol): Promise<void> {
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
       if (draft.protocolLatch !== "v2") {
         throw new Error("V2 is not active");
       }
-      const nodeIndex = draft.state.nodes.findIndex(
-        ({ path }) => path === communication.to
-      );
+      const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === communication.to);
       const node = draft.state.nodes[nodeIndex];
       if (
         node === undefined ||
         !draft.state.communications.some(({ id }) => id === communication.id) ||
-        (communication.delivery === "turn" &&
-          node.activeDeliveryId !== communication.id)
+        (communication.delivery === "turn" && node.activeDeliveryId !== communication.id)
       ) {
         throw new Error(`Stale V2 turn delivery: ${communication.id}`);
       }
-      const {
-        activeDeliveryId: _activeDeliveryId,
-        error: _error,
-        ...durableNode
-      } = node;
+      const { activeDeliveryId: _activeDeliveryId, error: _error, ...durableNode } = node;
       draft.state.nodes[nodeIndex] = {
         ...durableNode,
         activeDeliveryId: communication.id,
         status: "running",
       };
       draft.state.communications = draft.state.communications.filter(
-        ({ id }) => id !== communication.id
+        ({ id }) => id !== communication.id,
       );
     });
     this.#recordMailbox(communication.to);
@@ -1252,17 +1150,12 @@ export class V2Controller {
     deliveryId: string,
     final: ChildTurnOutcome,
     slotToken: symbol,
-    epoch: symbol
+    epoch: symbol,
   ): Promise<void> {
     let ownsDelivery = false;
     try {
       if (final.status === "errored") {
-        ownsDelivery = await this.#finishError(
-          pathname,
-          deliveryId,
-          final.error,
-          epoch
-        );
+        ownsDelivery = await this.#finishError(pathname, deliveryId, final.error, epoch);
         return;
       }
       let completionId: string | undefined;
@@ -1271,18 +1164,12 @@ export class V2Controller {
         if (draft.protocolLatch !== "v2") {
           return false;
         }
-        const nodeIndex = draft.state.nodes.findIndex(
-          ({ path }) => path === pathname
-        );
+        const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === pathname);
         const node = draft.state.nodes[nodeIndex];
         if (node?.activeDeliveryId !== deliveryId) {
           return false;
         }
-        const {
-          activeDeliveryId: _activeDeliveryId,
-          error: _error,
-          ...durableNode
-        } = node;
+        const { activeDeliveryId: _activeDeliveryId, error: _error, ...durableNode } = node;
         if (final.status === "interrupted") {
           draft.state.nodes[nodeIndex] = {
             ...durableNode,
@@ -1290,12 +1177,12 @@ export class V2Controller {
           };
           return true;
         }
-        const lastAnswer =
-          final.text === undefined ? undefined : boundDurableText(final.text);
+        const lastAnswer = final.text === undefined ? undefined : boundDurableText(final.text);
         const { lastAnswer: _lastAnswer, ...completedNode } = durableNode;
+        const answer = lastAnswer === undefined ? {} : { lastAnswer };
         draft.state.nodes[nodeIndex] = {
           ...completedNode,
-          ...(lastAnswer === undefined ? {} : { lastAnswer }),
+          ...answer,
           status: "completed",
         };
         const parent = parentAgentPath(pathname);
@@ -1332,22 +1219,17 @@ export class V2Controller {
   async #finishError(
     pathname: string,
     deliveryId: string,
-    error: unknown,
-    epoch: symbol
+    cause: unknown,
+    epoch: symbol,
   ): Promise<boolean> {
-    const message = bound(
-      error instanceof Error ? error.message : String(error),
-      MAX_ERROR_LENGTH
-    );
+    const message = bound(cause instanceof Error ? cause.message : String(cause), MAX_ERROR_LENGTH);
     let completionId: string | undefined;
     const ownsDelivery = await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
       if (draft.protocolLatch !== "v2") {
         return false;
       }
-      const nodeIndex = draft.state.nodes.findIndex(
-        ({ path }) => path === pathname
-      );
+      const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === pathname);
       const node = draft.state.nodes[nodeIndex];
       if (node?.activeDeliveryId !== deliveryId) {
         return false;
@@ -1363,9 +1245,7 @@ export class V2Controller {
         error: message,
         status: "errored",
       };
-      draft.state.communications = draft.state.communications.filter(
-        ({ id }) => id !== deliveryId
-      );
+      draft.state.communications = draft.state.communications.filter(({ id }) => id !== deliveryId);
       const parent = parentAgentPath(pathname);
       if (parent !== undefined) {
         completionId = this.#id();
@@ -1397,7 +1277,7 @@ export class V2Controller {
     pathname: string,
     ctx: CallerContext,
     epoch: symbol,
-    residencyReservation?: ReservationRecord
+    residencyReservation?: ReservationRecord,
   ): Promise<RuntimeLease> {
     this.#assertEpoch(epoch);
     this.#requireNode(pathname);
@@ -1412,15 +1292,12 @@ export class V2Controller {
       const otherReservations =
         this.#residencyReservationCount() -
         (residencyReservation !== undefined &&
-        this.#reservations.get(residencyReservation.identity) ===
-          residencyReservation &&
+        this.#reservations.get(residencyReservation.identity) === residencyReservation &&
         residencyReservation.residency
           ? 1
           : 0);
       if (this.#slots.size + otherReservations >= this.#maxChildren) {
-        throw new Error(
-          `Subagent residency limit reached (${this.#maxChildren})`
-        );
+        throw new Error(`Subagent residency limit reached (${this.#maxChildren})`);
       }
       slot = { token: Symbol(pathname) };
       this.#slots.set(pathname, slot);
@@ -1444,11 +1321,7 @@ export class V2Controller {
           model: undefined,
           modelRegistry: ctx.modelRegistry,
           prompt: [
-            v2ChildBasePrompt(
-              this.#config,
-              pathname,
-              current.nickname ?? pathname
-            ),
+            v2ChildBasePrompt(this.#config, pathname, current.nickname ?? pathname),
             roleInstructions(this.#config, current.agentType),
           ]
             .filter((value): value is string => Boolean(value))
@@ -1458,10 +1331,7 @@ export class V2Controller {
           tools: current.tools,
           trusted: ctx.isProjectTrusted(),
         });
-        if (
-          epoch !== this.#epoch ||
-          this.#slots.get(pathname)?.token !== token
-        ) {
+        if (epoch !== this.#epoch || this.#slots.get(pathname)?.token !== token) {
           await runtime.dispose();
           throw new Error(`Stale child runtime load: ${pathname}`);
         }
@@ -1515,18 +1385,13 @@ export class V2Controller {
     });
   }
 
-  async #removeCommunication(
-    id: string,
-    epoch: symbol = this.#epoch
-  ): Promise<void> {
+  async #removeCommunication(id: string, epoch: symbol = this.#epoch): Promise<void> {
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
       if (draft.protocolLatch !== "v2") {
         return;
       }
-      draft.state.communications = draft.state.communications.filter(
-        (item) => item.id !== id
-      );
+      draft.state.communications = draft.state.communications.filter((item) => item.id !== id);
     });
   }
 
@@ -1557,11 +1422,8 @@ export class V2Controller {
     this.#waiters.clear();
   }
 
-  #requireEndpoint(pathname: string): ExtensionAPI {
-    const api =
-      pathname === ROOT_AGENT_PATH
-        ? this.#rootApi
-        : this.#slots.get(pathname)?.api;
+  #requireEndpoint(pathname: string): ToolEndpoint {
+    const api = pathname === ROOT_AGENT_PATH ? this.#rootApi : this.#slots.get(pathname)?.api;
     if (api === undefined) {
       throw new Error(`Agent endpoint is not resident: ${pathname}`);
     }
@@ -1610,7 +1472,7 @@ export class V2Controller {
   async #serial<T>(
     key: string,
     operation: () => Promise<T>,
-    epoch: symbol = this.#epoch
+    epoch: symbol = this.#epoch,
   ): Promise<T> {
     return await this.#queue.run(key, async () => {
       this.#assertEpoch(epoch);

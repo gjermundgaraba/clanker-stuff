@@ -27,7 +27,14 @@
   "publishConfig": {
     "access": "public"
   },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "typebox": "*"
+  },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   }
 }

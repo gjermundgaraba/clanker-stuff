@@ -3,8 +3,7 @@ import {
   FOOTER_READY_EVENT,
   FOOTER_WIDGET_EVENT,
 } from "@clanker-stuff/footer-protocol";
-import type { FooterWidgetMessage } from "@clanker-stuff/footer-protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -18,9 +17,9 @@ describe("Codex footer widgets", () => {
       model,
     });
     await host.ready;
-    const messages: FooterWidgetMessage[] = [];
+    const messages: unknown[] = [];
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {
-      messages.push(value as FooterWidgetMessage);
+      messages.push(value);
     });
     host.events.emit(FOOTER_READY_EVENT, {
       instanceId: "footer-1",
@@ -32,40 +31,33 @@ describe("Codex footer widgets", () => {
     await host.emitSessionStart(context);
     await host.runCommand("code-mode", "", context);
 
-    const snapshots = messages
-      .filter((message) => message.type === "upsert")
-      .map(({ widget }) => ({
-        consumes: widget.consumesStatusKeys,
-        content: widget.content,
-        glyphs: widget.icon === false ? undefined : widget.icon?.glyphs,
-        id: widget.id,
-      }));
-    expect({
-      snapshots,
-    }).toStrictEqual({
-      snapshots: [
-        {
-          consumes: ["codex-fast"],
+    expect(messages).toMatchObject([
+      {
+        type: "upsert",
+        widget: {
+          consumesStatusKeys: ["codex-fast"],
           content: [{ text: "fast", tone: "warning" }],
-          glyphs: { ascii: ">>", nerd: "󱐋", unicode: "⚡" },
+          icon: { glyphs: { ascii: ">>", nerd: "󱐋", unicode: "⚡" } },
           id: "clanker.codex.fast",
         },
-        {
-          consumes: ["codex-code-mode"],
+      },
+      {
+        type: "upsert",
+        widget: {
+          consumesStatusKeys: ["codex-code-mode"],
           content: [{ text: "code", tone: "accent" }],
-          glyphs: { ascii: "</>", nerd: "󰅩", unicode: "</>" },
+          icon: { glyphs: { ascii: "</>", nerd: "󰅩", unicode: "</>" } },
           id: "clanker.codex.code-mode",
         },
-      ],
-    });
+      },
+    ]);
 
     await host.runCommand("code-mode", "", context);
     await host.emitSessionShutdown(context);
 
-    expect(
-      messages
-        .filter((message) => message.type === "remove")
-        .map(({ id }) => id)
-    ).toStrictEqual(["clanker.codex.code-mode", "clanker.codex.fast"]);
+    expect(messages.slice(-2)).toMatchObject([
+      { id: "clanker.codex.code-mode", type: "remove" },
+      { id: "clanker.codex.fast", type: "remove" },
+    ]);
   });
 });

@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -9,12 +6,9 @@ import { Value } from "typebox/value";
 const TOOLS_STATE_TYPE = "tools-config";
 const ToolsStateSchema = Type.Object(
   {
-    tools: Type.Record(
-      Type.String(),
-      Type.Record(Type.String(), Type.Boolean())
-    ),
+    tools: Type.Record(Type.String(), Type.Record(Type.String(), Type.Boolean())),
   },
-  { additionalProperties: false }
+  { additionalProperties: false },
 );
 
 type ToolsState = Static<typeof ToolsStateSchema>;
@@ -24,8 +18,7 @@ const savedToolStates = (ctx: ExtensionContext): ToolStates | undefined => {
   const entry = ctx.sessionManager
     .getBranch()
     .findLast(
-      (candidate) =>
-        candidate.type === "custom" && candidate.customType === TOOLS_STATE_TYPE
+      (candidate) => candidate.type === "custom" && candidate.customType === TOOLS_STATE_TYPE,
     );
   return entry?.type === "custom" && Value.Check(ToolsStateSchema, entry.data)
     ? entry.data.tools
@@ -39,15 +32,13 @@ export const createToolSelection = (pi: ExtensionAPI) => {
   const capture = (
     scope: string,
     names: Iterable<string>,
-    activeNames: ReadonlySet<string>
+    activeNames: ReadonlySet<string>,
   ): void => {
     states = {
       ...states,
       [scope]: {
         ...states[scope],
-        ...Object.fromEntries(
-          [...names].map((name) => [name, activeNames.has(name)])
-        ),
+        ...Object.fromEntries([...names].map((name) => [name, activeNames.has(name)])),
       },
     };
   };
@@ -58,14 +49,8 @@ export const createToolSelection = (pi: ExtensionAPI) => {
 
   return {
     capture,
-    enabled(
-      scope: string,
-      names: Iterable<string>,
-      defaults: ReadonlySet<string>
-    ): string[] {
-      return [...names].filter(
-        (name) => states[scope]?.[name] ?? defaults.has(name)
-      );
+    enabled(scope: string, names: Iterable<string>, defaults: ReadonlySet<string>): string[] {
+      return [...names].filter((name) => states[scope]?.[name] ?? defaults.has(name));
     },
     persist(): void {
       pi.appendEntry<ToolsState>(TOOLS_STATE_TYPE, { tools: states });

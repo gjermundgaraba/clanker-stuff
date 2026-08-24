@@ -1,11 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createKeybindings } from "../../../../tests/harness/tui.js";
-import {
-  createHelpText,
-  decodeAskQuestionIntent,
-  formatKeyLabel,
-} from "../../dialog/input.js";
+import { createHelpText, decodeAskQuestionIntent, formatKeyLabel } from "../../dialog/input.js";
 
 const keybindings = createKeybindings({
   "tui.input.submit": ["s"],
@@ -26,10 +22,7 @@ describe("ask-question dialog input", () => {
   });
 
   it("formats plus keybindings", () => {
-    expect([formatKeyLabel("+"), formatKeyLabel("ctrl++")]).toStrictEqual([
-      "+",
-      "Ctrl++",
-    ]);
+    expect([formatKeyLabel("+"), formatKeyLabel("ctrl++")]).toStrictEqual(["+", "Ctrl++"]);
   });
 
   it("decodes Kitty CSI-u printable shortcuts", () => {

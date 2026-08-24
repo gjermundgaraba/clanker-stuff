@@ -6,11 +6,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import type {
-  UsageFetchResult,
-  UsageWindow,
-  UsageWindowId,
-} from "../providers.js";
+import type { UsageFetchResult, UsageWindow, UsageWindowId } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import { isDefined, makeUsageWindow, parseIso } from "./util.js";
 
@@ -20,7 +16,7 @@ const CODEXBAR_HISTORY_PATH = path.join(
   "Application Support",
   "com.steipete.codexbar",
   "history",
-  "opencodego.json"
+  "opencodego.json",
 );
 
 const CODEXBAR_MISSING_MESSAGE =
@@ -48,10 +44,8 @@ const HistoryWindowSchema = Type.Object({
   name: Type.String(),
 });
 
-const CodexBarHistorySchema = Type.Object({
-  accounts: Type.Optional(
-    Type.Record(Type.String(), Type.Array(HistoryWindowSchema))
-  ),
+export const CodexBarHistorySchema = Type.Object({
+  accounts: Type.Optional(Type.Record(Type.String(), Type.Array(HistoryWindowSchema))),
   preferredAccountKey: Type.Optional(Type.String()),
   unscoped: Type.Optional(Type.Array(HistoryWindowSchema)),
 });
@@ -60,17 +54,13 @@ type HistoryWindow = Static<typeof HistoryWindowSchema>;
 
 const mapHistoryWindow = (
   window: HistoryWindow | undefined,
-  id: UsageWindowId
+  id: UsageWindowId,
 ): UsageWindow | undefined => {
   const latest = window?.entries.at(-1);
   if (latest === undefined || Number.isNaN(Date.parse(latest.capturedAt))) {
     return undefined;
   }
-  return makeUsageWindow(
-    id,
-    100 - latest.usedPercent,
-    parseIso(latest.resetsAt)
-  );
+  return makeUsageWindow(id, 100 - latest.usedPercent, parseIso(latest.resetsAt));
 };
 
 const latestCapturedAt = (windows: HistoryWindow[]): number | undefined => {
@@ -88,9 +78,7 @@ const latestCapturedAt = (windows: HistoryWindow[]): number | undefined => {
   return latest;
 };
 
-const resolveWindows = (
-  data: Static<typeof CodexBarHistorySchema>
-): HistoryWindow[] => {
+const resolveWindows = (data: Static<typeof CodexBarHistorySchema>): HistoryWindow[] => {
   if (data.unscoped && data.unscoped.length > 0) {
     return data.unscoped;
   }
@@ -110,8 +98,8 @@ const resolveWindows = (
 };
 
 export const parseCodexBarHistory = (
-  data: unknown,
-  nowMs: number = Date.now()
+  data: Static<typeof CodexBarHistorySchema> | undefined,
+  nowMs: number = Date.now(),
 ): UsageFetchResult => {
   if (!Value.Check(CodexBarHistorySchema, data)) {
     return usageFailure("invalid CodexBar history");
@@ -140,7 +128,7 @@ export const parseCodexBarHistory = (
   }
 
   const captured = latestCapturedAt(
-    renderedWindows.flatMap(({ history }) => (history ? [history] : []))
+    renderedWindows.flatMap(({ history }) => (history ? [history] : [])),
   );
   if (captured !== undefined && nowMs - captured > STALE_AFTER_MS) {
     return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
@@ -159,7 +147,7 @@ export interface RunCodexBarUsageOptions {
 }
 
 export const runCodexBarUsage = async (
-  options: RunCodexBarUsageOptions = {}
+  options: RunCodexBarUsageOptions = {},
 ): Promise<UsageFetchResult> => {
   const now = options.now ?? Date.now;
   const filePath = options.filePath ?? CODEXBAR_HISTORY_PATH;
@@ -178,5 +166,10 @@ export const runCodexBarUsage = async (
     return usageFailure("invalid CodexBar history");
   }
 
-  return parseCodexBarHistory(parsed, now());
+  return parseCodexBarHistory(
+    Value.Check(CodexBarHistorySchema, parsed)
+      ? Value.Parse(CodexBarHistorySchema, parsed)
+      : undefined,
+    now(),
+  );
 };

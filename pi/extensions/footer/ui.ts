@@ -1,5 +1,3 @@
-/* oxlint-disable eslint/class-methods-use-this, eslint/complexity, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, typescript/no-non-null-assertion, unicorn/no-array-for-each, eslint/no-nested-ternary -- keyboard editor is one bounded state machine */
-
 import type {
   ExtensionCommandContext,
   KeybindingsManager,
@@ -39,6 +37,10 @@ export interface FooterEditorOptions {
   renderPreview: (config: FooterConfig, width: number) => string[];
 }
 
+type FooterUiContext = {
+  ui: Pick<ExtensionCommandContext["ui"], "custom">;
+};
+
 type Chip = {
   group: Group;
   index: number;
@@ -74,26 +76,19 @@ const directIds = (config: FooterConfig): Set<string> =>
   new Set(
     config.rows.flatMap((row) =>
       GROUPS.flatMap((group) =>
-        row[group].filter(
-          (id) => id !== "footer.widgets" && id !== "footer.statuses"
-        )
-      )
-    )
+        row[group].filter((id) => id !== "footer.widgets" && id !== "footer.statuses"),
+      ),
+    ),
   );
 
-const sourceAggregate = (
-  widget: FooterEditorWidget
-): AggregateId | undefined =>
+const sourceAggregate = (widget: FooterEditorWidget): AggregateId | undefined =>
   widget.source === "rich"
     ? "footer.widgets"
     : widget.source === "native"
       ? "footer.statuses"
       : undefined;
 
-const chipsFor = (
-  config: FooterConfig,
-  widgets: readonly FooterEditorWidget[]
-): Chip[] => {
+const chipsFor = (config: FooterConfig, widgets: readonly FooterEditorWidget[]): Chip[] => {
   const byId = new Map(widgets.map((widget) => [widget.id, widget]));
   const explicit = directIds(config);
   const chips: Chip[] = [];
@@ -111,17 +106,11 @@ const chipsFor = (
             row: rowIndex,
           });
           const members = widgets
-            .filter(
-              (widget) =>
-                sourceAggregate(widget) === id && !explicit.has(widget.id)
-            )
+            .filter((widget) => sourceAggregate(widget) === id && !explicit.has(widget.id))
             .toSorted((left, right) => left.id.localeCompare(right.id));
           for (const member of members) {
             represented.add(member.id);
-            const enabled =
-              config.widgets[member.id]?.enabled ??
-              member.defaultEnabled ??
-              true;
+            const enabled = config.widgets[member.id]?.enabled ?? member.defaultEnabled ?? true;
             if (enabled) {
               chips.push({
                 aggregate: id,
@@ -139,8 +128,7 @@ const chipsFor = (
           return;
         }
         represented.add(id);
-        const enabled =
-          config.widgets[id]?.enabled ?? byId.get(id)?.defaultEnabled ?? true;
+        const enabled = config.widgets[id]?.enabled ?? byId.get(id)?.defaultEnabled ?? true;
         if (enabled) {
           chips.push({
             group,
@@ -166,18 +154,11 @@ const chipsFor = (
 const pickerItems = (
   config: FooterConfig,
   widgets: readonly FooterEditorWidget[],
-  chips: readonly Chip[]
+  chips: readonly Chip[],
 ): PickerItem[] => {
-  const placed = new Set(
-    chips.filter((chip) => chip.kind !== "add").map((chip) => chip.id)
-  );
+  const placed = new Set(chips.filter((chip) => chip.kind !== "add").map((chip) => chip.id));
   const live = new Map(widgets.map((widget) => [widget.id, widget]));
-  return [
-    ...new Set([
-      ...widgets.map((widget) => widget.id),
-      ...Object.keys(config.widgets),
-    ]),
-  ]
+  return [...new Set([...widgets.map((widget) => widget.id), ...Object.keys(config.widgets)])]
     .filter((id) => !placed.has(id))
     .map((id) => ({
       available: live.has(id),
@@ -189,7 +170,7 @@ const pickerItems = (
 
 const ensureOverride = (
   config: FooterConfig,
-  id: string
+  id: string,
 ): NonNullable<FooterConfig["widgets"][string]> => {
   const current = config.widgets[id];
   if (current !== undefined) {
@@ -213,7 +194,7 @@ const place = (
   id: string,
   row: number,
   group: (typeof GROUPS)[number],
-  index: number
+  index: number,
 ): void => {
   removeDirectPlacement(config, id);
   const target = config.rows[row]?.[group];
@@ -225,7 +206,7 @@ const place = (
 
 const direction = (
   data: string,
-  keybindings?: Pick<KeybindingsManager, "matches">
+  keybindings?: Pick<KeybindingsManager, "matches">,
 ): "down" | "left" | "right" | "up" | undefined =>
   keybindings?.matches(data, "tui.select.down") === true ||
   matchesKey(data, Key.down) ||
@@ -241,10 +222,7 @@ const direction = (
           ? "right"
           : undefined;
 
-const isApply = (
-  data: string,
-  keybindings?: Pick<KeybindingsManager, "matches">
-): boolean =>
+const isApply = (data: string, keybindings?: Pick<KeybindingsManager, "matches">): boolean =>
   keybindings?.matches(data, "tui.select.confirm") === true ||
   matchesKey(data, Key.enter) ||
   matchesKey(data, Key.space);
@@ -259,9 +237,7 @@ const padLine = (text: string, width: number): string => {
 
 const aligned = (left: string, right: string, width: number): string => {
   const gap = width - visibleWidth(left) - visibleWidth(right);
-  return gap > 0
-    ? `${left}${" ".repeat(gap)}${right}`
-    : line(`${left} ${right}`, width);
+  return gap > 0 ? `${left}${" ".repeat(gap)}${right}` : line(`${left} ${right}`, width);
 };
 
 const safeInline = (value: string): string => {
@@ -273,11 +249,7 @@ const safeInline = (value: string): string => {
   return result;
 };
 
-const wrapSegments = (
-  prefix: string,
-  segments: readonly string[],
-  width: number
-): string[] => {
+const wrapSegments = (prefix: string, segments: readonly string[], width: number): string[] => {
   if (segments.length === 0) {
     return [prefix];
   }
@@ -305,17 +277,13 @@ const joinColumns = (columns: readonly string[][], width: number): string[] => {
   const available = Math.max(1, width - gap * (columns.length - 1));
   const base = Math.floor(available / columns.length);
   const widths = columns.map((_column, index) =>
-    index === columns.length - 1
-      ? available - base * (columns.length - 1)
-      : base
+    index === columns.length - 1 ? available - base * (columns.length - 1) : base,
   );
   const height = Math.max(...columns.map((column) => column.length));
   return Array.from({ length: height }, (_value, lineIndex) =>
     columns
-      .map((column, columnIndex) =>
-        padLine(column[lineIndex] ?? "", widths[columnIndex] ?? 1)
-      )
-      .join(" ".repeat(gap))
+      .map((column, columnIndex) => padLine(column[lineIndex] ?? "", widths[columnIndex] ?? 1))
+      .join(" ".repeat(gap)),
   );
 };
 
@@ -347,7 +315,7 @@ export class FooterEditor {
     requestRender: () => void,
     done: (value: null) => void,
     options: FooterEditorOptions,
-    keybindings?: Pick<KeybindingsManager, "matches">
+    keybindings?: Pick<KeybindingsManager, "matches">,
   ) {
     this.theme = theme;
     this.requestRender = requestRender;
@@ -356,8 +324,7 @@ export class FooterEditor {
     this.keybindings = keybindings;
     this.original = cloneFooterConfig(options.loaded.config);
     this.working = cloneFooterConfig(options.loaded.config);
-    this.sourceInvalid =
-      options.loaded.error !== undefined && options.loaded.error.length > 0;
+    this.sourceInvalid = options.loaded.error !== undefined && options.loaded.error.length > 0;
   }
 
   invalidate(): void {
@@ -415,10 +382,8 @@ export class FooterEditor {
     const rows: string[] = [
       aligned(
         this.theme.fg("accent", this.theme.bold("Footer layout")),
-        dirty
-          ? this.theme.fg("warning", "● unsaved")
-          : this.theme.fg("dim", "saved"),
-        innerWidth
+        dirty ? this.theme.fg("warning", "● unsaved") : this.theme.fg("dim", "saved"),
+        innerWidth,
       ),
       this.sourceInvalid &&
       this.options.loaded.error !== undefined &&
@@ -431,7 +396,7 @@ export class FooterEditor {
     for (let rowIndex = 0; rowIndex < this.working.rows.length; rowIndex += 1) {
       rows.push(
         ...this.renderLayoutRow(rowIndex, chips, innerWidth),
-        ...(rowIndex === this.working.rows.length - 1 ? [] : [""])
+        ...(rowIndex === this.working.rows.length - 1 ? [] : [""]),
       );
     }
     rows.push(
@@ -440,31 +405,31 @@ export class FooterEditor {
       ...(this.picker === undefined ? [] : [""]),
       this.divider(
         `Live preview · ${PREVIEW_WIDTHS[this.previewWidth]}${this.working.enabled ? "" : " · built-in footer"}`,
-        innerWidth
+        innerWidth,
       ),
       ...(this.working.enabled
         ? this.options.renderPreview(this.working, Math.max(1, preview))
         : [this.theme.fg("dim", "(pi built-in footer)")]),
       "",
       ...wrapTextWithAnsi(this.theme.fg("dim", this.helpText()), innerWidth),
-      ...this.renderOptionShortcuts(innerWidth)
+      ...this.renderOptionShortcuts(innerWidth),
     );
     if (this.status.length > 0) {
       rows.push(this.theme.fg("warning", safeInline(this.status)));
     }
     const top = this.theme.fg(
       dirty ? "borderAccent" : "border",
-      `╭${"─".repeat(Math.max(0, width - 2))}╮`
+      `╭${"─".repeat(Math.max(0, width - 2))}╮`,
     );
     const bottom = this.theme.fg(
       dirty ? "borderAccent" : "border",
-      `╰${"─".repeat(Math.max(0, width - 2))}╯`
+      `╰${"─".repeat(Math.max(0, width - 2))}╯`,
     );
     return [
       top,
       ...rows.map(
         (value) =>
-          `${this.theme.fg("border", "│")} ${padLine(value, innerWidth)} ${this.theme.fg("border", "│")}`
+          `${this.theme.fg("border", "│")} ${padLine(value, innerWidth)} ${this.theme.fg("border", "│")}`,
       ),
       bottom,
     ].map((value) => line(value, width));
@@ -493,9 +458,7 @@ export class FooterEditor {
       ? chips.findIndex((chip) => chip.id === this.grabbed?.id)
       : -1;
     this.selected =
-      grabbedIndex >= 0
-        ? grabbedIndex
-        : Math.max(0, Math.min(this.selected, chips.length - 1));
+      grabbedIndex >= 0 ? grabbedIndex : Math.max(0, Math.min(this.selected, chips.length - 1));
     return chips;
   }
 
@@ -503,7 +466,7 @@ export class FooterEditor {
     const prefix = `◇ ${label} `;
     return this.theme.fg(
       "borderMuted",
-      `${prefix}${"─".repeat(Math.max(0, width - visibleWidth(prefix)))}`
+      `${prefix}${"─".repeat(Math.max(0, width - visibleWidth(prefix)))}`,
     );
   }
 
@@ -518,9 +481,7 @@ export class FooterEditor {
   }
 
   private renderChip(chip: Chip, chips: Chip[]): string {
-    const widget = this.options.widgets.find(
-      (candidate) => candidate.id === chip.id
-    );
+    const widget = this.options.widgets.find((candidate) => candidate.id === chip.id);
     const rawLabel = safeInline(widget?.label ?? chip.id);
     const label =
       chip.kind === "add"
@@ -530,10 +491,7 @@ export class FooterEditor {
           : truncateToWidth(rawLabel, 24, "…");
     const text = ` ${label} `;
     if (chips.indexOf(chip) === this.selected) {
-      return this.theme.bg(
-        "selectedBg",
-        this.theme.fg("accent", this.theme.bold(`›${text}‹`))
-      );
+      return this.theme.bg("selectedBg", this.theme.fg("accent", this.theme.bold(`›${text}‹`)));
     }
     return chip.kind === "waiting"
       ? this.theme.fg("warning", text)
@@ -542,36 +500,28 @@ export class FooterEditor {
         : this.theme.fg("text", text);
   }
 
-  private renderLayoutRow(
-    rowIndex: number,
-    chips: Chip[],
-    width: number
-  ): string[] {
+  private renderLayoutRow(rowIndex: number, chips: Chip[], width: number): string[] {
     const groups = GROUPS.map((group) => {
-      const groupChips = chips.filter(
-        (chip) => chip.row === rowIndex && chip.group === group
-      );
+      const groupChips = chips.filter((chip) => chip.row === rowIndex && chip.group === group);
       const prefix = this.theme.fg(
         "dim",
-        `${group === "left" ? "L" : group === "center" ? "C" : "R"} `
+        `${group === "left" ? "L" : group === "center" ? "C" : "R"} `,
       );
       return wrapSegments(
         prefix,
         groupChips.map((chip) => this.renderChip(chip, chips)),
-        width >= 72 ? Math.floor((width - 4) / 3) : width
+        width >= 72 ? Math.floor((width - 4) / 3) : width,
       );
     });
     const label = this.theme.fg("muted", `ROW ${rowIndex + 1}`);
-    return width >= 72
-      ? [label, ...joinColumns(groups, width)]
-      : [label, ...groups.flat()];
+    return width >= 72 ? [label, ...joinColumns(groups, width)] : [label, ...groups.flat()];
   }
 
   private renderOptionShortcuts(width: number): string[] {
     return wrapSegments(
       "",
       this.actions().map((action) => this.theme.fg("dim", ` ${action} `)),
-      width
+      width,
     );
   }
 
@@ -580,19 +530,12 @@ export class FooterEditor {
       return [];
     }
     return [
-      this.divider(
-        `Add · row ${this.picker.row + 1} ${this.picker.group}`,
-        width
-      ),
+      this.divider(`Add · row ${this.picker.row + 1} ${this.picker.group}`, width),
       ...this.picker.list.render(width),
     ];
   }
 
-  private handleLayout(
-    data: string,
-    movement: ReturnType<typeof direction>,
-    apply: boolean
-  ): void {
+  private handleLayout(data: string, movement: ReturnType<typeof direction>, apply: boolean): void {
     const chips = this.chips();
     const selected = chips[this.selected];
     if (selected === undefined) {
@@ -639,13 +582,7 @@ export class FooterEditor {
     }
     const backup = cloneFooterConfig(this.working);
     if (selected.aggregate !== undefined) {
-      place(
-        this.working,
-        selected.id,
-        selected.row,
-        selected.group,
-        selected.index + 1
-      );
+      place(this.working, selected.id, selected.row, selected.group, selected.index + 1);
     }
     this.grabbed = {
       backup,
@@ -673,23 +610,19 @@ export class FooterEditor {
       const index = Math.max(0, this.picker.items.indexOf(selected!));
       const offset = movement === "left" || movement === "up" ? -1 : 1;
       this.picker.list.setSelectedIndex(
-        (index + offset + this.picker.items.length) % this.picker.items.length
+        (index + offset + this.picker.items.length) % this.picker.items.length,
       );
       return;
     }
     this.picker.list.handleInput(data);
   }
 
-  private openPicker(
-    items: readonly PickerItem[],
-    row: number,
-    group: Group
-  ): void {
-    const choices: SelectItem[] = items.map((item) => ({
-      ...(item.available ? {} : { description: "waiting" }),
-      label: safeInline(item.label),
-      value: item.id,
-    }));
+  private openPicker(items: readonly PickerItem[], row: number, group: Group): void {
+    const choices: SelectItem[] = items.map((item) =>
+      item.available
+        ? { label: safeInline(item.label), value: item.id }
+        : { description: "waiting", label: safeInline(item.label), value: item.id },
+    );
     const list = new SelectList(choices, Math.min(choices.length, 6), {
       description: (text) => this.theme.fg("warning", text),
       noMatch: (text) => this.theme.fg("dim", text),
@@ -701,13 +634,7 @@ export class FooterEditor {
       this.picker = undefined;
     };
     list.onSelect = (item) => {
-      place(
-        this.working,
-        item.value,
-        row,
-        group,
-        this.working.rows[row]?.[group].length ?? 0
-      );
+      place(this.working, item.value, row, group, this.working.rows[row]?.[group].length ?? 0);
       this.picker = undefined;
       this.status = "";
       this.changed();
@@ -715,19 +642,13 @@ export class FooterEditor {
     this.picker = { group, items: choices, list, row };
   }
 
-  private moveGrabbed(
-    selected: Chip,
-    movement: NonNullable<ReturnType<typeof direction>>
-  ): void {
+  private moveGrabbed(selected: Chip, movement: NonNullable<ReturnType<typeof direction>>): void {
     const { group, row } = selected;
     const index = this.working.rows[row]?.[group].indexOf(selected.id) ?? -1;
     if (movement === "up" || movement === "down") {
       const targetRow = Math.max(
         0,
-        Math.min(
-          this.working.rows.length - 1,
-          row + (movement === "up" ? -1 : 1)
-        )
+        Math.min(this.working.rows.length - 1, row + (movement === "up" ? -1 : 1)),
       );
       if (targetRow === row) {
         return;
@@ -737,7 +658,7 @@ export class FooterEditor {
         selected.id,
         targetRow,
         group,
-        this.working.rows[targetRow]?.[group].length ?? 0
+        this.working.rows[targetRow]?.[group].length ?? 0,
       );
       this.changed();
       return;
@@ -750,7 +671,7 @@ export class FooterEditor {
     } else {
       const nextGroup = Math.max(
         0,
-        Math.min(GROUPS.length - 1, groupIndex + (movement === "left" ? -1 : 1))
+        Math.min(GROUPS.length - 1, groupIndex + (movement === "left" ? -1 : 1)),
       );
       const next = GROUPS[nextGroup] ?? "left";
       if (next === group) {
@@ -761,7 +682,7 @@ export class FooterEditor {
         selected.id,
         row,
         next,
-        movement === "left" ? (this.working.rows[row]?.[next].length ?? 0) : 0
+        movement === "left" ? (this.working.rows[row]?.[next].length ?? 0) : 0,
       );
     }
     this.changed();
@@ -813,8 +734,7 @@ export class FooterEditor {
   private save(): void {
     if (this.sourceInvalid && !this.invalidConfirmation) {
       this.invalidConfirmation = true;
-      this.status =
-        "Invalid source file: choose Save again to replace it explicitly.";
+      this.status = "Invalid source file: choose Save again to replace it explicitly.";
       this.requestRender();
       return;
     }
@@ -856,8 +776,8 @@ export class FooterEditor {
 }
 
 export const showFooterEditor = async (
-  ctx: ExtensionCommandContext,
-  options: FooterEditorOptions
+  ctx: FooterUiContext,
+  options: FooterEditorOptions,
 ): Promise<void> => {
   await ctx.ui.custom<null>(
     (tui, theme, keybindings, done) => {
@@ -868,7 +788,7 @@ export const showFooterEditor = async (
         },
         done,
         options,
-        keybindings
+        keybindings,
       );
       return editor;
     },
@@ -880,20 +800,19 @@ export const showFooterEditor = async (
         minWidth: 40,
         width: 116,
       },
-    }
+    },
   );
 };
 
 export const showFooterTextView = async (
-  ctx: ExtensionCommandContext,
+  ctx: FooterUiContext,
   title: string,
-  getLines: () => string[]
+  getLines: () => string[],
 ): Promise<void> => {
   await ctx.ui.custom<null>(
     (tui, theme, keybindings, done) => {
       let offset = 0;
       return {
-        // oxlint-disable-next-line eslint/no-empty-function -- no resources
         dispose() {},
         handleInput(data: string) {
           if (
@@ -905,15 +824,11 @@ export const showFooterTextView = async (
           }
           if (keybindings.matches(data, "tui.select.up") || data === "k") {
             offset = Math.max(0, offset - 1);
-          } else if (
-            keybindings.matches(data, "tui.select.down") ||
-            data === "j"
-          ) {
+          } else if (keybindings.matches(data, "tui.select.down") || data === "j") {
             offset += 1;
           }
           tui.requestRender();
         },
-        // oxlint-disable-next-line eslint/no-empty-function -- theme is read per render
         invalidate() {},
         render(width: number) {
           const safeWidth = Math.max(1, width);
@@ -935,6 +850,6 @@ export const showFooterTextView = async (
         minWidth: 40,
         width: "80%",
       },
-    }
+    },
   );
 };

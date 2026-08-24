@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { VoiceCoordinator } from "../coordinator.js";
 
@@ -46,10 +46,7 @@ describe("voice coordinator", () => {
     await vi.waitFor(() => {
       expect(submissions).toStrictEqual(["prompt-a", "prompt-b"]);
     });
-    const secondResults = [
-      coordinator.accept("prompt-b"),
-      coordinator.finish("answer b"),
-    ];
+    const secondResults = [coordinator.accept("prompt-b"), coordinator.finish("answer b")];
     expect({
       completions,
       firstResults,
@@ -87,9 +84,7 @@ describe("voice coordinator", () => {
     });
     coordinator.settled();
 
-    expect(completions).toStrictEqual([
-      "I could not submit that request to the Pi session.",
-    ]);
+    expect(completions).toStrictEqual(["I could not submit that request to the Pi session."]);
   });
 
   it("reports coordinator preflight failure without submitting", async () => {

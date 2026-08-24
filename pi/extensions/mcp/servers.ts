@@ -3,37 +3,45 @@ import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import type {
-  ExtensionAPI,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import {
-  SdkHttpError,
-  StreamableHTTPClientTransport,
-} from "@modelcontextprotocol/client";
-import type {
-  CallToolResult,
-  Client,
-  Transport,
-} from "@modelcontextprotocol/client";
+import { SdkHttpError } from "@modelcontextprotocol/client";
+import type { CallToolResult } from "@modelcontextprotocol/client";
+import { Type } from "typebox";
+import type { Static, TSchema } from "typebox";
+import { Value } from "typebox/value";
 
 import {
   activateTools,
   mcpResultToPiContent,
-  normalizeToolArguments,
   toGeneratedToolName,
   toToolParametersSchema,
 } from "./bridge.js";
-import type { McpConnectionFactory } from "./connection.js";
+import type { McpClient, McpConnectionFactory, McpTransport } from "./connection.js";
+
+export type McpToolRegistry = Pick<
+  ExtensionAPI,
+  "getActiveTools" | "getAllTools" | "registerTool" | "setActiveTools"
+>;
+
+export interface McpToolDetails {
+  outputPath?: string;
+  serverName: string;
+  toolName: string;
+  truncated: boolean;
+}
 
 interface ConnectedServer {
-  client: Client;
+  client: McpClient;
   close: () => Promise<void>;
   connectionFactory: McpConnectionFactory;
   toolNames: string[];
-  transport: Transport;
+  transport: McpTransport;
 }
+
+const RawArgumentsSchema = Type.Record(Type.String(), Type.Unknown());
+
+type ToolArguments = Static<typeof RawArgumentsSchema>;
 
 interface McpLoadResult {
   serverName: string;
@@ -43,7 +51,7 @@ interface McpLoadResult {
 
 interface LoadServerOptions {
   connectionFactory: McpConnectionFactory;
-  pi: ExtensionAPI;
+  pi: McpToolRegistry;
   serverName: string;
   interactive: boolean;
   signal?: AbortSignal;
@@ -52,14 +60,9 @@ interface LoadServerOptions {
 const MAX_PERSISTED_OUTPUT_BYTES = 1024 * 1024;
 const MAX_PERSISTED_OUTPUT_COUNT = 10;
 const MAX_PERSISTED_OUTPUT_TOTAL_BYTES = 5 * 1024 * 1024;
-const PERSISTED_OUTPUT_TRUNCATION_NOTICE = Buffer.from(
-  "\n\n[MCP persisted output truncated]\n"
-);
+const PERSISTED_OUTPUT_TRUNCATION_NOTICE = Buffer.from("\n\n[MCP persisted output truncated]\n");
 
-const waitForLoad = async (
-  load: Promise<McpLoadResult>,
-  signal?: AbortSignal
-): Promise<void> => {
+const waitForLoad = async (load: Promise<McpLoadResult>, signal?: AbortSignal): Promise<void> => {
   if (!signal) {
     await load.catch(() => null);
     return;
@@ -81,23 +84,18 @@ const waitForLoad = async (
 const persistOverflow = async (
   serverName: string,
   toolName: string,
-  content: string
+  content: string,
 ): Promise<string> => {
-  const directory = path.resolve(
-    getExtensionStoragePaths("mcp").dataDir,
-    "results"
-  );
+  const directory = path.resolve(getExtensionStoragePaths("mcp").dataDir, "results");
   const filePath = path.join(
     directory,
-    `${Date.now()}-${randomUUID()}-${toGeneratedToolName(serverName, toolName)}.txt`
+    `${Date.now()}-${randomUUID()}-${toGeneratedToolName(serverName, toolName)}.txt`,
   );
   const tempPath = `${filePath}.${randomUUID()}.tmp`;
   const fullOutput = Buffer.from(content);
   let persistedOutput = fullOutput;
   if (fullOutput.length > MAX_PERSISTED_OUTPUT_BYTES) {
-    let end =
-      MAX_PERSISTED_OUTPUT_BYTES - PERSISTED_OUTPUT_TRUNCATION_NOTICE.length;
-    // oxlint-disable-next-line no-bitwise -- UTF-8 continuation bytes start with 10
+    let end = MAX_PERSISTED_OUTPUT_BYTES - PERSISTED_OUTPUT_TRUNCATION_NOTICE.length;
     while ((fullOutput[end] & 0xc0) === 0x80) {
       end -= 1;
     }
@@ -131,17 +129,12 @@ const persistOverflow = async (
               size: Number(metadata.size),
             };
           } catch (error) {
-            if (
-              typeof error === "object" &&
-              error !== null &&
-              "code" in error &&
-              error.code === "ENOENT"
-            ) {
+            if (error instanceof Object && "code" in error && error.code === "ENOENT") {
               return null;
             }
             throw error;
           }
-        })
+        }),
     );
     const existingFiles = files.filter((file) => file !== null);
     existingFiles.sort((left, right) => {
@@ -168,7 +161,6 @@ const persistOverflow = async (
         retainedBytes += file.size;
       } else {
         pruning = true;
-        // oxlint-disable-next-line no-await-in-loop -- pruning shares the directory mutation queue
         await rm(file.path, { force: true });
       }
     }
@@ -192,7 +184,6 @@ export class McpServerPool {
       if (!existing) {
         break;
       }
-      // oxlint-disable-next-line no-await-in-loop -- each caller waits for the keyed load ahead of it
       await waitForLoad(existing, options.signal);
     }
 
@@ -207,26 +198,17 @@ export class McpServerPool {
     }
   }
 
-  reconcileActiveServers(
-    pi: ExtensionAPI,
-    desiredServerNames: readonly string[]
-  ): void {
+  reconcileActiveServers(pi: McpToolRegistry, desiredServerNames: readonly string[]): void {
     const desired = new Set(desiredServerNames);
-    const managed = new Set(
-      [...this.servers.values()].flatMap(({ toolNames }) => toolNames)
-    );
+    const managed = new Set([...this.servers.values()].flatMap(({ toolNames }) => toolNames));
     const desiredTools = new Set(
       [...this.servers.entries()].flatMap(([name, server]) =>
-        desired.has(name) ? server.toolNames : []
-      )
+        desired.has(name) ? server.toolNames : [],
+      ),
     );
     pi.setActiveTools([
-      ...pi
-        .getActiveTools()
-        .filter((name) => !managed.has(name) || desiredTools.has(name)),
-      ...[...desiredTools].filter(
-        (name) => !pi.getActiveTools().includes(name)
-      ),
+      ...pi.getActiveTools().filter((name) => !managed.has(name) || desiredTools.has(name)),
+      ...[...desiredTools].filter((name) => !pi.getActiveTools().includes(name)),
     ]);
   }
 
@@ -248,17 +230,14 @@ export class McpServerPool {
     const signal = options.signal
       ? AbortSignal.any([options.signal, this.shutdown.signal])
       : this.shutdown.signal;
-    const connection = await options.connectionFactory(
-      options.interactive,
-      signal
-    );
+    const connection = await options.connectionFactory(options.interactive, signal);
     try {
       signal.throwIfAborted();
       const result = await this.registerMcpTools(
         options.pi,
         options.serverName,
         connection.client,
-        signal
+        signal,
       );
       signal.throwIfAborted();
       this.servers.set(options.serverName, {
@@ -280,9 +259,7 @@ export class McpServerPool {
       return;
     }
     this.shutdown.abort();
-    const closeConnections = [...this.servers.values()].map(({ close }) =>
-      close()
-    );
+    const closeConnections = [...this.servers.values()].map(({ close }) => close());
     const pending = [...this.loads.values(), ...this.reconnects.values()];
     this.servers.clear();
     await Promise.allSettled([...closeConnections, ...pending]);
@@ -291,8 +268,8 @@ export class McpServerPool {
   private async callTool(
     serverName: string,
     toolName: string,
-    args: unknown,
-    signal?: AbortSignal
+    args: ToolArguments | undefined,
+    signal?: AbortSignal,
   ): Promise<CallToolResult> {
     const connection = this.servers.get(serverName);
     if (!connection) {
@@ -300,23 +277,16 @@ export class McpServerPool {
     }
 
     const request = {
-      arguments: normalizeToolArguments(args),
+      arguments: args,
       name: toolName,
     };
     const options = signal ? { signal } : undefined;
-    const sessionId =
-      connection.transport instanceof StreamableHTTPClientTransport
-        ? connection.transport.sessionId
-        : undefined;
+    const { sessionId } = connection.transport;
 
     try {
       return await connection.client.callTool(request, options);
     } catch (error) {
-      if (
-        sessionId === undefined ||
-        !SdkHttpError.isInstance(error) ||
-        error.status !== 404
-      ) {
+      if (sessionId === undefined || !SdkHttpError.isInstance(error) || error.status !== 404) {
         throw error;
       }
     }
@@ -327,7 +297,7 @@ export class McpServerPool {
 
   private async reconnectServer(
     serverName: string,
-    stale: ConnectedServer
+    stale: ConnectedServer,
   ): Promise<ConnectedServer> {
     const current = this.servers.get(serverName);
     if (!current) {
@@ -343,10 +313,7 @@ export class McpServerPool {
     }
 
     const reconnect = (async () => {
-      const connection = await stale.connectionFactory(
-        false,
-        this.shutdown.signal
-      );
+      const connection = await stale.connectionFactory(false, this.shutdown.signal);
       try {
         this.shutdown.signal.throwIfAborted();
         if (this.servers.get(serverName) !== stale) {
@@ -374,68 +341,55 @@ export class McpServerPool {
   }
 
   private async registerMcpTools(
-    pi: ExtensionAPI,
+    pi: McpToolRegistry,
     serverName: string,
-    client: Client,
-    signal?: AbortSignal
+    client: McpClient,
+    signal?: AbortSignal,
   ): Promise<McpLoadResult> {
-    const { tools } = await client.listTools(
-      undefined,
-      signal ? { signal } : undefined
-    );
+    const { tools } = await client.listTools(undefined, signal ? { signal } : undefined);
     const occupiedNames = new Set(pi.getAllTools().map(({ name }) => name));
     const generatedNames = new Set<string>();
     const callTool = this.callTool.bind(this);
-    const generatedTools: ToolDefinition[] = tools.map((tool) => {
+    const generatedTools: ToolDefinition<TSchema, McpToolDetails>[] = tools.map((tool) => {
       const generatedToolName = toGeneratedToolName(serverName, tool.name);
-      if (
-        occupiedNames.has(generatedToolName) ||
-        generatedNames.has(generatedToolName)
-      ) {
+      if (occupiedNames.has(generatedToolName) || generatedNames.has(generatedToolName)) {
         throw new Error(
-          `MCP tool name collision for ${serverName}/${tool.name}: ${generatedToolName}`
+          `MCP tool name collision for ${serverName}/${tool.name}: ${generatedToolName}`,
         );
       }
       generatedNames.add(generatedToolName);
 
       return {
-        description:
-          tool.description ?? `MCP tool ${tool.name} from server ${serverName}`,
+        description: tool.description ?? `MCP tool ${tool.name} from server ${serverName}`,
         async execute(_toolCallId, params, executeSignal) {
-          const result = await callTool(
-            serverName,
-            tool.name,
-            params,
-            executeSignal
-          );
+          const toolArguments = Value.Check(RawArgumentsSchema, params)
+            ? Value.Parse(RawArgumentsSchema, params)
+            : {};
+          const result = await callTool(serverName, tool.name, toolArguments, executeSignal);
           let converted = mcpResultToPiContent(result);
           let outputPath: string | undefined;
           if (converted.truncated) {
-            outputPath = await persistOverflow(
-              serverName,
-              tool.name,
-              converted.fullText
-            );
+            outputPath = await persistOverflow(serverName, tool.name, converted.fullText);
             converted = mcpResultToPiContent(result, outputPath);
           }
           if (result.isError === true) {
-            // oxlint-disable-next-line unicorn/prefer-type-error -- this reports a remote tool failure, not invalid argument types
             throw new Error(
               `MCP tool ${tool.name} from server ${serverName} returned an error: ${converted.content
-                .map((item) =>
-                  item.type === "text" ? item.text : `[image:${item.mimeType}]`
-                )
-                .join("\n")}`
+                .map((item) => (item.type === "text" ? item.text : `[image:${item.mimeType}]`))
+                .join("\n")}`,
             );
           }
           return {
             content: converted.content,
-            details: {
-              serverName,
-              toolName: tool.name,
-              truncated: converted.truncated,
-              ...(outputPath === undefined ? {} : { outputPath }),
-            },
+            details:
+              outputPath === undefined
+                ? { serverName, toolName: tool.name, truncated: converted.truncated }
+                : {
+                    outputPath,
+                    serverName,
+                    toolName: tool.name,
+                    truncated: converted.truncated,
+                  },
           };
         },
         label: `${serverName}: ${tool.name}`,

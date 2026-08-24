@@ -1,10 +1,6 @@
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import type {
-  AssistantMessage,
-  Provider,
-  RefreshModelsContext,
-} from "@earendil-works/pi-ai";
-import { describe, expect, it, vi } from "vitest";
+import type { AssistantMessage, Provider, RefreshModelsContext } from "@earendil-works/pi-ai";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createLazyCodexProvider } from "../lazy-provider.js";
 import { createCodexModelCatalog } from "../model-catalog.js";
@@ -34,17 +30,17 @@ const message: AssistantMessage = {
 describe("lazy Codex provider", () => {
   it("keeps the built-in OAuth contract and catalog paths eager-only", async () => {
     const baseCatalog = createCodexModelCatalog();
-    const refreshModels = vi.fn<
-      (context: RefreshModelsContext) => Promise<void>
-    >(async () => await Promise.resolve());
+    const refreshModels = vi.fn<(context: RefreshModelsContext) => Promise<void>>(
+      async () => await Promise.resolve(),
+    );
     const catalog: CodexModelCatalog = { ...baseCatalog, refreshModels };
     const load = vi.fn<() => Promise<CodexProvider>>();
     const provider = createLazyCodexProvider(catalog, load);
-    const context = {
+    const context: RefreshModelsContext = {
       allowNetwork: true,
       publish: vi.fn<RefreshModelsContext["publish"]>(),
       signal: new AbortController().signal,
-    } as unknown as RefreshModelsContext;
+    };
 
     expect(provider.getModels()).toBe(catalog.getModels());
     await provider.refreshModels?.(context);
@@ -58,7 +54,7 @@ describe("lazy Codex provider", () => {
       loadCalls: 0,
       refreshCalls: [[context]],
     });
-    expect(provider.auth.apiKey?.login).toBeUndefined();
+    expect(provider.auth.apiKey).not.toHaveProperty("login");
     expect(provider.auth.apiKey).toBe(catalog.base.auth.apiKey);
     expect(provider.auth.oauth).toBe(catalog.base.auth.oauth);
   });

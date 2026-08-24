@@ -4,10 +4,7 @@ import type {
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
-import {
-  normalizeAnnotationArguments,
-  parseAnnotationOutcome,
-} from "../annotations.js";
+import { normalizeAnnotationArguments, parseAnnotationOutcome } from "../annotations.js";
 import type { CommandRuntime } from "../command-runtime.js";
 import { notifyError } from "../command-runtime.js";
 
@@ -31,9 +28,7 @@ const getAssistantText = (message: SessionMessage): string | undefined => {
   return text.length > 0 ? text : undefined;
 };
 
-const getLastAssistantSnapshot = (
-  ctx: ExtensionCommandContext
-): AssistantSnapshot | undefined => {
+const getLastAssistantSnapshot = (ctx: ExtensionCommandContext): AssistantSnapshot | undefined => {
   const branch = ctx.sessionManager.getBranch();
   for (let index = branch.length - 1; index >= 0; index -= 1) {
     const entry = branch[index];
@@ -48,10 +43,7 @@ const getLastAssistantSnapshot = (
   return undefined;
 };
 
-const hasMovedPastSnapshot = (
-  ctx: ExtensionCommandContext,
-  entryId: string
-): boolean => {
+const hasMovedPastSnapshot = (ctx: ExtensionCommandContext, entryId: string): boolean => {
   if (!ctx.isIdle()) {
     return true;
   }
@@ -65,8 +57,7 @@ const hasMovedPastSnapshot = (
 
 const anchorFeedback = (feedback: string, message: string): string => {
   const trimmed = message.trim();
-  const excerpt =
-    trimmed.length <= 1000 ? trimmed : `${trimmed.slice(0, 1000).trimEnd()}...`;
+  const excerpt = trimmed.length <= 1000 ? trimmed : `${trimmed.slice(0, 1000).trimEnd()}...`;
   const quote = excerpt
     .split("\n")
     .map((line) => `> ${line}`)
@@ -85,10 +76,7 @@ export const createLastHandler =
 
     let tokens: string[];
     try {
-      tokens = normalizeAnnotationArguments(
-        parsed,
-        new Set(["--json", "--stdin"])
-      );
+      tokens = normalizeAnnotationArguments(parsed, new Set(["--json", "--stdin"]));
     } catch (error) {
       notifyError(ctx, "Invalid Plannotator arguments", error);
       return;
@@ -115,10 +103,7 @@ export const createLastHandler =
 
         let feedback = outcome.feedback.trim();
         if (feedback.length === 0) {
-          ctx.ui.notify(
-            "Plannotator message annotation closed without feedback.",
-            "info"
-          );
+          ctx.ui.notify("Plannotator message annotation closed without feedback.", "info");
           return;
         }
         if (hasMovedPastSnapshot(ctx, snapshot.entryId)) {
@@ -126,7 +111,7 @@ export const createLastHandler =
         }
         pi.sendUserMessage(
           `# Message Annotations\n\n${feedback}\n\nPlease address the annotation feedback above.`,
-          { deliverAs: "followUp" }
+          { deliverAs: "followUp" },
         );
       },
       openedMessage: "Plannotator message annotation opened.",

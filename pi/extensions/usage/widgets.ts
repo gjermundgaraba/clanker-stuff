@@ -1,17 +1,8 @@
-/* oxlint-disable eslint/no-nested-ternary -- snapshot content keeps its fallback states adjacent */
-
-import type {
-  FooterWidgetHealthState,
-  FooterWidgetSnapshot,
-} from "@clanker-stuff/footer-protocol";
+import type { FooterWidgetHealthState, FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 
 import { formatResetDuration } from "./format.js";
 import { providerDisplayName } from "./providers.js";
-import type {
-  SupportedProvider,
-  UsageSnapshot,
-  UsageWindow,
-} from "./providers.js";
+import type { SupportedProvider, UsageSnapshot, UsageWindow } from "./providers.js";
 
 const ACTIVE_WIDGET_ID = "clanker.usage.active";
 const DETAILS_WIDGET_ID = "clanker.usage.details";
@@ -49,9 +40,7 @@ const toneFor = (percent: number): "error" | "text" | "warning" => {
   return percent >= 70 ? "warning" : "text";
 };
 
-const selectActiveWindow = (
-  snapshot: UsageSnapshot
-): UsageWindow | undefined => {
+const selectActiveWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => {
   let selected: UsageWindow | undefined;
   for (const window of snapshot.windows) {
     if (selected === undefined || usedPercent(window) > usedPercent(selected)) {
@@ -63,27 +52,22 @@ const selectActiveWindow = (
 
 const providerLabel = (snapshot: UsageSnapshot): string =>
   snapshot.planLabel !== undefined && snapshot.planLabel.length > 0
-    ? richText(
-        `${providerDisplayName(snapshot.provider)} (${snapshot.planLabel})`,
-        160
-      )
+    ? richText(`${providerDisplayName(snapshot.provider)} (${snapshot.planLabel})`, 160)
     : providerDisplayName(snapshot.provider);
 
 const health = (
   state: FooterWidgetHealthState,
   now: number,
-  message?: string
-): FooterWidgetSnapshot["health"] => ({
-  ...(message !== undefined && message.length > 0
-    ? { message: richText(message, 512) }
-    : {}),
-  state,
-  updatedAt: now,
-});
+  message?: string,
+): FooterWidgetSnapshot["health"] => {
+  const health: FooterWidgetSnapshot["health"] = { state, updatedAt: now };
+  if (message !== undefined && message.length > 0) {
+    health.message = richText(message, 512);
+  }
+  return health;
+};
 
-const snapshotFor = (
-  presentation: UsagePresentation
-): UsageSnapshot | undefined =>
+const snapshotFor = (presentation: UsagePresentation): UsageSnapshot | undefined =>
   presentation.kind === "ready" || presentation.kind === "stale"
     ? presentation.snapshot
     : undefined;
@@ -101,7 +85,7 @@ const HEALTH_STATE_BY_PRESENTATION = {
 } satisfies Record<UsagePresentation["kind"], FooterWidgetHealthState>;
 
 const healthFor = (
-  presentation: UsagePresentation
+  presentation: UsagePresentation,
 ): { message?: string; state: FooterWidgetHealthState } => {
   const state = HEALTH_STATE_BY_PRESENTATION[presentation.kind];
   return presentation.kind === "error" || presentation.kind === "stale"
@@ -110,7 +94,7 @@ const healthFor = (
 };
 
 export const presentationProvider = (
-  presentation: UsagePresentation
+  presentation: UsagePresentation,
 ): SupportedProvider | undefined => {
   switch (presentation.kind) {
     case "loading":
@@ -132,7 +116,7 @@ export const presentationProvider = (
 
 export const activeSnapshot = (
   presentation: UsagePresentation,
-  now: number
+  now: number,
 ): FooterWidgetSnapshot => {
   const snapshot = snapshotFor(presentation);
   const { message, state } = healthFor(presentation);
@@ -140,9 +124,7 @@ export const activeSnapshot = (
   const percent = window ? usedPercent(window) : 0;
   const rounded = `${Math.round(percent)}%`;
   const reset =
-    window?.resetsAt === undefined
-      ? ""
-      : ` · ${formatResetDuration(window.resetsAt, now)}`;
+    window?.resetsAt === undefined ? "" : ` · ${formatResetDuration(window.resetsAt, now)}`;
   const filled = Math.round((percent / 100) * 10);
   const full =
     snapshot && window
@@ -175,14 +157,13 @@ export const activeSnapshot = (
 
 export const detailsSnapshot = (
   presentation: UsagePresentation,
-  now: number
+  now: number,
 ): FooterWidgetSnapshot => {
   const snapshot = snapshotFor(presentation);
   const { message, state } = healthFor(presentation);
   const active = snapshot ? selectActiveWindow(snapshot) : undefined;
   // ponytail: eight rich detail windows stay within protocol text bounds; /usage still shows all.
-  const windows =
-    snapshot?.windows.filter((window) => window !== active).slice(0, 8) ?? [];
+  const windows = snapshot?.windows.filter((window) => window !== active).slice(0, 8) ?? [];
   const full = windows.map((window, index) => ({
     text: `${index === 0 ? "" : " · "}${richText(window.label, 80)} ${Math.round(usedPercent(window))}%${
       window.resetsAt !== undefined && window.resetsAt.length > 0
@@ -208,10 +189,8 @@ export const fallbackText = (presentation: UsagePresentation): string => {
     const marker = presentation.kind === "stale" ? " !" : "";
     return richText(
       `usage ${providerDisplayName(snapshot.provider)} ${window.label} ${Math.round(usedPercent(window))}%${marker}`,
-      240
+      240,
     );
   }
-  return presentation.kind === "loading"
-    ? "usage loading"
-    : "usage unavailable";
+  return presentation.kind === "loading" ? "usage loading" : "usage unavailable";
 };

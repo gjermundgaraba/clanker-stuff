@@ -9,15 +9,7 @@ import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
 const ProtocolModeSchema = StringEnum(["auto", "off", "v1", "v2"] as const);
-export const THINKING_LEVELS = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const;
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export const ThinkingSchema = StringEnum(THINKING_LEVELS);
 const RoleSchema = Type.Object(
   {
@@ -31,49 +23,43 @@ const RoleSchema = Type.Object(
           minLength: 1,
           pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
         }),
-        { minItems: 1 }
-      )
+        { minItems: 1 },
+      ),
     ),
     provider: Type.Optional(Type.String({ minLength: 1 })),
     thinking: Type.Optional(ThinkingSchema),
   },
-  STRICT
+  STRICT,
 );
 const PromptSchema = Type.Object(
   {
     child: Type.Optional(Type.String()),
     delegation: Type.Optional(StringEnum(["explicit", "proactive"] as const)),
-    v1: Type.Optional(
-      Type.Object({ root: Type.Optional(Type.String()) }, STRICT)
-    ),
+    v1: Type.Optional(Type.Object({ root: Type.Optional(Type.String()) }, STRICT)),
     v2: Type.Optional(
       Type.Object(
         {
           child: Type.Optional(Type.String()),
           root: Type.Optional(Type.String()),
         },
-        STRICT
-      )
+        STRICT,
+      ),
     ),
   },
-  STRICT
+  STRICT,
 );
 const SubagentsConfigSchema = Type.Object(
   {
     expose_spawn_agent_model_overrides: Type.Optional(Type.Boolean()),
-    max_concurrent_threads_per_session: Type.Optional(
-      Type.Integer({ minimum: 1 })
-    ),
+    max_concurrent_threads_per_session: Type.Optional(Type.Integer({ minimum: 1 })),
     prompts: Type.Optional(PromptSchema),
-    protocols: Type.Optional(
-      Type.Record(Type.String({ minLength: 1 }), ProtocolModeSchema)
-    ),
+    protocols: Type.Optional(Type.Record(Type.String({ minLength: 1 }), ProtocolModeSchema)),
     roles: Type.Optional(
-      Type.Record(Type.String({ pattern: "^[a-z0-9_-]+$" }), RoleSchema, STRICT)
+      Type.Record(Type.String({ pattern: "^[a-z0-9_-]+$" }), RoleSchema, STRICT),
     ),
     version: Type.Literal(1),
   },
-  STRICT
+  STRICT,
 );
 
 export type ProtocolMode = Static<typeof ProtocolModeSchema>;
@@ -102,11 +88,11 @@ export const DEFAULT_CONFIG: SubagentsConfig = {
 
 export const roleInstructions = (
   config: SubagentsConfig,
-  roleName: string | undefined
+  roleName: string | undefined,
 ): string | undefined =>
   roleName === undefined ? undefined : config.roles[roleName]?.instructions;
 
-export const parseConfig = (value: unknown): SubagentsConfig => {
+export const parseConfig = <T>(value: T): SubagentsConfig => {
   if (!Value.Check(SubagentsConfigSchema, value)) {
     throw new Error("config must be a strict version 1 object");
   }
@@ -117,8 +103,7 @@ export const parseConfig = (value: unknown): SubagentsConfig => {
   }
   return {
     ...value,
-    expose_spawn_agent_model_overrides:
-      value.expose_spawn_agent_model_overrides ?? true,
+    expose_spawn_agent_model_overrides: value.expose_spawn_agent_model_overrides ?? true,
     prompts: { delegation: "explicit", ...value.prompts },
     protocols: value.protocols ?? {},
     roles: value.roles ?? {},
@@ -126,19 +111,14 @@ export const parseConfig = (value: unknown): SubagentsConfig => {
 };
 
 export const loadConfig = async (
-  configPath: string
+  configPath: string,
 ): Promise<{ config: SubagentsConfig; error?: string }> => {
   try {
     return {
       config: parseConfig(JSON.parse(await readFile(configPath, "utf-8"))),
     };
   } catch (error) {
-    if (
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { config: structuredClone(DEFAULT_CONFIG) };
     }
     return {
@@ -149,16 +129,17 @@ export const loadConfig = async (
 };
 
 export type AgentThinkingLevel = (typeof THINKING_LEVELS)[number];
+export interface ChildSettings {
+  instructions?: string;
+  model: Model<Api> | undefined;
+  thinking: AgentThinkingLevel | undefined;
+}
+type ModelLookup = Pick<ModelRegistry, "find" | "getAll">;
 
 export const isThinkingLevel = (value: string): value is AgentThinkingLevel =>
   THINKING_LEVELS.some((level) => level === value);
 
-const findModel = (
-  provider: string,
-  modelId: string,
-  registry: ModelRegistry
-): Model<Api> => {
-  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- ModelRegistry.find accepts provider and model IDs.
+const findModel = (provider: string, modelId: string, registry: ModelLookup): Model<Api> => {
   const model = registry.find(provider, modelId);
   if (!model) {
     throw new Error(`Unknown model: ${provider}/${modelId}`);
@@ -168,8 +149,8 @@ const findModel = (
 
 export const parseModelOverride = (
   requested: string | undefined,
-  registry: ModelRegistry,
-  fallback?: Model<Api>
+  registry: ModelLookup,
+  fallback?: Model<Api>,
 ): Model<Api> | undefined => {
   if (requested === undefined || requested === "") {
     return fallback;
@@ -179,9 +160,7 @@ export const parseModelOverride = (
     const models = registry.getAll();
     const inheritedProvider = fallback
       ? models.find(
-          (candidate) =>
-            candidate.provider === fallback.provider &&
-            candidate.id === requested
+          (candidate) => candidate.provider === fallback.provider && candidate.id === requested,
         )
       : undefined;
     if (inheritedProvider !== undefined) {
@@ -192,20 +171,14 @@ export const parseModelOverride = (
       return matches[0];
     }
     if (matches.length > 1) {
-      throw new Error(
-        `Ambiguous model: ${requested}; use provider/model format`
-      );
+      throw new Error(`Ambiguous model: ${requested}; use provider/model format`);
     }
     throw new Error(`Unknown model: ${requested}`);
   }
   if (separator < 1 || separator === requested.length - 1) {
     throw new Error("model must be a model id or use provider/model format");
   }
-  return findModel(
-    requested.slice(0, separator),
-    requested.slice(separator + 1),
-    registry
-  );
+  return findModel(requested.slice(0, separator), requested.slice(separator + 1), registry);
 };
 
 export const resolveChildSettings = (
@@ -213,14 +186,10 @@ export const resolveChildSettings = (
   roleName: string | undefined,
   requestedModel: string | undefined,
   requestedThinking: AgentThinkingLevel | undefined,
-  registry: ModelRegistry,
+  registry: ModelLookup,
   parentModel: Model<Api> | undefined,
-  parentThinking?: AgentThinkingLevel
-): {
-  instructions?: string;
-  model: Model<Api> | undefined;
-  thinking: AgentThinkingLevel | undefined;
-} => {
+  parentThinking?: AgentThinkingLevel,
+): ChildSettings => {
   const role =
     roleName !== undefined && Object.hasOwn(config.roles, roleName)
       ? config.roles[roleName]
@@ -235,11 +204,12 @@ export const resolveChildSettings = (
         ? parseModelOverride(role.model, registry, parentModel)
         : findModel(role.provider, role.model, registry);
   }
-  return {
-    ...(role?.instructions === undefined
-      ? {}
-      : { instructions: role.instructions }),
+  const settings: ChildSettings = {
     model,
     thinking: role?.thinking ?? requestedThinking ?? parentThinking,
   };
+  if (role?.instructions !== undefined) {
+    settings.instructions = role.instructions;
+  }
+  return settings;
 };

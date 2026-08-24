@@ -3,15 +3,14 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import {
-  copyToClipboard,
-  withFileMutationQueue,
-} from "@earendil-works/pi-coding-agent";
+import { copyToClipboard, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionContext,
   InputEvent,
   InputEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
 
 const MAX_STASHES = 10;
@@ -23,35 +22,21 @@ interface StashStore {
 const getStorePath = (cwd: string) =>
   path.join(
     getExtensionStoragePaths("stash").dataDir,
-    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`
+    `${createHash("sha256").update(path.resolve(cwd)).digest("hex")}.json`,
   );
 
 const emptyStore = (): StashStore => ({ entries: [] });
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const parseStore = (data: unknown): StashStore => {
-  if (
-    !isRecord(data) ||
-    !Array.isArray(data.entries) ||
-    !data.entries.every((item) => typeof item === "string")
-  ) {
-    return emptyStore();
-  }
-  return { entries: data.entries };
-};
+const StashFileSchema = Type.Object({ entries: Type.Array(Type.String()) });
 
 const readStore = async (filePath: string): Promise<StashStore> => {
   try {
-    return parseStore(JSON.parse(await readFile(filePath, "utf-8")));
+    const data: unknown = JSON.parse(await readFile(filePath, "utf-8"));
+    return Value.Check(StashFileSchema, data)
+      ? { entries: Value.Parse(StashFileSchema, data).entries }
+      : emptyStore();
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error instanceof Object && "code" in error && error.code === "ENOENT") {
       return emptyStore();
     }
     if (error instanceof SyntaxError) {
@@ -94,20 +79,14 @@ export const createStash = () => {
   const saveStack = async (ctx: ExtensionContext) => {
     const filePath = getStorePath(ctx.cwd);
     const snapshot: StashStore = { entries: [...stack] };
-    /* oxlint-disable promise/prefer-await-to-then -- pendingSave must retain the handled promise for dispose */
     pendingSave = withFileMutationQueue(filePath, async () => {
       await mkdir(path.dirname(filePath), { recursive: true });
       const tempPath = `${filePath}.tmp-${randomUUID()}`;
-      await writeFile(
-        tempPath,
-        `${JSON.stringify(snapshot, null, 2)}\n`,
-        "utf-8"
-      );
+      await writeFile(tempPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf-8");
       await rename(tempPath, filePath);
     }).catch(() => {
       ctx.ui.notify("Failed to persist stash.", "warning");
     });
-    /* oxlint-enable promise/prefer-await-to-then */
     await pendingSave;
   };
 
@@ -164,10 +143,7 @@ export const createStash = () => {
     trimStack();
     ctx.ui.setEditorText("");
     armPendingCopy(ctx, text);
-    ctx.ui.notify(
-      `Stashed (${stack.length}). Press c to copy to clipboard.`,
-      "info"
-    );
+    ctx.ui.notify(`Stashed (${stack.length}). Press c to copy to clipboard.`, "info");
     await saveStack(ctx);
   };
 
@@ -185,10 +161,7 @@ export const createStash = () => {
     await saveStack(ctx);
   };
 
-  const prepareRestore = (
-    event: InputEvent,
-    ctx: ExtensionContext
-  ): InputEventResult => {
+  const prepareRestore = (event: InputEvent, ctx: ExtensionContext): InputEventResult => {
     if (event.source !== "interactive" || ctx.mode !== "tui" || !ctx.hasUI) {
       return { action: "continue" };
     }

@@ -24,10 +24,7 @@ export const createSideRuntime = (pi: ExtensionAPI) => {
       const controller = await side.load();
       await controller?.closeOnTreeChange(ctx);
     },
-    launch: async (
-      args: string,
-      ctx: ExtensionCommandContext
-    ): Promise<void> => {
+    launch: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const controller = await side.load();
       await controller?.launch(args, ctx);
     },

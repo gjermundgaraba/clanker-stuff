@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { readWorkspacePackages } from "./workspace-packages.ts";
 
@@ -19,13 +19,10 @@ describe("workspace package discovery", () => {
     const root = mkdtempSync(path.join(tmpdir(), "workspace-packages-test-"));
     tempDirs.push(root);
     mkdirSync(path.join(root, "packages", "sample"), { recursive: true });
-    writeFileSync(
-      path.join(root, "pnpm-workspace.yaml"),
-      'packages:\n  - "packages/*"\n'
-    );
+    writeFileSync(path.join(root, "pnpm-workspace.yaml"), 'packages:\n  - "packages/*"\n');
     writeFileSync(
       path.join(root, "packages", "sample", "package.json"),
-      JSON.stringify({ name: "sample" })
+      JSON.stringify({ name: "sample" }),
     );
 
     expect(readWorkspacePackages(root)).toStrictEqual([
