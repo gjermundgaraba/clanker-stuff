@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/codex-skills",
   "version": "0.1.0",
   "private": false,
-  "description": "Injects complete SKILL.md instructions when prompts explicitly mention $skill-name.",
+  "description": "Adds Codex-style skill mentions and V1/V2 orchestration guidance for OpenAI Codex.",
   "keywords": [
     "pi-package"
   ],
@@ -20,6 +20,8 @@
     "editor.ts",
     "index.ts",
     "mentions.ts",
+    "orchestrate.ts",
+    "vendor",
     "README.md",
     "LICENSE"
   ],

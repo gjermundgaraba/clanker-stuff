@@ -1,0 +1,3 @@
+https://github.com/provencher/codex-skills
+1fe93e920cbd99173eedd22e94d10d49e2c76da7
+Local adaptation: fork guidance supports Pi's V1 and V2 schemas, and reasoning_effort guidance is conditional because Pi profiles can hide model overrides.

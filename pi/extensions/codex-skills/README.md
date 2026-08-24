@@ -1,6 +1,6 @@
 # codex-skills
 
-Injects complete SKILL.md instructions when prompts explicitly mention $skill-name.
+Adds Codex-style skill mentions and V1/V2 orchestration guidance for OpenAI Codex.
 
 ## Install
 
@@ -10,4 +10,5 @@ pi install npm:@clanker-stuff/codex-skills
 
 ## Usage
 
-Type `$` to complete and highlight a loaded skill name; submission injects the complete `SKILL.md`. Expand the summary (`Ctrl+O`) to render each skill body as Markdown.
+- Type `$` to complete and highlight a loaded skill name; submission injects the complete `SKILL.md`.
+- With OpenAI Codex and subagents V1 or V2 active, `orchestrate` is discovered automatically for substantial work.

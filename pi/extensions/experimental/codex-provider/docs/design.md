@@ -14,6 +14,7 @@ The implementation follows the compatibility objective and pinned [Codex and Pi 
 | Model catalog, `/models` refresh, and Codex request headers | [`model-catalog.ts`](../model-catalog.ts) |
 | Direct tools, model gating, selection, and `/code-mode` | [`tools/`](../tools/) |
 | Code Mode host protocol and nested tool runtime | [`code-mode/`](../code-mode/) |
+| Skill-catalog visibility without Pi's `read` tool | [`skill-catalog.ts`](../skill-catalog.ts) |
 | Best-effort request and reliability observations | [`observability.ts`](../observability.ts) |
 | Strict persisted checkpoint format and active-branch resolution | [`checkpoint.ts`](../checkpoint.ts) |
 | Framing, retention, token estimates, and tool-history repair | [`replay.ts`](../replay.ts) |
@@ -29,6 +30,8 @@ Fast mode starts disabled. `/fast` or `--fast` enables the `priority` service ti
 Remote reasoning presets are intersected with Pi's known thinking levels instead of being forwarded as request values. Only the Codex Responses wire efforts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` reach transport. The Codex application preset `ultra` is not exposed as Pi `max`: full Ultra behavior also requires proactive multi-agent policy, which this extension does not implement.
 
 Supported GPT-5.6 Codex models start with `exec_command`, `write_stdin`, `apply_patch`, and `view_image`; `/code-mode` replaces them with `exec` and `wait`. The provider owns those six names and suppresses Pi's seven built-ins while they are active, but leaves unrelated extension tools alone. When `@clanker-stuff/tools` is also loaded, `/tools` delegates those six choices back to this extension through a provider-neutral event contract. Tool choices follow the active session branch.
+
+Pi normally omits its loaded-skill catalog when `read` is unavailable. When the provider's direct or Code Mode tool set suppresses `read`, the provider restores that catalog with guidance naming the active file-capable tool. It does not discover or load any additional skills.
 
 `exec_command` and `write_stdin` apply requested `max_output_tokens` with Codex's UTF-8 approximate-token, head-plus-tail formatter and a model-visible truncation warning. The active catalog model's truncation policy caps the request. Only raw command output consumes that budget; Pi process status, truncation-file notices, and the session ID remain visible outside it. This matches the pinned truncation algorithm and control-metadata safety, not Codex's complete PTY result layout. In Code Mode, a nested tool with a declared output schema must return valid model-visible JSON; the provider decodes that JSON to the callable value and never substitutes host-only `details`.
 

@@ -160,6 +160,7 @@ describe("codex-provider package", () => {
         "package/renderer.ts",
         "package/replay.ts",
         "package/runtime.ts",
+        "package/skill-catalog.ts",
         "package/status.ts",
         "package/tools/controller.ts",
         "package/tools/direct.ts",

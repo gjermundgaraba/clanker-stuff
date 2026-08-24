@@ -4,6 +4,7 @@ import { createCodexFooter } from "./footer.js";
 import { createLazyCodexProvider } from "./lazy-provider.js";
 import { registerCheckpointRenderer } from "./renderer.js";
 import { createCodexRuntime } from "./runtime.js";
+import { exposeSkillsWithoutRead } from "./skill-catalog.js";
 import { registerCodexTools } from "./tools/register.js";
 
 export default function codexProviderExtension(pi: ExtensionAPI): void {
@@ -37,6 +38,9 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
   pi.on("model_select", (event, ctx) => {
     runtime.modelSelect(event, ctx);
   });
+  pi.on("before_agent_start", (event, ctx) =>
+    exposeSkillsWithoutRead(event, ctx)
+  );
   pi.on("before_agent_start", (_event, ctx) => runtime.beforeAgentStart(ctx));
   pi.on("agent_settled", (_event, ctx) => {
     runtime.agentSettled(ctx);
