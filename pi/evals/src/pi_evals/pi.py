@@ -450,7 +450,7 @@ class PiEval(Pi):
     async def install(self, environment: BaseEnvironment) -> None:
         installed = await self.exec_as_agent(
             environment,
-            command='test "$(node --version | cut -d. -f1)" = v24 && pi --version',
+            command="pi --version",
         )
         installed_version = self.parse_version(installed.stdout or "")
         if installed.return_code != 0 or not installed_version:

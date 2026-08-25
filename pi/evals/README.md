@@ -13,7 +13,7 @@ export PI_EVAL_AUTH_JSON_PATH="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json
 export CODEX_AUTH_JSON_PATH="$HOME/.codex/auth.json"
 ```
 
-The Linux/Node 24 image contains one frozen Pi dependency tree shared by the CLI and provider extension, pinned Codex CLI, and the portable `mem2act` command. The repository, reference solutions, and hidden tests are absent during agent execution. Run the no-provider packaging smoke with:
+The Linux/Node 26 image contains one frozen Pi dependency tree shared by the CLI and provider extension, pinned Codex CLI, and the portable `mem2act` command. The repository, reference solutions, and hidden tests are absent during agent execution. Run the no-provider packaging smoke with:
 
 ```bash
 uv run harbor job start --config jobs/smoke.yaml --yes

@@ -149,7 +149,6 @@ class CodexEval(Codex):
             environment,
             command=(
                 "set -euo pipefail; "
-                'test "$(node --version | cut -d. -f1)" = v24; '
                 f"npm install -g @openai/codex{version_spec}; "
                 "codex --version"
             ),
