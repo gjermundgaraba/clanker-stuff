@@ -17,6 +17,56 @@ report = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(report)
 
 
+def write_trajectory(
+    trial: Path,
+    *,
+    input_tokens: int = 0,
+    ordinary_cost: float = 0,
+    compaction_cost: float = 0,
+) -> None:
+    steps = [
+        {
+            "llm_call_count": 1,
+            "metrics": {
+                "cached_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": ordinary_cost,
+                "prompt_tokens": input_tokens,
+            },
+            "source": "agent",
+        }
+    ]
+    if compaction_cost:
+        steps.append(
+            {
+                "extra": {"event_type": "context_compaction"},
+                "llm_call_count": 1,
+                "metrics": {
+                    "cached_tokens": 0,
+                    "completion_tokens": 0,
+                    "cost_usd": compaction_cost,
+                    "prompt_tokens": 0,
+                },
+                "source": "agent",
+            }
+        )
+    agent_dir = trial / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "trajectory.json").write_text(
+        json.dumps(
+            {
+                "final_metrics": {
+                    "total_cached_tokens": 0,
+                    "total_completion_tokens": 0,
+                    "total_cost_usd": ordinary_cost + compaction_cost,
+                    "total_prompt_tokens": input_tokens,
+                },
+                "steps": steps,
+            }
+        )
+    )
+
+
 class ReportTest(TestCase):
     def test_reports_single_step_usage_and_matched_delta(self) -> None:
         with TemporaryDirectory() as directory:
@@ -50,6 +100,12 @@ class ReportTest(TestCase):
                         }
                     )
                 )
+                write_trajectory(
+                    trial,
+                    input_tokens=tokens,
+                    ordinary_cost=0.01,
+                    compaction_cost=0.02 if mode == "on" else 0,
+                )
 
             (root / "longmemeval-judge-codex-gpt.jsonl").write_text(
                 json.dumps(
@@ -72,33 +128,40 @@ class ReportTest(TestCase):
             self.assertEqual(delta["quality"], -0.5)
             self.assertEqual(delta["input"], -3)
             self.assertEqual(delta["compactions"], 1)
+            self.assertEqual(delta["ordinary_cost"], 0)
+            self.assertEqual(delta["compaction_cost"], 0.02)
+            self.assertAlmostEqual(delta["total_cost"], 0.02)
 
     def test_matched_delta_excludes_invalid_quality(self) -> None:
         values = [
             {
                 "cache": 0,
                 "compactions": 0,
-                "cost": 0,
+                "compaction_cost": 0,
                 "input": 0,
                 "latency": 0,
                 "mode": "off",
+                "ordinary_cost": 0,
                 "output": 0,
                 "platform": "pi-vanilla",
                 "quality": 1,
                 "task": "example",
+                "total_cost": 0,
                 "valid": 1,
             },
             {
                 "cache": 0,
                 "compactions": 1,
-                "cost": 0,
+                "compaction_cost": 0,
                 "input": 0,
                 "latency": 0,
                 "mode": "on",
+                "ordinary_cost": 0,
                 "output": 0,
                 "platform": "pi-vanilla",
                 "quality": 0,
                 "task": "example",
+                "total_cost": 0,
                 "valid": 0,
             },
         ]
@@ -189,6 +252,7 @@ class ReportTest(TestCase):
                     }
                 )
             )
+            write_trajectory(trial)
 
             [row] = report.rows(root)
             self.assertEqual((row["platform"], row["mode"]), ("new-platform", "on"))
@@ -210,6 +274,7 @@ class ReportTest(TestCase):
                     }
                 )
             )
+            write_trajectory(trial)
             (root / "longmemeval-judge-test.jsonl").write_text(
                 json.dumps(
                     {

@@ -1,6 +1,6 @@
 # Pi evals
 
-Harbor tasks for comparing vanilla Pi, Pi with `codex-provider`, and pinned Codex CLI across compaction continuity, long-term memory, and argument grounding. The adapters resume native multi-step sessions and normalize successful compactions into ATIF v1.7 trajectories.
+Harbor tasks for comparing vanilla Pi, Pi with `codex-provider`, and native Codex across compaction continuity, long-term memory, and argument grounding. The adapters resume native multi-step sessions and normalize successful compactions into ATIF v1.7 trajectories.
 
 ## Setup
 
@@ -21,14 +21,16 @@ uv run harbor job start --config jobs/smoke.yaml --yes
 
 ## Compaction continuity
 
-The compaction job has six matched arms: compaction off/on for vanilla Pi, Pi with `codex-provider`, and Codex CLI. Off arms disable Pi compaction or give Codex an unreachable one-billion-token limit instead of relying on model defaults.
+The compaction job has six matched arms: compaction off/on for vanilla Pi, Pi with `codex-provider`, and native Codex. Automatic compaction is disabled in every arm. At each hidden task boundary, off arms continue unchanged while on arms invoke that runtime's native manual compaction API. The marker is removed before the model sees the next instruction.
 
 ```bash
 uv run harbor job start --config jobs/compaction-matrix.yaml --yes
 ./scripts/report.py .harbor/jobs/compaction-matrix
 ```
 
-Verifiers report end-state quality separately from trigger, attempt, success, mechanism, exact boundary, and continuation validity. A missed, failed, early, or extra compaction invalidates an on-arm experiment; it is not scored as an incorrect task answer.
+Verifiers report end-state quality separately from attempt, success, mechanism, exact boundary, and continuation validity. A missed, failed, misplaced, or extra compaction invalidates an on-arm experiment; it is not scored as an incorrect task answer.
+
+The report reads per-request metrics from the final trajectory and separates ordinary model calls, compaction calls, and their total. Native Codex usage comes from transient app-server response events, so its standalone compaction request is included. Dollar values are API list-price equivalents, not an account invoice or subscription charge.
 
 ## LongMemEval compaction track
 
@@ -53,7 +55,7 @@ for config in longmemeval-64k longmemeval-115k \
 done
 ```
 
-Controlled on arms are valid only with exactly one successful compaction after the final full-history step: segment 5 at 64K or segment 9 at 115K. Evidence has three compaction-off surfaces; handoff has the three compaction-on surfaces and rejects any compaction after evidence is reintroduced.
+Controlled on arms explicitly invoke exactly one compaction after the final full-history step: segment 5 at 64K or segment 9 at 115K. Evidence has three compaction-off surfaces; handoff has the three compaction-on surfaces and rejects any compaction after evidence is reintroduced.
 
 The in-task `exact_normalized` score is a deterministic lower bound. Apply the task-specific LongMemEval semantic rubrics with `gpt-5.6-sol`, then report each job:
 

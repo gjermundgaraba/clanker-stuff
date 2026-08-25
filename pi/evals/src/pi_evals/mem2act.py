@@ -259,7 +259,7 @@ timeout_sec = 300.0
 timeout_sec = 120.0
 
 [environment]
-docker_image = "clanker-pi-evals:node24"
+docker_image = "clanker-pi-evals:node26"
 workdir = "/app"
 build_timeout_sec = 600.0
 cpus = 2

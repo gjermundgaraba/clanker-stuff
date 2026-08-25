@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { planDeployment } from "/app/src/deployment.js";
 
-test("retains early rules and applies only current policies", () => {
+void test("retains early rules and applies only current policies", () => {
   assert.deepEqual(
     planDeployment({
       attempts: 5,
@@ -17,11 +17,11 @@ test("retains early rules and applies only current policies", () => {
       regions: ["us", "eu", "apac"],
       service: "worker",
       target: "staging",
-    }
+    },
   );
 });
 
-test("validates current limits", () => {
+void test("validates current limits", () => {
   const base = { regions: [], service: "api", target: "prod" };
   assert.throws(() => planDeployment({ ...base, service: " " }), TypeError);
   for (const attempts of [-1, 6, 1.5, "2"]) {

@@ -4,7 +4,6 @@ export type ParentScenarioKind =
   | "standard"
   | "branch"
   | "capabilities"
-  | "portable"
   | "real-window"
   | "mid-turn"
   | "soak"
@@ -42,7 +41,6 @@ export type LiveInvocation = ParentInvocation | ChildInvocation;
 const PARENT_FLAGS = [
   ["--branch", "branch"],
   ["--capabilities", "capabilities"],
-  ["--portable", "portable"],
   ["--real-window", "real-window"],
   ["--mid-turn", "mid-turn"],
   ["--soak", "soak"],
@@ -79,7 +77,6 @@ const DEFAULT_ROUNDS = {
   branch: 2,
   capabilities: 3,
   "mid-turn": 2,
-  portable: 3,
   "real-window": 2,
   soak: 10,
   standard: 3,
@@ -88,7 +85,7 @@ const DEFAULT_ROUNDS = {
 } as const satisfies Readonly<Record<ParentScenarioKind, number>>;
 
 const allowsOneRound = (kind: ParentScenarioKind): boolean =>
-  kind === "capabilities" || kind === "portable" || kind === "threshold";
+  kind === "capabilities" || kind === "threshold";
 
 const positiveInteger = (
   environment: Readonly<Record<string, string | undefined>>,
@@ -120,10 +117,6 @@ const parseParentTransport = (args: readonly string[]): TransportMode => {
 
 const assertTransportAllowed = (kind: ParentScenarioKind, transport: TransportMode) => {
   assertOption(
-    kind !== "portable" || transport === "sse",
-    "Portable canary requires SSE request inspection",
-  );
-  assertOption(
     (kind !== "real-window" && kind !== "mid-turn") || transport !== "websocket",
     "Real-window and mid-turn canaries require SSE request inspection",
   );
@@ -144,7 +137,7 @@ export const parseLiveInvocation = (
   const childKinds = selected(args, CHILD_FLAGS);
   assertOption(
     parentKinds.length <= 1,
-    "Choose only one behavior mode: --branch, --capabilities, --portable, --real-window, --mid-turn, --soak, --stream-fault, or --threshold",
+    "Choose only one behavior mode: --branch, --capabilities, --real-window, --mid-turn, --soak, --stream-fault, or --threshold",
   );
   assertOption(
     childKinds.length <= 1,

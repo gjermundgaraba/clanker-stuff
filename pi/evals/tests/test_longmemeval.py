@@ -14,6 +14,7 @@ from pi_evals.longmemeval import (
     select_records,
     tier_indices,
 )
+from pi_evals.pi import CONTROLLED_COMPACTION_MARKER
 
 
 class CharacterEncoder:
@@ -118,6 +119,15 @@ class LongMemEvalTest(TestCase):
             handoff = (output / "handoff/115k/00/task.toml").read_text(
                 encoding="utf-8"
             )
+            full_64k_query = (
+                output / "full/64k/00/steps/query/instruction.md"
+            ).read_text(encoding="utf-8")
+            handoff_evidence = (
+                output / "handoff/115k/00/steps/evidence/instruction.md"
+            ).read_text(encoding="utf-8")
+            evidence_only = (
+                output / "evidence/00/steps/evidence/instruction.md"
+            ).read_text(encoding="utf-8")
 
             self.assertEqual(len(tasks), 4)
             self.assertTrue(all(Task.is_valid_dir(path.parent) for path in tasks))
@@ -135,6 +145,9 @@ class LongMemEvalTest(TestCase):
         self.assertIn("expected_compaction_after_segment = 9", full_115k)
         self.assertIn('name = "evidence"', handoff)
         self.assertIn("expected_compaction_after_segment = 9", handoff)
+        self.assertTrue(full_64k_query.startswith(CONTROLLED_COMPACTION_MARKER))
+        self.assertTrue(handoff_evidence.startswith(CONTROLLED_COMPACTION_MARKER))
+        self.assertFalse(evidence_only.startswith(CONTROLLED_COMPACTION_MARKER))
         self.assertIn("blue", history_instruction(item, [11]).lower())
 
     def test_grader_requires_one_success_at_the_exact_boundary(self) -> None:

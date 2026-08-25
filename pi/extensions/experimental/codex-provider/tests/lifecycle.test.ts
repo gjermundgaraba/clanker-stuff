@@ -10,7 +10,6 @@ import {
   buildContextFrameDiagnostic,
   buildLifecycleCheckpoint,
   buildLifecycleSource,
-  combineCompactionUsage,
   createCodexLifecycle,
   decideModelTransitionReason,
   freshAssistantUsageTokens,
@@ -19,7 +18,6 @@ import {
   isLifecycleInstallationResolvable,
   isSupportedLifecycleModel,
   mergeRemoteCompactionFeatureHeader,
-  parseCompactionFailurePolicy,
   parseFinalizedResponsesEnvelope,
   resolvePreviousTurnTransition,
   shouldCompactFinalizedInput,
@@ -133,70 +131,6 @@ describe("observability lifecycle", () => {
 });
 
 describe("lifecycle source and checkpoint construction", () => {
-  it("parses failure policy and merges complete usage", () => {
-    const first = {
-      cacheRead: 2,
-      cacheWrite: 3,
-      cacheWrite1h: 1,
-      cost: {
-        cacheRead: 0.2,
-        cacheWrite: 0.3,
-        input: 0.1,
-        output: 0.4,
-        total: 1,
-      },
-      input: 10,
-      output: 4,
-      reasoning: 2,
-      totalTokens: 19,
-    };
-    const second = {
-      cacheRead: 5,
-      cacheWrite: 7,
-      cost: {
-        cacheRead: 2,
-        cacheWrite: 3,
-        input: 1,
-        output: 4,
-        total: 10,
-      },
-      input: 20,
-      output: 8,
-      totalTokens: 40,
-    };
-
-    expect({
-      policies: [undefined, " ask ", "FALLBACK", "cancel", "invalid"].map(
-        parseCompactionFailurePolicy,
-      ),
-      usage: combineCompactionUsage(first, second),
-    }).toStrictEqual({
-      policies: [
-        { invalid: false, policy: "ask" },
-        { invalid: false, policy: "ask" },
-        { invalid: false, policy: "fallback" },
-        { invalid: false, policy: "cancel" },
-        { invalid: true, policy: "ask" },
-      ],
-      usage: {
-        cacheRead: 7,
-        cacheWrite: 10,
-        cacheWrite1h: 1,
-        cost: {
-          cacheRead: 2.2,
-          cacheWrite: 3.3,
-          input: 1.1,
-          output: 4.4,
-          total: 11,
-        },
-        input: 30,
-        output: 12,
-        reasoning: 2,
-        totalTokens: 59,
-      },
-    });
-  });
-
   it("uses full active branch history rather than Pi's summary subset", () => {
     const branch = [
       entry("user-old", {
@@ -375,11 +309,11 @@ describe("lifecycle source and checkpoint construction", () => {
 
     expect({
       afterOrdinary: {
-        ignored: afterOrdinary.ignoredInvalidInlineCheckpoint,
+        ignored: afterOrdinary.ignoredInlineCheckpoint,
         prefix: afterOrdinary.inputPrefix,
       },
       noPriorCompaction: {
-        ignored: noPriorCompaction.ignoredInvalidInlineCheckpoint,
+        ignored: noPriorCompaction.ignoredInlineCheckpoint,
         prefix: noPriorCompaction.inputPrefix,
         retainedItems: noPriorCompaction.retainedItems,
       },
@@ -478,6 +412,12 @@ describe("lifecycle source and checkpoint construction", () => {
       "checkpoint",
     );
     const repeatedSource = buildLifecycleSource([lifecycleEntry, tailEntry], SPIKE_MODEL);
+    expect(() =>
+      buildLifecycleSource([lifecycleEntry, tailEntry], {
+        ...SPIKE_MODEL,
+        baseUrl: "https://changed-endpoint.invalid/backend-api",
+      }),
+    ).toThrow("active checkpoint identity is incompatible");
 
     expect({
       encryptedCount: checkpoint.replacement.filter((item) => item.type === "compaction").length,

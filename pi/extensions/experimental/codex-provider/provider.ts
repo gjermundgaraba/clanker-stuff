@@ -1635,7 +1635,7 @@ export const createCodexProviderRuntime = (
         request.context,
         options,
         catalog.getModelMetadata(request.model.id),
-        runtimeSessionId,
+        request.sessionId,
         session,
       );
       const envelope = request.authoritativeEnvelope
@@ -2101,20 +2101,6 @@ export const createCodexProviderRuntime = (
     }
   };
 
-  const streamPortableSummary: typeof streamSimple = (model, context, options) => {
-    const sessionId = `portable-summary:${uuidv7()}`;
-    const events = streamSimple(model, context, { ...options, sessionId });
-    void events.result().then(
-      () => {
-        closeSession(sessionId);
-      },
-      () => {
-        closeSession(sessionId);
-      },
-    );
-    return events;
-  };
-
   const provider: Provider<"openai-codex-responses"> = {
     ...base,
     getModels: catalog.getModels,
@@ -2186,7 +2172,6 @@ export const createCodexProviderRuntime = (
       return { ...session.window };
     },
     provider,
-    streamPortableSummary,
     supportsFastMode: catalog.supportsFastMode,
   };
 };

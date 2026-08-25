@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { normalizeRelease } from "../src/release.js";
 
-test("normalizes a basic release", () => {
+void test("normalizes a basic release", () => {
   assert.deepEqual(
     normalizeRelease({
       artifacts: ["app.zip"],
@@ -15,6 +15,6 @@ test("normalizes a basic release", () => {
       channel: "stable",
       regions: ["us", "eu"],
       rolloutPercent: 100,
-    }
+    },
   );
 });

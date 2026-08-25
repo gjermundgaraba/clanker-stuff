@@ -9,11 +9,9 @@ try {
   ({ parseRoute } = await import("/app/src/route.js"));
 } catch {}
 
-const tests = spawnSync(
-  "node",
-  ["--test", "/app/test/route.test.js", "/tests/hidden.test.js"],
-  { encoding: "utf-8" }
-);
+const tests = spawnSync("node", ["--test", "/app/test/route.test.js", "/tests/hidden.test.js"], {
+  encoding: "utf-8",
+});
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
 let trajectory = {};
@@ -22,11 +20,11 @@ try {
 } catch {}
 const steps = Array.isArray(trajectory.steps) ? trajectory.steps : [];
 const policies = {
-  "codex-cli-off": {
+  "codex-native-off": {
     compactionExpected: false,
-    mechanism: "codex-cli",
+    mechanism: "codex-native",
   },
-  "codex-cli-on": { compactionExpected: true, mechanism: "codex-cli" },
+  "codex-native-on": { compactionExpected: true, mechanism: "codex-native" },
   "pi-provider-off": {
     compactionExpected: false,
     mechanism: "codex-provider",
@@ -50,8 +48,7 @@ const attempts = steps
   .filter(({ extra }) => extra?.event_type === "context_compaction");
 const compactions = attempts.filter(({ extra }) => extra.state === "succeeded");
 const boundary = compactions.find(
-  ({ extra }) =>
-    extra.compacted_after_segment >= 5 && extra.compacted_after_segment <= 7
+  ({ extra }) => extra.compacted_after_segment >= 5 && extra.compacted_after_segment <= 7,
 );
 const mechanism =
   oracle ||
@@ -62,13 +59,11 @@ const mechanism =
         ({ extra }) =>
           extra.mechanism === policy?.mechanism &&
           (policy?.mechanism !== "codex-provider" ||
-            extra.protocol === "openai-responses-compaction-v2")
+            extra.protocol === "openai-responses-compaction-v2"),
       ));
-const finalInstructionIndex = steps.findLastIndex(
-  (step) => step.source === "user"
-);
+const finalInstructionIndex = steps.findLastIndex((step) => step.source === "user");
 const continued = steps.some(
-  (step, index) => index > finalInstructionIndex && step.source === "agent"
+  (step, index) => index > finalInstructionIndex && step.source === "agent",
 );
 const valid =
   Boolean(policy) &&
@@ -96,13 +91,12 @@ const rejects = (...inputs) =>
       return error instanceof TypeError;
     }
   });
-const digest = (path) =>
-  createHash("sha256").update(readFileSync(path)).digest("hex");
+const digest = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const facts = {
   api_contract: probe(
     () =>
       JSON.stringify(Object.keys(parseRoute("api/us")).sort()) ===
-      JSON.stringify(["region", "service"])
+      JSON.stringify(["region", "service"]),
   ),
   failed_attempt: probe(() => {
     const result = parseRoute(" API / EU-West-1 ");
@@ -114,11 +108,9 @@ const facts = {
       digest("/app/package.json") ===
         "17474c1b5b156290bd2bb902ea00573f3ba3c71d21c8e779e0be5c112b067c93" &&
       digest("/app/test/route.test.js") ===
-        "4f90cb5c3218aa1f5881b3dec7ac1c09e9954a330ee86172294993ebca208a48"
+        "4f90cb5c3218aa1f5881b3dec7ac1c09e9954a330ee86172294993ebca208a48",
   ),
-  observed_regression: probe(() =>
-    rejects(null, 42, "api", "api/eu/extra", "api//eu")
-  ),
+  observed_regression: probe(() => rejects(null, 42, "api", "api/eu/extra", "api//eu")),
 };
 const quality = Object.values(facts).reduce((sum, value) => sum + value, 0) / 5;
 writeFileSync(
@@ -133,5 +125,5 @@ writeFileSync(
     reward: valid ? quality : 0,
     tests: Number(tests.status === 0),
     valid_experiment: Number(valid),
-  })
+  }),
 );

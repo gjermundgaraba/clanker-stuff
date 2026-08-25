@@ -12,6 +12,8 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+from pi_evals.pi import CONTROLLED_COMPACTION_MARKER
+
 HF_REVISION = "98d7416c24c778c2fee6e6f3006e7a073259d48f"
 HF_BASE_URL = (
     "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/"
@@ -295,7 +297,7 @@ category = "context-management"
 tags = ["long-context", "memory"]
 {metadata}
 [environment]
-docker_image = "clanker-pi-evals:node24"
+docker_image = "clanker-pi-evals:node26"
 workdir = "/app"
 build_timeout_sec = 600.0
 cpus = 2
@@ -339,8 +341,8 @@ writeFileSync("/logs/verifier/hypothesis.txt", hypothesis);
 const gold = JSON.parse(readFileSync("/tests/gold.json", "utf-8"));
 const agentName = trajectory.agent?.name;
 const policies = {
-  "codex-cli-off": { expected: false, mechanism: "codex-cli" },
-  "codex-cli-on": { expected: true, mechanism: "codex-cli" },
+  "codex-native-off": { expected: false, mechanism: "codex-native" },
+  "codex-native-on": { expected: true, mechanism: "codex-native" },
   "pi-provider-off": { expected: false, mechanism: "codex-provider" },
   "pi-provider-on": { expected: true, mechanism: "codex-provider" },
   "pi-vanilla-off": { expected: false, mechanism: "pi-builtin" },
@@ -432,8 +434,15 @@ def _write_task(
             expected_compaction_after_segment,
         ),
     )
-    for name, instruction in steps:
+    compact_before = (
+        expected_compaction_after_segment + 1
+        if expected_compaction_after_segment is not None
+        else None
+    )
+    for index, (name, instruction) in enumerate(steps):
         step = task / f"steps/{name}"
+        if index == compact_before:
+            instruction = f"{CONTROLLED_COMPACTION_MARKER}{instruction}"
         _write(step / "instruction.md", instruction)
         _write(step / "solution/solve.sh", "#!/usr/bin/env bash\ntrue\n")
         _write(
@@ -442,7 +451,10 @@ def _write_task(
         )
 
     query = task / "steps/query"
-    _write(query / "instruction.md", query_instruction(record))
+    instruction = query_instruction(record)
+    if compact_before == len(steps):
+        instruction = f"{CONTROLLED_COMPACTION_MARKER}{instruction}"
+    _write(query / "instruction.md", instruction)
     _write(
         query / "solution/solve.sh",
         "#!/usr/bin/env bash\nset -eu\nmkdir -p /logs/agent\n"

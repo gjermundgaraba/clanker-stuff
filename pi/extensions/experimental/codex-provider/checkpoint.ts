@@ -11,6 +11,8 @@ export { CHECKPOINT_CUSTOM_TYPE } from "./checkpoint-marker.js";
 
 export const CHECKPOINT_PROTOCOL = "openai-responses-compaction-v2";
 export const CHECKPOINT_SCHEMA = "clanker.codex-provider/checkpoint";
+export const nativeCheckpointSummary = (windowId: string) =>
+  `History is stored in OpenAI Codex checkpoint ${windowId}. Continue with a compatible Codex provider.`;
 export const RETAINED_USER_TOKEN_BUDGET = 64_000;
 export const RETAINED_USER_IMAGE_PLACEHOLDER = "image content omitted from compacted history";
 export const REMOTE_USER_IMAGE_PLACEHOLDER =
@@ -312,8 +314,6 @@ const LifecycleDetailsSchema = Type.Object(
   { checkpoint: Type.Unknown(), type: Type.Literal(CHECKPOINT_CUSTOM_TYPE) },
   strict,
 );
-const ReadableSummarySchema = Type.String({ pattern: "\\S" });
-
 const validationError = (message: string): never => {
   throw new Error(message);
 };
@@ -534,9 +534,6 @@ export const decideCheckpointCompatibility = (
   return { compatible: true };
 };
 
-const isReadablePortableLifecycleSummary = (summary: WireValue) =>
-  Value.Check(ReadableSummarySchema, summary);
-
 export const resolveCheckpointCarrier = (entry: SessionEntry) => {
   if (entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE) {
     const parsed = parseCheckpoint(entry.data);
@@ -568,23 +565,6 @@ export const resolveCheckpointCarrier = (entry: SessionEntry) => {
     : ({ carrier: "lifecycle", kind: "invalid-checkpoint" } as const);
 };
 
-export const isPortableLifecycleCompaction = (
-  branch: readonly SessionEntry[],
-  lifecycleBoundaryIndex: number,
-) => {
-  const entry = branch[lifecycleBoundaryIndex];
-  if (
-    entry?.type !== "compaction" ||
-    !isReadablePortableLifecycleSummary(entry.summary) ||
-    resolveCheckpointCarrier(entry).kind !== "checkpoint"
-  ) {
-    return false;
-  }
-  return branch
-    .slice(0, lifecycleBoundaryIndex)
-    .some((candidate) => candidate.id === entry.firstKeptEntryId);
-};
-
 export const canUseInlineLocalFallback = (
   branch: readonly SessionEntry[],
   inlineBoundaryIndex: number,
@@ -597,7 +577,7 @@ export const canUseInlineLocalFallback = (
   }
   const carrier = resolveCheckpointCarrier(branch[nearestCompactionIndex]);
   if (carrier.kind === "checkpoint" && carrier.carrier === "lifecycle") {
-    return isPortableLifecycleCompaction(branch, nearestCompactionIndex);
+    return false;
   }
   return !(carrier.kind === "invalid-checkpoint" && carrier.carrier === "lifecycle");
 };

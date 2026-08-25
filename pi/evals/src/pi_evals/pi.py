@@ -28,6 +28,8 @@ _REMOTE_PI_HOME = PurePosixPath("/tmp/pi-eval")
 _REMOTE_EVENT_LOG = PurePosixPath("/logs/agent/pi-events.jsonl")
 _REMOTE_STDERR_LOG = PurePosixPath("/logs/agent/pi-stderr.log")
 _REMOTE_SESSION_DIR = PurePosixPath("/logs/agent/pi/sessions")
+_REMOTE_COMPACTION_CONFIG = PurePosixPath("/tmp/pi-eval-compaction.json")
+CONTROLLED_COMPACTION_MARKER = "<!-- pi-evals:compact-before -->\n"
 _PI_EVENT_GUARD = (
     "let buffer='',completed=false,failed=false;"
     "const check=line=>{if(!line)return;try{const e=JSON.parse(line);"
@@ -84,6 +86,18 @@ def _text(content: Any, *, thinking: bool = False) -> str:
 
 def _arguments(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"value": value}
+
+
+def controlled_instruction(instruction: str, enabled: bool) -> tuple[str, bool]:
+    marked = instruction.startswith(CONTROLLED_COMPACTION_MARKER)
+    if CONTROLLED_COMPACTION_MARKER in instruction[len(CONTROLLED_COMPACTION_MARKER) :]:
+        raise ValueError("controlled compaction marker must be the first line")
+    if not marked and CONTROLLED_COMPACTION_MARKER in instruction:
+        raise ValueError("controlled compaction marker must be the first line")
+    return (
+        instruction.removeprefix(CONTROLLED_COMPACTION_MARKER),
+        marked and enabled,
+    )
 
 
 def _result_text(result: Any) -> str:
@@ -227,10 +241,10 @@ def convert_pi_events(
             compaction_extra = _compaction_extra(event)
             if compaction_extra["state"] == "succeeded":
                 compactions += 1
-            _, compaction_usage = _usage(result.get("usage"))
+            compaction_metrics, compaction_usage = _usage(result.get("usage"))
             _add_totals(totals, compaction_usage)
             append_step(
-                source="system",
+                source="agent",
                 message=f"Pi context compaction {compaction_extra['state']}",
                 observation=Observation(
                     results=[
@@ -239,6 +253,8 @@ def convert_pi_events(
                         )
                     ]
                 ),
+                metrics=compaction_metrics,
+                llm_call_count=1 if compaction_metrics else None,
                 extra={
                     **compaction_extra,
                     "compacted_after_segment": segment,
@@ -357,6 +373,7 @@ def convert_pi_events(
             total_steps=len(steps),
             extra={
                 "cache_write_tokens": int(totals["cache_write"]),
+                "cost_basis": "api_list_price_estimate",
                 "compaction_attempts": compaction_attempts,
                 "compactions": compactions,
                 "compaction_failures": compaction_attempts - compactions,
@@ -395,6 +412,7 @@ class PiEval(Pi):
         *args: Any,
         auth_json_path: str | Path | None = None,
         agent_label: str = "pi-eval",
+        controlled_compaction: bool = False,
         extensions: list[str] | None = None,
         isolated: bool = True,
         settings: dict[str, Any] | None = None,
@@ -403,6 +421,7 @@ class PiEval(Pi):
         super().__init__(*args, **kwargs)
         self._auth_json_path = Path(auth_json_path).expanduser() if auth_json_path else None
         self._agent_label = agent_label
+        self._controlled_compaction = controlled_compaction
         self._extensions = extensions or []
         self._isolated = isolated
         self._settings = settings or {}
@@ -474,41 +493,10 @@ class PiEval(Pi):
                 command=f"test -e {shlex.quote(extension)}",
             )
 
-    @override
-    @with_prompt_template
-    async def run(
-        self,
-        instruction: str,
-        environment: BaseEnvironment,
-        context: AgentContext,
-    ) -> None:
-        if not self.model_name or "/" not in self.model_name:
-            raise ValueError("Model name must be in the format provider/model_name")
-
-        provider, model = self.model_name.split("/", 1)
-        access = self.model_connection
-        provider = access.provider or provider
-        env = {**access.env, "PI_CODING_AGENT_DIR": _REMOTE_PI_HOME.as_posix()}
-        if provider == "anthropic" and (
-            oauth_token := self._get_env("ANTHROPIC_OAUTH_TOKEN")
-        ):
-            env["ANTHROPIC_OAUTH_TOKEN"] = oauth_token
-
-        if self.skills_dir:
-            await self.exec_as_agent(
-                environment, command=self._build_register_skills_command() or "true"
-            )
-
+    def _session_args(self) -> list[str]:
         args = [
-            "--print",
-            "--mode",
-            "json",
             "--session-dir",
             _REMOTE_SESSION_DIR.as_posix(),
-            "--provider",
-            provider,
-            "--model",
-            model,
             *(["--continue"] if self._resume else []),
         ]
         cli_flags = self.build_cli_flags()
@@ -528,8 +516,88 @@ class PiEval(Pi):
                 args.append("--no-skills")
         for extension in self._extensions:
             args.extend(["--extension", extension])
+        return args
+
+    async def _compact(
+        self,
+        environment: BaseEnvironment,
+        *,
+        env: dict[str, str],
+        model: str,
+        provider: str,
+    ) -> None:
+        await self._upload_config_text(
+            environment,
+            content=json.dumps(
+                {
+                    "args": self._session_args(),
+                    "cwd": "/app",
+                    "model": model,
+                    "provider": provider,
+                }
+            ),
+            remote_path=_REMOTE_COMPACTION_CONFIG.as_posix(),
+            filename="compaction.json",
+        )
+        await self.exec_as_agent(
+            environment,
+            command=(
+                "set -o pipefail; "
+                f"pi-eval-compact {_REMOTE_COMPACTION_CONFIG.as_posix()} "
+                f"2>> {_REMOTE_STDERR_LOG.as_posix()} | "
+                f"stdbuf -oL tee -a {_REMOTE_EVENT_LOG.as_posix()}"
+            ),
+            env=env,
+        )
+
+    @override
+    @with_prompt_template
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        instruction, compact_before = controlled_instruction(
+            instruction, self._controlled_compaction
+        )
+        if not self.model_name or "/" not in self.model_name:
+            raise ValueError("Model name must be in the format provider/model_name")
+
+        provider, model = self.model_name.split("/", 1)
+        access = self.model_connection
+        provider = access.provider or provider
+        env = {**access.env, "PI_CODING_AGENT_DIR": _REMOTE_PI_HOME.as_posix()}
+        if provider == "anthropic" and (
+            oauth_token := self._get_env("ANTHROPIC_OAUTH_TOKEN")
+        ):
+            env["ANTHROPIC_OAUTH_TOKEN"] = oauth_token
+
+        if self.skills_dir:
+            await self.exec_as_agent(
+                environment, command=self._build_register_skills_command() or "true"
+            )
+
+        session_args = self._session_args()
+        args = [
+            "--print",
+            "--mode",
+            "json",
+            "--provider",
+            provider,
+            "--model",
+            model,
+            *session_args,
+        ]
 
         index = len(self._instructions)
+        if compact_before:
+            await self._compact(
+                environment,
+                env=env,
+                model=model,
+                provider=provider,
+            )
         self._instructions.append(instruction)
         marker = json.dumps(
             {

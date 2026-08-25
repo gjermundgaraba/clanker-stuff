@@ -2,15 +2,9 @@ const REGION_ORDER = ["us", "eu", "apac"];
 
 export function normalizeRelease(config) {
   const channel = config.channel.trim().toLowerCase();
-  if (!["stable", "beta", "canary"].includes(channel))
-    throw new TypeError("invalid channel");
-  const rolloutPercent =
-    config.rolloutPercent === undefined ? 100 : Number(config.rolloutPercent);
-  if (
-    !Number.isInteger(rolloutPercent) ||
-    rolloutPercent < 0 ||
-    rolloutPercent > 100
-  ) {
+  if (!["stable", "beta", "canary"].includes(channel)) throw new TypeError("invalid channel");
+  const rolloutPercent = config.rolloutPercent === undefined ? 100 : Number(config.rolloutPercent);
+  if (!Number.isInteger(rolloutPercent) || rolloutPercent < 0 || rolloutPercent > 100) {
     throw new TypeError("invalid rolloutPercent");
   }
   const seen = new Set();

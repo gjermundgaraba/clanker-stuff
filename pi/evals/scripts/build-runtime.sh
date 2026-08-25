@@ -4,12 +4,14 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../../.." && pwd)"
 docker build \
   --file "$repo_root/pi/evals/runtime/Dockerfile" \
-  --tag clanker-pi-evals:node24 \
+  --tag clanker-pi-evals:node26 \
   "$repo_root"
-docker run --rm clanker-pi-evals:node24 sh -c \
-  'test "$(node --version | cut -d. -f1)" = v24 \
+docker run --rm clanker-pi-evals:node26 sh -c \
+  'test "$(node --version | cut -d. -f1)" = v26 \
     && test ! -e /repo \
     && test ! -e /opt/codex-provider/evals \
+    && codex-eval --self-test \
+    && pi-eval-compact --self-test \
     && test -x /usr/local/bin/mem2act \
     && test "$(command -v pi)" = /opt/codex-provider/node_modules/.bin/pi \
     && test ! -e /usr/local/lib/node_modules/@earendil-works/pi-coding-agent \

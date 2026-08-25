@@ -22,16 +22,6 @@ SSE is the default transport. Three rounds use a small estimator window and synt
 
 The parent then exits its session. A new Node process opens the JSONL session, sends two normal turns with a large window, and proves the newest opaque window replays without creating another checkpoint.
 
-## Portable lifecycle run
-
-```bash
-vp run @clanker-stuff/codex-provider#test:live:portable
-```
-
-This SSE-only mode performs a real lifecycle `/compact` with custom instructions. It requires one readable Pi summary beside one native schema-v1 checkpoint, verifies that the custom marker enters only the summary, and confirms the compatible request contains the opaque replacement instead of the readable summary. The model must recall a generated value that the custom instructions deliberately omitted from the portable summary, proving that omission did not alter native checkpoint recall.
-
-Retries can increase usage and cost. The retained JSONL artifact stores the readable summary and original conversation in plaintext; summary omission is not deletion.
-
 ## Real-window SSE run
 
 ```bash
@@ -188,10 +178,10 @@ Use one transport flag with any compatible behavior mode:
 
 ```text
 --sse | --websocket | --fallback
---branch | --capabilities | --portable | --real-window | --mid-turn | --soak | --stream-fault | --threshold
+--branch | --capabilities | --real-window | --mid-turn | --soak | --stream-fault | --threshold
 ```
 
-`--sse` is implicit when no transport flag is present. Choose at most one behavior mode. `--portable` and `--stream-fault` require SSE. Real-window and mid-turn evidence requires SSE request inspection, so `--real-window --websocket` and `--mid-turn --websocket` are rejected; forced fallback remains compatible because its compaction requests continue over SSE. `--mid-turn` implies `--real-window`. Internal `--branch-child` and `--restart-child` flags are reserved for the runner.
+`--sse` is implicit when no transport flag is present. Choose at most one behavior mode. `--stream-fault` requires SSE. Real-window and mid-turn evidence requires SSE request inspection, so `--real-window --websocket` and `--mid-turn --websocket` are rejected; forced transport fallback remains compatible because its compaction requests continue over SSE. `--mid-turn` implies `--real-window`. Internal `--branch-child` and `--restart-child` flags are reserved for the runner.
 
 ## Configuration and artifacts
 

@@ -6,14 +6,26 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
-from harbor.agents.installed.codex import Codex
-from harbor.models.agent.context import AgentContext
 from pi_evals.auth import require_auth_file
-from pi_evals.codex import CodexEval, _redirect_prompt, load_codex_compactions
-from pi_evals.pi import _PI_EVENT_GUARD, PiEval, convert_pi_events, load_pi_events
+from pi_evals.codex import CodexEval, load_codex_compactions, load_codex_usage
+from pi_evals.pi import (
+    _PI_EVENT_GUARD,
+    CONTROLLED_COMPACTION_MARKER,
+    PiEval,
+    controlled_instruction,
+    convert_pi_events,
+    load_pi_events,
+)
 
 
 class PiTrajectoryTest(TestCase):
+    def test_controlled_compaction_marker_is_hidden_from_the_agent(self) -> None:
+        instruction = f"{CONTROLLED_COMPACTION_MARKER}Continue"
+        self.assertEqual(controlled_instruction(instruction, False), ("Continue", False))
+        self.assertEqual(controlled_instruction(instruction, True), ("Continue", True))
+        with self.assertRaisesRegex(ValueError, "must be the first line"):
+            controlled_instruction(f"Continue\n{CONTROLLED_COMPACTION_MARKER}", True)
+
     def test_pi_event_guard_rejects_provider_errors(self) -> None:
         def run(event: dict[str, object]) -> int:
             return subprocess.run(
@@ -99,13 +111,6 @@ class PiTrajectoryTest(TestCase):
             with self.assertRaisesRegex(ValueError, "no usable credential"):
                 require_auth_file(path, (("tokens", "access_token"),))
 
-    def test_redirects_codex_prompt_through_stdin(self) -> None:
-        command = "codex exec -- - 2>&1 </dev/null | tee /logs/agent/codex.txt"
-        self.assertEqual(
-            _redirect_prompt(command, "/tmp/instruction.md"),
-            "codex exec -- - 2>&1 < /tmp/instruction.md | tee /logs/agent/codex.txt",
-        )
-
     def test_converts_messages_tools_compaction_and_usage(self) -> None:
         events = [
             {"index": 0, "timestamp": 1_000, "type": "harbor_instruction"},
@@ -142,7 +147,18 @@ class PiTrajectoryTest(TestCase):
                 "toolName": "read",
                 "type": "tool_execution_end",
             },
-            {"aborted": False, "result": {"tokensBefore": 5000}, "type": "compaction_end"},
+            {
+                "aborted": False,
+                "result": {
+                    "tokensBefore": 5000,
+                    "usage": {
+                        "cost": {"total": 0.1},
+                        "input": 2,
+                        "output": 1,
+                    },
+                },
+                "type": "compaction_end",
+            },
             {"index": 1, "timestamp": 3_000, "type": "harbor_instruction"},
             {
                 "type": "message_end",
@@ -165,7 +181,7 @@ class PiTrajectoryTest(TestCase):
         self.assertEqual(trajectory.session_id, "session-1")
         self.assertEqual(
             [step.source for step in trajectory.steps],
-            ["user", "agent", "system", "user", "agent"],
+            ["user", "agent", "agent", "user", "agent"],
         )
         tool_step = trajectory.steps[1]
         self.assertEqual(tool_step.tool_calls[0].function_name, "read")
@@ -174,8 +190,10 @@ class PiTrajectoryTest(TestCase):
             trajectory.steps[2].extra["event_type"], "context_compaction"
         )
         self.assertEqual(trajectory.steps[2].extra["state"], "succeeded")
-        self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 19)
-        self.assertEqual(trajectory.final_metrics.total_completion_tokens, 3)
+        self.assertEqual(trajectory.steps[2].metrics.prompt_tokens, 2)
+        self.assertEqual(trajectory.steps[2].metrics.cost_usd, 0.1)
+        self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 21)
+        self.assertEqual(trajectory.final_metrics.total_completion_tokens, 4)
         self.assertEqual(trajectory.final_metrics.extra["compactions"], 1)
         self.assertEqual(trajectory.final_metrics.extra["tool_calls"], 1)
 
@@ -226,64 +244,150 @@ class PiTrajectoryTest(TestCase):
                     {
                         "compacted_after_segment": 1,
                         "event_type": "context_compaction",
-                        "mechanism": "codex-cli",
+                        "mechanism": "codex-native",
                         "state": "succeeded",
                         "timestamp": "2026-01-01T00:00:01Z",
                     }
                 ],
             )
 
-    def test_codex_resumed_usage_is_reported_per_step(self) -> None:
+    def test_codex_uses_exact_ordinary_and_compaction_usage(self) -> None:
         with TemporaryDirectory() as directory:
             logs_dir = Path(directory)
-            (logs_dir / "sessions/2026/01/01").mkdir(parents=True)
+            session_dir = logs_dir / "sessions/2026/01/01"
+            session_dir.mkdir(parents=True)
+            (session_dir / "rollout-2026-01-01T00-00-00-session.jsonl").write_text(
+                "\n".join(
+                    json.dumps(event)
+                    for event in [
+                        {
+                            "timestamp": "2026-01-01T00:00:00Z",
+                            "type": "session_meta",
+                            "payload": {"cli_version": "0.147.0", "id": "session-1"},
+                        },
+                        {
+                            "timestamp": "2026-01-01T00:00:01Z",
+                            "type": "event_msg",
+                            "payload": {"type": "user_message"},
+                        },
+                        {
+                            "timestamp": "2026-01-01T00:00:01Z",
+                            "type": "event_msg",
+                            "payload": {"turn_id": "turn-1", "type": "task_started"},
+                        },
+                        {
+                            "timestamp": "2026-01-01T00:00:02Z",
+                            "type": "response_item",
+                            "payload": {
+                                "content": [{"text": "done", "type": "output_text"}],
+                                "role": "assistant",
+                                "type": "message",
+                            },
+                        },
+                        {
+                            "timestamp": "2026-01-01T00:00:03Z",
+                            "type": "event_msg",
+                            "payload": {
+                                "info": {
+                                    "last_token_usage": {
+                                        "cached_input_tokens": 1,
+                                        "input_tokens": 2,
+                                        "output_tokens": 3,
+                                        "total_tokens": 5,
+                                    },
+                                    "total_token_usage": {
+                                        "cached_input_tokens": 1,
+                                        "input_tokens": 2,
+                                        "output_tokens": 3,
+                                        "total_tokens": 5,
+                                    },
+                                },
+                                "type": "token_count",
+                            },
+                        },
+                        {
+                            "timestamp": "2026-01-01T00:00:04Z",
+                            "type": "compacted",
+                            "payload": {},
+                        },
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            usage = {
+                "cacheWriteInputTokens": 0,
+                "cachedInputTokens": 20,
+                "inputTokens": 100,
+                "outputTokens": 10,
+                "reasoningOutputTokens": 5,
+                "totalTokens": 110,
+            }
+            records = [
+                {
+                    "kind": "ordinary",
+                    "responseId": "ordinary-response",
+                    "threadId": "session-1",
+                    "turnId": "turn-1",
+                    "usage": usage,
+                },
+                {
+                    "kind": "compaction",
+                    "responseId": "compact-response",
+                    "threadId": "session-1",
+                    "turnId": "turn-1",
+                    "usage": {**usage, "inputTokens": 200, "totalTokens": 210},
+                },
+            ]
+            (logs_dir / "codex-usage.jsonl").write_text(
+                "\n".join(json.dumps(record) for record in records) + "\n",
+                encoding="utf-8",
+            )
             adapter = CodexEval(
                 logs_dir=logs_dir,
-                model_name="openai/gpt-5",
+                model_name="openai/gpt-5.6-terra",
                 version="0.147.0",
             )
-            snapshots = iter(
-                [
-                    ("session-1", (100, 60, 20, 1.25)),
-                    ("session-1", (160, 90, 35, 2.0)),
-                    ("session-2", (40, 10, 8, 0.5)),
-                ]
-            )
+            with patch.object(adapter, "_compute_cost_from_pricing", return_value=1.0):
+                trajectory = adapter._convert_events_to_trajectory(session_dir)
 
-            def populate(context: AgentContext) -> None:
-                session_id, usage = next(snapshots)
-                (
-                    context.n_input_tokens,
-                    context.n_cache_tokens,
-                    context.n_output_tokens,
-                    context.cost_usd,
-                ) = usage
-                (logs_dir / "trajectory.json").write_text(
-                    json.dumps({"session_id": session_id, "steps": []}),
-                    encoding="utf-8",
-                )
-
-            contexts = [AgentContext() for _ in range(3)]
-            with patch.object(Codex, "populate_context_post_run", side_effect=populate):
-                for context in contexts:
-                    adapter.populate_context_post_run(context)
-
+            self.assertIsNotNone(trajectory)
+            metered = [step for step in trajectory.steps if step.metrics]
             self.assertEqual(
                 [
-                    (
-                        context.n_input_tokens,
-                        context.n_cache_tokens,
-                        context.n_output_tokens,
-                        context.cost_usd,
-                    )
-                    for context in contexts
+                    (step.metrics.prompt_tokens, (step.extra or {}).get("event_type"))
+                    for step in metered
                 ],
-                [
-                    (100, 60, 20, 1.25),
-                    (60, 30, 15, 0.75),
-                    (40, 10, 8, 0.5),
-                ],
+                [(100, None), (200, "context_compaction")],
             )
+            self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 300)
+            self.assertEqual(trajectory.final_metrics.total_cost_usd, 2.0)
+
+    def test_codex_exact_usage_log_is_strict(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "usage.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "kind": "ordinary",
+                        "responseId": "response-1",
+                        "usage": {
+                            "cacheWriteInputTokens": 0,
+                            "cachedInputTokens": 1,
+                            "inputTokens": 2,
+                            "outputTokens": 3,
+                            "reasoningOutputTokens": 1,
+                            "totalTokens": 5,
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(len(load_codex_usage(path)), 1)
+            path.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid usage kind"):
+                load_codex_usage(path)
 
     def test_load_is_strict_and_preserves_unicode_line_separators(self) -> None:
         with TemporaryDirectory() as directory:

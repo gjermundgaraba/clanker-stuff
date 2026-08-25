@@ -16,7 +16,6 @@ describe("live multi-compaction options", () => {
     [[], "standard", 3],
     [["--branch"], "branch", 2],
     [["--capabilities"], "capabilities", 3],
-    [["--portable"], "portable", 3],
     [["--real-window"], "real-window", 2],
     [["--mid-turn"], "mid-turn", 2],
     [["--soak"], "soak", 10],
@@ -53,7 +52,6 @@ describe("live multi-compaction options", () => {
   });
 
   it.each([
-    [["--portable", "--fallback"], "Portable canary requires SSE"],
     [["--real-window", "--websocket"], "Real-window and mid-turn canaries require SSE"],
     [["--mid-turn", "--websocket"], "Real-window and mid-turn canaries require SSE"],
     [["--stream-fault", "--fallback"], "Stream-fault canary requires SSE"],
@@ -77,7 +75,6 @@ describe("live multi-compaction options", () => {
 
   it.each([
     ["capabilities", ["--capabilities"]],
-    ["portable", ["--portable"]],
     ["threshold", ["--threshold"]],
   ] as const)("allows one round for %s", (kind, args) => {
     expect(parse(args, { CODEX_COMPACTION_LIVE_ROUNDS: "1" })).toMatchObject({

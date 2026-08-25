@@ -1,5 +1,5 @@
 export function parseRoute(input) {
-  if (typeof input !== "string") {
+  if (input !== String(input)) {
     throw new TypeError("route must be a string");
   }
   const parts = input.split("/");

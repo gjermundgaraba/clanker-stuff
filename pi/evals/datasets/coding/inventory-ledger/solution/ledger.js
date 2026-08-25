@@ -1,5 +1,4 @@
-const lineError = (ErrorType, line, message) =>
-  new ErrorType(`line ${line}: ${message}`);
+const lineError = (ErrorType, line, message) => new ErrorType(`line ${line}: ${message}`);
 
 export function parseEvents(input) {
   const events = [];
@@ -12,11 +11,10 @@ export function parseEvents(input) {
     } catch (error) {
       throw lineError(SyntaxError, line, error.message);
     }
-    if (event === null || typeof event !== "object" || Array.isArray(event)) {
+    if (event === null || event !== Object(event) || Array.isArray(event)) {
       throw lineError(TypeError, line, "event must be an object");
     }
-    const sku =
-      typeof event.sku === "string" ? event.sku.trim().toUpperCase() : "";
+    const sku = event.sku === String(event.sku) ? event.sku.trim().toUpperCase() : "";
     const validType = ["receive", "ship", "adjust"].includes(event.type);
     const validQuantity =
       Number.isInteger(event.quantity) &&
@@ -36,10 +34,8 @@ export function applyEvents(events) {
     const next =
       event.type === "adjust"
         ? event.quantity
-        : current +
-          (event.type === "receive" ? event.quantity : -event.quantity);
-    if (next < 0)
-      throw new RangeError(`${event.sku} below zero at line ${event.line}`);
+        : current + (event.type === "receive" ? event.quantity : -event.quantity);
+    if (next < 0) throw new RangeError(`${event.sku} below zero at line ${event.line}`);
     stock.set(event.sku, next);
   }
   return stock;

@@ -86,6 +86,11 @@ NEWLINE: /\r?\n/
 SOURCE: /[\s\S]+/
 `;
 
+export const EXEC_CONSTRAINED_SAMPLING = {
+  type: "grammar",
+  variants: { openai_lark: EXEC_GRAMMAR },
+} as const;
+
 export interface CodeModeToolDescriptor {
   readonly definition: ToolDefinition;
   readonly namespace?: string;
@@ -120,10 +125,7 @@ export class CodeModeRuntime {
       new Map(this.nestedTools().map((tool) => [tool.definition.name, tool] as const));
     return [
       defineTool({
-        constrainedSampling: {
-          type: "grammar",
-          variants: { openai_lark: EXEC_GRAMMAR },
-        },
+        constrainedSampling: EXEC_CONSTRAINED_SAMPLING,
         description: EXEC_DESCRIPTION,
         execute: async (id, params, signal, onUpdate, ctx) => {
           const client = await this.getClient(signal);

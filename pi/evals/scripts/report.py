@@ -11,7 +11,17 @@ from statistics import fmean
 from typing import Any
 
 ARM = re.compile(r"^(.+)-(off|on)$")
-METRICS = ("quality", "input", "cache", "output", "cost", "latency", "compactions")
+METRICS = (
+    "quality",
+    "input",
+    "cache",
+    "output",
+    "ordinary_cost",
+    "compaction_cost",
+    "total_cost",
+    "latency",
+    "compactions",
+)
 CONDITION_TIERS = {
     "evidence": {None},
     "full": {"64k", "115k"},
@@ -19,12 +29,55 @@ CONDITION_TIERS = {
 }
 
 
-def _agent_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+def _trajectory(trial_dir: Path, result: dict[str, Any]) -> dict[str, Any]:
     steps = result.get("step_results") or []
-    usage = [step.get("agent_result") or {} for step in steps]
-    if not usage and isinstance(result.get("agent_result"), dict):
-        usage.append(result["agent_result"])
-    return usage
+    path = (
+        trial_dir / "steps" / steps[-1]["step_name"] / "agent" / "trajectory.json"
+        if steps
+        else trial_dir / "agent" / "trajectory.json"
+    )
+    if not path.exists():
+        raise ValueError(f"missing final trajectory: {path}")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid final trajectory: {path}")
+    return value
+
+
+def _usage(trajectory: dict[str, Any]) -> dict[str, int | float]:
+    totals: dict[str, int | float] = {
+        "cache": 0,
+        "compaction_calls": 0,
+        "compaction_cost": 0.0,
+        "input": 0,
+        "ordinary_calls": 0,
+        "ordinary_cost": 0.0,
+        "output": 0,
+    }
+    for step in trajectory.get("steps") or []:
+        metrics = step.get("metrics") if isinstance(step, dict) else None
+        if not isinstance(metrics, dict):
+            continue
+        compact = (step.get("extra") or {}).get("event_type") == "context_compaction"
+        kind = "compaction" if compact else "ordinary"
+        totals[f"{kind}_calls"] += int(step.get("llm_call_count") or 1)
+        totals[f"{kind}_cost"] += float(metrics.get("cost_usd") or 0)
+        totals["input"] += int(metrics.get("prompt_tokens") or 0)
+        totals["cache"] += int(metrics.get("cached_tokens") or 0)
+        totals["output"] += int(metrics.get("completion_tokens") or 0)
+    totals["total_cost"] = totals["ordinary_cost"] + totals["compaction_cost"]
+
+    final = trajectory.get("final_metrics") or {}
+    expected = {
+        "cache": final.get("total_cached_tokens"),
+        "input": final.get("total_prompt_tokens"),
+        "output": final.get("total_completion_tokens"),
+        "total_cost": final.get("total_cost_usd"),
+    }
+    for key, value in expected.items():
+        if value is not None and abs(float(totals[key]) - float(value)) > 1e-9:
+            raise ValueError(f"trajectory {key} total does not match its request metrics")
+    return totals
 
 
 def _quality(rewards: dict[str, Any]) -> float:
@@ -78,7 +131,7 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
             (result_path.parent / "config.json").read_text(encoding="utf-8")
         )
         rewards = (result.get("verifier_result") or {}).get("rewards") or {}
-        usage = _agent_result(result)
+        usage = _usage(_trajectory(result_path.parent, result))
         started = datetime.fromisoformat(result["started_at"].replace("Z", "+00:00"))
         finished = datetime.fromisoformat(result["finished_at"].replace("Z", "+00:00"))
         label = config["agent"].get("kwargs", {}).get(
@@ -91,20 +144,24 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
         output.append(
             {
                 "agent": label,
-                "cache": sum(item.get("n_cache_tokens") or 0 for item in usage),
+                "cache": usage["cache"],
+                "compaction_calls": usage["compaction_calls"],
+                "compaction_cost": usage["compaction_cost"],
                 "compactions": rewards.get("compaction_count", 0),
                 "condition": condition,
-                "cost": sum(item.get("cost_usd") or 0 for item in usage),
-                "input": sum(item.get("n_input_tokens") or 0 for item in usage),
+                "input": usage["input"],
                 "latency": (finished - started).total_seconds(),
                 "mode": arm.group(2) if arm else None,
-                "output": sum(item.get("n_output_tokens") or 0 for item in usage),
+                "ordinary_calls": usage["ordinary_calls"],
+                "ordinary_cost": usage["ordinary_cost"],
+                "output": usage["output"],
                 "platform": arm.group(1) if arm else label,
                 "quality": quality,
                 "quality_source": quality_source,
                 "question_type": question_type,
                 "task": str(result["task_name"]).removeprefix("pi-evals/"),
                 "tier": tier,
+                "total_cost": usage["total_cost"],
                 "valid": rewards.get("valid_experiment", 1),
             }
         )
@@ -226,13 +283,15 @@ def main() -> None:
         raise SystemExit("usage: report.py JOB_DIR")
     values = rows(Path(sys.argv[1]))
     print(
-        "| Agent | Task | Valid | Quality | Source | Compactions | Input | Cache | Output | Cost | Seconds |"
+        "| Agent | Task | Valid | Quality | Source | Calls ordinary/compact | Compactions | Input | Cache | Output | Ordinary API$ | Compact API$ | Total API$ | Seconds |"
     )
-    print("| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print("| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     for row in values:
         print(
-            "| {agent} | {task} | {valid} | {quality:.2f} | {quality_source} | {compactions} | "
-            "{input} | {cache} | {output} | ${cost:.4f} | {latency:.1f} |".format(
+            "| {agent} | {task} | {valid} | {quality:.2f} | {quality_source} | "
+            "{ordinary_calls}/{compaction_calls} | {compactions} | {input} | {cache} | "
+            "{output} | ${ordinary_cost:.4f} | ${compaction_cost:.4f} | "
+            "${total_cost:.4f} | {latency:.1f} |".format(
                 **row
             )
         )
@@ -243,16 +302,17 @@ def main() -> None:
             "\nMatched-arm mean deltas (on minus off; not per-attempt paired estimates):\n"
         )
         print(
-            "| Platform | Task | N off/on | Valid off/on | Quality | Compactions | Input | Cache | Output | Cost | Seconds |"
+            "| Platform | Task | N off/on | Valid off/on | Quality | Compactions | Input | Cache | Output | Ordinary API$ | Compact API$ | Total API$ | Seconds |"
         )
         print(
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
         )
         for row in deltas:
             print(
                 "| {platform} | {task} | {off_n}/{on_n} | {off_valid:.0%}/{on_valid:.0%} | "
                 "{quality:+.3f} | {compactions:+.2f} | {input:+.0f} | {cache:+.0f} | "
-                "{output:+.0f} | ${cost:+.4f} | {latency:+.1f} |".format(**row)
+                "{output:+.0f} | ${ordinary_cost:+.4f} | ${compaction_cost:+.4f} | "
+                "${total_cost:+.4f} | {latency:+.1f} |".format(**row)
             )
 
     summaries = longmemeval_type_summaries(values)

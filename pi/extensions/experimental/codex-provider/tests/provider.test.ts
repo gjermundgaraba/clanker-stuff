@@ -646,9 +646,11 @@ describe("Codex provider", () => {
       .result();
 
     expect({
+      promptCacheKeys: requests.map((request) => request.prompt_cache_key),
       serviceTiers: requests.map((request) => request.service_tier),
       supportsFastMode: runtime.supportsFastMode(FAST_MODEL),
     }).toStrictEqual({
+      promptCacheKeys: ["session-fast", "session-fast"],
       serviceTiers: ["priority", "priority"],
       supportsFastMode: true,
     });
@@ -1774,61 +1776,6 @@ describe("Codex provider", () => {
       closes: 0,
       contents: [["first"], ["second"]],
       fallbackPending: true,
-    });
-  });
-
-  it("isolates portable summaries from a supplied live session", async () => {
-    const windowIds: string[] = [];
-    let closes = 0;
-    const SummaryWebSocket = function SummaryWebSocket(
-      _url: string,
-      protocols?: string | string[] | { headers?: Record<string, string> },
-    ) {
-      const socket = mockSocket();
-      socket.readyState = 1;
-      if (Value.Check(HeadersInitSchema, protocols)) {
-        windowIds.push(protocols.headers?.["x-codex-window-id"] ?? "");
-      }
-      socket.close = () => {
-        closes += 1;
-      };
-      socket.send = () => {
-        for (const event of responseEvents("resp_summary", "summary")) {
-          queueMicrotask(() =>
-            socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(event) })),
-          );
-        }
-      };
-      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
-      return socket;
-    };
-    vi.stubGlobal("WebSocket", SummaryWebSocket);
-    const runtime = createCodexProviderRuntime();
-    await runtime.provider
-      .streamSimple(SPIKE_MODEL, context([]), {
-        apiKey: SPIKE_API_KEY,
-        sessionId: "portable-summary",
-      })
-      .result();
-
-    for (let round = 0; round < 10; round += 1) {
-      await runtime
-        .streamPortableSummary(SPIKE_MODEL, context([]), {
-          apiKey: SPIKE_API_KEY,
-          sessionId: "portable-summary",
-        })
-        .result();
-    }
-    await runtime.provider
-      .streamSimple(SPIKE_MODEL, context([]), {
-        apiKey: SPIKE_API_KEY,
-        sessionId: "portable-summary",
-      })
-      .result();
-
-    expect({ closes, uniqueWindows: new Set(windowIds).size }).toStrictEqual({
-      closes: 10,
-      uniqueWindows: 11,
     });
   });
 

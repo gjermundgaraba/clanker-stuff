@@ -4,6 +4,7 @@ import {
   CHECKPOINT_CUSTOM_TYPE,
   CHECKPOINT_PROTOCOL,
   CHECKPOINT_SCHEMA,
+  nativeCheckpointSummary,
   sha256Canonical,
 } from "../checkpoint.js";
 import type { CodexObservation } from "../observability.js";
@@ -112,7 +113,7 @@ describe("Codex provider status", () => {
       {
         details: { checkpoint: first, type: CHECKPOINT_CUSTOM_TYPE },
         firstKeptEntryId: "1",
-        summary: "portable",
+        summary: nativeCheckpointSummary(first.runtime.currentWindowId),
         tokensBefore: 1000,
         type: "compaction",
       },
@@ -312,7 +313,7 @@ describe("Codex provider status", () => {
         type: CHECKPOINT_CUSTOM_TYPE,
       },
       firstKeptEntryId: "root",
-      summary: "portable",
+      summary: nativeCheckpointSummary("window-response-1"),
       tokensBefore: 1000,
       type: "compaction",
     });

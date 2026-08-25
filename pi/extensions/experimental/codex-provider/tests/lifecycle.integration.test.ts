@@ -7,17 +7,29 @@ import { zstdDecompressSync } from "node:zlib";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type { AssistantMessage, FetchFunction, Model } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { ExtensionFactory, SessionCompactEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { CHECKPOINT_CUSTOM_TYPE, resolveActiveCheckpointBoundary } from "../checkpoint.js";
+import {
+  CHECKPOINT_CUSTOM_TYPE,
+  nativeCheckpointSummary,
+  resolveActiveCheckpointBoundary,
+  resolveCheckpointCarrier,
+} from "../checkpoint.js";
 import codexCompactionExtension from "../index.js";
 import { CodexObservability } from "../observability.js";
 import { FRAME_MARKER_PREFIX } from "../replay.js";
 import { createRealCodexSession } from "./agent-session.js";
-import { mockUiContext, SPIKE_MODEL, wireArray, wireRecord, WireRecordSchema } from "./fixtures.js";
+import {
+  createToolsModel,
+  mockUiContext,
+  SPIKE_MODEL,
+  wireArray,
+  wireRecord,
+  WireRecordSchema,
+} from "./fixtures.js";
 import type { WireRecord, WireValue } from "./fixtures.js";
 
 const event = (value: WireValue) => `data: ${JSON.stringify(value)}\n\n`;
@@ -971,9 +983,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("diagnostic");
       }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-diagnostic")
-        : assistantResponse(`diagnostic-source-${(ordinaryResponses += 1)}`);
+      return assistantResponse(`diagnostic-source-${(ordinaryResponses += 1)}`);
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.create(paths.cwd, paths.sessionDir);
@@ -1011,7 +1021,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         notification: notifications.at(-1),
         observationKinds: frameObservations.map((observation) => observation.kind),
       }).toStrictEqual({
-        fetches: 3,
+        fetches: 2,
         notification:
           "OpenAI checkpoint replay was blocked because request context could not be framed safely. A diagnostic was saved to the Codex provider database.",
         observationKinds: ["context-frame-failure"],
@@ -1102,9 +1112,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("retry-checkpoint");
       }
-      if (JSON.stringify(request).includes("<conversation>")) {
-        return assistantResponse("portable-retry-checkpoint");
-      }
       ordinaryRequests += 1;
       if (ordinaryRequests === 2) {
         throw new TypeError("fetch failed");
@@ -1150,7 +1157,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           ?.stopReason,
       }).toStrictEqual({
         failedAssistants: 1,
-        fetches: 6,
+        fetches: 5,
         finalStopReason: "stop",
       });
     } finally {
@@ -1485,7 +1492,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it("persists both artifacts and uses the readable one after reload on an incompatible model", async () => {
+  it("persists native state across reload and blocks incompatible replay", async () => {
     const paths = await workspace("codex-lifecycle-manual-");
     const requests: WireRecord[] = [];
     const requestHeaders: Headers[] = [];
@@ -1497,9 +1504,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("manual");
       }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-manual", 7)
-        : assistantResponse(`manual-${requests.length}`);
+      return assistantResponse(`manual-${requests.length}`);
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.create(paths.cwd, paths.sessionDir);
@@ -1515,6 +1520,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     });
     let resumed: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
     let incompatible: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
+    const notifications: string[] = [];
 
     try {
       await session.prompt("manual lifecycle source");
@@ -1556,10 +1562,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         model: NON_CODEX_MODEL,
         rootDir: paths.rootDir,
         sessionManager: incompatibleManager,
+        uiContext: mockUiContext({
+          notify: (message: string) => notifications.push(message),
+          setStatus: () => null,
+        }),
       });
-      await incompatible.prompt("continue portably");
-      const incompatibleInput = requests.at(-1)?.input;
-      const incompatibleJson = JSON.stringify(incompatibleInput);
+      await incompatible.prompt("must fail closed");
       const nativeRequestIndex = requests.findIndex((request) =>
         inputItemTypes(request.input).includes("compaction_trigger"),
       );
@@ -1567,19 +1575,24 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       expect({
         branchCheckpoint:
           branched.kind === "checkpoint" ? branched.checkpoint.response.id : undefined,
-        combinedUsage: installedEntry.usage,
         compactionFeature: requestHeaders[nativeRequestIndex]?.get("x-codex-beta-features"),
         fetches: fetch.mock.calls.length,
-        incompatibleOpaque: inputItemTypes(incompatibleInput).includes("compaction"),
-        incompatibleSummary: incompatibleJson.includes("assistant-portable-manual"),
-        nativeUsage: installed.checkpoint.response.usage,
+        incompatibleNotification: notifications.at(-1),
+        marker: installedEntry.summary,
+        nativeUsage: installedEntry.usage,
+        persistedUsage: installed.checkpoint.response.usage,
         reason: installed.checkpoint.reason,
         reloadCheckpoint:
           reloaded.kind === "checkpoint" ? reloaded.checkpoint.response.id : undefined,
         sameFile: resumedManager.getSessionFile() === sessionFile,
       }).toStrictEqual({
         branchCheckpoint: "resp_manual",
-        combinedUsage: {
+        compactionFeature: "remote_compaction_v2",
+        fetches: 2,
+        incompatibleNotification:
+          "OpenAI checkpoint replay was blocked because active native context is unsafe.",
+        marker: nativeCheckpointSummary(installed.checkpoint.runtime.currentWindowId),
+        nativeUsage: {
           cacheRead: 0,
           cacheWrite: 0,
           cost: {
@@ -1589,16 +1602,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
             output: 0,
             total: 0,
           },
-          input: 27,
-          output: 5,
-          reasoning: 0,
-          totalTokens: 32,
+          input: 20,
+          output: 3,
+          totalTokens: 23,
         },
-        compactionFeature: "remote_compaction_v2",
-        fetches: 4,
-        incompatibleOpaque: false,
-        incompatibleSummary: true,
-        nativeUsage: {
+        persistedUsage: {
           cacheRead: 0,
           cacheWrite: 0,
           input: 20,
@@ -1617,12 +1625,82 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it("isolates custom instructions to Pi's split summary and replays only opaque state", async () => {
+  it("preserves the cached request prefix when compacting after resume", async () => {
+    const paths = await workspace("codex-lifecycle-resume-cache-");
+    const model = createToolsModel("gpt-5.6-terra", true);
+    const requests: WireRecord[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<FetchFunction>(async (_input, init) => {
+        const request = requestJson(init?.body, new Headers(init?.headers));
+        requests.push(request);
+        return inputItemTypes(request.input).includes("compaction_trigger")
+          ? compactResponse("resume-cache")
+          : assistantResponse("resume-cache");
+      }),
+    );
+    const manager = SessionManager.create(paths.cwd, paths.sessionDir);
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: true,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [codexCompactionExtension],
+      model,
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+    });
+    let resumed: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
+
+    try {
+      await session.prompt("cache prefix source");
+      session.dispose();
+      resumed = await createRealCodexSession({
+        compaction: {
+          enabled: true,
+          keepRecentTokens: 1,
+          reserveTokens: 1000,
+        },
+        extensionFactories: [codexCompactionExtension],
+        model,
+        rootDir: paths.rootDir,
+        sessionManager: SessionManager.continueRecent(paths.cwd, paths.sessionDir),
+      });
+      resumed.setActiveToolsByName(["bash", "read"]);
+      await resumed.compact();
+
+      const [ordinary, compact] = requests;
+      if (!ordinary || !compact) {
+        throw new Error("Expected an ordinary request and a compaction request");
+      }
+      const ordinaryInput = wireArray(ordinary.input);
+      const compactInput = wireArray(compact.input);
+      expect({
+        inputPrefix:
+          JSON.stringify(compactInput.slice(0, ordinaryInput.length)) ===
+          JSON.stringify(ordinaryInput),
+        instructions: compact.instructions === ordinary.instructions,
+        key: compact.prompt_cache_key === ordinary.prompt_cache_key,
+        tools: JSON.stringify(compact.tools) === JSON.stringify(ordinary.tools),
+      }).toStrictEqual({
+        inputPrefix: true,
+        instructions: true,
+        key: true,
+        tools: true,
+      });
+    } finally {
+      session.dispose();
+      resumed?.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps custom instructions out of native compaction and replay", async () => {
     const paths = await workspace("codex-inline-manual-replay-");
     const requests: WireRecord[] = [];
     const requestHeaders: Headers[] = [];
     let ordinaryResponses = 0;
-    let portableResponses = 0;
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requestHeaders.push(headers);
@@ -1630,10 +1708,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       requests.push(request);
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("manual-replay");
-      }
-      if (JSON.stringify(request).includes("<conversation>")) {
-        portableResponses += 1;
-        return assistantResponse(`portable-${portableResponses}`);
       }
       ordinaryResponses += 1;
       return assistantResponse(`manual-replay-${ordinaryResponses}`);
@@ -1661,9 +1735,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const nativeRequest = requests.find((request) =>
         inputItemTypes(request.input).includes("compaction_trigger"),
       );
-      const portableRequests = requests.filter((request) =>
-        JSON.stringify(request).includes("<conversation>"),
-      );
+      const active = resolveActiveCheckpointBoundary(manager.getBranch());
+      if (active.kind !== "checkpoint") {
+        throw new Error("Manual replay checkpoint was not installed");
+      }
+      const activeEntry = manager.getEntry(active.boundaryEntryId);
+      const marker = nativeCheckpointSummary(active.checkpoint.runtime.currentWindowId);
       const replayInput = requests.at(-1)?.input;
       const serialized = JSON.stringify(replayInput);
       expect({
@@ -1671,27 +1748,23 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         compactedAssistantAbsent: !serialized.includes("assistant-manual-replay-1"),
         customInstructionCounts: {
           native: JSON.stringify(nativeRequest).split(customInstructions).length - 1,
-          portable: portableRequests.map(
-            (request) => JSON.stringify(request).split(customInstructions).length - 1,
-          ),
           replay: serialized.split(customInstructions).length - 1,
         },
         fetches: fetch.mock.calls.length,
+        marker: activeEntry?.type === "compaction" ? activeEntry.summary : undefined,
+        markerAbsentFromReplay: !serialized.includes(marker),
         opaqueCount: inputItemTypes(replayInput).filter((type) => type === "compaction").length,
-        portableSummaryAbsent:
-          !serialized.includes("assistant-portable-1") &&
-          !serialized.includes("assistant-portable-2"),
       }).toStrictEqual({
         beta: "remote_compaction_v2",
         compactedAssistantAbsent: true,
         customInstructionCounts: {
           native: 0,
-          portable: [1, 0],
           replay: 0,
         },
-        fetches: 6,
+        fetches: 4,
+        marker,
+        markerAbsentFromReplay: true,
         opaqueCount: 1,
-        portableSummaryAbsent: true,
       });
     } finally {
       session.dispose();
@@ -1708,9 +1781,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("replay-race");
       }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-replay-race")
-        : assistantResponse("replay-race-source");
+      return assistantResponse("replay-race-source");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
@@ -1742,7 +1813,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           .filter((entry) => entry.type === "custom" && entry.customType === "test-replay-race")
           .length,
       }).toStrictEqual({
-        fetches: 3,
+        fetches: 2,
         notification:
           "OpenAI checkpoint replay was blocked because session context changed after framing.",
         raceEntries: 1,
@@ -1753,7 +1824,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it("falls back from corrupt inline state after a portable lifecycle boundary", async () => {
+  it("blocks corrupt inline state after a native lifecycle boundary", async () => {
     const paths = await workspace("codex-inline-corrupt-after-native-");
     const notifications: string[] = [];
     const requests: WireRecord[] = [];
@@ -1764,9 +1835,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("corrupt-source");
       }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-corrupt-source")
-        : assistantResponse("corrupt-source");
+      return assistantResponse("corrupt-source");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
@@ -1797,15 +1866,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         notification: notifications.at(-1),
         opaqueCount: inputItemTypes(requests.at(-1)?.input).filter((type) => type === "compaction")
           .length,
-        portableSummary: JSON.stringify(requests.at(-1)?.input).includes(
-          "assistant-portable-corrupt-source",
-        ),
       }).toStrictEqual({
-        fetches: 4,
+        fetches: 2,
         notification:
-          "An incompatible OpenAI checkpoint was ignored because authoritative Pi context is available.",
+          "OpenAI checkpoint replay was blocked because active native context is unsafe.",
         opaqueCount: 0,
-        portableSummary: true,
       });
     } finally {
       session.dispose();
@@ -1997,6 +2062,95 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           [1, 1],
         ],
         sideTrigger: true,
+      });
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("recompacts recoverable inline history after the endpoint changes", async () => {
+    const paths = await workspace("codex-inline-endpoint-change-");
+    const initialModel = {
+      ...SPIKE_MODEL,
+      contextWindow: 4000,
+      maxTokens: 1000,
+    };
+    const changedModel = {
+      ...initialModel,
+      baseUrl: "https://changed-endpoint.invalid/backend-api",
+      id: "gpt-5.6-changed-endpoint",
+      name: "Changed endpoint Codex",
+    };
+    const notifications: string[] = [];
+    const requests: WireRecord[] = [];
+    const responses = [
+      compactResponse("inline-old-endpoint"),
+      assistantResponse("inline-old-endpoint"),
+      compactResponse("lifecycle-new-endpoint"),
+    ];
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      requests.push(requestJson(init?.body, new Headers(init?.headers)));
+      const response = responses.shift();
+      if (!response) {
+        throw new Error("Unexpected fetch");
+      }
+      return response;
+    });
+    vi.stubGlobal("fetch", fetch);
+    const manager = SessionManager.inMemory(paths.cwd);
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: false,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [codexCompactionExtension],
+      model: initialModel,
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+      systemPrompt: "short",
+      uiContext: mockUiContext({
+        notify: (message: string) => notifications.push(message),
+        setStatus: () => null,
+      }),
+    });
+
+    try {
+      await session.prompt(`INLINE_LOCAL_HISTORY ${"x".repeat(15_000)}`);
+      const inline = resolveActiveCheckpointBoundary(manager.getBranch());
+      await session.setModel(changedModel);
+      await session.compact();
+      const recovered = resolveActiveCheckpointBoundary(manager.getBranch());
+      const recoveryInput = JSON.stringify(requests.at(-1)?.input);
+
+      expect({
+        fetches: fetch.mock.calls.length,
+        initialCarrier: inline.kind === "checkpoint" ? inline.carrier : undefined,
+        localHistory: recoveryInput.includes("INLINE_LOCAL_HISTORY"),
+        oldOpaqueState: recoveryInput.includes("opaque-inline-old-endpoint"),
+        recovered:
+          recovered.kind === "checkpoint"
+            ? {
+                baseUrl: recovered.checkpoint.identity.baseUrl,
+                carrier: recovered.carrier,
+                response: recovered.checkpoint.response.id,
+              }
+            : undefined,
+        warning: notifications.includes(
+          "An unusable inline OpenAI checkpoint was ignored because authoritative Pi context is still available.",
+        ),
+      }).toStrictEqual({
+        fetches: 3,
+        initialCarrier: "inline",
+        localHistory: true,
+        oldOpaqueState: false,
+        recovered: {
+          baseUrl: changedModel.baseUrl,
+          carrier: "lifecycle",
+          response: "resp_lifecycle-new-endpoint",
+        },
+        warning: true,
       });
     } finally {
       session.dispose();
@@ -2609,9 +2763,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("active-tool-split");
       }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-active-tool-split")
-        : assistantResponse("active-tool-split-source");
+      return assistantResponse("active-tool-split-source");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
@@ -2656,7 +2808,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         notification: notifications.at(-1),
       }).toStrictEqual({
         active: "checkpoint",
-        fetches: 3,
+        fetches: 2,
         notification:
           "OpenAI checkpoint replay was blocked because marker framing changed the serialized request.",
       });
@@ -2844,7 +2996,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-lifecycle-repeated-");
     let nativeCompactions = 0;
     let ordinaryResponses = 0;
-    let portableResponses = 0;
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
@@ -2852,20 +3003,16 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         nativeCompactions += 1;
         return compactResponse(nativeCompactions === 1 ? "first" : "second");
       }
-      if (JSON.stringify(request).includes("<conversation>")) {
-        portableResponses += 1;
-        return assistantResponse(`portable-repeated-${portableResponses}`);
-      }
       ordinaryResponses += 1;
       return assistantResponse(ordinaryResponses === 1 ? "first-source" : "second-source");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
-    const compactEventEntryIds: string[] = [];
     const notifications: string[] = [];
-    const observeCompactions: ExtensionFactory = (pi) => {
+    const compactEvents: SessionCompactEvent[] = [];
+    const captureCompactions: ExtensionFactory = (pi) => {
       pi.on("session_compact", (compactEvent) => {
-        compactEventEntryIds.push(compactEvent.compactionEntry.id);
+        compactEvents.push(compactEvent);
       });
     };
     const uiContext = mockUiContext({
@@ -2878,7 +3025,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         keepRecentTokens: 1,
         reserveTokens: 1000,
       },
-      extensionFactories: [codexCompactionExtension, observeCompactions],
+      extensionFactories: [captureCompactions, codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
       uiContext,
@@ -2895,22 +3042,26 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("second lifecycle source");
       await session.compact();
       const newest = resolveActiveCheckpointBoundary(manager.getBranch());
+      const eventResponses = compactEvents.map((compactEvent) => {
+        const carrier = resolveCheckpointCarrier(compactEvent.compactionEntry);
+        return carrier.kind === "checkpoint" ? carrier.checkpoint.response.id : carrier.kind;
+      });
       expect({
-        activeEntryMatchesEvent:
-          newest.kind === "checkpoint" && newest.boundaryEntryId === compactEventEntryIds[1],
-        eventEntryIds: compactEventEntryIds,
+        compactions: manager.getBranch().filter((entry) => entry.type === "compaction").length,
+        eventResponses,
+        eventSummaries: new Set(
+          compactEvents.map((compactEvent) => compactEvent.compactionEntry.summary),
+        ).size,
         fetches: fetch.mock.calls.length,
         installErrors: notifications.filter((message) =>
           message.includes("installation could not be verified"),
         ),
         newestResponse: newest.kind === "checkpoint" ? newest.checkpoint.response.id : undefined,
       }).toStrictEqual({
-        activeEntryMatchesEvent: true,
-        eventEntryIds: [
-          first.boundaryEntryId,
-          newest.kind === "checkpoint" ? newest.boundaryEntryId : undefined,
-        ],
-        fetches: 7,
+        compactions: 2,
+        eventResponses: ["resp_first", "resp_second"],
+        eventSummaries: 2,
+        fetches: 4,
         installErrors: [],
         newestResponse: "resp_second",
       });
@@ -2930,21 +3081,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
-      const serialized = JSON.stringify(request);
-      if (
-        inputItemTypes(request.input).includes("compaction_trigger") ||
-        serialized.includes("<conversation>")
-      ) {
+      if (inputItemTypes(request.input).includes("compaction_trigger")) {
         sideRequests += 1;
-        if (sideRequests === 2) {
-          sideRequestsStarted.resolve(null);
-        }
+        sideRequestsStarted.resolve(null);
         const pending = Promise.withResolvers<Response>();
-        const response = inputItemTypes(request.input).includes("compaction_trigger")
-          ? compactResponse("concurrent-native")
-          : assistantResponse("concurrent-portable");
         pendingResponses.push({
-          resolve: () => pending.resolve(response),
+          resolve: () => pending.resolve(compactResponse("concurrent-native")),
         });
         const signal = init?.signal;
         const onAbort = () => {
@@ -3002,7 +3144,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         compactions: 0,
         notifications: [],
         reasons: ["Error: Compaction cancelled", "Error: Compaction cancelled"],
-        sideRequests: 2,
+        sideRequests: 1,
       });
     } finally {
       session.dispose();
@@ -3025,17 +3167,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       });
     };
     let nativeCompactions = 0;
-    let portableCompactions = 0;
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         nativeCompactions += 1;
         return compactResponse(`install-lock-${nativeCompactions}`);
-      }
-      if (JSON.stringify(request).includes("<conversation>")) {
-        portableCompactions += 1;
-        return assistantResponse(`install-lock-portable-${portableCompactions}`);
       }
       return assistantResponse("install-lock-source");
     });
@@ -3073,13 +3210,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           message.includes("installation could not be verified"),
         ),
         nativeCompactions,
-        portableCompactions,
         statuses: results.map((result) => result.status),
       }).toStrictEqual({
         compactions: 0,
         installErrors: [],
         nativeCompactions: 1,
-        portableCompactions: 1,
         statuses: ["rejected", "rejected"],
       });
     } finally {
@@ -3100,9 +3235,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         sideRequestStarted.resolve(null);
         return delayed.promise;
       }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-state-stale")
-        : assistantResponse("state-source");
+      return assistantResponse("state-source");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
@@ -3139,7 +3272,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         after: before,
         before,
         compactions: 0,
-        fetches: 3,
+        fetches: 2,
       });
     } finally {
       session.dispose();
@@ -3225,76 +3358,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it.each([
-    {
-      choice: undefined,
-      expectedSelects: 0,
-      installed: true,
-      label: "forced fallback",
-      policy: "fallback",
-      withUI: false,
-    },
-    {
-      choice: undefined,
-      expectedSelects: 0,
-      installed: false,
-      label: "forced cancel",
-      policy: "cancel",
-      withUI: false,
-    },
-    {
-      choice: undefined,
-      expectedSelects: 0,
-      installed: false,
-      label: "headless ask",
-      policy: "ask",
-      withUI: false,
-    },
-    {
-      choice: "Use portable text summary",
-      expectedSelects: 1,
-      installed: true,
-      label: "accepted ask",
-      policy: "ask",
-      withUI: true,
-    },
-    {
-      choice: "Keep context unchanged",
-      expectedSelects: 1,
-      installed: false,
-      label: "declined ask",
-      policy: "ask",
-      withUI: true,
-    },
-    {
-      choice: undefined,
-      expectedSelects: 1,
-      installed: false,
-      label: "dismissed ask",
-      policy: "ask",
-      withUI: true,
-    },
-    {
-      choice: "Use portable text summary",
-      expectedSelects: 1,
-      installed: true,
-      label: "invalid policy defaults to ask",
-      policy: "not-a-policy",
-      withUI: true,
-    },
-  ])("applies $label after native failure", async (testCase) => {
-    vi.stubEnv("CLANKER_CODEX_COMPACTION_FAILURE", testCase.policy);
+  it("leaves the branch unchanged after native lifecycle failure", async () => {
     const paths = await workspace("codex-lifecycle-policy-");
     const notifications: string[] = [];
-    const select = vi.fn<() => Promise<string | undefined>>(async () => testCase.choice);
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
-      const headers = new Headers(init?.headers);
-      const request = requestJson(init?.body, headers);
-      if (inputItemTypes(request.input).includes("compaction_trigger")) {
-        return malformedCompactResponse();
-      }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-policy")
+      const request = requestJson(init?.body, new Headers(init?.headers));
+      return inputItemTypes(request.input).includes("compaction_trigger")
+        ? malformedCompactResponse()
         : assistantResponse("policy-source");
     });
     vi.stubGlobal("fetch", fetch);
@@ -3308,269 +3378,55 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: testCase.withUI
-        ? mockUiContext({
-            notify: (message: string) => notifications.push(message),
-            select,
-            setStatus: () => null,
-          })
-        : undefined,
+      uiContext: mockUiContext({
+        notify: (message: string) => notifications.push(message),
+        setStatus: () => null,
+      }),
     });
 
     try {
       await session.prompt("policy source");
       const before = manager.getBranch().map((branchEntry) => branchEntry.id);
-      const installed = await session.compact().then(
-        () => true,
-        () => false,
-      );
+      await expect(session.compact()).rejects.toThrow("cancelled");
       const compactions = manager
         .getBranch()
         .filter((branchEntry) => branchEntry.type === "compaction");
       const after = manager.getBranch().map((branchEntry) => branchEntry.id);
 
       expect({
-        branchUnchanged: installed || JSON.stringify(after) === JSON.stringify(before),
+        branchUnchanged: JSON.stringify(after) === JSON.stringify(before),
+        compactions: compactions.length,
         fetches: fetch.mock.calls.length,
-        invalidWarnings: notifications.filter((message) =>
-          message.includes("CLANKER_CODEX_COMPACTION_FAILURE"),
-        ).length,
-        portableSummaryInstalled:
-          compactions.length === 1 && compactions[0]?.summary.includes("assistant-portable-policy"),
-        selects: select.mock.calls.length,
+        notification: notifications.at(-1),
       }).toStrictEqual({
         branchUnchanged: true,
-        fetches: 3,
-        invalidWarnings: testCase.policy === "not-a-policy" ? 1 : 0,
-        portableSummaryInstalled: testCase.installed,
-        selects: testCase.expectedSelects,
+        compactions: 0,
+        fetches: 2,
+        notification: "OpenAI compaction was cancelled; local context was left unchanged.",
       });
-      expect(installed).toBe(testCase.installed);
     } finally {
       session.dispose();
       await rm(paths.rootDir, { force: true, recursive: true });
     }
   });
 
-  it.each([
-    { native: "success", portable: "failure" },
-    { native: "failure", portable: "failure" },
-    { native: "abort", portable: "success" },
-  ] as const)(
-    "cancels without prompting when native=$native and portable=$portable",
-    async ({ native, portable }) => {
-      vi.stubEnv("CLANKER_CODEX_COMPACTION_FAILURE", "ask");
-      const paths = await workspace("codex-lifecycle-result-matrix-");
-      const select = vi.fn<() => Promise<string | undefined>>(
-        async () => "Use portable text summary",
-      );
+  it.each(["threshold", "overflow"] as const)(
+    "keeps context unchanged after $reason compaction failure",
+    async (reason) => {
+      const paths = await workspace("codex-lifecycle-automatic-policy-");
+      let nativeCompactions = 0;
+      let ordinaryRequests = 0;
       const fetch = vi.fn<FetchFunction>(async (_input, init) => {
-        const headers = new Headers(init?.headers);
-        const request = requestJson(init?.body, headers);
+        const request = requestJson(init?.body, new Headers(init?.headers));
         if (inputItemTypes(request.input).includes("compaction_trigger")) {
-          if (native === "abort") {
-            const error = new Error("aborted native compaction");
-            error.name = "AbortError";
-            throw error;
-          }
-          return native === "success"
-            ? compactResponse("result-matrix")
-            : malformedCompactResponse();
-        }
-        if (JSON.stringify(request).includes("<conversation>")) {
-          return portable === "success"
-            ? assistantResponse("portable-result-matrix")
-            : overflowResponse();
-        }
-        return assistantResponse("result-matrix-source");
-      });
-      vi.stubGlobal("fetch", fetch);
-      const manager = SessionManager.inMemory(paths.cwd);
-      const session = await createRealCodexSession({
-        compaction: {
-          enabled: true,
-          keepRecentTokens: 1,
-          reserveTokens: 1000,
-        },
-        extensionFactories: [codexCompactionExtension],
-        retry: { provider: { maxRetries: 0 } },
-        rootDir: paths.rootDir,
-        sessionManager: manager,
-        uiContext: mockUiContext({
-          notify: () => null,
-          select,
-          setStatus: () => null,
-        }),
-      });
-
-      try {
-        await session.prompt("result matrix source");
-        const before = manager.getBranch().map((branchEntry) => branchEntry.id);
-        await expect(session.compact()).rejects.toThrow("cancelled");
-        const expectedFetches = native === "abort" ? 5 : 2;
-        expect({
-          after: manager.getBranch().map((branchEntry) => branchEntry.id),
-          fetches: fetch.mock.calls.length,
-          selects: select.mock.calls.length,
-        }).toStrictEqual({
-          after: before,
-          fetches: expectedFetches,
-          selects: 0,
-        });
-      } finally {
-        session.dispose();
-        await rm(paths.rootDir, { force: true, recursive: true });
-      }
-    },
-  );
-
-  it.each([
-    { policy: "fallback", reason: "threshold" },
-    { policy: "cancel", reason: "threshold" },
-    { policy: "fallback", reason: "overflow" },
-    { policy: "cancel", reason: "overflow" },
-  ] as const)("applies $policy after $reason remote failure", async ({ policy, reason }) => {
-    vi.stubEnv("CLANKER_CODEX_COMPACTION_FAILURE", policy);
-    const paths = await workspace("codex-lifecycle-automatic-policy-");
-    let nativeCompactions = 0;
-    let ordinaryRequests = 0;
-    let portableRequests = 0;
-    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
-      const headers = new Headers(init?.headers);
-      const request = requestJson(init?.body, headers);
-      if (inputItemTypes(request.input).includes("compaction_trigger")) {
-        nativeCompactions += 1;
-        return malformedCompactResponse();
-      }
-      if (JSON.stringify(request).includes("<conversation>")) {
-        portableRequests += 1;
-        return assistantResponse(`portable-${reason}-policy`);
-      }
-      ordinaryRequests += 1;
-      if (reason === "overflow" && ordinaryRequests === 2) {
-        return overflowResponse();
-      }
-      return assistantResponse(`${reason}-turn-${ordinaryRequests}`);
-    });
-    vi.stubGlobal("fetch", fetch);
-    const manager = SessionManager.inMemory(paths.cwd);
-    const session = await createRealCodexSession({
-      compaction: {
-        enabled: true,
-        keepRecentTokens: 1,
-        reserveTokens: reason === "threshold" ? SPIKE_MODEL.contextWindow - 5 : 1000,
-      },
-      extensionFactories: [codexCompactionExtension],
-      rootDir: paths.rootDir,
-      sessionManager: manager,
-    });
-
-    try {
-      await session.prompt(`${reason} policy seed`);
-      if (reason === "overflow") {
-        await session.prompt("trigger overflow policy");
-      }
-      const compactions = manager
-        .getBranch()
-        .filter((branchEntry) => branchEntry.type === "compaction");
-      let expectedOrdinaryRequests = 1;
-      if (reason === "overflow") {
-        expectedOrdinaryRequests = policy === "fallback" ? 3 : 2;
-      }
-      expect({
-        compactions: compactions.length,
-        nativeCompactions,
-        ordinaryRequests,
-        portableRequests,
-        portableSummaryInstalled:
-          compactions.at(-1)?.type === "compaction" &&
-          compactions.at(-1)?.summary.includes(`portable-${reason}-policy`),
-      }).toStrictEqual({
-        compactions: policy === "fallback" ? 1 : 0,
-        nativeCompactions: 1,
-        ordinaryRequests: expectedOrdinaryRequests,
-        portableRequests: 1,
-        portableSummaryInstalled: policy === "fallback",
-      });
-    } finally {
-      session.dispose();
-      await rm(paths.rootDir, { force: true, recursive: true });
-    }
-  });
-
-  it("leaves the branch unchanged when portable fallback persistence is missing", async () => {
-    vi.stubEnv("CLANKER_CODEX_COMPACTION_FAILURE", "fallback");
-    const paths = await workspace("codex-lifecycle-fallback-persistence-");
-    const requests: WireRecord[] = [];
-    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
-      const headers = new Headers(init?.headers);
-      const request = requestJson(init?.body, headers);
-      requests.push(request);
-      if (inputItemTypes(request.input).includes("compaction_trigger")) {
-        return malformedCompactResponse();
-      }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-missing-persistence")
-        : assistantResponse("persistence-source");
-    });
-    vi.stubGlobal("fetch", fetch);
-    const manager = SessionManager.inMemory(paths.cwd);
-    const session = await createRealCodexSession({
-      compaction: {
-        enabled: true,
-        keepRecentTokens: 1,
-        reserveTokens: 1000,
-      },
-      extensionFactories: [codexCompactionExtension],
-      rootDir: paths.rootDir,
-      sessionManager: manager,
-    });
-
-    try {
-      await session.prompt("fallback persistence source");
-      const before = manager.getBranch().map((branchEntry) => branchEntry.id);
-      Object.defineProperty(manager, "appendCompaction", {
-        value: () => "missing-compaction",
-      });
-      await session.compact();
-      const after = manager.getBranch().map((branchEntry) => branchEntry.id);
-      await session.prompt("continue after missing persistence");
-
-      expect({
-        branchAfterCompaction: after,
-        originalContextPreserved: JSON.stringify(requests.at(-1)?.input).includes(
-          "assistant-persistence-source",
-        ),
-        portableSummaryAbsent: !JSON.stringify(requests.at(-1)?.input).includes(
-          "portable-missing-persistence",
-        ),
-      }).toStrictEqual({
-        branchAfterCompaction: before,
-        originalContextPreserved: true,
-        portableSummaryAbsent: true,
-      });
-    } finally {
-      session.dispose();
-      await rm(paths.rootDir, { force: true, recursive: true });
-    }
-  });
-
-  it.each(["abort", "branch", "model", "session", "reload"] as const)(
-    "rejects an accepted delayed fallback after a %s change",
-    async (change) => {
-      vi.stubEnv("CLANKER_CODEX_COMPACTION_FAILURE", "ask");
-      const paths = await workspace("codex-lifecycle-delayed-choice-");
-      const choiceStarted = Promise.withResolvers<null>();
-      const choice = Promise.withResolvers<string>();
-      const fetch = vi.fn<FetchFunction>(async (_input, init) => {
-        const headers = new Headers(init?.headers);
-        const request = requestJson(init?.body, headers);
-        if (inputItemTypes(request.input).includes("compaction_trigger")) {
+          nativeCompactions += 1;
           return malformedCompactResponse();
         }
-        return JSON.stringify(request).includes("<conversation>")
-          ? assistantResponse("portable-stale-choice")
-          : assistantResponse("stale-choice-source");
+        ordinaryRequests += 1;
+        if (reason === "overflow" && ordinaryRequests === 2) {
+          return overflowResponse();
+        }
+        return assistantResponse(`${reason}-turn-${ordinaryRequests}`);
       });
       vi.stubGlobal("fetch", fetch);
       const manager = SessionManager.inMemory(paths.cwd);
@@ -3578,51 +3434,31 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         compaction: {
           enabled: true,
           keepRecentTokens: 1,
-          reserveTokens: 1000,
+          reserveTokens: reason === "threshold" ? SPIKE_MODEL.contextWindow - 5 : 1000,
         },
         extensionFactories: [codexCompactionExtension],
         rootDir: paths.rootDir,
         sessionManager: manager,
-        uiContext: mockUiContext({
-          notify: () => null,
-          select: async () => {
-            choiceStarted.resolve(null);
-            return choice.promise;
-          },
-          setStatus: () => null,
-        }),
       });
 
       try {
-        await session.prompt("delayed choice source");
-        const compacting = session.compact();
-        await choiceStarted.promise;
-        if (change === "abort") {
-          session.abortCompaction();
-        } else if (change === "branch") {
-          manager.appendCustomEntry("test-delayed-choice", { changed: true });
-        } else if (change === "model") {
-          await session.setModel({
-            ...SPIKE_MODEL,
-            id: "gpt-5.6-delayed-choice-other",
-            name: "Delayed Choice Other",
-          });
-        } else if (change === "session") {
-          manager.newSession();
-        } else {
-          await session.reload();
+        await session.prompt(`${reason} policy seed`);
+        if (reason === "overflow") {
+          await session.prompt("trigger overflow policy");
         }
-        choice.resolve("Use portable text summary");
-
-        await expect(compacting).rejects.toThrow("cancelled");
+        const compactions = manager
+          .getBranch()
+          .filter((branchEntry) => branchEntry.type === "compaction");
         expect({
-          compactions: manager
-            .getBranch()
-            .filter((branchEntry) => branchEntry.type === "compaction").length,
-          fetches: fetch.mock.calls.length,
-        }).toStrictEqual({ compactions: 0, fetches: 3 });
+          compactions: compactions.length,
+          nativeCompactions,
+          ordinaryRequests,
+        }).toStrictEqual({
+          compactions: 0,
+          nativeCompactions: 1,
+          ordinaryRequests: reason === "overflow" ? 2 : 1,
+        });
       } finally {
-        choice.resolve("Use portable text summary");
         session.dispose();
         await rm(paths.rootDir, { force: true, recursive: true });
       }
@@ -3637,9 +3473,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("threshold");
       }
-      return JSON.stringify(request).includes("<conversation>")
-        ? assistantResponse("portable-threshold")
-        : assistantResponse("threshold");
+      return assistantResponse("threshold");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
@@ -3659,19 +3493,21 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
       const activeEntry =
         active.kind === "checkpoint" ? manager.getEntry(active.boundaryEntryId) : undefined;
+      const marker =
+        active.kind === "checkpoint"
+          ? nativeCheckpointSummary(active.checkpoint.runtime.currentWindowId)
+          : undefined;
       expect({
         carrier: active.kind === "checkpoint" ? active.carrier : undefined,
         fetches: fetch.mock.calls.length,
         fromHook: activeEntry?.type === "compaction" ? activeEntry.fromHook : undefined,
-        portableSummary:
-          activeEntry?.type === "compaction" &&
-          activeEntry.summary.includes("assistant-portable-threshold"),
+        marker: activeEntry?.type === "compaction" ? activeEntry.summary : undefined,
         reason: active.kind === "checkpoint" ? active.checkpoint.reason : undefined,
       }).toStrictEqual({
         carrier: "lifecycle",
-        fetches: 3,
+        fetches: 2,
         fromHook: true,
-        portableSummary: true,
+        marker,
         reason: "threshold",
       });
     } finally {
@@ -3690,9 +3526,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       requests.push(request);
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("overflow");
-      }
-      if (JSON.stringify(request).includes("<conversation>")) {
-        return assistantResponse("portable-overflow");
       }
       ordinaryRequests += 1;
       return ordinaryRequests === 2
@@ -3730,7 +3563,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       }).toStrictEqual({
         assistantStopReasons: ["stop"],
         compactions: 1,
-        fetches: 5,
+        fetches: 4,
         opaqueCount: 1,
         phase: "overflow-retry",
         reason: "overflow",

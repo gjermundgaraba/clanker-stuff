@@ -11,7 +11,7 @@ try {
 const tests = spawnSync(
   "node",
   ["--test", "/app/test/deployment.test.js", "/tests/hidden.test.js"],
-  { encoding: "utf-8" }
+  { encoding: "utf-8" },
 );
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
@@ -21,11 +21,11 @@ try {
 } catch {}
 const steps = Array.isArray(trajectory.steps) ? trajectory.steps : [];
 const policies = {
-  "codex-cli-off": {
+  "codex-native-off": {
     compactionExpected: false,
-    mechanism: "codex-cli",
+    mechanism: "codex-native",
   },
-  "codex-cli-on": { compactionExpected: true, mechanism: "codex-cli" },
+  "codex-native-on": { compactionExpected: true, mechanism: "codex-native" },
   "pi-provider-off": {
     compactionExpected: false,
     mechanism: "codex-provider",
@@ -47,16 +47,12 @@ const policy = oracle
 const compactionAttempts = steps
   .map((step, index) => ({ index, extra: step.extra }))
   .filter(({ extra }) => extra?.event_type === "context_compaction");
-const compactions = compactionAttempts.filter(
-  ({ extra }) => extra.state === "succeeded"
-);
+const compactions = compactionAttempts.filter(({ extra }) => extra.state === "succeeded");
 const firstBoundary = compactions.find(
-  ({ extra }) =>
-    extra.compacted_after_segment >= 2 && extra.compacted_after_segment <= 4
+  ({ extra }) => extra.compacted_after_segment >= 2 && extra.compacted_after_segment <= 4,
 );
 const secondBoundary = compactions.find(
-  ({ extra }) =>
-    extra.compacted_after_segment >= 7 && extra.compacted_after_segment <= 9
+  ({ extra }) => extra.compacted_after_segment >= 7 && extra.compacted_after_segment <= 9,
 );
 const boundary = Boolean(firstBoundary && secondBoundary);
 const mechanism =
@@ -68,13 +64,11 @@ const mechanism =
         ({ extra }) =>
           extra.mechanism === policy?.mechanism &&
           (policy?.mechanism !== "codex-provider" ||
-            extra.protocol === "openai-responses-compaction-v2")
+            extra.protocol === "openai-responses-compaction-v2"),
       ));
-const finalInstructionIndex = steps.findLastIndex(
-  (step) => step.source === "user"
-);
+const finalInstructionIndex = steps.findLastIndex((step) => step.source === "user");
 const continued = steps.some(
-  (step, index) => index > finalInstructionIndex && step.source === "agent"
+  (step, index) => index > finalInstructionIndex && step.source === "agent",
 );
 const valid =
   Boolean(policy) &&
@@ -114,8 +108,8 @@ const facts = {
         planDeployment({
           ...base,
           regions: ["APAC", " us ", "apac", "eu"],
-        }).regions
-      ) === JSON.stringify(["us", "eu", "apac"])
+        }).regions,
+      ) === JSON.stringify(["us", "eu", "apac"]),
   ),
   service_early: probe(() => {
     const normalized = planDeployment({ ...base, service: " API " }).service;
@@ -127,11 +121,10 @@ const facts = {
     }
     return normalized === "api" && rejected;
   }),
-  shape: probe(
+  output_contract: probe(
     () =>
-      JSON.stringify(
-        Object.keys(planDeployment({ ...base, ignored: true })).sort()
-      ) === JSON.stringify(["attempts", "regions", "service", "target"].sort())
+      JSON.stringify(Object.keys(planDeployment({ ...base, ignored: true })).sort()) ===
+      JSON.stringify(["attempts", "regions", "service", "target"].sort()),
   ),
   target_current: probe(() => {
     const result = planDeployment({ ...base, target: " PROD " });
@@ -151,5 +144,5 @@ writeFileSync(
     reward: valid ? quality : 0,
     tests: Number(tests.status === 0),
     valid_experiment: Number(valid),
-  })
+  }),
 );

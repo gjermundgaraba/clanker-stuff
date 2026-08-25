@@ -32,6 +32,11 @@ change_line: ("+" | "-" | " ") /(.*)/ LF
 eof_line: "*** End of File" LF
 %import common.LF`;
 
+export const APPLY_PATCH_CONSTRAINED_SAMPLING = {
+  type: "grammar",
+  variants: { openai_lark: APPLY_PATCH_GRAMMAR },
+} as const;
+
 export const isCodexToolsModel = (model: ExtensionContext["model"]) =>
   model?.provider === "openai-codex" &&
   model.api === "openai-codex-responses" &&
@@ -389,10 +394,7 @@ export const createCodexDirectTools = () => {
         { patch: Type.String({ description: "The complete patch text" }) },
         strict,
       ),
-      constrainedSampling: {
-        type: "grammar",
-        variants: { openai_lark: APPLY_PATCH_GRAMMAR },
-      },
+      constrainedSampling: APPLY_PATCH_CONSTRAINED_SAMPLING,
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
         const { applyPatch } = await import("./patch.js");
         const result = await applyPatch(params.patch, ctx.cwd, signal);

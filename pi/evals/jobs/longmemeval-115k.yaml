@@ -17,6 +17,7 @@ agents:
     resume_trajectory: true
     kwargs:
       agent_label: pi-vanilla-off
+      controlled_compaction: false
       thinking: medium
       settings:
         compaction:
@@ -27,18 +28,18 @@ agents:
     resume_trajectory: true
     kwargs:
       agent_label: pi-vanilla-on
+      controlled_compaction: true
       thinking: medium
       settings:
         compaction:
-          enabled: true
-          reserveTokens: 168800
-          keepRecentTokens: 1000
+          enabled: false
 
   - import_path: pi_evals.pi:PiEval
     model_name: openai-codex/gpt-5.6-terra
     resume_trajectory: true
     kwargs:
       agent_label: pi-provider-off
+      controlled_compaction: false
       thinking: medium
       extensions:
         - /opt/codex-provider/index.ts
@@ -51,34 +52,37 @@ agents:
     resume_trajectory: true
     kwargs:
       agent_label: pi-provider-on
+      controlled_compaction: true
       thinking: medium
       extensions:
         - /opt/codex-provider/index.ts
       settings:
         compaction:
-          enabled: true
-          reserveTokens: 168800
-          keepRecentTokens: 1000
+          enabled: false
 
   - import_path: pi_evals.codex:CodexEval
     model_name: openai/gpt-5.6-terra
     resume_trajectory: true
     kwargs:
-      agent_label: codex-cli-off
+      agent_label: codex-native-off
+      controlled_compaction: false
       version: 0.147.0
       reasoning_effort: medium
       config:
         model_auto_compact_token_limit: 1000000000
+        model_auto_compact_token_limit_scope: body_after_prefix
 
   - import_path: pi_evals.codex:CodexEval
     model_name: openai/gpt-5.6-terra
     resume_trajectory: true
     kwargs:
-      agent_label: codex-cli-on
+      agent_label: codex-native-on
+      controlled_compaction: true
       version: 0.147.0
       reasoning_effort: medium
       config:
-        model_auto_compact_token_limit: 115900
+        model_auto_compact_token_limit: 1000000000
+        model_auto_compact_token_limit_scope: body_after_prefix
 
 datasets:
   - path: datasets-generated/longmemeval/full/115k

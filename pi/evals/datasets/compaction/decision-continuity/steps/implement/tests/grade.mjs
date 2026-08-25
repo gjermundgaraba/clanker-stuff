@@ -8,11 +8,9 @@ try {
   ({ normalizeRelease } = await import("/app/src/release.js"));
 } catch {}
 
-const tests = spawnSync(
-  "node",
-  ["--test", "/app/test/release.test.js", "/tests/hidden.test.js"],
-  { encoding: "utf-8" }
-);
+const tests = spawnSync("node", ["--test", "/app/test/release.test.js", "/tests/hidden.test.js"], {
+  encoding: "utf-8",
+});
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 const trajectoryPath = "/logs/agent/trajectory.json";
 let trajectory = {};
@@ -21,11 +19,11 @@ try {
 } catch {}
 const steps = Array.isArray(trajectory.steps) ? trajectory.steps : [];
 const policies = {
-  "codex-cli-off": {
+  "codex-native-off": {
     compactionExpected: false,
-    mechanism: "codex-cli",
+    mechanism: "codex-native",
   },
-  "codex-cli-on": { compactionExpected: true, mechanism: "codex-cli" },
+  "codex-native-on": { compactionExpected: true, mechanism: "codex-native" },
   "pi-provider-off": {
     compactionExpected: false,
     mechanism: "codex-provider",
@@ -47,15 +45,13 @@ const policy = oracle
 const compactionAttempts = steps
   .map((step, index) => ({ index, extra: step.extra }))
   .filter(({ extra }) => extra?.event_type === "context_compaction");
-const compactions = compactionAttempts.filter(
-  ({ extra }) => extra.state === "succeeded"
-);
+const compactions = compactionAttempts.filter(({ extra }) => extra.state === "succeeded");
 const compactionIndex = steps.findIndex(
   (step) =>
     step.extra?.event_type === "context_compaction" &&
     step.extra?.state === "succeeded" &&
     step.extra?.compacted_after_segment >= 5 &&
-    step.extra?.compacted_after_segment <= 7
+    step.extra?.compacted_after_segment <= 7,
 );
 const mechanism =
   oracle ||
@@ -66,13 +62,11 @@ const mechanism =
         ({ extra }) =>
           extra.mechanism === policy?.mechanism &&
           (policy?.mechanism !== "codex-provider" ||
-            extra.protocol === "openai-responses-compaction-v2")
+            extra.protocol === "openai-responses-compaction-v2"),
       ));
-const finalInstructionIndex = steps.findLastIndex(
-  (step) => step.source === "user"
-);
+const finalInstructionIndex = steps.findLastIndex((step) => step.source === "user");
 const continued = steps.some(
-  (step, index) => index > finalInstructionIndex && step.source === "agent"
+  (step, index) => index > finalInstructionIndex && step.source === "agent",
 );
 const valid =
   Boolean(policy) &&
@@ -99,8 +93,8 @@ const facts = {
           artifacts: [" App.zip ", "app.ZIP", "", "symbols.tgz"],
           channel: "stable",
           regions: [],
-        }).artifacts
-      ) === JSON.stringify(["App.zip", "symbols.tgz"])
+        }).artifacts,
+      ) === JSON.stringify(["App.zip", "symbols.tgz"]),
   ),
   channel: probe(() => {
     const normalized = normalizeRelease({
@@ -123,14 +117,13 @@ const facts = {
           artifacts: [],
           channel: "stable",
           regions: ["APAC", " us ", "eu"],
-        }).regions
-      ) === JSON.stringify(["us", "eu", "apac"])
+        }).regions,
+      ) === JSON.stringify(["us", "eu", "apac"]),
   ),
   rollout: probe(() => {
     const base = { artifacts: [], channel: "stable", regions: [] };
     const defaults = normalizeRelease(base).rolloutPercent === 100;
-    const coerces =
-      normalizeRelease({ ...base, rolloutPercent: "25" }).rolloutPercent === 25;
+    const coerces = normalizeRelease({ ...base, rolloutPercent: "25" }).rolloutPercent === 25;
     let rejects = true;
     for (const value of [-1, 101, 1.5, "nope"]) {
       try {
@@ -142,7 +135,7 @@ const facts = {
     }
     return defaults && coerces && rejects;
   }),
-  shape: probe(
+  output_contract: probe(
     () =>
       JSON.stringify(
         Object.keys(
@@ -151,12 +144,9 @@ const facts = {
             channel: "stable",
             ignored: true,
             regions: [],
-          })
-        ).sort()
-      ) ===
-      JSON.stringify(
-        ["artifacts", "channel", "regions", "rolloutPercent"].sort()
-      )
+          }),
+        ).sort(),
+      ) === JSON.stringify(["artifacts", "channel", "regions", "rolloutPercent"].sort()),
   ),
 };
 const quality = Object.values(facts).reduce((sum, value) => sum + value, 0) / 5;
@@ -172,5 +162,5 @@ writeFileSync(
     reward: valid ? quality : 0,
     tests: Number(tests.status === 0),
     valid_experiment: Number(valid),
-  })
+  }),
 );

@@ -15,13 +15,13 @@ LONGMEM_115K_JOB_PATH = EVALS_DIR / "jobs/longmemeval-115k.yaml"
 LONGMEM_EVIDENCE_JOB_PATH = EVALS_DIR / "jobs/longmemeval-evidence.yaml"
 LONGMEM_HANDOFF_JOB_PATH = EVALS_DIR / "jobs/longmemeval-handoff-115k.yaml"
 GRADERS = {
-    "debugging-continuity": [6],
-    "decision-continuity": [6],
-    "superseded-decisions": [3, 8],
+    "debugging-continuity": [7],
+    "decision-continuity": [7],
+    "superseded-decisions": [4, 9],
 }
 POLICIES = {
-    "codex-cli-off": (False, "codex-cli"),
-    "codex-cli-on": (True, "codex-cli"),
+    "codex-native-off": (False, "codex-native"),
+    "codex-native-on": (True, "codex-native"),
     "pi-provider-off": (False, "codex-provider"),
     "pi-provider-on": (True, "codex-provider"),
     "pi-vanilla-off": (False, "pi-builtin"),
@@ -109,7 +109,7 @@ class CompactionPolicyTest(TestCase):
         for off, on in [
             ("pi-vanilla-off", "pi-vanilla-on"),
             ("pi-provider-off", "pi-provider-on"),
-            ("codex-cli-off", "codex-cli-on"),
+            ("codex-native-off", "codex-native-on"),
         ]:
             effort = "reasoning_effort" if off.startswith("codex") else "thinking"
             fields = ["model_name", effort]
@@ -122,14 +122,42 @@ class CompactionPolicyTest(TestCase):
                     re.search(pattern, blocks[on]).group(1),
                 )
         self.assertIn("/opt/codex-provider/index.ts", blocks["pi-provider-off"])
-        self.assertIn("enabled: false", blocks["pi-provider-off"])
-        self.assertIn(
-            "model_auto_compact_token_limit: 1000000000", blocks["codex-cli-off"]
+        self.assertEqual(job.count("controlled_compaction: false"), 3)
+        self.assertEqual(job.count("controlled_compaction: true"), 3)
+        self.assertEqual(job.count("enabled: false"), 4)
+        self.assertNotIn("enabled: true", job)
+        self.assertNotIn("reserveTokens", job)
+        self.assertEqual(job.count("model_auto_compact_token_limit: 1000000000"), 2)
+        self.assertEqual(
+            blocks["codex-native-off"].count(
+                "model_auto_compact_token_limit_scope: body_after_prefix"
+            ),
+            1,
         )
-        self.assertIn(
-            "model_auto_compact_token_limit: 45000", blocks["codex-cli-on"]
+        self.assertEqual(
+            blocks["codex-native-on"].count(
+                "model_auto_compact_token_limit_scope: body_after_prefix"
+            ),
+            1,
         )
 
+    def test_controlled_boundaries_are_marked_once(self) -> None:
+        marked = {
+            path.relative_to(EVALS_DIR / "datasets/compaction").as_posix()
+            for path in (EVALS_DIR / "datasets/compaction").rglob("instruction.md")
+            if path.read_text(encoding="utf-8").startswith(
+                "<!-- pi-evals:compact-before -->\n"
+            )
+        }
+        self.assertEqual(
+            marked,
+            {
+                "debugging-continuity/steps/implement/instruction.md",
+                "decision-continuity/steps/implement/instruction.md",
+                "superseded-decisions/steps/implement/instruction.md",
+                "superseded-decisions/steps/target-update/instruction.md",
+            },
+        )
     def test_pressure_is_embedded_and_tool_neutral(self) -> None:
         prompts = list(
             (EVALS_DIR / "datasets/compaction").glob(
@@ -149,16 +177,20 @@ class CompactionPolicyTest(TestCase):
     def test_longmemeval_controlled_job_targets_one_64k_boundary(self) -> None:
         job = LONGMEM_CONTROLLED_JOB_PATH.read_text(encoding="utf-8")
         self.assertIn("n_attempts: 3", job)
-        self.assertEqual(job.count("reserveTokens: 209000"), 2)
-        self.assertEqual(job.count("model_auto_compact_token_limit: 75000"), 1)
+        self.assertEqual(job.count("controlled_compaction: true"), 3)
+        self.assertEqual(job.count("controlled_compaction: false"), 3)
+        self.assertEqual(job.count("enabled: false"), 4)
+        self.assertEqual(job.count("model_auto_compact_token_limit: 1000000000"), 2)
         self.assertEqual(job.count("datasets-generated/longmemeval/full/64k"), 1)
         self.assertNotIn("longmemeval/full/115k", job)
 
-    def test_longmemeval_115k_job_uses_its_calibrated_boundary(self) -> None:
+    def test_longmemeval_115k_job_uses_its_controlled_boundary(self) -> None:
         job = LONGMEM_115K_JOB_PATH.read_text(encoding="utf-8")
         self.assertIn("n_attempts: 3", job)
-        self.assertEqual(job.count("reserveTokens: 168800"), 2)
-        self.assertEqual(job.count("model_auto_compact_token_limit: 115900"), 1)
+        self.assertEqual(job.count("controlled_compaction: true"), 3)
+        self.assertEqual(job.count("controlled_compaction: false"), 3)
+        self.assertEqual(job.count("enabled: false"), 4)
+        self.assertEqual(job.count("model_auto_compact_token_limit: 1000000000"), 2)
         self.assertEqual(job.count("datasets-generated/longmemeval/full/115k"), 1)
 
     def test_longmemeval_diagnostics_have_exact_reproducible_arms(self) -> None:
@@ -175,16 +207,16 @@ class CompactionPolicyTest(TestCase):
         self.assertEqual(evidence.count("agent_label:"), 3)
         self.assertEqual(evidence.count("-off"), 3)
         self.assertNotIn("-on", evidence)
+        self.assertEqual(evidence.count("controlled_compaction: false"), 3)
         self.assertIn("datasets-generated/longmemeval/evidence", evidence)
 
         handoff = LONGMEM_HANDOFF_JOB_PATH.read_text(encoding="utf-8")
         self.assertEqual(handoff.count("agent_label:"), 3)
         self.assertEqual(handoff.count("-on"), 3)
         self.assertNotIn("-off", handoff)
-        self.assertEqual(handoff.count("reserveTokens: 168800"), 2)
-        self.assertEqual(
-            handoff.count("model_auto_compact_token_limit: 115900"), 1
-        )
+        self.assertEqual(handoff.count("controlled_compaction: true"), 3)
+        self.assertEqual(handoff.count("enabled: false"), 2)
+        self.assertEqual(handoff.count("model_auto_compact_token_limit: 1000000000"), 1)
         self.assertIn("datasets-generated/longmemeval/handoff/115k", handoff)
 
     def test_all_graders_accept_each_arm_policy(self) -> None:
@@ -291,7 +323,7 @@ class CompactionPolicyTest(TestCase):
         self.assertEqual(bad_protocol["valid_experiment"], 0)
 
         no_continuation = self._grade(
-            "decision-continuity", "codex-cli-off", [], continued=False
+            "decision-continuity", "codex-native-off", [], continued=False
         )
         self.assertEqual(no_continuation["valid_experiment"], 0)
 

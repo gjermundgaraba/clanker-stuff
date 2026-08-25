@@ -2,8 +2,7 @@
 
 import { appendFileSync, readFileSync } from "node:fs";
 
-const schemaPath =
-  process.env.MEM2ACT_SCHEMA_PATH ?? "/app/.mem2act-schema.json";
+const schemaPath = process.env.MEM2ACT_SCHEMA_PATH ?? "/app/.mem2act-schema.json";
 const callsPath = process.env.MEM2ACT_CALLS_PATH ?? "/app/.mem2act-calls.jsonl";
 
 /**
@@ -15,6 +14,9 @@ const parseJson = (text) => {
   const parsed = JSON.parse(text);
   return parsed;
 };
+
+/** @param {unknown} value */
+const isObject = (value) => value !== null && !Array.isArray(value) && value === Object(value);
 
 const fail = (message) => {
   console.error(message);
@@ -47,22 +49,12 @@ if (command === "describe" && args.length === 0) {
   } catch {
     fail("--arguments must be valid JSON");
   }
-  if (
-    parameters === null ||
-    Array.isArray(parameters) ||
-    typeof parameters !== "object"
-  ) {
+  if (!isObject(parameters)) {
     fail("--arguments must be a JSON object");
   }
   const schema = parseJson(readFileSync(schemaPath, "utf-8"));
-  const tool =
-    schema !== null &&
-    !Array.isArray(schema) &&
-    typeof schema === "object" &&
-    "name" in schema
-      ? schema.name
-      : null;
-  if (typeof tool !== "string" || tool.length === 0) {
+  const tool = isObject(schema) && "name" in schema ? schema.name : null;
+  if (tool !== String(tool) || tool.length === 0) {
     fail("tool schema must have a name");
   }
   const call = { arguments: parameters, tool };

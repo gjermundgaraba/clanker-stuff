@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { RETAINED_USER_IMAGE_PLACEHOLDER } from "../checkpoint.js";
+import { RETAINED_USER_IMAGE_PLACEHOLDER, nativeCheckpointSummary } from "../checkpoint.js";
 import {
   CONTEXT_WINDOW_TRUNCATED_OUTPUT_MESSAGE,
   FIXED_IMAGE_BYTE_ESTIMATE,
@@ -65,7 +65,7 @@ describe("request framing and finalized replay", () => {
   it("frames one baseline while preserving fresh prefix/suffix and removes the lifecycle marker", () => {
     const prefix = { content: "fresh prefix", role: "user" };
     const marker = {
-      content: "portable checkpoint summary",
+      content: nativeCheckpointSummary("window-replay"),
       role: "compactionSummary",
     };
     const oldBaseline = { content: "old baseline", role: "user" };

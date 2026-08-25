@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { planDeployment } from "../src/deployment.js";
 
-test("normalizes a basic deployment with the current policy", () => {
+void test("normalizes a basic deployment with the current policy", () => {
   assert.deepEqual(
     planDeployment({
       service: " API ",
@@ -15,6 +15,6 @@ test("normalizes a basic deployment with the current policy", () => {
       regions: ["us", "eu"],
       service: "api",
       target: "prod",
-    }
+    },
   );
 });

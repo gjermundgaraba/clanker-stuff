@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { normalizeRelease } from "/app/src/release.js";
 
-test("applies all accumulated release decisions", () => {
+void test("applies all accumulated release decisions", () => {
   assert.deepEqual(
     normalizeRelease({
       artifacts: [" App.zip ", "app.ZIP", "symbols.tgz", ""],
@@ -16,15 +16,12 @@ test("applies all accumulated release decisions", () => {
       channel: "beta",
       regions: ["us", "eu", "apac"],
       rolloutPercent: 25,
-    }
+    },
   );
 });
 
-test("validates channel and rollout", () => {
-  assert.throws(
-    () => normalizeRelease({ artifacts: [], channel: "edge", regions: [] }),
-    TypeError
-  );
+void test("validates channel and rollout", () => {
+  assert.throws(() => normalizeRelease({ artifacts: [], channel: "edge", regions: [] }), TypeError);
   for (const rolloutPercent of [-1, 101, 1.5, "nope"]) {
     assert.throws(
       () =>
@@ -34,7 +31,7 @@ test("validates channel and rollout", () => {
           regions: [],
           rolloutPercent,
         }),
-      TypeError
+      TypeError,
     );
   }
 });

@@ -31,5 +31,8 @@ export const registerCodexTools = (
     tools.sync(ctx);
   });
   pi.on("before_agent_start", (event, ctx) => tools.beforeAgentStart(event.systemPrompt, ctx));
+  pi.on("session_before_compact", (_event, ctx) => {
+    tools.apply(ctx);
+  });
   pi.on("session_shutdown", (event) => tools.shutdown(event.reason));
 };
