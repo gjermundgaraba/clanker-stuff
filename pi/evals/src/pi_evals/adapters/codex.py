@@ -245,12 +245,9 @@ class CodexEval(Codex):
                 "Codex durable compactions do not match successful attempts "
                 f"({len(durable)} != {len(succeeded)})"
             )
-        compact_by_turn: dict[str, dict[str, Any]] = {}
-        for record in compact:
-            turn_id = record.get("turnId")
-            if not isinstance(turn_id, str) or turn_id in compact_by_turn:
-                raise ValueError("Codex compaction usage has an invalid turn id")
-            compact_by_turn[turn_id] = record
+        compact_by_turn = {record["turnId"]: record for record in compact}
+        if len(compact_by_turn) != len(compact):
+            raise ValueError("Codex compaction usage has an invalid turn id")
 
         durable_iterator = iter(durable)
         for attempt in attempts:

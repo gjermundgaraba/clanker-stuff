@@ -655,15 +655,12 @@ const snapshotLifecycleRequestState = (
   const tools = pi
     .getAllTools()
     .filter((tool) => activeNames.has(tool.name))
-    .map((tool) => {
-      const constrainedSampling = CONSTRAINED_SAMPLING_BY_TOOL.get(tool.name);
-      return {
-        constrainedSampling,
-        description: tool.description,
-        name: tool.name,
-        parameters: tool.parameters,
-      };
-    });
+    .map((tool) => ({
+      constrainedSampling: CONSTRAINED_SAMPLING_BY_TOOL.get(tool.name),
+      description: tool.description,
+      name: tool.name,
+      parameters: tool.parameters,
+    }));
   const systemPrompt = ctx.getSystemPrompt();
   const thinkingLevel = pi.getThinkingLevel();
   const serialized = JSON.stringify({ systemPrompt, thinkingLevel, tools });

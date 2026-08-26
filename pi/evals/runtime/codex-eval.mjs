@@ -58,9 +58,7 @@ const SERVER_WAIT_MS = 10_000;
  * @returns {unknown} Parsed value.
  */
 const parseJson = (text) => {
-  /** @type {unknown} */
-  const value = JSON.parse(text);
-  return value;
+  return /** @type {unknown} */ (JSON.parse(text));
 };
 
 /**

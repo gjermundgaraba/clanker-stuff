@@ -20,13 +20,9 @@ def _judge_cache(job_dir: Path, path: Path | None) -> Path:
     return paths[0]
 
 
-def _labels(path: Path) -> dict[str, dict[str, Any]]:
-    return load_cache(path)
-
-
 def rows(job_dir: Path, judge_cache: Path | None = None) -> list[dict[str, Any]]:
     values = report.rows(job_dir)
-    labels = _labels(_judge_cache(job_dir, judge_cache))
+    labels = load_cache(_judge_cache(job_dir, judge_cache))
     trials = {row["trial"] for row in values if row["status"] == "completed"}
     if trials != set(labels):
         raise ValueError("LongMemEval result and judge trials must match one-to-one")

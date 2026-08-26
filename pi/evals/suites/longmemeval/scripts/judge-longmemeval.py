@@ -62,7 +62,6 @@ def prompt_for(
             "If the response only contains a subset of the information required by the "
             "answer, answer no."
         )
-        answer_name = "Correct Answer"
     elif question_type == "temporal-reasoning":
         rule = (
             "If the response is equivalent to the correct answer or contains all the "
@@ -73,14 +72,12 @@ def prompt_for(
             "etc., and the model makes off-by-one errors, the model's response is still "
             "correct."
         )
-        answer_name = "Correct Answer"
     elif question_type == "knowledge-update":
         rule = (
             "If the response contains some previous information along with an updated "
             "answer, the response should be considered as correct as long as the updated "
             "answer is the required answer."
         )
-        answer_name = "Correct Answer"
     elif question_type == "single-session-preference":
         lead = (
             "I will give you a question, a rubric for desired personalized response, and "
@@ -101,7 +98,7 @@ def prompt_for(
         "answer no."
     )
     return (
-        f"{lead} {rule}\n\nQuestion: {question}\n\n{answer_name}: {answer}\n\n"
+        f"{lead} {rule}\n\nQuestion: {question}\n\nCorrect Answer: {answer}\n\n"
         f"Model Response: {response}\n\nIs the model response correct? Answer yes or no only."
     )
 

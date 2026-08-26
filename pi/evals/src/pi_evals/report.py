@@ -409,7 +409,6 @@ def rows(job_dir: Path) -> list[dict[str, Any]]:
                 "protocol": manifest["expected_protocol"],
                 "task": result.get("task_name") or task_names.get(task_key, task_label),
                 "quality": quality,
-                "quality_source": "verifier" if quality is not None else None,
                 "valid": valid,
                 "reward": reward,
                 **usage,
@@ -545,16 +544,15 @@ def _delta(value: object, digits: int = 3) -> str:
 
 def render(values: list[dict[str, Any]]) -> str:
     lines = [
-        "| Trial | Status | Platform | Mode | Task | Valid | Quality | Source | "
+        "| Trial | Status | Platform | Mode | Task | Valid | Quality | "
         "Requests ordinary/compact | Compactions attempt/success/failure | Input | "
         "Cache | Output | Ordinary $ | Compact $ | Total $ | Agent s | Wall s |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | "
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | "
         "---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     lines.extend(
         f"| {row['trial']} | {row['status']} | {row['platform']} | {row['mode']} | "
         f"{row['task']} | {_display(row['valid'], 0)} | {_display(row['quality'])} | "
-        f"{_display(row['quality_source'])} | "
         f"{_display(row['ordinary_requests'], 0)}/"
         f"{_display(row['compaction_requests'], 0)} | "
         f"{_display(row['compaction_attempts'], 0)}/"

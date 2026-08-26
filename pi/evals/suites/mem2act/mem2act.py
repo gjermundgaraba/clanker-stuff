@@ -52,8 +52,7 @@ def download_sources(pin: dict[str, Any], cache_dir: Path) -> dict[str, Path]:
             with urllib.request.urlopen(request, timeout=120) as response:
                 with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False) as output:
                     temporary = Path(output.name)
-                    while chunk := response.read(1024 * 1024):
-                        output.write(chunk)
+                    shutil.copyfileobj(response, output, length=1024 * 1024)
             if _sha256(temporary) != expected:
                 temporary.unlink()
                 raise ValueError(f"sha256 mismatch for {filename}")

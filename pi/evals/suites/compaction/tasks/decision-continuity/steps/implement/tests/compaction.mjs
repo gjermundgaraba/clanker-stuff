@@ -8,7 +8,6 @@ export function validateCompaction(trajectory, { expectedSegments }) {
   const manifestKeys = ["compaction_mode", "expected_mechanism", "expected_protocol", "platform"];
   const manifestValid =
     isObject(manifest) &&
-    Object.keys(manifest).length === manifestKeys.length &&
     manifestKeys.every((key) => Object.hasOwn(manifest, key)) &&
     Object.keys(manifest).every((key) => manifestKeys.includes(key)) &&
     isString(manifest.platform) &&
@@ -49,31 +48,18 @@ export function validateCompaction(trajectory, { expectedSegments }) {
     continuationSteps.every((step) => !["aborted", "error"].includes(step?.extra?.stop_reason));
   const countMatches = attempts.length === expected.length;
   const noAttempts = attempts.length === 0;
-  const mechanismValid = Number(
-    (off && noAttempts) ||
-      (on &&
-        countMatches &&
-        attempts.every(
-          (attempt) =>
-            attempt?.extra?.mechanism === manifest.expected_mechanism &&
-            attempt?.extra?.protocol === manifest.expected_protocol,
-        )),
+  const attemptMetric = (predicate) =>
+    Number((off && noAttempts) || (on && countMatches && attempts.every(predicate)));
+  const mechanismValid = attemptMetric(
+    (attempt) =>
+      attempt?.extra?.mechanism === manifest.expected_mechanism &&
+      attempt?.extra?.protocol === manifest.expected_protocol,
   );
-  const boundaryValid = Number(
-    (off && noAttempts) ||
-      (on &&
-        countMatches &&
-        attempts.every(
-          (attempt, index) => attempt?.extra?.compacted_after_segment === expected[index],
-        )),
+  const boundaryValid = attemptMetric(
+    (attempt, index) => attempt?.extra?.compacted_after_segment === expected[index],
   );
-  const outcomeValid = Number(
-    (off && noAttempts) ||
-      (on &&
-        countMatches &&
-        attempts.every(
-          (attempt) => attempt?.source === "agent" && attempt?.extra?.state === "succeeded",
-        )),
+  const outcomeValid = attemptMetric(
+    (attempt) => attempt?.source === "agent" && attempt?.extra?.state === "succeeded",
   );
   const treatmentValid = Boolean(expectedValid && mechanismValid && boundaryValid && outcomeValid);
   const successes = attempts.filter((attempt) => attempt?.extra?.state === "succeeded").length;

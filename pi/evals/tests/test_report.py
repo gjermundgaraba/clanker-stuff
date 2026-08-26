@@ -125,7 +125,6 @@ class ReportTest(TestCase):
                     row["status"],
                     row["platform"],
                     row["quality"],
-                    row["quality_source"],
                     row["valid"],
                     row["ordinary_requests"],
                     row["compaction_attempts"],
@@ -138,7 +137,6 @@ class ReportTest(TestCase):
                     "completed",
                     "future",
                     0.5,
-                    "verifier",
                     1,
                     1,
                     0,
@@ -568,7 +566,6 @@ class ReportTest(TestCase):
                     "task": "t",
                     "valid": 1,
                     "quality": 1,
-                    "quality_source": "verifier",
                     "reward": 1,
                     "ordinary_requests": 1,
                     "compaction_requests": 1,
@@ -588,7 +585,7 @@ class ReportTest(TestCase):
         )
         self.assertIn("Compact $", rendered)
         self.assertIn(
-            "| trial | completed | p | on | t | 1 | 1.000 | verifier | 1/1 | 1/1/0 |",
+            "| trial | completed | p | on | t | 1 | 1.000 | 1/1 | 1/1/0 |",
             rendered,
         )
 

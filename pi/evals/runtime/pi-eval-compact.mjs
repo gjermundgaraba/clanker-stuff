@@ -6,14 +6,10 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 const runtimeRequire = createRequire("/opt/codex-provider/package.json");
-/** @type {unknown} */
-const rawTypebox = runtimeRequire("typebox");
-/** @type {unknown} */
-const rawValue = runtimeRequire("typebox/value");
 // SAFETY: These are pinned production dependencies resolved from the deployed extension.
-const { Type } = /** @type {typeof import("typebox")} */ (rawTypebox);
+const { Type } = /** @type {typeof import("typebox")} */ (runtimeRequire("typebox"));
 // SAFETY: These are pinned production dependencies resolved from the deployed extension.
-const { Value } = /** @type {typeof import("typebox/value")} */ (rawValue);
+const { Value } = /** @type {typeof import("typebox/value")} */ (runtimeRequire("typebox/value"));
 
 const codingAgentUrl = pathToFileURL(
   "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
@@ -103,10 +99,10 @@ const selfTestCompactionValidation = () => {
 
 /** @returns {Promise<typeof import("@earendil-works/pi-coding-agent").RpcClient>} */
 const loadRpcClient = async () => {
-  /** @type {unknown} */
-  const rawModule = await import(codingAgentUrl);
   // SAFETY: ESM loaded the pinned pi-coding-agent entry point at the exact deployed path.
-  const module = /** @type {typeof import("@earendil-works/pi-coding-agent")} */ (rawModule);
+  const module = /** @type {typeof import("@earendil-works/pi-coding-agent")} */ (
+    await import(codingAgentUrl)
+  );
   if (!(module.RpcClient instanceof Function)) {
     throw new TypeError("Pi RPC client is unavailable");
   }
