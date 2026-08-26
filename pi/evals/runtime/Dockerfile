@@ -24,7 +24,6 @@ RUN apt-get update \
 COPY --from=extension /out /opt/codex-provider
 COPY pi/evals/runtime/codex-eval.mjs /usr/local/bin/codex-eval
 COPY pi/evals/runtime/pi-eval-compact.mjs /usr/local/bin/pi-eval-compact
-COPY pi/evals/runtime/mem2act.mjs /usr/local/bin/mem2act
-RUN chmod 755 /usr/local/bin/codex-eval /usr/local/bin/pi-eval-compact /usr/local/bin/mem2act
+RUN chmod 755 /usr/local/bin/codex-eval /usr/local/bin/pi-eval-compact
 ENV PATH="/opt/codex-provider/node_modules/.bin:${PATH}"
 WORKDIR /app

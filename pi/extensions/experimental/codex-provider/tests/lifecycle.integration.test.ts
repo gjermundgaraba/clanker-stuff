@@ -28,6 +28,7 @@ import {
   SPIKE_MODEL,
   wireArray,
   wireRecord,
+  wireString,
   WireRecordSchema,
 } from "./fixtures.js";
 import type { WireRecord, WireValue } from "./fixtures.js";
@@ -1629,10 +1630,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-lifecycle-resume-cache-");
     const model = createToolsModel("gpt-5.6-terra", true);
     const requests: WireRecord[] = [];
+    const requestHeaders: Headers[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn<FetchFunction>(async (_input, init) => {
-        const request = requestJson(init?.body, new Headers(init?.headers));
+        const headers = new Headers(init?.headers);
+        const request = requestJson(init?.body, headers);
+        requestHeaders.push(headers);
         requests.push(request);
         return inputItemTypes(request.input).includes("compaction_trigger")
           ? compactResponse("resume-cache")
@@ -1676,18 +1680,39 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       }
       const ordinaryInput = wireArray(ordinary.input);
       const compactInput = wireArray(compact.input);
+      const cacheKey = wireString(ordinary.prompt_cache_key);
+      const ordinaryMetadata = wireRecord(ordinary.client_metadata);
+      const compactMetadata = wireRecord(compact.client_metadata);
+      const ordinaryTurnMetadata = turnMetadata(ordinary);
+      const compactTurnMetadata = turnMetadata(compact);
+      if (!ordinaryTurnMetadata || !compactTurnMetadata) {
+        throw new Error("Expected ordinary and compaction turn metadata");
+      }
+      const identity = (metadata: WireRecord) => ({
+        sessionId: wireString(metadata.session_id),
+        threadId: wireString(metadata.thread_id),
+      });
+      const expectedIdentity = identity(ordinaryMetadata);
       expect({
+        clientRequestIds: requestHeaders.map((headers) => headers.get("x-client-request-id")),
+        clientMetadata: [ordinaryMetadata, compactMetadata].map(identity),
         inputPrefix:
           JSON.stringify(compactInput.slice(0, ordinaryInput.length)) ===
           JSON.stringify(ordinaryInput),
         instructions: compact.instructions === ordinary.instructions,
         key: compact.prompt_cache_key === ordinary.prompt_cache_key,
+        sessionIds: requestHeaders.map((headers) => headers.get("session-id")),
         tools: JSON.stringify(compact.tools) === JSON.stringify(ordinary.tools),
+        turnMetadata: [ordinaryTurnMetadata, compactTurnMetadata].map(identity),
       }).toStrictEqual({
+        clientRequestIds: [cacheKey, cacheKey],
+        clientMetadata: [expectedIdentity, expectedIdentity],
         inputPrefix: true,
         instructions: true,
         key: true,
+        sessionIds: [cacheKey, cacheKey],
         tools: true,
+        turnMetadata: [expectedIdentity, expectedIdentity],
       });
     } finally {
       session.dispose();

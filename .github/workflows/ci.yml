@@ -21,11 +21,18 @@ jobs:
       - run: vp run ready
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --project pi/evals --frozen
-      - run: uv run --project pi/evals python -m unittest discover -s pi/evals/tests -v
-      - run: pi/evals/scripts/build-runtime.sh
       - run: |
-          for config in pi/evals/jobs/*.yaml; do
-            uv run --project pi/evals harbor job start --config "$config" --print-config >/dev/null
+          for tests in pi/evals/tests pi/evals/suites/*/tests; do
+            PYTHONPATH=pi/evals uv run --project pi/evals python -m unittest discover -s "$tests" -p 'test_*.py' -v
           done
-      - run: uv run harbor job start --config jobs/smoke.yaml --job-name ci-smoke --yes
+      - run: pi/evals/runtime/build.sh
+      - run: |
+          for profile in profiles/*.yaml; do
+            uv run harbor job start --config "$profile" --path suites/compaction/tasks --print-config >/dev/null
+          done
+          for config in suites/*/job.yaml; do
+            uv run harbor job start --config "$config" --print-config >/dev/null
+          done
+        working-directory: pi/evals
+      - run: uv run harbor job start --config suites/smoke/job.yaml --job-name ci-smoke --yes
         working-directory: pi/evals

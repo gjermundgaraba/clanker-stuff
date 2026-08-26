@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -17,6 +18,7 @@ const { Value } = /** @type {typeof import("typebox/value")} */ (rawValue);
 const codingAgentUrl = pathToFileURL(
   "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
 ).href;
+const compactionTimeoutMs = 4 * 60 * 1000;
 
 const ConfigSchema = Type.Object({
   args: Type.Array(Type.String()),
@@ -34,6 +36,68 @@ const parseConfig = (text) => {
     return Value.Parse(ConfigSchema, JSON.parse(text));
   } catch {
     throw new TypeError("invalid Pi compaction config");
+  }
+};
+
+/** @typedef {{aborted?: boolean, errorMessage?: string, result?: {usage?: unknown}, type: "compaction_end"}} CompactionTerminal */
+
+/** @param {CompactionTerminal} event */
+const compactionState = (event) => {
+  if (event.aborted !== true && event.aborted !== false) {
+    return undefined;
+  }
+  if (event.aborted) {
+    return event.errorMessage === undefined ? "aborted" : undefined;
+  }
+  if (event.errorMessage) {
+    return "failed";
+  }
+  return event.errorMessage === undefined && event.result?.usage !== undefined
+    ? "succeeded"
+    : undefined;
+};
+
+/**
+ * @param {CompactionTerminal[]} terminals
+ * @param {Error | undefined} commandError
+ * @param {boolean} commandTimedOut
+ */
+const validateCompaction = (terminals, commandError, commandTimedOut) => {
+  const terminal = terminals[0];
+  if (terminals.length !== 1 || terminal === undefined) {
+    throw commandError ?? new Error("Pi manual compaction did not emit one terminal event");
+  }
+  const state = compactionState(terminal);
+  const commandConsistent =
+    state === "succeeded"
+      ? commandError === undefined
+      : commandTimedOut || commandError !== undefined;
+  if (state === undefined || !commandConsistent) {
+    throw commandError ?? new Error("Pi manual compaction emitted an invalid terminal event");
+  }
+  return state;
+};
+
+const selfTestCompactionValidation = () => {
+  /** @type {CompactionTerminal} */
+  const succeeded = { type: "compaction_end", aborted: false, result: { usage: {} } };
+  /** @type {CompactionTerminal} */
+  const failed = { type: "compaction_end", aborted: false, errorMessage: "failed" };
+  /** @type {CompactionTerminal} */
+  const aborted = { type: "compaction_end", aborted: true };
+  const commandError = new Error("compaction command failed");
+  assert.equal(validateCompaction([succeeded], undefined, false), "succeeded");
+  assert.equal(validateCompaction([failed], commandError, false), "failed");
+  assert.equal(validateCompaction([aborted], commandError, false), "aborted");
+  assert.equal(validateCompaction([failed], undefined, true), "failed");
+  for (const invalid of [
+    () => validateCompaction([], undefined, false),
+    () => validateCompaction([succeeded, succeeded], undefined, false),
+    () => validateCompaction([{ type: "compaction_end", aborted: false }], undefined, false),
+    () => validateCompaction([failed], undefined, false),
+    () => validateCompaction([succeeded], commandError, false),
+  ]) {
+    assert.throws(invalid);
   }
 };
 
@@ -56,6 +120,7 @@ const run = async (configPath) => {
   const RpcClient = await loadRpcClient();
   /** @type {import("@earendil-works/pi-coding-agent").JsonAgentSessionEvent[]} */
   const events = [];
+  const { promise: completionEvent, resolve: resolveCompletion } = Promise.withResolvers();
   const client = new RpcClient({
     args: config.args,
     cliPath: "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
@@ -66,28 +131,42 @@ const run = async (configPath) => {
   client.onEvent((event) => {
     events.push(event);
     process.stdout.write(`${JSON.stringify(event)}\n`);
+    if (event.type === "compaction_end") {
+      resolveCompletion(event);
+    }
   });
 
   await client.start();
+  const timeout = setTimeout(() => {
+    resolveCompletion(undefined);
+  }, compactionTimeoutMs);
   try {
-    const result = await client.compact();
-    const completed = events.filter((event) => event.type === "compaction_end");
-    const completion = completed[0];
-    if (
-      completed.length !== 1 ||
-      completion === undefined ||
-      completion.aborted ||
-      completion.errorMessage !== undefined ||
-      result.usage === undefined
-    ) {
-      throw new Error("Pi manual compaction did not complete with usage");
+    /** @type {Error | undefined} */
+    let commandError;
+    let commandTimedOut = false;
+    try {
+      await client.compact();
+    } catch (error) {
+      if (error instanceof Error) {
+        commandTimedOut = error.message.startsWith("Timeout waiting for response to compact.");
+        commandError = commandTimedOut ? undefined : error;
+      } else {
+        throw error;
+      }
     }
+    if (commandTimedOut && !events.some((event) => event.type === "compaction_end")) {
+      await completionEvent;
+    }
+    const completed = events.filter((event) => event.type === "compaction_end");
+    validateCompaction(completed, commandError, commandTimedOut);
   } finally {
+    clearTimeout(timeout);
     await client.stop();
   }
 };
 
 if (process.argv[2] === "--self-test") {
+  selfTestCompactionValidation();
   await loadRpcClient();
 } else {
   const configPath = process.argv[2];

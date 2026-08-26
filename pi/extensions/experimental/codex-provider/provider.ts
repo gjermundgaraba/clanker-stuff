@@ -1670,7 +1670,7 @@ export const createCodexProviderRuntime = (
         ...envelope,
         client_metadata: {
           ...envelopeMetadata,
-          ...requestMetadata(runtimeSessionId, session, "compaction", compactionMetadata(request)),
+          ...requestMetadata(request.sessionId, session, "compaction", compactionMetadata(request)),
         },
         input: [...effectiveInput, { type: "compaction_trigger" }],
         model: request.model.id,
@@ -1690,6 +1690,7 @@ export const createCodexProviderRuntime = (
       }
       validateRequestReasoningEffort(body);
       observedBody = body;
+      const requestId = promptCacheKey(request.sessionId);
       const configuredWebsocketTransport =
         options.transport === "sse" ? undefined : (options.transport ?? "auto");
       const websocketAttempts =
@@ -1709,7 +1710,7 @@ export const createCodexProviderRuntime = (
             body,
             options,
             session,
-            uuidv7(),
+            requestId,
             capture,
             trace,
             built.responsesLite,

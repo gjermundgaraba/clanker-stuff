@@ -1,91 +1,89 @@
 # Pi evals
 
-Harbor tasks for comparing vanilla Pi, Pi with `codex-provider`, and native Codex across compaction continuity, long-term memory, and argument grounding. The adapters resume native multi-step sessions and normalize successful compactions into ATIF v1.7 trajectories.
+Harbor suites compare the configured Pi and Codex runtimes on `gpt-5.6-terra`. Run commands from `pi/evals`.
 
 ## Setup
 
-Run commands from this directory.
-
 ```bash
 uv sync
-./scripts/build-runtime.sh
+./runtime/build.sh
 export PI_EVAL_AUTH_JSON_PATH="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json"
 export CODEX_AUTH_JSON_PATH="$HOME/.codex/auth.json"
 ```
 
-The Linux/Node 26 image contains one frozen Pi dependency tree shared by the CLI and provider extension, pinned Codex CLI, and the portable `mem2act` command. The repository, reference solutions, and hidden tests are absent during agent execution. Run the no-provider packaging smoke with:
+The Node 26 image builds the extension inside Linux, contains one frozen Pi dependency tree, and excludes the repository, reference solutions, and hidden tests. Verify packaging and graders without model calls:
 
 ```bash
-uv run harbor job start --config jobs/smoke.yaml --yes
+uv run harbor job start --config suites/smoke/job.yaml --yes
 ```
 
 ## Compaction continuity
 
-The compaction job has six matched arms: compaction off/on for vanilla Pi, Pi with `codex-provider`, and native Codex. Automatic compaction is disabled in every arm. At each hidden task boundary, off arms continue unchanged while on arms invoke that runtime's native manual compaction API. The marker is removed before the model sees the next instruction.
+`paired.yaml` runs matched compaction-off/on arms for every configured platform. Automatic compaction is disabled; hidden task markers invoke each runtime's manual compaction path only in on arms.
 
 ```bash
-uv run harbor job start --config jobs/compaction-matrix.yaml --yes
-./scripts/report.py .harbor/jobs/compaction-matrix
+# Calibrate once, then use the profile's three attempts for a reportable run.
+uv run harbor job start --config profiles/paired.yaml \
+  --path suites/compaction/tasks --n-attempts 1 \
+  --job-name compaction-calibration --yes
+uv run harbor job start --config profiles/paired.yaml \
+  --path suites/compaction/tasks --job-name compaction-paired --yes
+uv run python -m pi_evals.report .harbor/jobs/compaction-paired
 ```
 
-Verifiers report end-state quality separately from attempt, success, mechanism, exact boundary, and continuation validity. A missed, failed, misplaced, or extra compaction invalidates an on-arm experiment; it is not scored as an incorrect task answer.
+Task quality is independent of protocol validity. A terminal failed or aborted compaction is recorded and the marked instruction still runs, so it makes `valid_experiment` zero without hiding `quality`; an ambiguous runtime failure still stops the trial. The canonical report filters quality to valid completed trials and separately reports request and compaction counts, completion yield, usage, ordinary/compaction cost, agent execution time, end-to-end wall time, and matched on-minus-off deltas. Harbor's raw reward aggregate is not the experimental comparison surface.
 
-The report reads per-request metrics from the final trajectory and separates ordinary model calls, compaction calls, and their total. Native Codex usage comes from transient app-server response events, so its standalone compaction request is included. Dollar values are API list-price equivalents, not an account invoice or subscription charge.
+Costs are API list-price estimates, not account invoices or subscription charges. Native Codex reporting includes the standalone compaction response captured from app-server events.
 
-## LongMemEval compaction track
+Affected earlier debugging-continuity runs used a stale `route.test.js` digest, which capped attainable quality at 0.8. They are not comparable with corrected runs and must be rerun.
 
-The generator pins cleaned LongMemEval-S and its evidence-only file by immutable revision and SHA-256. It selects 30 seeded questions balanced across all six question types, retains every official evidence session, and creates these derived conditions:
+## LongMemEval
 
-- `full/64k`: six chronological, token-balanced history steps.
-- `full/115k`: ten chronological, token-balanced history steps.
-- `evidence`: only the official evidence sessions, rendered with the source history's dates and content.
-- `handoff/115k`: the identical 115K history and compaction boundary, then verbatim evidence immediately before the question.
+The pinned generator creates 30 questions in four generated paths across three conditions:
 
-```bash
-uv run python scripts/prepare-longmemeval.py
-
-# Calibrate all 30 questions once before paid repetitions.
-uv run harbor job start --config jobs/longmemeval-64k.yaml \
-  --n-attempts 1 --job-name longmemeval-64k-calibration --yes
-
-# Fixed reportable protocol: 30 questions × 3 attempts in each job.
-for config in longmemeval-64k longmemeval-115k \
-  longmemeval-evidence longmemeval-handoff-115k; do
-  uv run harbor job start --config "jobs/$config.yaml" --yes
-done
-```
-
-Controlled on arms explicitly invoke exactly one compaction after the final full-history step: segment 5 at 64K or segment 9 at 115K. Evidence has three compaction-off surfaces; handoff has the three compaction-on surfaces and rejects any compaction after evidence is reintroduced.
-
-The in-task `exact_normalized` score is a deterministic lower bound. Apply the task-specific LongMemEval semantic rubrics with `gpt-5.6-sol`, then report each job:
+- `full/64k` and `full/115k`: history followed by the question; use `paired.yaml`.
+- `evidence`: official evidence sessions only; use `off-only.yaml`.
+- `handoff/115k`: 115K history, compaction, then verbatim evidence; use `on-only.yaml`.
 
 ```bash
-./scripts/judge-longmemeval.py .harbor/jobs/JOB_NAME \
+uv run python suites/longmemeval/scripts/prepare-longmemeval.py
+
+uv run harbor job start --config profiles/paired.yaml \
+  --path suites/longmemeval/generated/full/64k \
+  --job-name longmemeval-full-64k --yes
+
+uv run python suites/longmemeval/scripts/judge-longmemeval.py \
+  .harbor/jobs/longmemeval-full-64k \
   --backend codex --model gpt-5.6-sol --workers 4
-./scripts/report.py .harbor/jobs/JOB_NAME
+uv run python suites/longmemeval/scripts/report.py \
+  .harbor/jobs/longmemeval-full-64k
 ```
 
-Interpret the conditions as diagnostics, not interchangeable benchmark scores. `full-on − full-off` is the observed compaction effect. `full-on − handoff` approximates summary information loss but is also affected by evidence position; `handoff − evidence` measures interference from carrying compacted residue; `full-off − evidence` measures long-context retrieval cost without compaction.
+Run the other three generated paths with the profiles listed above and distinct job names. Add `--n-attempts 1` for calibration before paid repetitions.
 
-This is a compaction-oriented derivative because official LongMemEval sends history and question in one request. Do not publish these numbers as unmodified LongMemEval-S results.
+The generated verifier's `quality` and `reward` are deterministic normalized exact match. The suite report leaves those raw values intact and presents semantic QA-judge quality in its second table; use QA quality for LongMemEval comparisons.
 
-## Mem2Act argument-grounding track
+This is a compaction-oriented derivative: official LongMemEval sends history and question in one request. Do not publish these results as unmodified LongMemEval-S scores. Compare full on versus full off for the observed compaction effect; evidence and handoff are diagnostic bounds with different evidence positions.
 
-Mem2Act's main condition provides the target tool, so this track measures recovery of its arguments from conversation memory; it does not measure tool selection. Preparation downloads pinned upstream files but never vendors them because the upstream repository has no license file despite its README claiming MIT. Exactly 323/400 questions resolve to one raw source session; the 77 unresolved questions are excluded rather than replaced with answer-leaking evolution metadata.
+## Mem2Act
+
+Mem2Act provides the target tool, so this suite measures recovery of arguments from conversation memory, not tool selection. The pinned sample contains 40 stratified tasks from the 323 records that resolve to one source session.
 
 ```bash
-uv run python scripts/prepare-mem2act.py --selection sample \
-  --output datasets-generated/mem2act
-uv run harbor job start --config jobs/mem2act.yaml --yes
+uv run python suites/mem2act/scripts/prepare-mem2act.py --selection sample
+uv run harbor job start --config profiles/off-only.yaml \
+  --path suites/mem2act/generated --job-name mem2act-sample --yes
+uv run python -m pi_evals.report .harbor/jobs/mem2act-sample
 ```
 
-Sample mode selects 40 deterministic, stratified tasks and the fixed job runs three attempts per agent. Use `--selection full` in an empty output directory for all 323. The hidden verifier reports exact canonical arguments and typed JSON-pointer parameter F1. Every agent uses the same semantic CLI, so adapter-specific native tool names do not affect the score.
+Use `--selection full` in an empty generated directory for all 323 tasks. The verifier reports exact canonical arguments as quality and typed JSON-pointer parameter F1 as a diagnostic.
 
-## Layout
+## Add a suite
 
-- `benchmarks/` pins upstream provenance, checksums, selections, and exclusions.
-- `src/pi_evals/` contains isolated adapters, trajectory conversion, and generators.
-- `datasets/` contains checked-in tasks; ignored `datasets-generated/` is reproducible.
-- `jobs/` defines fixed comparison arms; `scripts/report.py` reports validity, quality, usage, and matched-arm deltas.
+Add `suites/<name>/` with its tasks or generator, provenance pin when applicable, tests, and any suite-specific judge/report wrapper. Normal suites use the existing profiles with Harbor's `--path`; they do not change adapters or generic reporting.
 
-Inspect completed jobs with `uv run harbor view .harbor/jobs`.
+The `pi_evals` manifest has exactly four keys: `platform`, `compaction_mode`, `expected_mechanism`, and `expected_protocol`. `expected_protocol` is required; set it to `null` when no protocol applies.
+
+Every final verifier must emit finite `quality` and `reward` values in `[0, 1]`, binary `valid_experiment`, and `reward == quality`. Compaction graders copy `verifiers/compaction.mjs` beside the isolated grader and test that the copy is byte-identical.
+
+Core adapters and reporting live in `src/pi_evals/`; shared profiles live in `profiles/`; the isolated image lives in `runtime/`. Inspect completed jobs with `uv run harbor view .harbor/jobs`.

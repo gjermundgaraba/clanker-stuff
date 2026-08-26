@@ -9,6 +9,7 @@ const SERVER_WAIT_MS = 10_000;
 /**
  * @typedef {{
  *   compactBefore: boolean,
+ *   compactedAfterSegment: number,
  *   effort: string | null,
  *   instructionPath: string,
  *   model: string,
@@ -16,6 +17,7 @@ const SERVER_WAIT_MS = 10_000;
  * }} EvalConfig
  * @typedef {{ id?: string, type?: string }} RpcItem
  * @typedef {{ id: string, status: string }} RpcTurn
+ * @typedef {{ threadId: string, turn: RpcTurn }} TurnStart
  * @typedef {{
  *   item?: RpcItem,
  *   responseId?: string,
@@ -40,6 +42,14 @@ const SERVER_WAIT_MS = 10_000;
  *   turnId: string,
  *   usage: unknown,
  * }} UsageRecord
+ * @typedef {{
+ *   compactedAfterSegment: number,
+ *   kind: "compaction_attempt",
+ *   state: "aborted" | "failed" | "succeeded",
+ *   threadId: string,
+ *   timestamp: string,
+ *   turnId: string,
+ * }} CompactionAttempt
  */
 
 /**
@@ -109,10 +119,15 @@ const optionalString = (value, source) =>
 const evalConfig = (value) => {
   const config = objectValue(value, "Codex eval config");
   const compactBefore = "compactBefore" in config ? config.compactBefore : false;
+  const compactedAfterSegment =
+    "compactedAfterSegment" in config ? config.compactedAfterSegment : -1;
   const effort = "effort" in config ? config.effort : null;
   const summary = "summary" in config ? config.summary : null;
   if (compactBefore !== true && compactBefore !== false) {
     throw new TypeError("compactBefore must be a boolean");
+  }
+  if (!Number.isInteger(compactedAfterSegment) || compactedAfterSegment < -1) {
+    throw new TypeError("compactedAfterSegment must be an integer greater than or equal to -1");
   }
   if (effort !== null && !isString(effort)) {
     throw new TypeError("effort must be a string or null");
@@ -122,6 +137,7 @@ const evalConfig = (value) => {
   }
   return {
     compactBefore,
+    compactedAfterSegment,
     effort,
     instructionPath: stringValue(
       "instructionPath" in config ? config.instructionPath : undefined,
@@ -215,25 +231,95 @@ const startedTurnId = (result) => {
   return stringValue("id" in turn ? turn.id : undefined, "turn/start result.turn.id");
 };
 
-const createUsageCapture = () => {
-  /** @type {Map<string, string>} */
-  const activeCompactions = new Map();
+const createCapture = () => {
+  /** @type {Map<string, { completed: boolean, expected: boolean, itemId?: string, state?: CompactionAttempt["state"], timestamp?: string }>} */
+  const compactions = new Map();
   /** @type {UsageRecord[]} */
   const records = [];
   const responseIds = new Set();
+  /** @type {Map<string, RpcTurn>} */
+  const terminals = new Map();
+
+  /**
+   * @param {string} turnId Compaction turn id.
+   * @param {RpcTurn} turn Terminal turn.
+   */
+  const settle = (turnId, turn) => {
+    const compaction = compactions.get(turnId);
+    if (compaction === undefined) {
+      return;
+    }
+    if (compaction.state !== undefined) {
+      throw new Error(`duplicate terminal state for Codex compaction turn ${turnId}`);
+    }
+    if (!["completed", "failed", "interrupted"].includes(turn.status)) {
+      throw new Error(`unknown Codex compaction status: ${turn.status}`);
+    }
+    if (compaction.completed) {
+      compaction.state = "succeeded";
+    } else if (turn.status === "failed") {
+      compaction.state = "failed";
+    } else if (turn.status === "interrupted") {
+      compaction.state = "aborted";
+    } else {
+      throw new Error(`completed Codex compaction turn ${turnId} omitted item/completed`);
+    }
+    compaction.timestamp = new Date().toISOString();
+  };
+
+  /** @param {string} turnId Explicit compaction turn id. */
+  const beginCompaction = (turnId) => {
+    const existing = compactions.get(turnId);
+    if (existing?.expected) {
+      throw new Error(`duplicate Codex compaction turn ${turnId}`);
+    }
+    const compaction = existing ?? { completed: false, expected: true };
+    compaction.expected = true;
+    compactions.set(turnId, compaction);
+    const terminal = terminals.get(turnId);
+    if (terminal !== undefined && compaction.state === undefined) {
+      settle(turnId, terminal);
+    }
+  };
 
   /** @param {RpcMessage} message JSON-RPC message. */
   const accept = (message) => {
     const { method, params } = message;
     if (method === "item/started" && params?.item?.type === "contextCompaction") {
-      activeCompactions.set(
-        stringValue(params.item.id, "compaction item id"),
-        stringValue(params.turnId, "compaction turn id"),
-      );
+      const turnId = stringValue(params.turnId, "compaction turn id");
+      const compaction = compactions.get(turnId) ?? { completed: false, expected: false };
+      if (compaction.itemId !== undefined || compaction.state !== undefined) {
+        throw new Error(`multiple Codex compaction items for turn ${turnId}`);
+      }
+      compaction.itemId = stringValue(params.item.id, "compaction item id");
+      compactions.set(turnId, compaction);
       return;
     }
     if (method === "item/completed" && params?.item?.type === "contextCompaction") {
-      activeCompactions.delete(stringValue(params.item.id, "compaction item id"));
+      const turnId = stringValue(params.turnId, "compaction turn id");
+      const compaction = compactions.get(turnId);
+      const itemId = stringValue(params.item.id, "compaction item id");
+      if (
+        compaction === undefined ||
+        compaction.itemId !== itemId ||
+        compaction.completed ||
+        compaction.state !== undefined
+      ) {
+        throw new Error(`unmatched Codex compaction completion for turn ${turnId}`);
+      }
+      compaction.completed = true;
+      return;
+    }
+    if (method === "turn/completed") {
+      const turn = params?.turn;
+      if (turn === undefined) {
+        throw new Error("turn/completed omitted its turn");
+      }
+      if (terminals.has(turn.id)) {
+        throw new Error(`duplicate terminal Codex turn ${turn.id}`);
+      }
+      terminals.set(turn.id, turn);
+      settle(turn.id, turn);
       return;
     }
     if (method !== "rawResponse/completed") {
@@ -242,21 +328,20 @@ const createUsageCapture = () => {
     const responseId = stringValue(params?.responseId, "response id");
     const threadId = stringValue(params?.threadId, "response thread id");
     const turnId = stringValue(params?.turnId, "response turn id");
-    if (params?.usage === undefined || params.usage === null) {
-      throw new Error("Codex response omitted exact usage");
-    }
+    const compaction = compactions.get(turnId);
+    const kind = compaction !== undefined && !compaction.completed ? "compaction" : "ordinary";
     if (responseIds.has(responseId)) {
       throw new Error(`duplicate Codex response id: ${responseId}`);
     }
-    const compactions = [...activeCompactions.values()].filter(
-      (activeTurnId) => activeTurnId === turnId,
-    );
-    if (compactions.length > 1) {
-      throw new Error("ambiguous overlapping Codex compactions");
-    }
     responseIds.add(responseId);
+    if (params?.usage === undefined || params.usage === null) {
+      if (kind === "compaction") {
+        return;
+      }
+      throw new Error("Codex response omitted exact usage");
+    }
     records.push({
-      kind: compactions.length === 1 ? "compaction" : "ordinary",
+      kind,
       responseId,
       threadId,
       turnId,
@@ -265,19 +350,26 @@ const createUsageCapture = () => {
   };
 
   const finish = () => {
-    if (activeCompactions.size !== 0) {
-      throw new Error("Codex turn ended during compaction");
+    if ([...compactions.values()].some((compaction) => compaction.state === undefined)) {
+      throw new Error("Codex turn ended without a terminal compaction state");
     }
     if (!records.some((record) => record.kind === "ordinary")) {
       throw new Error("Codex turn completed without an ordinary model response");
     }
-    return records;
+    return {
+      attempts: [...compactions.entries()].map(([turnId, compaction]) => ({
+        state: compaction.state,
+        timestamp: compaction.timestamp,
+        turnId,
+      })),
+      records,
+    };
   };
 
-  return { accept, finish };
+  return { accept, beginCompaction, finish };
 };
 
-/** @typedef {ReturnType<typeof createUsageCapture>} UsageCapture */
+/** @typedef {ReturnType<typeof createCapture>} Capture */
 
 const openSocket = () => {
   /** @type {PromiseWithResolvers<WebSocket>} */
@@ -324,48 +416,58 @@ const waitForSocket = async (deadline) => {
   }
 };
 
-const connect = async (statePath) => {
+const connect = async () => {
   try {
     return await openSocket();
   } catch (error) {
-    try {
-      await readFile(statePath, "utf-8");
-    } catch {
-      const server = spawn("codex", ["app-server", "--listen", SERVER_URL], {
-        detached: true,
-        env: process.env,
-        stdio: "ignore",
-      });
-      server.unref();
-      const socket = await waitForSocket(Date.now() + SERVER_WAIT_MS);
-      if (socket !== undefined) {
-        return socket;
-      }
+    const server = spawn("codex", ["app-server", "--listen", SERVER_URL], {
+      detached: true,
+      env: process.env,
+      stdio: "ignore",
+    });
+    server.unref();
+    const socket = await waitForSocket(Date.now() + SERVER_WAIT_MS);
+    if (socket !== undefined) {
+      return socket;
     }
     throw error;
   }
 };
 
 class RpcClient {
-  /** @type {Array<(turnId: string) => void>} */
-  compactionStartWaiters = [];
+  /** @type {Error | undefined} */
+  failure;
   nextId = 1;
   /** @type {Map<number | string, PromiseWithResolvers<unknown>>} */
   pending = new Map();
   /** @type {Map<string, RpcTurn>} */
   completedTurns = new Map();
-  /** @type {Map<string, (turn: RpcTurn) => void>} */
+  /** @type {Map<string, PromiseWithResolvers<RpcTurn>>} */
   turnWaiters = new Map();
+  /** @type {TurnStart[]} */
+  turnStarts = [];
+  /** @type {Array<{ threadId: string, waiter: PromiseWithResolvers<RpcTurn> }>} */
+  turnStartWaiters = [];
 
   /**
    * @param {WebSocket} socket Connected socket.
-   * @param {UsageCapture} capture Usage collector.
+   * @param {Capture} capture Event collector.
    */
   constructor(socket, capture) {
     this.socket = socket;
     this.capture = capture;
     socket.addEventListener("message", ({ data }) => {
-      this.#accept(rpcMessage(parseJson(String(data))));
+      try {
+        this.#accept(rpcMessage(parseJson(String(data))));
+      } catch (error) {
+        this.#fail(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    socket.addEventListener("error", () => {
+      this.#fail(new Error("Codex app-server connection failed"));
+    });
+    socket.addEventListener("close", () => {
+      this.#fail(new Error("Codex app-server connection closed"));
     });
   }
 
@@ -375,6 +477,9 @@ class RpcClient {
    * @returns {Promise<unknown>} JSON-RPC result.
    */
   request(method, params) {
+    if (this.failure !== undefined) {
+      return Promise.reject(this.failure);
+    }
     const id = this.nextId;
     this.nextId += 1;
     /** @type {PromiseWithResolvers<unknown>} */
@@ -392,27 +497,66 @@ class RpcClient {
     this.socket.send(JSON.stringify({ method, params }));
   }
 
+  assertHealthy() {
+    if (this.failure !== undefined) {
+      throw this.failure;
+    }
+  }
+
   /**
    * @param {string} turnId Turn id.
    * @returns {Promise<RpcTurn>} Completed turn.
    */
   waitForTurn(turnId) {
+    if (this.failure !== undefined) {
+      return Promise.reject(this.failure);
+    }
     const completed = this.completedTurns.get(turnId);
     if (completed !== undefined) {
       return Promise.resolve(completed);
     }
     /** @type {PromiseWithResolvers<RpcTurn>} */
     const waiter = Promise.withResolvers();
-    this.turnWaiters.set(turnId, waiter.resolve);
+    this.turnWaiters.set(turnId, waiter);
     return waiter.promise;
   }
 
-  /** @returns {Promise<string>} Started compaction turn id. */
-  waitForCompactionStart() {
-    /** @type {PromiseWithResolvers<string>} */
+  /**
+   * @param {string} threadId Expected thread id.
+   * @returns {Promise<RpcTurn>} Next started turn.
+   */
+  waitForTurnStart(threadId) {
+    if (this.failure !== undefined) {
+      return Promise.reject(this.failure);
+    }
+    const index = this.turnStarts.findIndex((started) => started.threadId === threadId);
+    if (index >= 0) {
+      return Promise.resolve(this.turnStarts.splice(index, 1)[0].turn);
+    }
+    /** @type {PromiseWithResolvers<RpcTurn>} */
     const waiter = Promise.withResolvers();
-    this.compactionStartWaiters.push(waiter.resolve);
+    this.turnStartWaiters.push({ threadId, waiter });
     return waiter.promise;
+  }
+
+  /** @param {Error} error Fatal transport or protocol error. */
+  #fail(error) {
+    if (this.failure !== undefined) {
+      return;
+    }
+    this.failure = error;
+    for (const pending of this.pending.values()) {
+      pending.reject(error);
+    }
+    for (const { waiter } of this.turnStartWaiters) {
+      waiter.reject(error);
+    }
+    for (const waiter of this.turnWaiters.values()) {
+      waiter.reject(error);
+    }
+    this.pending.clear();
+    this.turnStartWaiters.length = 0;
+    this.turnWaiters.clear();
   }
 
   /** @param {RpcMessage} message JSON-RPC message. */
@@ -440,9 +584,18 @@ class RpcClient {
       return;
     }
     this.capture.accept(message);
-    if (message.method === "item/started" && message.params?.item?.type === "contextCompaction") {
-      const turnId = stringValue(message.params.turnId, "compaction turn id");
-      this.compactionStartWaiters.shift()?.(turnId);
+    if (message.method === "turn/started") {
+      const turn = message.params?.turn;
+      if (turn === undefined) {
+        throw new Error("turn/started omitted its turn");
+      }
+      const threadId = stringValue(message.params?.threadId, "started turn thread id");
+      const index = this.turnStartWaiters.findIndex((entry) => entry.threadId === threadId);
+      if (index < 0) {
+        this.turnStarts.push({ threadId, turn });
+      } else {
+        this.turnStartWaiters.splice(index, 1)[0].waiter.resolve(turn);
+      }
     }
     if (message.method === "turn/completed") {
       const turn = message.params?.turn;
@@ -450,7 +603,7 @@ class RpcClient {
         throw new Error("turn/completed omitted its turn");
       }
       this.completedTurns.set(turn.id, turn);
-      this.turnWaiters.get(turn.id)?.(turn);
+      this.turnWaiters.get(turn.id)?.resolve(turn);
       this.turnWaiters.delete(turn.id);
     }
   }
@@ -463,10 +616,10 @@ const run = async (configPath) => {
     throw new Error("CODEX_HOME is required");
   }
   const statePath = `${codexHome}/eval-thread-id`;
-  const usagePath = `${codexHome}/eval-usage.jsonl`;
+  const eventsPath = `${codexHome}/eval-events.jsonl`;
   const instruction = await readFile(config.instructionPath, "utf-8");
-  const socket = await connect(statePath);
-  const capture = createUsageCapture();
+  const socket = await connect();
+  const capture = createCapture();
   const rpc = new RpcClient(socket, capture);
 
   await rpc.request("initialize", {
@@ -507,13 +660,10 @@ const run = async (configPath) => {
   }
 
   if (config.compactBefore) {
-    const started = rpc.waitForCompactionStart();
     await rpc.request("thread/compact/start", { threadId });
-    const turnId = await started;
-    const completed = await rpc.waitForTurn(turnId);
-    if (completed.status !== "completed") {
-      throw new Error(`Codex compaction ended with status ${completed.status}`);
-    }
+    const compactionTurn = await rpc.waitForTurnStart(threadId);
+    capture.beginCompaction(compactionTurn.id);
+    await rpc.waitForTurn(compactionTurn.id);
   }
 
   const turnResult = await rpc.request("turn/start", {
@@ -531,47 +681,152 @@ const run = async (configPath) => {
     throw new Error(`Codex turn ended with status ${completed.status}`);
   }
 
-  const records = capture.finish();
-  await appendFile(usagePath, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+  rpc.assertHealthy();
+  const captured = capture.finish();
+  const records = [
+    ...captured.attempts.map((attempt) => ({
+      compactedAfterSegment: config.compactedAfterSegment,
+      kind: "compaction_attempt",
+      state: attempt.state,
+      threadId,
+      timestamp: attempt.timestamp,
+      turnId: attempt.turnId,
+    })),
+    ...captured.records,
+  ];
+  await appendFile(eventsPath, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
   for (const record of records) {
-    process.stdout.write(`${JSON.stringify({ type: "eval_usage", ...record })}\n`);
+    process.stdout.write(`${JSON.stringify({ type: "eval_event", ...record })}\n`);
   }
   socket.close();
 };
 
 const selfTest = () => {
-  const capture = createUsageCapture();
+  const capture = createCapture();
   capture.accept({
     hasError: false,
     hasResult: false,
     method: "rawResponse/completed",
-    params: { responseId: "a", threadId: "t", turnId: "1", usage: {} },
+    params: { responseId: "a", threadId: "t", turnId: "ordinary", usage: {} },
   });
+  capture.beginCompaction("succeeded");
   capture.accept({
     hasError: false,
     hasResult: false,
     method: "item/started",
-    params: { item: { id: "c", type: "contextCompaction" }, turnId: "1" },
+    params: { item: { id: "c1", type: "contextCompaction" }, turnId: "succeeded" },
   });
   capture.accept({
     hasError: false,
     hasResult: false,
     method: "rawResponse/completed",
-    params: { responseId: "b", threadId: "t", turnId: "1", usage: {} },
+    params: { responseId: "b", threadId: "t", turnId: "succeeded", usage: {} },
   });
   capture.accept({
     hasError: false,
     hasResult: false,
     method: "item/completed",
-    params: { item: { id: "c", type: "contextCompaction" }, turnId: "1" },
+    params: { item: { id: "c1", type: "contextCompaction" }, turnId: "succeeded" },
   });
-  const kinds = capture
-    .finish()
-    .map(({ kind }) => kind)
-    .join(",");
-  if (kinds !== "ordinary,compaction") {
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "rawResponse/completed",
+    params: { responseId: "c", threadId: "t", turnId: "succeeded", usage: {} },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "turn/completed",
+    params: { turn: { id: "succeeded", status: "completed" } },
+  });
+  capture.beginCompaction("failed");
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "item/started",
+    params: { item: { id: "c2", type: "contextCompaction" }, turnId: "failed" },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "rawResponse/completed",
+    params: { responseId: "d", threadId: "t", turnId: "failed", usage: null },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "turn/completed",
+    params: { turn: { id: "failed", status: "failed" } },
+  });
+  capture.beginCompaction("aborted");
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "item/started",
+    params: { item: { id: "c3", type: "contextCompaction" }, turnId: "aborted" },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "turn/completed",
+    params: { turn: { id: "aborted", status: "interrupted" } },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "turn/completed",
+    params: { turn: { id: "pre-hook", status: "interrupted" } },
+  });
+  capture.beginCompaction("pre-hook");
+  capture.beginCompaction("post-hook");
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "item/started",
+    params: { item: { id: "c4", type: "contextCompaction" }, turnId: "post-hook" },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "rawResponse/completed",
+    params: { responseId: "e", threadId: "t", turnId: "post-hook", usage: {} },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "item/completed",
+    params: { item: { id: "c4", type: "contextCompaction" }, turnId: "post-hook" },
+  });
+  capture.accept({
+    hasError: false,
+    hasResult: false,
+    method: "turn/completed",
+    params: { turn: { id: "post-hook", status: "interrupted" } },
+  });
+  const captured = capture.finish();
+  const kinds = captured.records.map(({ kind }) => kind).join(",");
+  if (kinds !== "ordinary,compaction,ordinary,compaction") {
     throw new Error(`bad capture: ${kinds}`);
   }
+  const states = captured.attempts.map(({ state }) => state).join(",");
+  if (states !== "succeeded,failed,aborted,aborted,succeeded") {
+    throw new Error(`bad compaction states: ${states}`);
+  }
+
+  const malformed = createCapture();
+  malformed.beginCompaction("malformed");
+  try {
+    malformed.accept({
+      hasError: false,
+      hasResult: false,
+      method: "turn/completed",
+      params: { turn: { id: "malformed", status: "completed" } },
+    });
+  } catch {
+    return;
+  }
+  throw new Error("accepted a completed compaction turn without an item completion");
 };
 
 if (process.argv[2] === "--self-test") {

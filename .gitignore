@@ -33,4 +33,4 @@ coverage/
 .pi/
 .harbor/
 pi/evals/.cache/
-pi/evals/datasets-generated/
+pi/evals/suites/*/generated/
