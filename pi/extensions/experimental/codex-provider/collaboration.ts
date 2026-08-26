@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-const CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
+export const COLLABORATION_CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
 export const PI_SUBAGENTS_NAMESPACE = "pi_subagents";
 const V1_NAMES = new Set([
   "close_agent",
@@ -22,6 +22,7 @@ const V2_NAMES = new Set([
 ]);
 
 export interface CollaborationContract {
+  inheritedUltra?: boolean;
   nestedTools: readonly NestedToolContract[];
   protocol: "off" | "v1" | "v2";
   sessionId: string;
@@ -32,6 +33,7 @@ const WireValueSchema = Type.Unknown();
 type WireValue = Static<typeof WireValueSchema>;
 const JsonRecordSchema = Type.Record(Type.String(), WireValueSchema);
 type JsonRecord = Static<typeof JsonRecordSchema>;
+const BooleanSchema = Type.Boolean();
 const StringSchema = Type.String();
 const FunctionSchema = Type.Function([], WireValueSchema);
 
@@ -56,7 +58,14 @@ export interface CollaborationContractRequest {
   readonly context: ExtensionContext;
   readonly provide: (value: WireValue) => void;
   readonly sessionId: string;
+  readonly ultra: boolean;
 }
+
+const ultraReaders = new WeakMap<CollaborationApi, () => boolean>();
+
+export const setCollaborationUltraReader = (pi: CollaborationApi, read: () => boolean): void => {
+  ultraReaders.set(pi, read);
+};
 
 const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
@@ -78,7 +87,7 @@ const requestContract = (
   ctx: ExtensionContext & CollaborationContext,
 ): CollaborationContract | undefined => {
   let contract: CollaborationContract | undefined;
-  pi.events.emit(CONTRACT_REQUEST, {
+  pi.events.emit(COLLABORATION_CONTRACT_REQUEST, {
     context: ctx,
     provide(value: WireValue) {
       if (
@@ -86,6 +95,7 @@ const requestContract = (
         value.version === 1 &&
         value.sessionId === ctx.sessionManager.getSessionId() &&
         (value.protocol === "off" || value.protocol === "v1" || value.protocol === "v2") &&
+        (value.inheritedUltra === undefined || Value.Check(BooleanSchema, value.inheritedUltra)) &&
         Array.isArray(value.nestedTools) &&
         value.nestedTools.every(isNestedToolContract)
       ) {
@@ -95,9 +105,13 @@ const requestContract = (
           sessionId: value.sessionId,
           version: value.version,
         };
+        if (Value.Check(BooleanSchema, value.inheritedUltra)) {
+          contract.inheritedUltra = value.inheritedUltra;
+        }
       }
     },
     sessionId: ctx.sessionManager.getSessionId(),
+    ultra: ultraReaders.get(pi)?.() ?? false,
   });
   return contract;
 };

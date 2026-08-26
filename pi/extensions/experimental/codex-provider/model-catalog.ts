@@ -730,6 +730,17 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
         ? FALLBACK_FAST_MODELS.has(model.id)
         : modelSupportsServiceTier(metadata, "priority");
     },
+    supportsUltra: (model: Model<Api> | undefined): boolean => {
+      if (model?.provider !== "openai-codex" || model.api !== "openai-codex-responses") {
+        return false;
+      }
+      const metadata = modelMetadata(model.id);
+      return (
+        metadata?.multi_agent_version === "v2" &&
+        reasoningLevels(metadata).includes("ultra") &&
+        reasoningLevels(metadata).includes("max")
+      );
+    },
   };
 };
 

@@ -320,6 +320,10 @@ export const createExtensionHost = (
       getProviderAuth: vi.fn<ExtensionContext["modelRegistry"]["getProviderAuth"]>(
         async () => undefined,
       ),
+      refresh: vi.fn<ExtensionContext["modelRegistry"]["refresh"]>(async () => ({
+        aborted: false,
+        errors: new Map(),
+      })),
     });
     Object.assign(modelRegistry, overrides.modelRegistry);
 
@@ -691,6 +695,9 @@ export const createExtensionHost = (
     },
     getStatus(key: string) {
       return statuses.get(key);
+    },
+    getThinkingLevel() {
+      return thinkingLevel;
     },
     getWidget(key: string) {
       return widgetState.get(key);

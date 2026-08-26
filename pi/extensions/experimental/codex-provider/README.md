@@ -14,7 +14,7 @@ Follow the audited [local load-last deployment contract](docs/local-deployment.m
 
 ## Usage
 
-OpenAI Codex requests compact and replay opaque checkpoints automatically; run `/code-mode` to toggle Code Mode, `/fast` to toggle priority service, or `/codex-provider` to inspect status.
+OpenAI Codex requests compact and replay opaque checkpoints automatically; with [`subagents`](../subagents) loaded first, run [`/ultra`](docs/ultra.md) for Max-effort proactive V2 delegation, `/code-mode` for Code Mode, `/fast` for priority service, or `/codex-provider` for status.
 
 ## Configuration
 

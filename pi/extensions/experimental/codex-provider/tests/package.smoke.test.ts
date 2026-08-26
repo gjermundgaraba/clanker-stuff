@@ -10,7 +10,9 @@ import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import * as packageEntry from "../index.js";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
+const SUBAGENTS_ROOT = path.resolve(PACKAGE_ROOT, "../subagents");
 const EXPECTED_ENTRY = path.join(PACKAGE_ROOT, "index.ts");
+const EXPECTED_SUBAGENTS_ENTRY = path.join(SUBAGENTS_ROOT, "index.ts");
 const SENSITIVE_HOOKS = [
   "before_agent_start",
   "context",
@@ -26,13 +28,21 @@ const CODEX_TOOLS = [
   "exec",
   "wait",
 ] as const;
+const COLLABORATION_TOOLS = [
+  "spawn_agent",
+  "send_message",
+  "followup_task",
+  "wait_agent",
+  "interrupt_agent",
+  "list_agents",
+] as const;
 const NPM_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
 );
 
-const loadPackage = async (packageRoot: string, rootDir: string) => {
+const loadPackages = async (packageRoots: string[], rootDir: string) => {
   const settingsManager = SettingsManager.inMemory({
-    packages: [packageRoot],
+    packages: packageRoots,
   });
   const loader = new DefaultResourceLoader({
     agentDir: path.join(rootDir, "agent"),
@@ -62,11 +72,11 @@ describe("codex-provider package", () => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), "codex-package-source-"));
     const agentDir = path.join(tempRoot, "agent");
     vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
-    const result = await loadPackage(PACKAGE_ROOT, tempRoot);
+    const result = await loadPackages([PACKAGE_ROOT], tempRoot);
     const extension = result.extensions.find(({ resolvedPath }) => resolvedPath === EXPECTED_ENTRY);
 
     expect({
-      commands: ["code-mode", "codex-provider", "fast"].filter((command) =>
+      commands: ["code-mode", "codex-provider", "fast", "ultra"].filter((command) =>
         extension?.commands.has(command),
       ),
       entryRenderer: extension?.entryRenderers?.has(CHECKPOINT_CUSTOM_TYPE),
@@ -76,7 +86,7 @@ describe("codex-provider package", () => {
       sensitiveHooks: SENSITIVE_HOOKS.filter((hook) => extension?.handlers.has(hook)),
       tools: CODEX_TOOLS.filter((tool) => extension?.tools.has(tool)),
     }).toStrictEqual({
-      commands: ["code-mode", "codex-provider", "fast"],
+      commands: ["code-mode", "codex-provider", "fast", "ultra"],
       entryRenderer: true,
       errors: [],
       exports: ["default"],
@@ -87,6 +97,28 @@ describe("codex-provider package", () => {
     expect(
       existsSync(path.join(agentDir, "data", "codex-provider", "codex-provider.sqlite")),
     ).toBeFalsy();
+  });
+
+  it("discovers cleanly after the companion subagents extension", async () => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), "codex-package-coload-"));
+    vi.stubEnv("PI_CODING_AGENT_DIR", path.join(tempRoot, "agent"));
+    const result = await loadPackages([SUBAGENTS_ROOT, PACKAGE_ROOT], tempRoot);
+    const provider = result.extensions.find(({ resolvedPath }) => resolvedPath === EXPECTED_ENTRY);
+    const subagents = result.extensions.find(
+      ({ resolvedPath }) => resolvedPath === EXPECTED_SUBAGENTS_ENTRY,
+    );
+
+    expect({
+      errors: result.errors,
+      order: result.extensions.map(({ resolvedPath }) => resolvedPath),
+      providerCollaboration: COLLABORATION_TOOLS.filter((name) => provider?.tools.has(name)),
+      subagentsCommand: subagents?.commands.has("agents"),
+    }).toStrictEqual({
+      errors: [],
+      order: [EXPECTED_SUBAGENTS_ENTRY, EXPECTED_ENTRY],
+      providerCollaboration: [],
+      subagentsCommand: true,
+    });
   });
 
   it("packs, installs, and loads with production peer resolution", async () => {
@@ -131,6 +163,7 @@ describe("codex-provider package", () => {
         "package/docs/evaluation.md",
         "package/docs/live-canary.md",
         "package/docs/local-deployment.md",
+        "package/docs/ultra.md",
         "package/footer.ts",
         "package/index.ts",
         "package/lazy-provider.ts",
@@ -152,6 +185,7 @@ describe("codex-provider package", () => {
         "package/tools/process.ts",
         "package/tools/register.ts",
         "package/tools/selection.ts",
+        "package/ultra/index.ts",
       ].toSorted(),
     );
     const installDir = path.join(tempRoot, "install");
@@ -218,7 +252,7 @@ describe("codex-provider package", () => {
       },
       private: true,
     });
-    const installed = await loadPackage(installedPackage, path.join(tempRoot, "runtime"));
+    const installed = await loadPackages([installedPackage], path.join(tempRoot, "runtime"));
     expect({
       errors: installed.errors,
       extensions: installed.extensions.map(({ resolvedPath }) =>

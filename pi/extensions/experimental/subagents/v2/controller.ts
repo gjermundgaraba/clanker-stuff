@@ -152,6 +152,8 @@ export class V2Controller {
   readonly #queue = new KeyedSerialQueue();
   readonly #reservations = new Map<string, ReservationRecord>();
   readonly #slots = new Map<string, RuntimeSlot>();
+  readonly #ultraAgents = new Set<string>();
+  readonly #ultraInheritance = new Set<string>();
   readonly #waiters = new Map<string, Set<(activity: WaitActivity) => void>>();
   #closing = false;
   #nextSequence = 0;
@@ -198,6 +200,8 @@ export class V2Controller {
     this.#reservations.clear();
     this.#mailboxSequence.clear();
     this.#observedSequence.clear();
+    this.#ultraAgents.clear();
+    this.#ultraInheritance.clear();
     this.#nextSequence = 0;
     await Promise.all([...this.#settleSlots(slots), ...provisionalSpawns]);
     if (this.#epoch === epoch) {
@@ -214,8 +218,23 @@ export class V2Controller {
     const owns = () => this.#slots.get(pathname)?.token === token && slot.api === api;
     let collaborationEnabled = false;
     let sessionId: string | undefined;
-    const unsubscribeContract = registerContractResponder(api, () =>
-      sessionId === undefined ? undefined : { nestedTools: [], protocol: "v2", sessionId },
+    const unsubscribeContract = registerContractResponder(
+      api,
+      () =>
+        sessionId === undefined
+          ? undefined
+          : {
+              inheritedUltra: this.#ultraInheritance.has(pathname),
+              nestedTools: [],
+              protocol: "v2",
+              sessionId,
+            },
+      (_ctx, ultra) => {
+        this.setUltra(pathname, ultra);
+        if (ultra) {
+          this.#ultraInheritance.delete(pathname);
+        }
+      },
     );
     registerV2Tools(
       api,
@@ -279,6 +298,14 @@ export class V2Controller {
 
   rootPrompt(): string {
     return v2RootPrompt(this.#config, this.#maxChildren);
+  }
+
+  setUltra(pathname: string, enabled: boolean): void {
+    if (enabled) {
+      this.#ultraAgents.add(pathname);
+    } else {
+      this.#ultraAgents.delete(pathname);
+    }
   }
 
   describe(): string {
@@ -391,6 +418,14 @@ export class V2Controller {
           ctx.model,
           ctx.thinkingLevel,
         );
+        const inheritUltra =
+          this.#ultraAgents.has(caller) &&
+          input.thinking === undefined &&
+          this.#config.roles[input.agentType ?? ""]?.thinking === undefined;
+        if (inheritUltra) {
+          this.#ultraAgents.add(pathname);
+          this.#ultraInheritance.add(pathname);
+        }
         const token = Symbol(pathname);
         slotToken = token;
         this.#slots.set(pathname, { token });
@@ -471,6 +506,8 @@ export class V2Controller {
         if (slotToken !== undefined && this.#slots.get(pathname)?.token === slotToken) {
           this.#slots.delete(pathname);
         }
+        this.#ultraAgents.delete(pathname);
+        this.#ultraInheritance.delete(pathname);
         throw error;
       } finally {
         this.#releaseReservation(reservation);
