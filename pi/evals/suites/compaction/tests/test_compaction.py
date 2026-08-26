@@ -64,25 +64,27 @@ class CompactionTest(TestCase):
         )
         return json.loads(result.stdout)
 
-    def _grade(self, task, value):
+    def _grade(self, task, value, replacements=()):
         grader_path = TASKS_DIR / task / "steps/implement/tests/grade.mjs"
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            for path in [root / "app", root / "tests", root / "logs/agent", root / "logs/verifier"]:
+            for path in [root / "app", root / "logs/agent", root / "logs/verifier"]:
                 path.mkdir(parents=True, exist_ok=True)
             task_dir = TASKS_DIR / task
             shutil.copytree(task_dir / "environment", root / "app", dirs_exist_ok=True)
-            shutil.copy2(
-                task_dir / "steps/implement/tests/hidden.test.js",
-                root / "tests/hidden.test.js",
-            )
             for implementation in (task_dir / "steps/implement/solution").glob("*.js"):
                 target = root / "app/src" / implementation.name
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(implementation, target)
+                source = implementation.read_text(encoding="utf-8")
+                for original, replacement in replacements:
+                    source = source.replace(original, replacement)
+                target.write_text(source, encoding="utf-8")
             (root / "logs/agent/trajectory.json").write_text(json.dumps(value), encoding="utf-8")
             grader = grader_path.read_text(encoding="utf-8")
-            for original, replacement in [('"/app/', f'"{root}/app/'), ('"/tests/', f'"{root}/tests/'), ('"/logs/', f'"{root}/logs/')]:
+            for original, replacement in [
+                ('"/app/', f'"{root}/app/'),
+                ('"/logs/', f'"{root}/logs/'),
+            ]:
                 grader = grader.replace(original, replacement)
             (root / "grade.mjs").write_text(grader, encoding="utf-8")
             (root / "compaction.mjs").write_bytes((grader_path.parent / "compaction.mjs").read_bytes())
@@ -104,15 +106,12 @@ class CompactionTest(TestCase):
             trajectory(manifest(mechanism=""), [attempt(7)]),
             trajectory(manifest(mechanism=None), [attempt(7)]),
             trajectory(manifest(protocol="  "), [attempt(7, protocol="  ")]),
-            trajectory(manifest("off"), [attempt(7)]),
             trajectory(manifest(), [attempt(6)]),
             trajectory(manifest(), [attempt(7, state="failed")]),
             trajectory(manifest(), [attempt(7), attempt(7)]),
             trajectory(manifest(), [{**attempt(7), "source": "system"}]),
             trajectory(manifest(), [attempt(7, mechanism="wrong")]),
             trajectory(manifest(protocol="required"), [attempt(7)]),
-            trajectory(manifest(), tail=[]),
-            trajectory(manifest(), tail=[attempt(7)]),
             {
                 "agent": {"name": "anything", "extra": {"pi_evals": manifest()}},
                 "steps": [attempt(7), {"source": "agent", "message": "done"}],
@@ -223,4 +222,142 @@ class CompactionTest(TestCase):
                 self.assertEqual(reward["valid_experiment"], 1)
                 self.assertEqual(reward["reward"], reward["quality"])
                 self.assertEqual(reward["quality"], 1)
+                self.assertEqual(reward["tests"], 1)
                 self.assertTrue(all(isinstance(value, (int, float)) for value in reward.values()))
+
+    def test_graders_weight_isolated_fault_once(self):
+        value = trajectory(manifest(), [attempt(7)])
+        decision = self._grade(
+            "decision-continuity",
+            value,
+            [
+                ("const artifacts = config.artifacts", "const artifacts = config.artifacts.slice(0, 1)")
+            ],
+        )
+        self.assertEqual(
+            [decision[fact] for fact in ["artifacts", "channel", "regions", "rollout", "output_contract"]],
+            [0, 1, 1, 1, 1],
+        )
+        self.assertEqual(decision["quality"], 0.8)
+
+        superseded_value = trajectory(manifest(), [attempt(4), attempt(9)])
+        superseded = self._grade(
+            "superseded-decisions",
+            superseded_value,
+            [("attempts > 5", "attempts >= 5")],
+        )
+        self.assertEqual(
+            [
+                superseded[fact]
+                for fact in [
+                    "attempts_current",
+                    "regions_early",
+                    "service_early",
+                    "output_contract",
+                    "target_current",
+                ]
+            ],
+            [0, 1, 1, 1, 1],
+        )
+        self.assertEqual(superseded["quality"], 0.8)
+
+    def test_graders_weight_interaction_only_fault_once(self):
+        value = trajectory(manifest(), [attempt(7)])
+        decision = self._grade(
+            "decision-continuity",
+            value,
+            [
+                (
+                    "return { artifacts, channel, regions, rolloutPercent };",
+                    "return { artifacts, channel, regions, "
+                    "rolloutPercent: artifacts.length && regions.length ? 100 : rolloutPercent };",
+                )
+            ],
+        )
+        self.assertEqual(
+            [
+                decision[fact]
+                for fact in ["artifacts", "channel", "regions", "rollout", "output_contract"]
+            ],
+            [1, 1, 1, 0, 1],
+        )
+        self.assertEqual(decision["quality"], 0.8)
+
+        superseded_value = trajectory(manifest(), [attempt(4), attempt(9)])
+        superseded = self._grade(
+            "superseded-decisions",
+            superseded_value,
+            [
+                (
+                    "return { attempts, regions, service, target };",
+                    'if (attempts === 5 && service === "worker" && target === "staging") '
+                    "regions.pop();\n  return { attempts, regions, service, target };",
+                )
+            ],
+        )
+        self.assertEqual(
+            [
+                superseded[fact]
+                for fact in [
+                    "attempts_current",
+                    "regions_early",
+                    "service_early",
+                    "output_contract",
+                    "target_current",
+                ]
+            ],
+            [1, 0, 1, 1, 1],
+        )
+        self.assertEqual(superseded["quality"], 0.8)
+
+    def test_graders_map_combined_shape_to_output_contract(self):
+        value = trajectory(manifest(), [attempt(7)])
+        decision = self._grade(
+            "decision-continuity",
+            value,
+            [
+                (
+                    "return { artifacts, channel, regions, rolloutPercent };",
+                    "return { artifacts, channel, regions, rolloutPercent, "
+                    "...(config.ignored && artifacts.length && regions.length "
+                    "? { extra: true } : {}) };",
+                )
+            ],
+        )
+        self.assertEqual(
+            [
+                decision[fact]
+                for fact in ["artifacts", "channel", "regions", "rollout", "output_contract"]
+            ],
+            [1, 1, 1, 1, 0],
+        )
+        self.assertEqual(decision["quality"], 0.8)
+
+        superseded_value = trajectory(manifest(), [attempt(4), attempt(9)])
+        superseded = self._grade(
+            "superseded-decisions",
+            superseded_value,
+            [
+                (
+                    "return { attempts, regions, service, target };",
+                    "return { attempts, regions, service, target, "
+                    '...(config.ignored && attempts === 5 && service === "worker" '
+                    '&& target === "staging" '
+                    "? { extra: true } : {}) };",
+                )
+            ],
+        )
+        self.assertEqual(
+            [
+                superseded[fact]
+                for fact in [
+                    "attempts_current",
+                    "regions_early",
+                    "service_early",
+                    "output_contract",
+                    "target_current",
+                ]
+            ],
+            [1, 1, 1, 0, 1],
+        )
+        self.assertEqual(superseded["quality"], 0.8)

@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { validateCompaction } from "./compaction.mjs";
 
 let planDeployment = () => {
@@ -9,11 +10,9 @@ try {
   ({ planDeployment } = await import("/app/src/deployment.js"));
 } catch {}
 
-const tests = spawnSync(
-  "node",
-  ["--test", "/app/test/deployment.test.js", "/tests/hidden.test.js"],
-  { encoding: "utf-8" },
-);
+const tests = spawnSync("node", ["--test", "/app/test/deployment.test.js"], {
+  encoding: "utf-8",
+});
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
 let trajectory = {};
@@ -33,6 +32,7 @@ const base = { regions: [], service: "api", target: "prod" };
 const facts = {
   attempts_current: probe(() => {
     const defaults = planDeployment(base).attempts === 4;
+    const acceptsCurrentLimit = planDeployment({ ...base, attempts: 5 }).attempts === 5;
     let rejects = true;
     for (const attempts of [-1, 6, 1.5, "2"]) {
       try {
@@ -42,7 +42,7 @@ const facts = {
         rejects &&= error instanceof TypeError;
       }
     }
-    return defaults && rejects;
+    return defaults && acceptsCurrentLimit && rejects;
   }),
   regions_early: probe(
     () =>
@@ -55,13 +55,14 @@ const facts = {
   ),
   service_early: probe(() => {
     const normalized = planDeployment({ ...base, service: " API " }).service;
+    const arbitrary = planDeployment({ ...base, service: " Worker " }).service;
     let rejected = false;
     try {
       planDeployment({ ...base, service: " " });
     } catch (error) {
       rejected = error instanceof TypeError;
     }
-    return normalized === "api" && rejected;
+    return normalized === "api" && arbitrary === "worker" && rejected;
   }),
   output_contract: probe(
     () =>
@@ -70,9 +71,36 @@ const facts = {
   ),
   target_current: probe(() => {
     const result = planDeployment({ ...base, target: " PROD " });
-    return result.target === "prod" && !("destination" in result);
+    const arbitrary = planDeployment({ ...base, target: " Staging " });
+    return (
+      result.target === "prod" &&
+      arbitrary.target === "staging" &&
+      !("destination" in result) &&
+      !("destination" in arbitrary)
+    );
   }),
 };
+let combined;
+try {
+  combined = planDeployment({
+    attempts: 5,
+    ignored: true,
+    regions: ["APAC", " us ", "apac", "eu"],
+    service: " Worker ",
+    target: " Staging ",
+  });
+} catch {}
+if (combined) {
+  facts.attempts_current &&= Number(combined.attempts === 5);
+  facts.regions_early &&= Number(isDeepStrictEqual(combined.regions, ["us", "eu", "apac"]));
+  facts.service_early &&= Number(combined.service === "worker");
+  facts.target_current &&= Number(combined.target === "staging" && !("destination" in combined));
+  facts.output_contract &&= Number(
+    isDeepStrictEqual(Object.keys(combined).sort(), ["attempts", "regions", "service", "target"]),
+  );
+} else if (Object.values(facts).every(Boolean)) {
+  facts.regions_early = 0;
+}
 const quality = Object.values(facts).reduce((sum, value) => sum + value, 0) / 5;
 writeFileSync(
   "/logs/verifier/reward.json",

@@ -1,13 +1,17 @@
 import copy
+import hashlib
 import json
 import subprocess
+from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 from harbor.models.task.task import Task
 
 from suites.longmemeval.longmemeval import (
+    download_sources,
     generate_tasks,
     history_chunks,
     history_instruction,
@@ -48,6 +52,111 @@ def record(question_id: str, question_type: str, abstention: bool = False) -> di
 
 
 class LongMemEvalTest(TestCase):
+    def test_download_uses_manifest_pin(self) -> None:
+        content = b"pinned source"
+        checksum = hashlib.sha256(content).hexdigest()
+        with (
+            TemporaryDirectory() as directory,
+            patch(
+                "suites.longmemeval.longmemeval.urllib.request.urlopen",
+                return_value=BytesIO(content),
+            ) as urlopen,
+        ):
+            paths = download_sources(
+                Path(directory),
+                "https://example.test/dataset/",
+                "revision",
+                {"source.json": checksum},
+            )
+            downloaded = paths["source.json"].read_bytes()
+
+        urlopen.assert_called_once_with(
+            "https://example.test/dataset/resolve/revision/source.json"
+        )
+        self.assertEqual(downloaded, content)
+
+    def test_download_rejects_source_paths_before_io(self) -> None:
+        checksum = hashlib.sha256(b"pinned source").hexdigest()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            victim = root / "victim.json"
+            victim.write_text("untouched", encoding="utf-8")
+
+            for filename in ("..", "../victim.json", str(victim.resolve())):
+                with (
+                    self.subTest(filename=filename),
+                    patch(
+                        "suites.longmemeval.longmemeval.urllib.request.urlopen"
+                    ) as urlopen,
+                ):
+                    cache = root / "cache"
+                    with self.assertRaisesRegex(ValueError, "must be a basename"):
+                        download_sources(
+                            cache,
+                            "https://example.test/dataset",
+                            "revision",
+                            {"source.json": checksum, filename: checksum},
+                        )
+
+                    self.assertFalse(cache.exists())
+                    self.assertEqual(victim.read_text(encoding="utf-8"), "untouched")
+                    urlopen.assert_not_called()
+
+    def test_download_does_not_follow_preexisting_temporary_symlink(self) -> None:
+        content = b"pinned source"
+        checksum = hashlib.sha256(content).hexdigest()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / "cache"
+            cache.mkdir()
+            victim = root / "victim.json"
+            victim.write_text("untouched", encoding="utf-8")
+            (cache / "source.json.part").symlink_to(victim)
+
+            with patch(
+                "suites.longmemeval.longmemeval.urllib.request.urlopen",
+                return_value=BytesIO(content),
+            ):
+                source = download_sources(
+                    cache,
+                    "https://example.test/dataset",
+                    "revision",
+                    {"source.json": checksum},
+                )["source.json"]
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), "untouched")
+            self.assertEqual(source.read_bytes(), content)
+            self.assertTrue(source.is_file())
+            self.assertFalse(source.is_symlink())
+
+    def test_download_replaces_cached_source_symlink(self) -> None:
+        content = b"pinned source"
+        checksum = hashlib.sha256(content).hexdigest()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / "cache"
+            cache.mkdir()
+            victim = root / "victim.json"
+            victim.write_bytes(content)
+            (cache / "source.json").symlink_to(victim)
+
+            with patch(
+                "suites.longmemeval.longmemeval.urllib.request.urlopen",
+                return_value=BytesIO(content),
+            ) as urlopen:
+                source = download_sources(
+                    cache,
+                    "https://example.test/dataset",
+                    "revision",
+                    {"source.json": checksum},
+                )["source.json"]
+
+            urlopen.assert_called_once()
+            self.assertEqual(victim.read_bytes(), content)
+            self.assertEqual(source.read_bytes(), content)
+            self.assertTrue(source.is_file())
+            self.assertFalse(source.is_symlink())
+
     def test_selects_five_per_type_and_one_available_abstention(self) -> None:
         records = []
         for question_type in ("a", "b"):

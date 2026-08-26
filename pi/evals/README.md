@@ -70,7 +70,7 @@ This is a compaction-oriented derivative: official LongMemEval sends history and
 Mem2Act provides the target tool, so this suite measures recovery of arguments from conversation memory, not tool selection. The pinned sample contains 40 stratified tasks from the 323 records that resolve to one source session.
 
 ```bash
-uv run python suites/mem2act/scripts/prepare-mem2act.py --selection sample
+uv run python suites/mem2act/mem2act.py --selection sample
 uv run harbor job start --config profiles/off-only.yaml \
   --path suites/mem2act/generated --job-name mem2act-sample --yes
 uv run python -m pi_evals.report .harbor/jobs/mem2act-sample

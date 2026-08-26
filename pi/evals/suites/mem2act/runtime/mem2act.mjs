@@ -5,15 +5,8 @@ import { appendFileSync, readFileSync } from "node:fs";
 const schemaPath = process.env.MEM2ACT_SCHEMA_PATH ?? "/app/.mem2act-schema.json";
 const callsPath = process.env.MEM2ACT_CALLS_PATH ?? "/app/.mem2act-calls.jsonl";
 
-/**
- * @param {string} text JSON text.
- * @returns {unknown} Parsed value.
- */
-const parseJson = (text) => {
-  /** @type {unknown} */
-  const parsed = JSON.parse(text);
-  return parsed;
-};
+/** @param {string} text @returns {unknown} */
+const parseJson = (text) => /** @type {unknown} */ (JSON.parse(text));
 
 /** @param {unknown} value */
 const isObject = (value) => value !== null && !Array.isArray(value) && value === Object(value);
@@ -27,22 +20,8 @@ const fail = (message) => {
 const [command, ...args] = process.argv.slice(2);
 if (command === "describe" && args.length === 0) {
   console.log(JSON.stringify(parseJson(readFileSync(schemaPath, "utf-8"))));
-} else if (command === "call") {
-  let argumentsJson;
-  for (let index = 0; index < args.length; index += 2) {
-    const flag = args[index];
-    const value = args[index + 1];
-    if (flag !== "--arguments" || value === undefined) {
-      fail(`invalid argument: ${flag ?? "<missing>"}`);
-    }
-    if (argumentsJson !== undefined) {
-      fail(`duplicate argument: ${flag}`);
-    }
-    argumentsJson = value;
-  }
-  if (argumentsJson === undefined) {
-    fail("--arguments is required");
-  }
+} else if (command === "call" && args.length === 2 && args[0] === "--arguments") {
+  const argumentsJson = args[1];
   let parameters = null;
   try {
     parameters = parseJson(argumentsJson);
@@ -61,5 +40,5 @@ if (command === "describe" && args.length === 0) {
   appendFileSync(callsPath, `${JSON.stringify(call)}\n`, "utf-8");
   console.log(JSON.stringify(call));
 } else {
-  fail(`unknown command: ${command ?? "<missing>"}`);
+  fail("invalid invocation");
 }

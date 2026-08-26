@@ -576,10 +576,7 @@ export const canUseInlineLocalFallback = (
     return true;
   }
   const carrier = resolveCheckpointCarrier(branch[nearestCompactionIndex]);
-  if (carrier.kind === "checkpoint" && carrier.carrier === "lifecycle") {
-    return false;
-  }
-  return !(carrier.kind === "invalid-checkpoint" && carrier.carrier === "lifecycle");
+  return carrier.kind === "pi-compaction";
 };
 
 export const resolveActiveCheckpointBoundary = (

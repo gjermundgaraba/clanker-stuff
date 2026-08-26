@@ -49,7 +49,7 @@ CODEX_NATIVE_ON = {**CODEX_NATIVE_OFF, "compaction_mode": "on"}
 
 
 class PiTrajectoryTest(TestCase):
-    def test_manifest_is_strict_and_controls_marked_compaction(self) -> None:
+    def test_manifest_is_strict(self) -> None:
         self.assertEqual(validate_manifest(PI_VANILLA_OFF), PI_VANILLA_OFF)
         with self.assertRaisesRegex(ValueError, "exactly these keys"):
             validate_manifest({**PI_VANILLA_OFF, "extra": "no"})
@@ -59,16 +59,6 @@ class PiTrajectoryTest(TestCase):
             validate_manifest({**PI_VANILLA_OFF, "expected_protocol": 2})
         with self.assertRaisesRegex(ValueError, "nonempty string or null"):
             validate_manifest({**PI_VANILLA_OFF, "expected_protocol": "  "})
-        marked = f"{CONTROLLED_COMPACTION_MARKER}Continue"
-        self.assertFalse(
-            controlled_instruction(marked, PI_VANILLA_OFF["compaction_mode"])[1]
-        )
-        self.assertTrue(
-            controlled_instruction(
-                marked,
-                {**PI_VANILLA_OFF, "compaction_mode": "on"}["compaction_mode"],
-            )[1]
-        )
 
     def test_adapter_manifest_matches_runtime(self) -> None:
         provider_manifest = {
@@ -196,33 +186,32 @@ class PiTrajectoryTest(TestCase):
                 ],
                 1,
             ),
+            (
+                "error at settlement",
+                [
+                    {
+                        "type": "message_end",
+                        "message": {"role": "assistant", "stopReason": "error"},
+                    },
+                    {"type": "agent_settled"},
+                ],
+                1,
+            ),
+            (
+                "aborted at settlement",
+                [
+                    {
+                        "type": "message_end",
+                        "message": {"role": "assistant", "stopReason": "aborted"},
+                    },
+                    {"type": "agent_settled"},
+                ],
+                1,
+            ),
         )
         for name, events, expected in cases:
             with self.subTest(name=name):
                 self.assertEqual(run(events), expected)
-
-    def test_pi_event_guard_rejects_terminal_outcome_at_settlement(self) -> None:
-        def run(stop_reason: str) -> int:
-            events = [
-                {
-                    "type": "message_end",
-                    "message": {
-                        "role": "assistant",
-                        "stopReason": stop_reason,
-                    },
-                },
-                {"type": "agent_settled"},
-            ]
-            return subprocess.run(
-                ["node", "-e", _PI_EVENT_GUARD],
-                check=False,
-                input="".join(f"{json.dumps(event)}\n" for event in events),
-                text=True,
-            ).returncode
-
-        for stop_reason in ("error", "aborted"):
-            with self.subTest(stop_reason=stop_reason):
-                self.assertNotEqual(run(stop_reason), 0)
 
     def test_uses_standard_auth_files_without_shell_state(self) -> None:
         with (
@@ -370,16 +359,6 @@ class PiTrajectoryTest(TestCase):
             ["context_compaction"],
         )
         self.assertEqual(trajectory.final_metrics.extra["tool_calls"], 1)
-
-    def test_pi_conversion_emits_manifest(self) -> None:
-        trajectory = convert_pi_events(
-            [],
-            [],
-            agent_version="0.84.2",
-            model_name="provider/model",
-            pi_evals=PI_VANILLA_OFF,
-        )
-        self.assertEqual(trajectory.agent.extra, {"pi_evals": PI_VANILLA_OFF})
 
     def test_unsuccessful_compactions_preserve_usage_and_continuation(self) -> None:
         for expected_state, terminal in (

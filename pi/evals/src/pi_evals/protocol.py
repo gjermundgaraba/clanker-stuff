@@ -10,14 +10,10 @@ CONTROLLED_COMPACTION_MARKER = "<!-- pi-evals:compact-before -->\n"
 
 def controlled_instruction(instruction: str, mode: str) -> tuple[str, bool]:
     marked = instruction.startswith(CONTROLLED_COMPACTION_MARKER)
-    if CONTROLLED_COMPACTION_MARKER in instruction[len(CONTROLLED_COMPACTION_MARKER) :]:
+    instruction = instruction.removeprefix(CONTROLLED_COMPACTION_MARKER)
+    if CONTROLLED_COMPACTION_MARKER in instruction:
         raise ValueError("controlled compaction marker must be the first line")
-    if not marked and CONTROLLED_COMPACTION_MARKER in instruction:
-        raise ValueError("controlled compaction marker must be the first line")
-    return (
-        instruction.removeprefix(CONTROLLED_COMPACTION_MARKER),
-        marked and mode == "on",
-    )
+    return instruction, marked and mode == "on"
 
 
 def validate_manifest(value: Any) -> Manifest:

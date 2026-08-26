@@ -445,6 +445,12 @@ describe("checkpoint protocol", () => {
       data: validCheckpoint(),
       type: "custom",
     });
+    const ordinary = entry("ordinary", {
+      firstKeptEntryId: kept.id,
+      summary: "ordinary Pi summary",
+      tokensBefore: 10,
+      type: "compaction",
+    });
     const lifecycle = () =>
       entry("lifecycle", {
         details: {
@@ -465,11 +471,11 @@ describe("checkpoint protocol", () => {
       };
     }
 
-    const cases = [[], [kept, native], [kept, corrupt]] as const;
+    const cases = [[], [kept, ordinary], [kept, native], [kept, corrupt]] as const;
 
     expect(
       cases.map((prefix) => canUseInlineLocalFallback([...prefix, inline], prefix.length)),
-    ).toStrictEqual([true, false, false]);
+    ).toStrictEqual([true, true, false, false]);
   });
 
   it("parses runtime state and applies comp-hash compatibility", () => {

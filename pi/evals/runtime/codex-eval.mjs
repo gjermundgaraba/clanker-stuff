@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 const SERVER_URL = "ws://127.0.0.1:41973";
 const SERVER_WAIT_MS = 10_000;
@@ -390,16 +391,6 @@ const openSocket = () => {
   return connection.promise;
 };
 
-/** @returns {Promise<void>} */
-const retryDelay = () => {
-  /** @type {PromiseWithResolvers<void>} */
-  const wait = Promise.withResolvers();
-  setTimeout(() => {
-    wait.resolve();
-  }, 100);
-  return wait.promise;
-};
-
 /**
  * @param {number} deadline Retry deadline.
  * @returns {Promise<WebSocket | undefined>} Connected socket, if ready.
@@ -408,7 +399,7 @@ const waitForSocket = async (deadline) => {
   if (Date.now() >= deadline) {
     return undefined;
   }
-  await retryDelay();
+  await delay(100);
   try {
     return await openSocket();
   } catch {
@@ -703,106 +694,85 @@ const run = async (configPath) => {
 
 const selfTest = () => {
   const capture = createCapture();
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "rawResponse/completed",
-    params: { responseId: "a", threadId: "t", turnId: "ordinary", usage: {} },
+  /**
+   * @param {string} method
+   * @param {RpcParams} params
+   */
+  const accept = (method, params) =>
+    capture.accept({ hasError: false, hasResult: false, method, params });
+  accept("rawResponse/completed", {
+    responseId: "a",
+    threadId: "t",
+    turnId: "ordinary",
+    usage: {},
   });
   capture.beginCompaction("succeeded");
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "item/started",
-    params: { item: { id: "c1", type: "contextCompaction" }, turnId: "succeeded" },
+  accept("item/started", {
+    item: { id: "c1", type: "contextCompaction" },
+    turnId: "succeeded",
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "rawResponse/completed",
-    params: { responseId: "b", threadId: "t", turnId: "succeeded", usage: {} },
+  accept("rawResponse/completed", {
+    responseId: "b",
+    threadId: "t",
+    turnId: "succeeded",
+    usage: {},
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "item/completed",
-    params: { item: { id: "c1", type: "contextCompaction" }, turnId: "succeeded" },
+  accept("item/completed", {
+    item: { id: "c1", type: "contextCompaction" },
+    turnId: "succeeded",
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "rawResponse/completed",
-    params: { responseId: "c", threadId: "t", turnId: "succeeded", usage: {} },
+  accept("rawResponse/completed", {
+    responseId: "c",
+    threadId: "t",
+    turnId: "succeeded",
+    usage: {},
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "turn/completed",
-    params: { turn: { id: "succeeded", status: "completed" } },
+  accept("turn/completed", {
+    turn: { id: "succeeded", status: "completed" },
   });
   capture.beginCompaction("failed");
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "item/started",
-    params: { item: { id: "c2", type: "contextCompaction" }, turnId: "failed" },
+  accept("item/started", {
+    item: { id: "c2", type: "contextCompaction" },
+    turnId: "failed",
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "rawResponse/completed",
-    params: { responseId: "d", threadId: "t", turnId: "failed", usage: null },
+  accept("rawResponse/completed", {
+    responseId: "d",
+    threadId: "t",
+    turnId: "failed",
+    usage: null,
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "turn/completed",
-    params: { turn: { id: "failed", status: "failed" } },
+  accept("turn/completed", {
+    turn: { id: "failed", status: "failed" },
   });
   capture.beginCompaction("aborted");
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "item/started",
-    params: { item: { id: "c3", type: "contextCompaction" }, turnId: "aborted" },
+  accept("item/started", {
+    item: { id: "c3", type: "contextCompaction" },
+    turnId: "aborted",
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "turn/completed",
-    params: { turn: { id: "aborted", status: "interrupted" } },
+  accept("turn/completed", {
+    turn: { id: "aborted", status: "interrupted" },
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "turn/completed",
-    params: { turn: { id: "pre-hook", status: "interrupted" } },
+  accept("turn/completed", {
+    turn: { id: "pre-hook", status: "interrupted" },
   });
   capture.beginCompaction("pre-hook");
   capture.beginCompaction("post-hook");
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "item/started",
-    params: { item: { id: "c4", type: "contextCompaction" }, turnId: "post-hook" },
+  accept("item/started", {
+    item: { id: "c4", type: "contextCompaction" },
+    turnId: "post-hook",
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "rawResponse/completed",
-    params: { responseId: "e", threadId: "t", turnId: "post-hook", usage: {} },
+  accept("rawResponse/completed", {
+    responseId: "e",
+    threadId: "t",
+    turnId: "post-hook",
+    usage: {},
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "item/completed",
-    params: { item: { id: "c4", type: "contextCompaction" }, turnId: "post-hook" },
+  accept("item/completed", {
+    item: { id: "c4", type: "contextCompaction" },
+    turnId: "post-hook",
   });
-  capture.accept({
-    hasError: false,
-    hasResult: false,
-    method: "turn/completed",
-    params: { turn: { id: "post-hook", status: "interrupted" } },
+  accept("turn/completed", {
+    turn: { id: "post-hook", status: "interrupted" },
   });
   const captured = capture.finish();
   const kinds = captured.records.map(({ kind }) => kind).join(",");

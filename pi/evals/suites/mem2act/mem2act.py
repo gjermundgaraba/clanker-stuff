@@ -139,61 +139,11 @@ def stratified_sample(
     return selected
 
 
-def _pointer(part: str) -> str:
-    return part.replace("~", "~0").replace("/", "~1")
-
-
-def typed_leaves(value: Any, path: str = "") -> set[tuple[str, str, str]]:
-    if isinstance(value, dict):
-        if not value:
-            return {(path, "object", "{}")}
-        leaves: set[tuple[str, str, str]] = set()
-        for key, child in value.items():
-            leaves |= typed_leaves(child, f"{path}/{_pointer(str(key))}")
-        return leaves
-    if isinstance(value, list):
-        if not value:
-            return {(path, "array", "[]")}
-        leaves = set()
-        for index, child in enumerate(value):
-            leaves |= typed_leaves(child, f"{path}/{index}")
-        return leaves
-    kind = (
-        "null"
-        if value is None
-        else "boolean"
-        if isinstance(value, bool)
-        else "number"
-        if isinstance(value, (int, float))
-        else "string"
-    )
-    rendered = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    return {(path, kind, rendered)}
-
-
-def score_call(predicted: dict[str, Any] | None, gold: dict[str, Any]) -> dict[str, float]:
-    predicted_arguments = predicted.get("arguments") if predicted else None
-    if not isinstance(predicted_arguments, dict):
-        return {"exact_arguments": 0.0, "parameter_f1": 0.0}
-    actual = typed_leaves(predicted_arguments)
-    expected = typed_leaves(gold["arguments"])
-    if not actual and not expected:
-        parameter_f1 = 1.0
-    else:
-        overlap = len(actual & expected)
-        parameter_f1 = 2 * overlap / (len(actual) + len(expected))
-    exact = float(
-        json.dumps(predicted_arguments, sort_keys=True, separators=(",", ":"))
-        == json.dumps(gold["arguments"], sort_keys=True, separators=(",", ":"))
-    )
-    return {"exact_arguments": exact, "parameter_f1": parameter_f1}
-
-
 def _grader(gold: dict[str, Any]) -> str:
     encoded = json.dumps(gold, ensure_ascii=False, separators=(",", ":"))
     return f'''import {{ existsSync, readFileSync, writeFileSync }} from "node:fs";
 
-const gold = {encoded};
+const gold = JSON.parse({json.dumps(encoded)});
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) :
   value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
 const pointer = (part) => String(part).replaceAll("~", "~0").replaceAll("/", "~1");
@@ -238,7 +188,7 @@ def write_tasks(
     selected: list[tuple[dict[str, Any], dict[str, Any]]], output: Path
 ) -> None:
     output.mkdir(parents=True, exist_ok=True)
-    if any(path.name != ".gitignore" for path in output.iterdir()):
+    if any(output.iterdir()):
         raise ValueError(f"output directory is not empty: {output}")
     for qa, session in selected:
         task = output / qa["qa_id"]

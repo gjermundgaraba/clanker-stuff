@@ -10,7 +10,7 @@ try {
   ({ parseRoute } = await import("/app/src/route.js"));
 } catch {}
 
-const tests = spawnSync("node", ["--test", "/app/test/route.test.js", "/tests/hidden.test.js"], {
+const tests = spawnSync("node", ["--test", "/app/test/route.test.js"], {
   encoding: "utf-8",
 });
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);

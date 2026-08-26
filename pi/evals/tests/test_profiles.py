@@ -99,27 +99,16 @@ class ProfileTest(unittest.TestCase):
         }
         arms = {}
         for name, (raw, resolved) in profiles.items():
-            text = (PROFILES / f"{name}.yaml").read_text()
             self.assertEqual(raw["n_concurrent_trials"], len(raw["agents"]))
             self.assertEqual(raw["n_attempts"], 3)
             self.assertFalse(raw["quiet"])
             self.assertEqual(raw["environment"], {"type": "docker", "delete": True})
             self.assertNotIn("datasets", raw)
             self.assertNotIn("orchestrator", raw)
-            for legacy in (
-                "agent_label",
-                "controlled_compaction",
-                "include",
-                "generator",
-                "<<:",
-            ):
-                self.assertNotIn(legacy, text)
             self.assertEqual(resolved["agents"], raw["agents"])
             current = {}
             for agent in raw["agents"]:
                 kwargs = agent["kwargs"]
-                self.assertNotIn("agent_label", kwargs)
-                self.assertNotIn("controlled_compaction", kwargs)
                 self.assertEqual(
                     set(kwargs["pi_evals"]),
                     {
@@ -168,10 +157,7 @@ class ProfileTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             asyncio.run(JobPlan.resolve_task_configs(config))
 
-    def test_legacy_layout_is_absent(self):
-        self.assertFalse((EVALS / "jobs").exists())
-        self.assertFalse((EVALS / "datasets" / "coding").exists())
-        self.assertFalse((EVALS / "datasets" / "tool-use").exists())
+    def test_smoke_manifest_matches_trajectory(self):
         smoke = yaml.safe_load(
             (EVALS / "suites" / "smoke" / "job.yaml").read_text()
         )

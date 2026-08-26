@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { validateCompaction } from "./compaction.mjs";
 
 let normalizeRelease = () => {
@@ -9,7 +10,7 @@ try {
   ({ normalizeRelease } = await import("/app/src/release.js"));
 } catch {}
 
-const tests = spawnSync("node", ["--test", "/app/test/release.test.js", "/tests/hidden.test.js"], {
+const tests = spawnSync("node", ["--test", "/app/test/release.test.js"], {
   encoding: "utf-8",
 });
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
@@ -91,6 +92,32 @@ const facts = {
       ) === JSON.stringify(["artifacts", "channel", "regions", "rolloutPercent"].sort()),
   ),
 };
+let combined;
+try {
+  combined = normalizeRelease({
+    artifacts: [" App.zip ", "app.ZIP", "symbols.tgz", ""],
+    channel: " BETA ",
+    ignored: true,
+    regions: ["APAC", " us ", "eu"],
+    rolloutPercent: "25",
+  });
+} catch {}
+if (combined) {
+  facts.artifacts &&= Number(isDeepStrictEqual(combined.artifacts, ["App.zip", "symbols.tgz"]));
+  facts.channel &&= Number(combined.channel === "beta");
+  facts.regions &&= Number(isDeepStrictEqual(combined.regions, ["us", "eu", "apac"]));
+  facts.rollout &&= Number(combined.rolloutPercent === 25);
+  facts.output_contract &&= Number(
+    isDeepStrictEqual(Object.keys(combined).sort(), [
+      "artifacts",
+      "channel",
+      "regions",
+      "rolloutPercent",
+    ]),
+  );
+} else if (Object.values(facts).every(Boolean)) {
+  facts.rollout = 0;
+}
 const quality = Object.values(facts).reduce((sum, value) => sum + value, 0) / 5;
 writeFileSync(
   "/logs/verifier/reward.json",

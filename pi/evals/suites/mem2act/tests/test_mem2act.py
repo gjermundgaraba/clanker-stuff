@@ -18,9 +18,7 @@ SPEC.loader.exec_module(mem2act)
 
 read_jsonl = mem2act.read_jsonl
 resolve_records = mem2act.resolve_records
-score_call = mem2act.score_call
 stratified_sample = mem2act.stratified_sample
-typed_leaves = mem2act.typed_leaves
 write_tasks = mem2act.write_tasks
 
 
@@ -85,23 +83,6 @@ class Mem2ActTest(TestCase):
             [item[0]["qa_id"] for item in stratified_sample(balanced, 8, "seed")],
         )
 
-    def test_scores_typed_json_pointer_leaves(self) -> None:
-        gold = {"name": "lookup", "arguments": {"a/b": 1, "flag": True}}
-        self.assertIn(("/a~1b", "number", "1"), typed_leaves(gold["arguments"]))
-        self.assertEqual(
-            score_call(None, gold),
-            {"exact_arguments": 0.0, "parameter_f1": 0.0},
-        )
-        score = score_call(
-            {"tool": "lookup", "arguments": {"a/b": True, "flag": True}}, gold
-        )
-        self.assertEqual(score["exact_arguments"], 0.0)
-        self.assertEqual(score["parameter_f1"], 0.5)
-        self.assertEqual(
-            score_call({"tool": "ignored", "arguments": gold["arguments"]}, gold),
-            {"exact_arguments": 1.0, "parameter_f1": 1.0},
-        )
-
     def test_generated_public_files_do_not_expose_private_qa_fields(self) -> None:
         with TemporaryDirectory() as directory:
             output = Path(directory) / "tasks"
@@ -120,7 +101,7 @@ class Mem2ActTest(TestCase):
             self.assertNotIn("PRIVATE_EVOLUTION", instruction)
             self.assertNotIn('"count":3', instruction)
             grader = (task / "tests" / "grade.mjs").read_text(encoding="utf-8")
-            self.assertIn('"count":3', grader)
+            self.assertIn('\\"count\\":3', grader)
             self.assertIn("quality", grader)
             self.assertIn("valid_experiment", grader)
             self.assertNotIn("PRIVATE_GROUNDING", grader)
@@ -131,21 +112,33 @@ class Mem2ActTest(TestCase):
             self.assertTrue(Task.is_valid_dir(task))
             self.assertEqual(Task(task).name, "pi-evals/mem2act-qa-one")
 
-    def test_generated_directory_allows_its_gitignore(self) -> None:
+    def test_refuses_nonempty_generated_directory(self) -> None:
         with TemporaryDirectory() as directory:
             output = Path(directory) / "generated"
             output.mkdir()
             (output / ".gitignore").write_text("*\n", encoding="utf-8")
 
-            write_tasks([(qa("qa-one", "L1"), session("session-one"))], output)
+            with self.assertRaisesRegex(ValueError, "output directory is not empty"):
+                write_tasks([(qa("qa-one", "L1"), session("session-one"))], output)
 
-            self.assertTrue((output / "qa-one").is_dir())
-
-    def test_generated_grader_rejects_multiple_or_malformed_calls(self) -> None:
+    def test_generated_grader_scores_json_semantics_and_rejects_bad_calls(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             output = root / "tasks"
-            write_tasks([(qa("qa-one", "L1"), session("session-one"))], output)
+            record = qa("qa-one", "L1")
+            gold = {
+                "float": 175.0,
+                "a/b": 1,
+                "a~1b": 2,
+                "flag": True,
+                "empty_object": {},
+                "empty_array": [],
+                "shared": "yes",
+                "__proto__": "top-level",
+                "nested": {"__proto__": "nested"},
+            }
+            record["tool_call"]["arguments"] = gold
+            write_tasks([(record, session("session-one"))], output)
             calls = root / "calls.jsonl"
             reward = root / "reward.json"
             grader = root / "grade.mjs"
@@ -156,16 +149,30 @@ class Mem2ActTest(TestCase):
                 .replace('"/logs/verifier/reward.json"', json.dumps(str(reward))),
                 encoding="utf-8",
             )
-            valid = json.dumps(
+            exact = json.dumps(
+                {"arguments": {**gold, "float": 175}, "tool": "secret.tool"}
+            )
+            partial = json.dumps(
                 {
-                    "arguments": qa("qa-one", "L1")["tool_call"]["arguments"],
+                    "arguments": {
+                        "float": 175,
+                        "a": {"b": 1},
+                        "a/b": 2,
+                        "flag": 1,
+                        "empty_object": {},
+                        "empty_array": [],
+                        "shared": "yes",
+                    },
                     "tool": "secret.tool",
                 }
             )
-            for contents, expected in (
-                (f"{valid}\n", 1),
-                (f"{valid}\n{valid}\n", 0),
-                ("not-json\n", 0),
+            # Only the float, empty containers, and shared string overlap. Escaped
+            # keys do not collide with nested paths, and booleans differ from numbers.
+            for contents, exact_score, f1_score in (
+                (f"{exact}\n", 1, 1),
+                (f"{partial}\n", 0, 1 / 2),
+                (f"{exact}\n{exact}\n", 0, 0),
+                ("not-json\n", 0, 0),
             ):
                 calls.write_text(contents, encoding="utf-8")
                 subprocess.run(["node", grader], check=True)
@@ -173,10 +180,10 @@ class Mem2ActTest(TestCase):
                 self.assertEqual(
                     set(score), {"parameter_f1", "quality", "reward", "valid_experiment"}
                 )
-                self.assertEqual(score["quality"], expected)
+                self.assertEqual(score["quality"], exact_score)
                 self.assertEqual(score["reward"], score["quality"])
                 self.assertEqual(score["valid_experiment"], 1)
-                self.assertEqual(score["parameter_f1"], expected)
+                self.assertAlmostEqual(score["parameter_f1"], f1_score)
 
     def test_runtime_describes_schema_and_appends_call(self) -> None:
         with TemporaryDirectory() as directory:
@@ -212,6 +219,30 @@ class Mem2ActTest(TestCase):
                 text=True,
                 env=environment,
             )
+            invalid_grammar = subprocess.run(
+                [runtime, "call", "--arguments", "{}", "unexpected"],
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(invalid_grammar.returncode, 2)
+            self.assertIn("usage: mem2act describe | mem2act call --arguments JSON", invalid_grammar.stderr)
+
+            for arguments, message in (
+                (
+                    ["call", "--arguments", "not-json"],
+                    "--arguments must be valid JSON",
+                ),
+                (["call", "--arguments", "[]"], "--arguments must be a JSON object"),
+            ):
+                failed = subprocess.run(
+                    [runtime, *arguments],
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                )
+                self.assertEqual(failed.returncode, 2)
+                self.assertIn(message, failed.stderr)
 
             self.assertEqual(
                 json.loads(described.stdout), {"a": 2, "name": "lookup", "z": 1}

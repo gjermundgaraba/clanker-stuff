@@ -1693,27 +1693,21 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         threadId: wireString(metadata.thread_id),
       });
       const expectedIdentity = identity(ordinaryMetadata);
-      expect({
-        clientRequestIds: requestHeaders.map((headers) => headers.get("x-client-request-id")),
-        clientMetadata: [ordinaryMetadata, compactMetadata].map(identity),
-        inputPrefix:
-          JSON.stringify(compactInput.slice(0, ordinaryInput.length)) ===
-          JSON.stringify(ordinaryInput),
-        instructions: compact.instructions === ordinary.instructions,
-        key: compact.prompt_cache_key === ordinary.prompt_cache_key,
-        sessionIds: requestHeaders.map((headers) => headers.get("session-id")),
-        tools: JSON.stringify(compact.tools) === JSON.stringify(ordinary.tools),
-        turnMetadata: [ordinaryTurnMetadata, compactTurnMetadata].map(identity),
-      }).toStrictEqual({
-        clientRequestIds: [cacheKey, cacheKey],
-        clientMetadata: [expectedIdentity, expectedIdentity],
-        inputPrefix: true,
-        instructions: true,
-        key: true,
-        sessionIds: [cacheKey, cacheKey],
-        tools: true,
-        turnMetadata: [expectedIdentity, expectedIdentity],
-      });
+      expect(requestHeaders.map((headers) => headers.get("x-client-request-id"))).toStrictEqual([
+        cacheKey,
+        cacheKey,
+      ]);
+      expect(identity(compactMetadata)).toStrictEqual(expectedIdentity);
+      expect(compactInput.slice(0, ordinaryInput.length)).toStrictEqual(ordinaryInput);
+      expect(compact.instructions).toBe(ordinary.instructions);
+      expect(compact.prompt_cache_key).toBe(ordinary.prompt_cache_key);
+      expect(requestHeaders.map((headers) => headers.get("session-id"))).toStrictEqual([
+        cacheKey,
+        cacheKey,
+      ]);
+      expect(compact.tools).toStrictEqual(ordinary.tools);
+      expect(identity(ordinaryTurnMetadata)).toStrictEqual(expectedIdentity);
+      expect(identity(compactTurnMetadata)).toStrictEqual(expectedIdentity);
     } finally {
       session.dispose();
       resumed?.dispose();

@@ -10,25 +10,13 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 from pi_evals.protocol import CONTROLLED_COMPACTION_MARKER
 
 COMPACTION_VERIFIER = Path(__file__).resolve().parents[2] / "verifiers/compaction.mjs"
 
-HF_REVISION = "98d7416c24c778c2fee6e6f3006e7a073259d48f"
-HF_BASE_URL = (
-    "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/"
-    f"{HF_REVISION}"
-)
-SOURCE_FILES = {
-    "longmemeval_oracle.json": (
-        "821a2034d219ab45846873dd14c14f12cfe7776e73527a483f9dac095d38620c"
-    ),
-    "longmemeval_s_cleaned.json": (
-        "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
-    ),
-}
 PROTOCOL_VERSION = 2
 TIER_STEPS = {64_000: 6, 115_000: 10}
 CONDITIONS = ("full", "evidence", "handoff")
@@ -224,32 +212,57 @@ def tier_indices(
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as source:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def download_sources(cache_dir: Path) -> dict[str, Path]:
+def download_sources(
+    cache_dir: Path,
+    data_repo: str,
+    data_revision: str,
+    source_files: Mapping[str, str],
+) -> dict[str, Path]:
+    for filename in source_files:
+        if filename in {"", ".", ".."} or Path(filename).name != filename:
+            raise ValueError(
+                f"LongMemEval source filename must be a basename: {filename}"
+            )
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     paths = {}
-    for filename, expected_sha in SOURCE_FILES.items():
+    base_url = f"{data_repo.rstrip('/')}/resolve/{data_revision}"
+    for filename, expected_sha in source_files.items():
         path = cache_dir / filename
-        if not path.exists() or _sha256(path) != expected_sha:
-            temporary = path.with_suffix(path.suffix + ".part")
+        if path.is_symlink() or not path.exists() or _sha256(path) != expected_sha:
+            temporary = None
             try:
-                with urllib.request.urlopen(f"{HF_BASE_URL}/{filename}") as source:
-                    with temporary.open("wb") as destination:
+                with urllib.request.urlopen(f"{base_url}/{filename}") as source:
+                    with NamedTemporaryFile(
+                        "wb",
+                        dir=cache_dir,
+                        prefix=f".{filename}.",
+                        suffix=".part",
+                        delete=False,
+                    ) as destination:
+                        temporary = Path(destination.name)
                         shutil.copyfileobj(source, destination)
             except Exception as error:
-                temporary.unlink(missing_ok=True)
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
                 raise RuntimeError(
                     f"failed to download pinned LongMemEval {filename}: {error}"
                 ) from error
-            if _sha256(temporary) != expected_sha:
-                temporary.unlink()
-                raise RuntimeError(f"checksum mismatch for pinned LongMemEval {filename}")
-            temporary.replace(path)
+            try:
+                if _sha256(temporary) != expected_sha:
+                    raise RuntimeError(
+                        f"checksum mismatch for pinned LongMemEval {filename}"
+                    )
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
         paths[filename] = path
     return paths
 
@@ -570,7 +583,6 @@ def prepare(manifest_path: Path, output_dir: Path, cache_dir: Path | None = None
     cache_dir = cache_dir or Path(
         os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
     ) / "pi-evals/longmemeval"
-    paths = download_sources(cache_dir)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected_tiers = {
         "64k": {"history_steps": 6, "token_budget": 64_000},
@@ -582,6 +594,12 @@ def prepare(manifest_path: Path, output_dir: Path, cache_dir: Path | None = None
         raise ValueError("LongMemEval manifest tiers do not match")
     if manifest.get("conditions") != list(CONDITIONS):
         raise ValueError("LongMemEval manifest conditions do not match")
+    paths = download_sources(
+        cache_dir,
+        manifest["data_repo"],
+        manifest["data_revision"],
+        manifest["files"],
+    )
     records = json.loads(paths["longmemeval_s_cleaned.json"].read_text(encoding="utf-8"))
     oracle = json.loads(paths["longmemeval_oracle.json"].read_text(encoding="utf-8"))
     expected = [
