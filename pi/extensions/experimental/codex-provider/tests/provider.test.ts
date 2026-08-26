@@ -206,6 +206,7 @@ const REMOTE_CATALOG = {
       context_window: 272_000,
       default_reasoning_level: "ultra",
       display_name: "Application Preset Only",
+      multi_agent_version: "v2",
       priority: 2,
       slug: SPIKE_MODEL.id,
       support_verbosity: true,
@@ -256,7 +257,8 @@ const REMOTE_CATALOG = {
 };
 
 const fetchRemoteCatalog = async () => {
-  const runtime = createCodexProviderRuntime();
+  const catalog = createCodexModelCatalog();
+  const runtime = createProviderRuntime(defaultObservability, () => false, catalog);
   const requests: Request[] = [];
   const state: FetchCatalogState = {};
   const publish: RefreshContext["publish"] = async (publication) => {
@@ -289,7 +291,7 @@ const fetchRemoteCatalog = async () => {
     }
     return state.stored;
   };
-  return { getStored, publish, requests, runtime, signal };
+  return { catalog, getStored, publish, requests, runtime, signal };
 };
 
 const restoreCatalog = async (stored: StoredModels): Promise<ProviderRuntime> => {
@@ -1198,7 +1200,8 @@ describe("Codex provider", () => {
   });
 
   it("projects remote reasoning, fast-mode, and context-window metadata", async () => {
-    const { runtime } = await fetchRemoteCatalog();
+    expect(createCodexModelCatalog().supportsUltra(FAST_MODEL)).toBeFalsy();
+    const { catalog, runtime } = await fetchRemoteCatalog();
     const [remoteModel] = runtime.provider.getModels();
     if (!remoteModel) {
       throw new Error("Remote model was not projected");
@@ -1208,6 +1211,7 @@ describe("Codex provider", () => {
       metadata: runtime.getModelMetadata(remoteModel.id)?.comp_hash,
       model: remoteModel,
       supportsFastMode: runtime.supportsFastMode(remoteModel),
+      supportsUltra: catalog.supportsUltra(remoteModel),
       unsupportedMetadata: runtime.getModelMetadata("gpt-5.5"),
       window: runtime.getModelWindow(remoteModel),
     }).toMatchObject({
@@ -1219,6 +1223,7 @@ describe("Codex provider", () => {
         multiAgentVersion: "v2",
       },
       supportsFastMode: true,
+      supportsUltra: true,
       unsupportedMetadata: undefined,
       window: {
         autoCompactTokens: 150_000,
@@ -1243,10 +1248,12 @@ describe("Codex provider", () => {
     }
     expect({
       reasoning: nullLimitModel.reasoning,
+      supportsUltra: catalog.supportsUltra(nullLimitModel),
       thinkingLevelMap: nullLimitModel.thinkingLevelMap,
       window: runtime.getModelWindow(nullLimitModel),
     }).toStrictEqual({
       reasoning: false,
+      supportsUltra: false,
       thinkingLevelMap: {
         high: null,
         low: null,

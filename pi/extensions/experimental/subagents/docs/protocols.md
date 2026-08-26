@@ -21,7 +21,7 @@ The extension resolves and latches the protocol when the first root turn starts:
 3. A resume or root fork inherits the stored protocol.
 4. Otherwise `model.multiAgentVersion` selects `v1`, `v2`, or `off` (`disabled`), with V1 as the undeclared fallback.
 
-`auto` means “use model metadata or the V1 default.” An exact `auto` intentionally bypasses `*`. The Codex provider projects its catalog's `multi_agent_version` field onto dynamic Pi model objects as `multiAgentVersion`. The packages have no import dependency; when both are loaded, a session-scoped event contract carries the selected collaboration profile to the provider.
+`auto` means “use model metadata or the V1 default.” An exact `auto` intentionally bypasses `*`. The Codex provider projects its catalog's `multi_agent_version` field onto dynamic Pi model objects as `multiAgentVersion`. The packages have no import dependency; when both are loaded, a synchronous session contract carries the selected collaboration profile to the provider and active or inherited Ultra state between the provider and V2 controller.
 
 Later incompatible model selections keep the latched tools and show a warning. Resume restores the latch. A root fork inherits only the protocol into a new root session ID and empty control graph. An explicit current config override beats inherited state and starts a new control generation. V2 descendants stay in the same tree protocol but receive collaboration tools only when the child's resolved model itself declares V2.
 
@@ -76,6 +76,8 @@ Pi owns the prompt hierarchy. Collaboration guidance is appended through Pi's su
 
 Configured `prompts.v1.root` and `prompts.v2.root` replace the corresponding root usage-hint layer. `prompts.v2.child` replaces only the collaboration usage hint of an eligible V2 child; it is never shown to an ineligible child. `prompts.child` is a capability-independent instruction shared by V1 and V2 children. An explicitly empty value suppresses that layer, but not stable identity facts or delegation mode for an agent that can delegate. V1 children never receive collaboration tools. A V2 child receives their tools and delegation mode only when its resolved model declares V2; an ineligible child is told to complete its task directly.
 
+When the load-last Codex provider has Ultra active, it appends a separate proactive mode block after these layers. That branch-scoped policy overrides configured explicit delegation without replacing the subagents-owned usage or capability guidance. Native Max alone does not add the block.
+
 The model-visible mailbox text is stable. Queue-only and steered mail is stored as a Pi custom session message; an idle child's triggering task is stored as the single user message that starts its turn. Both project to the provider as ordinary user-role LLM input. Codex instead has a structured `AgentMessage` representation. Using Pi's normal prompt lifecycle for triggering mail preserves `before_agent_start`, which is required for child model resolution, tool gating, prompt policy, and provider contract publication.
 
 ## V1 flow
@@ -117,6 +119,8 @@ The atomic control snapshot owns V1 task ordering. Each agent has at most one ac
 ## V2 flow
 
 V2 uses canonical paths such as `/root/research/tests`. A child whose resolved model declares V2 can spawn descendants with the same six tools as the root: `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`.
+
+An Ultra parent marks a newly spawned child for Ultra inheritance when `reasoning_effort` is omitted and the selected role does not configure reasoning. The child contract returns that signal to its provider, which persists the child's branch state; an explicit reasoning effort or role-configured reasoning prevents inheritance. The V2 controller remains the only owner of the tools, hierarchy, and runtime in both cases.
 
 ```mermaid
 sequenceDiagram
@@ -214,7 +218,7 @@ Create `~/.pi/agent/subagents.json`:
 
 `max_concurrent_threads_per_session` is optional and counts child agents, excluding the root. When set, it applies to both protocols: V1 limits open children, while V2 limits both executing turns and resident child sessions. When omitted, V1 defaults to six and V2 defaults to three. If a persisted V1 tree exceeds a newly lowered limit, the first persisted open children stay open and the excess children are closed but remain resumable.
 
-Protocol values are `auto`, `off`, `v1`, or `v2`. Both protocols expose `model` and `reasoning_effort` on `spawn_agent` by default; set `expose_spawn_agent_model_overrides` to false to hide both. `agent_type` is exposed only when at least one executable Pi role exists, and its model-facing description uses the role's optional `description`. Delegation is `explicit` by default; `proactive` opts into model-initiated delegation. Protocol-specific prompt values replace only matching usage hints; `prompts.child` is capability-independent. An explicitly empty value suppresses its layer while retaining stable identity and applicable delegation-mode facts. Invalid config falls back to defaults and produces a warning.
+Protocol values are `auto`, `off`, `v1`, or `v2`. Both protocols expose `model` and `reasoning_effort` on `spawn_agent` by default; set `expose_spawn_agent_model_overrides` to false to hide both. `agent_type` is exposed only when at least one executable Pi role exists, and its model-facing description uses the role's optional `description`. Delegation is `explicit` by default; `proactive` opts into model-initiated delegation, while active provider Ultra overrides either configured value for that branch. Protocol-specific prompt values replace only matching usage hints; `prompts.child` is capability-independent. An explicitly empty value suppresses its layer while retaining stable identity and applicable delegation-mode facts. Invalid config falls back to defaults and produces a warning.
 
 ## Deliberate Pi boundaries
 

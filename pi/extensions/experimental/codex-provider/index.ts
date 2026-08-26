@@ -6,6 +6,7 @@ import { registerCheckpointRenderer } from "./renderer.js";
 import { createCodexRuntime } from "./runtime.js";
 import { exposeSkillsWithoutRead } from "./skill-catalog.js";
 import { registerCodexTools } from "./tools/register.js";
+import { registerCodexUltra } from "./ultra/index.js";
 
 export default function codexProviderExtension(pi: ExtensionAPI): void {
   const footer = createCodexFooter(pi);
@@ -19,6 +20,7 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
   pi.registerProvider(createLazyCodexProvider(runtime.catalog, runtime.loadProvider));
   registerCheckpointRenderer(pi);
   registerCodexTools(pi, footer.setCodeMode);
+  registerCodexUltra(pi, runtime.catalog);
 
   pi.registerCommand("fast", {
     description: "Toggle OpenAI Codex fast mode",

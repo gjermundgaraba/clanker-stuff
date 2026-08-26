@@ -16,6 +16,7 @@ export interface NestedToolContract {
 }
 
 export interface CollaborationContract {
+  readonly inheritedUltra?: boolean;
   readonly nestedTools: readonly NestedToolContract[];
   readonly protocol: Protocol;
   readonly sessionId: string;
@@ -26,6 +27,7 @@ interface ContractRequest {
   context?: ProtocolResolutionContext;
   provide: (contract: CollaborationContract) => void;
   sessionId: string;
+  ultra?: boolean;
 }
 
 type ProtocolResolutionContext = Pick<ExtensionContext, "model" | "modelRegistry">;
@@ -50,6 +52,7 @@ const ContractRequestSchema = Type.Unsafe<ContractRequest>(
       context: Type.Optional(ProtocolResolutionContextSchema),
       provide: Type.Function([Type.Unknown()], Type.Void()),
       sessionId: Type.String(),
+      ultra: Type.Optional(Type.Boolean()),
     },
     { additionalProperties: true },
   ),
@@ -62,9 +65,10 @@ export const registerContractResponder = (
         nestedTools: readonly NestedToolContract[];
         protocol: Protocol;
         sessionId: string;
+        inheritedUltra?: boolean;
       }
     | undefined,
-  prepare?: (ctx: ProtocolResolutionContext) => void,
+  prepare?: (ctx: ProtocolResolutionContext, ultra: boolean) => void,
 ) =>
   pi.events.on(COLLABORATION_CONTRACT_REQUEST, (value) => {
     if (!Value.Check(ContractRequestSchema, value)) {
@@ -74,15 +78,20 @@ export const registerContractResponder = (
       return;
     }
     if (value.context !== undefined) {
-      prepare?.(value.context);
+      prepare?.(value.context, value.ultra ?? false);
     }
     const prepared = current();
     if (prepared?.sessionId === value.sessionId) {
-      value.provide({
+      const contract: CollaborationContract = {
         nestedTools: prepared.nestedTools,
         protocol: prepared.protocol,
         sessionId: prepared.sessionId,
         version: 1,
-      });
+      };
+      value.provide(
+        prepared.inheritedUltra === undefined
+          ? contract
+          : { ...contract, inheritedUltra: prepared.inheritedUltra },
+      );
     }
   });

@@ -106,6 +106,19 @@ describe("extension-host harness", () => {
     });
   });
 
+  it("tracks the thinking level set through the extension API", async () => {
+    let extensionApi!: ExtensionAPI;
+    const host = createExtensionHost((pi: ExtensionAPI) => {
+      extensionApi = pi;
+    });
+
+    await host.ready;
+
+    expect(extensionApi.getThinkingLevel()).toBe("off");
+    extensionApi.setThinkingLevel("max");
+    expect(host.getThinkingLevel()).toBe("max");
+  });
+
   it("defaults lifecycle helper reasons and preserves explicit overrides", async () => {
     const sessionStarts: SessionStartEvent[] = [];
     const sessionShutdowns: SessionShutdownEvent[] = [];

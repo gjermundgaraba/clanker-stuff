@@ -6,7 +6,12 @@ import { describe, expect, it } from "vite-plus/test";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { codexContractFixture } from "../../subagents/docs/fixtures/codex-contract.generated.js";
 import type { CollaborationContractRequest } from "../collaboration.js";
-import { PI_SUBAGENTS_NAMESPACE, rewriteCollaborationTools } from "../collaboration.js";
+import {
+  PI_SUBAGENTS_NAMESPACE,
+  requestCollaborationContract,
+  rewriteCollaborationTools,
+  setCollaborationUltraReader,
+} from "../collaboration.js";
 import { createToolsModel, wireArray, wireRecord, wireRecords } from "./fixtures.js";
 import type { WireValue } from "./fixtures.js";
 
@@ -32,11 +37,17 @@ const namespaceMemberNames = (namespace: WireValue): string[] => {
   });
 };
 
-const harness = (protocol?: "off" | "v1" | "v2", nestedTools: readonly ToolDefinition[] = []) => {
+const harness = (
+  protocol?: "off" | "v1" | "v2",
+  nestedTools: readonly ToolDefinition[] = [],
+  ultra = false,
+) => {
   const sessionId = "collaboration-session";
+  let requestedUltra = false;
   const pi = {
     events: {
       emit(channel: string, request: CollaborationContractRequest) {
+        requestedUltra = request.ultra;
         if (channel === "clanker-stuff:subagents:contract:request" && protocol !== undefined) {
           request.provide({
             nestedTools: nestedTools.map((definition) => ({ definition })),
@@ -48,11 +59,12 @@ const harness = (protocol?: "off" | "v1" | "v2", nestedTools: readonly ToolDefin
       },
     },
   };
+  setCollaborationUltraReader(pi, () => ultra);
   const ctx = createExtensionHost(() => {}, {
     model: createToolsModel("gpt-5.6-sol"),
     sessionId,
   }).createContext();
-  return { ctx, pi };
+  return { ctx, pi, requestedUltra: () => requestedUltra };
 };
 
 describe("Codex collaboration wire projection", () => {
@@ -132,5 +144,12 @@ describe("Codex collaboration wire projection", () => {
     ).toMatchObject({
       tools: [expect.objectContaining({ name: "spawn_agent" })],
     });
+  });
+
+  it("publishes current Ultra state with each session contract request", () => {
+    const active = harness("v2", [], true);
+
+    expect(requestCollaborationContract(active.pi, active.ctx)?.protocol).toBe("v2");
+    expect(active.requestedUltra()).toBeTruthy();
   });
 });

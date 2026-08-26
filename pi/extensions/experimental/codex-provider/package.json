@@ -35,6 +35,7 @@
     "status.ts",
     "code-mode",
     "tools",
+    "ultra",
     "README.md",
     "LICENSE",
     "docs/codex-baseline.md",
@@ -42,7 +43,8 @@
     "docs/context-alignment.md",
     "docs/evaluation.md",
     "docs/live-canary.md",
-    "docs/local-deployment.md"
+    "docs/local-deployment.md",
+    "docs/ultra.md"
   ],
   "type": "module",
   "imports": {

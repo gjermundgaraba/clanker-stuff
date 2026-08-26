@@ -3,8 +3,11 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
 import { DEFAULT_CONFIG } from "../../config.js";
 import type { RoleConfig } from "../../config.js";
+import { COLLABORATION_CONTRACT_REQUEST } from "../../contract.js";
+import type { CollaborationContract } from "../../contract.js";
 import { TreeCoordinator } from "../../coordinator.js";
 import { NicknamePool } from "../../nicknames.js";
 import { PermanentChildError } from "../../permanent-error.js";
@@ -17,6 +20,7 @@ const setup = async (
   maximum = 3,
   roles: Record<string, RoleConfig> = {},
   failPersistence = false,
+  bridgeChildren = false,
 ) => {
   const root = rootBinding("v2-test");
   const coordinator = new TreeCoordinator();
@@ -28,9 +32,16 @@ const setup = async (
     roles,
   };
   const prompts: string[] = [];
+  const childHosts: ReturnType<typeof createExtensionHost>[] = [];
   const runtimeLoads: PromiseWithResolvers<FakeChildRuntime>[] = [];
-  const createRuntime = vi.fn<ChildRuntimeFactory>(async ({ identity, prompt }) => {
+  const createRuntime = vi.fn<ChildRuntimeFactory>(async ({ bridge, identity, prompt }) => {
     prompts.push(prompt);
+    if (bridgeChildren) {
+      const host = createExtensionHost(bridge, { sessionId: identity });
+      await host.ready;
+      await host.emitSessionStart();
+      childHosts.push(host);
+    }
     const pending = runtimeLoads.shift();
     const runtime = pending === undefined ? new FakeChildRuntime(identity) : await pending.promise;
     runtime.failPersistence = failPersistence;
@@ -54,6 +65,7 @@ const setup = async (
   controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
   return {
     controller,
+    childHosts,
     coordinator,
     createRuntime,
     ctx: createChildContext(),
@@ -730,6 +742,36 @@ describe("V2 controller", () => {
         status: "running",
       }),
     );
+  });
+
+  it("preserves role thinking instead of inheriting Ultra", async () => {
+    const { childHosts, controller, ctx } = await setup(
+      3,
+      { reviewer: { thinking: "high" } },
+      false,
+      true,
+    );
+    controller.setUltra("/root", true);
+
+    await controller.spawn(
+      "/root",
+      {
+        agentType: "reviewer",
+        forkTurns: "none",
+        message: "review",
+        taskName: "reviewer",
+      },
+      ctx,
+    );
+
+    let contract: CollaborationContract | undefined;
+    childHosts[0]?.events.emit(COLLABORATION_CONTRACT_REQUEST, {
+      provide: (value: CollaborationContract) => {
+        contract = value;
+      },
+      sessionId: "/root/reviewer",
+    });
+    expect(contract?.inheritedUltra).toBe(false);
   });
 
   it("interrupts a pending child before its runtime loads", async () => {

@@ -152,8 +152,9 @@ export class SubagentManager {
               sessionId: phase.sessionId,
             };
       },
-      (ctx) => {
+      (ctx, ultra) => {
         this.#refreshProtocol(ctx);
+        this.#v2.setUltra(ROOT_AGENT_PATH, ultra);
       },
     );
   }
