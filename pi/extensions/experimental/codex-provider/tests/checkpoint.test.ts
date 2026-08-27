@@ -5,7 +5,6 @@ import {
   canUseInlineLocalFallback,
   canonicalJson,
   decideCheckpointCompatibility,
-  isPortableLifecycleCompaction,
   parseCheckpoint,
   resolveActiveCheckpointBoundary,
   sha256Canonical,
@@ -436,7 +435,7 @@ describe("checkpoint protocol", () => {
     });
   });
 
-  it("uses inline local fallback only across authoritative Pi history", () => {
+  it("does not cross lifecycle checkpoints for inline local fallback", () => {
     const kept = entry("kept", {
       message: { content: "kept", role: "user", timestamp: 1 },
       type: "message",
@@ -446,21 +445,25 @@ describe("checkpoint protocol", () => {
       data: validCheckpoint(),
       type: "custom",
     });
-    const lifecycle = (summary: string, firstKeptEntryId = kept.id) =>
+    const ordinary = entry("ordinary", {
+      firstKeptEntryId: kept.id,
+      summary: "ordinary Pi summary",
+      tokensBefore: 10,
+      type: "compaction",
+    });
+    const lifecycle = () =>
       entry("lifecycle", {
         details: {
           checkpoint: validCheckpoint(),
           type: CHECKPOINT_CUSTOM_TYPE,
         },
-        firstKeptEntryId,
-        summary,
+        firstKeptEntryId: kept.id,
+        summary: "native checkpoint",
         tokensBefore: 10,
         type: "compaction",
       });
-    const readable = lifecycle("  readable portable summary  ");
-    const blank = lifecycle(" \n ");
-    const unresolved = lifecycle("readable", "missing");
-    const corrupt = lifecycle("readable");
+    const native = lifecycle();
+    const corrupt = lifecycle();
     if (corrupt.type === "compaction") {
       corrupt.details = {
         checkpoint: { ...validCheckpoint(), version: 9 },
@@ -468,20 +471,11 @@ describe("checkpoint protocol", () => {
       };
     }
 
-    const cases = [
-      [[], true],
-      [[kept, readable], true],
-      [[kept, blank], false],
-      [[kept, unresolved], false],
-      [[kept, corrupt], false],
-    ] as const;
+    const cases = [[], [kept, ordinary], [kept, native], [kept, corrupt]] as const;
 
     expect(
-      cases.map(([prefix]) => canUseInlineLocalFallback([...prefix, inline], prefix.length)),
-    ).toStrictEqual(cases.map(([, expected]) => expected));
-    expect(
-      cases.slice(1).map(([prefix]) => isPortableLifecycleCompaction(prefix, prefix.length - 1)),
-    ).toStrictEqual(cases.slice(1).map(([, expected]) => expected));
+      cases.map((prefix) => canUseInlineLocalFallback([...prefix, inline], prefix.length)),
+    ).toStrictEqual([true, true, false, false]);
   });
 
   it("parses runtime state and applies comp-hash compatibility", () => {

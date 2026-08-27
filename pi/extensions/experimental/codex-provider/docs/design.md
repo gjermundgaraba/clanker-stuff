@@ -81,13 +81,11 @@ The parser requires exact keys, validates every scalar and replacement item, ver
 
 Retained user text has a 64,000-token budget using the conservative local estimator. Eligible non-final agent messages must fit individually within 10,000 estimated tokens. Final-answer agent messages, stale tool/reasoning/system/developer items, and image bytes are not persisted. Images become small text omissions in the durable replacement; supported inline images may remain only in the transient request that triggered compaction.
 
-## Portable lifecycle summaries
+## Lifecycle checkpoints
 
-Lifecycle compaction runs Pi's readable summarizer beside native compaction. The Pi summary and opaque checkpoint are installed together only after source, branch, model, generation, request state, and persistence checks pass. Compatible Codex replay sends the opaque replacement; an incompatible provider can use the readable summary.
+Lifecycle compaction makes one native request and installs its opaque checkpoint only after source, branch, model, generation, request state, and persistence checks pass. Pi's required summary field contains a checkpoint-specific operational marker, not a second model-generated summary. Provider-reported native usage is therefore the complete compaction usage. Custom `/compact` summary instructions do not apply to the opaque native protocol.
 
-`CLANKER_CODEX_COMPACTION_FAILURE=ask|fallback|cancel` controls a genuine native failure after a readable summary succeeds. The default `ask` offers fallback or cancellation only in a dialog-capable UI; headless operation, dismissal, abort, stale state, unsafe context, or failed persistence cancels. Custom `/compact` instructions affect Pi's history-summary request only, including Pi 0.84.2's existing split-turn limitation; they do not alter native compaction.
-
-Both the readable summary and the original JSONL history remain plaintext on disk. The opaque item is not secure deletion.
+Compatible Codex replay sends the opaque replacement. Incompatible or corrupt lifecycle checkpoints block sampling; there is no automatic text fallback. Native compaction failure leaves the original context unchanged. The original JSONL history remains plaintext on disk; the opaque item is not secure deletion.
 
 ## Safety invariants
 

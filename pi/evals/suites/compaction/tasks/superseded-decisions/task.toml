@@ -1,0 +1,98 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "final"
+
+[task]
+name = "pi-evals/compaction-superseded-decisions"
+description = "Retain early facts and replace stale policies across two required compactions."
+keywords = ["compaction", "multi-step", "supersession"]
+
+[metadata]
+difficulty = "hard"
+category = "context-management"
+tags = ["compaction", "trajectory", "supersession"]
+
+[environment]
+docker_image = "clanker-pi-evals:node26"
+workdir = "/app"
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+
+[[steps]]
+name = "base"
+[steps.agent]
+timeout_sec = 300.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "old-policy"
+[steps.agent]
+timeout_sec = 300.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-one-a"
+[steps.agent]
+timeout_sec = 600.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-one-b"
+[steps.agent]
+timeout_sec = 600.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-one"
+[steps.agent]
+timeout_sec = 600.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "target-update"
+[steps.agent]
+timeout_sec = 300.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "attempt-update"
+[steps.agent]
+timeout_sec = 300.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-two-a"
+[steps.agent]
+timeout_sec = 600.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-two-b"
+[steps.agent]
+timeout_sec = 600.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-two"
+[steps.agent]
+timeout_sec = 600.0
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "implement"
+[steps.agent]
+timeout_sec = 600.0
+[steps.verifier]
+timeout_sec = 120.0

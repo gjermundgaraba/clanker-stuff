@@ -1635,7 +1635,7 @@ export const createCodexProviderRuntime = (
         request.context,
         options,
         catalog.getModelMetadata(request.model.id),
-        runtimeSessionId,
+        request.sessionId,
         session,
       );
       const envelope = request.authoritativeEnvelope
@@ -1670,7 +1670,7 @@ export const createCodexProviderRuntime = (
         ...envelope,
         client_metadata: {
           ...envelopeMetadata,
-          ...requestMetadata(runtimeSessionId, session, "compaction", compactionMetadata(request)),
+          ...requestMetadata(request.sessionId, session, "compaction", compactionMetadata(request)),
         },
         input: [...effectiveInput, { type: "compaction_trigger" }],
         model: request.model.id,
@@ -1690,6 +1690,7 @@ export const createCodexProviderRuntime = (
       }
       validateRequestReasoningEffort(body);
       observedBody = body;
+      const requestId = promptCacheKey(request.sessionId);
       const configuredWebsocketTransport =
         options.transport === "sse" ? undefined : (options.transport ?? "auto");
       const websocketAttempts =
@@ -1709,7 +1710,7 @@ export const createCodexProviderRuntime = (
             body,
             options,
             session,
-            uuidv7(),
+            requestId,
             capture,
             trace,
             built.responsesLite,
@@ -2101,20 +2102,6 @@ export const createCodexProviderRuntime = (
     }
   };
 
-  const streamPortableSummary: typeof streamSimple = (model, context, options) => {
-    const sessionId = `portable-summary:${uuidv7()}`;
-    const events = streamSimple(model, context, { ...options, sessionId });
-    void events.result().then(
-      () => {
-        closeSession(sessionId);
-      },
-      () => {
-        closeSession(sessionId);
-      },
-    );
-    return events;
-  };
-
   const provider: Provider<"openai-codex-responses"> = {
     ...base,
     getModels: catalog.getModels,
@@ -2186,7 +2173,6 @@ export const createCodexProviderRuntime = (
       return { ...session.window };
     },
     provider,
-    streamPortableSummary,
     supportsFastMode: catalog.supportsFastMode,
   };
 };

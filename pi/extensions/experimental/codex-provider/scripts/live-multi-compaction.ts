@@ -9,7 +9,6 @@ import { zstdDecompressSync } from "node:zlib";
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import type {
   AgentSession,
-  CompactionEntry,
   CreateAgentSessionOptions,
   CustomEntry,
   ExtensionError,
@@ -83,24 +82,12 @@ const customEntries = (manager: SessionManager, customType: string): CustomEntry
       (entry): entry is CustomEntry => entry.type === "custom" && entry.customType === customType,
     );
 
-const compactionEntries = (manager: SessionManager): CompactionEntry[] =>
-  manager.getBranch().filter((entry): entry is CompactionEntry => entry.type === "compaction");
-
 const parseLiveCheckpoint = (value: CheckpointInput, label: string): Checkpoint => {
   const parsed = parseCheckpoint(value);
   if (!parsed.ok) {
     throw new Error(`${label}: ${parsed.error}`);
   }
   return parsed.checkpoint;
-};
-
-const lifecycleCheckpoint = (entry: CompactionEntry | undefined): Checkpoint => {
-  assert(entry !== undefined, "Lifecycle compaction entry missing");
-  assert(
-    isRecord(entry.details) && entry.details.type === CHECKPOINT_CUSTOM_TYPE,
-    "Lifecycle compaction details missing",
-  );
-  return parseLiveCheckpoint(entry.details.checkpoint, "Lifecycle checkpoint invalid");
 };
 
 const contextTokens = (usage: Usage | undefined): number => {
@@ -633,7 +620,7 @@ const main = async (invocation: ParentInvocation) => {
   const { rounds, transport: transportMode } = invocation;
   if (invocation.showHelp) {
     console.log(`Usage:
-  node pi/extensions/experimental/codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--portable|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
+  node pi/extensions/experimental/codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
 
 Environment:
   CODEX_COMPACTION_LIVE_MODEL          Model ID (default: gpt-5.6-sol)
@@ -711,7 +698,7 @@ Environment:
     usesRealWindow(scenario) || scenario === "threshold"
       ? 0
       : positiveInteger("CODEX_COMPACTION_LIVE_PAYLOAD_BYTES", 20_000);
-  if (!(usesRealWindow(scenario) || scenario === "portable" || scenario === "threshold")) {
+  if (!(usesRealWindow(scenario) || scenario === "threshold")) {
     assert(
       payloadBytes >= forcedContextWindow * 0.9 * 4,
       "Synthetic payload must cross the 90% local context estimate",
@@ -794,12 +781,9 @@ Environment:
     loadCompaction = true,
     customTools: ToolDefinition[] = [],
     systemPrompt?: string,
-    manualCompaction = false,
   ): Promise<AgentSession> => {
     const settingsManager = SettingsManager.inMemory({
-      compaction: manualCompaction
-        ? { enabled: false, keepRecentTokens: 64, reserveTokens: 1024 }
-        : { enabled: false },
+      compaction: { enabled: false },
       retry: { enabled: true, maxRetries: 2 },
       transport: transportMode === "sse" ? "sse" : "websocket",
     });
@@ -917,11 +901,7 @@ Environment:
     );
   }
 
-  const transportProbe = installTransportProbe(
-    transportMode,
-    scenario === "portable",
-    scenario === "stream-fault",
-  );
+  const transportProbe = installTransportProbe(transportMode, false, scenario === "stream-fault");
   const manager = SessionManager.create(canaryCwd, sessionDir);
   let toolCalls = 0;
   const postCompactionToolCalls: number[] = [];
@@ -1027,9 +1007,6 @@ Environment:
   } else if (scenario === "threshold") {
     systemPrompt =
       "This is a below-threshold metadata canary. Call threshold_probe exactly once when requested, then reply only THRESHOLD OK.";
-  } else if (scenario === "portable") {
-    systemPrompt =
-      "This is a portable compaction canary. Follow exact reply formats and preserve memorized values exactly.";
   } else if (scenario === "mid-turn") {
     systemPrompt =
       "For every user request, first call context_filler exactly once. Only after that tool completes, call post_compaction_probe exactly once, then reply only MIDTURN COMPLETE. Never call either tool more than once for one request.";
@@ -1040,7 +1017,6 @@ Environment:
     true,
     customTools,
     systemPrompt,
-    scenario === "portable",
   );
   if (scenario === "threshold") {
     const provider = modelRuntime.getProvider("openai-codex");
@@ -1087,98 +1063,6 @@ Environment:
   }[] = [];
   try {
     console.log(`Live artifacts: ${runRoot}`);
-    if (scenario === "portable") {
-      await session.prompt(
-        "Create a unique recall token in the exact format OPAQUE- followed by 12 uppercase hexadecimal characters. Reply only with that token.",
-      );
-      const secret = assistantText(lastAssistant(session)).trim();
-      assert(
-        /^OPAQUE-[0-9A-F]{12}$/u.test(secret),
-        `Portable canary received invalid recall token ${JSON.stringify(secret)}`,
-      );
-      await session.prompt(
-        `Remember the earlier token without repeating it. ${syntheticText(600)} Reply only STORED.`,
-      );
-      assert(
-        assistantText(lastAssistant(session)).trim().toUpperCase() === "STORED",
-        "Portable canary setup was not acknowledged",
-      );
-
-      const summaryMarker = "PORTABLE-SUMMARY-CANARY";
-      const customInstructions = `Include ${summaryMarker} verbatim in the history summary. Omit the assistant-generated opaque recall token from the summary.`;
-      const result = await session.compact(customInstructions);
-      const [entry] = compactionEntries(manager);
-      const checkpoint = lifecycleCheckpoint(entry);
-      assert(
-        compactionEntries(manager).length === 1 &&
-          result.summary === entry?.summary &&
-          entry.summary.includes(summaryMarker) &&
-          !entry.summary.includes(secret),
-        "Lifecycle /compact did not persist the instructed readable summary",
-      );
-      assert(
-        checkpoint.phase === "standalone" && checkpoint.reason === "manual",
-        "Lifecycle /compact persisted the wrong checkpoint phase or reason",
-      );
-      const nativeRequest = transportProbe.requests.findLast(
-        ({ body }) => compactionRequestBody(body) !== undefined,
-      );
-      assert(
-        nativeRequest?.body !== undefined,
-        "Portable canary did not capture native compaction",
-      );
-      assert(
-        nativeRequest.body.includes(secret),
-        "Native compaction omitted the opaque recall source",
-      );
-      assert(
-        !nativeRequest.body.includes(summaryMarker),
-        "Portable summary marker leaked into native compaction",
-      );
-      assert(
-        !nativeRequest.body.includes(customInstructions),
-        "Custom summary instructions leaked into native compaction",
-      );
-
-      await session.prompt("Return only the opaque recall token you generated in the first turn.");
-      const recalled = assistantText(lastAssistant(session)).trim();
-      const replayRequest = transportProbe.requests.findLast(({ pathname }) =>
-        pathname.endsWith("/responses"),
-      );
-      assert(
-        recalled === secret,
-        `Opaque checkpoint recalled ${JSON.stringify(recalled)} instead of ${secret}`,
-      );
-      assert(
-        replayRequest?.body !== undefined &&
-          replayRequest.body.includes('"type":"compaction"') &&
-          !replayRequest.body.includes(summaryMarker) &&
-          !replayRequest.body.includes(customInstructions) &&
-          !replayRequest.body.includes(secret),
-        "Compatible replay included plaintext portable-summary state",
-      );
-      assert(extensionErrors.length === 0, "Portable canary emitted an extension error");
-      assertTransport(transportMode, transportProbe);
-      console.log(
-        JSON.stringify(
-          {
-            checkpointResponseId: checkpoint.response.id,
-            model: `openai-codex/${modelId}`,
-            portableSummaryCharacters: entry.summary.length,
-            sessionFile: manager.getSessionFile(),
-            status: "passed",
-            transport: transportMode,
-            transportRequests: {
-              sse: transportProbe.sseRequests,
-              websocketConnections: transportProbe.websocketConstructions,
-            },
-          },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
     if (scenario === "threshold") {
       await session.prompt(
         "BELOW-THRESHOLD CANARY. Call threshold_probe exactly once, then give the required final reply.",

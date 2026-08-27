@@ -17,5 +17,23 @@ jobs:
         with:
           cache: true
           node-version: "26"
+      - run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: vp install --frozen-lockfile
       - run: vp run ready
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --project pi/evals --frozen
+      - run: |
+          for tests in pi/evals/tests pi/evals/suites/*/tests; do
+            PYTHONPATH=pi/evals uv run --project pi/evals python -m unittest discover -s "$tests" -p 'test_*.py' -v
+          done
+      - run: pi/evals/runtime/build.sh
+      - run: |
+          for profile in profiles/*.yaml; do
+            uv run harbor job start --config "$profile" --path suites/compaction/tasks --print-config >/dev/null
+          done
+          for config in suites/*/job.yaml; do
+            uv run harbor job start --config "$config" --print-config >/dev/null
+          done
+        working-directory: pi/evals
+      - run: uv run harbor job start --config suites/smoke/job.yaml --job-name ci-smoke --yes
+        working-directory: pi/evals

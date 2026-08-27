@@ -1,0 +1,4 @@
+.git
+**/.harbor
+**/.venv
+**/node_modules

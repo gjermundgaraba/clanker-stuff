@@ -1,0 +1,22 @@
+job_name: smoke
+jobs_dir: .harbor/jobs
+n_attempts: 1
+n_concurrent_trials: 3
+quiet: false
+
+environment:
+  type: docker
+  delete: true
+
+agents:
+  - name: oracle
+    kwargs:
+      pi_evals:
+        platform: oracle
+        compaction_mode: "off"
+        expected_mechanism: oracle
+        expected_protocol: null
+
+datasets:
+  - path: suites/smoke/tasks/coding
+  - path: suites/smoke/tasks/tool-use

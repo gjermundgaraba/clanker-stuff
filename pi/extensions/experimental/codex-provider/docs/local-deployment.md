@@ -23,7 +23,7 @@ Loading the extension always registers its complete `openai-codex` provider. The
 
 New checkpoints use only custom type `codex-provider.checkpoint`, schema `clanker.codex-provider/checkpoint`, version `1`. Earlier local checkpoint namespaces and versions are unsupported; start a new session or branch before an old checkpoint after upgrading. Persisted replacements omit image bytes and carry provider window and model-compatibility state.
 
-Set `CLANKER_CODEX_COMPACTION_FAILURE` to `ask`, `fallback`, or `cancel` when the default interactive choice is unsuitable. Invalid values warn once and behave as `ask`. This changes only failure handling after readable summary generation; it does not disable provider ownership.
+Native compaction failure leaves the active branch unchanged. An incompatible provider cannot replay an opaque lifecycle checkpoint.
 
 Fail-closed alignment errors write a best-effort observation to `data/codex-provider/codex-provider.sqlite` under Pi's agent directory. It contains counts, hashes, message shapes, and the first mismatch location only; provide the session ID when reporting a failure.
 

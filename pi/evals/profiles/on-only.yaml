@@ -1,0 +1,53 @@
+job_name: on-only
+jobs_dir: .harbor/jobs
+n_attempts: 3
+n_concurrent_trials: 3
+quiet: false
+
+environment:
+  type: docker
+  delete: true
+
+agents:
+  - import_path: pi_evals.adapters.pi:PiEval
+    model_name: openai-codex/gpt-5.6-terra
+    resume_trajectory: true
+    kwargs:
+      thinking: medium
+      settings:
+        compaction:
+          enabled: false
+      pi_evals:
+        platform: pi-vanilla
+        compaction_mode: "on"
+        expected_mechanism: pi-builtin
+        expected_protocol: null
+  - import_path: pi_evals.adapters.pi:PiEval
+    model_name: openai-codex/gpt-5.6-terra
+    resume_trajectory: true
+    kwargs:
+      thinking: medium
+      extensions:
+        - /opt/codex-provider/index.ts
+      settings:
+        compaction:
+          enabled: false
+      pi_evals:
+        platform: pi-provider
+        compaction_mode: "on"
+        expected_mechanism: codex-provider
+        expected_protocol: openai-responses-compaction-v2
+  - import_path: pi_evals.adapters.codex:CodexEval
+    model_name: openai/gpt-5.6-terra
+    resume_trajectory: true
+    kwargs:
+      version: 0.147.0
+      reasoning_effort: medium
+      config:
+        model_auto_compact_token_limit: 1000000000
+        model_auto_compact_token_limit_scope: body_after_prefix
+      pi_evals:
+        platform: codex-native
+        compaction_mode: "on"
+        expected_mechanism: codex-native
+        expected_protocol: null

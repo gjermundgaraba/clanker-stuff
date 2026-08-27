@@ -67,7 +67,6 @@
     "test:live:fault": "node ./scripts/live-multi-compaction.ts --stream-fault --sse",
     "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
     "test:live:installed": "node ./scripts/live-installed.ts",
-    "test:live:portable": "node ./scripts/live-multi-compaction.ts --portable",
     "test:live:real": "node ./scripts/live-multi-compaction.ts --real-window",
     "test:live:crash": "node ./scripts/live-chaos.ts --crash",
     "test:live:marathon": "vp run test:live:soak:sse && vp run test:live:websocket && vp run test:live:mid-turn && vp run test:live:fault && vp run test:live:rpc && vp run test:live:crash",

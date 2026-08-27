@@ -1,0 +1,102 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "final"
+
+[task]
+name = "pi-evals/compaction-decision-continuity"
+description = "Retain five independently scored decisions across a required compaction boundary."
+keywords = ["compaction", "multi-step", "continuity"]
+
+[metadata]
+difficulty = "medium"
+category = "context-management"
+tags = ["compaction", "trajectory"]
+
+[environment]
+docker_image = "clanker-pi-evals:node26"
+workdir = "/app"
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+
+[[steps]]
+name = "channel"
+
+[steps.agent]
+timeout_sec = 300.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "artifacts"
+
+[steps.agent]
+timeout_sec = 300.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "regions"
+
+[steps.agent]
+timeout_sec = 300.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "rollout"
+
+[steps.agent]
+timeout_sec = 300.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "shape"
+
+[steps.agent]
+timeout_sec = 300.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-a"
+
+[steps.agent]
+timeout_sec = 600.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure-b"
+
+[steps.agent]
+timeout_sec = 600.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "pressure"
+
+[steps.agent]
+timeout_sec = 600.0
+
+[steps.verifier]
+timeout_sec = 60.0
+
+[[steps]]
+name = "implement"
+
+[steps.agent]
+timeout_sec = 600.0
+
+[steps.verifier]
+timeout_sec = 120.0

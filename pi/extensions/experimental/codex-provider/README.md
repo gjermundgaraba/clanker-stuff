@@ -18,4 +18,4 @@ OpenAI Codex requests compact and replay opaque checkpoints automatically; with 
 
 ## Configuration
 
-The `/fast` preference is stored globally in `~/.pi/agent/codex-provider.json`. Observations use `~/.pi/agent/data/codex-provider/codex-provider.sqlite`; with Pi stopped, reset them with `rm ~/.pi/agent/data/codex-provider/codex-provider.sqlite*` (or use the equivalent `$PI_CODING_AGENT_DIR` paths). See [design](docs/design.md) for ownership and failure policy.
+The `/fast` preference is stored globally in `~/.pi/agent/codex-provider.json`. Observations use `~/.pi/agent/data/codex-provider/codex-provider.sqlite`; with Pi stopped, reset them with `rm ~/.pi/agent/data/codex-provider/codex-provider.sqlite*` (or use the equivalent `$PI_CODING_AGENT_DIR` paths). See [design](docs/design.md) for ownership and replay rules.

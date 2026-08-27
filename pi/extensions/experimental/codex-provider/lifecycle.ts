@@ -4,7 +4,6 @@ import {
   buildContextEntries,
   buildSessionContext,
   calculateContextTokens,
-  compact,
   convertToLlm,
   sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
@@ -35,7 +34,7 @@ import {
   REMOTE_USER_IMAGE_PLACEHOLDER,
   canUseInlineLocalFallback,
   decideCheckpointCompatibility,
-  isPortableLifecycleCompaction,
+  nativeCheckpointSummary,
   normalizeBaseUrl,
   parseAgentMessageItem,
   parseCheckpoint,
@@ -49,6 +48,7 @@ import type {
   CheckpointAgentMessageItem,
   RealUserInputItem,
 } from "./checkpoint.js";
+import { EXEC_CONSTRAINED_SAMPLING } from "./code-mode/tools.js";
 import { rewriteCollaborationTools } from "./collaboration.js";
 import type { CodexModelCatalog } from "./model-catalog.js";
 import type { CodexObservability } from "./observability.js";
@@ -73,8 +73,13 @@ import {
 } from "./replay.js";
 import type { ResponsesInputItem } from "./replay.js";
 import { formatCodexProviderStatus } from "./status.js";
+import { APPLY_PATCH_CONSTRAINED_SAMPLING } from "./tools/direct.js";
 
 export const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
+const CONSTRAINED_SAMPLING_BY_TOOL = new Map([
+  ["apply_patch", APPLY_PATCH_CONSTRAINED_SAMPLING],
+  ["exec", EXEC_CONSTRAINED_SAMPLING],
+]);
 
 const STATUS_KEY = "codex-provider";
 const STATUS_MESSAGE = "Compacting with OpenAI Codex…";
@@ -112,23 +117,7 @@ const FinalizedResponsesEnvelopeSchema = Type.Intersect([
   }),
 ]);
 
-/** Pi's portable compact() still takes plain string headers. */
-const withoutDeletedHeaders = (
-  headers: ProviderHeaders | undefined,
-): Record<string, string> | undefined =>
-  headers
-    ? Object.fromEntries(
-        Object.entries(headers).filter((entry): entry is [string, string] => entry[1] !== null),
-      )
-    : undefined;
-
 type SupportedModel = Model<"openai-codex-responses">;
-export type CompactionFailurePolicy = "ask" | "cancel" | "fallback";
-
-export interface ParsedCompactionFailurePolicy {
-  readonly invalid: boolean;
-  readonly policy: CompactionFailurePolicy;
-}
 
 interface SessionBeforeCompactResult {
   readonly cancel?: boolean;
@@ -138,7 +127,7 @@ interface SessionBeforeCompactResult {
 export interface LifecycleSource {
   readonly branchSha256: string;
   readonly contextMessages: Context["messages"];
-  readonly ignoredInvalidInlineCheckpoint: boolean;
+  readonly ignoredInlineCheckpoint: boolean;
   readonly inputPrefix: readonly ResponsesInputItem[];
   readonly retainedItems: readonly (CheckpointAgentMessageItem | RealUserInputItem)[];
 }
@@ -167,7 +156,6 @@ interface PendingInstall {
   readonly responseId: string;
   readonly runtime: Checkpoint["runtime"];
   readonly sessionId: string;
-  readonly summarySha256: string;
 }
 
 type ActiveNativeCheckpoint = Extract<
@@ -198,7 +186,6 @@ interface UnframedCandidate {
 interface LifecycleState {
   candidate?: UnframedCandidate;
   controller: AbortController;
-  failurePolicyWarned: boolean;
   frame?: RequestFrame;
   generation: number;
   inFlight?:
@@ -246,42 +233,6 @@ const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonReco
 
 const isUnknownArray = (value: WireValue): value is WireValue[] =>
   Value.Check(UnknownArraySchema, value);
-
-export const parseCompactionFailurePolicy = (
-  value: string | undefined,
-): ParsedCompactionFailurePolicy => {
-  if (value === undefined) {
-    return { invalid: false, policy: "ask" };
-  }
-  const policy = value.trim().toLowerCase();
-  return policy === "ask" || policy === "cancel" || policy === "fallback"
-    ? { invalid: false, policy }
-    : { invalid: true, policy: "ask" };
-};
-
-export const combineCompactionUsage = (first: Usage, second: Usage): Usage => {
-  const combined: Usage = {
-    cacheRead: first.cacheRead + second.cacheRead,
-    cacheWrite: first.cacheWrite + second.cacheWrite,
-    cost: {
-      cacheRead: first.cost.cacheRead + second.cost.cacheRead,
-      cacheWrite: first.cost.cacheWrite + second.cost.cacheWrite,
-      input: first.cost.input + second.cost.input,
-      output: first.cost.output + second.cost.output,
-      total: first.cost.total + second.cost.total,
-    },
-    input: first.input + second.input,
-    output: first.output + second.output,
-    totalTokens: first.totalTokens + second.totalTokens,
-  };
-  if (first.cacheWrite1h !== undefined || second.cacheWrite1h !== undefined) {
-    combined.cacheWrite1h = (first.cacheWrite1h ?? 0) + (second.cacheWrite1h ?? 0);
-  }
-  if (first.reasoning !== undefined || second.reasoning !== undefined) {
-    combined.reasoning = (first.reasoning ?? 0) + (second.reasoning ?? 0);
-  }
-  return combined;
-};
 
 const isAbortError = (cause: unknown) =>
   (Value.Check(NamedErrorSchema, cause) && cause.name === "AbortError") ||
@@ -420,10 +371,11 @@ export const buildLifecycleSource = (
   compHash?: string | null,
 ): LifecycleSource => {
   const boundary = resolveActiveCheckpointBoundary(branch);
-  if (
-    boundary.kind === "invalid-checkpoint" &&
-    (boundary.carrier === "lifecycle" || !canUseInlineLocalFallback(branch, boundary.boundaryIndex))
-  ) {
+  const canUseLocalHistory =
+    (boundary.kind === "checkpoint" || boundary.kind === "invalid-checkpoint") &&
+    boundary.carrier === "inline" &&
+    canUseInlineLocalFallback(branch, boundary.boundaryIndex);
+  if (boundary.kind === "invalid-checkpoint" && !canUseLocalHistory) {
     throw new Error("The active checkpoint boundary is invalid");
   }
 
@@ -434,34 +386,36 @@ export const buildLifecycleSource = (
       compHash,
       provider: model.provider,
     });
-    if (!compatibility.compatible) {
+    if (!compatibility.compatible && !canUseLocalHistory) {
       throw new Error("The active checkpoint identity is incompatible");
     }
-    const previousItems: (CheckpointAgentMessageItem | RealUserInputItem)[] = [];
-    for (const [index, item] of boundary.checkpoint.replacement.entries()) {
-      if (item.type === "agent_message") {
-        previousItems.push(parseAgentMessageItem(item, `checkpoint agent[${index}]`));
-      } else if (item.type === "message") {
-        previousItems.push(parseRealUserInputItem(item, `checkpoint user[${index}]`));
+    if (compatibility.compatible) {
+      const previousItems: (CheckpointAgentMessageItem | RealUserInputItem)[] = [];
+      for (const [index, item] of boundary.checkpoint.replacement.entries()) {
+        if (item.type === "agent_message") {
+          previousItems.push(parseAgentMessageItem(item, `checkpoint agent[${index}]`));
+        } else if (item.type === "message") {
+          previousItems.push(parseRealUserInputItem(item, `checkpoint user[${index}]`));
+        }
       }
+      const safePreviousItems = omitUnsupportedImagesFromRetained(previousItems, model);
+      const tailUsers = omitUnsupportedImagesFromUsers(
+        serializeRealUserEntries(boundary.tail, model),
+        model,
+      );
+      const compaction = boundary.checkpoint.replacement.at(-1);
+      if (compaction?.type !== "compaction") {
+        throw new Error("The active checkpoint compaction is unavailable");
+      }
+      const inputPrefix = [...safePreviousItems, { ...compaction }].map((item) => ({ ...item }));
+      return {
+        branchSha256: branchSha256(branch),
+        contextMessages: convertToLlm(boundary.tail.flatMap(sessionEntryToContextMessages)),
+        ignoredInlineCheckpoint: false,
+        inputPrefix,
+        retainedItems: [...safePreviousItems, ...tailUsers],
+      };
     }
-    const safePreviousItems = omitUnsupportedImagesFromRetained(previousItems, model);
-    const tailUsers = omitUnsupportedImagesFromUsers(
-      serializeRealUserEntries(boundary.tail, model),
-      model,
-    );
-    const compaction = boundary.checkpoint.replacement.at(-1);
-    if (compaction?.type !== "compaction") {
-      throw new Error("The active checkpoint compaction is unavailable");
-    }
-    const inputPrefix = [...safePreviousItems, { ...compaction }].map((item) => ({ ...item }));
-    return {
-      branchSha256: branchSha256(branch),
-      contextMessages: convertToLlm(boundary.tail.flatMap(sessionEntryToContextMessages)),
-      ignoredInvalidInlineCheckpoint: false,
-      inputPrefix,
-      retainedItems: [...safePreviousItems, ...tailUsers],
-    };
   }
 
   const contextEntries = buildContextEntries([...branch]);
@@ -470,8 +424,7 @@ export const buildLifecycleSource = (
   return {
     branchSha256: branchSha256(branch),
     contextMessages: convertToLlm(buildSessionContext([...branch]).messages),
-    ignoredInvalidInlineCheckpoint:
-      boundary.kind === "invalid-checkpoint" && boundary.carrier === "inline",
+    ignoredInlineCheckpoint: canUseLocalHistory,
     inputPrefix: [],
     retainedItems,
   };
@@ -636,8 +589,9 @@ const isPendingInstallationResolvable = (
     state.generation === pending.generation &&
     ctx.sessionManager.getSessionId() === pending.sessionId &&
     installedEntry?.type === "compaction" &&
-    sha256Canonical(installedEntry.summary) === pending.summarySha256 &&
-    isPortableLifecycleCompaction(branch, boundaryIndex) &&
+    active.kind === "checkpoint" &&
+    installedEntry.summary === nativeCheckpointSummary(active.checkpoint.runtime.currentWindowId) &&
+    branch.slice(0, boundaryIndex).some((entry) => entry.id === installedEntry.firstKeptEntryId) &&
     isLifecycleInstallationResolvable(branch, pending.responseId, pending.replacementSha256)
   );
 };
@@ -702,6 +656,7 @@ const snapshotLifecycleRequestState = (
     .getAllTools()
     .filter((tool) => activeNames.has(tool.name))
     .map((tool) => ({
+      constrainedSampling: CONSTRAINED_SAMPLING_BY_TOOL.get(tool.name),
       description: tool.description,
       name: tool.name,
       parameters: tool.parameters,
@@ -802,48 +757,22 @@ const consumeRequestHeaders = (state: LifecycleState, ctx: ExtensionContext) => 
     : undefined;
 };
 
-const canUseCheckpointLocalFallback = (
-  branch: readonly SessionEntry[],
-  boundary: ActiveNativeCheckpoint,
-) =>
-  boundary.carrier === "lifecycle"
-    ? isPortableLifecycleCompaction(branch, boundary.boundaryIndex)
-    : canUseInlineLocalFallback(branch, boundary.boundaryIndex);
-
-const lifecycleSourceSafety = (branch: readonly SessionEntry[]) => {
-  const boundary = resolveActiveCheckpointBoundary(branch);
-  if (boundary.kind === "invalid-checkpoint") {
-    return {
-      remoteFailureFallbackAllowed: false,
-      sourceAuthoritative:
-        boundary.carrier === "inline" && canUseInlineLocalFallback(branch, boundary.boundaryIndex),
-    };
-  }
-  const sourceAuthoritative =
-    boundary.kind !== "checkpoint" || canUseCheckpointLocalFallback(branch, boundary);
-  return {
-    remoteFailureFallbackAllowed: sourceAuthoritative,
-    sourceAuthoritative,
-  };
-};
-
 const runLifecycleHook = async (
   pi: Parameters<ExtensionFactory>[0],
   state: LifecycleState,
   event: SessionBeforeCompactEvent,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
-  failurePolicy: CompactionFailurePolicy,
 ): Promise<SessionBeforeCompactResult | undefined> => {
   const { model } = ctx;
-  const { remoteFailureFallbackAllowed, sourceAuthoritative } = lifecycleSourceSafety(
-    event.branchEntries,
-  );
-  if (!sourceAuthoritative) {
-    return { cancel: true };
-  }
   if (!isSupportedLifecycleModel(model)) {
-    return undefined;
+    const boundary = resolveActiveCheckpointBoundary(event.branchEntries);
+    const localContextIsAuthoritative =
+      boundary.kind !== "checkpoint" && boundary.kind !== "invalid-checkpoint"
+        ? true
+        : boundary.carrier === "inline" &&
+          canUseInlineLocalFallback(event.branchEntries, boundary.boundaryIndex);
+    return localContextIsAuthoritative ? undefined : { cancel: true };
   }
 
   let source: LifecycleSource;
@@ -861,7 +790,6 @@ const runLifecycleHook = async (
     requestSnapshot = snapshotLifecycleRequestState(pi, ctx);
     operationKey = sha256Canonical({
       branch: source.branchSha256,
-      customInstructions: event.customInstructions ?? null,
       firstKeptEntryId: event.preparation.firstKeptEntryId,
       model: modelIdentity(model),
       reason: event.reason,
@@ -869,13 +797,6 @@ const runLifecycleHook = async (
       tokensBefore: event.preparation.tokensBefore,
     });
   } catch {
-    const boundary = resolveActiveCheckpointBoundary(event.branchEntries);
-    if (
-      boundary.kind === "checkpoint" &&
-      canUseCheckpointLocalFallback(event.branchEntries, boundary)
-    ) {
-      return undefined;
-    }
     notifyOnce(
       state,
       "unsafe-source",
@@ -885,12 +806,12 @@ const runLifecycleHook = async (
     );
     return { cancel: true };
   }
-  if (source.ignoredInvalidInlineCheckpoint) {
+  if (source.ignoredInlineCheckpoint) {
     notifyOnce(
       state,
-      `${source.branchSha256}:invalid-inline`,
+      `${source.branchSha256}:ignored-inline`,
       ctx,
-      "A corrupt inline OpenAI checkpoint was ignored because authoritative Pi context is still available.",
+      "An unusable inline OpenAI checkpoint was ignored because authoritative Pi context is still available.",
       "warning",
     );
   }
@@ -980,70 +901,24 @@ const runLifecycleHook = async (
       }
 
       const phase = event.reason === "overflow" ? "overflow-retry" : "standalone";
-      const runPortableCompaction = async () => {
-        try {
-          const streamPortableSummary: NonNullable<Parameters<typeof compact>[7]> = (
-            _summaryModel,
-            context,
-            options,
-          ) => providerRuntime.streamPortableSummary(model, context, options);
-          const result = await compact(
-            event.preparation,
-            model,
-            auth.apiKey,
-            withoutDeletedHeaders(auth.headers),
-            event.customInstructions,
-            signal,
-            requestSnapshot.thinkingLevel,
-            streamPortableSummary,
-            auth.env,
-          );
-          if (
-            result.summary.trim().length === 0 ||
-            result.firstKeptEntryId !== event.preparation.firstKeptEntryId ||
-            result.tokensBefore !== event.preparation.tokensBefore ||
-            !result.usage
-          ) {
-            operationController.abort();
-            return { kind: "failure", ok: false } as const;
-          }
-          return {
-            ok: true,
-            result: { ...result, usage: result.usage },
-          } as const;
-        } catch (error) {
-          operationController.abort();
-          return {
-            kind:
-              event.signal.aborted || state.controller.signal.aborted || isAbortError(error)
-                ? ("aborted" as const)
-                : ("failure" as const),
-            ok: false as const,
-          };
-        }
-      };
-      const portablePromise = runPortableCompaction();
-      const [execution, portable] = await Promise.all([
-        runEffectiveProviderCompaction(providerRuntime, {
-          apiKey: auth.apiKey,
-          context: {
-            messages: source.contextMessages,
-            systemPrompt: requestSnapshot.systemPrompt,
-            tools: requestSnapshot.tools,
-          },
-          env: auth.env,
-          headers: auth.headers,
-          inputPrefix: source.inputPrefix,
-          model,
-          phase,
-          reason: event.reason,
-          sessionId,
-          signal,
-          thinkingLevel:
-            requestSnapshot.thinkingLevel === "off" ? undefined : requestSnapshot.thinkingLevel,
-        }),
-        portablePromise,
-      ]);
+      const execution = await runEffectiveProviderCompaction(providerRuntime, {
+        apiKey: auth.apiKey,
+        context: {
+          messages: source.contextMessages,
+          systemPrompt: requestSnapshot.systemPrompt,
+          tools: requestSnapshot.tools,
+        },
+        env: auth.env,
+        headers: auth.headers,
+        inputPrefix: source.inputPrefix,
+        model,
+        phase,
+        reason: event.reason,
+        sessionId,
+        signal,
+        thinkingLevel:
+          requestSnapshot.thinkingLevel === "off" ? undefined : requestSnapshot.thinkingLevel,
+      });
 
       if (!isCurrent()) {
         notifyStale(
@@ -1053,72 +928,15 @@ const runLifecycleHook = async (
         return { cancel: true };
       }
 
-      if (!portable.ok) {
+      if (!execution.ok) {
         notifyOnce(
           state,
-          `${operationKey}:portable`,
+          `${operationKey}:${execution.kind}`,
           ctx,
-          execution.ok
-            ? "OpenAI compaction was cancelled because no portable summary was produced."
-            : "OpenAI compaction failed because no usable native or portable result was produced.",
+          "OpenAI compaction was cancelled; local context was left unchanged.",
           "error",
         );
         return { cancel: true };
-      }
-
-      if (!execution.ok) {
-        if (execution.kind !== "remote") {
-          notifyOnce(
-            state,
-            `${operationKey}:${execution.kind}`,
-            ctx,
-            "OpenAI compaction was cancelled; local context was left unchanged.",
-            "error",
-          );
-          return { cancel: true };
-        }
-        if (!remoteFailureFallbackAllowed) {
-          notifyOnce(
-            state,
-            `${operationKey}:unsafe-fallback`,
-            ctx,
-            "OpenAI remote compaction failed; active checkpoint context cannot use portable fallback.",
-            "error",
-          );
-          return { cancel: true };
-        }
-        let usePortable = failurePolicy === "fallback";
-        if (failurePolicy === "ask" && ctx.hasUI) {
-          let choice: string | undefined;
-          try {
-            choice = await ctx.ui.select(
-              "OpenAI remote compaction failed",
-              ["Use portable text summary", "Keep context unchanged"],
-              { signal },
-            );
-          } catch {
-            choice = undefined;
-          }
-          usePortable = choice === "Use portable text summary";
-          if (!isCurrent()) {
-            notifyStale(
-              `${operationKey}:choice-stale`,
-              "Portable compaction was discarded because the session changed.",
-            );
-            return { cancel: true };
-          }
-        }
-        if (!usePortable || !isCurrent()) {
-          notifyOnce(
-            state,
-            `${operationKey}:remote`,
-            ctx,
-            "OpenAI remote compaction failed; local context was left unchanged.",
-            "error",
-          );
-          return { cancel: true };
-        }
-        return { compaction: portable.result };
       }
 
       const runtime = nextCheckpointRuntime(providerRuntime, sessionId, model);
@@ -1135,10 +953,10 @@ const runLifecycleHook = async (
           checkpoint,
           type: CHECKPOINT_CUSTOM_TYPE,
         },
-        firstKeptEntryId: portable.result.firstKeptEntryId,
-        summary: portable.result.summary,
-        tokensBefore: portable.result.tokensBefore,
-        usage: combineCompactionUsage(execution.usage, portable.result.usage),
+        firstKeptEntryId: event.preparation.firstKeptEntryId,
+        summary: nativeCheckpointSummary(checkpoint.runtime.currentWindowId),
+        tokensBefore: event.preparation.tokensBefore,
+        usage: execution.usage,
       } satisfies CompactionResult;
       state.pendingInstall = {
         generation,
@@ -1146,7 +964,6 @@ const runLifecycleHook = async (
         responseId: checkpoint.response.id,
         runtime,
         sessionId,
-        summarySha256: sha256Canonical(compaction.summary),
       };
       return {
         compaction: {
@@ -1242,7 +1059,7 @@ const replayBoundaryDecision = (
   if (previousCompatibility?.compatible === true) {
     return { boundary, kind: "active" };
   }
-  return canUseCheckpointLocalFallback(branch, boundary)
+  return boundary.carrier === "inline" && canUseInlineLocalFallback(branch, boundary.boundaryIndex)
     ? { kind: "fallback" }
     : { kind: "blocked" };
 };
@@ -2301,7 +2118,6 @@ const runBeforeProviderRequestHook = async (
 
 const createLifecycleState = (): LifecycleState => ({
   controller: new AbortController(),
-  failurePolicyWarned: false,
   generation: 0,
   notified: new Set(),
   transitionRestored: false,
@@ -2374,7 +2190,6 @@ export const createCodexLifecycle = (
   isFastModeEnabled: () => boolean = () => false,
   catalog?: CodexModelCatalog,
 ) => {
-  const failurePolicy = parseCompactionFailurePolicy(process.env.CLANKER_CODEX_COMPACTION_FAILURE);
   const providerRuntime = createCodexProviderRuntime(observability, isFastModeEnabled, catalog);
   const state = createLifecycleState();
 
@@ -2390,7 +2205,7 @@ export const createCodexLifecycle = (
       event: SessionBeforeCompactEvent,
       ctx: ExtensionContext,
     ): ReturnType<typeof runLifecycleHook> =>
-      runLifecycleHook(pi, state, event, ctx, providerRuntime, failurePolicy.policy),
+      runLifecycleHook(pi, state, event, ctx, providerRuntime),
     beforeProviderHeaders: (event: BeforeProviderHeadersEvent, ctx: ExtensionContext): void => {
       if (!isSupportedLifecycleModel(ctx.model)) {
         state.requestHeaders = undefined;
@@ -2568,10 +2383,6 @@ export const createCodexLifecycle = (
       state.transition = undefined;
       state.transitionRestored = false;
       resetGeneration(state);
-      if (failurePolicy.invalid && !state.failurePolicyWarned) {
-        state.failurePolicyWarned = true;
-        ctx.ui.notify("Invalid CLANKER_CODEX_COMPACTION_FAILURE value; using ask.", "warning");
-      }
     },
   };
 };
