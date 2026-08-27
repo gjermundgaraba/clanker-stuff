@@ -97,8 +97,12 @@ describe("mcp manager", () => {
   });
 
   it("connects a configured server through the manager", async () => {
+    Reflect.deleteProperty(process.env, "MCP_TEST_MISSING_COMMAND");
     await t.writeConfig({
-      mcpServers: { github: fixtureServer() },
+      mcpServers: {
+        broken: { command: envVarRef("MCP_TEST_MISSING_COMMAND"), type: "stdio" },
+        github: fixtureServer(),
+      },
     });
     const host = await t.loadManager();
 

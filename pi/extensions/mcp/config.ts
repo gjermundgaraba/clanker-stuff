@@ -223,51 +223,46 @@ const expandEnvRecord = (
   return expanded;
 };
 
-const expandMcpConfig = (config: McpConfig): McpConfig => {
-  const mcpServers: McpConfig["mcpServers"] = {};
-  for (const [name, server] of Object.entries(config.mcpServers)) {
-    if (server.type === "stdio") {
-      const args = server.args?.map(expandEnv);
-      const env = expandEnvRecord(server.env);
-      const stdioConfig: typeof server = {
-        command: expandEnv(server.command),
-        type: server.type,
-      };
-      if (args !== undefined) {
-        stdioConfig.args = args;
-      }
-      if (env !== undefined) {
-        stdioConfig.env = env;
-      }
-      mcpServers[name] = stdioConfig;
-      continue;
-    }
-
-    const headers = expandEnvRecord(server.headers);
-    const oauth =
-      server.oauth === undefined
-        ? undefined
-        : Object.fromEntries(
-            Object.entries(server.oauth).map(([key, value]) => [
-              key,
-              Value.Check(Type.String(), value)
-                ? expandEnv(Value.Parse(Type.String(), value))
-                : value,
-            ]),
-          );
-    const httpConfig: typeof server = {
+export const expandMcpServerConfig = (server: McpServerConfig): McpServerConfig => {
+  if (server.type === "stdio") {
+    const args = server.args?.map(expandEnv);
+    const env = expandEnvRecord(server.env);
+    const stdioConfig: typeof server = {
+      command: expandEnv(server.command),
       type: server.type,
-      url: expandEnv(server.url),
     };
-    if (headers !== undefined) {
-      httpConfig.headers = headers;
+    if (args !== undefined) {
+      stdioConfig.args = args;
     }
-    if (oauth !== undefined) {
-      httpConfig.oauth = oauth;
+    if (env !== undefined) {
+      stdioConfig.env = env;
     }
-    mcpServers[name] = httpConfig;
+    return stdioConfig;
   }
-  return { mcpServers };
+
+  const headers = expandEnvRecord(server.headers);
+  const oauth =
+    server.oauth === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(server.oauth).map(([key, value]) => [
+            key,
+            Value.Check(Type.String(), value)
+              ? expandEnv(Value.Parse(Type.String(), value))
+              : value,
+          ]),
+        );
+  const httpConfig: typeof server = {
+    type: server.type,
+    url: expandEnv(server.url),
+  };
+  if (headers !== undefined) {
+    httpConfig.headers = headers;
+  }
+  if (oauth !== undefined) {
+    httpConfig.oauth = oauth;
+  }
+  return httpConfig;
 };
 
 export const loadMcpConfig = async (options: LoadMcpConfigOptions = {}): Promise<McpConfig> => {
@@ -280,5 +275,5 @@ export const loadMcpConfig = async (options: LoadMcpConfigOptions = {}): Promise
     throw new Error(`missing config file: ${globalConfigPath}`);
   }
 
-  return expandMcpConfig(mergeMcpConfig(globalConfig, localConfig));
+  return mergeMcpConfig(globalConfig, localConfig);
 };

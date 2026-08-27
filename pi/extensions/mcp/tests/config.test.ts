@@ -3,7 +3,12 @@ import path from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { listMcpServers, loadMcpConfig, McpConfigSchema } from "../config.js";
+import {
+  expandMcpServerConfig,
+  listMcpServers,
+  loadMcpConfig,
+  McpConfigSchema,
+} from "../config.js";
 import { envVarRef, setupMcpTest } from "./helpers.js";
 
 describe("MCP config schema validation", () => {
@@ -181,7 +186,7 @@ describe(loadMcpConfig, () => {
     );
   });
 
-  it("expands Claude-style environment variables", async () => {
+  it("expands Claude-style environment variables for a selected server", async () => {
     process.env.MCP_TEST_COMMAND = "/usr/bin/test-mcp";
     process.env.MCP_TEST_TOKEN = "secret-token";
     process.env.MCP_TEST_BASE_URL = "https://api.example.com";
@@ -211,7 +216,19 @@ describe(loadMcpConfig, () => {
       },
     });
 
-    await expect(loadMcpConfig()).resolves.toStrictEqual({
+    const config = await loadMcpConfig();
+    const local = config.mcpServers.local;
+    const remote = config.mcpServers.remote;
+    if (local === undefined || remote === undefined) {
+      throw new Error("missing MCP test server config");
+    }
+
+    expect({
+      mcpServers: {
+        local: expandMcpServerConfig(local),
+        remote: expandMcpServerConfig(remote),
+      },
+    }).toStrictEqual({
       mcpServers: {
         local: {
           args: ["--cache", "/tmp/cache"],
@@ -254,7 +271,12 @@ describe(loadMcpConfig, () => {
     });
 
     await expect(listMcpServers({})).resolves.toStrictEqual([{ name: "remote", scope: "global" }]);
-    await expect(loadMcpConfig()).rejects.toThrow(
+    const config = await loadMcpConfig();
+    const remote = config.mcpServers.remote;
+    if (remote === undefined) {
+      throw new Error("missing MCP test server config");
+    }
+    expect(() => expandMcpServerConfig(remote)).toThrow(
       "missing environment variable in MCP config: MCP_TEST_MISSING_TOKEN",
     );
   });

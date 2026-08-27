@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createCustomUiDriver } from "../../../tests/harness/tui.js";
 import mcp from "../index.js";
 import { MCP_MANAGER_SERVER_NAME } from "../manager.js";
-import { fixtureServer, setupMcpTest } from "./helpers.js";
+import { envVarRef, fixtureServer, setupMcpTest } from "./helpers.js";
 
 const createBranchSession = () => {
   const timestamp = new Date().toISOString();
@@ -95,8 +95,12 @@ describe("mcp loader", () => {
   });
 
   it("connects the selected server and registers its tools as active", async () => {
+    Reflect.deleteProperty(process.env, "MCP_TEST_MISSING_COMMAND");
     await t.writeConfig({
-      mcpServers: { github: fixtureServer() },
+      mcpServers: {
+        broken: { command: envVarRef("MCP_TEST_MISSING_COMMAND"), type: "stdio" },
+        github: fixtureServer(),
+      },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
     const ctx = host.createContext({
@@ -214,33 +218,28 @@ describe("mcp loader", () => {
     expect(mcpEntries).toStrictEqual([expect.objectContaining({ data: { serverName: "github" } })]);
   });
 
-  it("auto-reconnects persisted servers on session_start", async () => {
+  it("continues restoring persisted servers after one fails", async () => {
+    Reflect.deleteProperty(process.env, "MCP_TEST_MISSING_COMMAND");
     await t.writeConfig({
-      mcpServers: { github: fixtureServer() },
-    });
-
-    const persistedEntry: SessionEntry = {
-      customType: "mcp-server-loaded",
-      data: {
-        serverName: "github",
+      mcpServers: {
+        alpha: { command: envVarRef("MCP_TEST_MISSING_COMMAND"), type: "stdio" },
+        beta: fixtureServer(),
       },
-      id: "persisted-load-entry",
-      parentId: null,
-      timestamp: new Date().toISOString(),
-      type: "custom",
-    };
-
-    const host = t.createExtensionHost(mcp, {
-      entries: [persistedEntry],
-      hasUI: false,
-      leafId: "persisted-load-entry",
     });
+    const session = createBranchSession();
+    const betaEntry = session.entries.at(-1);
+    if (!betaEntry) {
+      throw new Error("missing beta fixture entry");
+    }
+    betaEntry.parentId = "alpha-load";
+    session.leafId = "beta-load";
+    const host = t.createExtensionHost(mcp, session);
 
     await host.ready;
     await host.emitSessionStart();
 
-    expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
-    expect(host.getActiveTools()).toContain("mcp_github__search");
+    expect(host.getRegisteredTools().has("mcp_beta__search")).toBeTruthy();
+    expect(host.getActiveTools()).toContain("mcp_beta__search");
   });
 
   it("reconciles loaded tools when switching session branches", async () => {
