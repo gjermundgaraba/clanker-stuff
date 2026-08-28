@@ -4,6 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createTimer } from "../timer.js";
 
+const START = new Date(2026, 7, 28, 14, 30, 0);
+
+const clockAt = (msAfterStart: number) =>
+  new Date(START.getTime() + msAfterStart).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
 const setup = () => {
   const host = createExtensionHost(() => {});
   const ctx = host.createContext();
@@ -14,6 +22,7 @@ const setup = () => {
 describe("timer", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(START);
   });
 
   afterEach(() => {
@@ -25,10 +34,10 @@ describe("timer", () => {
     timer.start(ctx);
 
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 4);
-    expect(host.getStatus("timer")).toBe("● 0.5s");
+    expect(host.getStatus("timer")).toBe(`● 0.5s · ${clockAt(0)}`);
 
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 6);
-    expect(host.getStatus("timer")).toBe("· 1.3s");
+    expect(host.getStatus("timer")).toBe(`· 1.3s · ${clockAt(0)}`);
   });
 
   it("does no status work outside TUI mode", () => {
@@ -49,7 +58,7 @@ describe("timer", () => {
     timer.start(ctx);
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 12);
     timer.stop(ctx);
-    expect(host.getStatus("timer")).toBe("● 1.6s");
+    expect(host.getStatus("timer")).toBe(`● 1.6s · ${clockAt(TIMER_INTERVAL_MS * 12)}`);
 
     const callCountAfterEnd = vi.mocked(ctx.ui.setStatus).mock.calls.length;
     vi.advanceTimersByTime(1000);
@@ -61,10 +70,13 @@ describe("timer", () => {
     timer.start(ctx);
 
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 500);
-    expect(host.getStatus("timer")).toBe("• 1:05");
+    expect(host.getStatus("timer")).toBe(`• 1:05 · ${clockAt(0)}`);
 
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 462);
-    expect(host.getStatus("timer")).toBe("• 2:05");
+    expect(host.getStatus("timer")).toBe(`• 2:05 · ${clockAt(0)}`);
+
+    timer.stop(ctx);
+    expect(host.getStatus("timer")).toBe(`● 2:05 · ${clockAt(TIMER_INTERVAL_MS * 962)}`);
   });
 
   it("keeps one timer across repeated agent_start events", () => {
@@ -73,11 +85,11 @@ describe("timer", () => {
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 20);
     timer.start(ctx);
     vi.advanceTimersByTime(TIMER_INTERVAL_MS * 4);
-    expect(host.getStatus("timer")).toBe("· 3.1s");
+    expect(host.getStatus("timer")).toBe(`· 3.1s · ${clockAt(0)}`);
 
     timer.stop(ctx);
     timer.start(ctx);
-    expect(host.getStatus("timer")).toBe("· 0.0s");
+    expect(host.getStatus("timer")).toBe(`· 0.0s · ${clockAt(TIMER_INTERVAL_MS * 24)}`);
   });
 
   it("clears the timer on session_shutdown", () => {

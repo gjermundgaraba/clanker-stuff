@@ -15,8 +15,13 @@ const formatElapsed = (ms: number): string => {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 };
 
+const formatClock = (date: Date): string =>
+  date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
 export const createTimer = () => {
   let startTime: number | undefined;
+  // Start time while running, finish time once settled.
+  let clockTime: string | undefined;
   let intervalId: ReturnType<typeof setInterval> | undefined;
 
   const clear = () => {
@@ -25,7 +30,7 @@ export const createTimer = () => {
   };
 
   const updateStatus = (ctx: ExtensionContext) => {
-    if (startTime === undefined) {
+    if (startTime === undefined || clockTime === undefined) {
       return;
     }
     const elapsed = performance.now() - startTime;
@@ -37,7 +42,10 @@ export const createTimer = () => {
           ] ?? STATIC_BREATHING_DOT_FRAME);
     ctx.ui.setStatus(
       "timer",
-      `${ctx.ui.theme.fg(frame.color, frame.marker)} ${ctx.ui.theme.fg("dim", formatElapsed(elapsed))}`,
+      `${ctx.ui.theme.fg(frame.color, frame.marker)} ${ctx.ui.theme.fg(
+        "dim",
+        `${formatElapsed(elapsed)} · ${clockTime}`,
+      )}`,
     );
   };
 
@@ -48,6 +56,7 @@ export const createTimer = () => {
         return;
       }
       startTime = performance.now();
+      clockTime = formatClock(new Date());
       intervalId = setInterval(() => {
         updateStatus(ctx);
       }, BREATHING_DOT_INTERVAL_MS);
@@ -55,6 +64,7 @@ export const createTimer = () => {
     },
     stop(ctx: ExtensionContext) {
       clear();
+      clockTime = formatClock(new Date());
       updateStatus(ctx);
       startTime = undefined;
     },
