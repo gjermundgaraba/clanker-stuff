@@ -36,6 +36,47 @@ Request bodies are inspected only in memory to derive those fields. The estimato
 
 Expect roughly 1.4–1.6 million provider-context tokens across calibration, fills, compactions, normal responses, and fresh-process replay. Cached tokens still count toward context occupancy.
 
+## Bounded Responses Lite feasibility smoke
+
+Production behavior remains unchanged. This separate runner is an opt-in feasibility exercise, not a limit search, reliability test, quality evaluation, or promotion gate. It does not contain an 872,000-token assumption.
+
+First inspect the command without loading credentials or making a network request:
+
+```bash
+vp run @clanker-stuff/codex-provider#test:live:feasibility -- --help
+```
+
+Only after explicit authorization, choose one fixed local-estimator candidate modestly above the prior 282,952 provider-token observation and one alternate model expected in the same fresh remote catalog. Run exactly once:
+
+```bash
+CODEX_COMPACTION_FEASIBILITY_ACK=I_ACCEPT_UP_TO_5_LIVE_COMPACTIONS \
+  vp run @clanker-stuff/codex-provider#test:live:feasibility -- \
+  --execute \
+  --candidate-tokens 290000 \
+  --alternate-model gpt-5.6-terra
+```
+
+The local estimate is not a backend tokenizer count. Do not increase or rerun the candidate when provider usage misses the intended range.
+
+The runner makes one authenticated model-catalog refresh before any compaction. It keeps the fresh matching metadata in memory, requires Responses Lite plus live `context_window` and `max_context_window`, and checks whether the fixed candidate could fit a hypothetical native-style context override after applying the live effective-window percentage. That override is a conservative future-policy preflight only: the runner does not send it, and the check does not prove compaction acceptance. It then constructs the entire synthetic plan before installing the request guards or making a compaction. Every candidate's actual local estimate and serialized input size must each be no more than 1.15 times the corresponding shrunk control value.
+
+The fixed plan is:
+
+1. One Sol SSE control using the current effective model window.
+2. Two Sol cold-SSE candidates with unique cache, session, turn, and randomized payload keys.
+3. Only if all three pass, one Sol WebSocket candidate.
+4. Only then, one SSE candidate on the alternate model from the same refresh.
+
+The candidate must be above Sol's refreshed effective window. The alternate case intentionally reuses the same absolute load to check model compatibility; depending on its refreshed metadata, it may be inside that model's effective window. The preflight output records both facts, so an alternate-model success must not be reported as cross-model above-window evidence.
+
+Hard preflight and transport guardrails are: at most five compaction requests, one wire attempt per case, every runtime retry aborted or blocked before a second native fetch, WebSocket construction, or compaction frame, no harness retry, no resizing, no rejection-boundary search, a 300-second default timeout and 600-second maximum per request, and a 325,000-token absolute local-estimate candidate cap. Fresh metadata and the actual 1.15 token-and-byte comparison with the control determine whether a value under that static cap is admissible.
+
+The request guard validates the actual SSE `Request` or WebSocket handshake and compaction frame before native transport. Each request must use Responses Lite, advertise the production `remote_compaction_v2` feature, match its refreshed model, and carry unique cache, session, and turn keys. The provider remains solely responsible for parsing the response; the harness neither listens to nor reconstructs the response stream.
+
+After each terminal response, the runner stops unless provider prompt usage is at most 325,000 tokens, every candidate processed more than the prior 282,952-token observation, and cache-read usage is zero. A fully passing stage one can therefore report at most 975,000 provider prompt tokens, and a fully passing five-case run at most 1,625,000. These are derived passing-run totals, not pre-request spend caps: provider usage is unavailable until the response completes, so a rejecting request can exceed the post-response ceiling before the runner prevents the next case. Any failed or incomplete response, transport retry attempt, cache/session-key reuse, metadata mismatch, timeout, unexpected cache read, range miss, or ceiling crossing stops the run immediately. The runner never performs a recall trial and writes no artifact.
+
+Passing all five cases establishes feasibility only. It does not establish a compaction acceptance boundary, reliability, retained-summary quality, or a safe production estimator value. Keep production unchanged after the smoke; any later implementation decision requires separate review and must remain opt-in.
+
 ## Mid-turn tool-loop run
 
 ```bash

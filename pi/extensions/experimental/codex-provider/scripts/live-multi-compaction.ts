@@ -4,7 +4,6 @@ import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { zstdDecompressSync } from "node:zlib";
 
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import type {
@@ -35,9 +34,12 @@ import type {
 } from "./live-multi-compaction-options.ts";
 import { parseLiveInvocation, usesRealWindow } from "./live-multi-compaction-options.ts";
 import {
+  fetchRequestBody,
+  fetchRequestUrl,
   FunctionValueSchema,
   isWireRecord as isRecord,
   NumberValueSchema,
+  parseCompactionRequestBody,
   StringValueSchema,
 } from "./wire.ts";
 import type { WireRecord, WireValue } from "./wire.ts";
@@ -203,59 +205,6 @@ const requiredEnvironment = (name: string): string => {
   return value;
 };
 
-const requestUrl = (input: Parameters<typeof fetch>[0]): string => {
-  if (Value.Check(StringValueSchema, input)) {
-    return input;
-  }
-  if (input instanceof URL) {
-    return input.href;
-  }
-  return input.url;
-};
-
-const requestBody = async (
-  input: Parameters<typeof fetch>[0],
-  init: Parameters<typeof fetch>[1],
-): Promise<string | undefined> => {
-  const value =
-    init?.body ??
-    (input instanceof Request ? Buffer.from(await input.clone().arrayBuffer()) : undefined);
-  if (Value.Check(StringValueSchema, value)) {
-    return value;
-  }
-  let bytes: Buffer | undefined;
-  if (value instanceof ArrayBuffer) {
-    bytes = Buffer.from(value);
-  } else if (ArrayBuffer.isView(value)) {
-    bytes = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-  }
-  if (bytes === undefined) {
-    return undefined;
-  }
-  const headers = new Headers(
-    init?.headers ?? (input instanceof Request ? input.headers : undefined),
-  );
-  return (headers.get("content-encoding") === "zstd" ? zstdDecompressSync(bytes) : bytes).toString(
-    "utf-8",
-  );
-};
-
-const compactionRequestBody = (body: string | undefined): WireRecord | undefined => {
-  if (body === undefined) {
-    return undefined;
-  }
-  try {
-    const value: WireValue = JSON.parse(body);
-    if (!isRecord(value) || !Array.isArray(value.input)) {
-      return undefined;
-    }
-    const trigger: WireValue = value.input.at(-1);
-    return isRecord(trigger) && trigger.type === "compaction_trigger" ? value : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 export const installTransportProbe = (
   mode: TransportMode,
   forceSse = false,
@@ -294,10 +243,10 @@ export const installTransportProbe = (
   let websocketConstructions = 0;
   const nativeFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
-    const { pathname } = new URL(requestUrl(input));
+    const { pathname } = new URL(fetchRequestUrl(input));
     const observed = pathname.endsWith("/responses") || pathname.endsWith("/responses/compact");
-    const body = await requestBody(input, init);
-    const compactionRequest = compactionRequestBody(body) !== undefined;
+    const body = await fetchRequestBody(input, init);
+    const compactionRequest = parseCompactionRequestBody(body) !== undefined;
     let response = await nativeFetch(input, init);
     if (observed) {
       sseRequests += 1;
@@ -1303,7 +1252,7 @@ Environment:
       sideInputTokens.push(checked.sideInputTokens);
       if (usesRealWindow(scenario)) {
         const bodies = transportProbe.requests.slice(requestCountBefore).flatMap(({ body }) => {
-          const value = compactionRequestBody(body);
+          const value = parseCompactionRequestBody(body);
           return value === undefined ? [] : [value];
         });
         assert(bodies.length > 0, `Round ${round}: captured no new structural compaction request`);
@@ -1362,7 +1311,7 @@ Environment:
 
     if (scenario === "stream-fault") {
       const compactRequests = transportProbe.requests.filter(
-        ({ body }) => compactionRequestBody(body) !== undefined,
+        ({ body }) => parseCompactionRequestBody(body) !== undefined,
       ).length;
       assert(
         transportProbe.streamFaults === 1 && compactRequests >= rounds + 1,

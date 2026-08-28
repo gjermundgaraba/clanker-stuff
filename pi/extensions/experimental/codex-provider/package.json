@@ -63,6 +63,7 @@
     "test:live:branch": "node ./scripts/live-multi-compaction.ts --branch",
     "test:live:capabilities": "node ./scripts/live-multi-compaction.ts --capabilities",
     "test:live:fallback": "node ./scripts/live-multi-compaction.ts --fallback",
+    "test:live:feasibility": "jiti ./scripts/live-compaction-feasibility.ts",
     "test:live:fast": "jiti ./scripts/live-fast.ts",
     "test:live:fault": "node ./scripts/live-multi-compaction.ts --stream-fault --sse",
     "test:live:mid-turn": "node ./scripts/live-multi-compaction.ts --mid-turn",
