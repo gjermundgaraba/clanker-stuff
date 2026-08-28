@@ -61,6 +61,8 @@ import type { ResponsesInputItem } from "./replay.js";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
+const PREMATURE_RESPONSE_STREAM_ERROR =
+  "OpenAI Responses stream ended before a terminal response event";
 const REQUEST_COMPRESSION_LEVEL = 3;
 const WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
@@ -72,6 +74,10 @@ const WireValueSchema = Type.Unknown();
 type WireValue = Static<typeof WireValueSchema>;
 const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type JsonRecord = Static<typeof JsonRecordSchema>;
+const isTerminalResponseEvent = (event: JsonRecord) =>
+  event.type === "response.done" ||
+  event.type === "response.completed" ||
+  event.type === "response.incomplete";
 const TransformedRequestBodySchema = Type.Intersect([
   JsonRecordSchema,
   Type.Object({ input: Type.Array(JsonRecordSchema) }),
@@ -128,7 +134,6 @@ interface ResponseCapture {
   outputItems: ResponsesInputItem[];
   responseId?: string;
   serviceTier?: string;
-  terminal: boolean;
   usage?: Usage;
 }
 
@@ -183,26 +188,152 @@ interface SessionRuntime {
   };
 }
 
+type InferenceAttemptFailureClass =
+  | "abort"
+  | "authentication"
+  | "http_retryable"
+  | "http_terminal"
+  | "none"
+  | "protocol_connection_limit"
+  | "protocol_missing_continuation"
+  | "protocol_terminal"
+  | "transport_dispatch"
+  | "transport_stream";
+
+type InferenceAttemptDecision =
+  | "aborted"
+  | "completed"
+  | "fail_closed"
+  | "fallback_to_sse"
+  | "pending"
+  | "replay_budget_exhausted"
+  | "retry_sse"
+  | "retry_websocket"
+  | "surfaced";
+
+interface InferenceAttemptObservation {
+  readonly continuationMode: "delta" | "full";
+  failureClass: InferenceAttemptFailureClass;
+  finalDecision: InferenceAttemptDecision;
+  readonly ordinal: number;
+  responseCreated: "absent" | "committed" | "discarded";
+  readonly transport: "sse" | "websocket";
+}
+
 interface RequestTrace {
   connectionLimitRetries: number;
   continuationMode?: "delta" | "full";
-  fellBackToSse: boolean;
   missingContinuationRetries: number;
-  prewarmAttempted: boolean;
+  prewarmAttempts: number;
+  prewarmDispatches: number;
   prewarmSucceeded: boolean;
+  sseFallbackActivated: boolean;
   socketAgeMs?: number;
   socketReused: boolean;
   transportUsed?: "sse" | "websocket";
+  websocketHandshakeAttempts: number;
+  websocketHandshakeFailures: number;
+}
+
+interface InferenceRecovery {
+  readonly attempts: InferenceAttemptObservation[];
+  readonly budget: 0 | 1;
+  dispatches: number;
 }
 
 const createRequestTrace = (): RequestTrace => ({
   connectionLimitRetries: 0,
-  fellBackToSse: false,
   missingContinuationRetries: 0,
-  prewarmAttempted: false,
+  prewarmAttempts: 0,
+  prewarmDispatches: 0,
   prewarmSucceeded: false,
+  sseFallbackActivated: false,
   socketReused: false,
+  websocketHandshakeAttempts: 0,
+  websocketHandshakeFailures: 0,
 });
+
+const createInferenceRecovery = (
+  options: OpenAICodexResponsesOptions | undefined,
+): InferenceRecovery => ({
+  attempts: [],
+  budget: (options?.maxRetries ?? 0) > 0 ? 1 : 0,
+  dispatches: 0,
+});
+
+const hasInferenceDispatchCapacity = (recovery: InferenceRecovery | undefined) =>
+  recovery === undefined || recovery.dispatches <= recovery.budget;
+
+const dispatchInference = <T>(recovery: InferenceRecovery | undefined, dispatch: () => T): T => {
+  if (!hasInferenceDispatchCapacity(recovery)) {
+    throw new Error("Codex inference replay budget exhausted");
+  }
+  const result = dispatch();
+  if (recovery !== undefined) {
+    recovery.dispatches += 1;
+  }
+  return result;
+};
+
+const beginInferenceAttempt = (
+  recovery: InferenceRecovery | undefined,
+  transport: "sse" | "websocket",
+  continuationMode: "delta" | "full",
+): InferenceAttemptObservation | undefined => {
+  if (recovery === undefined) {
+    return undefined;
+  }
+  const attempt: InferenceAttemptObservation = {
+    continuationMode,
+    failureClass: "none",
+    finalDecision: "pending",
+    ordinal: recovery.attempts.length + 1,
+    responseCreated: "absent",
+    transport,
+  };
+  recovery.attempts.push(attempt);
+  return attempt;
+};
+
+const classifyInferenceAttemptFailure = (
+  error: Error,
+  signal: AbortSignal | undefined,
+  dispatchFailed = false,
+): InferenceAttemptFailureClass => {
+  if (isAborted(signal)) {
+    return "abort";
+  }
+  if (dispatchFailed) {
+    return "transport_dispatch";
+  }
+  if (error instanceof CodexProviderError) {
+    if (error.status === 401) {
+      return "authentication";
+    }
+    if (error.code === "previous_response_not_found") {
+      return "protocol_missing_continuation";
+    }
+    if (error.code === "websocket_connection_limit_reached") {
+      return "protocol_connection_limit";
+    }
+    if (error.status !== undefined) {
+      return error.retryable ? "http_retryable" : "http_terminal";
+    }
+    return "protocol_terminal";
+  }
+  return "transport_stream";
+};
+
+const finishInferenceAttempt = (
+  attempt: InferenceAttemptObservation | undefined,
+  failureClass: InferenceAttemptFailureClass,
+  finalDecision: InferenceAttemptDecision,
+) => {
+  if (attempt !== undefined) {
+    attempt.failureClass = failureClass;
+    attempt.finalDecision = finalDecision;
+  }
+};
 
 export interface CodexCompactionRequest {
   readonly apiKey: string;
@@ -718,9 +849,7 @@ const responseFailureClassification = (code: string | undefined) => {
 const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
   if (
     output !== undefined &&
-    (event.type === "response.completed" ||
-      event.type === "response.done" ||
-      event.type === "response.incomplete") &&
+    isTerminalResponseEvent(event) &&
     Value.Check(EndTurnResponseSchema, event.response)
   ) {
     output.endTurn = Value.Parse(EndTurnResponseSchema, event.response).end_turn;
@@ -795,12 +924,7 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
   ) {
     capture.outputItems.push(cloneJson(Value.Parse(ResponsesInputItemSchema, event.item)));
   }
-  if (
-    event.type === "response.completed" ||
-    event.type === "response.done" ||
-    event.type === "response.incomplete"
-  ) {
-    capture.terminal = true;
+  if (isTerminalResponseEvent(event)) {
     const response = isRecord(event.response) ? event.response : undefined;
     if (Value.Check(StringValueSchema, response?.id)) {
       capture.responseId = response.id;
@@ -1025,6 +1149,7 @@ const connectSocket = async (
   session: SessionRuntime,
   signal: AbortSignal | undefined,
   timeoutMs: number | undefined,
+  trace: RequestTrace,
 ) => {
   const now = Date.now();
   const identity = webSocketIdentity(url, headers);
@@ -1052,11 +1177,18 @@ const connectSocket = async (
   }
   const Constructor = Value.Parse(WebSocketConstructorSchema, constructorValue);
   signal?.throwIfAborted();
-  const socketValue = Reflect.construct(Constructor, [url, { headers: headersRecord(headers) }]);
-  if (!Value.Check(WebSocketLikeSchema, socketValue)) {
-    throw new WebSocketUnavailableError("WebSocket transport returned an invalid socket");
+  trace.websocketHandshakeAttempts += 1;
+  let socket: WebSocketLike;
+  try {
+    const socketValue = Reflect.construct(Constructor, [url, { headers: headersRecord(headers) }]);
+    if (!Value.Check(WebSocketLikeSchema, socketValue)) {
+      throw new WebSocketUnavailableError("WebSocket transport returned an invalid socket");
+    }
+    socket = Value.Parse(WebSocketLikeSchema, socketValue);
+  } catch (error) {
+    trace.websocketHandshakeFailures += 1;
+    throw error;
   }
-  const socket = Value.Parse(WebSocketLikeSchema, socketValue);
   session.socket = { busy: true, createdAt: now, identity, value: socket };
   await new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1101,6 +1233,9 @@ const connectSocket = async (
       onAbort();
     }
   }).catch((cause: WireValue) => {
+    if (!isAborted(signal)) {
+      trace.websocketHandshakeFailures += 1;
+    }
     closeSocket(session, socket);
     throw cause;
   });
@@ -1210,10 +1345,7 @@ async function* parseWebSocket(
         throw value;
       }
       yield value;
-      finished =
-        value.type === "response.done" ||
-        value.type === "response.completed" ||
-        value.type === "response.incomplete";
+      finished = isTerminalResponseEvent(value);
     }
   } finally {
     clearTimeout(idleTimer);
@@ -1221,6 +1353,42 @@ async function* parseWebSocket(
     socket.removeEventListener("close", onClose);
     socket.removeEventListener("error", onError);
     socket.removeEventListener("message", onMessage);
+  }
+}
+
+async function* bufferInitialResponseCreated(
+  events: AsyncIterable<JsonRecord>,
+  attempt: InferenceAttemptObservation | undefined,
+): AsyncGenerator<JsonRecord> {
+  if (attempt === undefined) {
+    yield* events;
+    return;
+  }
+  let first = true;
+  let pending: JsonRecord | undefined;
+  try {
+    for await (const event of events) {
+      if (first && event.type === "response.created") {
+        first = false;
+        pending = event;
+        continue;
+      }
+      first = false;
+      if (pending !== undefined) {
+        attempt.responseCreated = "committed";
+        const created = pending;
+        pending = undefined;
+        yield created;
+      }
+      yield event;
+    }
+    if (pending !== undefined) {
+      throw new Error(PREMATURE_RESPONSE_STREAM_ERROR);
+    }
+  } finally {
+    if (pending !== undefined) {
+      attempt.responseCreated = "discarded";
+    }
   }
 }
 
@@ -1252,9 +1420,11 @@ const sseEvents = async function* sseEvents(
   options: OpenAICodexResponsesOptions | undefined,
   session: SessionRuntime,
   requestId: string,
+  trace: RequestTrace,
   responsesLite = false,
   maxRetries = options?.maxRetries ?? 0,
   redirect: "error" | "follow" | "manual" = "follow",
+  recovery?: InferenceRecovery,
 ) {
   const headers = buildBaseHeaders(model, options, requestId);
   headers.set("accept", "text/event-stream");
@@ -1272,12 +1442,15 @@ const sseEvents = async function* sseEvents(
   }
   const fetch = options?.fetch ?? globalThis.fetch;
   const timeoutMs = normalizeTimeout(options?.timeoutMs, "timeoutMs");
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    let emitted = false;
+  let attemptIndex = 0;
+  while (true) {
+    let dispatchFailed = false;
+    let replayUnsafe = false;
+    let retryResponse: Response | undefined;
     if (isAborted(options?.signal)) {
       throw new Error("Request was aborted");
     }
+    const attempt = beginInferenceAttempt(recovery, "sse", "full");
     try {
       const signals: AbortSignal[] = [];
       if (options?.signal !== undefined) {
@@ -1293,13 +1466,20 @@ const sseEvents = async function* sseEvents(
       }
       let response: Response;
       try {
-        response = await fetch(resolveCodexResponsesUrl(model.baseUrl), {
+        const requestInit: RequestInit = {
           body: compressed ?? bodyJson,
           headers,
           method: "POST",
           redirect,
           signal: AbortSignal.any(signals),
-        });
+        };
+        dispatchFailed = true;
+        const responsePromise = dispatchInference(recovery, () =>
+          fetch(resolveCodexResponsesUrl(model.baseUrl), requestInit),
+        );
+        trace.transportUsed = "sse";
+        dispatchFailed = false;
+        response = await responsePromise;
       } catch (error) {
         if (timeoutController.signal.aborted && !isAborted(options?.signal)) {
           throw new Error(`Codex SSE response headers timed out after ${timeoutMs}ms`, {
@@ -1322,43 +1502,91 @@ const sseEvents = async function* sseEvents(
         session.turn.state === undefined
       ) {
         session.turn.state = turnState;
+        replayUnsafe = true;
       }
       if (response.ok) {
-        for await (const event of parseSse(response, options?.signal)) {
-          emitted = true;
+        let terminal = false;
+        for await (const event of bufferInitialResponseCreated(
+          parseSse(response, options?.signal),
+          attempt,
+        )) {
+          terminal ||= isTerminalResponseEvent(event);
+          replayUnsafe = true;
           yield event;
         }
+        if (recovery !== undefined && !terminal) {
+          throw new Error(PREMATURE_RESPONSE_STREAM_ERROR);
+        }
+        finishInferenceAttempt(attempt, "none", "completed");
         return;
       }
       const text = await response.text();
-      const error = responseError(response.status, text);
-      if (attempt === maxRetries || !error.retryable) {
-        throw error;
-      }
-      const wait = retryDelay(response, attempt);
-      const cap = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
-      if (!Number.isSafeInteger(wait) || wait > 2_147_483_647 || (cap > 0 && wait > cap)) {
-        throw new CodexProviderError(
-          `Server requested ${Math.ceil(wait / 1000)}s retry delay (max: ${Math.ceil(cap / 1000)}s)`,
-        );
-      }
-      await delay(wait, undefined, { signal: options?.signal });
+      retryResponse = response;
+      throw responseError(response.status, text);
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (
-        attempt === maxRetries ||
-        emitted ||
-        isAborted(options?.signal) ||
-        lastError instanceof CodexProviderError
-      ) {
-        throw lastError ?? new Error("Codex request failed");
+      const resolvedError = error instanceof Error ? error : new Error(String(error));
+      const failureClass = classifyInferenceAttemptFailure(
+        resolvedError,
+        options?.signal,
+        dispatchFailed,
+      );
+      if (isAborted(options?.signal)) {
+        finishInferenceAttempt(attempt, failureClass, "aborted");
+        throw resolvedError;
       }
-      await delay(1000 * 2 ** attempt, undefined, {
-        signal: options?.signal,
-      });
+      if (replayUnsafe) {
+        finishInferenceAttempt(attempt, failureClass, "fail_closed");
+        throw resolvedError;
+      }
+      const retryable =
+        resolvedError instanceof CodexProviderError
+          ? resolvedError.status !== undefined && resolvedError.retryable
+          : true;
+      if (!retryable) {
+        finishInferenceAttempt(attempt, failureClass, "surfaced");
+        throw resolvedError;
+      }
+      const hasCapacity = hasInferenceDispatchCapacity(recovery);
+      if (attemptIndex === maxRetries || !hasCapacity) {
+        finishInferenceAttempt(
+          attempt,
+          failureClass,
+          recovery !== undefined && !hasCapacity ? "replay_budget_exhausted" : "surfaced",
+        );
+        throw resolvedError;
+      }
+      const retryWait =
+        retryResponse === undefined
+          ? 1000 * 2 ** attemptIndex
+          : retryDelay(retryResponse, attemptIndex);
+      const cap = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
+      if (
+        !Number.isSafeInteger(retryWait) ||
+        retryWait > 2_147_483_647 ||
+        (cap > 0 && retryWait > cap)
+      ) {
+        const retryDelayError = new CodexProviderError(
+          `Server requested ${Math.ceil(retryWait / 1000)}s retry delay (max: ${Math.ceil(cap / 1000)}s)`,
+        );
+        finishInferenceAttempt(
+          attempt,
+          classifyInferenceAttemptFailure(retryDelayError, options?.signal),
+          "surfaced",
+        );
+        throw retryDelayError;
+      }
+      try {
+        await delay(retryWait, undefined, {
+          signal: options?.signal,
+        });
+      } catch (delayError) {
+        finishInferenceAttempt(attempt, "abort", "aborted");
+        throw delayError;
+      }
+      finishInferenceAttempt(attempt, failureClass, "retry_sse");
+      attemptIndex += 1;
     }
   }
-  throw lastError ?? new Error("Codex request failed");
 };
 
 const websocketEvents = async function* websocketEvents(
@@ -1371,6 +1599,7 @@ const websocketEvents = async function* websocketEvents(
   trace: RequestTrace,
   responsesLite = false,
   generate = true,
+  recovery?: InferenceRecovery,
 ) {
   let retriedConnectionLimit = false;
   let retriedMissingContinuation = false;
@@ -1383,41 +1612,50 @@ const websocketEvents = async function* websocketEvents(
     applyTurnHeaders(headers, fullBody, session);
     applyRoutingHint(headers, fullBody);
     const previousSocket = session.socket;
-    trace.transportUsed = "websocket";
     const socket = await connectSocket(
       resolveWebSocketUrl(model.baseUrl),
       headers,
       session,
       options?.signal,
       normalizeTimeout(options?.websocketConnectTimeoutMs, "websocketConnectTimeoutMs"),
+      trace,
     );
-    if (session.socket) {
-      trace.socketReused ||= previousSocket?.value === socket;
-      trace.socketAgeMs = Date.now() - session.socket.createdAt;
-    }
-    const delta = session.continuation
-      ? continuationDelta(fullBody, session.continuation)
-      : undefined;
-    trace.continuationMode = delta === undefined ? "full" : "delta";
-    const requestBody =
-      delta !== undefined && session.continuation !== undefined
-        ? {
-            ...fullBody,
-            input: delta,
-            previous_response_id: session.continuation.responseId,
-          }
-        : fullBody;
-    if (delta === undefined) {
-      session.continuation = undefined;
-    }
-    let emitted = false;
+    let keepSocket = false;
     try {
-      const requestRecord = Value.Parse(JsonRecordSchema, requestBody);
-      const clientMetadata = isRecord(requestRecord.client_metadata)
-        ? requestRecord.client_metadata
-        : {};
-      socket.send(
-        JSON.stringify({
+      if (generate) {
+        if (session.socket) {
+          trace.socketReused ||= previousSocket?.value === socket;
+          trace.socketAgeMs = Date.now() - session.socket.createdAt;
+        }
+      }
+      const delta = session.continuation
+        ? continuationDelta(fullBody, session.continuation)
+        : undefined;
+      if (generate) {
+        trace.continuationMode = delta === undefined ? "full" : "delta";
+      }
+      const requestBody =
+        delta !== undefined && session.continuation !== undefined
+          ? {
+              ...fullBody,
+              input: delta,
+              previous_response_id: session.continuation.responseId,
+            }
+          : fullBody;
+      if (delta === undefined) {
+        session.continuation = undefined;
+      }
+      let emitted = false;
+      let dispatchFailed = false;
+      const attempt = generate
+        ? beginInferenceAttempt(recovery, "websocket", delta === undefined ? "full" : "delta")
+        : undefined;
+      try {
+        const requestRecord = Value.Parse(JsonRecordSchema, requestBody);
+        const clientMetadata = isRecord(requestRecord.client_metadata)
+          ? requestRecord.client_metadata
+          : {};
+        const frame = JSON.stringify({
           ...requestBody,
           client_metadata: {
             ...clientMetadata,
@@ -1432,50 +1670,91 @@ const websocketEvents = async function* websocketEvents(
           },
           generate: generate ? undefined : false,
           type: "response.create",
-        }),
-      );
-      for await (const event of parseWebSocket(
-        socket,
-        options?.signal,
-        normalizeTimeout(options?.timeoutMs, "timeoutMs"),
-      )) {
-        mapCodexEvent(event);
-        const turnState = terminalTurnState(event);
-        if (
-          turnState !== undefined &&
-          session.turn !== undefined &&
-          session.turn.state === undefined
-        ) {
-          session.turn.state = turnState;
+        });
+        if (generate) {
+          dispatchFailed = true;
+          dispatchInference(recovery, () => {
+            socket.send(frame);
+          });
+          trace.transportUsed = "websocket";
+          dispatchFailed = false;
+        } else {
+          socket.send(frame);
+          trace.prewarmDispatches += 1;
         }
-        emitted = true;
-        captureEvent(capture, event);
-        yield event;
+        for await (const event of bufferInitialResponseCreated(
+          parseWebSocket(
+            socket,
+            options?.signal,
+            normalizeTimeout(options?.timeoutMs, "timeoutMs"),
+          ),
+          attempt,
+        )) {
+          mapCodexEvent(event);
+          const turnState = terminalTurnState(event);
+          if (
+            turnState !== undefined &&
+            session.turn !== undefined &&
+            session.turn.state === undefined
+          ) {
+            session.turn.state = turnState;
+          }
+          emitted = true;
+          captureEvent(capture, event);
+          yield event;
+        }
+        session.continuation =
+          capture.completed && capture.responseId !== undefined
+            ? {
+                request: cloneJson(fullBody),
+                responseId: capture.responseId,
+                responseItems: cloneJson(capture.outputItems),
+              }
+            : undefined;
+        keepSocket = capture.completed;
+        finishInferenceAttempt(attempt, "none", "completed");
+        return;
+      } catch (error) {
+        const resolvedError = error instanceof Error ? error : new Error(String(error));
+        const code = resolvedError instanceof CodexProviderError ? resolvedError.code : undefined;
+        const failureClass = classifyInferenceAttemptFailure(
+          resolvedError,
+          options?.signal,
+          dispatchFailed,
+        );
+        if (emitted) {
+          finishInferenceAttempt(attempt, failureClass, "fail_closed");
+          throw error;
+        }
+        if (code === "previous_response_not_found" && !retriedMissingContinuation) {
+          if (!hasInferenceDispatchCapacity(recovery)) {
+            finishInferenceAttempt(attempt, failureClass, "replay_budget_exhausted");
+            throw error;
+          }
+          retriedMissingContinuation = true;
+          trace.missingContinuationRetries += 1;
+          finishInferenceAttempt(attempt, failureClass, "retry_websocket");
+          continue;
+        }
+        if (code === "websocket_connection_limit_reached" && !retriedConnectionLimit) {
+          if (!hasInferenceDispatchCapacity(recovery)) {
+            finishInferenceAttempt(attempt, failureClass, "replay_budget_exhausted");
+            throw error;
+          }
+          retriedConnectionLimit = true;
+          trace.connectionLimitRetries += 1;
+          finishInferenceAttempt(attempt, failureClass, "retry_websocket");
+          continue;
+        }
+        finishInferenceAttempt(
+          attempt,
+          failureClass,
+          isAborted(options?.signal) ? "aborted" : "surfaced",
+        );
+        throw error;
       }
-      session.continuation =
-        capture.completed && capture.responseId !== undefined
-          ? {
-              request: cloneJson(fullBody),
-              responseId: capture.responseId,
-              responseItems: cloneJson(capture.outputItems),
-            }
-          : undefined;
-      releaseSocket(session, socket, capture.completed);
-      return;
-    } catch (error) {
-      const code = error instanceof CodexProviderError ? error.code : undefined;
-      closeSocket(session, socket);
-      if (!emitted && code === "previous_response_not_found" && !retriedMissingContinuation) {
-        retriedMissingContinuation = true;
-        trace.missingContinuationRetries += 1;
-        continue;
-      }
-      if (!emitted && code === "websocket_connection_limit_reached" && !retriedConnectionLimit) {
-        retriedConnectionLimit = true;
-        trace.connectionLimitRetries += 1;
-        continue;
-      }
-      throw error;
+    } finally {
+      releaseSocket(session, socket, keepSocket);
     }
   }
 };
@@ -1486,9 +1765,10 @@ const createSession = (): SessionRuntime => ({
   window: { currentId: uuidv7(), number: 0 },
 });
 
-const activateSseFallback = (session: SessionRuntime) => {
+const activateSseFallback = (session: SessionRuntime, trace: RequestTrace) => {
   session.transportFallbackPending = true;
   session.fallbackToSse = true;
+  trace.sseFallbackActivated = true;
 };
 
 function successfulOutput(output: AssistantMessage): asserts output is AssistantMessage & {
@@ -1547,6 +1827,7 @@ export const createCodexProviderRuntime = (
     responsesLite = false,
     redirect: "follow" | "manual" = "follow",
     fallbackAfterWebSocketFailure = true,
+    recovery?: InferenceRecovery,
   ) {
     const transport = options?.transport ?? "auto";
     if (transport !== "sse" && !session.fallbackToSse) {
@@ -1561,6 +1842,8 @@ export const createCodexProviderRuntime = (
           capture,
           trace,
           responsesLite,
+          true,
+          recovery,
         )) {
           emitted = true;
           yield event;
@@ -1575,12 +1858,20 @@ export const createCodexProviderRuntime = (
         ) {
           throw error;
         }
-        activateSseFallback(session);
-        trace.fellBackToSse = true;
+        activateSseFallback(session, trace);
+        const websocketAttempt = recovery?.attempts.at(-1);
+        if (!hasInferenceDispatchCapacity(recovery)) {
+          if (websocketAttempt?.finalDecision === "surfaced") {
+            websocketAttempt.finalDecision = "replay_budget_exhausted";
+          }
+          throw error;
+        }
+        if (websocketAttempt?.finalDecision === "surfaced") {
+          websocketAttempt.finalDecision = "fallback_to_sse";
+        }
       }
     }
     session.continuation = undefined;
-    trace.transportUsed = "sse";
     trace.continuationMode = "full";
     for await (const event of sseEvents(
       model,
@@ -1588,9 +1879,11 @@ export const createCodexProviderRuntime = (
       options,
       session,
       requestId,
+      trace,
       responsesLite,
-      options?.maxRetries ?? 0,
+      recovery === undefined ? (options?.maxRetries ?? 0) : recovery.budget,
       redirect,
+      recovery,
     )) {
       captureEvent(capture, event);
       yield event;
@@ -1701,7 +1994,6 @@ export const createCodexProviderRuntime = (
         const capture: ResponseCapture = {
           completed: false,
           outputItems: [],
-          terminal: false,
         };
         const compactions: CanonicalCompactionItem[] = [];
         try {
@@ -1768,14 +2060,12 @@ export const createCodexProviderRuntime = (
             attempt < websocketAttempts &&
             error instanceof WebSocketUnavailableError
           ) {
-            activateSseFallback(session);
-            trace.fellBackToSse = true;
+            activateSseFallback(session, trace);
             attempt = websocketAttempts - 1;
             continue;
           }
           if (configuredWebsocketTransport !== undefined && attempt + 1 === websocketAttempts) {
-            activateSseFallback(session);
-            trace.fellBackToSse = true;
+            activateSseFallback(session, trace);
             continue;
           }
           if (attempt === maxAttempts - 1) {
@@ -1849,14 +2139,13 @@ export const createCodexProviderRuntime = (
     ) {
       return;
     }
-    trace.prewarmAttempted = true;
+    trace.prewarmAttempts += 1;
     if (session.turn) {
       session.turn.prewarmed = true;
     }
     const capture: ResponseCapture = {
       completed: false,
       outputItems: [],
-      terminal: false,
     };
     try {
       for await (const _event of websocketEvents(
@@ -1873,9 +2162,10 @@ export const createCodexProviderRuntime = (
         session,
         requestId,
         capture,
-        createRequestTrace(),
+        trace,
         responsesLite,
         false,
+        undefined,
       )) {
         // Prewarm output is intentionally discarded.
       }
@@ -1908,6 +2198,7 @@ export const createCodexProviderRuntime = (
         : uuidv7();
     const startedAt = Date.now();
     const trace = createRequestTrace();
+    const recovery = createInferenceRecovery(options);
     let observedBody: JsonRecord | undefined;
     let observedError: unknown;
     void (async () => {
@@ -1986,7 +2277,6 @@ export const createCodexProviderRuntime = (
         const capture: ResponseCapture = {
           completed: false,
           outputItems: [],
-          terminal: false,
         };
         let started = false;
         const source = async function* source() {
@@ -1999,6 +2289,9 @@ export const createCodexProviderRuntime = (
             capture,
             trace,
             built.responsesLite,
+            "follow",
+            true,
+            recovery,
           )) {
             if (!started) {
               started = true;
@@ -2014,9 +2307,6 @@ export const createCodexProviderRuntime = (
             responseTier === "default" ? requestTier : (responseTier ?? requestTier),
           serviceTier: requestServiceTier(body),
         });
-        if (!capture.terminal) {
-          throw new Error("Codex stream ended before completion");
-        }
         successfulOutput(output);
         events.push({
           message: output,
@@ -2041,6 +2331,24 @@ export const createCodexProviderRuntime = (
         });
         events.end();
       } finally {
+        for (const attempt of recovery.attempts) {
+          if (attempt.finalDecision !== "pending") {
+            continue;
+          }
+          if (output.stopReason === "aborted") {
+            finishInferenceAttempt(attempt, "abort", "aborted");
+          } else if (output.stopReason === "error") {
+            const error =
+              observedError instanceof Error ? observedError : new Error(String(observedError));
+            finishInferenceAttempt(
+              attempt,
+              classifyInferenceAttemptFailure(error, options?.signal),
+              "fail_closed",
+            );
+          } else {
+            finishInferenceAttempt(attempt, "none", "completed");
+          }
+        }
         const observedMetadata =
           observedBody !== undefined && isRecord(observedBody.client_metadata)
             ? observedBody.client_metadata
@@ -2065,6 +2373,9 @@ export const createCodexProviderRuntime = (
           transport: {
             configured: options?.transport ?? "auto",
             ...trace,
+            freshReplayBudget: recovery.budget,
+            inferenceAttempts: recovery.attempts,
+            inferenceDispatches: recovery.dispatches,
           },
           turnId: Value.Check(StringValueSchema, observedMetadata?.turn_id)
             ? observedMetadata.turn_id

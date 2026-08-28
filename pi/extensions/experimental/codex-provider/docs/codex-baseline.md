@@ -64,7 +64,7 @@ The local extension owns Codex-native tool selection before Pi finalizes `Contex
 
 1. Model-gated direct tools, provider-owned Code Mode, branch-local tool choices, and model transitions that preserve unrelated extension tools.
 2. Model-driven request fields, Codex headers and routing hints, truthful canonical session/turn/window metadata, event parsing, usage, fast-mode selection, and service-tier pricing.
-3. Route-aware cached WebSocket transport, turn-state propagation, startup prewarm, exact delta continuation, protocol retries before visible output, and session-sticky SSE fallback.
+3. Route-aware cached WebSocket transport, turn-state propagation, startup prewarm, exact delta continuation, bounded opt-in pre-output recovery, and session-sticky SSE fallback.
 4. Remote V2 compaction on the active turn session, bounded private-stream retries, 64,000-token retained input, non-final agent retention, tool-history repair, model transitions, and explicit window generations.
 5. `/models` refresh with a five-minute freshness window, ETag revalidation, a provider-private metadata map, and a Pi-compatible projected model catalog.
 6. Strict checkpoint v1 persistence, active-branch replay, resume/fork recovery, and redacted diagnostics.
@@ -79,7 +79,7 @@ The behavior is exercised by [unit and contract tests](../tests), [real `AgentSe
 - **Resume favors full durable requests.** Sockets, turn state, and `previous_response_id` are performance state only. A fresh process rebuilds the complete request from checkpoint v1 plus the active Pi branch.
 - **Images are transient.** Durable retained images become text omissions. This avoids replaying stale image bytes and the retained-image failure tracked in [openai/codex#24388](https://github.com/openai/codex/issues/24388).
 - **Token counts are conservative estimates.** UTF-8 bytes divided by four plus a fixed image estimate drive local thresholds and retention. No tokenizer dependency or fixed 372,000-token override is used without live evidence.
-- **Visible-stream retries stay outside the provider.** The provider never retracts emitted deltas. Pi's outer retry handles post-emission failures; private compaction streams can retry because their partial output is not user-visible.
+- **Visible-stream retries stay outside the provider.** Normal inference requests buffer only an initial `response.created`; they never retract later events or emitted deltas. Fresh inference replay defaults to zero and, when enabled through the existing retry option, is capped at one replay shared across transports and continuation repair. Request IDs and prompt-cache keys do not establish billing idempotency. Pi may outer-retry post-emission failures only when its transient classifier accepts them. Private compaction streams retain their separate retry policy because partial compaction output is not user-visible.
 - **Native checkpoints are provider-specific.** Automatic compaction stores only the native checkpoint, and incompatible replay fails closed.
 - **Rollout-budget accounting is not implemented.** Current Codex consumes `usage.codex_rollout_budget_units` for application policy. Pi's `Usage` cannot represent it and this provider owns no rollout-budget policy.
 - **Fast originator selection is a local adaptation.** Standard requests send `originator: pi`; priority requests narrowly send `originator: codex_cli_rs`. Live observations motivate this split, but it is not part of the upstream tier-routing contract and does not claim that the Pi host is the Codex CLI.

@@ -27,7 +27,7 @@ const requestObservation = (
   timestamp: number,
   cacheReadTokens: number,
   inputItemHashes: string[],
-  fellBackToSse = false,
+  usedSse = false,
 ): CodexObservation => ({
   data: {
     model: "gpt-5.3-codex",
@@ -45,7 +45,7 @@ const requestObservation = (
       cacheWriteTokens: 0,
       inputTokens: 100,
     },
-    transport: { configured: "auto", fellBackToSse },
+    transport: { configured: "auto", transportUsed: usedSse ? "sse" : "websocket" },
   },
   kind: "request",
   timestamp,
@@ -209,7 +209,7 @@ describe("Codex provider status", () => {
       {
         data: {
           outcome: "error",
-          transport: { configured: "websocket", fellBackToSse: true },
+          transport: { configured: "websocket", transportUsed: "sse" },
         },
         kind: "compaction",
         timestamp: 63_000,

@@ -67,7 +67,7 @@ const TransportFallbackSchema = Type.Object({
       Type.Literal("websocket"),
       Type.Literal("websocket-cached"),
     ]),
-    fellBackToSse: Type.Literal(true),
+    transportUsed: Type.Literal("sse"),
   }),
 });
 

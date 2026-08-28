@@ -38,6 +38,71 @@ const mockSocket = (readyState = 1) =>
     send(_data: string) {},
   });
 
+type ScriptedSocket = ReturnType<typeof mockSocket>;
+
+const socketEvent = (
+  socket: ScriptedSocket,
+  type: "close" | "error" | "open",
+  properties?: { code?: number; message?: string },
+  delayed = false,
+) => {
+  const emit = () => {
+    const event = new Event(type);
+    for (const [name, value] of Object.entries(properties ?? {})) {
+      Object.defineProperty(event, name, { value });
+    }
+    socket.dispatchEvent(event);
+  };
+  if (delayed) {
+    setTimeout(emit, 0);
+  } else {
+    queueMicrotask(emit);
+  }
+};
+
+const socketMessage = (socket: ScriptedSocket, value: WireValue) => {
+  queueMicrotask(() => {
+    socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) }));
+  });
+};
+
+const scriptedWebSocket = (script: {
+  close?: (socket: ScriptedSocket) => void;
+  connect?: (socket: ScriptedSocket) => void;
+  readyState?: number;
+  send: (socket: ScriptedSocket, data: string) => void;
+}) =>
+  function ScriptedWebSocket() {
+    const socket = mockSocket(script.readyState);
+    socket.close = () => {
+      script.close?.(socket);
+    };
+    socket.send = (data) => {
+      script.send(socket, data);
+    };
+    (script.connect ?? ((value) => socketEvent(value, "open")))(socket);
+    return socket;
+  };
+
+const recoveryObservation = (observability: CodexObservability, sessionId: string) => {
+  const observation = wireRecord(observability.list(sessionId)[0]?.data);
+  const transport = wireRecord(observation.transport);
+  return {
+    ...transport,
+    attempts: wireRecords(transport.inferenceAttempts).map((attempt) =>
+      [
+        attempt.ordinal,
+        attempt.transport,
+        attempt.continuationMode,
+        attempt.responseCreated,
+        attempt.failureClass,
+        attempt.finalDecision,
+      ].join("|"),
+    ),
+    transportUsed: transport.transportUsed,
+  };
+};
+
 const assistantMessage = (message: Context["messages"][number]) => {
   if (message.role !== "assistant") {
     throw new TypeError("Expected an assistant message");
@@ -765,41 +830,141 @@ describe("Codex provider", () => {
     expect(result.usage.cost.total).toBeCloseTo(2.4e-5, 10);
   });
 
-  it("does not retry SSE after the first emitted event", async () => {
-    const runtime = createCodexProviderRuntime();
-    let attempts = 0;
+  it("isolates response.created while retrying one SSE dispatch", async () => {
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-sse-created-retry";
+    let dispatches = 0;
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch: async () => {
-          attempts += 1;
-          return attempts === 1
+          dispatches += 1;
+          return dispatches === 1
             ? interruptedSse({
-                response: { id: "resp_partial", status: "in_progress" },
+                response: { id: "resp_discarded", status: "in_progress" },
                 type: "response.created",
               })
-            : sse(responseEvents("resp_retry", "must not be merged"));
+            : sse(responseEvents("resp_winner", "winner"));
         },
         maxRetries: 1,
-        sessionId: "session-sse-partial",
+        sessionId,
         transport: "sse",
       })
       .result();
 
-    expect({
-      attempts,
-      diagnostics: message.diagnostics,
-      error: message.errorMessage,
-      stop: message.stopReason,
-    }).toStrictEqual({
-      attempts: 1,
-      diagnostics: undefined,
-      error: "SSE interrupted after output",
-      stop: "error",
+    expect([dispatches, message.responseId, message.stopReason]).toStrictEqual([
+      2,
+      "resp_winner",
+      "stop",
+    ]);
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: [
+        "1|sse|full|discarded|transport_stream|retry_sse",
+        "2|sse|full|committed|none|completed",
+      ],
+      freshReplayBudget: 1,
+      inferenceDispatches: 2,
     });
+    observability.close();
   });
 
-  it("retries generic HTTP 429 responses", async () => {
+  it.each([
+    {
+      attempt: "1|sse|full|discarded|transport_stream|replay_budget_exhausted",
+      budget: 0,
+      dispatches: 1,
+      error: "SSE interrupted after output",
+      fetch: async () =>
+        interruptedSse({
+          response: { id: "resp_discarded", status: "in_progress" },
+          type: "response.created",
+        }),
+      label: "keeps response.created recovery disabled by default",
+    },
+    {
+      attempt: "1|sse|full|absent|transport_stream|replay_budget_exhausted",
+      budget: 0,
+      dispatches: 1,
+      error: "OpenAI Responses stream ended before a terminal response event",
+      fetch: async () => sse([]),
+      label: "records empty SSE as a failed attempt",
+    },
+    {
+      attempt: "1|sse|full|absent|transport_stream|fail_closed",
+      budget: 0,
+      dispatches: 1,
+      error: "OpenAI Responses stream ended before a terminal response event",
+      fetch: async () =>
+        sse([{ headers: { "x-codex-turn-state": "opaque" }, type: "response.metadata" }]),
+      label: "records non-terminal SSE as a failed attempt",
+    },
+    {
+      attempt: "1|sse|full|absent|transport_dispatch|surfaced",
+      budget: 0,
+      dispatches: 0,
+      error: "fetch failed before dispatch",
+      fetch: (): Promise<Response> => {
+        throw new Error("fetch failed before dispatch");
+      },
+      label: "does not count a synchronous fetch throw as an inference dispatch",
+    },
+    {
+      attempt: "1|sse|full|absent|authentication|surfaced",
+      budget: 1,
+      dispatches: 1,
+      error: "unauthorized",
+      fetch: async () =>
+        Response.json(
+          { error: { code: "unauthorized", message: "unauthorized" } },
+          { status: 401 },
+        ),
+      label: "does not retry HTTP 401 responses",
+      maxRetries: 1,
+    },
+    {
+      attempt: "1|sse|full|absent|http_retryable|fail_closed",
+      budget: 1,
+      dispatches: 1,
+      error: "server failed after installing turn state",
+      fetch: async () =>
+        Response.json(
+          { error: { code: "server_error", message: "server failed after installing turn state" } },
+          { headers: { "x-codex-turn-state": "opaque" }, status: 500 },
+        ),
+      label: "does not retry an HTTP failure after installing response-header turn state",
+      maxRetries: 1,
+    },
+  ])("$label", async ({ attempt, budget, dispatches, error, fetch, label, maxRetries }) => {
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = `session-sse-failure-${label}`;
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        maxRetries,
+        sessionId,
+        transport: "sse",
+      })
+      .result();
+
+    expect([message.errorMessage, message.responseId, message.stopReason]).toStrictEqual([
+      error,
+      undefined,
+      "error",
+    ]);
+    const recovery = recoveryObservation(observability, sessionId);
+    expect(recovery).toMatchObject({
+      attempts: [attempt],
+      freshReplayBudget: budget,
+      inferenceDispatches: dispatches,
+    });
+    expect(recovery.transportUsed).toBe(dispatches === 0 ? undefined : "sse");
+    observability.close();
+  });
+
+  it("caps generic HTTP 429 recovery at one replay", async () => {
     let attempts = 0;
     const message = await createCodexProviderRuntime()
       .provider.streamSimple(SPIKE_MODEL, context([]), {
@@ -822,7 +987,7 @@ describe("Codex provider", () => {
       error: message.errorMessage,
       stop: message.stopReason,
     }).toStrictEqual({
-      attempts: 3,
+      attempts: 2,
       error: "rate limited",
       stop: "error",
     });
@@ -896,6 +1061,31 @@ describe("Codex provider", () => {
       responseId: "resp_incomplete",
       stop: "length",
     });
+  });
+
+  it("keeps a terminal SSE attempt completed when response validation fails afterward", async () => {
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-terminal-sse-error";
+    const events = incompleteResponseEvents("resp_terminal_error", "partial answer");
+    const terminal = wireRecord(events.at(-1));
+    const response = wireRecord(terminal.response);
+    response.incomplete_details = { reason: "content_filter" };
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => sse(events),
+        sessionId,
+        transport: "sse",
+      })
+      .result();
+
+    expect(message.stopReason).toBe("error");
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: ["1|sse|full|committed|none|completed"],
+      inferenceDispatches: 1,
+    });
+    observability.close();
   });
 
   it("keeps inline compaction on the active SSE transport", async () => {
@@ -1603,6 +1793,15 @@ describe("Codex provider", () => {
         sessionId: "session-ws",
       })
       .result();
+    expect(defaultObservability.list("session-ws")[0]?.data).toMatchObject({
+      transport: {
+        inferenceDispatches: 1,
+        prewarmAttempts: 1,
+        prewarmDispatches: 1,
+        websocketHandshakeAttempts: 1,
+        websocketHandshakeFailures: 0,
+      },
+    });
     const second = await runtime.provider
       .streamSimple(
         FAST_MODEL,
@@ -1787,11 +1986,31 @@ describe("Codex provider", () => {
   });
 
   it.each([
-    { abort: true, expectedCloses: 1, expectedSockets: 1, label: "abort" },
-    { abort: false, expectedCloses: 2, expectedSockets: 2, label: "timeout" },
+    {
+      abort: true,
+      expectedCloses: 1,
+      expectedHandshakeFailures: 0,
+      expectedInferenceDispatches: 0,
+      expectedSockets: 1,
+      label: "abort",
+    },
+    {
+      abort: false,
+      expectedCloses: 2,
+      expectedHandshakeFailures: 2,
+      expectedInferenceDispatches: 1,
+      expectedSockets: 2,
+      label: "timeout",
+    },
   ])(
     "closes sockets that fail to connect by $label",
-    async ({ abort, expectedCloses, expectedSockets }) => {
+    async ({
+      abort,
+      expectedCloses,
+      expectedHandshakeFailures,
+      expectedInferenceDispatches,
+      expectedSockets,
+    }) => {
       let closes = 0;
       let sockets = 0;
       const connecting = Promise.withResolvers<null>();
@@ -1808,12 +2027,14 @@ describe("Codex provider", () => {
       };
       vi.stubGlobal("WebSocket", ConnectingWebSocket);
       const controller = new AbortController();
-      const runtime = createCodexProviderRuntime();
+      const observability = new CodexObservability(":memory:");
+      const runtime = createCodexProviderRuntime(observability);
+      const sessionId = `session-connect-${abort ? "abort" : "timeout"}`;
       const result = runtime.provider
         .streamSimple(SPIKE_MODEL, context([]), {
           apiKey: SPIKE_API_KEY,
           fetch: async () => sse(responseEvents("resp_connect", "fallback")),
-          sessionId: `session-connect-${abort ? "abort" : "timeout"}`,
+          sessionId,
           signal: controller.signal,
           transport: "websocket",
           websocketConnectTimeoutMs: 1,
@@ -1825,9 +2046,7 @@ describe("Codex provider", () => {
         controller.abort();
       }
       const output = await result;
-      const fallbackPending = runtime.consumeTransportFallback(
-        `session-connect-${abort ? "abort" : "timeout"}`,
-      );
+      const fallbackPending = runtime.consumeTransportFallback(sessionId);
 
       expect({
         closes,
@@ -1840,6 +2059,15 @@ describe("Codex provider", () => {
         sockets: expectedSockets,
         stopReason: abort ? "aborted" : "stop",
       });
+      expect(recoveryObservation(observability, sessionId)).toMatchObject({
+        inferenceDispatches: expectedInferenceDispatches,
+        prewarmAttempts: 1,
+        prewarmDispatches: 0,
+        sseFallbackActivated: !abort,
+        websocketHandshakeAttempts: expectedSockets,
+        websocketHandshakeFailures: expectedHandshakeFailures,
+      });
+      observability.close();
     },
   );
 
@@ -1895,117 +2123,344 @@ describe("Codex provider", () => {
     });
   });
 
-  it("surfaces a retryable WebSocket error without retrying after stream start", async () => {
-    let socketAttempts = 0;
-    const FailingWebSocket = function FailingWebSocket() {
-      socketAttempts += 1;
-      const socket = mockSocket();
-      socket.readyState = 1;
-      socket.close = () => null;
-      socket.send = () => {
-        queueMicrotask(() =>
-          socket.dispatchEvent(
-            new MessageEvent("message", {
-              data: JSON.stringify({
-                response: { id: "resp_ws_failure", status: "in_progress" },
-                type: "response.created",
-              }),
-            }),
-          ),
-        );
-        setTimeout(() => socket.dispatchEvent(new Event("error")), 0);
-      };
-      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
-      return socket;
-    };
-    vi.stubGlobal("WebSocket", FailingWebSocket);
-    const fetch = vi.fn<() => Promise<Response>>(async () =>
-      sse(responseEvents("resp_unexpected_retry", "must not retry")),
+  it("does not count a WebSocket send throw as an inference dispatch", async () => {
+    let sends = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: () => {
+          sends += 1;
+          throw new Error("send failed before dispatch");
+        },
+      }),
     );
+    const fetch = vi.fn<() => Promise<Response>>(async () =>
+      sse(responseEvents("resp_send_fallback", "fallback")),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-send-throw";
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        onPayload: markProtocolRetryPayload,
+        sessionId,
+        transport: "websocket",
+      })
+      .result();
 
-    const message = await createCodexProviderRuntime()
-      .provider.streamSimple(SPIKE_MODEL, context([]), {
+    expect([sends, fetch.mock.calls.length, message.stopReason]).toStrictEqual([1, 1, "stop"]);
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: [
+        "1|websocket|full|absent|transport_dispatch|fallback_to_sse",
+        "2|sse|full|committed|none|completed",
+      ],
+      inferenceDispatches: 1,
+      prewarmAttempts: 0,
+      prewarmDispatches: 0,
+      websocketHandshakeAttempts: 1,
+      websocketHandshakeFailures: 0,
+    });
+    observability.close();
+  });
+
+  it("does not record transport use when WebSocket and SSE throw before dispatch", async () => {
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: () => {
+          throw new Error("send failed before dispatch");
+        },
+      }),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-transport-dispatch-throws";
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: () => {
+          throw new Error("fetch failed before dispatch");
+        },
+        onPayload: markProtocolRetryPayload,
+        sessionId,
+        transport: "websocket",
+      })
+      .result();
+
+    expect(message.stopReason).toBe("error");
+    const recovery = recoveryObservation(observability, sessionId);
+    expect(recovery).toMatchObject({
+      attempts: [
+        "1|websocket|full|absent|transport_dispatch|fallback_to_sse",
+        "2|sse|full|absent|transport_dispatch|surfaced",
+      ],
+      inferenceDispatches: 0,
+      sseFallbackActivated: true,
+    });
+    expect(recovery.transportUsed).toBeUndefined();
+    observability.close();
+  });
+
+  it("discards buffered response.created when a WebSocket request is aborted", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          socketMessage(socket, {
+            response: { id: "resp_must_not_escape", status: "in_progress" },
+            type: "response.created",
+          });
+          setTimeout(() => controller.abort(), 0);
+        },
+      }),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-created-abort";
+    const stream = runtime.provider.streamSimple(SPIKE_MODEL, context([]), {
+      apiKey: SPIKE_API_KEY,
+      onPayload: markProtocolRetryPayload,
+      sessionId,
+      signal: controller.signal,
+      transport: "websocket",
+    });
+    const eventTypes: string[] = [];
+    let responseId: string | undefined;
+    for await (const event of stream) {
+      eventTypes.push(event.type);
+      if (event.type === "error") {
+        responseId = event.error.responseId;
+      }
+    }
+
+    expect([eventTypes, responseId, runtime.consumeTransportFallback(sessionId)]).toStrictEqual([
+      ["error"],
+      undefined,
+      false,
+    ]);
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: ["1|websocket|full|discarded|abort|aborted"],
+      inferenceDispatches: 1,
+    });
+    observability.close();
+  });
+
+  it.each([
+    {
+      label: "metadata",
+      nextEvent: {
+        headers: { "x-codex-turn-state": "opaque-turn-state" },
+        type: "response.metadata",
+      },
+    },
+    { label: "unknown events", nextEvent: { type: "future.unknown" } },
+  ])("keeps $label fail-closed", async ({ label, nextEvent }) => {
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          socketMessage(socket, {
+            response: { id: "resp_fail_closed", status: "in_progress" },
+            type: "response.created",
+          });
+          socketMessage(socket, nextEvent);
+          socketEvent(socket, "error", undefined, true);
+        },
+      }),
+    );
+    const fetch = vi.fn<() => Promise<Response>>(async () =>
+      sse(responseEvents("resp_unsafe_retry", "must not retry")),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = `session-fail-closed-${label}`;
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        maxRetries: 1,
+        onPayload: markProtocolRetryPayload,
+        sessionId,
+        transport: "websocket",
+      })
+      .result();
+
+    expect([fetch.mock.calls.length, message.stopReason]).toStrictEqual([0, "error"]);
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: ["1|websocket|full|committed|transport_stream|fail_closed"],
+      inferenceDispatches: 1,
+    });
+    observability.close();
+  });
+
+  it("closes a socket when downstream event validation stops its stream", async () => {
+    let closes = 0;
+    let connections = 0;
+    let sends = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        close: () => {
+          closes += 1;
+        },
+        connect: (socket) => {
+          connections += 1;
+          socketEvent(socket, "open");
+        },
+        send: (socket) => {
+          sends += 1;
+          if (sends === 1) {
+            socketMessage(socket, { type: 1 });
+            return;
+          }
+          for (const event of responseEvents("resp_after_validation", "recovered")) {
+            socketMessage(socket, event);
+          }
+        },
+      }),
+    );
+    const fetch = vi.fn<() => Promise<Response>>();
+    const runtime = createCodexProviderRuntime();
+    const options = {
+      apiKey: SPIKE_API_KEY,
+      fetch,
+      onPayload: markProtocolRetryPayload,
+      sessionId: "session-downstream-validation",
+      transport: "websocket" as const,
+    };
+
+    const first = await runtime.provider.streamSimple(SPIKE_MODEL, context([]), options).result();
+    const second = await runtime.provider.streamSimple(SPIKE_MODEL, context([]), options).result();
+
+    expect({
+      closes,
+      connections,
+      fetches: fetch.mock.calls.length,
+      sends,
+      stops: [first.stopReason, second.stopReason],
+    }).toStrictEqual({
+      closes: 1,
+      connections: 2,
+      fetches: 0,
+      sends: 2,
+      stops: ["error", "stop"],
+    });
+  });
+
+  it("shares one replay across WebSocket fallback and SSE retry", async () => {
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          socketMessage(socket, {
+            response: { id: "resp_ws_discarded", status: "in_progress" },
+            type: "response.created",
+          });
+          socketEvent(socket, "error", undefined, true);
+        },
+      }),
+    );
+    const fetch = vi.fn<() => Promise<Response>>(async () =>
+      interruptedSse({
+        response: { id: "resp_sse_discarded", status: "in_progress" },
+        type: "response.created",
+      }),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-shared-replay";
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch,
         maxRetries: 5,
         onPayload: markProtocolRetryPayload,
-        sessionId: "session-ws-stream-failure",
+        sessionId,
       })
       .result();
 
-    expect({
-      diagnostics: message.diagnostics,
-      error: message.errorMessage,
-      fetches: fetch.mock.calls.length,
-      socketAttempts,
-      stop: message.stopReason,
-    }).toStrictEqual({
-      diagnostics: undefined,
-      error: "WebSocket error: stream failed",
-      fetches: 0,
-      socketAttempts: 1,
-      stop: "error",
+    expect([fetch.mock.calls.length, message.stopReason]).toStrictEqual([1, "error"]);
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: [
+        "1|websocket|full|discarded|transport_stream|fallback_to_sse",
+        "2|sse|full|discarded|transport_stream|replay_budget_exhausted",
+      ],
+      freshReplayBudget: 1,
+      inferenceDispatches: 2,
+      sseFallbackActivated: true,
     });
+    observability.close();
   });
 
-  it("retries WebSocket protocol errors before output", async () => {
+  it.each([
+    {
+      handshakeFailure: false,
+      expectedAttempts: [
+        "1|websocket|delta|absent|protocol_missing_continuation|retry_websocket",
+        "2|websocket|full|discarded|transport_stream|replay_budget_exhausted",
+      ],
+      label: "blocks SSE after continuation repair consumes the replay",
+    },
+    {
+      handshakeFailure: true,
+      expectedAttempts: [
+        "1|websocket|delta|absent|protocol_missing_continuation|retry_websocket",
+        "2|sse|full|committed|none|completed",
+      ],
+      label: "keeps repair attribution after a replacement handshake failure",
+    },
+  ])("$label", async ({ expectedAttempts, handshakeFailure }) => {
     const frames: WireRecord[] = [];
     let connections = 0;
-    const ProtocolRetryWebSocket = function ProtocolRetryWebSocket() {
-      connections += 1;
-      const socket = mockSocket();
-      socket.readyState = 1;
-      socket.close = () => null;
-      socket.send = (data: string) => {
-        const frame = wireRecord(JSON.parse(data));
-        frames.push(frame);
-        const attempt = frames.length;
-        let events: readonly WireValue[];
-        if (attempt === 1) {
-          events = [
-            {
-              error: {
-                code: "websocket_connection_limit_reached",
-                message: "too many sockets",
-              },
-              type: "error",
-            },
-          ];
-        } else if (attempt === 3) {
-          events = [
-            {
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        connect: (socket) => {
+          connections += 1;
+          socketEvent(socket, handshakeFailure && connections === 2 ? "error" : "open");
+        },
+        send: (socket, data) => {
+          frames.push(wireRecord(JSON.parse(data)));
+          if (frames.length === 1) {
+            for (const event of responseEvents("resp_repair_seed", "seed")) {
+              socketMessage(socket, event);
+            }
+          } else if (frames.length === 2) {
+            socketMessage(socket, {
               error: {
                 code: "previous_response_not_found",
                 message: "missing continuation",
               },
-              status: 400,
               type: "error",
-            },
-          ];
-        } else {
-          events = responseEvents(`resp_protocol_${attempt}`, `answer ${attempt}`);
-        }
-        for (const event of events) {
-          queueMicrotask(() =>
-            socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(event) })),
-          );
-        }
-      };
-      queueMicrotask(() => socket.dispatchEvent(new Event("open")));
-      return socket;
-    };
-    vi.stubGlobal("WebSocket", ProtocolRetryWebSocket);
-    const fetch = vi.fn<() => Promise<Response>>(async () =>
-      sse(responseEvents("resp_unexpected_sse", "unexpected SSE")),
+            });
+          } else {
+            socketMessage(socket, {
+              response: { id: "resp_discarded", status: "in_progress" },
+              type: "response.created",
+            });
+            socketEvent(socket, "error", undefined, true);
+          }
+        },
+      }),
     );
-    const runtime = createCodexProviderRuntime();
+    const fetch = vi.fn<() => Promise<Response>>(async () =>
+      sse(responseEvents("resp_repair_sse", "fallback")),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = `session-continuation-${handshakeFailure}`;
+    const options = {
+      apiKey: SPIKE_API_KEY,
+      fetch,
+      maxRetries: 1,
+      onPayload: markProtocolRetryPayload,
+      sessionId,
+    };
     const first = await runtime.provider
-      .streamSimple(SPIKE_MODEL, context([{ content: "one", role: "user", timestamp: 1 }]), {
-        apiKey: SPIKE_API_KEY,
-        fetch,
-        onPayload: markProtocolRetryPayload,
-        sessionId: "session-ws-protocol-retry",
-      })
+      .streamSimple(SPIKE_MODEL, context([{ content: "one", role: "user", timestamp: 1 }]), options)
       .result();
     const second = await runtime.provider
       .streamSimple(
@@ -2015,29 +2470,196 @@ describe("Codex provider", () => {
           assistantMessage(first),
           { content: "two", role: "user", timestamp: 2 },
         ]),
-        {
-          apiKey: SPIKE_API_KEY,
-          fetch,
-          onPayload: markProtocolRetryPayload,
-          sessionId: "session-ws-protocol-retry",
-        },
+        options,
       )
       .result();
 
     expect({
       connections,
-      diagnostics: [first.diagnostics, second.diagnostics],
       fetches: fetch.mock.calls.length,
       previousResponseIds: frames.map((frame) => frame.previous_response_id),
-      stops: [first.stopReason, second.stopReason],
+      stop: second.stopReason,
     }).toStrictEqual({
-      connections: 3,
-      diagnostics: [undefined, undefined],
-      fetches: 0,
-      previousResponseIds: [undefined, undefined, "resp_protocol_2", undefined],
-      stops: ["stop", "stop"],
+      connections: 2,
+      fetches: handshakeFailure ? 1 : 0,
+      previousResponseIds: handshakeFailure
+        ? [undefined, "resp_repair_seed"]
+        : [undefined, "resp_repair_seed", undefined],
+      stop: handshakeFailure ? "stop" : "error",
     });
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: expectedAttempts,
+      inferenceDispatches: 2,
+      missingContinuationRetries: 1,
+      websocketHandshakeAttempts: 1,
+      websocketHandshakeFailures: handshakeFailure ? 1 : 0,
+    });
+    observability.close();
   });
+
+  it.each([
+    {
+      code: "websocket_connection_limit_reached",
+      counter: "connectionLimitRetries",
+      failure: "protocol_connection_limit",
+    },
+    {
+      code: "previous_response_not_found",
+      counter: "missingContinuationRetries",
+      failure: "protocol_missing_continuation",
+    },
+  ])("uses the shared opt-in replay for $code", async ({ code, counter, failure }) => {
+    let sends = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          sends += 1;
+          if (sends === 1) {
+            socketMessage(socket, { error: { code, message: "retry" }, type: "error" });
+          } else {
+            for (const event of responseEvents("resp_protocol_retry", "recovered")) {
+              socketMessage(socket, event);
+            }
+          }
+        },
+      }),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = `session-protocol-${code}`;
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        maxRetries: 1,
+        onPayload: markProtocolRetryPayload,
+        sessionId,
+      })
+      .result();
+
+    const recovery = recoveryObservation(observability, sessionId);
+    expect([sends, message.stopReason]).toStrictEqual([2, "stop"]);
+    expect(recovery).toMatchObject({
+      [counter]: 1,
+      attempts: [
+        `1|websocket|full|absent|${failure}|retry_websocket`,
+        "2|websocket|full|committed|none|completed",
+      ],
+      inferenceDispatches: 2,
+    });
+    observability.close();
+  });
+
+  it("does not retry a WebSocket protocol error with the default budget", async () => {
+    let sends = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          sends += 1;
+          socketMessage(socket, {
+            error: {
+              code: "websocket_connection_limit_reached",
+              message: "too many sockets",
+            },
+            type: "error",
+          });
+        },
+      }),
+    );
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-protocol-default-zero";
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        onPayload: markProtocolRetryPayload,
+        sessionId,
+      })
+      .result();
+
+    expect([sends, message.errorMessage]).toStrictEqual([1, "too many sockets"]);
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: ["1|websocket|full|absent|protocol_connection_limit|replay_budget_exhausted"],
+      connectionLimitRetries: 0,
+      inferenceDispatches: 1,
+    });
+    observability.close();
+  });
+
+  it.each([
+    {
+      closeCode: undefined,
+      expectedAttempts: ["1|sse|full|committed|none|completed"],
+      expectedFetches: 1,
+      handshakeStatus: 426,
+      label: "HTTP 426 handshake",
+    },
+    {
+      closeCode: 1009,
+      expectedAttempts: ["1|websocket|full|absent|transport_stream|replay_budget_exhausted"],
+      expectedFetches: 0,
+      handshakeStatus: undefined,
+      label: "WebSocket close 1009",
+    },
+  ])(
+    "keeps $label classification unchanged",
+    async ({ closeCode, expectedAttempts, expectedFetches, handshakeStatus }) => {
+      vi.stubGlobal(
+        "WebSocket",
+        scriptedWebSocket({
+          connect: (socket) =>
+            socketEvent(
+              socket,
+              handshakeStatus === undefined ? "open" : "error",
+              handshakeStatus === undefined
+                ? undefined
+                : { message: `Unexpected server response: ${handshakeStatus}` },
+            ),
+          readyState: handshakeStatus === undefined ? 1 : 0,
+          send: (socket) => {
+            if (closeCode !== undefined) {
+              socketEvent(socket, "close", { code: closeCode });
+            }
+          },
+        }),
+      );
+      const fetch = vi.fn<() => Promise<Response>>(async () =>
+        sse(responseEvents("resp_handshake_fallback", "fallback")),
+      );
+      const observability = new CodexObservability(":memory:");
+      const runtime = createCodexProviderRuntime(observability);
+      const sessionId = `session-regression-${handshakeStatus ?? closeCode}`;
+      const message = await runtime.provider
+        .streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch,
+          onPayload: markProtocolRetryPayload,
+          sessionId,
+          transport: "websocket",
+        })
+        .result();
+
+      expect({
+        fallback: runtime.consumeTransportFallback(sessionId),
+        fetches: fetch.mock.calls.length,
+        stop: message.stopReason,
+      }).toStrictEqual({
+        fallback: true,
+        fetches: expectedFetches,
+        stop: handshakeStatus === undefined ? "error" : "stop",
+      });
+      expect(recoveryObservation(observability, sessionId)).toMatchObject({
+        attempts: expectedAttempts,
+        inferenceDispatches: 1,
+        sseFallbackActivated: true,
+        transportUsed: handshakeStatus === undefined ? "websocket" : "sse",
+        websocketHandshakeAttempts: 1,
+        websocketHandshakeFailures: handshakeStatus === undefined ? 0 : 1,
+      });
+      observability.close();
+    },
+  );
 
   it("falls back after three partial WebSocket compaction failures", async () => {
     let socketAttempts = 0;
@@ -2179,7 +2801,7 @@ describe("Codex provider", () => {
     observability.close();
   });
 
-  it("replaces transformed payloads and retries only retryable compaction errors", async () => {
+  it("replaces transformed payloads and preserves private compaction retries", async () => {
     const runtime = createCodexProviderRuntime();
     const transformedRequests: RequestInit[] = [];
     await runtime.provider
@@ -2212,14 +2834,10 @@ describe("Codex provider", () => {
     vi.stubGlobal("fetch", async () => {
       attempts += 1;
       return attempts === 1
-        ? sse([
-            {
-              response: {
-                error: { code: "unknown_failure", message: "try again" },
-              },
-              type: "response.failed",
-            },
-          ])
+        ? Response.json(
+            { error: { code: "rate_limit", message: "try again" } },
+            { headers: { "retry-after-ms": "999999" }, status: 429 },
+          )
         : sse(compactionEvents("resp_retry"));
     });
     const result = await runtime.compact({
