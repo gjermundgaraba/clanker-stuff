@@ -3,7 +3,11 @@ import { existsSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ExtensionContext, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
+import {
+  getAgentDir,
+  type ExtensionContext,
+  type SessionShutdownEvent,
+} from "@earendil-works/pi-coding-agent";
 
 export const INBOX_ENV = "PI_SHELL_RESUME_HISTORY_DIR";
 
@@ -14,16 +18,39 @@ const quoteShellArgument = (value: string): string => {
   return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 };
 
-export interface ResumeCommandSession {
-  sessionFile: string | undefined;
-}
+const getDefaultSessionDirectory = (cwd: string): string => {
+  const safePath = `--${path
+    .resolve(cwd)
+    .replace(/^[/\\]/u, "")
+    .replaceAll(/[/\\:]/gu, "-")}--`;
+  return path.join(path.resolve(getAgentDir()), "sessions", safePath);
+};
 
-export const formatResumeCommand = ({ sessionFile }: ResumeCommandSession): string | undefined => {
+const canResumeById = (sessionId: string): boolean =>
+  /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(sessionId) && !sessionId.endsWith(".jsonl");
+
+export const formatResumeCommand = (
+  sessionManager: ExtensionContext["sessionManager"],
+): string | undefined => {
+  const sessionFile = sessionManager.getSessionFile();
   if (sessionFile === undefined || sessionFile.length === 0 || !existsSync(sessionFile)) {
     return undefined;
   }
 
-  return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
+  const sessionId = sessionManager.getSessionId();
+  if (!canResumeById(sessionId)) {
+    return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
+  }
+
+  const args = ["pi"];
+  if (
+    path.resolve(sessionManager.getSessionDir()) !==
+    getDefaultSessionDirectory(sessionManager.getCwd())
+  ) {
+    args.push("--session-dir", quoteShellArgument(sessionManager.getSessionDir()));
+  }
+  args.push("--session", sessionId);
+  return args.join(" ");
 };
 
 export const enqueueResumeCommand = async (
@@ -59,10 +86,7 @@ export const recordResumeCommand = async (
     return;
   }
 
-  const { sessionManager } = ctx;
-  const command = formatResumeCommand({
-    sessionFile: sessionManager.getSessionFile(),
-  });
+  const command = formatResumeCommand(ctx.sessionManager);
   if (command === undefined) {
     return;
   }

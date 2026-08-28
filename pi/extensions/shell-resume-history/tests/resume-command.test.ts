@@ -19,6 +19,13 @@ import {
 const hasCommand = (command: string) =>
   spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0;
 
+const resumeSession = (sessionManager: SessionManager) => ({
+  getCwd: () => sessionManager.getCwd(),
+  getSessionDir: () => sessionManager.getSessionDir(),
+  getSessionFile: () => sessionManager.getSessionFile(),
+  getSessionId: () => sessionManager.getSessionId(),
+});
+
 describe("resume command", () => {
   let tempRoot: string | undefined;
   let restoreEnv: (() => void) | undefined;
@@ -47,17 +54,12 @@ describe("resume command", () => {
 
   it("queues the current persisted session when pi quits", async () => {
     const { cwd, inbox } = await setup();
-    const sessionDir = path.join(tempRoot ?? "", "sessions");
-    const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
+    const sessionManager = SessionManager.create(cwd, undefined, { id: "full-session-id" });
     sessionManager.appendMessage(fauxAssistantMessage("test"));
-    const sessionFile = sessionManager.getSessionFile();
-    if (sessionFile === undefined) {
-      throw new Error("Expected a persisted test session");
-    }
     const host = createExtensionHost(() => {});
     const ctx = host.createContext({
       cwd,
-      sessionManager,
+      sessionManager: resumeSession(sessionManager),
     });
 
     await recordResumeCommand("quit", ctx);
@@ -65,23 +67,42 @@ describe("resume command", () => {
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(1);
     await expect(readFile(path.join(inbox, messages[0]), "utf-8")).resolves.toBe(
-      `pi --session ${sessionFile}\n`,
+      "pi --session full-session-id\n",
     );
   });
 
-  it("quotes a custom session file", async () => {
-    await setup();
+  it("quotes a custom session directory", async () => {
+    const { cwd } = await setup();
     const sessionDir = path.join(tempRoot ?? "", "custom pi's sessions");
-    const sessionFile = path.join(sessionDir, "session.jsonl");
-    await mkdir(sessionDir);
-    await writeFile(sessionFile, "{}\n");
+    const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
+    sessionManager.appendMessage(fauxAssistantMessage("test"));
 
-    expect(
-      formatResumeCommand({
-        sessionFile,
-      }),
-    ).toBe(`pi --session '${sessionFile.replaceAll("'", String.raw`'\''`)}'`);
+    expect(formatResumeCommand(sessionManager)).toBe(
+      `pi --session-dir '${sessionDir.replaceAll("'", String.raw`'\''`)}' --session full-session-id`,
+    );
   });
+
+  it.each(["safe; touch /tmp/pwned", "target.jsonl"])(
+    "uses the session file for unsafe or path-like ID %j",
+    async (sessionId) => {
+      const { cwd } = await setup();
+      const sessionFile = path.join(tempRoot ?? "", "imported.jsonl");
+      await writeFile(
+        sessionFile,
+        `${JSON.stringify({
+          cwd,
+          id: sessionId,
+          timestamp: new Date().toISOString(),
+          type: "session",
+          version: 3,
+        })}\n`,
+      );
+
+      expect(formatResumeCommand(SessionManager.open(sessionFile))).toBe(
+        `pi --session ${sessionFile}`,
+      );
+    },
+  );
 
   it("does not queue history for replacement sessions or non-TUI modes", async () => {
     const { cwd, inbox } = await setup();
@@ -100,13 +121,13 @@ describe("resume command", () => {
     await expect(readdir(inbox)).resolves.toStrictEqual([]);
   });
 
-  it("does not queue missing session files", async () => {
+  it("does not queue in-memory sessions", async () => {
     const { cwd, inbox } = await setup();
     const host = createExtensionHost(() => {});
     const sessionManager = SessionManager.inMemory(cwd, { id: "full-session-id" });
     const ctx = host.createContext({
       cwd,
-      sessionManager,
+      sessionManager: resumeSession(sessionManager),
     });
 
     await recordResumeCommand("quit", ctx);
