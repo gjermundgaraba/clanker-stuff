@@ -48,6 +48,11 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
   let enabled = false;
   let sessionEpoch = 0;
 
+  pi.registerFlag("ultra", {
+    description: "Start in Codex Ultra mode",
+    type: "boolean",
+  });
+
   setCollaborationUltraReader(pi, () => enabled);
 
   const persist = (next: boolean): void => {
@@ -94,10 +99,14 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
     model: Model<Api> | undefined,
     collaborationAvailable: boolean,
     inherited: boolean,
+    requested = false,
   ): void => {
     const stored = branchUltraState(session);
-    enabled = (stored ?? inherited) && collaborationAvailable && catalog.supportsUltra(model);
-    if (enabled && stored === undefined && inherited) {
+    enabled =
+      (requested || (stored ?? inherited)) &&
+      collaborationAvailable &&
+      catalog.supportsUltra(model);
+    if (enabled && stored !== true) {
       pi.appendEntry(ULTRA_STATE, { enabled: true });
     }
     if (enabled) {
@@ -105,20 +114,31 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
     }
   };
 
-  const restoreSession = async (ctx: ExtensionContext): Promise<void> => {
+  const restoreSession = async (ctx: ExtensionContext, requested = false): Promise<void> => {
     sessionEpoch += 1;
     const epoch = sessionEpoch;
     enabled = false;
     const contract = requestCollaborationContract(pi, ctx);
     const inherited = contract?.inheritedUltra === true;
-    const desired = branchUltraState(ctx.sessionManager) ?? inherited;
-    if (desired) {
+    const collaborationAvailable = contract?.protocol === "v2";
+    const desired = requested || (branchUltraState(ctx.sessionManager) ?? inherited);
+    if (desired && collaborationAvailable) {
       await refreshUltra(ctx, ctx.model);
     }
     if (epoch !== sessionEpoch) {
       return;
     }
-    restore(ctx.sessionManager, ctx.model, contract?.protocol === "v2", inherited);
+    restore(ctx.sessionManager, ctx.model, collaborationAvailable, inherited, requested);
+    if (!requested) {
+      return;
+    }
+    if (!collaborationAvailable) {
+      ctx.ui.notify("Codex Ultra requires the companion V2 subagents extension.", "warning");
+    } else if (!enabled) {
+      ctx.ui.notify("The selected model does not advertise Ultra.", "warning");
+    } else {
+      ctx.ui.notify("Codex Ultra enabled.", "info");
+    }
   };
 
   pi.registerCommand("ultra", {
@@ -129,28 +149,12 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
         ctx.ui.notify("Codex Ultra disabled; Max remains native Max.", "info");
         return;
       }
-      sessionEpoch += 1;
-      const epoch = sessionEpoch;
-      if (requestCollaborationContract(pi, ctx)?.protocol !== "v2") {
-        ctx.ui.notify("Codex Ultra requires the companion V2 subagents extension.", "warning");
-        return;
-      }
-      const supported = await refreshUltra(ctx, ctx.model);
-      if (epoch !== sessionEpoch) {
-        return;
-      }
-      if (!supported) {
-        ctx.ui.notify("The selected model does not advertise Ultra.", "warning");
-        return;
-      }
-      persist(true);
-      selectMax();
-      ctx.ui.notify("Codex Ultra enabled.", "info");
+      await restoreSession(ctx, true);
     },
   });
 
-  pi.on("session_start", async (_event, ctx) => {
-    await restoreSession(ctx);
+  pi.on("session_start", async (event, ctx) => {
+    await restoreSession(ctx, event.reason === "startup" && pi.getFlag("ultra") === true);
   });
 
   pi.on("session_tree", async (_event, ctx) => {

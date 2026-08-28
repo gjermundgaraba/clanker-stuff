@@ -190,7 +190,7 @@ Ultra does not define a fixed token multiplier or guaranteed number of sub-agent
 
 Pi 0.84.2 has a closed `ThinkingLevel` union ending at `max`; it has no distinct `ultra` value. See [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi/blob/914cf1472e715297caa30db4b9535d534a9eb718/packages/ai/src/types.ts#L82-L84). The extension therefore keeps Ultra as branch-scoped custom state and uses Pi's `max` only for inference. Native Max remains a separate user choice and continues to send `reasoning.effort: "max"` without enabling proactive delegation.
 
-`/ultra` is always registered, but activation requires both a live V2 contract from the companion [`subagents`](../../subagents) extension and an eligible selected model. If current metadata does not already advertise Ultra, a fresh enable attempt performs a targeted `openai-codex` refresh, then rechecks for `multi_agent_version: "v2"` plus both `max` and `ultra` reasoning options. Enabling immediately selects Pi `max`; resume restores branch state, while switching to an ineligible model or selecting a non-Max thinking level disables it. The catalog gate is implemented in [`model-catalog.ts`](../model-catalog.ts), and the branch adapter is in [`ultra/index.ts`](../ultra/index.ts).
+`/ultra` and `--ultra` are always registered, but activation requires both a live V2 contract from the companion [`subagents`](../../subagents) extension and an eligible selected model. The command toggles branch state; the flag attempts to enable Ultra for the initial CLI session and warns without changing state when activation is unavailable. If current metadata does not already advertise Ultra, a fresh enable attempt performs a targeted `openai-codex` refresh, then rechecks for `multi_agent_version: "v2"` plus both `max` and `ultra` reasoning options. Enabling immediately selects Pi `max`; resume restores branch state, while switching to an ineligible model or selecting a non-Max thinking level disables it. The catalog gate is implemented in [`model-catalog.ts`](../model-catalog.ts), and the branch adapter is in [`ultra/index.ts`](../ultra/index.ts).
 
 ### Collaboration ownership and wire contract
 
@@ -222,7 +222,7 @@ This implementation intentionally has no separate Pi model-picker value, persist
 - Ultra does not select a faster service tier; fast/priority routing remains independent.
 - Ultra does not alter approval, sandbox, permission, network, or tool safety policy.
 - Ultra does not guarantee delegation or a particular sub-agent count.
-- `/ultra` remains visible for every model, but activation requires current V2 metadata and the companion V2 contract.
+- `/ultra` and `--ultra` remain visible for every model, but activation requires current V2 metadata and the companion V2 contract.
 - In upstream Codex, Ultra on a V1/disabled multi-agent thread still receives Max inference but no proactive V2 instruction. This extension rejects Ultra unless live metadata advertises V2 support.
 
 ## Change history that explains the current design

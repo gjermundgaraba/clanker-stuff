@@ -83,6 +83,7 @@ describe("codex-provider package", () => {
       errors: result.errors,
       exports: Object.keys(packageEntry),
       fastFlag: extension?.flags.has("fast"),
+      ultraFlag: extension?.flags.has("ultra"),
       sensitiveHooks: SENSITIVE_HOOKS.filter((hook) => extension?.handlers.has(hook)),
       tools: CODEX_TOOLS.filter((tool) => extension?.tools.has(tool)),
     }).toStrictEqual({
@@ -91,6 +92,7 @@ describe("codex-provider package", () => {
       errors: [],
       exports: ["default"],
       fastFlag: true,
+      ultraFlag: true,
       sensitiveHooks: [...SENSITIVE_HOOKS],
       tools: [...CODEX_TOOLS],
     });

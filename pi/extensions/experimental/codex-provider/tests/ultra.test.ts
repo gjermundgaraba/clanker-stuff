@@ -40,6 +40,7 @@ const createHost = (
   testCatalog = catalog,
   collaboration: "missing" | "v2" = "v2",
   inheritedUltra = false,
+  flags?: Record<string, boolean | string>,
 ) =>
   createExtensionHost(
     (pi) => {
@@ -60,6 +61,7 @@ const createHost = (
     },
     {
       entries,
+      flags,
       leafId: entries.at(-1)?.id,
       model: MODEL,
     },
@@ -107,6 +109,27 @@ describe("Codex Ultra", () => {
       message: "The selected model does not advertise Ultra.",
       type: "warning",
     });
+  });
+
+  it("enables from --ultra only for the initial eligible session", async () => {
+    const host = createHost([], catalog, "v2", false, { ultra: true });
+    const ctx = host.createContext({ model: MODEL });
+
+    await host.emitSessionStart(ctx);
+
+    expect(host.getAppendedEntries()).toMatchObject([
+      { customType: "codex-ultra-state", data: { enabled: true } },
+    ]);
+    expect(host.getThinkingLevel()).toBe("max");
+    expect(host.getNotifications()).toContainEqual({
+      message: "Codex Ultra enabled.",
+      type: "info",
+    });
+
+    const replacement = createHost([], catalog, "v2", false, { ultra: true });
+    await replacement.emitSessionStart(replacement.createContext({ model: MODEL }), "new");
+    expect(replacement.getAppendedEntries()).toStrictEqual([]);
+    expect(replacement.getThinkingLevel()).toBe("off");
   });
 
   it("appends one proactive mode instruction without duplicating collaboration usage", () => {
