@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { ok as assert } from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -204,7 +203,7 @@ const parseInvocation = (args: readonly string[]): Invocation | undefined => {
 };
 
 const help = `Usage:
-  ${OPT_IN}=1 pnpm --filter @clanker-stuff/codex-provider run test:live:fast [-- options]
+  ${OPT_IN}=1 vp run @clanker-stuff/codex-provider#test:live:fast [options]
 
 Paid, opt-in WebSocket throughput comparison with Fast Mode OFF and ON.
 Every sample uses a fresh session and physical socket.

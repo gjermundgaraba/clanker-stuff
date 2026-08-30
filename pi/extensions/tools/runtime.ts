@@ -14,7 +14,6 @@ import { createToolSelection } from "./selection.js";
 const resolveProfile = (model: Model<Api> | undefined) =>
   model ? HARNESS_PROFILES.find((profile) => profile.matches(model)) : undefined;
 
-const PI_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "read", "write"];
 const PI_SCOPE = "pi";
 const HARNESS_SCOPE = "harness";
 const EXTERNAL_SCOPE = "external";
@@ -22,15 +21,19 @@ const EXTERNAL_SCOPE = "external";
 export const createToolsRuntime = (pi: ExtensionAPI) => {
   const owners = createToolOwners(pi);
   const selection = createToolSelection(pi);
-  const piToolNames = () =>
-    pi
-      .getAllTools()
-      .map(({ name }) => name)
-      .filter((name) => PI_TOOL_NAMES.includes(name));
-  let currentManagedNames = new Set(PI_TOOL_NAMES);
+  let piToolNames: Set<string> | undefined;
+  let currentManagedNames = new Set<string>();
   let currentScope = PI_SCOPE;
-  const managedNames = new Set(PI_TOOL_NAMES);
+  const managedNames = new Set<string>();
   let profileNames = new Set<string>();
+  // Discover after Pi binds the runtime, then preserve built-in identity across profile overrides.
+  const builtinToolNames = () =>
+    (piToolNames ??= new Set(
+      pi
+        .getAllTools()
+        .filter(({ sourceInfo }) => sourceInfo.source === "builtin")
+        .map(({ name }) => name),
+    ));
   const visibleTools = (ownerModel?: Model<Api>) =>
     pi
       .getAllTools()
@@ -79,7 +82,7 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
       pi.registerTool(tool);
     }
     profileNames = selectedNameSet;
-    currentManagedNames = profile ? selectedNameSet : new Set(piToolNames());
+    currentManagedNames = profile ? selectedNameSet : new Set(builtinToolNames());
     currentScope = profile ? HARNESS_SCOPE : PI_SCOPE;
     const unmanagedNames = pi
       .getAllTools()
@@ -124,7 +127,9 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
       });
     },
     prepareReload(ctx: ExtensionContext): void {
-      const suppressedNames = piToolNames().filter((name) => owners.suppresses(name, ctx.model));
+      const suppressedNames = [...builtinToolNames()].filter((name) =>
+        owners.suppresses(name, ctx.model),
+      );
       const activeNames = new Set(pi.getActiveTools());
       pi.setActiveTools([
         ...selection.enabled(PI_SCOPE, suppressedNames, activeNames),
@@ -136,7 +141,10 @@ export const createToolsRuntime = (pi: ExtensionAPI) => {
       apply(ctx, false);
     },
     start(ctx: ExtensionContext): void {
-      currentManagedNames = new Set(piToolNames());
+      currentManagedNames = new Set(builtinToolNames());
+      for (const name of currentManagedNames) {
+        managedNames.add(name);
+      }
       selection.capture(PI_SCOPE, currentManagedNames, new Set(pi.getActiveTools()));
       captureCurrentSelection();
       selection.start(ctx);

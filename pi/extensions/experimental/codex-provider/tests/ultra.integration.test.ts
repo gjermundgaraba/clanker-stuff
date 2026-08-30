@@ -92,7 +92,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
     try {
       let bound = false;
       const model = Object.assign(
-        { ...SPIKE_MODEL, thinkingLevelMap: { max: "max" } },
+        { ...SPIKE_MODEL, thinkingLevelMap: { high: "high", max: "max" } },
         { multiAgentVersion: "v2" as const },
       );
       const creating = createRealCodexSession({
@@ -110,6 +110,8 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
       releaseRefresh.resolve(null);
       session = await creating;
       expect(session.thinkingLevel).toBe("max");
+      session.setThinkingLevel("high");
+      await vi.waitFor(() => expect(session?.thinkingLevel).toBe("max"));
       expect(
         session.getActiveToolNames().filter((name) => COLLABORATION_TOOLS.includes(name)),
       ).toStrictEqual(COLLABORATION_TOOLS);
@@ -200,6 +202,23 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
           agents: expect.arrayContaining([expect.objectContaining({ agent_name: "/root" })]),
         },
       });
+
+      const requestCount = requests.length;
+      await spawn.execute(
+        "spawn-after-disable",
+        {
+          fork_turns: "none",
+          message: "Confirm native Max without proactive policy",
+          task_name: "after_disable",
+        },
+        undefined,
+        undefined,
+        session.extensionRunner.createContext(),
+      );
+      await vi.waitFor(() => expect(requests).toHaveLength(requestCount + 1));
+      expect(requests.at(-1)?.instructions).not.toEqual(
+        expect.stringContaining("Proactive multi-agent delegation is active."),
+      );
     } finally {
       releaseRefresh.resolve(null);
       if (session?.hasExtensionHandlers("session_shutdown")) {

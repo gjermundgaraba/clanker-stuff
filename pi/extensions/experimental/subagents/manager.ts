@@ -154,7 +154,9 @@ export class SubagentManager {
       },
       (ctx, ultra) => {
         this.#refreshProtocol(ctx);
-        this.#v2.setUltra(ROOT_AGENT_PATH, ultra);
+        if (ultra !== undefined) {
+          this.#v2.setUltra(ROOT_AGENT_PATH, ultra);
+        }
       },
     );
   }

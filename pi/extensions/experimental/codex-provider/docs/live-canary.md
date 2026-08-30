@@ -43,14 +43,14 @@ Production behavior remains unchanged. This separate runner is an opt-in feasibi
 First inspect the command without loading credentials or making a network request:
 
 ```bash
-vp run @clanker-stuff/codex-provider#test:live:feasibility -- --help
+vp run @clanker-stuff/codex-provider#test:live:feasibility --help
 ```
 
 Only after explicit authorization, choose one fixed local-estimator candidate modestly above the prior 282,952 provider-token observation and one alternate model expected in the same fresh remote catalog. Run exactly once:
 
 ```bash
 CODEX_COMPACTION_FEASIBILITY_ACK=I_ACCEPT_UP_TO_5_LIVE_COMPACTIONS \
-  vp run @clanker-stuff/codex-provider#test:live:feasibility -- \
+  vp run @clanker-stuff/codex-provider#test:live:feasibility \
   --execute \
   --candidate-tokens 290000 \
   --alternate-model gpt-5.6-terra
@@ -141,7 +141,7 @@ This performs one small real tool loop using the model's declared context window
 ## Fast routing run
 
 ```bash
-CODEX_FAST_LIVE_PAID=1 pnpm --filter @clanker-stuff/codex-provider run test:live:fast
+CODEX_FAST_LIVE_PAID=1 vp run @clanker-stuff/codex-provider#test:live:fast
 ```
 
 The explicit `CODEX_FAST_LIVE_PAID=1` guard acknowledges paid usage. The runner defaults to `gpt-5.6-sol`; optional arguments include `--model ID`, `--pairs N`, `--seed N`, and `--out PATH`.
@@ -168,7 +168,7 @@ A ten-round soak processes at least about 375,000 input tokens through compactio
 ## Client stream-fault run
 
 ```bash
-node pi/extensions/experimental/codex-provider/scripts/live-multi-compaction.ts --stream-fault --sse
+vp run @clanker-stuff/codex-provider#test:live:fault
 ```
 
 This mode interrupts the first real `/responses` compaction response body inside the client after the HTTP request succeeds. It identifies compaction structurally by the trailing `compaction_trigger`, matching the provider protocol rather than assuming a separate endpoint. The provider must retry, persist exactly two schema-v1 checkpoints across two rounds, and replay them in a fresh process. The runner requires exactly one injected fault and at least one extra compaction request.
@@ -176,7 +176,7 @@ This mode interrupts the first real `/responses` compaction response body inside
 ## Concurrent RPC run
 
 ```bash
-node pi/extensions/experimental/codex-provider/scripts/live-chaos.ts --rpc
+vp run @clanker-stuff/codex-provider#test:live:rpc
 ```
 
 This launches Pi's real RPC process and sends two `compact` commands without awaiting either one. Both overlapping compactions must cancel without persisting a partial entry. A following recovery compaction must persist one schema-v1 lifecycle checkpoint and remain usable on the next prompt. The isolated artifacts are retained, but their copied `auth.json` is removed before exit.
@@ -184,7 +184,7 @@ This launches Pi's real RPC process and sends two `compact` commands without awa
 ## Crash/restart run
 
 ```bash
-node pi/extensions/experimental/codex-provider/scripts/live-chaos.ts --crash
+vp run @clanker-stuff/codex-provider#test:live:crash
 ```
 
 This launches the normal SSE runner, polls its JSONL artifact, and sends `SIGKILL` as soon as the first complete checkpoint line is readable. A fresh Node process then opens that exact session and proves the durable checkpoint can serve two normal turns without being replaced.
@@ -195,7 +195,7 @@ This launches the normal SSE runner, polls its JSONL artifact, and sends `SIGKIL
 vp run @clanker-stuff/codex-provider#test:live:installed
 ```
 
-This explicitly invoked canary resolves the system `pi` command to its compiled installation, requires Pi 0.84.2, and runs it in RPC mode with the actual `PI_CODING_AGENT_DIR`. It therefore loads the user's configured settings, extensions, and other resources instead of constructing an extension-isolated environment. The working directory and session directory are temporary, and the retained artifact root is printed at startup. A project-local compaction setting keeps the short manual run eligible; it does not change the model context window.
+This explicitly invoked canary resolves the system `pi` command to its compiled installation, requires the supported Pi baseline, and runs it in RPC mode with the actual `PI_CODING_AGENT_DIR`. It therefore loads the user's configured settings, extensions, and other resources instead of constructing an extension-isolated environment. The working directory and session directory are temporary, and the retained artifact root is printed at startup. A project-local compaction setting keeps the short manual run eligible; it does not change the model context window.
 
 The model keeps its native declared context window; this run does not force the small estimator window used by the default synthetic canary. One happy path verifies project instructions, provider/API identity, Direct Mode `exec_command` and `apply_patch`, Code Mode `exec` with nested tools, a strict manual checkpoint over that tool history, a non-persisting `/codex-provider` status request, and fresh-process Direct Mode tool availability plus opaque checkpoint recall. The installed `/tools` command must also be present, proving the provider is running alongside the tools extension.
 

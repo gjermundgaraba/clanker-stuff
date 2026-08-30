@@ -119,7 +119,7 @@ const run = async (configPath) => {
   const { promise: completionEvent, resolve: resolveCompletion } = Promise.withResolvers();
   const client = new RpcClient({
     args: config.args,
-    cliPath: "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+    cliPath: "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
     cwd: config.cwd,
     model: config.model,
     provider: config.provider,

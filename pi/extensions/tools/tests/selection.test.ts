@@ -34,6 +34,7 @@ describe("tool selection", () => {
     const host = createExtensionHost(extension, {
       activeTools: ["read"],
       allTools: ["read", "extra-tool"],
+      externalTools: ["extra-tool"],
       entries: [
         messageEntry("root", null),
         toolsEntry("tools-a", "root", {

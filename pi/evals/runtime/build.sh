@@ -32,7 +32,7 @@ docker run --rm clanker-pi-evals:node26 sh -c \
       }
       const extension = new URL(\"./index.ts\", import.meta.url);
       const cli = new URL(
-        \"./node_modules/@earendil-works/pi-coding-agent/dist/cli.js\",
+        \"./node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js\",
         import.meta.url,
       );
       for (const name of [

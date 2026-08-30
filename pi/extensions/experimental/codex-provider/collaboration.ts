@@ -58,14 +58,8 @@ export interface CollaborationContractRequest {
   readonly context: ExtensionContext;
   readonly provide: (value: WireValue) => void;
   readonly sessionId: string;
-  readonly ultra: boolean;
+  readonly ultra?: boolean;
 }
-
-const ultraReaders = new WeakMap<CollaborationApi, () => boolean>();
-
-export const setCollaborationUltraReader = (pi: CollaborationApi, read: () => boolean): void => {
-  ultraReaders.set(pi, read);
-};
 
 const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
@@ -85,9 +79,10 @@ const isNestedToolContract = (value: WireValue): value is NestedToolContract =>
 const requestContract = (
   pi: CollaborationApi,
   ctx: ExtensionContext & CollaborationContext,
+  ultra?: boolean,
 ): CollaborationContract | undefined => {
   let contract: CollaborationContract | undefined;
-  pi.events.emit(COLLABORATION_CONTRACT_REQUEST, {
+  const request: CollaborationContractRequest = {
     context: ctx,
     provide(value: WireValue) {
       if (
@@ -111,8 +106,11 @@ const requestContract = (
       }
     },
     sessionId: ctx.sessionManager.getSessionId(),
-    ultra: ultraReaders.get(pi)?.() ?? false,
-  });
+  };
+  pi.events.emit(
+    COLLABORATION_CONTRACT_REQUEST,
+    ultra === undefined ? request : { ...request, ultra },
+  );
   return contract;
 };
 export const requestCollaborationContract = requestContract;

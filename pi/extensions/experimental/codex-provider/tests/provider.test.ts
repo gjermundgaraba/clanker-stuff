@@ -521,6 +521,7 @@ describe("Codex provider", () => {
             responses.push(status);
           },
           sessionId: "session-sse",
+          toolChoice: "none",
           transport: "sse",
         },
       )
@@ -541,6 +542,7 @@ describe("Codex provider", () => {
       requestCount: requests.length,
       standardImage,
       store: body.store,
+      toolChoice: body.tool_choice,
       tools: wireRecords(body.tools).map(({ name, type }) => ({
         name,
         type,
@@ -564,6 +566,7 @@ describe("Codex provider", () => {
         type: "input_image",
       },
       store: false,
+      toolChoice: "none",
       tools: [
         { name: "exec", type: "custom" },
         { name: "wait", type: "function" },

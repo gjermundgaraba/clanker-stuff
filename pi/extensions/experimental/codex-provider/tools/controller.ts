@@ -17,7 +17,6 @@ import { CODE_MODE_STATUS_KEY } from "../footer.js";
 import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
 import { createCodexToolSelection } from "./selection.js";
 
-const PI_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "read", "write"];
 const ToolOwnerRequestSchema = Type.Object({
   protocol: Type.Literal(TOOL_OWNER_PROTOCOL_VERSION),
   provide: Type.Function([Type.Unknown()], Type.Void()),
@@ -37,10 +36,18 @@ export const createCodexToolsController = (
   const codeNames = codeDefinitions.map(({ name }) => name);
   const toolNames = [...directNames, ...codeNames];
   const codexToolNameSet = new Set(toolNames);
-  const codexManagedNameSet = new Set([...PI_TOOL_NAMES, ...toolNames]);
+  let piToolNames: Set<string> | undefined;
   let codeModeEnabled = false;
   let currentModel: ExtensionContext["model"];
   let suppressedPiNames: string[] = [];
+  // Discover after Pi binds the runtime, then preserve built-in identity across profile overrides.
+  const builtinToolNames = () =>
+    (piToolNames ??= new Set(
+      pi
+        .getAllTools()
+        .filter(({ sourceInfo }) => sourceInfo.source === "builtin")
+        .map(({ name }) => name),
+    ));
 
   const codeModeActive = () =>
     codeModeEnabled && currentModel !== undefined && isCodexToolsModel(currentModel);
@@ -76,9 +83,11 @@ export const createCodexToolsController = (
       return;
     }
     if (previousModel === undefined || !isCodexToolsModel(previousModel)) {
-      suppressedPiNames = activeNames.filter((name) => PI_TOOL_NAMES.includes(name));
+      suppressedPiNames = activeNames.filter((name) => builtinToolNames().has(name));
     }
-    const externalNames = activeNames.filter((name) => !codexManagedNameSet.has(name));
+    const externalNames = activeNames.filter(
+      (name) => !builtinToolNames().has(name) && !codexToolNameSet.has(name),
+    );
     pi.setActiveTools([
       ...externalNames,
       ...selection.enabled(codeModeActive() ? codeNames : directNames),
@@ -91,7 +100,7 @@ export const createCodexToolsController = (
       apply(ctx);
     },
     suppressedNames: (model: ExtensionContext["model"] = currentModel) =>
-      model !== undefined && isCodexToolsModel(model) ? PI_TOOL_NAMES : [],
+      model !== undefined && isCodexToolsModel(model) ? [...builtinToolNames()] : [],
     visibleNames,
   } satisfies ToolOwnerRegistration;
 
@@ -114,6 +123,7 @@ export const createCodexToolsController = (
     registerOwner(): void {
       pi.events.on(TOOL_OWNER_REQUEST_EVENT, (request) => {
         if (Value.Check(ToolOwnerRequestSchema, request)) {
+          builtinToolNames();
           Value.Parse(ToolOwnerRequestSchema, request).provide(owner);
         }
       });

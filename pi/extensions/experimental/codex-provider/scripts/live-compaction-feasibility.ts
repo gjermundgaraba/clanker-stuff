@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { ok as assert } from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -462,7 +461,7 @@ WebSocket candidate and one alternate-model SSE candidate.
 
 Usage:
   ${FEASIBILITY_ACKNOWLEDGEMENT_ENV}=${FEASIBILITY_ACKNOWLEDGEMENT} \\
-    vp run @clanker-stuff/codex-provider#test:live:feasibility -- \\
+    vp run @clanker-stuff/codex-provider#test:live:feasibility \\
     --execute --candidate-tokens 290000 --alternate-model gpt-5.6-terra
 
 Bounds:

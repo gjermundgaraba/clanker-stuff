@@ -3,6 +3,7 @@ import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { COLLABORATION_CONTRACT_REQUEST, registerContractResponder } from "../contract.js";
 import { codexContractFixture as fixture } from "../docs/fixtures/codex-contract.generated.js";
 import { registerV1Tools } from "../v1/tools.js";
 import type { V1ToolController } from "../v1/tools.js";
@@ -33,6 +34,34 @@ const PropertiesSchema = Type.Object(
 const JsonObjectSchema = Type.Object({}, { additionalProperties: true });
 
 describe("pinned Codex collaboration contract", () => {
+  it("distinguishes a read-only contract request from an explicit Ultra update", async () => {
+    const updates: (boolean | undefined)[] = [];
+    const host = createExtensionHost((pi) => {
+      registerContractResponder(
+        pi,
+        () => ({ nestedTools: [], protocol: "v2", sessionId: "contract-session" }),
+        (_ctx, ultra) => updates.push(ultra),
+      );
+    });
+    await host.ready;
+    const request = (ultra?: boolean) => {
+      const payload = {
+        context: host.createContext(),
+        provide: () => {},
+        sessionId: "contract-session",
+      };
+      host.events.emit(
+        COLLABORATION_CONTRACT_REQUEST,
+        ultra === undefined ? payload : { ...payload, ultra },
+      );
+    };
+
+    request();
+    request(false);
+
+    expect(updates).toStrictEqual([undefined, false]);
+  });
+
   it("keeps the Pi V1 and V2 tool families aligned with Codex", async () => {
     const v1 = createExtensionHost((pi) => {
       registerV1Tools(pi, v1Controller(), () => {});

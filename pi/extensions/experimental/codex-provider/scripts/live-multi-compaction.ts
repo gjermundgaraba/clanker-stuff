@@ -1,7 +1,7 @@
-#!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
@@ -46,6 +46,10 @@ import type { WireRecord, WireValue } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
+const JITI_CLI = path.join(
+  path.dirname(createRequire(import.meta.url).resolve("jiti/package.json")),
+  "lib/jiti-cli.mjs",
+);
 const TRANSPORT_FALLBACK_WARNING =
   "OpenAI Codex WebSocket is unavailable; using SSE for this session.";
 const TRUNCATED_OUTPUT_MESSAGE = "Output exceeded the available model context and was truncated";
@@ -569,7 +573,7 @@ const main = async (invocation: ParentInvocation) => {
   const { rounds, transport: transportMode } = invocation;
   if (invocation.showHelp) {
     console.log(`Usage:
-  node pi/extensions/experimental/codex-provider/scripts/live-multi-compaction.ts [--sse|--websocket|--fallback] [--branch|--capabilities|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
+  vp run @clanker-stuff/codex-provider#test:live [--sse|--websocket|--fallback] [--branch|--capabilities|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
 
 Environment:
   CODEX_COMPACTION_LIVE_MODEL          Model ID (default: gpt-5.6-sol)
@@ -583,9 +587,11 @@ Environment:
   const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
   const modelId =
     configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
-  execFileSync(process.execPath, [path.join(PACKAGE_ROOT, "audit-local-order.ts"), process.cwd()], {
-    stdio: "inherit",
-  });
+  execFileSync(
+    process.execPath,
+    [JITI_CLI, path.join(PACKAGE_ROOT, "audit-local-order.ts"), process.cwd()],
+    { stdio: "inherit" },
+  );
 
   const artifactParent = path.resolve(process.env.CODEX_COMPACTION_LIVE_DIR ?? os.tmpdir());
   await mkdir(artifactParent, { recursive: true });
@@ -1328,7 +1334,7 @@ Environment:
       const resultFile = path.join(runRoot, "branch-result.json");
       assert(extensionErrors.length === 0, "Extension errors were emitted");
       await disposeCanarySession(session, transportMode);
-      execFileSync(process.execPath, [import.meta.filename, "--branch-child"], {
+      execFileSync(process.execPath, [JITI_CLI, import.meta.filename, "--branch-child"], {
         env: {
           ...process.env,
           CODEX_COMPACTION_BRANCH_AGENT_DIR: isolatedAgentDir,
@@ -1371,7 +1377,7 @@ Environment:
     assert(latestResponseId !== undefined, "Newest checkpoint response ID missing");
     const restartResultFile = path.join(runRoot, "restart-result.json");
     await disposeCanarySession(session, transportMode);
-    execFileSync(process.execPath, [import.meta.filename, "--restart-child"], {
+    execFileSync(process.execPath, [JITI_CLI, import.meta.filename, "--restart-child"], {
       env: {
         ...process.env,
         CODEX_COMPACTION_RESTART_AGENT_DIR: isolatedAgentDir,
@@ -1422,7 +1428,7 @@ Environment:
   }
 };
 
-if (import.meta.main) {
+if (process.argv[1] === import.meta.filename) {
   try {
     const invocation = parseLiveInvocation(process.argv.slice(2), process.env);
     await (invocation.process === "child" ? runFreshChild(invocation) : main(invocation));

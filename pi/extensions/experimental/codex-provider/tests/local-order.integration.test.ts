@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { auditLocalOrder } from "../audit-local-order.js";
+import { auditLocalOrder, SUPPORTED_PI_VERSION } from "../audit-local-order.js";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -64,7 +64,7 @@ describe("local order audit", () => {
     const result = await auditLocalOrder({
       agentDir,
       cwd,
-      piVersion: "0.84.2",
+      piVersion: SUPPORTED_PI_VERSION,
     });
     expect({
       count: result.count,
@@ -78,8 +78,8 @@ describe("local order audit", () => {
       count: 3,
       finalPath: path.join(PACKAGE_ROOT, "index.ts"),
       orderedFiles: ["configured.ts", "index.ts", "index.ts"],
-      piVersion: "0.84.2",
-      sdkVersion: "0.84.2",
+      piVersion: SUPPORTED_PI_VERSION,
+      sdkVersion: SUPPORTED_PI_VERSION,
     });
 
     await expect(auditLocalOrder({ agentDir, cwd, piVersion: "0.83.0" })).rejects.toThrow(

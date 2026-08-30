@@ -13,7 +13,7 @@ Every arm receives the same model ID, reasoning level, task prompts, timeout, an
 Run the structural smoke test before any paid evaluation:
 
 ```bash
-node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts --smoke
+vp run @clanker-stuff/codex-provider#eval:agents:smoke
 ```
 
 It checks the three CLIs, proves each untouched fixture fails, and proves each reference solution passes. It does not contact a model.
@@ -21,7 +21,7 @@ It checks the three CLIs, proves each untouched fixture fails, and proves each r
 Run the complete scheduling and reporting path without model calls:
 
 ```bash
-node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts --dry-run --repetitions 2
+vp run @clanker-stuff/codex-provider#eval:agents:dry --repetitions 2
 ```
 
 ## Paid evaluation
@@ -29,7 +29,7 @@ node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts --dry-
 The default suite makes six agent runs per repetition: two tasks across three runners.
 
 ```bash
-node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts \
+vp run @clanker-stuff/codex-provider#eval:agents \
   --model gpt-5.6-sol \
   --reasoning high \
   --repetitions 3 \
@@ -45,7 +45,7 @@ Use `--task inventory-ledger` or `--task http-retry` for a smaller run. Each rep
 `compaction-resume` is excluded by default. It sends five resumed continuity turns totaling roughly 300,000 prompt tokens, followed by an implementation turn. This is intended to cross normal compaction thresholds and can be expensive.
 
 ```bash
-node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts \
+vp run @clanker-stuff/codex-provider#eval:agents \
   --task compaction-resume \
   --model gpt-5.6-sol \
   --reasoning high
@@ -68,7 +68,7 @@ The harness does not claim perfect parity: Pi and Codex CLI have different syste
 The provider-local benchmark compares direct Codex tools, `/code-mode`, and native `codex exec` on the same fixture:
 
 ```bash
-vp run eval:code-mode --runs 3
+vp run @clanker-stuff/codex-provider#eval:code-mode --runs 3
 ```
 
 Use `--prepare-only` for a no-model-call fixture check. Results include hidden-test outcomes, active tools, elapsed and first-response times, token usage, cost, and each workspace diff.

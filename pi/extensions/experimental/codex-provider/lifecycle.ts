@@ -718,6 +718,13 @@ const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
   operation.finish();
 };
 
+const finishLifecycleOperation = (state: LifecycleState): PendingInstall | undefined => {
+  const pending = state.pendingInstall;
+  state.pendingInstall = undefined;
+  releaseLifecycleOperation(state);
+  return pending;
+};
+
 const releaseSettledLifecycleOperation = (
   state: LifecycleState,
   ctx: ExtensionContext,
@@ -2244,10 +2251,7 @@ export const createCodexLifecycle = (
       }
     },
     compact: (event: SessionCompactEvent, ctx: ExtensionContext): void => {
-      const pending = state.pendingInstall;
-      state.pendingInstall = undefined;
-      releaseLifecycleOperation(state);
-      setLifecycleStatus(ctx, undefined);
+      const pending = finishLifecycleOperation(state);
       if (!pending) {
         return;
       }
@@ -2262,6 +2266,9 @@ export const createCodexLifecycle = (
         return;
       }
       providerRuntime.installWindow(pending.sessionId, pending.runtime);
+    },
+    compactFailed: (): void => {
+      finishLifecycleOperation(state);
     },
     context: (event: ContextEvent, ctx: ExtensionContext): ReturnType<typeof runContextHook> => {
       try {

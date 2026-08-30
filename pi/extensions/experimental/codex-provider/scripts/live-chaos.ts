@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { ok as assert } from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import {
@@ -14,6 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { createRequire } from "node:module";
 import type { Readable } from "node:stream";
 
 import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
@@ -25,6 +25,10 @@ import type { WireValue } from "./wire.ts";
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
 const LIVE_RUNNER = path.join(import.meta.dirname, "live-multi-compaction.ts");
+const JITI_CLI = path.join(
+  path.dirname(createRequire(import.meta.url).resolve("jiti/package.json")),
+  "lib/jiti-cli.mjs",
+);
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
@@ -80,7 +84,10 @@ const runRpc = async () => {
         "--thinking",
         "minimal",
       ],
-      cliPath: path.join(PACKAGE_ROOT, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
+      cliPath: path.join(
+        PACKAGE_ROOT,
+        "node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+      ),
       cwd,
       env: { PI_CODING_AGENT_DIR: agentDir },
       model: LIVE_MODEL,
@@ -280,7 +287,7 @@ export const waitForCrashCheckpoint = ({
 };
 
 const runCrash = async () => {
-  const child = spawn(process.execPath, [LIVE_RUNNER, "--sse"], {
+  const child = spawn(process.execPath, [JITI_CLI, LIVE_RUNNER, "--sse"], {
     env: {
       ...process.env,
       CODEX_COMPACTION_LIVE_ROUNDS: "3",
@@ -299,7 +306,7 @@ const runCrash = async () => {
   assert(persisted !== undefined, "Killed child left no durable checkpoint");
 
   const resultFile = path.join(root, "crash-restart-result.json");
-  execFileSync(process.execPath, [LIVE_RUNNER, "--restart-child"], {
+  execFileSync(process.execPath, [JITI_CLI, LIVE_RUNNER, "--restart-child"], {
     env: {
       ...process.env,
       CODEX_COMPACTION_RESTART_AGENT_DIR: path.join(root, "agent"),
@@ -332,17 +339,22 @@ const runCrash = async () => {
 };
 
 const main = async () => {
-  if (process.argv.includes("--rpc")) {
-    await runRpc();
-  } else if (process.argv.includes("--crash")) {
-    await runCrash();
-  } else {
+  const rpc = process.argv.includes("--rpc");
+  const crash = process.argv.includes("--crash");
+  if (process.argv.includes("--help") || (!rpc && !crash)) {
     console.log(`Usage:
-  node pi/extensions/experimental/codex-provider/scripts/live-chaos.ts --rpc|--crash`);
+  vp run @clanker-stuff/codex-provider#test:live:rpc
+  vp run @clanker-stuff/codex-provider#test:live:crash`);
+    return;
+  }
+  if (rpc) {
+    await runRpc();
+  } else {
+    await runCrash();
   }
 };
 
-if (import.meta.main) {
+if (process.argv[1] === import.meta.filename) {
   try {
     await main();
   } catch (error) {

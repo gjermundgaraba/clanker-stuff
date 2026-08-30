@@ -21,7 +21,7 @@ The extension resolves and latches the protocol when the first root turn starts:
 3. A resume or root fork inherits the stored protocol.
 4. Otherwise `model.multiAgentVersion` selects `v1`, `v2`, or `off` (`disabled`), with V1 as the undeclared fallback.
 
-`auto` means “use model metadata or the V1 default.” An exact `auto` intentionally bypasses `*`. The Codex provider projects its catalog's `multi_agent_version` field onto dynamic Pi model objects as `multiAgentVersion`. The packages have no import dependency; when both are loaded, a synchronous session contract carries the selected collaboration profile to the provider and active or inherited Ultra state between the provider and V2 controller.
+`auto` means “use model metadata or the V1 default.” An exact `auto` intentionally bypasses `*`. The Codex provider projects its catalog's `multi_agent_version` field onto dynamic Pi model objects as `multiAgentVersion`. The packages have no import dependency; when both are loaded, a synchronous session contract carries the selected collaboration profile to the provider and active or inherited Ultra state between the provider and V2 controller. Read-only requests omit Ultra, while the provider's Ultra owner sends an explicit boolean when active state changes.
 
 Later incompatible model selections keep the latched tools and show a warning. Resume restores the latch. A root fork inherits only the protocol into a new root session ID and empty control graph. An explicit current config override beats inherited state and starts a new control generation. V2 descendants stay in the same tree protocol but receive collaboration tools only when the child's resolved model itself declares V2.
 

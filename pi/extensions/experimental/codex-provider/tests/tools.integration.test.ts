@@ -18,34 +18,28 @@ describe("Codex tools with a real AgentSession", () => {
     vi.unstubAllEnvs();
   });
 
-  it.each([
-    ["tools first", [toolsExtension, codexProviderExtension]],
-    ["provider first", [codexProviderExtension, toolsExtension]],
-  ] as const)(
-    "normalizes startup and toggles Code Mode with both extensions loaded (%s)",
-    async (_order, extensionFactories) => {
-      const rootDir = await mkdtemp(path.join(os.tmpdir(), "codex-tools-"));
-      const cwd = path.join(rootDir, "project");
-      await mkdir(cwd, { recursive: true });
-      vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
-      const session = await createRealCodexSession({
-        extensionFactories: [...extensionFactories],
-        model: createToolsModel("gpt-5.6-sol", true),
-        rootDir,
-        sessionManager: SessionManager.inMemory(cwd),
-      });
+  it("normalizes startup and toggles Code Mode with the supported load order", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "codex-tools-"));
+    const cwd = path.join(rootDir, "project");
+    await mkdir(cwd, { recursive: true });
+    vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
+    const session = await createRealCodexSession({
+      extensionFactories: [toolsExtension, codexProviderExtension],
+      model: createToolsModel("gpt-5.6-sol", true),
+      rootDir,
+      sessionManager: SessionManager.inMemory(cwd),
+    });
 
-      try {
-        expect(session.getActiveToolNames()).toStrictEqual(DIRECT_NAMES);
+    try {
+      expect(session.getActiveToolNames()).toStrictEqual(DIRECT_NAMES);
 
-        await session.prompt("/code-mode");
-        expect(session.getActiveToolNames()).toStrictEqual(CODE_NAMES);
-      } finally {
-        session.dispose();
-        await rm(rootDir, { force: true, recursive: true });
-      }
-    },
-  );
+      await session.prompt("/code-mode");
+      expect(session.getActiveToolNames()).toStrictEqual(CODE_NAMES);
+    } finally {
+      session.dispose();
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
 
   it.each([
     ["standalone", [codexProviderExtension]],

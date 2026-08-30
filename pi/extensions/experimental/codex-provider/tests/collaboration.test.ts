@@ -10,7 +10,6 @@ import {
   PI_SUBAGENTS_NAMESPACE,
   requestCollaborationContract,
   rewriteCollaborationTools,
-  setCollaborationUltraReader,
 } from "../collaboration.js";
 import { createToolsModel, wireArray, wireRecord, wireRecords } from "./fixtures.js";
 import type { WireValue } from "./fixtures.js";
@@ -37,13 +36,9 @@ const namespaceMemberNames = (namespace: WireValue): string[] => {
   });
 };
 
-const harness = (
-  protocol?: "off" | "v1" | "v2",
-  nestedTools: readonly ToolDefinition[] = [],
-  ultra = false,
-) => {
+const harness = (protocol?: "off" | "v1" | "v2", nestedTools: readonly ToolDefinition[] = []) => {
   const sessionId = "collaboration-session";
-  let requestedUltra = false;
+  let requestedUltra: boolean | undefined;
   const pi = {
     events: {
       emit(channel: string, request: CollaborationContractRequest) {
@@ -59,7 +54,6 @@ const harness = (
       },
     },
   };
-  setCollaborationUltraReader(pi, () => ultra);
   const ctx = createExtensionHost(() => {}, {
     model: createToolsModel("gpt-5.6-sol"),
     sessionId,
@@ -146,10 +140,12 @@ describe("Codex collaboration wire projection", () => {
     });
   });
 
-  it("publishes current Ultra state with each session contract request", () => {
-    const active = harness("v2", [], true);
+  it("leaves ordinary contract reads inert and accepts an explicit Ultra update", () => {
+    const active = harness("v2");
 
     expect(requestCollaborationContract(active.pi, active.ctx)?.protocol).toBe("v2");
+    expect(active.requestedUltra()).toBeUndefined();
+    expect(requestCollaborationContract(active.pi, active.ctx, true)?.protocol).toBe("v2");
     expect(active.requestedUltra()).toBeTruthy();
   });
 });

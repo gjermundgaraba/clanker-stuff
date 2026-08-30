@@ -3345,6 +3345,68 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
+  it("discards a cancelled pending install and reuses window one", async () => {
+    const paths = await workspace("codex-lifecycle-cancelled-install-");
+    let abortCompaction = () => {};
+    let cancelNext = true;
+    const cancelAfterCheckpoint: ExtensionFactory = (pi) => {
+      pi.on("session_before_compact", () => {
+        if (cancelNext) {
+          cancelNext = false;
+          abortCompaction();
+        }
+      });
+    };
+    let nativeCompactions = 0;
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      const request = requestJson(init?.body, headers);
+      if (inputItemTypes(request.input).includes("compaction_trigger")) {
+        nativeCompactions += 1;
+        return compactResponse(`cancelled-install-${nativeCompactions}`);
+      }
+      return assistantResponse("cancelled-install-source");
+    });
+    vi.stubGlobal("fetch", fetch);
+    const manager = SessionManager.inMemory(paths.cwd);
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: true,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [codexCompactionExtension, cancelAfterCheckpoint],
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+    });
+    abortCompaction = () => {
+      session.abortCompaction();
+    };
+
+    try {
+      await session.prompt("cancelled install source");
+      await expect(session.compact()).rejects.toThrow("Compaction cancelled");
+      await session.compact();
+
+      const active = resolveActiveCheckpointBoundary(manager.getBranch());
+      expect({
+        compactions: manager.getBranch().filter((entry) => entry.type === "compaction").length,
+        nativeCompactions,
+        response: active.kind === "checkpoint" ? active.checkpoint.response.id : undefined,
+        windowNumber:
+          active.kind === "checkpoint" ? active.checkpoint.runtime.windowNumber : undefined,
+      }).toStrictEqual({
+        compactions: 1,
+        nativeCompactions: 2,
+        response: "resp_cancelled-install-2",
+        windowNumber: 1,
+      });
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
   it("discards delayed compaction when active request state changes", async () => {
     const paths = await workspace("codex-lifecycle-request-state-");
     const delayed = Promise.withResolvers<Response>();

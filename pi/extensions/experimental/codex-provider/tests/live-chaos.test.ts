@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -42,6 +43,20 @@ const captureError = async (promise: Promise<unknown>) => {
 describe("live crash infrastructure", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("shows help instead of starting a paid RPC run", () => {
+    const result = spawnSync("vp", ["run", "test:live:rpc", "--help"], {
+      cwd: path.resolve(import.meta.dirname, ".."),
+      encoding: "utf-8",
+      killSignal: "SIGKILL",
+      timeout: 10_000,
+    });
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(0);
+    expect(output).toContain("Usage:");
+    expect(output).not.toContain("Live artifacts:");
   });
 
   it("waits for a complete artifact line before polling", async () => {

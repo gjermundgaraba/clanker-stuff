@@ -24,13 +24,16 @@ export interface CollaborationContract {
 }
 
 interface ContractRequest {
-  context?: ProtocolResolutionContext;
+  context: ProtocolResolutionContext;
   provide: (contract: CollaborationContract) => void;
   sessionId: string;
   ultra?: boolean;
 }
 
-type ProtocolResolutionContext = Pick<ExtensionContext, "model" | "modelRegistry">;
+type ProtocolResolutionContext = Pick<
+  ExtensionContext,
+  "model" | "modelRegistry" | "sessionManager"
+>;
 
 const ProtocolResolutionContextSchema = Type.Unsafe<ProtocolResolutionContext>(
   Type.Object(
@@ -42,6 +45,12 @@ const ProtocolResolutionContextSchema = Type.Unsafe<ProtocolResolutionContext>(
         },
         { additionalProperties: true },
       ),
+      sessionManager: Type.Object(
+        {
+          getSessionId: Type.Function([], Type.String()),
+        },
+        { additionalProperties: true },
+      ),
     },
     { additionalProperties: true },
   ),
@@ -49,7 +58,7 @@ const ProtocolResolutionContextSchema = Type.Unsafe<ProtocolResolutionContext>(
 const ContractRequestSchema = Type.Unsafe<ContractRequest>(
   Type.Object(
     {
-      context: Type.Optional(ProtocolResolutionContextSchema),
+      context: ProtocolResolutionContextSchema,
       provide: Type.Function([Type.Unknown()], Type.Void()),
       sessionId: Type.String(),
       ultra: Type.Optional(Type.Boolean()),
@@ -60,7 +69,7 @@ const ContractRequestSchema = Type.Unsafe<ContractRequest>(
 
 export const registerContractResponder = (
   pi: ExtensionAPI,
-  current: () =>
+  current: (ctx: ProtocolResolutionContext) =>
     | {
         nestedTools: readonly NestedToolContract[];
         protocol: Protocol;
@@ -68,19 +77,17 @@ export const registerContractResponder = (
         inheritedUltra?: boolean;
       }
     | undefined,
-  prepare?: (ctx: ProtocolResolutionContext, ultra: boolean) => void,
+  prepare?: (ctx: ProtocolResolutionContext, ultra: boolean | undefined) => void,
 ) =>
   pi.events.on(COLLABORATION_CONTRACT_REQUEST, (value) => {
     if (!Value.Check(ContractRequestSchema, value)) {
       return;
     }
-    if (current()?.sessionId !== value.sessionId) {
+    if (current(value.context)?.sessionId !== value.sessionId) {
       return;
     }
-    if (value.context !== undefined) {
-      prepare?.(value.context, value.ultra ?? false);
-    }
-    const prepared = current();
+    prepare?.(value.context, value.ultra);
+    const prepared = current(value.context);
     if (prepared?.sessionId === value.sessionId) {
       const contract: CollaborationContract = {
         nestedTools: prepared.nestedTools,

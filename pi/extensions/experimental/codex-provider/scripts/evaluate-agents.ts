@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -724,7 +723,7 @@ const smoke = () => {
 };
 
 const help = () => {
-  console.log(`Usage: node pi/extensions/experimental/codex-provider/scripts/evaluate-agents.ts [options]
+  console.log(`Usage: vp run @clanker-stuff/codex-provider#eval:agents [options]
 
 Options:
   --model <id>             Exact model ID for all runners (default: gpt-5.6-sol)
@@ -919,6 +918,6 @@ const main = async () => {
   console.log(`Results: ${resultPath}`);
 };
 
-if (import.meta.main) {
+if (process.argv[1] === import.meta.filename) {
   await main();
 }

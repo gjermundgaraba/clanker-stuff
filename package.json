@@ -15,9 +15,9 @@
     "ready": "vp check && vp run check:packages && vp run check:plannotator-review && vp run check:readmes && vp run check:tests && vp test"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.84.2",
-    "@earendil-works/pi-coding-agent": "0.84.2",
-    "@earendil-works/pi-tui": "0.84.2",
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@earendil-works/pi-tui": "catalog:",
     "@oxlint/plugins": "catalog:",
     "@types/node": "catalog:",
     "oxlint": "catalog:",

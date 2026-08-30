@@ -52,6 +52,7 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
   pi.on("session_compact", (event, ctx) => {
     runtime.sessionCompact(event, ctx);
   });
+  pi.on("session_compact_failed", () => runtime.sessionCompactFailed());
   pi.on("context", (event, ctx) => runtime.context(event, ctx));
   pi.on("before_provider_request", (event, ctx) => runtime.beforeProviderRequest(event, ctx));
   pi.on("before_provider_headers", (event, ctx) => runtime.beforeProviderHeaders(event, ctx));

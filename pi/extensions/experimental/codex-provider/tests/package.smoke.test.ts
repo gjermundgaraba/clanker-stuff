@@ -6,6 +6,7 @@ import path from "node:path";
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { SUPPORTED_PI_VERSION } from "../audit-local-order.js";
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import * as packageEntry from "../index.js";
 
@@ -19,6 +20,7 @@ const SENSITIVE_HOOKS = [
   "before_provider_headers",
   "before_provider_request",
   "session_before_compact",
+  "session_compact_failed",
 ] as const;
 const CODEX_TOOLS = [
   "exec_command",
@@ -214,9 +216,9 @@ describe("codex-provider package", () => {
               PACKAGE_ROOT,
               "../../../packages/tool-owner-protocol",
             )}`,
-            "@earendil-works/pi-ai": "0.84.2",
-            "@earendil-works/pi-coding-agent": "0.84.2",
-            "@earendil-works/pi-tui": "0.84.2",
+            "@earendil-works/pi-ai": SUPPORTED_PI_VERSION,
+            "@earendil-works/pi-coding-agent": SUPPORTED_PI_VERSION,
+            "@earendil-works/pi-tui": SUPPORTED_PI_VERSION,
             typebox: "1.3.7",
           },
           private: true,
@@ -247,9 +249,9 @@ describe("codex-provider package", () => {
       },
       name: "@clanker-stuff/codex-provider",
       peerDependencies: {
-        "@earendil-works/pi-ai": "0.84.2",
-        "@earendil-works/pi-coding-agent": "0.84.2",
-        "@earendil-works/pi-tui": "0.84.2",
+        "@earendil-works/pi-ai": SUPPORTED_PI_VERSION,
+        "@earendil-works/pi-coding-agent": SUPPORTED_PI_VERSION,
+        "@earendil-works/pi-tui": SUPPORTED_PI_VERSION,
         typebox: "*",
       },
       private: true,

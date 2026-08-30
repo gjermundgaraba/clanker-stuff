@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { deepStrictEqual, ok as assert } from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -11,12 +10,11 @@ import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
-import { auditLocalOrder } from "../audit-local-order.ts";
+import { auditLocalOrder, SUPPORTED_PI_VERSION } from "../audit-local-order.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
 import { isWireRecord as isRecord, StringValueSchema } from "./wire.ts";
 import type { WireRecord, WireValue } from "./wire.ts";
 
-const SUPPORTED_PI_VERSION = "0.84.2";
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
@@ -33,8 +31,10 @@ const resolveInstalledPiCli = () => {
   assert(executable.length > 0, "System pi was not found on PATH");
   const cliPath = realpathSync(executable);
   assert(
-    path.basename(cliPath) === "cli.js" && path.basename(path.dirname(cliPath)) === "dist",
-    `System pi does not resolve to a compiled dist/cli.js: ${cliPath}`,
+    path.basename(cliPath) === "cli.js" &&
+      path.basename(path.dirname(cliPath)) === "bundle" &&
+      path.basename(path.dirname(path.dirname(cliPath))) === "dist",
+    `System pi does not resolve to a compiled dist/bundle/cli.js: ${cliPath}`,
   );
   const version = execFileSync(process.execPath, [cliPath, "--version"], {
     encoding: "utf-8",
@@ -346,11 +346,11 @@ const run = async () => {
   }
 };
 
-if (import.meta.main) {
+if (process.argv[1] === import.meta.filename) {
   if (process.argv.includes("--help")) {
-    console.log(`Usage: vp run test:live:installed
+    console.log(`Usage: vp run @clanker-stuff/codex-provider#test:live:installed
 
-Runs a paid happy-path canary through the system-installed Pi 0.84.2, actual
+Runs a paid happy-path canary through the system-installed Pi ${SUPPORTED_PI_VERSION}, actual
 configured environment, native model context window, and isolated temp project.`);
   } else {
     try {

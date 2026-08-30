@@ -66,6 +66,17 @@ describe("Codex lifecycle loading", () => {
       },
       ctx,
     );
+    await host.emit(
+      "session_compact_failed",
+      {
+        aborted: true,
+        fromExtension: true,
+        reason: "manual",
+        type: "session_compact_failed",
+        willRetry: false,
+      },
+      ctx,
+    );
 
     expect(createCodexLifecycle).not.toHaveBeenCalled();
   });

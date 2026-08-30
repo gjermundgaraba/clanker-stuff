@@ -217,22 +217,20 @@ export class V2Controller {
     slot.api = api;
     const owns = () => this.#slots.get(pathname)?.token === token && slot.api === api;
     let collaborationEnabled = false;
-    let sessionId: string | undefined;
     const unsubscribeContract = registerContractResponder(
       api,
-      () =>
-        sessionId === undefined
-          ? undefined
-          : {
-              inheritedUltra: this.#ultraInheritance.has(pathname),
-              nestedTools: [],
-              protocol: "v2",
-              sessionId,
-            },
+      (ctx) => ({
+        inheritedUltra: this.#ultraInheritance.has(pathname),
+        nestedTools: [],
+        protocol: "v2",
+        sessionId: ctx.sessionManager.getSessionId(),
+      }),
       (_ctx, ultra) => {
-        this.setUltra(pathname, ultra);
-        if (ultra) {
-          this.#ultraInheritance.delete(pathname);
+        if (ultra !== undefined) {
+          this.setUltra(pathname, ultra);
+          if (ultra) {
+            this.#ultraInheritance.delete(pathname);
+          }
         }
       },
     );
@@ -275,7 +273,6 @@ export class V2Controller {
       if (!owns()) {
         return;
       }
-      sessionId = ctx.sessionManager.getSessionId();
       applyEligibility(ctx.model, ctx.modelRegistry);
     });
     api.on("model_select", (event, ctx) => {

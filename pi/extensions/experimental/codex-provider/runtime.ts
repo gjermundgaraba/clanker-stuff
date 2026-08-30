@@ -144,6 +144,9 @@ export const createCodexRuntime = (
     sessionCompact: (event: SessionCompactEvent, ctx: ExtensionContext): void => {
       codex.get()?.compact(event, ctx);
     },
+    sessionCompactFailed: (): void => {
+      codex.get()?.compactFailed();
+    },
     sessionStart: async (ctx: ExtensionContext, startup: boolean): Promise<void> => {
       const loaded = codex.get();
       if (loaded === undefined) {

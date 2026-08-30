@@ -766,6 +766,7 @@ describe("V2 controller", () => {
 
     let contract: CollaborationContract | undefined;
     childHosts[0]?.events.emit(COLLABORATION_CONTRACT_REQUEST, {
+      context: childHosts[0].createContext(),
       provide: (value: CollaborationContract) => {
         contract = value;
       },

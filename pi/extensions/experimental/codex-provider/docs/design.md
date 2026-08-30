@@ -1,6 +1,6 @@
 # Codex provider design
 
-This extension is the always-on `openai-codex` provider for one controlled Pi 0.84.2 installation. It owns normal Responses requests, Codex-native direct tools and Code Mode, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
+This extension is the always-on `openai-codex` provider for the controlled Pi installation defined by the [supported source baseline](codex-baseline.md). It owns normal Responses requests, Codex-native direct tools and Code Mode, fast-mode service-tier selection, SSE and WebSocket transport, model metadata, turn state, continuation, remote compaction V2, and durable checkpoint replay. It reuses Pi's ChatGPT OAuth implementation and public Responses serializers.
 
 The implementation follows the compatibility objective and pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
 
@@ -33,7 +33,7 @@ Live model metadata is authoritative; the pinned fallback catalog covers offline
 
 Remote reasoning presets are intersected with Pi's known thinking levels instead of being forwarded as request values. Only the Codex Responses wire efforts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` reach transport. Because Pi has no distinct `ultra` thinking level, the provider keeps Ultra as branch-scoped state, selects Pi `max` for inference, and appends the proactive policy described in the [Ultra research audit](ultra.md). The companion `subagents` extension owns the unchanged V2 tools and child lifecycle; a synchronous session contract carries active and inherited Ultra state between them.
 
-Supported GPT-5.6 Codex models start with `exec_command`, `write_stdin`, `apply_patch`, and `view_image`; `/code-mode` replaces them with `exec` and `wait`. The provider owns those six names and suppresses Pi's seven built-ins while they are active, but leaves unrelated extension tools alone. When `@clanker-stuff/tools` is also loaded, `/tools` delegates those six choices back to this extension through a provider-neutral event contract. Tool choices follow the active session branch.
+Supported GPT-5.6 Codex models start with `exec_command`, `write_stdin`, `apply_patch`, and `view_image`; `/code-mode` replaces them with `exec` and `wait`. The provider owns those six names and suppresses definitions identified as Pi built-ins while they are active, but leaves unrelated extension tools alone. When `@clanker-stuff/tools` is also loaded, `/tools` delegates those six choices back to this extension through a provider-neutral event contract. Tool choices follow the active session branch.
 
 Pi normally omits its loaded-skill catalog when `read` is unavailable. When the provider's direct or Code Mode tool set suppresses `read`, the provider restores that catalog with guidance naming the active file-capable tool. It does not discover or load any additional skills.
 
@@ -85,7 +85,7 @@ Retained user text has a 64,000-token budget using the conservative local estima
 
 ## Lifecycle checkpoints
 
-Lifecycle compaction makes one native request and installs its opaque checkpoint only after source, branch, model, generation, request state, and persistence checks pass. Pi's required summary field contains a checkpoint-specific operational marker, not a second model-generated summary. Provider-reported native usage is therefore the complete compaction usage. Custom `/compact` summary instructions do not apply to the opaque native protocol.
+Lifecycle compaction makes one native request and installs its opaque checkpoint only after source, branch, model, generation, request state, and persistence checks pass. Both successful and failed Pi compaction terminals release the pending lifecycle operation; only a verified successful extension result installs the provider window. Pi's required summary field contains a checkpoint-specific operational marker, not a second model-generated summary. Provider-reported native usage is therefore the complete compaction usage. Custom `/compact` summary instructions do not apply to the opaque native protocol.
 
 Compatible Codex replay sends the opaque replacement. Incompatible or corrupt lifecycle checkpoints block sampling; there is no automatic text fallback. Native compaction failure leaves the original context unchanged. The original JSONL history remains plaintext on disk; the opaque item is not secure deletion.
 
@@ -103,7 +103,7 @@ The persisted-versus-live proof is detailed in [context alignment](context-align
 
 ## Accepted limits
 
-- Pi 0.84.2 cannot atomically replace arbitrary raw provider history and append the matching checkpoint, so append and continuation are separately verified and fail closed.
+- Pi cannot atomically replace arbitrary raw provider history and append the matching checkpoint, so append and continuation are separately verified and fail closed.
 - Pi exposes load-order chaining, not exclusive terminal ownership. This package is approved only under the audited local load-last contract.
 - Pi's effective prompt, tools, permissions, and messages remain authoritative. Codex application world-state sections that Pi does not expose are not fabricated.
 - Token accounting is a conservative UTF-8/4 estimate plus a fixed image estimate, not the server tokenizer.

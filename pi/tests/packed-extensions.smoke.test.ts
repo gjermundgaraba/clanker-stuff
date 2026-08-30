@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { Type } from "@earendil-works/pi-ai";
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
@@ -40,6 +41,14 @@ const DEPENDENCY_FIELDS = [
   "optionalDependencies",
   "peerDependencies",
 ] as const;
+
+const consumerDependencyVersion = (name: (typeof CONSUMER_DEPENDENCIES)[number]): string => {
+  const version = ROOT_DEV_DEPENDENCIES[name];
+  if (version === undefined) {
+    throw new Error(`Missing root dependency ${name}`);
+  }
+  return version === "catalog:" ? VERSION : version;
+};
 
 const PUBLISHABLE_PACKAGES = publishableWorkspacePackages(REPO_ROOT);
 const EXTENSION_PACKAGE_DIR = /^pi[\\/]extensions[\\/]/u;
@@ -122,7 +131,7 @@ describe("packed extension packages", () => {
       `${JSON.stringify(
         {
           dependencies: Object.fromEntries([
-            ...CONSUMER_DEPENDENCIES.map((name) => [name, ROOT_DEV_DEPENDENCIES[name]]),
+            ...CONSUMER_DEPENDENCIES.map((name) => [name, consumerDependencyVersion(name)]),
             ...[...sharedTarballs, ...tarballs].map(({ name, tarball }) => [
               name,
               `file:${tarball}`,

@@ -23,10 +23,6 @@ const combinedExtension = (pi: Parameters<typeof toolsExtension>[0]) => {
   toolsExtension(pi);
   registerCodexTools(pi);
 };
-const providerFirstCombinedExtension = (pi: Parameters<typeof toolsExtension>[0]) => {
-  registerCodexTools(pi);
-  toolsExtension(pi);
-};
 
 const withCollaborationContract =
   (protocol: "v1" | "v2") => (pi: Parameters<typeof registerCodexTools>[0]) => {
@@ -116,6 +112,38 @@ describe("Codex tools", () => {
     expect(host.getActiveTools()).toStrictEqual(PI_NAMES);
   });
 
+  it("suppresses and restores powershell from builtin provenance", async () => {
+    const codex = createToolsModel("gpt-5.6-sol", true);
+    const builtinNames = [...PI_NAMES, "powershell"];
+    const host = createExtensionHost(registerCodexTools, {
+      activeTools: builtinNames,
+      allTools: builtinNames,
+      model: codex,
+    });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
+
+    const unsupported = createToolsModel("deepseek-v4-pro");
+    await selectModel(host, codex, unsupported);
+
+    expect(host.getActiveTools()).toStrictEqual(builtinNames);
+  });
+
+  it("suppresses Pi tools restored after a native profile", async () => {
+    const grok = createToolsModel("grok-build-0.1");
+    const host = createExtensionHost(combinedExtension, {
+      activeTools: ["grep"],
+      allTools: [...PI_NAMES, "grep"],
+      model: grok,
+    });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toContain("grep");
+
+    await selectModel(host, grok, createToolsModel("gpt-5.6-sol", true));
+
+    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
+  });
+
   it.each([
     ["openai", "openai-responses"],
     ["azure-openai-responses", "azure-openai-responses"],
@@ -194,12 +222,9 @@ describe("Codex tools", () => {
     },
   );
 
-  it.each([
-    ["tools first", combinedExtension],
-    ["provider first", providerFirstCombinedExtension],
-  ] as const)("delegates provider-owned choices from /tools with %s", async (_order, extension) => {
+  it("delegates provider-owned choices from /tools", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
-    const host = createExtensionHost(extension, {
+    const host = createExtensionHost(combinedExtension, {
       entries: [messageEntry("root", null), messageEntry("branch-b", "root")],
       leafId: "root",
       model,
@@ -233,6 +258,7 @@ describe("Codex tools", () => {
     const host = createExtensionHost(combinedExtension, {
       activeTools: ["read", "bash", "ask_question"],
       allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
+      externalTools: ["ask_question"],
       model: codex,
     });
     await host.emitSessionStart();

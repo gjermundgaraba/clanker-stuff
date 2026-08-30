@@ -3,23 +3,12 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import type { CollaborationContractRequest } from "../collaboration.js";
-import {
-  appendUltraInstructions,
-  registerCodexUltra,
-  resolveUltraFromBranch,
-} from "../ultra/index.js";
+import { registerCodexUltra } from "../ultra/index.js";
 import { createToolsModel } from "./fixtures.js";
 
 const CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
-const COLLABORATION_TOOLS = [
-  "spawn_agent",
-  "send_message",
-  "followup_task",
-  "wait_agent",
-  "interrupt_agent",
-  "list_agents",
-];
 const MODEL = createToolsModel("gpt-5.6-sol", true);
+const SECOND_MODEL = createToolsModel("gpt-5.6-terra", true);
 const catalog = {
   supportsUltra: (model: typeof MODEL | undefined) => model === MODEL,
 };
@@ -46,7 +35,7 @@ const createHost = (
     (pi) => {
       if (collaboration === "v2") {
         pi.events.on(CONTRACT_REQUEST, (value) => {
-          // SAFETY: this test emits only the provider's collaboration contract request.
+          // SAFETY: this host handles only collaboration requests emitted by registerCodexUltra.
           const request = value as CollaborationContractRequest;
           request.provide({
             inheritedUltra,
@@ -67,21 +56,18 @@ const createHost = (
     },
   );
 
+const beforeAgentStart = {
+  prompt: "test",
+  systemPrompt: "Base prompt",
+  systemPromptOptions: {},
+  type: "before_agent_start",
+} as const;
+
 describe("Codex Ultra", () => {
-  it("leaves all collaboration tools to the companion extension", async () => {
-    const host = createHost();
-    await host.ready;
-
-    expect(
-      [...host.getRegisteredTools().keys()].filter((name) => COLLABORATION_TOOLS.includes(name)),
-    ).toStrictEqual([]);
-  });
-
-  it("enables only with eligible metadata and V2 collaboration, persists state, and selects Pi Max", async () => {
+  it("enables only with eligible metadata and V2 collaboration", async () => {
     const host = createHost();
     const ctx = host.createContext({ model: MODEL });
     await host.emitSessionStart(ctx);
-
     await host.runCommand("ultra", "", ctx);
 
     expect(host.getAppendedEntries()).toMatchObject([
@@ -111,63 +97,105 @@ describe("Codex Ultra", () => {
     });
   });
 
-  it("enables from --ultra only for the initial eligible session", async () => {
+  it("restores startup, branch, and inherited intent through one activation path", async () => {
+    for (const [host, reason] of [
+      [createHost([], catalog, "v2", false, { ultra: true }), "startup"],
+      [createHost([state(true)]), "resume"],
+      [createHost([], catalog, "v2", true), "startup"],
+    ] as const) {
+      const ctx = host.createContext({ model: MODEL });
+      await host.emitSessionStart(ctx, reason);
+      expect(host.getThinkingLevel()).toBe("max");
+      const [result] = await host.emit("before_agent_start", beforeAgentStart, ctx);
+      expect(result).toMatchObject({
+        systemPrompt: expect.stringContaining("Proactive multi-agent delegation is active."),
+      });
+    }
+  });
+
+  it("seeds --ultra only at initial startup", async () => {
     const host = createHost([], catalog, "v2", false, { ultra: true });
     const ctx = host.createContext({ model: MODEL });
 
-    await host.emitSessionStart(ctx);
+    await host.emitSessionStart(ctx, "new");
 
-    expect(host.getAppendedEntries()).toMatchObject([
-      { customType: "codex-ultra-state", data: { enabled: true } },
-    ]);
-    expect(host.getThinkingLevel()).toBe("max");
-    expect(host.getNotifications()).toContainEqual({
-      message: "Codex Ultra enabled.",
-      type: "info",
-    });
-
-    const replacement = createHost([], catalog, "v2", false, { ultra: true });
-    await replacement.emitSessionStart(replacement.createContext({ model: MODEL }), "new");
-    expect(replacement.getAppendedEntries()).toStrictEqual([]);
-    expect(replacement.getThinkingLevel()).toBe("off");
+    expect(host.getAppendedEntries()).toStrictEqual([]);
+    expect(host.getThinkingLevel()).toBe("off");
   });
 
-  it("appends one proactive mode instruction without duplicating collaboration usage", () => {
-    const first = appendUltraInstructions("Base prompt");
-    const second = appendUltraInstructions(first);
-
-    expect(second).toBe(first);
-    expect(first.match(/<multi_agent_mode>/gu)).toHaveLength(1);
-    expect(first).toContain("Proactive multi-agent delegation is active.");
-    expect(first).not.toContain("codex-ultra-collaboration");
-  });
-
-  it("restores and disables eligible branch-scoped state", async () => {
+  it("explicitly disables via /ultra and removes policy from the next fresh prompt", async () => {
     const host = createHost([state(true)]);
     const ctx = host.createContext({ model: MODEL });
     await host.emitSessionStart(ctx, "resume");
-
-    expect(host.getThinkingLevel()).toBe("max");
 
     await host.runCommand("ultra", "", ctx);
     expect(host.getAppendedEntries().at(-1)).toMatchObject({
       customType: "codex-ultra-state",
       data: { enabled: false },
     });
+    const [result] = await host.emit("before_agent_start", beforeAgentStart, ctx);
+    expect(result).toBeUndefined();
+    expect(host.getThinkingLevel()).toBe("max");
   });
 
-  it("persists inherited Ultra before the child starts", async () => {
-    const host = createHost([], catalog, "v2", true);
+  it("reasserts Max across thinking changes and compatible model switches", async () => {
+    const eligible = {
+      supportsUltra: (model: typeof MODEL | undefined) => model === MODEL || model === SECOND_MODEL,
+    };
+    const host = createHost([], eligible);
+    const ctx = host.createContext({ model: MODEL });
+    await host.emitSessionStart(ctx);
+    await host.runCommand("ultra", "", ctx);
 
-    await host.emitSessionStart(host.createContext({ model: MODEL }));
+    host.setThinkingLevel("high");
+    await host.emit(
+      "thinking_level_select",
+      { level: "high", previousLevel: "max", type: "thinking_level_select" },
+      ctx,
+    );
+    expect(host.getThinkingLevel()).toBe("max");
+
+    const nextCtx = host.createContext({ model: SECOND_MODEL });
+    host.setThinkingLevel("high");
+    await host.emit(
+      "thinking_level_select",
+      { level: "high", previousLevel: "max", type: "thinking_level_select" },
+      nextCtx,
+    );
+    await host.emit(
+      "model_select",
+      { model: SECOND_MODEL, previousModel: MODEL, source: "set", type: "model_select" },
+      nextCtx,
+    );
 
     expect(host.getThinkingLevel()).toBe("max");
-    expect(host.getAppendedEntries()).toMatchObject([
-      { customType: "codex-ultra-state", data: { enabled: true } },
-    ]);
+    expect(host.getAppendedEntries()).not.toContainEqual(
+      expect.objectContaining({ data: { enabled: false } }),
+    );
   });
 
-  it("refreshes live metadata before restoring or enabling Ultra", async () => {
+  it("disables on an ineligible model switch", async () => {
+    const host = createHost([state(true)]);
+    const ctx = host.createContext({ model: MODEL });
+    await host.emitSessionStart(ctx, "resume");
+    const unsupported = createToolsModel("deepseek-v4", true, {
+      api: "openai-responses",
+      provider: "openai",
+    });
+
+    await host.emit(
+      "model_select",
+      { model: unsupported, previousModel: MODEL, source: "set", type: "model_select" },
+      host.createContext({ model: unsupported }),
+    );
+
+    expect(host.getAppendedEntries().at(-1)).toMatchObject({
+      customType: "codex-ultra-state",
+      data: { enabled: false },
+    });
+  });
+
+  it("refreshes missing metadata only while restoring or explicitly enabling", async () => {
     let live = false;
     const restoring = createHost([state(true)], { supportsUltra: () => live });
     const restoringCtx = restoring.createContext({ model: MODEL });
@@ -180,12 +208,10 @@ describe("Codex Ultra", () => {
 
     await restoring.emitSessionStart(restoringCtx, "resume");
 
-    expect(restoreRefresh).toHaveBeenCalledWith({
-      force: true,
-      providers: ["openai-codex"],
-      signal: expect.any(AbortSignal),
-    });
+    expect(restoreRefresh).toHaveBeenCalledOnce();
     expect(restoring.getThinkingLevel()).toBe("max");
+    await restoring.emit("before_agent_start", beforeAgentStart, restoringCtx);
+    expect(restoreRefresh).toHaveBeenCalledOnce();
 
     live = false;
     const enabling = createHost([], { supportsUltra: () => live });
@@ -199,20 +225,18 @@ describe("Codex Ultra", () => {
         live = true;
         return { aborted: false, errors: new Map() };
       });
-    let settled = false;
-    const command = enabling.runCommand("ultra", "", enablingCtx).then(() => {
-      settled = true;
-    });
+    const command = enabling.runCommand("ultra", "", enablingCtx);
     await vi.waitFor(() => expect(enableRefresh).toHaveBeenCalledOnce());
-    expect(settled).toBeFalsy();
     release.resolve(null);
     await command;
     expect(enabling.getThinkingLevel()).toBe("max");
   });
 
-  it("does not let a delayed enable override newer thinking selection", async () => {
+  it("ignores a stale enable refresh after the selected model changes", async () => {
     let live = false;
-    const host = createHost([], { supportsUltra: () => live });
+    const host = createHost([], {
+      supportsUltra: (model) => model === MODEL && live,
+    });
     const ctx = host.createContext({ model: MODEL });
     await host.emitSessionStart(ctx);
     const release = Promise.withResolvers<null>();
@@ -224,40 +248,25 @@ describe("Codex Ultra", () => {
 
     const enabling = host.runCommand("ultra", "", ctx);
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
-    await host.emit(
-      "thinking_level_select",
-      { level: "high", previousLevel: "off", type: "thinking_level_select" },
-      ctx,
-    );
-    release.resolve(null);
-    await enabling;
-
-    expect(host.getAppendedEntries()).toStrictEqual([]);
-  });
-
-  it("disables on an ineligible model and ignores ineligible persisted state", async () => {
-    const host = createHost([state(true)]);
-    const ctx = host.createContext({ model: MODEL });
-    await host.emitSessionStart(ctx, "resume");
-    const unsupported = createToolsModel("gpt-5.6-luna", true);
-
+    const unsupported = createToolsModel("deepseek-v4", true, {
+      api: "openai-responses",
+      provider: "openai",
+    });
     await host.emit(
       "model_select",
       { model: unsupported, previousModel: MODEL, source: "set", type: "model_select" },
       host.createContext({ model: unsupported }),
     );
-    expect(host.getAppendedEntries().at(-1)).toMatchObject({
-      customType: "codex-ultra-state",
-      data: { enabled: false },
-    });
+    release.resolve(null);
+    await enabling;
 
-    const ineligible = createHost([state(true)], { supportsUltra: () => false });
-    await ineligible.emitSessionStart(ineligible.createContext({ model: MODEL }), "resume");
-    expect(ineligible.getThinkingLevel()).toBe("off");
-    expect(ineligible.getAppendedEntries()).toStrictEqual([]);
+    expect(host.getAppendedEntries()).not.toContainEqual(
+      expect.objectContaining({ data: { enabled: true } }),
+    );
+    expect(host.getThinkingLevel()).toBe("off");
   });
 
-  it("treats the newest malformed Ultra state as disabled", () => {
+  it("treats the newest malformed branch state as disabled", async () => {
     const valid = state(true);
     const malformed: CustomEntry = {
       ...state(false),
@@ -265,7 +274,13 @@ describe("Codex Ultra", () => {
       id: "ultra-malformed",
       parentId: valid.id,
     };
+    const host = createHost([valid, malformed]);
+    const ctx = host.createContext({ model: MODEL });
 
-    expect(resolveUltraFromBranch({ getBranch: () => [valid, malformed] })).toBeFalsy();
+    await host.emitSessionStart(ctx, "resume");
+    const [result] = await host.emit("before_agent_start", beforeAgentStart, ctx);
+
+    expect(host.getThinkingLevel()).toBe("off");
+    expect(result).toBeUndefined();
   });
 });

@@ -10,7 +10,7 @@ const profileCases = [
     names: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
   },
   {
-    id: "grok-4.5",
+    id: "grok-build-0.1",
     names: ["run_terminal_cmd", "read_file", "search_replace", "grep", "list_dir"],
   },
   {
@@ -28,6 +28,7 @@ describe("native harness routing", () => {
     const host = createExtensionHost(extension, {
       activeTools: ["read", "bash", "ask_question"],
       allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
+      externalTools: ["ask_question"],
       model: createModel(profile.id),
     });
 
@@ -42,23 +43,27 @@ describe("native harness routing", () => {
     }
   });
 
-  it("uses pi tools directly for unsupported models", async () => {
-    const activeTools = ["read", "bash", "ask_question"];
-    const host = createExtensionHost(extension, {
-      activeTools,
-      allTools: [...activeTools, "edit", "write", "grep", "find", "ls"],
-      model: createModel("deepseek-v4-pro"),
-    });
+  it.each(["deepseek-v4-pro", "grok-4.5", "grok-4.6"])(
+    "uses pi tools directly for unsupported model %s",
+    async (id) => {
+      const activeTools = ["read", "bash", "ask_question"];
+      const host = createExtensionHost(extension, {
+        activeTools,
+        allTools: [...activeTools, "edit", "write", "grep", "find", "ls"],
+        externalTools: ["ask_question"],
+        model: createModel(id),
+      });
 
-    await host.emitSessionStart();
+      await host.emitSessionStart();
 
-    expect(host.getActiveTools()).toStrictEqual(activeTools);
-    expect(host.getRegisteredTools().size).toBe(0);
-  });
+      expect(host.getActiveTools()).toStrictEqual(activeTools);
+      expect(host.getRegisteredTools().size).toBe(0);
+    },
+  );
 
   it.each([
     ["claude-opus-5", "Bash", "run_in_background"],
-    ["grok-4.5", "run_terminal_cmd", "is_background"],
+    ["grok-build-0.1", "run_terminal_cmd", "is_background"],
     ["kimi-k3", "Bash", "run_in_background"],
   ])("removes legacy %s background arguments", async (id, name, legacyKey) => {
     const model = createModel(id);
@@ -115,6 +120,7 @@ describe("native harness routing", () => {
     const host = createExtensionHost(extension, {
       activeTools: ["read", "ask_question"],
       allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
+      externalTools: ["ask_question"],
       model: claude,
     });
     await host.emitSessionStart();
@@ -138,7 +144,7 @@ describe("native harness routing", () => {
   });
 
   it("restores a generic definition after a native-name collision", async () => {
-    const grok = createModel("grok-4.5");
+    const grok = createModel("grok-build-0.1");
     const host = createExtensionHost(extension, {
       activeTools: ["grep"],
       allTools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
@@ -170,11 +176,13 @@ describe("native harness routing", () => {
   it("restores the original generic selection after an adapted model", async () => {
     const claude = createModel("claude-fable-5");
     const host = createExtensionHost(extension, {
-      activeTools: ["read", "ask_question"],
-      allTools: ["read", "bash", "edit", "write", "ask_question"],
+      activeTools: ["read", "powershell", "ask_question"],
+      allTools: ["read", "bash", "edit", "write", "powershell", "ask_question"],
+      externalTools: ["ask_question"],
       model: claude,
     });
     await host.emitSessionStart();
+    expect(host.getActiveTools()).not.toContain("powershell");
 
     const deepseek = createModel("deepseek-v4-flash");
     await host.emit(
@@ -188,6 +196,6 @@ describe("native harness routing", () => {
       host.createContext({ model: deepseek }),
     );
 
-    expect(host.getActiveTools()).toStrictEqual(["read", "ask_question"]);
+    expect(host.getActiveTools()).toStrictEqual(["read", "powershell", "ask_question"]);
   });
 });

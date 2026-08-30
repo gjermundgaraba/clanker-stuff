@@ -2402,7 +2402,8 @@ export const createCodexProviderRuntime = (
     return stream(model, context, {
       ...baseOptions,
       reasoningEffort: level === "off" ? undefined : level,
-    });
+      toolChoice: options?.toolChoice,
+    } satisfies OpenAICodexResponsesOptions);
   };
 
   const closeSession = (sessionId: string) => {

@@ -71,6 +71,7 @@ export interface ExtensionHostOptions {
   hasUI?: boolean;
   activeTools?: string[];
   allTools?: string[];
+  externalTools?: string[];
   commands?: SlashCommandInfo[];
   flags?: Record<string, boolean | string>;
   model?: ExtensionContext["model"];
@@ -123,11 +124,13 @@ const createTurnEndEvent = (event?: Partial<TurnEndEvent>): TurnEndEvent => ({
   type: "turn_end",
 });
 
-const createToolInfo = (name: string): ToolInfo => ({
+const createToolInfo = (name: string, external: boolean): ToolInfo => ({
   description: name,
   name,
   parameters: Type.Object({}),
-  sourceInfo: TEST_SOURCE_INFO,
+  sourceInfo: external
+    ? TEST_SOURCE_INFO
+    : createSyntheticSourceInfo(`<builtin:${name}>`, { source: "builtin" }),
 });
 
 export const createExtensionHost = (
@@ -162,7 +165,10 @@ export const createExtensionHost = (
   let sessionName: string | undefined;
   let thinkingLevel: ReturnType<ExtensionAPI["getThinkingLevel"]> = "off";
   let activeTools = [...(options.activeTools ?? ["read", "bash", "edit", "write"])];
-  const baseToolInfos = (options.allTools ?? ["read", "bash", "edit", "write"]).map(createToolInfo);
+  const externalToolNames = new Set(options.externalTools);
+  const baseToolInfos = (options.allTools ?? ["read", "bash", "edit", "write"]).map((name) =>
+    createToolInfo(name, externalToolNames.has(name)),
+  );
   const knownToolNames = new Set(baseToolInfos.map(({ name }) => name));
   let allToolInfos = [...baseToolInfos];
   let editorText = "";
@@ -708,6 +714,9 @@ export const createExtensionHost = (
     runTool,
     setActiveTools(toolNames: string[]) {
       activeTools = [...toolNames];
+    },
+    setThinkingLevel(level: ReturnType<ExtensionAPI["getThinkingLevel"]>) {
+      thinkingLevel = level;
     },
     setLeafId(id: string | null) {
       leafId = id;
