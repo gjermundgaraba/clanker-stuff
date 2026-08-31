@@ -40,4 +40,34 @@ describe(prepareInput, () => {
     ).rejects.toThrow("exactly one");
     await expect(prepareInput(undefined, undefined, cwd, [], true)).rejects.toThrow("exactly one");
   });
+
+  it("detects local images by content and rejects unsupported content", async () => {
+    const cwd = await createTempDir("subagent-input-");
+    await writeFile(
+      path.join(cwd, "image.txt"),
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+    await writeFile(path.join(cwd, "garbage.png"), "not an image");
+    const bmp = Buffer.alloc(30);
+    bmp.write("BM");
+    bmp.writeUInt32LE(30, 2);
+    bmp.writeUInt32LE(26, 10);
+    bmp.writeUInt32LE(12, 14);
+    bmp.writeUInt16LE(1, 22);
+    bmp.writeUInt16LE(24, 24);
+    await writeFile(path.join(cwd, "image.bmp"), bmp);
+
+    await expect(
+      prepareInput(undefined, [{ path: "image.txt", type: "local_image" }], cwd, [], true),
+    ).resolves.toMatchObject({ images: [{ mimeType: "image/png", type: "image" }] });
+    await expect(
+      prepareInput(undefined, [{ path: "garbage.png", type: "local_image" }], cwd, [], true),
+    ).rejects.toThrow("local_image must contain a PNG, JPEG, GIF, or WebP image");
+    await expect(
+      prepareInput(undefined, [{ path: "image.bmp", type: "local_image" }], cwd, [], true),
+    ).rejects.toThrow("local_image must contain a PNG, JPEG, GIF, or WebP image");
+  });
 });

@@ -244,7 +244,8 @@ export const executeAskQuestion = async (
     throw new Error("ask_question requires interactive UI");
   }
 
-  // https://github.com/ogulcancelik/herdr/blob/v0.7.5/src/integration/assets/pi/herdr-agent-state.ts#L230-L246
+  // Pi's generic prompt events do not identify the owning extension, so Herdr
+  // needs this ask-specific signal to distinguish questions from Side UI.
   pi.events.emit("herdr:blocked", {
     active: true,
     label: "Waiting for answers",

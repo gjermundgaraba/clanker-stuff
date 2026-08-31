@@ -7,7 +7,7 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, TuiAltScreen } from "@earendil-works/pi-tui";
 import type { Focusable, TUI } from "@earendil-works/pi-tui";
 
 import { isSideActivityActive } from "./session.js";
@@ -18,6 +18,40 @@ export type SidePanelConversation = Pick<SideConversation, "state" | "submit" | 
 // oxlint-disable-next-line eslint/no-control-regex -- OSC 133 uses ESC and BEL control characters.
 const PROMPT_ZONE_PATTERN = /\u001B\]133;[ABC]\u0007/gu;
 const stripPromptZones = (text: string): string => text.replaceAll(PROMPT_ZONE_PATTERN, "");
+
+const formatKey = (key: string): string => {
+  switch (key) {
+    case "enter":
+    case "return": {
+      return "Enter";
+    }
+    case "escape": {
+      return "Esc";
+    }
+    case "pageDown": {
+      return "PgDn";
+    }
+    case "pageUp": {
+      return "PgUp";
+    }
+    case "space": {
+      return "Space";
+    }
+    case "tab": {
+      return "Tab";
+    }
+  }
+  const parts = key.endsWith("+")
+    ? [...key.slice(0, -1).split("+").filter(Boolean), "+"]
+    : key.split("+");
+  return parts
+    .map((part) =>
+      part === "+" || part.length === 1
+        ? part.toUpperCase()
+        : `${part[0]?.toUpperCase()}${part.slice(1)}`,
+    )
+    .join("+");
+};
 
 const renderAssistant = (message: AssistantMessage, width: number): string[] =>
   new AssistantMessageComponent(message, false, getMarkdownTheme(), undefined, 0)
@@ -31,10 +65,8 @@ interface SidePanelActions {
   getMainWorking: () => boolean;
   getWorkingMarker: () => string;
   onClose: () => void;
-  onFocus: () => void;
-  onHide: () => void;
+  onDismiss: () => void;
   onInsertLatest: () => void;
-  onToggleFocus: () => void;
 }
 
 export class SidePanel implements Focusable {
@@ -42,6 +74,7 @@ export class SidePanel implements Focusable {
   private readonly actions: SidePanelActions;
   private readonly conversation: SidePanelConversation;
   private readonly editor: CustomEditor;
+  private readonly keybindings: KeybindingsManager;
   private readonly theme: Theme;
   private readonly tui: TUI;
   private scrollOffset = 0;
@@ -53,9 +86,11 @@ export class SidePanel implements Focusable {
     keybindings: KeybindingsManager,
     conversation: SidePanelConversation,
     actions: SidePanelActions,
+    draft = "",
   ) {
     this.actions = actions;
     this.conversation = conversation;
+    this.keybindings = keybindings;
     this.theme = theme;
     this.tui = tui;
     this.editor = new CustomEditor(
@@ -66,8 +101,19 @@ export class SidePanel implements Focusable {
       },
       keybindings,
     );
-    this.editor.onEscape = actions.onHide;
+    for (const item of conversation.state.transcript) {
+      if (item.kind === "user") {
+        this.editor.addToHistory(item.text);
+      }
+    }
+    this.editor.setText(draft);
+    this.editor.onEscape = actions.onDismiss;
     this.editor.onCtrlD = actions.onClose;
+    this.editor.onAction("app.message.copy", () => {
+      if (tui instanceof TuiAltScreen && !tui.getCopyOnSelect() && tui.hasActiveSelection()) {
+        void tui.copyActiveSelectionToClipboard();
+      }
+    });
     this.editor.onSubmit = (prompt) => {
       if (!this.conversation.submit(prompt)) {
         this.editor.setText(prompt);
@@ -88,14 +134,11 @@ export class SidePanel implements Focusable {
   set focused(value: boolean) {
     this._focused = value;
     this.editor.focused = value;
-    if (value) {
-      this.actions.onFocus();
-    }
   }
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.ctrl("/"))) {
-      this.actions.onToggleFocus();
+      this.actions.onDismiss();
       return;
     }
     if (matchesKey(data, Key.alt("enter"))) {
@@ -133,10 +176,20 @@ export class SidePanel implements Focusable {
     const { statusMessage } = this.conversation.state;
     const statusHeight = statusMessage === undefined || statusMessage.length === 0 ? 0 : 1;
     const transcriptHeight = Math.max(0, height - 7 - editorLines.length - statusHeight);
+    const interruptKeys = this.keybindings.getKeys("app.interrupt").map(formatKey).join("/");
+    const exitKeys = this.keybindings.getKeys("app.exit").map(formatKey).join("/");
+    const hints = [
+      `${["Ctrl+/", interruptKeys].filter(Boolean).join(" or ")} dismiss`,
+      exitKeys ? `${exitKeys} close` : "",
+      "Alt+Enter insert",
+      "PgUp/PgDn scroll",
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
     const lines = [
       border(`╭${"─".repeat(innerWidth)}╮`),
-      row(`${this.theme.bold("Side")} ${sideState} · ${this.focused ? "focused" : "main focused"}`),
+      row(`${this.theme.bold("Side")} ${sideState}`),
       row(this.theme.fg("dim", `Main ${mainState}`)),
       border(`├${"─".repeat(innerWidth)}┤`),
     ];
@@ -152,21 +205,17 @@ export class SidePanel implements Focusable {
     if (statusMessage !== undefined && statusMessage.length > 0) {
       lines.push(row(this.theme.fg("warning", statusMessage)));
     }
-    lines.push(
-      row(
-        this.theme.fg(
-          "dim",
-          "Ctrl+/ main · Esc hide · Ctrl+D close · Alt+Enter insert · PgUp/PgDn scroll",
-        ),
-      ),
-      border(`╰${"─".repeat(innerWidth)}╯`),
-    );
+    lines.push(row(this.theme.fg("dim", hints)), border(`╰${"─".repeat(innerWidth)}╯`));
 
     return lines.map((line) => truncateToWidth(line, safeWidth, "")).slice(0, height);
   }
 
   invalidate(): void {
     this.editor.invalidate();
+  }
+
+  getDraft(): string {
+    return this.editor.getExpandedText();
   }
 
   submitExternalPrompt(text: string): void {
@@ -176,12 +225,11 @@ export class SidePanel implements Focusable {
     }
     if (this.conversation.submit(prompt)) {
       this.editor.addToHistory(prompt);
-      this.editor.setText("");
       this.scrollOffset = 0;
       this.tui.requestRender();
       return;
     }
-    const current = this.editor.getText();
+    const current = this.editor.getExpandedText();
     this.editor.setText(current ? `${current}\n${prompt}` : prompt);
     this.tui.requestRender();
   }

@@ -10,4 +10,4 @@ pi install npm:@clanker-stuff/timer
 
 ## Usage
 
-The timer appears automatically with a breathing dot while the agent is running.
+The timer appears automatically with a breathing dot while the agent is running and pauses while Pi waits for UI input.

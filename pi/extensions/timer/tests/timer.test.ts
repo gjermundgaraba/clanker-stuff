@@ -92,6 +92,33 @@ describe("timer", () => {
     expect(host.getStatus("timer")).toBe(`· 0.0s · ${clockAt(TIMER_INTERVAL_MS * 24)}`);
   });
 
+  it("excludes time spent waiting in a UI prompt", () => {
+    const { host, ctx, timer } = setup();
+    timer.start(ctx);
+    vi.advanceTimersByTime(TIMER_INTERVAL_MS * 5);
+    timer.pause(ctx);
+    vi.advanceTimersByTime(10_000);
+    timer.resume(ctx);
+    vi.advanceTimersByTime(TIMER_INTERVAL_MS * 5);
+    timer.stop(ctx);
+
+    expect(host.getStatus("timer")).toBe(`● 1.3s · ${clockAt(10_000 + TIMER_INTERVAL_MS * 10)}`);
+  });
+
+  it("stays paused when a run starts inside a prompt and ignores a late prompt end", () => {
+    const { host, ctx, timer } = setup();
+    timer.pause(ctx);
+    timer.start(ctx);
+    vi.advanceTimersByTime(1000);
+    timer.stop(ctx);
+
+    expect(host.getStatus("timer")).toBe(`● 0.0s · ${clockAt(1000)}`);
+    const callCountAfterEnd = vi.mocked(ctx.ui.setStatus).mock.calls.length;
+    timer.resume(ctx);
+    vi.advanceTimersByTime(1000);
+    expect(vi.mocked(ctx.ui.setStatus)).toHaveBeenCalledTimes(callCountAfterEnd);
+  });
+
   it("clears the timer on session_shutdown", () => {
     const { ctx, timer } = setup();
     timer.start(ctx);

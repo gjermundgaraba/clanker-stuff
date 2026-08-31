@@ -63,26 +63,36 @@ const throwIfAborted = (signal: AbortSignal | undefined) => {
   }
 };
 
-const killProcessTree = (child: ChildProcessWithoutNullStreams) => {
+export const killProcessTree = (child: Pick<ChildProcessWithoutNullStreams, "kill" | "pid">) => {
   if (child.pid === undefined) {
     return;
   }
-  if (process.platform === "win32") {
-    const taskkill = spawn("taskkill", ["/F", "/T", "/PID", String(child.pid)], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    taskkill.on("error", () => {
+  const killChild = () => {
+    try {
       child.kill("SIGKILL");
-    });
-    taskkill.unref();
+    } catch {}
+  };
+  if (process.platform === "win32") {
+    try {
+      const taskkill = spawn(
+        path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
+        ["/F", "/T", "/PID", String(child.pid)],
+        {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+        },
+      );
+      taskkill.once("error", killChild);
+    } catch {
+      killChild();
+    }
     return;
   }
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch {
-    child.kill("SIGKILL");
+    killChild();
   }
 };
 

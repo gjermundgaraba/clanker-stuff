@@ -6,6 +6,8 @@ import extension from "../index.js";
 
 const timer = vi.hoisted(() => ({
   dispose: vi.fn<() => void>(),
+  pause: vi.fn<(ctx: ExtensionContext) => void>(),
+  resume: vi.fn<(ctx: ExtensionContext) => void>(),
   start: vi.fn<(ctx: ExtensionContext) => void>(),
   stop: vi.fn<(ctx: ExtensionContext) => void>(),
 }));
@@ -18,10 +20,14 @@ describe("timer registration", () => {
     const ctx = host.createContext();
 
     await host.emit("agent_start", {}, ctx);
+    await host.emit("ui_prompt_start", {}, ctx);
+    await host.emit("ui_prompt_end", {}, ctx);
     await host.emit("agent_settled", {}, ctx);
     await host.emitSessionShutdown(ctx);
 
     expect(timer.start).toHaveBeenCalledExactlyOnceWith(ctx);
+    expect(timer.pause).toHaveBeenCalledExactlyOnceWith(ctx);
+    expect(timer.resume).toHaveBeenCalledExactlyOnceWith(ctx);
     expect(timer.stop).toHaveBeenCalledExactlyOnceWith(ctx);
     expect(timer.dispose).toHaveBeenCalledOnce();
   });

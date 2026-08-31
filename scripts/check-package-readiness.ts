@@ -11,7 +11,6 @@ const PI_PROVIDED = new Set([
   "@earendil-works/pi-tui",
   "typebox",
 ]);
-const EXPECTED_PI_PROVIDED_VERSION = "*";
 
 const ROOT_PACKAGE_NAME = "clanker-stuff";
 const EXPECTED_NODE_ENGINE = ">=26";
@@ -157,6 +156,33 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     }
   }
 
+  for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
+    if (name.startsWith("@clanker-stuff/") && !sharedRuntimePackages.has(name)) {
+      errors.push(`${label}: unapproved shared runtime dependency ${name}`);
+    }
+    if (PI_PROVIDED.has(name)) {
+      errors.push(`${label}: ${name} belongs in peerDependencies, not dependencies`);
+    }
+    if (version === "workspace:*") {
+      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
+    }
+  }
+
+  for (const [name, version] of Object.entries(pkg.peerDependencies ?? {})) {
+    if (PI_PROVIDED.has(name) && version !== "*") {
+      errors.push(`${label}: ${name} peer dependency should use "*"`);
+    }
+    if (version === "workspace:*") {
+      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
+    }
+  }
+
+  for (const name of importedPiProvidedPackages(dir)) {
+    if (pkg.peerDependencies?.[name] === undefined) {
+      errors.push(`${label}: imports ${name}; add peerDependencies.${name} = "*"`);
+    }
+  }
+
   if (pkg.private === true) {
     continue;
   }
@@ -177,34 +203,6 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   }
   if (pkg.publishConfig?.access !== "public") {
     errors.push(`${label}: expected publishConfig.access to be public`);
-  }
-
-  for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
-    if (name.startsWith("@clanker-stuff/") && !sharedRuntimePackages.has(name)) {
-      errors.push(`${label}: unapproved shared runtime dependency ${name}`);
-    }
-    if (PI_PROVIDED.has(name)) {
-      errors.push(`${label}: ${name} belongs in peerDependencies, not dependencies`);
-    }
-    if (version === "workspace:*") {
-      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
-    }
-  }
-
-  for (const [name, version] of Object.entries(pkg.peerDependencies ?? {})) {
-    if (PI_PROVIDED.has(name) && name !== "typebox" && version !== EXPECTED_PI_PROVIDED_VERSION) {
-      errors.push(`${label}: ${name} peer dependency should use "${EXPECTED_PI_PROVIDED_VERSION}"`);
-    }
-    if (version === "workspace:*") {
-      errors.push(`${label}: use workspace:^ instead of workspace:* for ${name}`);
-    }
-  }
-
-  for (const name of importedPiProvidedPackages(dir)) {
-    const expectedVersion = name === "typebox" ? "*" : EXPECTED_PI_PROVIDED_VERSION;
-    if (pkg.peerDependencies?.[name] !== expectedVersion) {
-      errors.push(`${label}: imports ${name}; add peerDependencies.${name} = "${expectedVersion}"`);
-    }
   }
 }
 

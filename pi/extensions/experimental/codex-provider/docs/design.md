@@ -67,11 +67,11 @@ Redirects are rejected for remote compaction. Normal and compaction streams requ
 
 ## Compaction and checkpoint v1
 
-Automatic compaction uses the remote model limit when available, capped at 90% of the context window; the effective window defaults to 95%. It can run before sampling, between tool-loop calls, for Pi manual/threshold/overflow lifecycle events, and for model `comp_hash` or usable-window transitions. Inline compaction reuses the active turn transport and turn state. Standalone lifecycle compaction uses an isolated provider session.
+Automatic compaction uses the remote model limit when available, capped at 90% of the context window; the effective window defaults to 95%. Pi owns scheduling, queue delivery, retry, `agent.state.messages` replacement, and the durable `CompactionEntry` whenever `session_before_compact` fires, including the host's between-tool-call threshold check. OpenAI remote V2 supplies the checkpoint content. Inline compaction reuses the active turn transport only as last-mile provider safety when Pi did not schedule compaction, including when the provider-native limit is lower than Pi's threshold. The two carriers are mutually exclusive for one checkpoint.
 
-Every new native checkpoint has:
+Lifecycle checkpoints are Pi `CompactionEntry` records identified by `details.type`; inline checkpoints are `CustomEntry` records identified by `customType`. Both identifiers are `codex-provider.checkpoint`, and every new native checkpoint has:
 
-- custom entry type `codex-provider.checkpoint`;
+- checkpoint marker `codex-provider.checkpoint`;
 - schema `clanker.codex-provider/checkpoint`, version `1`;
 - protocol `openai-responses-compaction-v2`;
 - provider/API/base-URL identity and the producing model ID;
@@ -85,7 +85,14 @@ Retained user text has a 64,000-token budget using the conservative local estima
 
 ## Lifecycle checkpoints
 
-Lifecycle compaction makes one native request and installs its opaque checkpoint only after source, branch, model, generation, request state, and persistence checks pass. Both successful and failed Pi compaction terminals release the pending lifecycle operation; only a verified successful extension result installs the provider window. Pi's required summary field contains a checkpoint-specific operational marker, not a second model-generated summary. Provider-reported native usage is therefore the complete compaction usage. Custom `/compact` summary instructions do not apply to the opaque native protocol.
+Lifecycle compaction makes one native request and returns its opaque checkpoint to Pi only after source, branch, model, generation, and request-state checks pass. Pi installs and orders the `CompactionEntry`, shrinks live agent context, delivers queued messages, and owns overflow retry. The matching `session_compact` event verifies persistence before the provider window is installed. Both successful and failed Pi terminals release the pending lifecycle operation. Pi's required summary field contains a checkpoint-specific operational marker, not a second model-generated summary. Provider-reported native usage is therefore the complete compaction usage. Custom `/compact` summary instructions do not apply to the opaque native protocol.
+
+Checkpoint phases have one definition:
+
+- `overflow-retry` only for an overflow lifecycle event with `willRetry: true`;
+- `mid-turn` when the newest non-custom context message is a tool result and the run will continue;
+- `pre-sampling` for other inline checkpoints;
+- `standalone` for manual compaction and other lifecycle checkpoints, including overflow without retry.
 
 Compatible Codex replay sends the opaque replacement. Incompatible or corrupt lifecycle checkpoints block sampling; there is no automatic text fallback. Native compaction failure leaves the original context unchanged. The original JSONL history remains plaintext on disk; the opaque item is not secure deletion.
 

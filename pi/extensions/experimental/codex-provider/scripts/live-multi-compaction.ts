@@ -8,6 +8,7 @@ import path from "node:path";
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import type {
   AgentSession,
+  CompactionEntry,
   CreateAgentSessionOptions,
   CustomEntry,
   ExtensionError,
@@ -25,8 +26,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
-import type { Checkpoint, CheckpointInput } from "../checkpoint.ts";
-import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
+import type { Checkpoint } from "../checkpoint.ts";
+import { resolveCheckpointCarrier } from "../checkpoint.ts";
 import type {
   ChildInvocation,
   ParentInvocation,
@@ -81,20 +82,13 @@ const positiveInteger = (name: string, fallback: number): number => {
   return value;
 };
 
-const customEntries = (manager: SessionManager, customType: string): CustomEntry[] =>
-  manager
-    .getBranch()
-    .filter(
-      (entry): entry is CustomEntry => entry.type === "custom" && entry.customType === customType,
-    );
+type CheckpointEntry = CompactionEntry | CustomEntry;
 
-const parseLiveCheckpoint = (value: CheckpointInput, label: string): Checkpoint => {
-  const parsed = parseCheckpoint(value);
-  if (!parsed.ok) {
-    throw new Error(`${label}: ${parsed.error}`);
-  }
-  return parsed.checkpoint;
-};
+const checkpointEntries = (manager: SessionManager): CheckpointEntry[] =>
+  manager.getBranch().filter((entry): entry is CheckpointEntry => {
+    const carrier = resolveCheckpointCarrier(entry);
+    return carrier.kind === "checkpoint" || carrier.kind === "invalid-checkpoint";
+  });
 
 const contextTokens = (usage: Usage | undefined): number => {
   if (usage === undefined) {
@@ -105,12 +99,15 @@ const contextTokens = (usage: Usage | undefined): number => {
     : usage.totalTokens;
 };
 
-const parsedCheckpoint = (entry: CustomEntry | undefined): Checkpoint => {
+const parsedCheckpoint = (entry: CheckpointEntry | undefined): Checkpoint => {
   assert(entry !== undefined, "Checkpoint missing");
-  return parseLiveCheckpoint(entry.data, "Checkpoint invalid");
+  const carrier = resolveCheckpointCarrier(entry);
+  assert(carrier.kind === "checkpoint", "Checkpoint invalid");
+  return carrier.checkpoint;
 };
 
-const responseId = (entry: CustomEntry | undefined): string => parsedCheckpoint(entry).response.id;
+const responseId = (entry: CheckpointEntry | undefined): string =>
+  parsedCheckpoint(entry).response.id;
 
 type CheckpointAssertion = {
   readonly runtime: Checkpoint["runtime"];
@@ -118,7 +115,7 @@ type CheckpointAssertion = {
 };
 
 const assertCheckpoint = (
-  entry: CustomEntry | undefined,
+  entry: CheckpointEntry | undefined,
   expectedRound: number,
   forcedContextWindow: number,
   minimumSideInputTokens: number,
@@ -446,7 +443,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
       await session.prompt("FRESH PROCESS RESUME ONE. Reply only RESUMED ONE.");
       const fallbackAfterFirst = transportProbe.websocketConstructions;
       await session.prompt("FRESH PROCESS RESUME TWO. Reply only RESUMED TWO.");
-      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+      const checkpoints = checkpointEntries(manager);
       assert(
         checkpoints.length === expectedRounds &&
           responseId(checkpoints.at(-1)) === expectedResponseId,
@@ -488,7 +485,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
     const secondEntryId = environment("SECOND_ENTRY");
     const secondResponseId = environment("SECOND_RESPONSE");
     await session.navigateTree(firstEntryId, { summarize: false });
-    const activeCheckpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+    const activeCheckpoints = checkpointEntries(manager);
     const [activeCheckpoint] = activeCheckpoints;
     assert(
       activeCheckpoints.length === 1 && responseId(activeCheckpoint) === firstResponseId,
@@ -496,7 +493,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
     );
     const firstWindow = parsedCheckpoint(activeCheckpoint).runtime;
     await session.prompt(`FRESH PROCESS DIVERGENT BRANCH.\n${"d".repeat(20_000)}`);
-    const divergentCheckpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+    const divergentCheckpoints = checkpointEntries(manager);
     assert(
       divergentCheckpoints.length === 2 &&
         responseId(divergentCheckpoints[0]) === firstResponseId &&
@@ -525,7 +522,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
     session = await openSession(manager, Math.max(baseModel.contextWindow, 1_000_000));
     await session.navigateTree(secondEntryId, { summarize: false });
     await session.prompt("FRESH PROCESS ORIGINAL BRANCH. Reply only ORIGINAL.");
-    const originalCheckpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+    const originalCheckpoints = checkpointEntries(manager);
     assert(
       originalCheckpoints.length === 2 &&
         responseId(originalCheckpoints[0]) === firstResponseId &&
@@ -542,7 +539,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
     );
     assertTransport(transportMode, transportProbe, transportMode === "fallback" ? 2 : 1);
     await session.navigateTree(divergentEntryId, { summarize: false });
-    const restoredDivergent = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+    const restoredDivergent = checkpointEntries(manager);
     assert(
       restoredDivergent.length === 2 &&
         responseId(restoredDivergent[1]) === divergentResponseId &&
@@ -578,7 +575,7 @@ const main = async (invocation: ParentInvocation) => {
 Environment:
   CODEX_COMPACTION_LIVE_MODEL          Model ID (default: gpt-5.6-sol)
   CODEX_COMPACTION_LIVE_ALT_MODEL      Capability-canary switch target (default: gpt-5.6-terra)
-  CODEX_COMPACTION_LIVE_ROUNDS         Inline compactions (default: 3; soak: 10; real/branch/mid-turn/stream-fault: 2)
+  CODEX_COMPACTION_LIVE_ROUNDS         Compaction rounds (default: 3; soak: 10; real/branch/mid-turn/stream-fault: 2)
   CODEX_COMPACTION_LIVE_CONTEXT_WINDOW Forced estimator window (default: 4096)
   CODEX_COMPACTION_LIVE_PAYLOAD_BYTES  Synthetic bytes per round (default: 20000)
   CODEX_COMPACTION_LIVE_DIR            Parent directory for retained artifacts`);
@@ -708,9 +705,7 @@ Environment:
       assert(
         persisted !== undefined &&
           live.timestamp !== new Date(persisted.timestamp).getTime() &&
-          branch.some(
-            (entry) => entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE,
-          ),
+          checkpointEntries(manager).length > 0,
         "Timestamp canary did not precede active checkpoint replay",
       );
       timestampCanaryState.contextSeen = true;
@@ -738,7 +733,14 @@ Environment:
     systemPrompt?: string,
   ): Promise<AgentSession> => {
     const settingsManager = SettingsManager.inMemory({
-      compaction: { enabled: false },
+      compaction:
+        scenario === "mid-turn"
+          ? {
+              enabled: true,
+              keepRecentTokens: Math.floor(contextWindow * 0.92),
+              reserveTokens: Math.floor(contextWindow * 0.2),
+            }
+          : { enabled: false },
       retry: { enabled: true, maxRetries: 2 },
       transport: transportMode === "sse" ? "sse" : "websocket",
     });
@@ -843,7 +845,7 @@ Environment:
     if (scenario === "mid-turn") {
       assert(
         Math.ceil(payloadBytes / 4) >= Math.floor(forcedContextWindow * 0.9),
-        "Mid-turn tool output does not cross the local compaction threshold",
+        "Mid-turn tool output does not cross Pi's configured host threshold",
       );
     } else {
       assert(
@@ -886,7 +888,7 @@ Environment:
   const postCompactionTool: ToolDefinition = {
     description: "Confirm tool availability after context_filler has caused compaction.",
     execute: async () => {
-      postCompactionToolCalls.push(customEntries(manager, CHECKPOINT_CUSTOM_TYPE).length);
+      postCompactionToolCalls.push(checkpointEntries(manager).length);
       return {
         content: [{ text: "post-compaction tool probe complete", type: "text" }],
         details: {},
@@ -973,6 +975,19 @@ Environment:
     customTools,
     systemPrompt,
   );
+  if (scenario === "mid-turn") {
+    const seed = syntheticText(Math.ceil(forcedContextWindow * 0.03 * 4));
+    await session.sendCustomMessage({
+      content: `mid-turn host seed one:${seed}`,
+      customType: "live-mid-turn-host-seed",
+      display: false,
+    });
+    await session.sendCustomMessage({
+      content: `mid-turn host seed two:${seed}`,
+      customType: "live-mid-turn-host-seed",
+      display: false,
+    });
+  }
   if (scenario === "threshold") {
     const provider = modelRuntime.getProvider("openai-codex");
     assert(
@@ -1022,7 +1037,7 @@ Environment:
       await session.prompt(
         "BELOW-THRESHOLD CANARY. Call threshold_probe exactly once, then give the required final reply.",
       );
-      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+      const checkpoints = checkpointEntries(manager);
       const assistant = lastAssistant(session);
       assert(toolCalls === 1, `Threshold canary made ${toolCalls} tool calls`);
       assert(
@@ -1098,7 +1113,7 @@ Environment:
       await session.prompt(
         `CAPABILITY COMPACTION. Reply only COMPACTED.\n${syntheticHex(payloadBytes)}`,
       );
-      const compacted = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+      const compacted = checkpointEntries(manager);
       if (compacted.length !== 1) {
         const failures = await transportProbe.failures();
         throw new Error(
@@ -1120,7 +1135,7 @@ Environment:
         `MODEL SWITCH CAPABILITY CANARY. Reply only SWITCHED ${alternateModel.id}.`,
       );
       const switchedAssistant = lastAssistant(session);
-      const switchedCheckpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+      const switchedCheckpoints = checkpointEntries(manager);
       assert(
         switchedAssistant?.stopReason === "stop" && switchedAssistant.model === alternateModel.id,
         `Model switch ended on ${switchedAssistant?.model ?? "no model"}`,
@@ -1163,7 +1178,7 @@ Environment:
       runLabel = "soak ";
     }
     console.log(
-      `Running ${rounds} ${runLabel}inline compactions with openai-codex/${modelId} (${forcedContextWindow.toLocaleString()} token window)...`,
+      `Running ${rounds} ${runLabel}${scenario === "mid-turn" ? "host lifecycle" : "inline"} compactions with openai-codex/${modelId} (${forcedContextWindow.toLocaleString()} token window)...`,
     );
     for (let round = 1; round <= rounds; round += 1) {
       const requestCountBefore = transportProbe.requests.length;
@@ -1197,7 +1212,7 @@ Environment:
           round === 1
             ? payloadBytes
             : Math.ceil(Math.max(1, targetTokens - baselineTokens) * calibration.bytesPerToken);
-        const checkpointsBefore = customEntries(manager, CHECKPOINT_CUSTOM_TYPE).length;
+        const checkpointsBefore = checkpointEntries(manager).length;
         await session.prompt(
           `LIVE CANARY FILL ${round}. Ignore the synthetic data and reply only FILLED ${round}.\n${syntheticHex(roundPayloadBytes)}`,
         );
@@ -1212,7 +1227,7 @@ Environment:
           `Round ${round}: fill reached ${fillTokens.toLocaleString()} tokens; expected at least ${minimumSideInputTokens.toLocaleString()}`,
         );
         assert(
-          customEntries(manager, CHECKPOINT_CUSTOM_TYPE).length === checkpointsBefore,
+          checkpointEntries(manager).length === checkpointsBefore,
           `Round ${round}: fill compacted before server usage could be observed`,
         );
         console.log(
@@ -1226,7 +1241,7 @@ Environment:
             : `LIVE CANARY ROUND ${round}. Reply only ACK ${round}.\n${String(round).repeat(payloadBytes)}`,
         );
       }
-      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+      const checkpoints = checkpointEntries(manager);
       if (checkpoints.length !== round) {
         const failures = await transportProbe.failures();
         throw new Error(
@@ -1234,6 +1249,12 @@ Environment:
         );
       }
       const checkpoint = checkpoints.at(-1);
+      if (scenario === "mid-turn") {
+        assert(
+          checkpoint?.type === "compaction" && checkpoint.fromHook === true,
+          `Round ${round}: mid-turn checkpoint was not installed by Pi's lifecycle`,
+        );
+      }
       const checked = assertCheckpoint(
         checkpoint,
         round,
@@ -1328,7 +1349,7 @@ Environment:
     const sessionFile = manager.getSessionFile();
     assert(sessionFile !== undefined, "Persistent session file was not created");
     if (scenario === "branch") {
-      const checkpoints = customEntries(manager, CHECKPOINT_CUSTOM_TYPE);
+      const checkpoints = checkpointEntries(manager);
       const [first, second] = checkpoints;
       assert(first !== undefined && second !== undefined, "Branch canary requires two checkpoints");
       const resultFile = path.join(runRoot, "branch-result.json");

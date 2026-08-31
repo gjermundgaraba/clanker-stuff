@@ -10,6 +10,6 @@ pi install npm:@clanker-stuff/side
 
 ## Usage
 
-- Run `/side` or `/side <prompt>` to open or restore the side conversation.
-- Use `Ctrl+/` to switch focus, `Esc` to hide, `Ctrl+D` on an empty side editor to close, and `Alt+Enter` to insert the latest response and hide the panel.
+- Run `/side` or `/side <prompt>` to open or resume the side conversation.
+- Use `Ctrl+/` to dismiss or reopen; configured `app.interrupt` (`Esc` by default) dismisses, configured `app.exit` (`Ctrl+D` by default) closes on an empty editor, and `Alt+Enter` inserts the latest response.
 - The child receives a parent snapshot and normal Pi tools; its panel uses half width at 120+ columns and full width below that.

@@ -38,6 +38,12 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
   });
   pi.on("before_agent_start", (event, ctx) => exposeSkillsWithoutRead(event, ctx));
   pi.on("before_agent_start", (_event, ctx) => runtime.beforeAgentStart(ctx));
+  pi.on("agent_end", () => {
+    runtime.agentEnd();
+  });
+  pi.on("agent_start", () => {
+    runtime.agentStart();
+  });
   pi.on("agent_settled", (_event, ctx) => {
     runtime.agentSettled(ctx);
   });

@@ -35,6 +35,9 @@ describe("Codex lifecycle loading", () => {
     const ctx = host.createContext();
 
     await host.emitSessionStart(ctx);
+    await host.emit("agent_start", { type: "agent_start" }, ctx);
+    await host.emit("agent_end", { messages: [], type: "agent_end" }, ctx);
+    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
     await host.emit(
       "before_agent_start",
       {

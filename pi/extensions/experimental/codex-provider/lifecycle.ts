@@ -229,6 +229,22 @@ type InlineOperationResult =
       kind: "persistence" | "remote" | "stale";
     };
 
+export const resolveCheckpointPhase = (options: {
+  readonly carrier: "inline" | "lifecycle";
+  readonly latestMessageRole?: string;
+  readonly reason: SessionBeforeCompactEvent["reason"];
+  readonly runContinues: boolean;
+  readonly willRetry: boolean;
+}): Checkpoint["phase"] => {
+  if (options.reason !== "threshold") {
+    return options.reason === "overflow" && options.willRetry ? "overflow-retry" : "standalone";
+  }
+  if (options.runContinues && options.latestMessageRole === "toolResult") {
+    return "mid-turn";
+  }
+  return options.carrier === "inline" ? "pre-sampling" : "standalone";
+};
+
 const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
 const isUnknownArray = (value: WireValue): value is WireValue[] =>
@@ -770,6 +786,7 @@ const runLifecycleHook = async (
   event: SessionBeforeCompactEvent,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
+  runContinues: boolean,
 ): Promise<SessionBeforeCompactResult | undefined> => {
   const { model } = ctx;
   if (!isSupportedLifecycleModel(model)) {
@@ -907,7 +924,13 @@ const runLifecycleHook = async (
         return { cancel: true };
       }
 
-      const phase = event.reason === "overflow" ? "overflow-retry" : "standalone";
+      const phase = resolveCheckpointPhase({
+        carrier: "lifecycle",
+        latestMessageRole: latestTurnMessageRole(event.branchEntries),
+        reason: event.reason,
+        runContinues,
+        willRetry: event.willRetry,
+      });
       const execution = await runEffectiveProviderCompaction(providerRuntime, {
         apiKey: auth.apiKey,
         context: {
@@ -1284,15 +1307,26 @@ const sentinelMessage = (
 const isPersistedRetryError = (message: ContextEvent["messages"][number]) =>
   message.role === "assistant" && message.stopReason === "error";
 
-const isMidTurnBranch = (branch: readonly SessionEntry[]) => {
+export const latestTurnMessageRole = (branch: readonly SessionEntry[]) => {
   for (const entry of branch.toReversed()) {
-    const messages = sessionEntryToContextMessages(entry);
-    if (messages.length === 0) {
-      continue;
+    for (const message of sessionEntryToContextMessages(entry).toReversed()) {
+      if (message.role !== "custom") {
+        return message.role;
+      }
     }
-    return messages.at(-1)?.role === "toolResult";
   }
-  return false;
+  return undefined;
+};
+
+const inlineCheckpointPhase = (branch: readonly SessionEntry[]): RequestFrame["phase"] => {
+  const phase = resolveCheckpointPhase({
+    carrier: "inline",
+    latestMessageRole: latestTurnMessageRole(branch),
+    reason: "threshold",
+    runContinues: true,
+    willRetry: false,
+  });
+  return phase === "mid-turn" ? phase : "pre-sampling";
 };
 
 const abortUnsafeRequest = (
@@ -1343,7 +1377,7 @@ const captureUnframedCandidate = (
     generation: state.generation,
     leafId: ctx.sessionManager.getLeafId(),
     modelIdentity: modelIdentity(model),
-    phase: isMidTurnBranch(branch) ? "mid-turn" : "pre-sampling",
+    phase: inlineCheckpointPhase(branch),
     requestStateSha256: requestSnapshot.hash,
   };
 };
@@ -1522,7 +1556,7 @@ const runContextHook = (
     leafId: ctx.sessionManager.getLeafId(),
     modelIdentity: modelIdentity(model),
     nonce,
-    phase: isMidTurnBranch(branch) ? "mid-turn" : "pre-sampling",
+    phase: inlineCheckpointPhase(branch),
     requestStateSha256: requestSnapshot.hash,
   };
   return { messages: [...framed.messages] };
@@ -2211,8 +2245,9 @@ export const createCodexLifecycle = (
     beforeCompact: (
       event: SessionBeforeCompactEvent,
       ctx: ExtensionContext,
+      runContinues: boolean,
     ): ReturnType<typeof runLifecycleHook> =>
-      runLifecycleHook(pi, state, event, ctx, providerRuntime),
+      runLifecycleHook(pi, state, event, ctx, providerRuntime, runContinues),
     beforeProviderHeaders: (event: BeforeProviderHeadersEvent, ctx: ExtensionContext): void => {
       if (!isSupportedLifecycleModel(ctx.model)) {
         state.requestHeaders = undefined;

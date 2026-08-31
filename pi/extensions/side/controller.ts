@@ -1,6 +1,6 @@
 import { STATIC_BREATHING_DOT_FRAME } from "@clanker-stuff/pi-motion";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
+import type { OverlayHandle } from "@earendil-works/pi-tui";
 
 import { SidePanel } from "./panel.js";
 import { createSideConversation, isSideActivityActive } from "./session.js";
@@ -9,14 +9,17 @@ import type { SideConversation } from "./session.js";
 const SIDE_STATUS_KEY = "side";
 const SIDE_WIDE_COLUMNS = 120;
 
+interface SidePresentation {
+  handle?: OverlayHandle;
+  panel?: SidePanel;
+}
+
 interface ActiveSide {
   context: ExtensionContext;
   conversation: SideConversation;
   disposed: boolean;
-  finish?: () => void;
-  handle?: OverlayHandle;
-  hidden: boolean;
-  panel?: SidePanel;
+  draft: string;
+  presentation?: SidePresentation;
   unread: boolean;
   unsubscribe?: () => void;
 }
@@ -36,9 +39,9 @@ const updateStatus = (side: ActiveSide): void => {
   } else if (side.unread) {
     color = "success";
     label = "done";
-  } else if (side.hidden) {
+  } else if (!side.presentation) {
     color = "dim";
-    label = "hidden";
+    label = "background";
   }
   const frame = STATIC_BREATHING_DOT_FRAME;
   const { theme } = side.context.ui;
@@ -48,21 +51,23 @@ const updateStatus = (side: ActiveSide): void => {
   );
 };
 
-const restore = (side: ActiveSide): void => {
-  side.hidden = false;
-  side.handle?.setHidden(false);
-  side.handle?.focus();
-};
-
 export const createSideController = (pi: ExtensionAPI) => {
   let lifecycle: ControllerLifecycle = { kind: "idle" };
 
   const activeSide = (): ActiveSide | undefined =>
     lifecycle.kind === "active" ? lifecycle.side : undefined;
 
-  const hide = (side: ActiveSide): void => {
-    side.hidden = true;
-    side.handle?.setHidden(true);
+  const dismissPresentation = (side: ActiveSide): void => {
+    const presentation = side.presentation;
+    if (!presentation) {
+      return;
+    }
+    side.presentation = undefined;
+    if (presentation.panel) {
+      side.draft = presentation.panel.getDraft();
+    }
+    presentation.handle?.hide();
+    presentation.panel?.dispose();
     updateStatus(side);
   };
 
@@ -72,21 +77,9 @@ export const createSideController = (pi: ExtensionAPI) => {
       side.context.ui.notify("Side has no completed response to insert.", "warning");
       return;
     }
-    hide(side);
+    dismissPresentation(side);
     side.context.ui.pasteToEditor(text);
     side.context.ui.notify("Inserted the latest side response.", "info");
-  };
-
-  const toggleFocus = (side: ActiveSide): void => {
-    if (side.hidden) {
-      restore(side);
-      return;
-    }
-    if (side.handle?.isFocused() === true) {
-      side.handle.unfocus();
-      return;
-    }
-    side.handle?.focus();
   };
 
   const disposeSide = async (side: ActiveSide): Promise<void> => {
@@ -101,10 +94,82 @@ export const createSideController = (pi: ExtensionAPI) => {
     }
     side.unsubscribe?.();
     side.unsubscribe = undefined;
-    side.finish?.();
-    side.handle?.hide();
+    dismissPresentation(side);
     side.context.ui.setStatus(SIDE_STATUS_KEY, undefined);
     await side.conversation.dispose();
+  };
+
+  const presentSide = async (side: ActiveSide, prompt: string): Promise<void> => {
+    const current = side.presentation;
+    if (current) {
+      if (prompt) {
+        current.panel?.submitExternalPrompt(prompt);
+      }
+      return;
+    }
+
+    const presentation: SidePresentation = {};
+    side.presentation = presentation;
+    updateStatus(side);
+
+    try {
+      await side.context.ui.custom<null>((tui, theme, keybindings, done) => {
+        const panel = new SidePanel(
+          tui,
+          theme,
+          keybindings,
+          side.conversation,
+          {
+            getMainWorking: () => !side.context.isIdle(),
+            getWorkingMarker: () => {
+              const frame = STATIC_BREATHING_DOT_FRAME;
+              return theme.fg(frame.color, frame.marker);
+            },
+            onClose: () => {
+              void (async () => {
+                try {
+                  await disposeSide(side);
+                } catch (error) {
+                  side.context.ui.notify(
+                    `Side failed to close: ${error instanceof Error ? error.message : String(error)}`,
+                    "error",
+                  );
+                }
+              })();
+            },
+            onDismiss: () => {
+              dismissPresentation(side);
+            },
+            onInsertLatest: () => {
+              insertLatest(side);
+            },
+          },
+          side.draft,
+        );
+        presentation.panel = panel;
+        if (prompt) {
+          panel.submitExternalPrompt(prompt);
+        }
+        // Own the overlay so Pi's custom-prompt span ends while the main agent keeps running.
+        const handle = tui.showOverlay(panel, {
+          anchor: "top-right",
+          get width() {
+            return tui.terminal.columns >= SIDE_WIDE_COLUMNS ? "50%" : "100%";
+          },
+        });
+        presentation.handle = handle;
+        side.unread = false;
+        updateStatus(side);
+        done(null);
+        handle.focus();
+        return panel;
+      });
+    } catch (error) {
+      if (side.presentation === presentation) {
+        dismissPresentation(side);
+      }
+      throw error;
+    }
   };
 
   const openSide = async (args: string, ctx: ExtensionContext): Promise<void> => {
@@ -120,10 +185,7 @@ export const createSideController = (pi: ExtensionAPI) => {
     const prompt = args.trim();
     const active = activeSide();
     if (active) {
-      restore(active);
-      if (prompt) {
-        active.panel?.submitExternalPrompt(prompt);
-      }
+      await presentSide(active, prompt);
       return;
     }
     if (lifecycle.kind === "opening") {
@@ -162,76 +224,19 @@ export const createSideController = (pi: ExtensionAPI) => {
       context: ctx,
       conversation,
       disposed: false,
-      hidden: false,
+      draft: "",
       unread: false,
     };
     lifecycle = { kind: "active", side };
 
     side.unsubscribe = conversation.subscribe(() => {
-      if (
-        !isSideActivityActive(conversation.state.activity) &&
-        (side.hidden || side.handle?.isFocused() !== true)
-      ) {
+      if (!isSideActivityActive(conversation.state.activity) && !side.presentation) {
         side.unread = true;
       }
       updateStatus(side);
     });
     updateStatus(side);
-
-    let tuiRef: TUI | undefined;
-    try {
-      await ctx.ui.custom<null>(
-        (tui, theme, keybindings, done) => {
-          tuiRef = tui;
-          side.finish = () => {
-            done(null);
-          };
-          side.panel = new SidePanel(tui, theme, keybindings, conversation, {
-            getMainWorking: () => !ctx.isIdle(),
-            getWorkingMarker: () => {
-              const frame = STATIC_BREATHING_DOT_FRAME;
-              return theme.fg(frame.color, frame.marker);
-            },
-            onClose: () => {
-              side.finish?.();
-            },
-            onFocus: () => {
-              side.unread = false;
-              updateStatus(side);
-            },
-            onHide: () => {
-              hide(side);
-            },
-            onInsertLatest: () => {
-              insertLatest(side);
-            },
-            onToggleFocus: () => {
-              toggleFocus(side);
-            },
-          });
-          if (prompt) {
-            side.panel.submitExternalPrompt(prompt);
-          }
-          return side.panel;
-        },
-        {
-          onHandle: (handle) => {
-            side.handle = handle;
-            handle.focus();
-          },
-          overlay: true,
-          overlayOptions: {
-            anchor: "top-right",
-            nonCapturing: true,
-            get width() {
-              return (tuiRef?.terminal.columns ?? 0) >= SIDE_WIDE_COLUMNS ? "50%" : "100%";
-            },
-          },
-        },
-      );
-    } finally {
-      await disposeSide(side);
-    }
+    await presentSide(side, prompt);
   };
 
   const launch = (args: string, ctx: ExtensionContext): Promise<void> => {
@@ -239,7 +244,12 @@ export const createSideController = (pi: ExtensionAPI) => {
       try {
         await openSide(args, ctx);
       } catch (error) {
-        ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
+        const active = activeSide();
+        if (active) {
+          updateStatus(active);
+        } else {
+          ctx.ui.setStatus(SIDE_STATUS_KEY, undefined);
+        }
         ctx.ui.notify(
           `Side failed: ${error instanceof Error ? error.message : String(error)}`,
           "error",
@@ -278,8 +288,8 @@ export const createSideController = (pi: ExtensionAPI) => {
     launch,
     toggle: (ctx: ExtensionContext): Promise<void> => {
       const active = activeSide();
-      if (active) {
-        toggleFocus(active);
+      if (active?.presentation) {
+        dismissPresentation(active);
         return Promise.resolve();
       }
       return launch("", ctx);

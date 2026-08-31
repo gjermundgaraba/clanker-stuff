@@ -15,7 +15,7 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 
 When working on pi extensions, sdk, themes or TUI, read the documentation, examples and APIs from Pi's source:
 
-1. Resolve a reusable, read-only checkout of `earendil-works/pi` at `~/.cache/checkouts/github.com/earendil-works/pi`, checked out at `v0.84.3`. Partial-clone it if absent. Never edit the shared checkout.
+1. Resolve a reusable, read-only checkout of `earendil-works/pi` at `~/.cache/checkouts/github.com/earendil-works/pi`, checked out at `v0.84.4`. Partial-clone it if absent. Never edit the shared checkout.
 2. Treat `<pi>/packages/coding-agent` as the documentation root. Read its `README.md` and relevant files under `docs/` and `examples/` completely, following Markdown cross-references. Resolve `docs/...` and `examples/...` there, not relative to this repository.
 3. Use: extensions (`docs/extensions.md`, `examples/extensions/`), themes (`docs/themes.md`), skills (`docs/skills.md`), prompt templates (`docs/prompt-templates.md`), TUI (`docs/tui.md`), keybindings (`docs/keybindings.md`), SDK (`docs/sdk.md`, `examples/sdk/`), providers (`docs/custom-provider.md`), models (`docs/models.md`), packages (`docs/packages.md`), and environment variables (`docs/environment-variables.md`).
 4. Before reimplementing pi functionality, search `<pi>/packages/`, its public exports, and its examples.

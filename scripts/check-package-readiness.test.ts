@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -111,6 +111,29 @@ describe("package readiness", () => {
     ]) {
       expect(invalid.stderr).toContain(message);
     }
+  });
+
+  it('requires private Pi imports to use a "*" peer', () => {
+    const root = createFixture(true);
+    const packageDir = path.join(root, "pi/extensions/experimental/sample");
+    const packageJsonPath = path.join(packageDir, "package.json");
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+    pkg.peerDependencies = { "@earendil-works/pi-coding-agent": "*" };
+    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    writeFileSync(
+      path.join(packageDir, "index.ts"),
+      'import { VERSION } from "@earendil-works/pi-coding-agent";\nvoid VERSION;\nexport default () => {};\n',
+    );
+
+    expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
+
+    pkg.peerDependencies["@earendil-works/pi-coding-agent"] = "0.84.4";
+    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    const invalid = validateFixture(root);
+    expect(invalid.stderr).toContain(
+      '@earendil-works/pi-coding-agent peer dependency should use "*"',
+    );
+    expect(invalid.stderr).not.toContain("add peerDependencies");
   });
 
   it("allows shared library packages without extension metadata", () => {

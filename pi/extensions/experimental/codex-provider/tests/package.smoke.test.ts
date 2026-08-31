@@ -249,9 +249,9 @@ describe("codex-provider package", () => {
       },
       name: "@clanker-stuff/codex-provider",
       peerDependencies: {
-        "@earendil-works/pi-ai": SUPPORTED_PI_VERSION,
-        "@earendil-works/pi-coding-agent": SUPPORTED_PI_VERSION,
-        "@earendil-works/pi-tui": SUPPORTED_PI_VERSION,
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
         typebox: "*",
       },
       private: true,

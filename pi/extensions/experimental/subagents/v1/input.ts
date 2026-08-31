@@ -2,7 +2,10 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
+import {
+  detectSupportedImageMimeTypeFromFile,
+  stripFrontmatter,
+} from "@earendil-works/pi-coding-agent";
 import type { Skill } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -27,13 +30,7 @@ export type V1InputItem = Static<typeof V1InputItemSchema>;
 
 const DATA_IMAGE =
   /^data:(?<mimeType>image\/(?:gif|jpeg|png|webp));base64,(?<data>[a-z0-9+/=\s]+)$/iu;
-const IMAGE_MIME = new Map([
-  [".gif", "image/gif"],
-  [".jpeg", "image/jpeg"],
-  [".jpg", "image/jpeg"],
-  [".png", "image/png"],
-  [".webp", "image/webp"],
-]);
+const LOCAL_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 
 const localImage = async (cwd: string, file: string): Promise<ImageContent> => {
   const root = await realpath(cwd);
@@ -47,9 +44,9 @@ const localImage = async (cwd: string, file: string): Promise<ImageContent> => {
   ) {
     throw new Error("local_image must resolve to a file inside the cwd");
   }
-  const mimeType = IMAGE_MIME.get(path.extname(target).toLowerCase());
-  if (mimeType === undefined) {
-    throw new Error("local_image must be PNG, JPEG, GIF, or WebP");
+  const mimeType = await detectSupportedImageMimeTypeFromFile(target);
+  if (mimeType === null || !LOCAL_IMAGE_MIME_TYPES.has(mimeType)) {
+    throw new Error("local_image must contain a PNG, JPEG, GIF, or WebP image");
   }
   const data = await readFile(target);
   return {

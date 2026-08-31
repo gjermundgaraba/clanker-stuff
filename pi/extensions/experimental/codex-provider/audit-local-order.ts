@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { DefaultResourceLoader, SettingsManager, VERSION } from "@earendil-works/pi-coding-agent";
 
 const TARGET_PATH = realpathSync(path.join(import.meta.dirname, "index.ts"));
-export const SUPPORTED_PI_VERSION = "0.84.3";
+export const SUPPORTED_PI_VERSION = "0.84.4";
 
 export interface LocalOrderAuditResult {
   readonly count: number;

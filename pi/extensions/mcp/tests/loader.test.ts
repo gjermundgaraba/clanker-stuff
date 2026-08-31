@@ -153,7 +153,6 @@ describe("mcp loader", () => {
       onComponent: () => {
         customOpened = true;
       },
-      waitForDone: true,
     });
     const ctx = host.createContext({
       ui: {

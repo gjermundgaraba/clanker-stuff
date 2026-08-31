@@ -6,12 +6,12 @@ export default function sideExtension(pi: ExtensionAPI): void {
   const runtime = createSideRuntime(pi);
 
   pi.registerCommand("side", {
-    description: "Open or restore a concurrent multi-turn side conversation",
+    description: "Open or resume a concurrent multi-turn side conversation",
     handler: (args, ctx) => runtime.launch(args, ctx),
   });
 
   pi.registerShortcut("ctrl+/", {
-    description: "Open side or toggle focus between side and main",
+    description: "Open or dismiss the side panel",
     handler: (ctx) => runtime.toggle(ctx),
   });
 

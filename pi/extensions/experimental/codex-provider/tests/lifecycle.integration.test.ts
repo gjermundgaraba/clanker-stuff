@@ -216,7 +216,7 @@ const compactResponse = (id = "compact") => {
   );
 };
 
-const toolCallResponse = (id = "tool", name = "large_result") => {
+const toolCallResponse = (id = "tool", name = "large_result", inputTokens = 100) => {
   const item = {
     arguments: "{}",
     call_id: `call_${id}`,
@@ -247,11 +247,11 @@ const toolCallResponse = (id = "tool", name = "large_result") => {
           output: [item],
           status: "completed",
           usage: {
-            input_tokens: 100,
+            input_tokens: inputTokens,
             input_tokens_details: { cached_tokens: 0 },
             output_tokens: 10,
             output_tokens_details: { reasoning_tokens: 0 },
-            total_tokens: 110,
+            total_tokens: inputTokens + 10,
           },
         },
         type: "response.completed",
@@ -602,18 +602,20 @@ const observeProviderHooks =
     });
   };
 
-const largeResultTool: ExtensionFactory = (pi) => {
-  pi.registerTool({
-    description: "Return a large result for compaction timing coverage",
-    execute: async () => ({
-      content: [{ text: "x".repeat(120_000), type: "text" }],
-      details: {},
-    }),
-    label: "Large result",
-    name: "large_result",
-    parameters: Type.Object({}),
-  });
-};
+const resultTool =
+  (bytes: number): ExtensionFactory =>
+  (pi) => {
+    pi.registerTool({
+      description: `Return a ${bytes}-byte result for compaction timing coverage`,
+      execute: async () => ({
+        content: [{ text: "x".repeat(bytes), type: "text" }],
+        details: {},
+      }),
+      label: `${bytes}-byte result`,
+      name: "large_result",
+      parameters: Type.Object({}),
+    });
+  };
 
 const NON_CODEX_MODEL = {
   ...SPIKE_MODEL,
@@ -1133,7 +1135,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         keepRecentTokens: 1,
         reserveTokens: 1000,
       },
-      extensionFactories: [largeResultTool, codexCompactionExtension],
+      extensionFactories: [resultTool(120_000), codexCompactionExtension],
       retry: {
         baseDelayMs: 1,
         enabled: true,
@@ -2939,7 +2941,140 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it("compacts inline between tool-loop model calls and records mid-turn", async () => {
+  it("keeps host mid-turn ownership in an agent.continue() run", async () => {
+    const paths = await workspace("codex-lifecycle-mid-turn-");
+    const toolLoopModel = {
+      ...SPIKE_MODEL,
+      contextWindow: 30_000,
+      maxTokens: 2000,
+    };
+    const requests: WireRecord[] = [];
+    const compactEvents: SessionCompactEvent[] = [];
+    const responses = [
+      assistantResponse("cold-start"),
+      assistantResponse("host-initial"),
+      toolCallResponse("host-mid-turn", "large_result", 25_000),
+      compactResponse("host-mid-turn"),
+      assistantResponse("host-mid-turn-final"),
+    ];
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      requests.push(requestJson(init?.body, new Headers(init?.headers)));
+      const response = responses.shift();
+      if (!response) {
+        throw new Error("Unexpected fetch");
+      }
+      return response;
+    });
+    vi.stubGlobal("fetch", fetch);
+    let agentEnds = 0;
+    let agentStarts = 0;
+    let beforeAgentStarts = 0;
+    let queuedContinuation = false;
+    const observeCompaction: ExtensionFactory = (pi) => {
+      pi.on("before_agent_start", () => {
+        beforeAgentStarts += 1;
+      });
+      pi.on("agent_start", () => {
+        agentStarts += 1;
+      });
+      pi.on("agent_end", () => {
+        agentEnds += 1;
+        if (agentEnds === 2 && !queuedContinuation) {
+          queuedContinuation = true;
+          pi.sendUserMessage("Run the large result tool", { deliverAs: "followUp" });
+        }
+      });
+      pi.on("session_compact", (compactEvent) => {
+        compactEvents.push(compactEvent);
+      });
+    };
+    const manager = SessionManager.inMemory(paths.cwd);
+    const systemPrompt = "HOST_MIDTURN_SYSTEM_SENTINEL: use the large_result tool once.";
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: true,
+        keepRecentTokens: 10_000,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [resultTool(32_000), observeCompaction, codexCompactionExtension],
+      model: toolLoopModel,
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+      systemPrompt,
+    });
+
+    try {
+      await session.sendCustomMessage({
+        content: `Host seed one: ${"a".repeat(8_000)}`,
+        customType: "host-midturn-seed",
+        display: false,
+      });
+      await session.sendCustomMessage({
+        content: `Host seed two: ${"b".repeat(8_000)}`,
+        customType: "host-midturn-seed",
+        display: false,
+      });
+      await session.agent.prompt({
+        content: [{ text: "Cold lazy-provider start", type: "text" }],
+        role: "user",
+        timestamp: Date.now(),
+      });
+      await session.prompt("Start the queued-continuation regression");
+      const active = resolveActiveCheckpointBoundary(manager.getBranch());
+      const continuation = requests[4];
+      const continuationInput = continuation?.input;
+      const continuationInstructions = Value.Check(StringValueSchema, continuation?.instructions)
+        ? continuation.instructions
+        : "";
+      const continuationToolNames = Array.isArray(continuation?.tools)
+        ? continuation.tools.flatMap((tool) =>
+            Value.Check(WireRecordSchema, tool) && Value.Check(StringValueSchema, tool.name)
+              ? [tool.name]
+              : [],
+          )
+        : [];
+
+      expect(continuationInstructions).toContain("HOST_MIDTURN_SYSTEM_SENTINEL");
+      expect(continuationToolNames).toContain("large_result");
+
+      expect({
+        agentStarts,
+        beforeAgentStarts,
+        carrier: active.kind === "checkpoint" ? active.carrier : undefined,
+        compactEvents: compactEvents.length,
+        compactionEntries: manager.getBranch().filter((entry) => entry.type === "compaction")
+          .length,
+        continuationOpaqueCount: inputItemTypes(continuationInput).filter(
+          (type) => type === "compaction",
+        ).length,
+        fetches: fetch.mock.calls.length,
+        inlineEntries: manager
+          .getBranch()
+          .filter((entry) => entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE)
+          .length,
+        phase: active.kind === "checkpoint" ? active.checkpoint.phase : undefined,
+        sideRequests: requests.filter((request) =>
+          inputItemTypes(request.input).includes("compaction_trigger"),
+        ).length,
+      }).toStrictEqual({
+        agentStarts: 3,
+        beforeAgentStarts: 1,
+        carrier: "lifecycle",
+        compactEvents: 1,
+        compactionEntries: 1,
+        continuationOpaqueCount: 1,
+        fetches: 5,
+        inlineEntries: 0,
+        phase: "mid-turn",
+        sideRequests: 1,
+      });
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("uses inline mid-turn compaction only in the provider-native limit gap", async () => {
     const paths = await workspace("codex-inline-mid-turn-");
     const toolLoopModel = {
       ...SPIKE_MODEL,
@@ -2965,11 +3100,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const manager = SessionManager.inMemory(paths.cwd);
     const session = await createRealCodexSession({
       compaction: {
-        enabled: false,
+        enabled: true,
         keepRecentTokens: 1,
         reserveTokens: 1000,
       },
-      extensionFactories: [largeResultTool, codexCompactionExtension],
+      extensionFactories: [resultTool(110_000), codexCompactionExtension],
       model: toolLoopModel,
       rootDir: paths.rootDir,
       sessionManager: manager,
@@ -2983,17 +3118,21 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const continuationInput = requests[2]?.input;
 
       expect({
+        carrier: active.kind === "checkpoint" ? active.carrier : undefined,
         continuationOpaqueCount: inputItemTypes(continuationInput).filter(
           (type) => type === "compaction",
         ).length,
         continuationToolOutput: JSON.stringify(continuationInput).includes("function_call_output"),
         fetches: fetch.mock.calls.length,
+        lifecycleEntries: manager.getBranch().filter((entry) => entry.type === "compaction").length,
         phase: active.kind === "checkpoint" ? active.checkpoint.phase : undefined,
         sideTrigger: inputItemTypes(sideInput).includes("compaction_trigger"),
       }).toStrictEqual({
+        carrier: "inline",
         continuationOpaqueCount: 1,
         continuationToolOutput: false,
         fetches: 3,
+        lifecycleEntries: 0,
         phase: "mid-turn",
         sideTrigger: true,
       });
@@ -3040,7 +3179,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         keepRecentTokens: 1,
         reserveTokens: 1000,
       },
-      extensionFactories: [largeResultTool, codexCompactionExtension],
+      extensionFactories: [resultTool(120_000), codexCompactionExtension],
       model: repeatModel,
       onExtensionError: (error) => extensionErrors.push(error.error),
       rootDir: paths.rootDir,
@@ -3071,7 +3210,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           keepRecentTokens: 1,
           reserveTokens: 1000,
         },
-        extensionFactories: [largeResultTool, codexCompactionExtension],
+        extensionFactories: [resultTool(120_000), codexCompactionExtension],
         model: repeatModel,
         rootDir: paths.rootDir,
         sessionManager: resumedManager,
@@ -3648,34 +3787,49 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     },
   );
 
-  it("uses the native lifecycle result for Pi threshold compaction", async () => {
+  it("records post-run threshold compaction after a terminating tool as standalone", async () => {
     const paths = await workspace("codex-lifecycle-threshold-");
+    const terminalTool: ExtensionFactory = (pi) => {
+      pi.registerTool({
+        description: "Finish the run with a short result",
+        execute: async () => ({
+          content: [{ text: "terminal result", type: "text" }],
+          details: {},
+          terminate: true,
+        }),
+        label: "Terminal threshold tool",
+        name: "terminal_threshold",
+        parameters: Type.Object({}),
+      });
+    };
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("threshold");
       }
-      return assistantResponse("threshold");
+      return toolCallResponse("threshold", "terminal_threshold");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
-        keepRecentTokens: 1,
+        keepRecentTokens: 5,
         reserveTokens: SPIKE_MODEL.contextWindow - 5,
       },
-      extensionFactories: [codexCompactionExtension],
+      extensionFactories: [terminalTool, codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
     });
 
     try {
-      await session.prompt("threshold lifecycle source");
+      await session.prompt("Call terminal_threshold once");
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
       const activeEntry =
         active.kind === "checkpoint" ? manager.getEntry(active.boundaryEntryId) : undefined;
+      const entryBeforeCompaction =
+        active.kind === "checkpoint" ? manager.getBranch()[active.boundaryIndex - 1] : undefined;
       const marker =
         active.kind === "checkpoint"
           ? nativeCheckpointSummary(active.checkpoint.runtime.currentWindowId)
@@ -3685,12 +3839,19 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         fetches: fetch.mock.calls.length,
         fromHook: activeEntry?.type === "compaction" ? activeEntry.fromHook : undefined,
         marker: activeEntry?.type === "compaction" ? activeEntry.summary : undefined,
+        phase: active.kind === "checkpoint" ? active.checkpoint.phase : undefined,
+        precedingRole:
+          entryBeforeCompaction?.type === "message"
+            ? entryBeforeCompaction.message.role
+            : undefined,
         reason: active.kind === "checkpoint" ? active.checkpoint.reason : undefined,
       }).toStrictEqual({
         carrier: "lifecycle",
         fetches: 2,
         fromHook: true,
         marker,
+        phase: "standalone",
+        precedingRole: "toolResult",
         reason: "threshold",
       });
     } finally {

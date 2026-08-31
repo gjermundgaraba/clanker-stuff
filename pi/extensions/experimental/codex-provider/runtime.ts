@@ -40,6 +40,7 @@ export const createCodexRuntime = (
     createFastModeConfigStore(storage.configFile),
     setFastFooterActive,
   );
+  let agentRunActive = false;
   let pendingModelSelection: { ctx: ExtensionContext; event: ModelSelectEvent } | undefined;
   let pendingStart: ExtensionContext | undefined;
 
@@ -84,7 +85,14 @@ export const createCodexRuntime = (
   };
 
   return {
+    agentEnd: (): void => {
+      agentRunActive = false;
+    },
+    agentStart: (): void => {
+      agentRunActive = true;
+    },
     agentSettled: (ctx: ExtensionContext): void => {
+      agentRunActive = false;
       codex.get()?.settled(ctx);
     },
     beforeAgentStart: async (ctx: ExtensionContext): Promise<void> => {
@@ -95,7 +103,7 @@ export const createCodexRuntime = (
       const loaded = await maybeLoad(
         () => isCodexModel(ctx.model) || branchNeedsCodex(event.branchEntries),
       );
-      return await loaded?.beforeCompact(event, ctx);
+      return await loaded?.beforeCompact(event, ctx, agentRunActive);
     },
     beforeProviderHeaders: async (
       event: BeforeProviderHeadersEvent,
@@ -148,6 +156,7 @@ export const createCodexRuntime = (
       codex.get()?.compactFailed();
     },
     sessionStart: async (ctx: ExtensionContext, startup: boolean): Promise<void> => {
+      agentRunActive = false;
       const loaded = codex.get();
       if (loaded === undefined) {
         pendingStart = ctx;
@@ -161,6 +170,7 @@ export const createCodexRuntime = (
       }
     },
     shutdown: async (ctx: ExtensionContext): Promise<void> => {
+      agentRunActive = false;
       fastMode.stop();
       pendingStart = undefined;
       pendingModelSelection = undefined;

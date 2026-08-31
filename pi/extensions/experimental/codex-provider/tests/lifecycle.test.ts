@@ -17,8 +17,10 @@ import {
   isInlineInstallationResolvable,
   isLifecycleInstallationResolvable,
   isSupportedLifecycleModel,
+  latestTurnMessageRole,
   mergeRemoteCompactionFeatureHeader,
   parseFinalizedResponsesEnvelope,
+  resolveCheckpointPhase,
   resolvePreviousTurnTransition,
   shouldCompactFinalizedInput,
 } from "../lifecycle.js";
@@ -131,6 +133,96 @@ describe("observability lifecycle", () => {
 });
 
 describe("lifecycle source and checkpoint construction", () => {
+  it.each([
+    {
+      carrier: "lifecycle",
+      expected: "overflow-retry",
+      latestMessageRole: "toolResult",
+      reason: "overflow",
+      runContinues: false,
+      willRetry: true,
+    },
+    {
+      carrier: "lifecycle",
+      expected: "mid-turn",
+      latestMessageRole: "toolResult",
+      reason: "threshold",
+      runContinues: true,
+      willRetry: false,
+    },
+    {
+      carrier: "lifecycle",
+      expected: "standalone",
+      latestMessageRole: "toolResult",
+      reason: "threshold",
+      runContinues: false,
+      willRetry: false,
+    },
+    {
+      carrier: "lifecycle",
+      expected: "standalone",
+      latestMessageRole: "toolResult",
+      reason: "manual",
+      runContinues: true,
+      willRetry: false,
+    },
+    {
+      carrier: "lifecycle",
+      expected: "standalone",
+      latestMessageRole: "toolResult",
+      reason: "overflow",
+      runContinues: true,
+      willRetry: false,
+    },
+    {
+      carrier: "inline",
+      expected: "mid-turn",
+      latestMessageRole: "toolResult",
+      reason: "threshold",
+      runContinues: true,
+      willRetry: false,
+    },
+    {
+      carrier: "inline",
+      expected: "pre-sampling",
+      latestMessageRole: "user",
+      reason: "threshold",
+      runContinues: true,
+      willRetry: false,
+    },
+  ] as const)(
+    "classifies $carrier $reason with retry=$willRetry and continuation=$runContinues as $expected",
+    ({ expected, ...options }) => {
+      expect(resolveCheckpointPhase(options)).toBe(expected);
+    },
+  );
+
+  it("keeps a tool-result boundary when a deferred custom message follows it", () => {
+    const toolResult = entry("tool-result", {
+      message: {
+        content: [{ text: "result", type: "text" }],
+        isError: false,
+        role: "toolResult",
+        timestamp: 1,
+        toolCallId: "call",
+        toolName: "read",
+      },
+      type: "message",
+    });
+    const customMessage = entry(
+      "custom-message",
+      {
+        content: "context note",
+        customType: "test",
+        display: false,
+        type: "custom_message",
+      },
+      "tool-result",
+    );
+
+    expect(latestTurnMessageRole([toolResult, customMessage])).toBe("toolResult");
+  });
+
   it("uses full active branch history rather than Pi's summary subset", () => {
     const branch = [
       entry("user-old", {

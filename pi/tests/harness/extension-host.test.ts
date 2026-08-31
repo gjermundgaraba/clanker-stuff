@@ -57,7 +57,9 @@ const setupHost = () =>
       ctx.ui.setWidget("input", [event.text]);
       if (event.text === "custom") {
         const result = await ctx.ui.custom<string>((_tui, _theme, _keybindings, done) => {
-          done("from-done");
+          setTimeout(() => {
+            done("from-done");
+          }, 0);
           return {
             invalidate() {
               /* noop */
@@ -430,6 +432,30 @@ describe("extension-host harness", () => {
       text: "custom:from-done",
     });
     expect(customUi.getLastRender()).toContain("custom-flow");
+  });
+
+  it("does not mount a custom component after synchronous completion", async () => {
+    const onComponent = vi.fn();
+    const onHandle = vi.fn();
+    const customUi = createCustomUiDriver({
+      captureRender: "after",
+      onComponent,
+    });
+
+    await customUi.custom(
+      (_tui, _theme, _keybindings, done) => {
+        done(null);
+        return {
+          invalidate() {},
+          render: () => ["closed"],
+        };
+      },
+      { onHandle, overlay: true },
+    );
+
+    expect(onComponent).not.toHaveBeenCalled();
+    expect(onHandle).not.toHaveBeenCalled();
+    expect(customUi.getLastRender()).toBeUndefined();
   });
 
   it("supports terminal input listeners", async () => {
