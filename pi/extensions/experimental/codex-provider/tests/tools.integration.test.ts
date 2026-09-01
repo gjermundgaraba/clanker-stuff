@@ -5,7 +5,7 @@ import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import toolsExtension from "../../../tools/index.js";
+import toolsExtension from "../../tools/index.js";
 import codexProviderExtension from "../index.js";
 import { createRealCodexSession } from "./agent-session.js";
 import { createToolsModel } from "./fixtures.js";

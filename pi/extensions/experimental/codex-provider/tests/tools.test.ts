@@ -6,7 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
-import toolsExtension from "../../../tools/index.js";
+import toolsExtension from "../../tools/index.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 

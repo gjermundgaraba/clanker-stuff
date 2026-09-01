@@ -1,0 +1,57 @@
+{
+  "name": "@clanker-stuff/tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adapts pi's coding tools to model-native interfaces and adds /tools for choosing active tools.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/tools#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/experimental/tools"
+  },
+  "files": [
+    "index.ts",
+    "operations.ts",
+    "ownership.ts",
+    "path.ts",
+    "picker.ts",
+    "runtime.ts",
+    "selection.ts",
+    "profiles",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/tool-owner-protocol": "workspace:^"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

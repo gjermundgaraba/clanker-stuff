@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const SOURCE_DIRECTORY = path.join(ROOT, "pi/extensions/plannotator");
+const SOURCE_DIRECTORY = path.join(ROOT, "pi/extensions/experimental/plannotator");
 const FILES = ["review-launcher.ts", "cli.ts"];
 const OUTPUT_DIRECTORIES = [
   "claude/plugins/plannotator/skills/plannotator-review/scripts",

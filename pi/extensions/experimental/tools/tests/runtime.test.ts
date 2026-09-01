@@ -1,0 +1,201 @@
+import { describe, expect, it } from "vite-plus/test";
+
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import extension from "../index.js";
+import { createModel } from "./fixtures.js";
+
+const profileCases = [
+  {
+    id: "claude-sonnet-5",
+    names: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+  },
+  {
+    id: "grok-build-0.1",
+    names: ["run_terminal_cmd", "read_file", "search_replace", "grep", "list_dir"],
+  },
+  {
+    id: "glm-5.2",
+    names: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+  },
+  {
+    id: "kimi-k3",
+    names: ["Read", "ReadMediaFile", "Write", "Edit", "Grep", "Glob", "Bash"],
+  },
+] as const;
+
+describe("native harness routing", () => {
+  it.each(profileCases)("activates $id", async (profile) => {
+    const host = createExtensionHost(extension, {
+      activeTools: ["read", "bash", "ask_question"],
+      allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
+      externalTools: ["ask_question"],
+      model: createModel(profile.id),
+    });
+
+    await host.emitSessionStart();
+
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...profile.names]);
+    expect([...host.getRegisteredTools().keys()]).toStrictEqual(profile.names);
+    for (const tool of host.getRegisteredTools().values()) {
+      expect(tool.definition.parameters).toHaveProperty("additionalProperties", false);
+      expect(tool.definition.parameters).not.toHaveProperty("properties.run_in_background");
+      expect(tool.definition.parameters).not.toHaveProperty("properties.is_background");
+    }
+  });
+
+  it.each(["deepseek-v4-pro", "grok-4.5", "grok-4.6"])(
+    "uses pi tools directly for unsupported model %s",
+    async (id) => {
+      const activeTools = ["read", "bash", "ask_question"];
+      const host = createExtensionHost(extension, {
+        activeTools,
+        allTools: [...activeTools, "edit", "write", "grep", "find", "ls"],
+        externalTools: ["ask_question"],
+        model: createModel(id),
+      });
+
+      await host.emitSessionStart();
+
+      expect(host.getActiveTools()).toStrictEqual(activeTools);
+      expect(host.getRegisteredTools().size).toBe(0);
+    },
+  );
+
+  it.each([
+    ["claude-opus-5", "Bash", "run_in_background"],
+    ["grok-build-0.1", "run_terminal_cmd", "is_background"],
+    ["kimi-k3", "Bash", "run_in_background"],
+  ])("removes legacy %s background arguments", async (id, name, legacyKey) => {
+    const model = createModel(id);
+    const host = createExtensionHost(extension, { model });
+    await host.emitSessionStart();
+    const definition = host.getRegisteredTools().get(name)?.definition;
+
+    expect(
+      definition?.prepareArguments?.({
+        command: "true",
+        description: "check",
+        [legacyKey]: true,
+      }),
+    ).toStrictEqual({ command: "true", description: "check" });
+  });
+
+  it("replaces colliding definitions when the model changes", async () => {
+    const claude = createModel("claude-opus-5");
+    const host = createExtensionHost(extension, { model: claude });
+    await host.emitSessionStart();
+    const claudeRead = host.getRegisteredTools().get("Read")?.definition;
+    expect(claudeRead?.parameters).toHaveProperty("properties.file_path");
+
+    const kimi = createModel("kimi-k3");
+    const ctx = host.createContext({ model: kimi });
+    await host.emit(
+      "model_select",
+      {
+        model: kimi,
+        previousModel: claude,
+        source: "set",
+        type: "model_select",
+      },
+      ctx,
+    );
+
+    const kimiRead = host.getRegisteredTools().get("Read")?.definition;
+    expect(kimiRead).not.toBe(claudeRead);
+    expect(kimiRead?.parameters).toHaveProperty("properties.path");
+    expect(kimiRead?.parameters).not.toHaveProperty("properties.file_path");
+    expect(host.getActiveTools()).toStrictEqual([
+      "Read",
+      "ReadMediaFile",
+      "Write",
+      "Edit",
+      "Grep",
+      "Glob",
+      "Bash",
+    ]);
+  });
+
+  it("preserves tool choices across model changes", async () => {
+    const claude = createModel("claude-opus-5");
+    const host = createExtensionHost(extension, {
+      activeTools: ["read", "ask_question"],
+      allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
+      externalTools: ["ask_question"],
+      model: claude,
+    });
+    await host.emitSessionStart();
+    host.setActiveTools(host.getActiveTools().filter((name) => name !== "Read"));
+
+    const kimi = createModel("kimi-k3");
+    await host.emit(
+      "model_select",
+      {
+        model: kimi,
+        previousModel: claude,
+        source: "set",
+        type: "model_select",
+      },
+      host.createContext({ model: kimi }),
+    );
+
+    expect(host.getActiveTools()).not.toContain("Read");
+    expect(host.getActiveTools()).toContain("ReadMediaFile");
+    expect(host.getActiveTools()).toContain("ask_question");
+  });
+
+  it("restores a generic definition after a native-name collision", async () => {
+    const grok = createModel("grok-build-0.1");
+    const host = createExtensionHost(extension, {
+      activeTools: ["grep"],
+      allTools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+      model: grok,
+    });
+    await host.emitSessionStart();
+    expect(host.getRegisteredTools().get("grep")?.definition.parameters).toHaveProperty(
+      "properties.-i",
+    );
+
+    const deepseek = createModel("deepseek-v4-pro");
+    await host.emit(
+      "model_select",
+      {
+        model: deepseek,
+        previousModel: grok,
+        source: "set",
+        type: "model_select",
+      },
+      host.createContext({ model: deepseek }),
+    );
+
+    const restored = host.getRegisteredTools().get("grep")?.definition;
+    expect(restored?.parameters).toHaveProperty("properties.ignoreCase");
+    expect(restored?.parameters).not.toHaveProperty("properties.-i");
+    expect(host.getActiveTools()).toStrictEqual(["grep"]);
+  });
+
+  it("restores the original generic selection after an adapted model", async () => {
+    const claude = createModel("claude-fable-5");
+    const host = createExtensionHost(extension, {
+      activeTools: ["read", "powershell", "ask_question"],
+      allTools: ["read", "bash", "edit", "write", "powershell", "ask_question"],
+      externalTools: ["ask_question"],
+      model: claude,
+    });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).not.toContain("powershell");
+
+    const deepseek = createModel("deepseek-v4-flash");
+    await host.emit(
+      "model_select",
+      {
+        model: deepseek,
+        previousModel: claude,
+        source: "set",
+        type: "model_select",
+      },
+      host.createContext({ model: deepseek }),
+    );
+
+    expect(host.getActiveTools()).toStrictEqual(["read", "powershell", "ask_question"]);
+  });
+});
