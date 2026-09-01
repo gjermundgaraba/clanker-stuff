@@ -106,6 +106,55 @@ const RemoteLiteImageSchema = Type.Object({
 });
 const EndTurnResponseSchema = Type.Object({ end_turn: Type.Boolean() });
 const WebSocketMessageSchema = Type.Object({ data: Type.Unknown() });
+const ReasoningTextSchema = Type.Object({
+  text: Type.String(),
+  type: Type.Literal("reasoning_text"),
+});
+const SummaryTextSchema = Type.Object({
+  text: Type.String(),
+  type: Type.Literal("summary_text"),
+});
+const OutputTextSchema = Type.Object({
+  text: Type.String(),
+  type: Type.Literal("output_text"),
+});
+const ContinuationOutputItemSchema = Type.Union([
+  Type.Object({
+    content: Type.Optional(Type.Array(ReasoningTextSchema)),
+    id: Type.String(),
+    status: Type.Optional(Type.Literal("completed")),
+    summary: Type.Array(SummaryTextSchema),
+    type: Type.Literal("reasoning"),
+  }),
+  Type.Object({
+    content: Type.Array(OutputTextSchema, { maxItems: 1, minItems: 1 }),
+    id: Type.String(),
+    phase: Type.Optional(
+      Type.Union([Type.Literal("commentary"), Type.Literal("final_answer"), Type.Null()]),
+    ),
+    role: Type.Literal("assistant"),
+    status: Type.Optional(Type.Literal("completed")),
+    type: Type.Literal("message"),
+  }),
+  Type.Object({
+    arguments: Type.String(),
+    call_id: Type.String(),
+    id: Type.String(),
+    name: Type.String(),
+    namespace: Type.Optional(Type.String()),
+    status: Type.Optional(Type.Literal("completed")),
+    type: Type.Literal("function_call"),
+  }),
+  Type.Object({
+    call_id: Type.String(),
+    id: Type.String(),
+    input: Type.String(),
+    name: Type.String(),
+    namespace: Type.Optional(Type.String()),
+    status: Type.Optional(Type.Literal("completed")),
+    type: Type.Literal("custom_tool_call"),
+  }),
+]);
 
 interface RequestBody extends JsonRecord {
   client_metadata?: Record<string, string>;
@@ -131,9 +180,12 @@ type OutboundRequestBody = RequestBody | TransformedRequestBody;
 
 interface ResponseCapture {
   completed: boolean;
+  continuationBlocked?: boolean;
   outputItems: ResponsesInputItem[];
   responseId?: string;
   serviceTier?: string;
+  socket?: WebSocketLike;
+  terminalOutput?: WireValue[];
   usage?: Usage;
 }
 
@@ -720,6 +772,115 @@ const equalContinuationValue = (value: WireValue) => {
   return serialized === undefined ? undefined : canonicalJson(JSON.parse(serialized));
 };
 
+const parseLosslessJsonRecord = (value: string): JsonRecord | undefined => {
+  let lossyNumber = false;
+  let parsed: WireValue;
+  try {
+    parsed = JSON.parse(
+      value,
+      (_key: string, nested: WireValue, context?: { source?: string }): WireValue => {
+        const number = Number(context?.source);
+        if (
+          Object.is(nested, number) &&
+          (!Number.isFinite(number) ||
+            (Number.isInteger(number) && !Number.isSafeInteger(number)) ||
+            context?.source !== JSON.stringify(number))
+        ) {
+          lossyNumber = true;
+        }
+        return nested;
+      },
+    );
+  } catch {
+    return undefined;
+  }
+  return !lossyNumber && isRecord(parsed) ? parsed : undefined;
+};
+
+const normalizedContinuationOutputItem = (value: WireValue): ResponsesInputItem | undefined => {
+  if (!Value.Check(ContinuationOutputItemSchema, value)) {
+    return undefined;
+  }
+  if (value.type === "reasoning") {
+    return cloneJson(Value.Parse(JsonRecordSchema, value));
+  }
+  if (value.type === "message") {
+    const [content] = value.content;
+    if (content === undefined) {
+      return undefined;
+    }
+    return {
+      content: [{ annotations: [], text: content.text, type: "output_text" }],
+      id: value.id,
+      phase: value.phase ?? undefined,
+      role: "assistant",
+      status: "completed",
+      type: "message",
+    };
+  }
+  if (value.type === "function_call") {
+    const argumentsValue = parseLosslessJsonRecord(value.arguments);
+    if (argumentsValue === undefined) {
+      return undefined;
+    }
+    return {
+      arguments: JSON.stringify(argumentsValue),
+      call_id: value.call_id,
+      id: value.id,
+      name: value.name,
+      namespace: value.namespace,
+      type: "function_call",
+    };
+  }
+  return {
+    call_id: value.call_id,
+    id: value.id,
+    input: value.input,
+    name: value.name,
+    namespace: value.namespace,
+    type: "custom_tool_call",
+  };
+};
+
+const continuationOutputMatches = (
+  outputItems: readonly WireValue[],
+  responseItems: readonly ResponsesInputItem[],
+  terminalOutput?: readonly WireValue[],
+) => {
+  const matchesProjection = (items: readonly WireValue[]) => {
+    const normalized: ResponsesInputItem[] = [];
+    for (const item of items) {
+      const projected = normalizedContinuationOutputItem(item);
+      if (projected === undefined) {
+        return false;
+      }
+      normalized.push(projected);
+    }
+    return equalContinuationValue(normalized) === equalContinuationValue(responseItems);
+  };
+  if (terminalOutput === undefined) {
+    return matchesProjection(outputItems);
+  }
+  const enrichedOutputItems = outputItems.map((item, index) => {
+    const terminalItem = terminalOutput[index];
+    if (
+      isRecord(item) &&
+      item.type === "reasoning" &&
+      isRecord(terminalItem) &&
+      terminalItem.type === "reasoning" &&
+      item.id === terminalItem.id &&
+      (!Value.Check(StringValueSchema, item.encrypted_content) ||
+        item.encrypted_content.length === 0) &&
+      Value.Check(StringValueSchema, terminalItem.encrypted_content) &&
+      terminalItem.encrypted_content.length > 0
+    ) {
+      return { ...item, encrypted_content: terminalItem.encrypted_content };
+    }
+    return item;
+  });
+  return matchesProjection(enrichedOutputItems) && matchesProjection(terminalOutput);
+};
+
 const stableRequestValue = (value: JsonRecord) => {
   const ignored = new Set(["client_metadata", "input", "previous_response_id", "stream_options"]);
   return Object.fromEntries(Object.entries(value).filter(([key]) => !ignored.has(key)));
@@ -918,11 +1079,15 @@ const toPiResponseStreamEvent = (
 };
 
 const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
-  if (
-    event.type === "response.output_item.done" &&
-    Value.Check(ResponsesInputItemSchema, event.item)
-  ) {
-    capture.outputItems.push(cloneJson(Value.Parse(ResponsesInputItemSchema, event.item)));
+  if (event.type === "response.output_item.done") {
+    if (!Value.Check(ResponsesInputItemSchema, event.item)) {
+      capture.continuationBlocked = true;
+    } else {
+      capture.outputItems.push(cloneJson(Value.Parse(ResponsesInputItemSchema, event.item)));
+      if (!Value.Check(ContinuationOutputItemSchema, event.item)) {
+        capture.continuationBlocked = true;
+      }
+    }
   }
   if (isTerminalResponseEvent(event)) {
     const response = isRecord(event.response) ? event.response : undefined;
@@ -933,6 +1098,17 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
       capture.serviceTier = response.service_tier;
     }
     capture.completed = event.type !== "response.incomplete" && response?.status !== "incomplete";
+    if (response?.output !== undefined) {
+      if (
+        !Array.isArray(response.output) ||
+        response.output.length !== capture.outputItems.length ||
+        response.output.some((item) => !Value.Check(ContinuationOutputItemSchema, item))
+      ) {
+        capture.continuationBlocked = true;
+      } else {
+        capture.terminalOutput = cloneJson(response.output);
+      }
+    }
     const rawUsage = isRecord(response?.usage) ? response.usage : undefined;
     if (rawUsage) {
       const details = isRecord(rawUsage.input_tokens_details)
@@ -1642,9 +1818,7 @@ const websocketEvents = async function* websocketEvents(
               previous_response_id: session.continuation.responseId,
             }
           : fullBody;
-      if (delta === undefined) {
-        session.continuation = undefined;
-      }
+      session.continuation = undefined;
       let emitted = false;
       let dispatchFailed = false;
       const attempt = generate
@@ -1703,14 +1877,7 @@ const websocketEvents = async function* websocketEvents(
           captureEvent(capture, event);
           yield event;
         }
-        session.continuation =
-          capture.completed && capture.responseId !== undefined
-            ? {
-                request: cloneJson(fullBody),
-                responseId: capture.responseId,
-                responseItems: cloneJson(capture.outputItems),
-              }
-            : undefined;
+        capture.socket = capture.completed ? socket : undefined;
         keepSocket = capture.completed;
         finishInferenceAttempt(attempt, "none", "completed");
         return;
@@ -2308,6 +2475,40 @@ export const createCodexProviderRuntime = (
           serviceTier: requestServiceTier(body),
         });
         successfulOutput(output);
+        const cachedSocket = session.socket;
+        if (
+          capture.completed &&
+          capture.continuationBlocked !== true &&
+          capture.responseId !== undefined &&
+          capture.socket !== undefined &&
+          cachedSocket?.value === capture.socket &&
+          cachedSocket.busy === false &&
+          cachedSocket.value.readyState === 1
+        ) {
+          const responseItems = convertResponsesMessages(
+            model,
+            { messages: [output] },
+            ALLOWED_TOOL_CALL_PROVIDERS,
+            {
+              grammarToolInputProperties: built.grammarToolInputProperties,
+              includeSystemPrompt: false,
+            },
+          )
+            .filter(
+              (item) =>
+                item.type !== "function_call_output" && item.type !== "custom_tool_call_output",
+            )
+            .map((item) => ({ ...item }));
+          if (
+            continuationOutputMatches(capture.outputItems, responseItems, capture.terminalOutput)
+          ) {
+            session.continuation = {
+              request: cloneJson(body),
+              responseId: capture.responseId,
+              responseItems: cloneJson(responseItems),
+            };
+          }
+        }
         events.push({
           message: output,
           reason: output.stopReason,

@@ -1707,20 +1707,112 @@ describe("Codex provider", () => {
   });
 
   it("reuses sockets by route and sends only exact continuation deltas", async () => {
+    const reasoningItem = {
+      content: [{ text: "reasoning body", type: "reasoning_text" }],
+      encrypted_content: "encrypted-reasoning",
+      id: "rs_rich",
+      provider_reasoning_metadata: { retained: true },
+      status: "completed",
+      summary: [{ text: "reasoning summary", type: "summary_text" }],
+      type: "reasoning",
+    };
+    const functionItem = {
+      arguments: '{ "cell_id": "cell-1", "toString": null, "yield_time_ms": 1000 }',
+      call_id: "call_function",
+      id: "fc_function",
+      name: "wait",
+      provider_function_metadata: { omitted: true },
+      status: "completed",
+      type: "function_call",
+    };
+    const customItem = {
+      call_id: "call_custom",
+      id: "ctc_custom",
+      input: "console.log('rich')",
+      name: "exec",
+      provider_custom_metadata: { omitted: true },
+      status: "completed",
+      type: "custom_tool_call",
+    };
+    const messageItem = {
+      content: [
+        {
+          annotations: [{ label: "provider-only" }],
+          logprobs: [{ token: "answer" }],
+          text: "answer 1",
+          type: "output_text",
+        },
+      ],
+      id: "msg_rich",
+      phase: "final_answer",
+      provider_message_metadata: { omitted: true },
+      role: "assistant",
+      status: "completed",
+      type: "message",
+    };
+    const richOutput = [reasoningItem, functionItem, customItem, messageItem];
+    const doneOutput = [
+      {
+        ...reasoningItem,
+        encrypted_content: "",
+      },
+      functionItem,
+      customItem,
+      messageItem,
+    ];
+    const richResponseEvents = [
+      {
+        response: { id: "resp_ws_1", status: "in_progress" },
+        type: "response.created",
+      },
+      {
+        headers: { "x-codex-turn-state": "turn-state-1" },
+        type: "response.metadata",
+      },
+      ...doneOutput.map((item, output_index) => ({
+        item,
+        output_index,
+        type: "response.output_item.done",
+      })),
+      {
+        response: {
+          end_turn: false,
+          id: "resp_ws_1",
+          output: richOutput,
+          status: "completed",
+          usage: {
+            input_tokens: 8,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 2,
+            total_tokens: 10,
+          },
+        },
+        type: "response.done",
+      },
+    ];
+    const responseEventsWithoutTerminalOutput = (id: string, text: string) => {
+      const events: WireValue[] = responseEvents(id, text, false);
+      const terminal = wireRecord(events.at(-1));
+      const response = wireRecord(terminal.response);
+      delete response.output;
+      return [...events.slice(0, -1), { ...terminal, response }];
+    };
     const frames: WireRecord[] = [];
     const handshakeHints: string[] = [];
+    const sockets: MockWebSocket[] = [];
     const socketUrls: string[] = [];
     let closes = 0;
     let fastMode = false;
     let responseNumber = 0;
     class MockWebSocket {
-      readonly readyState = 1;
+      readyState = 1;
       private readonly listeners = new Map<string, Set<(event: WireValue) => void>>();
 
       constructor(
         url: string,
         protocols?: string | string[] | { headers?: Record<string, string> },
       ) {
+        sockets.push(this);
         socketUrls.push(url);
         if (Value.Check(HeadersInitSchema, protocols)) {
           handshakeHints.push(protocols.headers?.["x-codex-routing-hint"] ?? "");
@@ -1736,6 +1828,7 @@ describe("Codex provider", () => {
 
       close() {
         closes += 1;
+        this.readyState = 3;
         this.listeners.clear();
       }
 
@@ -1746,14 +1839,15 @@ describe("Codex provider", () => {
       send(data: string) {
         const frame = wireRecord(JSON.parse(data));
         frames.push(frame);
-        responseNumber += 1;
-        const id = `resp_ws_${responseNumber}`;
+        if (frame.generate !== false) {
+          responseNumber += 1;
+        }
         const events =
           frame.generate === false
             ? [
                 {
                   response: {
-                    id,
+                    id: "prewarm",
                     output: [],
                     status: "completed",
                     usage: {
@@ -1765,20 +1859,22 @@ describe("Codex provider", () => {
                   type: "response.done",
                 },
               ]
-            : [
-                ...(responseNumber === 2
-                  ? [
-                      {
-                        headers: { "x-codex-turn-state": "turn-state-1" },
-                        type: "response.metadata",
-                      },
-                    ]
-                  : []),
-                ...responseEvents(id, `answer ${responseNumber}`, false),
-              ];
+            : responseNumber === 1
+              ? richResponseEvents
+              : responseNumber === 4
+                ? responseEventsWithoutTerminalOutput(
+                    `resp_ws_${responseNumber}`,
+                    `answer ${responseNumber}`,
+                  )
+                : responseEvents(`resp_ws_${responseNumber}`, `answer ${responseNumber}`, false);
         for (const event of events) {
           queueMicrotask(() => this.emit("message", { data: JSON.stringify(event) }));
         }
+      }
+
+      retire() {
+        this.readyState = 3;
+        this.emit("close", {});
       }
 
       private emit(type: string, event: WireValue) {
@@ -1789,14 +1885,24 @@ describe("Codex provider", () => {
     }
     vi.stubGlobal("WebSocket", MockWebSocket);
     const runtime = createCodexProviderRuntime(defaultObservability, () => fastMode);
-    runtime.beginTurn("session-ws");
+    const sessionId = "session-ws";
+    const socketModel = {
+      ...FAST_MODEL,
+      compat: { supportsOpenAIGrammarTools: true },
+    };
+    const socketContext = (messages: Context["messages"]): Context => ({
+      ...context(messages),
+      tools: CODE_MODE_TOOLS,
+    });
+    let messages: Context["messages"] = [{ content: "one", role: "user", timestamp: 1 }];
+    runtime.beginTurn(sessionId);
     const first = await runtime.provider
-      .streamSimple(FAST_MODEL, context([{ content: "one", role: "user", timestamp: 1 }]), {
+      .streamSimple(socketModel, socketContext(messages), {
         apiKey: SPIKE_API_KEY,
-        sessionId: "session-ws",
+        sessionId,
       })
       .result();
-    expect(defaultObservability.list("session-ws")[0]?.data).toMatchObject({
+    expect(defaultObservability.list(sessionId)[0]?.data).toMatchObject({
       transport: {
         inferenceDispatches: 1,
         prewarmAttempts: 1,
@@ -1805,88 +1911,162 @@ describe("Codex provider", () => {
         websocketHandshakeFailures: 0,
       },
     });
+    const functionCall = first.content.find(
+      (block) => block.type === "toolCall" && block.name === functionItem.name,
+    );
+    const customCall = first.content.find(
+      (block) => block.type === "toolCall" && block.name === customItem.name,
+    );
+    if (functionCall?.type !== "toolCall" || customCall?.type !== "toolCall") {
+      throw new Error("Rich response did not produce both tool calls");
+    }
+    messages = [
+      ...messages,
+      assistantMessage(first),
+      {
+        content: [{ text: "function result", type: "text" }],
+        isError: false,
+        role: "toolResult",
+        timestamp: 2,
+        toolCallId: functionCall.id,
+        toolName: functionCall.name,
+      },
+      {
+        content: [{ text: "custom result", type: "text" }],
+        isError: false,
+        role: "toolResult",
+        timestamp: 3,
+        toolCallId: customCall.id,
+        toolName: customCall.name,
+      },
+      { content: "two", role: "user", timestamp: 4 },
+    ];
     const second = await runtime.provider
-      .streamSimple(
-        FAST_MODEL,
-        context([
-          { content: "one", role: "user", timestamp: 1 },
-          assistantMessage(first),
-          { content: "two", role: "user", timestamp: 2 },
-        ]),
-        { apiKey: SPIKE_API_KEY, sessionId: "session-ws" },
-      )
+      .streamSimple(socketModel, socketContext(messages), { apiKey: SPIKE_API_KEY, sessionId })
       .result();
-    runtime.endTurn("session-ws");
-    fastMode = true;
-    runtime.beginTurn("session-ws");
+    const socketCountBeforeClose = sockets.length;
+    sockets[0]?.retire();
+    messages = [
+      ...messages,
+      assistantMessage(second),
+      { content: "three", role: "user", timestamp: 5 },
+    ];
+    let afterClosePayload: WireValue = null;
     const third = await runtime.provider
-      .streamSimple(
-        FAST_MODEL,
-        context([
-          { content: "one", role: "user", timestamp: 1 },
-          assistantMessage(first),
-          { content: "two", role: "user", timestamp: 2 },
-          assistantMessage(second),
-          { content: "three", role: "user", timestamp: 3 },
-        ]),
-        { apiKey: SPIKE_API_KEY, sessionId: "session-ws" },
-      )
+      .streamSimple(socketModel, socketContext(messages), {
+        apiKey: SPIKE_API_KEY,
+        onPayload: (payload) => {
+          afterClosePayload = structuredClone(payload);
+        },
+        sessionId,
+      })
       .result();
+    runtime.endTurn(sessionId);
+    fastMode = true;
+    runtime.beginTurn(sessionId);
+    messages = [
+      ...messages,
+      assistantMessage(third),
+      { content: "four", role: "user", timestamp: 6 },
+    ];
     const fourth = await runtime.provider
-      .streamSimple(
-        FAST_MODEL,
-        context([
-          { content: "one", role: "user", timestamp: 1 },
-          assistantMessage(first),
-          { content: "two", role: "user", timestamp: 2 },
-          assistantMessage(second),
-          { content: "three", role: "user", timestamp: 3 },
-          assistantMessage(third),
-          { content: "four", role: "user", timestamp: 4 },
-        ]),
-        { apiKey: SPIKE_API_KEY, sessionId: "session-ws" },
-      )
+      .streamSimple(socketModel, socketContext(messages), { apiKey: SPIKE_API_KEY, sessionId })
+      .result();
+    messages = [
+      ...messages,
+      assistantMessage(fourth),
+      { content: "five", role: "user", timestamp: 7 },
+    ];
+    const fifth = await runtime.provider
+      .streamSimple(socketModel, socketContext(messages), { apiKey: SPIKE_API_KEY, sessionId })
       .result();
     const otherApiKey = apiKeyForAccount("account-other");
-    const fifth = await runtime.provider
-      .streamSimple(
-        FAST_MODEL,
-        context([
-          { content: "one", role: "user", timestamp: 1 },
-          assistantMessage(first),
-          { content: "two", role: "user", timestamp: 2 },
-          assistantMessage(second),
-          { content: "three", role: "user", timestamp: 3 },
-          assistantMessage(third),
-          { content: "four", role: "user", timestamp: 4 },
-          assistantMessage(fourth),
-          { content: "five", role: "user", timestamp: 5 },
-        ]),
-        { apiKey: otherApiKey, sessionId: "session-ws" },
-      )
+    messages = [
+      ...messages,
+      assistantMessage(fifth),
+      { content: "six", role: "user", timestamp: 8 },
+    ];
+    const sixth = await runtime.provider
+      .streamSimple(socketModel, socketContext(messages), { apiKey: otherApiKey, sessionId })
       .result();
+    messages = [
+      ...messages,
+      assistantMessage(sixth),
+      { content: "seven", role: "user", timestamp: 9 },
+    ];
     await runtime.provider
       .streamSimple(
-        { ...FAST_MODEL, baseUrl: "https://example.test/backend-api" },
-        context([
-          { content: "one", role: "user", timestamp: 1 },
-          assistantMessage(first),
-          { content: "two", role: "user", timestamp: 2 },
-          assistantMessage(second),
-          { content: "three", role: "user", timestamp: 3 },
-          assistantMessage(third),
-          { content: "four", role: "user", timestamp: 4 },
-          assistantMessage(fourth),
-          { content: "five", role: "user", timestamp: 5 },
-          assistantMessage(fifth),
-          { content: "six", role: "user", timestamp: 6 },
-        ]),
-        { apiKey: otherApiKey, sessionId: "session-ws" },
+        { ...socketModel, baseUrl: "https://example.test/backend-api" },
+        socketContext(messages),
+        { apiKey: otherApiKey, sessionId },
       )
       .result();
 
     const generated = frames.filter((frame) => frame.generate !== false);
     const prewarm = frames.find((frame) => frame.generate === false);
+    const requestBodyFromFrame = (frame: WireRecord) => {
+      const body = structuredClone(frame);
+      delete body.generate;
+      delete body.type;
+      const metadata = wireRecord(body.client_metadata);
+      delete metadata["x-codex-turn-state"];
+      delete metadata["x-codex-ws-stream-request-start-ms"];
+      body.client_metadata = metadata;
+      return body;
+    };
+    const deltaAfterRichOutput = generated[1];
+    const fullAfterClose = generated[2];
+    const simplifiedDelta = generated[4];
+    if (!deltaAfterRichOutput || !fullAfterClose || !simplifiedDelta) {
+      throw new Error("Expected continuation frames were not observed");
+    }
+    expect(deltaAfterRichOutput.input).toStrictEqual([
+      {
+        call_id: functionItem.call_id,
+        output: "function result",
+        type: "function_call_output",
+      },
+      {
+        call_id: customItem.call_id,
+        output: "custom result",
+        type: "custom_tool_call_output",
+      },
+      {
+        content: [{ text: "two", type: "input_text" }],
+        role: "user",
+      },
+    ]);
+    expect(simplifiedDelta.input).toStrictEqual([
+      {
+        content: [{ text: "five", type: "input_text" }],
+        role: "user",
+      },
+    ]);
+    const reconstructedItems = wireRecords(fullAfterClose.input);
+    const reconstructedReasoning = reconstructedItems.find(
+      (item) => item.type === "reasoning" && item.id === reasoningItem.id,
+    );
+    const reconstructedFunction = reconstructedItems.find(
+      (item) => item.call_id === functionItem.call_id,
+    );
+    const reconstructedMessage = reconstructedItems.find((item) => item.id === messageItem.id);
+    expect({
+      body: requestBodyFromFrame(fullAfterClose),
+      previousResponseId: fullAfterClose.previous_response_id,
+      reasoning: reconstructedReasoning,
+      normalizedFields: {
+        function: Object.keys(reconstructedFunction ?? {}).toSorted(),
+        message: Object.keys(reconstructedMessage ?? {}).toSorted(),
+      },
+    }).toStrictEqual({
+      body: wireRecord(JSON.parse(JSON.stringify(afterClosePayload))),
+      previousResponseId: undefined,
+      reasoning: reasoningItem,
+      normalizedFields: {
+        function: ["arguments", "call_id", "id", "name", "type"],
+        message: ["content", "id", "phase", "role", "status", "type"],
+      },
+    });
     expect({
       closes,
       endTurns: [first.endTurn, second.endTurn],
@@ -1896,30 +2076,263 @@ describe("Codex provider", () => {
       prewarmInput: prewarm?.input,
       requestCount: generated.length,
       requestKinds: frames.map(requestKind),
+      socketCountBeforeClose,
       socketUrls,
       turnStates: generated.map((frame) => wireRecord(frame.client_metadata)["x-codex-turn-state"]),
     }).toStrictEqual({
-      closes: 3,
+      closes: 4,
       endTurns: [false, false],
       handshakeHints: [
+        `model=${FAST_MODEL.id}`,
         `model=${FAST_MODEL.id}`,
         `model=${FAST_MODEL.id};tier=priority`,
         `model=${FAST_MODEL.id};tier=priority`,
         `model=${FAST_MODEL.id};tier=priority`,
       ],
-      inputLengths: [1, 1, 5, 1, 9, 11],
-      previousResponseIds: [undefined, "resp_ws_2", undefined, "resp_ws_4", undefined, undefined],
+      inputLengths: [1, 3, 10, 12, 1, 16, 18],
+      previousResponseIds: [
+        undefined,
+        "resp_ws_1",
+        undefined,
+        undefined,
+        "resp_ws_4",
+        undefined,
+        undefined,
+      ],
       prewarmInput: [],
-      requestCount: 6,
-      requestKinds: ["prewarm", "turn", "turn", "turn", "turn", "turn", "turn"],
+      requestCount: 7,
+      requestKinds: ["prewarm", "turn", "turn", "turn", "turn", "turn", "turn", "turn"],
+      socketCountBeforeClose: 1,
       socketUrls: [
+        "wss://phase-zero.invalid/backend-api/codex/responses",
         "wss://phase-zero.invalid/backend-api/codex/responses",
         "wss://phase-zero.invalid/backend-api/codex/responses",
         "wss://phase-zero.invalid/backend-api/codex/responses",
         "wss://example.test/backend-api/codex/responses",
       ],
-      turnStates: [undefined, "turn-state-1", undefined, undefined, undefined, undefined],
+      turnStates: [
+        undefined,
+        "turn-state-1",
+        "turn-state-1",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ],
     });
+  });
+
+  it.each([
+    {
+      expectedReconstruction: {
+        content: [{ annotations: [], text: "done text", type: "output_text" }],
+        id: "msg_projection",
+        role: "assistant",
+        status: "completed",
+        type: "message",
+      },
+      item: {
+        content: [{ text: "done text", type: "output_text" }],
+        id: "msg_projection",
+        role: "assistant",
+        status: "completed",
+        type: "message",
+      },
+      label: "conflicting terminal output",
+      sessionId: "session-terminal-projection",
+      terminalItem: {
+        content: [{ text: "terminal text", type: "output_text" }],
+        id: "msg_projection",
+        role: "assistant",
+        status: "completed",
+        type: "message",
+      },
+    },
+    {
+      expectedReconstruction: {
+        arguments: '{"overflow":null}',
+        call_id: "call_numeric",
+        id: "fc_numeric",
+        name: "numeric_tool",
+        type: "function_call",
+      },
+      item: {
+        arguments: '{"overflow":1e400}',
+        call_id: "call_numeric",
+        id: "fc_numeric",
+        name: "numeric_tool",
+        status: "completed",
+        type: "function_call",
+      },
+      label: "overflowing function numbers",
+      sessionId: "session-overflow-projection",
+    },
+    {
+      expectedReconstruction: {
+        arguments: '{"unsafe":9007199254740992}',
+        call_id: "call_numeric",
+        id: "fc_numeric",
+        name: "numeric_tool",
+        type: "function_call",
+      },
+      item: {
+        arguments: '{"unsafe":9007199254740993}',
+        call_id: "call_numeric",
+        id: "fc_numeric",
+        name: "numeric_tool",
+        status: "completed",
+        type: "function_call",
+      },
+      label: "unsafe function integers",
+      sessionId: "session-unsafe-projection",
+    },
+    {
+      expectedReconstruction: {
+        arguments: '{"input":"transformed input"}',
+        call_id: "call_transformed",
+        name: "transformed_custom",
+        type: "function_call",
+      },
+      item: {
+        call_id: "call_transformed",
+        id: "ctc_transformed",
+        input: "transformed input",
+        name: "transformed_custom",
+        status: "completed",
+        type: "custom_tool_call",
+      },
+      label: "unmapped custom tool",
+      sessionId: "session-custom-projection",
+    },
+    {
+      expectedReconstruction: undefined,
+      item: {
+        id: "search_unsupported",
+        query: "provider-only search",
+        status: "completed",
+        type: "web_search_call",
+      },
+      label: "unsupported output",
+      sessionId: "session-unsupported-projection",
+    },
+  ])("keeps the socket but sends a full request after $label", async (fixture) => {
+    const frames: WireRecord[] = [];
+    let connections = 0;
+    let generated = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        connect: (socket) => {
+          connections += 1;
+          socketEvent(socket, "open");
+        },
+        send: (socket, data) => {
+          const frame = wireRecord(JSON.parse(data));
+          frames.push(frame);
+          if (frame.generate === false) {
+            socketMessage(socket, {
+              response: {
+                id: "prewarm",
+                output: [],
+                status: "completed",
+                usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+              },
+              type: "response.done",
+            });
+            return;
+          }
+          generated += 1;
+          const events =
+            generated === 1
+              ? [
+                  {
+                    response: { id: "resp_projection", status: "in_progress" },
+                    type: "response.created",
+                  },
+                  {
+                    item: fixture.item,
+                    output_index: 0,
+                    type: "response.output_item.done",
+                  },
+                  {
+                    response: {
+                      id: "resp_projection",
+                      output: [fixture.terminalItem ?? fixture.item],
+                      status: "completed",
+                      usage: {
+                        input_tokens: 8,
+                        input_tokens_details: { cached_tokens: 0 },
+                        output_tokens: 2,
+                        total_tokens: 10,
+                      },
+                    },
+                    type: "response.done",
+                  },
+                ]
+              : responseEvents("resp_projection_followup", "followup");
+          for (const event of events) {
+            socketMessage(socket, event);
+          }
+        },
+      }),
+    );
+    const runtime = createCodexProviderRuntime();
+    const initial = { content: "one", role: "user" as const, timestamp: 1 };
+    const first = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([initial]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId: fixture.sessionId,
+      })
+      .result();
+    const messages: Context["messages"] = [initial, assistantMessage(first)];
+    const toolCall = first.content.find((block) => block.type === "toolCall");
+    if (toolCall?.type === "toolCall") {
+      messages.push({
+        content: [{ text: "tool result", type: "text" }],
+        isError: false,
+        role: "toolResult",
+        timestamp: 2,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+      });
+    }
+    messages.push({ content: "two", role: "user", timestamp: 3 });
+    let finalizedRequest: WireValue = null;
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, context(messages), {
+        apiKey: SPIKE_API_KEY,
+        onPayload: (payload) => {
+          finalizedRequest = structuredClone(payload);
+        },
+        sessionId: fixture.sessionId,
+      })
+      .result();
+
+    const generatedFrames = frames.filter((frame) => frame.generate !== false);
+    const followup = generatedFrames[1];
+    if (!followup) {
+      throw new Error("Projection fallback request was not observed");
+    }
+    const callId = fixture.item.call_id;
+    const reconstructed = wireRecords(followup.input).find(
+      (item) =>
+        (Value.Check(StringValueSchema, callId) && item.call_id === callId) ||
+        (item.id === fixture.item.id && item.type === fixture.item.type),
+    );
+    expect({
+      connections,
+      input: followup.input,
+      previousResponseId: followup.previous_response_id,
+      reconstructed,
+      requestCount: generatedFrames.length,
+    }).toStrictEqual({
+      connections: 1,
+      input: wireRecord(JSON.parse(JSON.stringify(finalizedRequest))).input,
+      previousResponseId: undefined,
+      reconstructed: fixture.expectedReconstruction,
+      requestCount: 2,
+    });
+    runtime.closeSession(fixture.sessionId);
   });
 
   it("falls back concurrent same-session work without closing the busy socket", async () => {
