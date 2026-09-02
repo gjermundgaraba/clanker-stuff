@@ -23,10 +23,12 @@ docker run --rm clanker-pi-evals:node26 sh -c \
       import { realpathSync, readFileSync } from \"node:fs\";
       import { execFileSync } from \"node:child_process\";
       import { fileURLToPath } from \"node:url\";
-      const manifest = JSON.parse(readFileSync(\"package.json\", \"utf8\"));
-      const expected = manifest.peerDependencies[
-        \"@earendil-works/pi-coding-agent\"
-      ];
+      const expected = JSON.parse(
+        readFileSync(
+          \"node_modules/@earendil-works/pi-coding-agent/package.json\",
+          \"utf8\",
+        ),
+      ).version;
       if (execFileSync(\"pi\", [\"--version\"], { encoding: \"utf8\" }).trim() !== expected) {
         throw new Error(\"pi CLI version does not match \" + expected);
       }
