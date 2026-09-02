@@ -4,6 +4,8 @@ Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, t
 
 > [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
 
+> [!NOTE] This is an unofficial extension that talks to the OpenAI Codex backend with your own ChatGPT sign-in. It is not affiliated with or endorsed by OpenAI.
+
 ## Compatibility goal
 
 Together with [`subagents`](../subagents), this package minimizes model-facing distribution shift from the native Codex CLI harness. Every model-facing surface these packages own—requests, tools, schemas, descriptions, results, ordering, transport, context, and lifecycle behavior—should match the pinned Codex implementation whenever Pi can execute that contract truthfully. See the [Codex source baseline](docs/codex-baseline.md) for the decision rule and documented boundaries.

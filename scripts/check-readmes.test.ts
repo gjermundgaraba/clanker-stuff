@@ -11,7 +11,7 @@ const PACKAGE_NAME = "@clanker-stuff/sample";
 const EXPERIMENTAL_DESCRIPTION = "Previews an unstable extension.";
 const EXPERIMENTAL_PACKAGE_NAME = "@clanker-stuff/preview";
 const EXPERIMENTAL_NOTICE =
-  "Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.";
+  "Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.";
 const tempDirs: string[] = [];
 
 const createFixture = (usage: string, finalNewline = true, experimental = false) => {

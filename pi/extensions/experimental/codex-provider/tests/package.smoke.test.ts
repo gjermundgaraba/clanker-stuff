@@ -142,7 +142,10 @@ describe("codex-provider package", () => {
     expect(entries).toStrictEqual(
       [
         "package/LICENSE",
+        "package/LICENSE.openai",
+        "package/NOTICE",
         "package/README.md",
+        "package/UPSTREAM",
         "package/checkpoint-marker.ts",
         "package/checkpoint.ts",
         "package/code-mode/LICENSE.howaboua",

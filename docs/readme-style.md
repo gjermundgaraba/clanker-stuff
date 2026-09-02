@@ -66,7 +66,7 @@ The root `README.md` should contain:
 
 1. The repository title and a one-paragraph description.
 2. A `Pi extensions` table with one row for every publishable package that declares `pi.extensions`.
-3. An `Experimental` section, present only while `pi/extensions/experimental/` contains extension packages, with one row per experimental package using the same table columns, followed by the fixed notice line: "Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice."
+3. An `Experimental` section, present only while `pi/extensions/experimental/` contains extension packages, with one row per experimental package using the same table columns, followed by the fixed notice line: "Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice."
 4. Links from package names to their package directories.
 5. Descriptions sourced from each package's `package.json`.
 6. A `Claude Code plugins` table linking each Claude plugin directory.

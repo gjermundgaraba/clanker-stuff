@@ -31,6 +31,9 @@ describe("subagents package", () => {
       .split("\n");
     expect(entries).toContain("package/keyed-queue.ts");
     expect(entries).toContain("package/docs/protocols.md");
+    expect(entries).toContain("package/LICENSE.openai");
+    expect(entries).toContain("package/NOTICE");
+    expect(entries).toContain("package/UPSTREAM");
     expect(
       entries.some(
         (entry) =>

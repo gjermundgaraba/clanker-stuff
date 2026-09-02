@@ -1,4 +1,4 @@
-// ponytail: provider-local copy while codex-provider is private; share only when two published extensions qualify.
+// ponytail: provider-local copy while codex-provider is unpublished; share only when two published extensions qualify.
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { access } from "node:fs/promises";

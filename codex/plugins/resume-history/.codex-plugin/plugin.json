@@ -3,7 +3,7 @@
   "version": "0.1.0+codex.20260807154209",
   "description": "Adds Codex's resume command to the invoking fish or zsh shell's history when a session ends.",
   "author": {
-    "name": "Clanker Stuff"
+    "name": "Gjermund Garaba"
   },
   "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/codex/plugins/resume-history#readme",
   "repository": "https://github.com/gjermundgaraba/clanker-stuff",
@@ -13,7 +13,7 @@
     "displayName": "Resume History",
     "shortDescription": "Save Codex resume commands in shell history.",
     "longDescription": "Adds the current Codex session's resume command to the invoking fish or zsh shell's history when the session ends.",
-    "developerName": "Clanker Stuff",
+    "developerName": "Gjermund Garaba",
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": ["Set up Codex resume history."]

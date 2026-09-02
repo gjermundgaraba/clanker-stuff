@@ -13,7 +13,7 @@ const PLUGIN_CATALOGS = [
   { directory: "codex/plugins", heading: "Codex plugins" },
 ];
 const EXPERIMENTAL_NOTICE =
-  "Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.";
+  "Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.";
 const CATALOG_ROW_PATTERN =
   /^\|\s*\[`(?<name>[^`]+)`\]\((?<target>[^)]+)\)\s*\|\s*(?<description>.*?)\s*\|$/gmu;
 

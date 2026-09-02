@@ -1,3 +1,4 @@
+// Mailbox and completion text in this file was adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
 import type { Api, Model } from "@earendil-works/pi-ai";
 
 import type { RoleConfig, SubagentsConfig } from "./config.js";

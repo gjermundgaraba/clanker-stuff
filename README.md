@@ -1,6 +1,6 @@
 # clanker stuff
 
-A personal collection of extensions and plugins for Pi, Claude Code, and Codex.
+A personal collection of extensions and plugins for Pi, Claude Code, and Codex. This is an independent project that is not affiliated with or endorsed by OpenAI, Anthropic, or the Pi maintainers.
 
 ## Pi extensions
 
@@ -25,9 +25,8 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex.
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)           | Adds durable hierarchical subagents with independent pi sessions and explicit communication tools.                                   |
 | [`@clanker-stuff/tools`](pi/extensions/experimental/tools)                   | Adapts pi's coding tools to model-native interfaces and adds /tools for choosing active tools.                                       |
 | [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                   | Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.                               |
-| [`@clanker-stuff/voice`](pi/extensions/experimental/voice)                   | Adds Codex-style realtime voice conversations backed by the current pi session.                                                      |
 
-Experimental extensions are private, not stable daily drivers; they may change incompatibly or be deleted without notice.
+Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.
 
 ## Claude Code plugins
 
@@ -49,4 +48,4 @@ Requires Vite+ and Node.js 26 or newer. Run `vp install --frozen-lockfile`, then
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Vendored and derived third-party code is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

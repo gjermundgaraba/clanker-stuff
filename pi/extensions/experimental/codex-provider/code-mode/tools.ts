@@ -1,3 +1,4 @@
+// Tool descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";

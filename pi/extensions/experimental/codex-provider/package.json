@@ -44,7 +44,10 @@
     "docs/evaluation.md",
     "docs/live-canary.md",
     "docs/local-deployment.md",
-    "docs/ultra.md"
+    "docs/ultra.md",
+    "LICENSE.openai",
+    "NOTICE",
+    "UPSTREAM"
   ],
   "type": "module",
   "imports": {

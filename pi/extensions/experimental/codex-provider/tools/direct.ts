@@ -1,3 +1,4 @@
+// Tool schemas and descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ../NOTICE and ../UPSTREAM.
 import { open, readFile, stat } from "node:fs/promises";
 
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";

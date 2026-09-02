@@ -36,7 +36,10 @@
     "v1",
     "v2",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "LICENSE.openai",
+    "NOTICE",
+    "UPSTREAM"
   ],
   "type": "module",
   "exports": "./index.ts",

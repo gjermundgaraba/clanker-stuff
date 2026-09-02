@@ -1,0 +1,8 @@
+OpenAI Codex
+Copyright 2025 OpenAI
+
+This package includes tool names, schemas, descriptions, request and error
+text, and protocol behavior derived from OpenAI Codex
+(https://github.com/openai/codex), licensed under the Apache License 2.0.
+See LICENSE.openai for the license text and UPSTREAM for the pinned revision.
+The Code Mode adapters under code-mode/ carry their own notices.
