@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/subagents",
   "version": "0.1.0",
   "private": true,
-  "description": "Adds durable hierarchical subagents with independent pi sessions and explicit communication tools.",
+  "description": "Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models.",
   "keywords": [
     "pi-package"
   ],
@@ -27,6 +27,7 @@
     "manager.ts",
     "model-contract.ts",
     "nicknames.ts",
+    "orchestrate.ts",
     "permanent-error.ts",
     "runtime.ts",
     "selection.ts",
@@ -35,6 +36,7 @@
     "transcript.ts",
     "v1",
     "v2",
+    "vendor",
     "README.md",
     "LICENSE",
     "LICENSE.openai",

@@ -19,6 +19,7 @@ import { registerContractResponder } from "./contract.js";
 import type { NestedToolContract } from "./contract.js";
 import { TreeCoordinator } from "./coordinator.js";
 import { NicknamePool } from "./nicknames.js";
+import { discoverOrchestrateSkill } from "./orchestrate.js";
 import { resolveProtocol } from "./selection.js";
 import type { Protocol } from "./selection.js";
 import { createControlStore, freshSnapshot, rootBinding } from "./snapshot.js";
@@ -366,6 +367,17 @@ export class SubagentManager {
         isError: true,
       };
     }
+  }
+
+  discoverResources(ctx: ExtensionContext): { skillPaths: string[] } | undefined {
+    const phase = this.#sessionPhase;
+    if (
+      phase.kind === "awaiting-session" ||
+      phase.sessionId !== ctx.sessionManager.getSessionId()
+    ) {
+      return undefined;
+    }
+    return discoverOrchestrateSkill(ctx, phase.protocol);
   }
 
   describe(): string {

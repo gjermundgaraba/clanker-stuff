@@ -1,6 +1,6 @@
 # subagents
 
-Adds durable hierarchical subagents with independent pi sessions and explicit communication tools.
+Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models.
 
 > [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
 
@@ -16,6 +16,7 @@ Load `pi/extensions/experimental/subagents/index.ts` as a local extension; npm i
 
 - Models get either the UUID-based V1 tools or hierarchical V2 tools; run `/agents` to inspect the active durable tree.
 - Delegation defaults to explicit requests and each child runs an independent Pi session in the same trusted project boundary.
+- With OpenAI Codex active, the vendored `orchestrate` skill is discovered automatically to guide substantial delegation.
 
 ## Configuration
 

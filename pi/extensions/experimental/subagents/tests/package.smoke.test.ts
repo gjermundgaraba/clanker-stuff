@@ -34,6 +34,9 @@ describe("subagents package", () => {
     expect(entries).toContain("package/LICENSE.openai");
     expect(entries).toContain("package/NOTICE");
     expect(entries).toContain("package/UPSTREAM");
+    expect(entries).toContain("package/vendor/orchestrate/LICENSE");
+    expect(entries).toContain("package/vendor/orchestrate/SKILL.md");
+    expect(entries).toContain("package/vendor/orchestrate/UPSTREAM");
     expect(
       entries.some(
         (entry) =>

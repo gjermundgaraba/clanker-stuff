@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/dollah-skills",
   "version": "0.1.0",
   "private": false,
-  "description": "Adds Codex-style skill mentions and V1/V2 orchestration guidance for OpenAI Codex.",
+  "description": "Adds Codex-style skill mentions that complete, highlight, and inject loaded skills into the prompt.",
   "keywords": [
     "pi-package"
   ],
@@ -20,8 +20,6 @@
     "editor.ts",
     "index.ts",
     "mentions.ts",
-    "orchestrate.ts",
-    "vendor",
     "README.md",
     "LICENSE"
   ],

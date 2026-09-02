@@ -53,7 +53,7 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
     );
   }
   const experimentalSection = experimental
-    ? `\n\n## Experimental\n\n| Extension | Description |\n| --- | --- |\n| [\`${EXPERIMENTAL_PACKAGE_NAME}\`](pi/extensions/experimental/preview) | ${EXPERIMENTAL_DESCRIPTION} |\n\n${EXPERIMENTAL_NOTICE}`
+    ? `\n\n## Experimental pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${EXPERIMENTAL_PACKAGE_NAME}\`](pi/extensions/experimental/preview) | ${EXPERIMENTAL_DESCRIPTION} |\n\n${EXPERIMENTAL_NOTICE}`
     : "";
   writeFileSync(
     path.join(root, "README.md"),
@@ -135,7 +135,7 @@ describe("README validation", () => {
     writeFileSync(
       readmePath,
       readFileSync(readmePath, "utf-8").replace(
-        /\n\n## Experimental[\s\S]*?\n\n## Claude Code plugins/u,
+        /\n\n## Experimental pi extensions[\s\S]*?\n\n## Claude Code plugins/u,
         "\n\n## Claude Code plugins",
       ),
     );
@@ -143,6 +143,8 @@ describe("README validation", () => {
     const result = validateFixture(root);
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("Experimental sections must list every extension");
+    expect(result.stderr).toContain(
+      "Experimental pi extensions sections must list every extension",
+    );
   });
 });

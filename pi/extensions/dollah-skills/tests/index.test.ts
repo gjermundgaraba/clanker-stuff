@@ -23,17 +23,9 @@ const mentions = vi.hoisted(() => ({
   install: vi.fn<(ctx: ExtensionContext) => void>(),
   render: vi.fn<MessageRenderer>(),
 }));
-const discoverOrchestrateSkill = vi.hoisted(() =>
-  vi.fn<typeof import("../orchestrate.js").discoverOrchestrateSkill>(() => ({
-    skillPaths: ["/tmp/orchestrate/SKILL.md"],
-  })),
-);
 
 vi.mock(import("../mentions.js"), () => ({
   createSkillMentions: () => mentions,
-}));
-vi.mock(import("../orchestrate.js"), () => ({
-  discoverOrchestrateSkill,
 }));
 
 describe("dollah-skills registration", () => {
@@ -56,23 +48,10 @@ describe("dollah-skills registration", () => {
       type: "input",
     } satisfies InputEvent;
     await host.emit("input", input, ctx);
-    await host.emit(
-      "resources_discover",
-      {
-        cwd: process.cwd(),
-        reason: "startup",
-        type: "resources_discover",
-      },
-      ctx,
-    );
 
     expect(host.getMessageRenderer("codex-skills")).toBe(mentions.render);
     expect(mentions.install).toHaveBeenCalledExactlyOnceWith(ctx);
     expect(mentions.inject).toHaveBeenCalledExactlyOnceWith(event, ctx);
     expect(mentions.injectStreaming).toHaveBeenCalledExactlyOnceWith(input, ctx);
-    expect({
-      calls: discoverOrchestrateSkill.mock.calls.length,
-      context: discoverOrchestrateSkill.mock.calls[0]?.[1],
-    }).toStrictEqual({ calls: 1, context: ctx });
   });
 });

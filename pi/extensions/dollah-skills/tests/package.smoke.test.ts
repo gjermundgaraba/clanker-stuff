@@ -42,11 +42,11 @@ describe("dollah-skills package", () => {
     await loader.reload();
 
     expect(loader.getExtensions().errors).toStrictEqual([]);
-    expect(loader.getExtensions().extensions[0]?.handlers.has("resources_discover")).toBeTruthy();
+    expect(loader.getExtensions().extensions[0]?.handlers.has("before_agent_start")).toBeTruthy();
     expect(loader.getSkills().skills).toStrictEqual([]);
   });
 
-  it("packs the conditional discovery runtime and vendored skill", () => {
+  it("packs the mention runtime", () => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), "dollah-skills-pack-"));
     const tarball = path.join(tempRoot, "dollah-skills.tgz");
     execFileSync("pnpm", ["pack", "--out", tarball], {
@@ -69,11 +69,7 @@ describe("dollah-skills package", () => {
         "package/editor.ts",
         "package/index.ts",
         "package/mentions.ts",
-        "package/orchestrate.ts",
         "package/package.json",
-        "package/vendor/orchestrate/LICENSE",
-        "package/vendor/orchestrate/SKILL.md",
-        "package/vendor/orchestrate/UPSTREAM",
       ].toSorted(),
     );
   });

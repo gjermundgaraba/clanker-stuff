@@ -64,7 +64,7 @@ if (existsSync(rootReadmePath)) {
     name: packageJson.name,
     target: dir,
   }));
-  const experimentalSection = readSection(rootReadme, "Experimental");
+  const experimentalSection = readSection(rootReadme, "Experimental pi extensions");
   const actualExperimentalPackages = readCatalog(experimentalSection);
   const expectedExperimentalPackages = experimentalPackages.map(({ dir, packageJson }) => ({
     description: packageJson.description,
@@ -81,13 +81,13 @@ if (existsSync(rootReadmePath)) {
     (experimentalPackages.length > 0 && experimentalSection?.includes(EXPERIMENTAL_NOTICE) !== true)
   ) {
     errors.push(
-      "README.md Pi extensions and Experimental sections must list every extension exactly once in directory order using canonical package metadata, with the fixed experimental instability notice.",
+      "README.md Pi extensions and Experimental pi extensions sections must list every extension exactly once in directory order using canonical package metadata, with the fixed experimental instability notice.",
     );
   }
   const expectedRootHeadings = [
     "# clanker stuff",
     "## Pi extensions",
-    ...(experimentalPackages.length === 0 ? [] : ["## Experimental"]),
+    ...(experimentalPackages.length === 0 ? [] : ["## Experimental pi extensions"]),
     "## Claude Code plugins",
     "## Codex plugins",
     "## Development",
