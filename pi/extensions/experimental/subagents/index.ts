@@ -20,11 +20,14 @@ const subagents = async (pi: ExtensionAPI) => {
   pi.on("resources_discover", (_event, ctx) => manager.discoverResources(ctx));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
   pi.on("agent_start", manager.agentStart.bind(manager));
+  pi.on("agent_end", manager.agentEnd.bind(manager));
   pi.on("agent_settled", manager.agentSettled.bind(manager));
   pi.on("input", manager.input.bind(manager));
   pi.on("model_select", manager.modelSelect.bind(manager));
   pi.on("tool_call", manager.toolCall.bind(manager));
+  pi.on("tool_execution_end", manager.toolExecutionEnd.bind(manager));
   pi.on("tool_result", manager.toolResult.bind(manager));
+  pi.on("turn_end", manager.turnEnd.bind(manager));
   pi.on("session_shutdown", manager.shutdown.bind(manager));
   pi.registerCommand("agents", {
     description: "Show the durable subagent tree",

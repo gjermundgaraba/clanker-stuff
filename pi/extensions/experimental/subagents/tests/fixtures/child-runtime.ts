@@ -32,18 +32,25 @@ export class FakeChildRuntime implements ChildRuntime {
   readonly calls: RuntimeMessage[] = [];
   readonly commit = vi.fn<ChildRuntime["commit"]>();
   readonly dispose = vi.fn<ChildRuntime["dispose"]>(async () => {
+    const failure = new PermanentChildError("Child runtime was disposed");
+    for (const turn of this.turns) {
+      turn.accepted.reject(failure);
+    }
+    for (const acceptance of this.messageAcceptances) {
+      acceptance.reject(failure);
+    }
     await this.abort();
   });
   readonly rollback = vi.fn<ChildRuntime["rollback"]>(async () => {
     await this.dispose();
   });
+  readonly messageAcceptances: VoidDeferred[] = [];
   readonly sessionFile: string;
   readonly turns: FakeTurn[] = [];
   acceptMessages = true;
   acceptTurns = true;
   beforeSendMessage?: () => void;
   failPersistence = false;
-  messages: readonly unknown[] = [];
   streaming = false;
 
   constructor(identity: string) {
@@ -55,21 +62,18 @@ export class FakeChildRuntime implements ChildRuntime {
     this.turns.at(-1)?.settled.resolve({ status: "interrupted" });
   }
 
-  getMessages(): readonly unknown[] {
-    return this.messages;
-  }
-
   isStreaming(): boolean {
     return this.streaming;
   }
 
-  sendMessage(message: RuntimeMessage, onEnqueued?: () => void, startIfIdle = false) {
+  sendMessage(message: RuntimeMessage, onEnqueued?: () => void, triggerTurn = false) {
     this.calls.push(message);
     this.beforeSendMessage?.();
-    if (startIfIdle && !this.streaming) {
+    if (triggerTurn && !this.streaming) {
       return this.startTurn({ text: message.content });
     }
     const accepted = createVoidDeferred();
+    this.messageAcceptances.push(accepted);
     if (this.failPersistence) {
       accepted.reject(new PermanentChildError("append failed"));
     } else if (this.acceptMessages) {

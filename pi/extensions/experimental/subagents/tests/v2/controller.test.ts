@@ -201,6 +201,55 @@ describe("V2 controller", () => {
     );
   });
 
+  it("terminalizes a promoted follow-up when turn acceptance fails", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimes } = await setup();
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    const [runtime] = runtimes;
+    assert.ok(runtime);
+    runtime.failPersistence = true;
+    runtime.beforeSendMessage = () => {
+      runtime.turns[0]?.settled.resolve({
+        status: "completed",
+        text: "first done",
+      });
+      runtime.streaming = false;
+    };
+
+    await controller.followUp("/root", "worker", "more work", ctx);
+
+    await vi.waitFor(() =>
+      expect(controller.list("/root")[1]).toMatchObject({
+        error: "append failed",
+        status: "errored",
+      }),
+    );
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(
+      coordinator.state.protocolLatch === "v2"
+        ? coordinator.state.state.communications.filter(
+            ({ content, to }) => content === "more work" && to === "/root/worker",
+          )
+        : [],
+    ).toHaveLength(0);
+    expect(controller.rootDeliveries()).toStrictEqual([
+      expect.objectContaining({
+        content: expect.stringContaining("append failed"),
+        from: "/root/worker",
+        kind: "FINAL_ANSWER",
+      }),
+    ]);
+    expect(createRuntime).toHaveBeenCalledOnce();
+
+    await controller.followUp("/root", "worker", "retry", ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(runtimes[1]?.turns).toHaveLength(1));
+  });
+
   it("publishes a terminal error when turn acceptance fails", async () => {
     const { controller, coordinator, ctx } = await setup(3, {}, true);
 
@@ -822,7 +871,71 @@ describe("V2 controller", () => {
   });
 
   it("does not interrupt after cancellation while waiting for the target queue", async () => {
-    const { controller, ctx, runtimes } = await setup();
+    const { controller, coordinator, createRuntime, ctx, runtimeLoads, runtimes } = await setup();
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    const firstTurn = runtimes[0]?.turns[0];
+    assert.ok(firstTurn);
+    firstTurn.settled.resolve({ status: "completed", text: "done" });
+    await vi.waitFor(() => expect(controller.list("/root")[1]?.resident).toBeFalsy());
+
+    const pending = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(pending);
+    const following = controller.followUp("/root", "worker", "more work", ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+
+    const abort = new AbortController();
+    const interrupting = controller.interrupt("/root", "worker", abort.signal);
+    void interrupting.catch(() => {});
+    abort.abort(new Error("cancelled"));
+    const runtime = new FakeChildRuntime("/root/worker");
+    runtime.acceptTurns = false;
+    const abortRuntime = vi.spyOn(runtime, "abort");
+    pending.resolve(runtime);
+
+    await following;
+    await expect(interrupting).rejects.toThrow("cancelled");
+    expect(abortRuntime).not.toHaveBeenCalled();
+    expect(controller.list("/root")[1]?.status).toBe("pending");
+    expect(
+      coordinator.state.protocolLatch === "v2"
+        ? coordinator.state.state.communications.some(({ content }) => content === "more work")
+        : false,
+    ).toBeTruthy();
+  });
+
+  it("interrupts while initial turn acceptance is unresolved", async () => {
+    const { controller, createRuntime, ctx, runtimeLoads } = await setup();
+    const pending = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(pending);
+    const spawning = controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+    const runtime = new FakeChildRuntime("/root/worker");
+    runtime.acceptTurns = false;
+    const abortRuntime = vi.spyOn(runtime, "abort");
+    pending.resolve(runtime);
+    await spawning;
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+
+    await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
+      previous_status: "pending_init",
+    });
+    expect(abortRuntime).toHaveBeenCalled();
+    expect(controller.list("/root").find(({ path }) => path === "/root/worker")?.status).toBe(
+      "interrupted",
+    );
+  });
+
+  it("returns an interrupt while the old runtime remains fenced", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimes } = await setup();
     await controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
@@ -830,25 +943,318 @@ describe("V2 controller", () => {
     );
     const [runtime] = runtimes;
     assert.ok(runtime);
-    const delivery = Promise.withResolvers<undefined>();
-    const sendMessage = vi.spyOn(runtime, "sendMessage").mockReturnValue({
-      accepted: delivery.promise,
+    const releaseRetirement = Promise.withResolvers<undefined>();
+    runtime.dispose.mockImplementation(async () => {
+      await releaseRetirement.promise;
     });
+
+    await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
+      previous_status: "pending_init",
+    });
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(createRuntime).toHaveBeenCalledOnce();
+
+    await expect(
+      controller.sendMessage("/root", "worker", "queued while stopping", ctx),
+    ).resolves.toBeUndefined();
+    await expect(
+      controller.followUp("/root", "worker", "follow-up while stopping", ctx),
+    ).resolves.toBeUndefined();
+    expect(createRuntime).toHaveBeenCalledOnce();
+    expect(
+      coordinator.state.protocolLatch === "v2"
+        ? coordinator.state.state.communications.filter(
+            ({ content }) =>
+              content === "queued while stopping" || content === "follow-up while stopping",
+          )
+        : [],
+    ).toHaveLength(2);
+
+    releaseRetirement.resolve(undefined);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+    const replacement = runtimes[1];
+    assert.ok(replacement);
+    await vi.waitFor(() => expect(replacement.calls).toHaveLength(1));
+    expect(replacement.calls[0]?.content).toContain("queued while stopping");
+    await vi.waitFor(() => expect(replacement.turns).toHaveLength(1));
+    expect(replacement.turns[0]?.input.text).toContain("follow-up while stopping");
+  });
+
+  it("interrupts while passive delivery acceptance is unresolved", async () => {
+    const { controller, coordinator, ctx, runtimes } = await setup();
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    const [runtime] = runtimes;
+    assert.ok(runtime);
+    runtime.acceptMessages = false;
     const abortRuntime = vi.spyOn(runtime, "abort");
     await controller.sendMessage("/root", "worker", "context", ctx);
-    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(runtime.calls).toHaveLength(1));
 
-    const abort = new AbortController();
-    const interrupting = controller.interrupt("/root", "worker", abort.signal);
-    void interrupting.catch(() => {});
-    abort.abort(new Error("cancelled"));
-    delivery.resolve(undefined);
-
-    await expect(interrupting).rejects.toThrow("cancelled");
-    expect(abortRuntime).not.toHaveBeenCalled();
+    await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
+      previous_status: "running",
+    });
+    expect(abortRuntime).toHaveBeenCalled();
     expect(controller.list("/root").find(({ path }) => path === "/root/worker")?.status).toBe(
-      "running",
+      "interrupted",
     );
+
+    await vi.waitFor(() => expect(runtimes).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(
+        coordinator.state.protocolLatch === "v2"
+          ? coordinator.state.state.communications.some(({ content }) => content === "context")
+          : true,
+      ).toBeFalsy(),
+    );
+  });
+
+  it("acknowledges passive mail accepted while interrupt retires its runtime", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimes } = await setup();
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    const [runtime] = runtimes;
+    assert.ok(runtime);
+    runtime.acceptMessages = false;
+    vi.spyOn(runtime, "abort").mockImplementation(async () => {
+      runtime.messageAcceptances[0]?.resolve();
+      runtime.streaming = false;
+      runtime.turns.at(-1)?.settled.resolve({ status: "interrupted" });
+    });
+    await controller.sendMessage("/root", "worker", "context", ctx);
+    await vi.waitFor(() => expect(runtime.calls).toHaveLength(1));
+
+    await controller.interrupt("/root", "worker");
+
+    await vi.waitFor(() =>
+      expect(
+        coordinator.state.protocolLatch === "v2"
+          ? coordinator.state.state.communications.some(({ content }) => content === "context")
+          : true,
+      ).toBeFalsy(),
+    );
+    expect(createRuntime).toHaveBeenCalledOnce();
+
+    await controller.sendMessage("/root", "worker", "later", ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+    const replacement = runtimes[1];
+    assert.ok(replacement);
+    await vi.waitFor(() => expect(replacement.calls).toHaveLength(1));
+    expect(replacement.calls[0]?.content).toContain("later");
+    expect(replacement.calls[0]?.content).not.toContain("context");
+  });
+
+  it("interrupts while active follow-up acceptance is unresolved", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimes } = await setup();
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    const [runtime] = runtimes;
+    assert.ok(runtime);
+    await vi.waitFor(() =>
+      expect(controller.list("/root").find(({ path }) => path === "/root/worker")?.status).toBe(
+        "running",
+      ),
+    );
+    runtime.acceptTurns = false;
+    runtime.beforeSendMessage = () => {
+      runtime.streaming = false;
+    };
+    const abortRuntime = vi.spyOn(runtime, "abort");
+
+    await controller.followUp("/root", "worker", "follow-up", ctx);
+    await vi.waitFor(() => expect(runtime.calls).toHaveLength(1));
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(2));
+
+    await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
+      previous_status: "pending_init",
+    });
+    expect(abortRuntime).toHaveBeenCalled();
+    expect(controller.list("/root").find(({ path }) => path === "/root/worker")?.status).toBe(
+      "interrupted",
+    );
+    expect(
+      coordinator.state.protocolLatch === "v2"
+        ? coordinator.state.state.communications.filter(({ content }) => content === "follow-up")
+        : [],
+    ).toHaveLength(0);
+    runtime.turns[0]?.settled.resolve({ status: "interrupted" });
+    await delay(0);
+    expect(createRuntime).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a stale delivery failure after reset", async () => {
+    const root = rootBinding("v2-stale-failure");
+    const coordinator = new TreeCoordinator();
+    const snapshot = freshSnapshot("v2", root);
+    assert.equal(snapshot.protocolLatch, "v2");
+    snapshot.nicknames.push("Worker");
+    snapshot.state.nodes.push({
+      nickname: "Worker",
+      path: "/root/worker",
+      sessionFile: "/tmp/subagent-test/sessions/worker.jsonl",
+      status: "completed",
+      tools: [],
+    });
+    snapshot.state.communications.push({
+      content: "context",
+      delivery: "queue",
+      from: "/root",
+      id: "context",
+      kind: "MESSAGE",
+      to: "/root/worker",
+    });
+    await coordinator.install(createMemoryControlStore(), snapshot, true);
+    const firstLoad = Promise.withResolvers<FakeChildRuntime>();
+    const replacement = new FakeChildRuntime("/root/worker");
+    const createRuntime = vi
+      .fn<ChildRuntimeFactory>()
+      .mockReturnValueOnce(firstLoad.promise)
+      .mockResolvedValueOnce(replacement);
+    const controller = new V2Controller({
+      config: structuredClone(DEFAULT_CONFIG),
+      coordinator,
+      createRuntime,
+      dataDir: "/tmp/subagent-test",
+      nicknames: new NicknamePool(DEFAULT_CONFIG, () => 0),
+    });
+    controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
+    const ctx = createChildContext();
+    await controller.restore(ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+
+    const resetting = controller.reset();
+    firstLoad.reject(new PermanentChildError("stale load"));
+    await resetting;
+    await controller.restore(ctx);
+
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(replacement.calls).toHaveLength(1));
+  });
+
+  it("does not let a stale delivery success clear replacement retry state", async () => {
+    const { controller, createRuntime, ctx, runtimeLoads } = await setup();
+    const firstLoad = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(firstLoad);
+    const spawning = controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+    const original = new FakeChildRuntime("/root/worker");
+    original.acceptTurns = false;
+    firstLoad.resolve(original);
+    await spawning;
+    await vi.waitFor(() => expect(original.turns).toHaveLength(1));
+    const [staleTurn] = original.turns;
+    assert.ok(staleTurn);
+    original.dispose.mockImplementation(() => original.abort());
+
+    await controller.reset();
+    const failedLoad = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(failedLoad);
+    await controller.restore(ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+    failedLoad.reject(new Error("retry"));
+    await delay(0);
+
+    staleTurn.accepted.resolve();
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(3), { timeout: 1_000 });
+  });
+
+  it("ignores a delayed mailbox callback from a stale runtime", async () => {
+    const { controller, coordinator, ctx, runtimes } = await setup();
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    const [runtime] = runtimes;
+    assert.ok(runtime);
+    let staleCallback: (() => void) | undefined;
+    vi.spyOn(runtime, "sendMessage").mockImplementation((_message, onEnqueued) => {
+      staleCallback = onEnqueued;
+      return { accepted: new Promise<void>(() => {}) };
+    });
+    await controller.sendMessage("/root", "worker", "context", ctx);
+    await vi.waitFor(() => expect(staleCallback).toBeTypeOf("function"));
+    await controller.reset();
+    await controller.restore(ctx);
+    await vi.waitFor(() =>
+      expect(
+        coordinator.state.protocolLatch === "v2"
+          ? coordinator.state.state.communications.some(({ content }) => content === "context")
+          : true,
+      ).toBeFalsy(),
+    );
+    await expect(controller.wait("/root/worker", 10_000)).resolves.toMatchObject({
+      message: "Wait completed.",
+    });
+
+    const waiting = controller.wait("/root/worker", 10_000);
+    await coordinator.barrier();
+    staleCallback?.();
+    controller.notify("/root/worker");
+
+    await expect(waiting).resolves.toMatchObject({
+      message: "Wait interrupted by new input.",
+    });
+  });
+
+  it("removes two same-target messages independently in FIFO order", async () => {
+    const { controller, coordinator, ctx, runtimes } = await setup();
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    const [runtime] = runtimes;
+    assert.ok(runtime);
+    runtime.acceptMessages = false;
+
+    await Promise.all([
+      controller.sendMessage("/root", "worker", "first", ctx),
+      controller.sendMessage("/root", "worker", "second", ctx),
+    ]);
+    await vi.waitFor(() => expect(runtime.calls).toHaveLength(1));
+    runtime.messageAcceptances[0]?.resolve();
+    await vi.waitFor(() => expect(runtime.calls).toHaveLength(2));
+    expect(
+      coordinator.state.protocolLatch === "v2"
+        ? coordinator.state.state.communications
+            .filter(({ content }) => content === "first" || content === "second")
+            .map(({ content }) => content)
+        : [],
+    ).toStrictEqual(["second"]);
+    runtime.messageAcceptances[1]?.resolve();
+    await vi.waitFor(() =>
+      expect(
+        coordinator.state.protocolLatch === "v2"
+          ? coordinator.state.state.communications.filter(
+              ({ content }) => content === "first" || content === "second",
+            )
+          : [],
+      ).toHaveLength(0),
+    );
+
+    expect(runtime.calls.map(({ content }) => content)).toStrictEqual([
+      expect.stringContaining("first"),
+      expect.stringContaining("second"),
+    ]);
+    expect(runtime.calls.map(({ details }) => details.communicationId)).toStrictEqual([
+      "communication-2",
+      "communication-3",
+    ]);
   });
 
   it("subscribes before checking mailbox activity", async () => {

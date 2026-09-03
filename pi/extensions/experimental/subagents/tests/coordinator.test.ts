@@ -65,7 +65,6 @@ describe("tree coordinator", () => {
     const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
-      persistent: true,
       write: () => Promise.reject(failure),
     };
     await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), false);
@@ -81,7 +80,6 @@ describe("tree coordinator", () => {
     const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
-      persistent: true,
       write: (_serialized, onCommit) => {
         onCommit();
         return Promise.resolve(uncertainty);

@@ -76,15 +76,6 @@ export class TreeCoordinator {
     });
   }
 
-  async commitCurrent(): Promise<void> {
-    await this.#enqueue(async () => {
-      this.#assertHealthy();
-      const next = structuredClone(this.#state);
-      next.revision += 1;
-      await this.#write(freeze(next), false);
-    });
-  }
-
   async transact<T>(
     mutate: (draft: SubagentsSnapshot) => T,
     options: {

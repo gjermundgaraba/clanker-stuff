@@ -6,6 +6,7 @@ import { DEFAULT_CONFIG } from "../../config.js";
 import type { RoleConfig } from "../../config.js";
 import { TreeCoordinator } from "../../coordinator.js";
 import { NicknamePool } from "../../nicknames.js";
+import { PermanentChildError } from "../../permanent-error.js";
 import type { ChildRuntimeFactory } from "../../runtime.js";
 import type { ControlStore } from "../../snapshot.js";
 import { freshSnapshot, createMemoryControlStore, rootBinding } from "../../snapshot.js";
@@ -23,6 +24,7 @@ const setup = async (maximum = 2, roles: Record<string, RoleConfig> = {}) => {
     roles,
   };
   const prompts: string[] = [];
+  const backgroundErrors: unknown[] = [];
   const runtimeFailures: Error[] = [];
   const runtimeLoads: PromiseWithResolvers<FakeChildRuntime>[] = [];
   let nextId = 0;
@@ -47,9 +49,13 @@ const setup = async (maximum = 2, roles: Record<string, RoleConfig> = {}) => {
       return `agent-${nextId}`;
     },
     nicknames: new NicknamePool(config, () => 0),
+    onBackgroundError: (error) => {
+      backgroundErrors.push(error);
+    },
   });
-  controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined, false);
+  controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined);
   return {
+    backgroundErrors,
     controller,
     coordinator,
     createRuntime,
@@ -137,6 +143,145 @@ describe("V1 controller", () => {
     );
   });
 
+  it("does not redeliver a turn while its acceptance is pending", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimeLoads } = await setup();
+    const pendingRuntime = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(pendingRuntime);
+    const spawning = controller.spawn({ forkContext: false, message: "first" }, ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+
+    const runtime = new FakeChildRuntime("agent-1");
+    runtime.acceptTurns = false;
+    let inFlight = false;
+    const originalStartTurn = runtime.startTurn.bind(runtime);
+    const startTurn = vi.spyOn(runtime, "startTurn").mockImplementation((input) => {
+      if (inFlight) {
+        throw new Error("duplicate startTurn");
+      }
+      inFlight = true;
+      const delivery = originalStartTurn(input);
+      void delivery.settled.finally(() => {
+        inFlight = false;
+      });
+      return delivery;
+    });
+    pendingRuntime.resolve(runtime);
+
+    const { agent_id: id } = await spawning;
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+    await controller.sendInput(id, { interrupt: false, message: "third" }, ctx);
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(coordinator.state).toMatchObject({
+      state: {
+        agents: [
+          {
+            active: { input: { text: "first" }, phase: "pending" },
+            queue: [{ input: { text: "second" } }, { input: { text: "third" } }],
+          },
+        ],
+      },
+    });
+
+    runtime.acceptTurns = true;
+    runtime.turns[0]?.accepted.resolve();
+    runtime.turns[0]?.settled.resolve({ status: "completed", text: "one" });
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(2));
+    expect(runtime.turns[1]?.input.text).toBe("second");
+    runtime.turns[1]?.settled.resolve({ status: "completed", text: "two" });
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(3));
+    expect(runtime.turns[2]?.input.text).toBe("third");
+  });
+
+  it("leases a promoted turn across failure and retirement scheduling", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimeLoads } = await setup();
+    const firstLoad = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(firstLoad);
+    const spawning = controller.spawn({ forkContext: false, message: "first" }, ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+    const firstRuntime = new FakeChildRuntime("agent-1");
+    firstRuntime.acceptTurns = false;
+    firstLoad.resolve(firstRuntime);
+
+    const { agent_id: id } = await spawning;
+    await vi.waitFor(() => expect(firstRuntime.turns).toHaveLength(1));
+    await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+
+    const secondLoad = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(secondLoad);
+    firstRuntime.turns[0]?.accepted.reject(new PermanentChildError("failed"));
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+    const secondRuntime = new FakeChildRuntime(id);
+    secondRuntime.acceptTurns = false;
+    const originalStartTurn = secondRuntime.startTurn.bind(secondRuntime);
+    const startTurn = vi.spyOn(secondRuntime, "startTurn").mockImplementation((input) => {
+      if (secondRuntime.turns.length > 0) {
+        throw new Error("duplicate startTurn");
+      }
+      return originalStartTurn(input);
+    });
+    secondLoad.resolve(secondRuntime);
+    await vi.waitFor(() => expect(secondRuntime.turns).toHaveLength(1));
+
+    await controller.sendInput(id, { interrupt: false, message: "third" }, ctx);
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(coordinator.state).toMatchObject({
+      state: {
+        agents: [
+          {
+            active: { input: { text: "second" }, phase: "pending" },
+            queue: [{ input: { text: "third" } }],
+          },
+        ],
+      },
+    });
+  });
+
+  it("does not redeliver accepted input after running publication fails", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimeLoads } = await setup();
+    const pendingRuntime = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(pendingRuntime);
+    const spawning = controller.spawn({ forkContext: false, message: "first" }, ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+    const runtime = new FakeChildRuntime("agent-1");
+    runtime.acceptTurns = false;
+    pendingRuntime.resolve(runtime);
+
+    await spawning;
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    const publicationFailure = new Error("running publication failed");
+    const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
+    const store: ControlStore = {
+      load: () => Promise.resolve(empty),
+      write: () => Promise.reject(publicationFailure),
+    };
+    await coordinator.install(store, structuredClone(coordinator.state), false);
+    runtimeLoads.push(Promise.withResolvers<FakeChildRuntime>());
+
+    runtime.turns[0]?.accepted.resolve();
+
+    await vi.waitFor(() => expect(runtime.dispose).toHaveBeenCalledOnce());
+    await coordinator.barrier();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(coordinator.error).toBe(publicationFailure);
+    expect(createRuntime).toHaveBeenCalledOnce();
+    expect(runtime.turns).toHaveLength(1);
+    expect(coordinator.state).toMatchObject({
+      state: {
+        agents: [
+          {
+            active: { input: { text: "first" }, phase: "pending" },
+            status: "pending",
+          },
+        ],
+      },
+    });
+  });
+
   it("does not double-count published spawn reservations", async () => {
     const { controller, ctx } = await setup(2);
 
@@ -172,7 +317,7 @@ describe("V1 controller", () => {
       ).toBe("completed"),
     );
     await controller.reset();
-    controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined, false);
+    controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined);
 
     await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
 
@@ -192,7 +337,7 @@ describe("V1 controller", () => {
     );
 
     await controller.reset();
-    controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined, false);
+    controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined);
     await controller.restore(ctx);
 
     expect(coordinator.state).toMatchObject({
@@ -214,7 +359,7 @@ describe("V1 controller", () => {
     runtimeFailures.push(new Error("transient restore failure"));
 
     await controller.reset();
-    controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined, false);
+    controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined);
     await controller.restore(ctx);
 
     await vi.waitFor(() => expect(runtimes[1]?.turns).toHaveLength(1));
@@ -245,7 +390,7 @@ describe("V1 controller", () => {
     await expect(waiting).rejects.toThrow("This operation was aborted");
   });
 
-  it("does not publish send_input after cancellation during interruption", async () => {
+  it("commits an interrupt replacement after caller cancellation", async () => {
     const { controller, coordinator, ctx, runtimes } = await setup();
     const { agent_id: id } = await controller.spawn({ forkContext: false, message: "work" }, ctx);
     const [runtime] = runtimes;
@@ -263,21 +408,124 @@ describe("V1 controller", () => {
     );
     void sending.catch(() => {});
     await vi.waitFor(() => expect(abortRuntime).toHaveBeenCalledOnce());
+    const originalTurn = runtime.turns[0];
+    assert.ok(originalTurn);
+    let originalSettled = false;
+    void originalTurn.settled.promise.then(() => {
+      originalSettled = true;
+    });
 
     signal.abort(new Error("cancelled"));
     aborting.resolve(null);
 
-    await expect(sending).rejects.toThrow("cancelled");
+    await expect(sending).resolves.toEqual({ submission_id: expect.any(String) });
+    await vi.waitFor(() => expect(runtimes[1]?.turns).toHaveLength(1));
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(originalSettled).toBeFalsy();
+    expect(runtimes[1]).not.toBe(runtime);
+    expect(runtimes[1]?.turns[0]?.input.text).toBe("replacement");
     expect(coordinator.state).toMatchObject({
       state: {
         agents: [
           {
-            active: { input: { text: "work" } },
+            active: { input: { text: "replacement" } },
             queue: [],
           },
         ],
       },
     });
+  });
+
+  it("returns an interrupt replacement while the old runtime remains fenced", async () => {
+    const { controller, coordinator, createRuntime, ctx, runtimeLoads, runtimes } = await setup();
+    const pendingRuntime = Promise.withResolvers<FakeChildRuntime>();
+    runtimeLoads.push(pendingRuntime);
+    const spawning = controller.spawn({ forkContext: false, message: "work" }, ctx);
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+    const runtime = new FakeChildRuntime("agent-1");
+    runtime.acceptTurns = false;
+    vi.spyOn(runtime, "abort").mockImplementation(async () => {
+      runtime.streaming = false;
+      runtime.turns[0]?.accepted.reject(new Error("Child turn was aborted"));
+      runtime.turns[0]?.settled.resolve({ status: "interrupted" });
+    });
+    pendingRuntime.resolve(runtime);
+    const { agent_id: id } = await spawning;
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    const releaseRetirement = Promise.withResolvers<undefined>();
+    runtime.dispose.mockImplementation(async () => {
+      await releaseRetirement.promise;
+    });
+
+    await expect(
+      controller.sendInput(id, { interrupt: true, message: "replacement" }, ctx),
+    ).resolves.toEqual({ submission_id: expect.any(String) });
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(createRuntime).toHaveBeenCalledOnce();
+
+    await expect(
+      controller.sendInput(id, { interrupt: false, message: "queued" }, ctx),
+    ).resolves.toEqual({ submission_id: expect.any(String) });
+    expect(coordinator.state).toMatchObject({
+      state: {
+        agents: [
+          {
+            active: { input: { text: "replacement" } },
+            queue: [{ input: { text: "queued" } }],
+          },
+        ],
+      },
+    });
+    expect(createRuntime).toHaveBeenCalledOnce();
+
+    const writeStarted = Promise.withResolvers<null>();
+    const releaseWrite = Promise.withResolvers<null>();
+    const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
+    let blockNextWrite = true;
+    const store: ControlStore = {
+      load: () => Promise.resolve(empty),
+      write: async (_serialized, onCommit) => {
+        if (blockNextWrite) {
+          blockNextWrite = false;
+          writeStarted.resolve(null);
+          await releaseWrite.promise;
+        }
+        onCommit();
+        return undefined;
+      },
+    };
+    await coordinator.install(store, structuredClone(coordinator.state), false);
+    const blocking = coordinator.transact(() => null);
+    await writeStarted.promise;
+    const transact = vi.spyOn(coordinator, "transact");
+    const signal = new AbortController();
+    const interrupting = controller.sendInput(
+      id,
+      { interrupt: true, message: "cancelled replacement" },
+      ctx,
+      signal.signal,
+    );
+    void interrupting.catch(() => {});
+    await vi.waitFor(() => expect(transact).toHaveBeenCalledOnce());
+    signal.abort(new Error("cancelled"));
+    releaseWrite.resolve(null);
+    await blocking;
+
+    await expect(interrupting).rejects.toThrow("cancelled");
+    expect(coordinator.state).toMatchObject({
+      state: {
+        agents: [
+          {
+            active: { input: { text: "replacement" } },
+            queue: [{ input: { text: "queued" } }],
+          },
+        ],
+      },
+    });
+
+    releaseRetirement.resolve(undefined);
+    await vi.waitFor(() => expect(runtimes[1]?.turns).toHaveLength(1));
+    expect(runtimes[1]?.turns[0]?.input.text).toBe("replacement");
   });
 
   it("does not publish send_input after cancellation in the coordinator queue", async () => {
@@ -293,7 +541,6 @@ describe("V1 controller", () => {
     let blockNextWrite = true;
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
-      persistent: false,
       write: async (_serialized, onCommit) => {
         if (blockNextWrite) {
           blockNextWrite = false;
@@ -432,6 +679,13 @@ describe("V1 controller", () => {
   it("closes a known agent without reloading it", async () => {
     const { controller, coordinator, ctx, runtimes } = await setup();
     const { agent_id: id } = await controller.spawn({ forkContext: false, message: "work" }, ctx);
+    await vi.waitFor(() =>
+      expect(
+        coordinator.state.protocolLatch === "v1"
+          ? coordinator.state.state.agents[0]?.status
+          : undefined,
+      ).toBe("running"),
+    );
     const result = await controller.close(id, ctx);
     expect(result.previous_status).toBe("running");
     expect(runtimes[0]?.dispose).toHaveBeenCalledOnce();
@@ -440,9 +694,47 @@ describe("V1 controller", () => {
     });
   });
 
-  it("serializes the observed status of concurrent closes", async () => {
-    const { controller, ctx } = await setup();
+  it("reloads a closed runtime when abort and disposal fail", async () => {
+    const { backgroundErrors, controller, coordinator, createRuntime, ctx, runtimes } =
+      await setup();
     const { agent_id: id } = await controller.spawn({ forkContext: false, message: "work" }, ctx);
+    await vi.waitFor(() =>
+      expect(
+        coordinator.state.protocolLatch === "v1"
+          ? coordinator.state.state.agents[0]?.status
+          : undefined,
+      ).toBe("running"),
+    );
+    const firstRuntime = runtimes[0];
+    assert.ok(firstRuntime);
+    const failure = new Error("abort failed");
+    vi.spyOn(firstRuntime, "abort").mockRejectedValue(failure);
+
+    await expect(controller.close(id, ctx)).resolves.toEqual({ previous_status: "running" });
+    expect(firstRuntime.dispose).toHaveBeenCalledOnce();
+
+    await expect(controller.resume(id, ctx)).resolves.toEqual({ status: "interrupted" });
+    await vi.waitFor(() => expect(backgroundErrors).toEqual([failure, failure]));
+    expect(createRuntime).toHaveBeenCalledTimes(2);
+    const secondRuntime = runtimes[1];
+    assert.ok(secondRuntime);
+    expect(secondRuntime).not.toBe(firstRuntime);
+
+    await controller.sendInput(id, { interrupt: false, message: "new work" }, ctx);
+    await vi.waitFor(() => expect(secondRuntime.turns).toHaveLength(1));
+    expect(secondRuntime.turns[0]?.input.text).toBe("new work");
+  });
+
+  it("serializes the observed status of concurrent closes", async () => {
+    const { controller, coordinator, ctx } = await setup();
+    const { agent_id: id } = await controller.spawn({ forkContext: false, message: "work" }, ctx);
+    await vi.waitFor(() =>
+      expect(
+        coordinator.state.protocolLatch === "v1"
+          ? coordinator.state.state.agents[0]?.status
+          : undefined,
+      ).toBe("running"),
+    );
 
     const [first, second] = await Promise.all([
       controller.close(id, ctx),

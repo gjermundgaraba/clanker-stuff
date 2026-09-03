@@ -42,11 +42,17 @@ type ToolEndpoint = Pick<ExtensionAPI, "getActiveTools">;
 type RuntimeState =
   | { kind: "vacant" }
   | { kind: "loading"; promise: Promise<ChildRuntime> }
+  | { kind: "retiring"; promise: Promise<void> }
   | { kind: "ready"; runtime: ChildRuntime };
 
 interface RuntimeOwner {
   context?: CallerContext;
+  startLease?: StartLease;
   state: RuntimeState;
+}
+
+interface StartLease {
+  attemptId: string;
 }
 
 export interface V1ControllerDependencies {
@@ -237,11 +243,7 @@ export class V1Controller {
     this.#onBackgroundError = dependencies.onBackgroundError;
   }
 
-  setRoot(
-    api: ToolEndpoint,
-    promptOptions: BuildSystemPromptOptions | undefined,
-    _running: boolean,
-  ): void {
+  setRoot(api: ToolEndpoint, promptOptions: BuildSystemPromptOptions | undefined): void {
     this.#rootApi = api;
     this.#promptOptions = promptOptions;
   }
@@ -460,17 +462,27 @@ export class V1Controller {
         if (before === undefined || before.edge === "closed") {
           throw new Error(`Agent is not open: ${target}`);
         }
-        const runtime = await this.#load(target, ctx, false, epoch);
+        const owner = this.#runtimeOwners.get(target);
+        const runtime =
+          owner?.state.kind === "retiring"
+            ? undefined
+            : await this.#load(target, ctx, false, epoch);
         this.#assertEpoch(epoch);
         signal?.throwIfAborted();
-        if (input.interrupt && before.active !== undefined) {
+        const destructiveInterrupt = input.interrupt && before.active !== undefined;
+        let abortCommitted = false;
+        if (destructiveInterrupt && runtime !== undefined) {
+          abortCommitted = true;
           await runtime.abort();
+          await this.#retire(target, false);
           this.#assertEpoch(epoch);
         }
-        signal?.throwIfAborted();
+        let becameActive = false;
         await this.#coordinator.transact(
           (draft) => {
-            signal?.throwIfAborted();
+            if (!abortCommitted) {
+              signal?.throwIfAborted();
+            }
             this.#assertEpoch(epoch);
             if (draft.protocolLatch !== "v1") {
               throw new Error("V1 is not active");
@@ -482,13 +494,16 @@ export class V1Controller {
             }
             if (input.interrupt || agent.active === undefined) {
               draft.state.agents[index] = pendingAgent(agent, turn, agent.queue);
+              becameActive = true;
             } else {
               agent.queue.push(turn);
             }
           },
           { reserveTerminalHeadroom: true },
         );
-        this.#scheduleDelivery(target, ctx, epoch);
+        if (becameActive) {
+          this.#scheduleDelivery(target, ctx, epoch);
+        }
       },
       epoch,
     );
@@ -573,14 +588,14 @@ export class V1Controller {
           draft.state.agents[index] = shutdownAgent(agent);
         });
         const owner = this.#runtimeOwners.get(target);
-        this.#runtimeOwners.delete(target);
-        try {
-          if (owner?.state.kind === "ready") {
+        if (owner?.state.kind === "ready") {
+          try {
             await owner.state.runtime.abort();
-            await owner.state.runtime.dispose();
+          } catch (error) {
+            this.#onBackgroundError?.(error);
+          } finally {
+            await this.#retire(target, false);
           }
-        } catch (error) {
-          this.#onBackgroundError?.(error);
         }
         this.#notifyWaiters(target);
         return { previous_status: previous };
@@ -739,6 +754,15 @@ export class V1Controller {
     if (owner.state.kind === "ready") {
       return owner.state.runtime;
     }
+    if (owner.state.kind === "retiring") {
+      try {
+        await owner.state.promise;
+      } catch {
+        // Nonblocking retirement reports disposal failures separately.
+      }
+      this.#assertEpoch(epoch);
+      return await this.#load(id, ctx, allowClosed, epoch);
+    }
     if (owner.state.kind === "vacant") {
       const claimedOwner = owner;
       const promise = (async () => {
@@ -792,15 +816,26 @@ export class V1Controller {
   }
 
   #scheduleDelivery(id: string, ctx: CallerContext, epoch: symbol = this.#epoch): void {
+    if (this.#runtimeOwners.get(id)?.state.kind === "retiring") {
+      return;
+    }
     const started = this.#serial(
       id,
       async () => {
+        if (this.#runtimeOwners.get(id)?.state.kind === "retiring") {
+          return;
+        }
+        if (this.#coordinator.error !== undefined) {
+          throw this.#coordinator.error;
+        }
         const agent = this.#agent(id);
         const turn = agent?.active;
         let active:
           | {
               attemptId: string;
               childTurn: ReturnType<ChildRuntime["startTurn"]>;
+              lease: StartLease;
+              runtime: ChildRuntime;
             }
           | undefined;
         if (
@@ -810,35 +845,26 @@ export class V1Controller {
           turn.phase === "pending"
         ) {
           const runtime = await this.#load(id, ctx, false, epoch);
+          if (this.#coordinator.error !== undefined) {
+            throw this.#coordinator.error;
+          }
           const attemptId = turn.id;
-          const childTurn = runtime.startTurn(turn.input);
-          await childTurn.accepted;
+          const owner = this.#runtimeOwners.get(id);
+          if (owner === undefined) {
+            throw new Error(`Missing V1 runtime owner: ${id}`);
+          }
+          if (owner.startLease !== undefined) {
+            return;
+          }
+          const lease: StartLease = { attemptId };
+          owner.startLease = lease;
           try {
-            await this.#coordinator.transact((draft) => {
-              this.#assertEpoch(epoch);
-              if (draft.protocolLatch !== "v1") {
-                return;
-              }
-              const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
-              if (
-                index === -1 ||
-                draft.state.agents[index]?.status !== "pending" ||
-                draft.state.agents[index].active.id !== attemptId
-              ) {
-                return;
-              }
-              const target = draft.state.agents[index];
-              draft.state.agents[index] = runningAgent(target, target.active, target.queue);
-            });
+            const childTurn = runtime.startTurn(turn.input);
+            active = { attemptId, childTurn, lease, runtime };
           } catch (error) {
-            try {
-              await runtime.abort();
-            } finally {
-              await this.#retire(id);
-            }
+            this.#releaseStartLease(id, lease);
             throw error;
           }
-          active = { attemptId, childTurn };
         }
         return active;
       },
@@ -933,6 +959,8 @@ export class V1Controller {
       | {
           attemptId: string;
           childTurn: ReturnType<ChildRuntime["startTurn"]>;
+          lease: StartLease;
+          runtime: ChildRuntime;
         }
       | undefined
     >,
@@ -942,6 +970,8 @@ export class V1Controller {
       | {
           attemptId: string;
           childTurn: ReturnType<ChildRuntime["startTurn"]>;
+          lease: StartLease;
+          runtime: ChildRuntime;
         }
       | undefined;
     try {
@@ -966,6 +996,52 @@ export class V1Controller {
       return;
     }
     try {
+      await active.childTurn.accepted;
+      const accepted = await this.#serial(
+        id,
+        async () => {
+          try {
+            const agent = this.#agent(id);
+            const runtimeState = this.#runtimeOwners.get(id)?.state;
+            if (
+              agent?.status !== "pending" ||
+              agent.active.id !== active.attemptId ||
+              runtimeState?.kind !== "ready" ||
+              runtimeState.runtime !== active.runtime
+            ) {
+              return false;
+            }
+            try {
+              await this.#coordinator.transact((draft) => {
+                this.#assertEpoch(epoch);
+                if (draft.protocolLatch !== "v1") {
+                  return;
+                }
+                const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
+                const target = draft.state.agents[index];
+                if (target?.status !== "pending" || target.active.id !== active.attemptId) {
+                  return;
+                }
+                draft.state.agents[index] = runningAgent(target, target.active, target.queue);
+              });
+            } catch (error) {
+              try {
+                await active.runtime.abort();
+              } finally {
+                await this.#retire(id);
+              }
+              throw error;
+            }
+            return true;
+          } finally {
+            this.#releaseStartLease(id, active.lease);
+          }
+        },
+        epoch,
+      );
+      if (!accepted) {
+        return;
+      }
       const final = await active.childTurn.settled;
       await this.#serial(
         id,
@@ -985,13 +1061,17 @@ export class V1Controller {
           id,
           async () => {
             try {
-              await this.#markError(id, error, active.attemptId, epoch);
-            } catch (publicationError) {
-              await this.#retire(id);
-              throw publicationError;
-            }
-            if (error instanceof PermanentChildError) {
-              await this.#retire(id);
+              try {
+                await this.#markError(id, error, active.attemptId, epoch);
+              } catch (publicationError) {
+                await this.#retire(id);
+                throw publicationError;
+              }
+              if (error instanceof PermanentChildError) {
+                await this.#retire(id);
+              }
+            } finally {
+              this.#releaseStartLease(id, active.lease);
             }
           },
           epoch,
@@ -1002,15 +1082,53 @@ export class V1Controller {
     }
   }
 
-  async #retire(id: string): Promise<void> {
+  #releaseStartLease(id: string, lease: StartLease): void {
+    const owner = this.#runtimeOwners.get(id);
+    if (owner?.startLease === lease) {
+      owner.startLease = undefined;
+    }
+  }
+
+  async #retire(id: string, wait = true): Promise<void> {
     const owner = this.#runtimeOwners.get(id);
     if (owner === undefined) {
       return;
     }
-    const { state } = owner;
-    owner.state = { kind: "vacant" };
-    if (state.kind === "ready") {
-      await state.runtime.dispose();
+    let retiring = owner.state.kind === "retiring" ? owner.state.promise : undefined;
+    if (owner.state.kind === "ready") {
+      const runtime = owner.state.runtime;
+      const state: Extract<RuntimeState, { kind: "retiring" }> = {
+        kind: "retiring",
+        promise: Promise.resolve(),
+      };
+      owner.state = state;
+      retiring = (async () => {
+        try {
+          await runtime.dispose();
+        } finally {
+          if (this.#runtimeOwners.get(id) === owner && owner.state === state) {
+            owner.state = { kind: "vacant" };
+            const agent = this.#agent(id);
+            if (
+              !this.#closing &&
+              this.#coordinator.error === undefined &&
+              agent?.edge === "open" &&
+              agent.active?.phase === "pending"
+            ) {
+              this.#scheduleDeliveryFromLastContext(id);
+            }
+          }
+        }
+      })();
+      state.promise = retiring;
+    }
+    if (retiring === undefined) {
+      return;
+    }
+    if (wait) {
+      await retiring;
+    } else {
+      void reportFailure(retiring, this.#onBackgroundError);
     }
   }
 
@@ -1021,6 +1139,9 @@ export class V1Controller {
       }
       if (state.kind === "loading") {
         return [reportFailure(state.promise)];
+      }
+      if (state.kind === "retiring") {
+        return [reportFailure(state.promise, this.#onBackgroundError)];
       }
       return [];
     });

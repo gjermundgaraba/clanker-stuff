@@ -51,6 +51,7 @@ type ToolEndpoint = Pick<ExtensionAPI, "getActiveTools">;
 interface RuntimeSlot {
   api?: ExtensionAPI;
   load?: Promise<ChildRuntime>;
+  retiring?: Promise<void>;
   runtime?: ChildRuntime;
   token: symbol;
 }
@@ -58,6 +59,12 @@ interface RuntimeSlot {
 interface RuntimeLease {
   runtime: ChildRuntime;
   token: symbol;
+}
+
+interface ActiveTurn {
+  current: Communication;
+  lease: RuntimeLease;
+  turn: ReturnType<ChildRuntime["startTurn"]>;
 }
 
 interface DeliveryRetry {
@@ -533,7 +540,7 @@ export class V2Controller {
       resolved,
       async () => {
         this.#requireNode(resolved);
-        if (resolved !== ROOT_AGENT_PATH) {
+        if (resolved !== ROOT_AGENT_PATH && this.#slots.get(resolved)?.retiring === undefined) {
           await this.#load(resolved, ctx, epoch);
         }
         signal?.throwIfAborted();
@@ -587,7 +594,9 @@ export class V2Controller {
         let lease: RuntimeLease | undefined;
         let published = false;
         try {
-          lease = await this.#load(resolved, ctx, epoch, reservation);
+          if (this.#slots.get(resolved)?.retiring === undefined) {
+            lease = await this.#load(resolved, ctx, epoch, reservation);
+          }
           signal?.throwIfAborted();
           const communication: Communication = {
             content: message,
@@ -682,7 +691,9 @@ export class V2Controller {
                 status: "interrupted",
               };
               draft.state.communications = draft.state.communications.filter(
-                ({ id }) => id !== activeDeliveryId,
+                (communication) =>
+                  communication.id !== activeDeliveryId &&
+                  !(communication.to === resolved && communication.kind === "NEW_TASK"),
               );
             });
             return { previous_status: previous };
@@ -708,13 +719,15 @@ export class V2Controller {
               status: "interrupted",
             };
             draft.state.communications = draft.state.communications.filter(
-              ({ id }) => id !== activeDeliveryId,
+              (communication) =>
+                communication.id !== activeDeliveryId &&
+                !(communication.to === resolved && communication.kind === "NEW_TASK"),
             );
           });
           try {
             await runtime.abort();
           } finally {
-            await this.#retire(resolved, slotToken);
+            await this.#retire(resolved, slotToken, false);
           }
         }
         return { previous_status: previous };
@@ -944,6 +957,7 @@ export class V2Controller {
     for (const communication of this.#state().communications) {
       if (
         communication.to === ROOT_AGENT_PATH ||
+        this.#slots.get(communication.to)?.retiring !== undefined ||
         this.#deliveryRetries.get(communication.to)?.timer !== undefined ||
         this.#deliveryRetries.get(communication.to)?.permanent === true ||
         activeTargets.has(communication.to) ||
@@ -977,12 +991,18 @@ export class V2Controller {
   ): Promise<void> {
     try {
       await delivery;
+      if (epoch !== this.#epoch) {
+        return;
+      }
       const retry = this.#deliveryRetries.get(target);
       if (retry?.timer !== undefined) {
         clearTimeout(retry.timer);
       }
       this.#deliveryRetries.delete(target);
     } catch (error) {
+      if (epoch !== this.#epoch) {
+        return;
+      }
       this.#onBackgroundError?.(error);
       if (error instanceof PermanentChildError) {
         this.#deliveryRetries.set(target, { attempts: 1, permanent: true });
@@ -991,8 +1011,11 @@ export class V2Controller {
       const attempts = (this.#deliveryRetries.get(target)?.attempts ?? 0) + 1;
       const timer = setTimeout(
         () => {
+          if (epoch !== this.#epoch) {
+            return;
+          }
           const retry = this.#deliveryRetries.get(target);
-          if (retry?.timer !== timer || epoch !== this.#epoch) {
+          if (retry?.timer !== timer) {
             return;
           }
           retry.timer = undefined;
@@ -1003,10 +1026,12 @@ export class V2Controller {
       timer.unref();
       this.#deliveryRetries.set(target, { attempts, timer });
     } finally {
-      if (this.#deliveries.get(id) === delivery) {
-        this.#deliveries.delete(id);
+      if (epoch === this.#epoch) {
+        if (this.#deliveries.get(id) === delivery) {
+          this.#deliveries.delete(id);
+        }
+        this.#drainDeliveries(epoch);
       }
-      this.#drainDeliveries(epoch);
     }
   }
 
@@ -1021,40 +1046,19 @@ export class V2Controller {
         communication.to,
         async () => {
           const current = this.#communication(id);
-          let started:
-            | {
-                current: Communication;
-                lease: RuntimeLease;
-                turn: ReturnType<ChildRuntime["startTurn"]>;
-              }
-            | undefined;
+          let started: ActiveTurn | undefined;
           if (current !== undefined) {
             const lease = await this.#load(current.to, ctx, epoch);
-            let turn;
             try {
-              turn = lease.runtime.startTurn({
-                text: communicationEnvelope(current),
-              });
-              await turn.accepted;
+              const turn = lease.runtime.startTurn({ text: communicationEnvelope(current) });
+              started = { current, lease, turn };
             } catch (error) {
               try {
                 await this.#finishError(current.to, id, error, epoch);
               } finally {
                 await this.#retire(current.to, lease.token);
               }
-              return started;
             }
-            try {
-              await this.#acceptTurn(current, epoch);
-            } catch (error) {
-              try {
-                await lease.runtime.abort();
-              } finally {
-                await this.#retire(current.to, lease.token);
-              }
-              throw error;
-            }
-            started = { current, lease, turn };
           }
           return started;
         },
@@ -1063,10 +1067,19 @@ export class V2Controller {
       if (active === undefined) {
         return;
       }
+      try {
+        await active.turn.accepted;
+      } catch (error) {
+        await this.#rejectTurn(active, id, error, epoch);
+        return;
+      }
+      if (!(await this.#commitAcceptedTurn(active, id, epoch))) {
+        return;
+      }
       void this.#observeTurn(active, id, epoch);
       return;
     }
-    const active = await this.#serial(
+    const admitted = await this.#serial(
       communication.to,
       async () => {
         const current = this.#communication(id);
@@ -1078,49 +1091,208 @@ export class V2Controller {
           const delivered = lease.runtime.sendMessage(
             runtimeMessage(current),
             () => {
-              this.#recordMailbox(current.to);
+              if (epoch === this.#epoch && this.#slots.get(current.to)?.token === lease.token) {
+                this.#recordMailbox(current.to);
+              }
             },
             current.kind === "NEW_TASK",
           );
-          await delivered.accepted;
           if (delivered.settled !== undefined) {
-            await this.#acceptTurn(current, epoch);
+            await this.#claimTurn(current, lease.token, epoch);
             return {
-              current,
-              lease,
-              turn: {
-                accepted: Promise.resolve(),
-                settled: delivered.settled,
+              active: {
+                current,
+                lease,
+                turn: {
+                  accepted: delivered.accepted,
+                  settled: delivered.settled,
+                },
               },
             };
           }
+          return { active: null, current, delivered, lease };
         } catch (error) {
           await this.#retire(current.to, lease.token);
           throw error;
         }
-        await this.#removeCommunication(id, epoch);
-        const node = this.#node(current.to);
-        if (node !== undefined && node.status !== "pending" && node.status !== "running") {
-          await this.#retire(current.to, lease.token);
-        }
-        return null;
       },
       epoch,
     );
-    if (active !== null) {
-      void this.#observeTurn(active, id, epoch);
+    if (admitted === null) {
+      return;
+    }
+    if (admitted.active !== null) {
+      try {
+        await admitted.active.turn.accepted;
+      } catch (error) {
+        await this.#rejectTurn(admitted.active, id, error, epoch);
+        return;
+      }
+      if (!(await this.#commitAcceptedTurn(admitted.active, id, epoch))) {
+        return;
+      }
+      void this.#observeTurn(admitted.active, id, epoch);
+      return;
+    }
+    try {
+      await admitted.delivered.accepted;
+    } catch (error) {
+      if (epoch !== this.#epoch) {
+        return;
+      }
+      let ownsFailure: boolean;
+      try {
+        ownsFailure = await this.#retireFailedDelivery(admitted, id, epoch);
+      } catch (publicationError) {
+        if (epoch !== this.#epoch) {
+          return;
+        }
+        throw publicationError;
+      }
+      if (!ownsFailure) {
+        return;
+      }
+      throw error;
+    }
+    await this.#serial(
+      admitted.current.to,
+      async () => {
+        const current = this.#communication(id);
+        if (current === undefined || current.id !== admitted.current.id) {
+          return;
+        }
+        await this.#removeCommunication(id, epoch);
+        const node = this.#node(current.to);
+        if (node !== undefined && node.status !== "pending" && node.status !== "running") {
+          await this.#retire(current.to, admitted.lease.token);
+        }
+      },
+      epoch,
+    );
+  }
+
+  async #claimTurn(communication: Communication, token: symbol, epoch: symbol): Promise<void> {
+    await this.#coordinator.transact((draft) => {
+      this.#assertEpoch(epoch);
+      if (draft.protocolLatch !== "v2") {
+        throw new Error("V2 is not active");
+      }
+      const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === communication.to);
+      const node = draft.state.nodes[nodeIndex];
+      const communicationIndex = draft.state.communications.findIndex(
+        ({ id }) => id === communication.id,
+      );
+      const current = draft.state.communications[communicationIndex];
+      if (
+        node === undefined ||
+        this.#slots.get(communication.to)?.token !== token ||
+        current?.kind !== "NEW_TASK"
+      ) {
+        throw new Error(`Stale V2 turn delivery: ${communication.id}`);
+      }
+      const { error: _error, ...durableNode } = node;
+      draft.state.nodes[nodeIndex] = {
+        ...durableNode,
+        activeDeliveryId: communication.id,
+        status: "pending",
+      };
+      draft.state.communications[communicationIndex] = { ...current, delivery: "turn" };
+    });
+  }
+
+  async #commitAcceptedTurn(
+    active: ActiveTurn,
+    deliveryId: string,
+    epoch: symbol,
+  ): Promise<boolean> {
+    if (epoch !== this.#epoch) {
+      return false;
+    }
+    try {
+      return await this.#serial(
+        active.current.to,
+        async () => {
+          if (!this.#ownsTurn(active, deliveryId)) {
+            return false;
+          }
+          try {
+            await this.#acceptTurn(active.current, active.lease.token, epoch);
+          } catch (error) {
+            try {
+              await active.lease.runtime.abort();
+            } finally {
+              await this.#retire(active.current.to, active.lease.token);
+            }
+            throw error;
+          }
+          return true;
+        },
+        epoch,
+      );
+    } catch (error) {
+      if (epoch !== this.#epoch) {
+        return false;
+      }
+      throw error;
     }
   }
 
-  async #observeTurn(
-    active: {
-      current: Communication;
-      lease: RuntimeLease;
-      turn: ReturnType<ChildRuntime["startTurn"]>;
-    },
+  #ownsTurn(active: ActiveTurn, deliveryId: string): boolean {
+    return (
+      active.current.id === deliveryId &&
+      this.#communication(deliveryId)?.id === active.current.id &&
+      this.#node(active.current.to)?.activeDeliveryId === deliveryId &&
+      this.#slots.get(active.current.to)?.token === active.lease.token
+    );
+  }
+
+  async #rejectTurn(
+    active: ActiveTurn,
     deliveryId: string,
+    cause: unknown,
     epoch: symbol,
   ): Promise<void> {
+    if (epoch !== this.#epoch) {
+      return;
+    }
+    await this.#serial(
+      active.current.to,
+      async () => {
+        if (!this.#ownsTurn(active, deliveryId)) {
+          return;
+        }
+        try {
+          await this.#finishError(active.current.to, deliveryId, cause, epoch);
+        } finally {
+          await this.#retire(active.current.to, active.lease.token);
+        }
+      },
+      epoch,
+    );
+  }
+
+  async #retireFailedDelivery(
+    admitted: Pick<ActiveTurn, "current" | "lease">,
+    deliveryId: string,
+    epoch: symbol,
+  ): Promise<boolean> {
+    return await this.#serial(
+      admitted.current.to,
+      async () => {
+        if (
+          this.#communication(deliveryId)?.id !== admitted.current.id ||
+          this.#slots.get(admitted.current.to)?.token !== admitted.lease.token
+        ) {
+          return false;
+        }
+        await this.#retire(admitted.current.to, admitted.lease.token);
+        return true;
+      },
+      epoch,
+    );
+  }
+
+  async #observeTurn(active: ActiveTurn, deliveryId: string, epoch: symbol): Promise<void> {
     try {
       const final = await active.turn.settled;
       await this.#serial(
@@ -1151,7 +1323,7 @@ export class V2Controller {
     }
   }
 
-  async #acceptTurn(communication: Communication, epoch: symbol): Promise<void> {
+  async #acceptTurn(communication: Communication, token: symbol, epoch: symbol): Promise<void> {
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
       if (draft.protocolLatch !== "v2") {
@@ -1162,7 +1334,7 @@ export class V2Controller {
       if (
         node === undefined ||
         !draft.state.communications.some(({ id }) => id === communication.id) ||
-        (communication.delivery === "turn" && node.activeDeliveryId !== communication.id)
+        node.activeDeliveryId !== communication.id
       ) {
         throw new Error(`Stale V2 turn delivery: ${communication.id}`);
       }
@@ -1176,7 +1348,9 @@ export class V2Controller {
         ({ id }) => id !== communication.id,
       );
     });
-    this.#recordMailbox(communication.to);
+    if (epoch === this.#epoch && this.#slots.get(communication.to)?.token === token) {
+      this.#recordMailbox(communication.to);
+    }
   }
 
   async #finish(
@@ -1316,6 +1490,11 @@ export class V2Controller {
     this.#assertEpoch(epoch);
     this.#requireNode(pathname);
     let slot = this.#slots.get(pathname);
+    if (slot?.retiring !== undefined) {
+      await slot.retiring;
+      this.#assertEpoch(epoch);
+      return await this.#load(pathname, ctx, epoch, residencyReservation);
+    }
     if (slot?.runtime !== undefined) {
       if (residencyReservation !== undefined) {
         residencyReservation.residency = false;
@@ -1389,7 +1568,7 @@ export class V2Controller {
     }
   }
 
-  async #retire(pathname: string, token: symbol | undefined): Promise<void> {
+  async #retire(pathname: string, token: symbol | undefined, wait = true): Promise<void> {
     if (pathname === "") {
       return;
     }
@@ -1397,13 +1576,35 @@ export class V2Controller {
     if (slot === undefined || (token !== undefined && slot.token !== token)) {
       return;
     }
-    try {
-      await slot.runtime?.dispose();
-    } finally {
-      if (this.#slots.get(pathname)?.token === slot.token) {
-        this.#slots.delete(pathname);
-        this.#drainDeliveries();
+    if (slot.retiring !== undefined) {
+      if (wait) {
+        await slot.retiring;
       }
+      return;
+    }
+    const runtime = slot.runtime;
+    if (runtime === undefined) {
+      this.#slots.delete(pathname);
+      this.#drainDeliveries();
+      return;
+    }
+    const retiringSlot: RuntimeSlot = { token: Symbol(pathname) };
+    this.#slots.set(pathname, retiringSlot);
+    const retirement = (async () => {
+      try {
+        await runtime.dispose();
+      } finally {
+        if (this.#slots.get(pathname) === retiringSlot) {
+          this.#slots.delete(pathname);
+          this.#drainDeliveries();
+        }
+      }
+    })();
+    retiringSlot.retiring = retirement;
+    if (wait) {
+      await retirement;
+    } else {
+      void reportFailure(retirement, this.#onBackgroundError);
     }
   }
 
@@ -1411,6 +1612,9 @@ export class V2Controller {
     return slots.flatMap((slot) => {
       if (slot.runtime !== undefined) {
         return [reportFailure(slot.runtime.dispose(), this.#onBackgroundError)];
+      }
+      if (slot.retiring !== undefined) {
+        return [reportFailure(slot.retiring, this.#onBackgroundError)];
       }
       if (slot.load !== undefined) {
         return [reportFailure(slot.load)];

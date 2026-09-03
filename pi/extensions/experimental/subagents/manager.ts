@@ -6,9 +6,14 @@ import type {
   BeforeAgentStartEvent,
   ExtensionAPI,
   ExtensionContext,
+  InputEvent,
+  InputEventResult,
+  MessageEndEvent,
   SessionStartEvent,
   ToolCallEvent,
+  ToolExecutionEndEvent,
   ToolResultEvent,
+  TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -59,6 +64,7 @@ export interface SubagentManagerOptions {
 
 interface RootAttempt {
   id: string;
+  provenance: "appended" | "consumed" | "steered" | "waiting";
   protocol: "v1" | "v2";
 }
 
@@ -100,8 +106,11 @@ export class SubagentManager {
   #rootAttempt: RootAttempt | undefined;
   #rootCursor: TranscriptCursor | undefined;
   #rootDeliveryTail: Promise<void> = Promise.resolve();
+  #rootVerificationTail: Promise<void> = Promise.resolve();
+  #rootCanSteerV1 = false;
   #rootRunning = false;
   #rootSessionManager: ExtensionContext["sessionManager"] | undefined;
+  readonly #rootToolTerminates = new Map<string, boolean>();
   #shuttingDown = false;
   #sessionPhase: SessionPhase = {
     kind: "awaiting-session",
@@ -135,6 +144,7 @@ export class SubagentManager {
       nicknames: this.#nicknames,
       onBackgroundError: report,
     });
+    pi.on("message_end", this.#messageEnd.bind(this));
     this.#unsubscribeState = this.#coordinator.subscribe(() => {
       this.#scheduleRootDelivery();
       if (this.#coordinator.error !== undefined) {
@@ -164,8 +174,9 @@ export class SubagentManager {
 
   async start(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
     this.#shuttingDown = true;
-    await this.#rootDeliveryTail;
+    await Promise.all([this.#rootDeliveryTail, this.#rootVerificationTail]);
     this.#rootDeliveryTail = Promise.resolve();
+    this.#rootVerificationTail = Promise.resolve();
     this.#shuttingDown = false;
     this.#showBackgroundError = (error) => {
       ctx.ui.notify(
@@ -174,7 +185,9 @@ export class SubagentManager {
       );
     };
     this.#rootAttempt = undefined;
+    this.#rootCanSteerV1 = false;
     this.#rootRunning = false;
+    this.#rootToolTerminates.clear();
     this.#rootCursor = undefined;
     this.#rootSessionManager = ctx.sessionManager;
     const sessionId = ctx.sessionManager.getSessionId();
@@ -219,7 +232,6 @@ export class SubagentManager {
       await this.#coordinator.install(store, state, restore || inherited !== undefined);
       this.#applyTools();
       this.#syncRoot();
-      this.#scheduleRootDelivery();
     } catch (error) {
       const startError = error instanceof Error ? error : new Error(String(error));
       this.#sessionPhase = {
@@ -238,7 +250,9 @@ export class SubagentManager {
 
   async beforeAgentStart(event: BeforeAgentStartEvent, ctx: ExtensionContext) {
     this.#refreshProtocol(ctx);
-    this.#assertHealthy();
+    if (this.#healthError() !== undefined) {
+      return;
+    }
     if (this.#sessionPhase.kind === "selectable") {
       const { protocol, sessionId } = this.#sessionPhase;
       const binding = rootBinding(
@@ -258,7 +272,6 @@ export class SubagentManager {
     }
     this.#promptOptions = event.systemPromptOptions;
     this.#syncRoot();
-    this.#scheduleRootDelivery();
     if (this.#sessionPhase.kind === "restore-pending") {
       const { protocol, sessionId } = this.#sessionPhase;
       this.#sessionPhase = {
@@ -283,21 +296,88 @@ export class SubagentManager {
   }
 
   agentStart(): void {
+    this.#rootCanSteerV1 = true;
     this.#rootRunning = true;
-    this.#syncRoot();
-  }
-
-  agentSettled(): void {
-    this.#rootRunning = false;
+    this.#rootToolTerminates.clear();
     this.#syncRoot();
     this.#scheduleRootDelivery();
   }
 
-  input(): void {
+  async agentEnd(): Promise<void> {
+    this.#rootCanSteerV1 = false;
+    await this.#queueRootDelivery(async () => {
+      await this.#admitRootOnce(false);
+    });
+    this.#scheduleRootVerification();
+  }
+
+  async agentSettled(): Promise<void> {
+    this.#rootCanSteerV1 = false;
+    this.#rootRunning = false;
+    this.#syncRoot();
+    await this.#drainIdleRootDeliveries();
+  }
+
+  toolExecutionEnd(event: ToolExecutionEndEvent): void {
+    this.#rootToolTerminates.set(event.toolCallId, event.result?.terminate === true);
+  }
+
+  #messageEnd(event: MessageEndEvent): void {
+    const attempt = this.#rootAttempt;
+    if (
+      attempt?.provenance !== "steered" ||
+      event.message.role !== "custom" ||
+      !Value.Check(RootDeliveryDetailsSchema, event.message.details)
+    ) {
+      return;
+    }
+    const matches =
+      attempt.protocol === "v1"
+        ? event.message.customType === V1_NOTIFICATION_TYPE &&
+          event.message.details.notificationId === attempt.id
+        : event.message.customType === SUBAGENT_MESSAGE_TYPE &&
+          event.message.details.communicationId === attempt.id;
+    if (matches) {
+      attempt.provenance = "consumed";
+    }
+  }
+
+  async turnEnd(event: TurnEndEvent, ctx: ExtensionContext): Promise<void> {
+    const assistant = event.message.role === "assistant" ? event.message : undefined;
+    const continuesWithTools =
+      assistant !== undefined &&
+      assistant.stopReason !== "error" &&
+      assistant.stopReason !== "aborted" &&
+      ctx.signal?.aborted !== true &&
+      event.toolResults.length > 0 &&
+      event.toolResults.some(({ toolCallId }) => this.#rootToolTerminates.get(toolCallId) !== true);
+    await this.#queueRootDelivery(async () => {
+      await this.#admitRootOnce(this.#rootCanSteerV1);
+      if (continuesWithTools && !ctx.hasPendingMessages()) {
+        await this.#enqueueRootAttempt(true);
+      }
+    });
+    this.#rootToolTerminates.clear();
+    this.#scheduleRootVerification();
+  }
+
+  async input(_event: InputEvent, ctx: ExtensionContext): Promise<InputEventResult | undefined> {
     if (this.#sessionPhase.protocol === "v2") {
       this.#v2.notify(ROOT_AGENT_PATH);
     }
+    if (ctx.isIdle()) {
+      try {
+        await this.#drainIdleRootDeliveries();
+      } catch (error) {
+        ctx.ui.notify(
+          `Prompt was not sent because subagent root mail could not be delivered: ${error instanceof Error ? error.message : String(error)}`,
+          "error",
+        );
+        return { action: "handled" };
+      }
+    }
     this.#scheduleRootDelivery();
+    return undefined;
   }
 
   async modelSelect(event: { model: Model<Api> }, ctx: ExtensionContext): Promise<void> {
@@ -392,7 +472,7 @@ export class SubagentManager {
     this.#unsubscribeContract();
     this.#unsubscribeState();
     this.#showBackgroundError = undefined;
-    await this.#rootDeliveryTail;
+    await Promise.all([this.#rootDeliveryTail, this.#rootVerificationTail]);
     if (this.#sessionPhase.protocol === "v1") {
       await this.#v1.shutdown();
     }
@@ -402,16 +482,19 @@ export class SubagentManager {
   }
 
   #assertHealthy(): void {
-    const error =
-      this.#sessionPhase.kind === "start-failed"
-        ? this.#sessionPhase.error
-        : this.#coordinator.error;
+    const error = this.#healthError();
     if (error !== undefined) {
       throw new Error(
         `Subagent state could not be persisted: ${error.message}. Collaboration is blocked for this tree.`,
         { cause: error },
       );
     }
+  }
+
+  #healthError(): Error | undefined {
+    return this.#sessionPhase.kind === "start-failed"
+      ? this.#sessionPhase.error
+      : this.#coordinator.error;
   }
 
   #latch(protocol: "v1" | "v2", ctx: ExtensionContext): void {
@@ -473,45 +556,66 @@ export class SubagentManager {
   }
 
   #syncRoot(): void {
-    this.#v1.setRoot(this.#pi, this.#promptOptions, this.#rootRunning);
+    this.#v1.setRoot(this.#pi, this.#promptOptions);
     this.#v2.setRoot(this.#pi, this.#promptOptions, this.#rootRunning);
   }
 
   #scheduleRootDelivery(): void {
-    if (this.#shuttingDown) {
+    if (!this.#rootRunning) {
       return;
     }
-    const previous = this.#rootDeliveryTail;
-    this.#rootDeliveryTail = (async () => {
-      try {
-        await previous;
-        if (this.#shuttingDown) {
-          return;
-        }
-        await (this.#rootAttempt === undefined
-          ? this.#deliverRootOnce()
-          : this.#verifyRootAttempt());
-      } catch (error) {
-        this.#showBackgroundError?.(error);
+    // Preserve which side of the agent_end cutoff published the V1 notification.
+    const canSteerV1 = this.#rootCanSteerV1;
+    void this.#queueRootDelivery(async () => {
+      if (!this.#rootRunning) {
+        return;
       }
-    })();
+      await this.#admitRootOnce(canSteerV1);
+    });
   }
 
-  async #deliverRootOnce(): Promise<void> {
-    if (this.#rootAttempt !== undefined || this.#sessionPhase.kind === "awaiting-session") {
-      return;
+  #queueRootDelivery(operation: () => Promise<void>, propagate = false): Promise<void> {
+    const previous = this.#rootDeliveryTail;
+    const queued = (async () => {
+      await previous;
+      if (this.#shuttingDown) {
+        return;
+      }
+      await operation();
+    })();
+    this.#rootDeliveryTail = (async () => {
+      try {
+        await queued;
+      } catch (error) {
+        if (!propagate) {
+          this.#showBackgroundError?.(error);
+        }
+      }
+    })();
+    if (propagate) {
+      return queued;
+    }
+    return this.#rootDeliveryTail;
+  }
+
+  async #admitRootOnce(canSteerV1 = this.#rootCanSteerV1, verify = true): Promise<boolean> {
+    if (this.#rootAttempt !== undefined) {
+      return true;
+    }
+    if (this.#sessionPhase.kind === "awaiting-session") {
+      return false;
     }
     const v1 = this.#sessionPhase.protocol === "v1" ? this.#v1.rootDeliveries()[0] : undefined;
     const v2 = this.#sessionPhase.protocol === "v2" ? this.#v2.rootDeliveries()[0] : undefined;
     let attempt: RootAttempt | undefined;
     if (v1 !== undefined) {
-      attempt = { id: v1.id, protocol: "v1" };
+      attempt = { id: v1.id, provenance: "waiting", protocol: "v1" };
     }
     if (v2 !== undefined) {
-      attempt = { id: v2.id, protocol: "v2" };
+      attempt = { id: v2.id, provenance: "waiting", protocol: "v2" };
     }
     if (attempt === undefined) {
-      return;
+      return false;
     }
     const existingEntryId = this.#rootEntryId(attempt);
     if (existingEntryId !== undefined) {
@@ -530,58 +634,131 @@ export class SubagentManager {
       }
       await this.#acknowledgeRoot(attempt);
       this.#scheduleRootDelivery();
-      return;
+      return true;
     }
     this.#ensureRootCursor();
     this.#rootAttempt = attempt;
-    if (v1 !== undefined) {
-      this.#pi.sendMessage(
-        {
-          content: v1.content,
-          customType: V1_NOTIFICATION_TYPE,
-          details: { agentId: v1.agentId, notificationId: v1.id },
-          display: false,
-        },
-        { deliverAs: "steer", triggerTurn: this.#rootRunning },
-      );
-    } else if (v2 !== undefined) {
-      this.#pi.sendMessage(
-        {
-          content: `Message Type: ${v2.kind}\nTask name: ${v2.to}\nSender: ${v2.from}\nPayload:\n${v2.content}`,
-          customType: SUBAGENT_MESSAGE_TYPE,
-          details: {
-            communicationId: v2.id,
-            from: v2.from,
-            kind: v2.kind,
-            to: v2.to,
-          },
-          display: false,
-        },
-        { deliverAs: "steer", triggerTurn: this.#rootRunning },
-      );
+    if (attempt.protocol === "v2") {
       this.#v2.mailboxEnqueued(ROOT_AGENT_PATH);
     }
-    await yieldImmediate();
-    await this.#verifyRootAttempt();
+    if (attempt.protocol === "v1" || !this.#rootRunning) {
+      await this.#enqueueRootAttempt(attempt.protocol === "v1" ? canSteerV1 : false, verify);
+    }
+    return true;
   }
 
-  async #verifyRootAttempt(): Promise<void> {
+  async #enqueueRootAttempt(triggerTurn: boolean, verify = true): Promise<void> {
     const attempt = this.#rootAttempt;
-    if (attempt === undefined) {
+    if (attempt === undefined || attempt.provenance !== "waiting") {
+      return;
+    }
+    let message: Parameters<ExtensionAPI["sendMessage"]>[0];
+    if (attempt.protocol === "v1") {
+      const delivery = this.#v1.rootDeliveries().find(({ id }) => id === attempt.id);
+      if (delivery === undefined) {
+        return;
+      }
+      message = {
+        content: delivery.content,
+        customType: V1_NOTIFICATION_TYPE,
+        details: { agentId: delivery.agentId, notificationId: delivery.id },
+        display: false,
+      };
+    } else {
+      const delivery = this.#v2.rootDeliveries().find(({ id }) => id === attempt.id);
+      if (delivery === undefined) {
+        return;
+      }
+      message = {
+        content: `Message Type: ${delivery.kind}\nTask name: ${delivery.to}\nSender: ${delivery.from}\nPayload:\n${delivery.content}`,
+        customType: SUBAGENT_MESSAGE_TYPE,
+        details: {
+          communicationId: delivery.id,
+          from: delivery.from,
+          kind: delivery.kind,
+          to: delivery.to,
+        },
+        display: false,
+      };
+    }
+    attempt.provenance = triggerTurn ? "steered" : "appended";
+    this.#pi.sendMessage(message, { deliverAs: "steer", triggerTurn });
+    if (verify) {
+      this.#scheduleRootVerification();
+    }
+  }
+
+  async #drainIdleRootDeliveries(): Promise<void> {
+    if (this.#healthError() !== undefined) {
+      return;
+    }
+    await this.#rootVerificationTail;
+    await this.#queueRootDelivery(async () => {
+      while (await this.#admitRootOnce(false, false)) {
+        const attempt = this.#rootAttempt;
+        if (attempt === undefined) {
+          continue;
+        }
+        if (attempt.provenance === "steered" && this.#rootEntryId(attempt) === undefined) {
+          attempt.provenance = "waiting";
+        }
+        await this.#enqueueRootAttempt(false, false);
+        if (attempt.provenance === "waiting") {
+          return;
+        }
+        await this.#verifyRootAttempt(true);
+        if (this.#rootAttempt === attempt) {
+          return;
+        }
+      }
+    }, true);
+  }
+
+  #scheduleRootVerification(): void {
+    if (
+      this.#shuttingDown ||
+      this.#rootAttempt === undefined ||
+      this.#rootAttempt.provenance === "waiting"
+    ) {
+      return;
+    }
+    const previous = this.#rootVerificationTail;
+    this.#rootVerificationTail = (async () => {
+      try {
+        await previous;
+        await yieldImmediate();
+        if (!this.#shuttingDown) {
+          await this.#verifyRootAttempt();
+        }
+      } catch (error) {
+        this.#showBackgroundError?.(error);
+      }
+    })();
+  }
+
+  async #verifyRootAttempt(requirePersisted = false): Promise<void> {
+    const attempt = this.#rootAttempt;
+    if (attempt === undefined || attempt.provenance === "waiting") {
       return;
     }
     const entryId = this.#rootEntryId(attempt);
     this.#ensureRootCursor();
-    if (
-      this.#rootSessionManager?.getSessionFile() !== undefined &&
-      this.#rootCursor === undefined
-    ) {
+    const persisted = this.#rootSessionManager?.getSessionFile() !== undefined;
+    if (entryId === undefined) {
+      if (requirePersisted) {
+        throw new Error(`Root delivery ${attempt.id} was not appended to the root transcript`);
+      }
       return;
     }
-    if (this.#rootCursor !== undefined) {
-      if (entryId === undefined) {
-        return;
+    if (persisted && this.#rootCursor === undefined) {
+      if (requirePersisted) {
+        throw new Error(
+          `Root delivery ${attempt.id} transcript could not be opened for verification`,
+        );
       }
+      return;
+    }
+    if (this.#rootCursor !== undefined && entryId !== undefined) {
       await this.#rootCursor.verify(entryId);
     }
     await this.#acknowledgeRoot(attempt);

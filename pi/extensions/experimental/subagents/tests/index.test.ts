@@ -11,7 +11,7 @@ import { DEFAULT_CONFIG } from "../config.js";
 import type { SubagentsConfig } from "../config.js";
 import { SubagentManager } from "../manager.js";
 import { createControlStore, freshSnapshot, rootBinding, serializeSnapshot } from "../snapshot.js";
-import { V1Controller } from "../v1/controller.js";
+import { V1Controller, V1_NOTIFICATION_TYPE } from "../v1/controller.js";
 import { V2Controller } from "../v2/controller.js";
 
 const V1 = ["close_agent", "resume_agent", "send_input", "spawn_agent", "wait_agent"];
@@ -212,16 +212,36 @@ describe("subagents extension selection", () => {
       });
 
     try {
-      const host = createExtensionHost((pi) => {
-        const manager = new SubagentManager(pi, {
-          config: structuredClone(DEFAULT_CONFIG),
-          dataDir: "/tmp/subagents-shutdown-test",
-        });
-        pi.on("session_start", manager.start.bind(manager));
-        pi.on("session_shutdown", manager.shutdown.bind(manager));
-      });
+      const entryId = "root-notification-entry";
+      const host = createExtensionHost(
+        (pi) => {
+          const manager = new SubagentManager(pi, {
+            config: structuredClone(DEFAULT_CONFIG),
+            dataDir: "/tmp/subagents-shutdown-test",
+          });
+          pi.on("session_start", manager.start.bind(manager));
+          pi.on("agent_start", manager.agentStart.bind(manager));
+          pi.on("session_shutdown", manager.shutdown.bind(manager));
+        },
+        {
+          entries: [
+            {
+              content: "done",
+              customType: V1_NOTIFICATION_TYPE,
+              details: { agentId: "agent-1", notificationId: "notification-1" },
+              display: false,
+              id: entryId,
+              parentId: null,
+              timestamp: new Date().toISOString(),
+              type: "custom_message",
+            },
+          ],
+          leafId: entryId,
+        },
+      );
       await host.ready;
       await host.emitSessionStart();
+      await host.emit("agent_start", { type: "agent_start" });
       await vi.waitFor(() => expect(acknowledgeRoot).toHaveBeenCalledOnce());
 
       let stopped = false;

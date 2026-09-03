@@ -58,7 +58,6 @@ export type SubagentsSnapshot = Static<typeof SnapshotSchema>;
 const SUCCESSFUL_WRITE: Error | undefined = undefined;
 
 export interface ControlStore {
-  readonly persistent: boolean;
   load: () => Promise<SubagentsSnapshot | undefined>;
   write: (serialized: string, onCommit: () => void) => Promise<Error | undefined>;
 }
@@ -206,66 +205,7 @@ const assertSnapshotSemantics = (snapshot: SubagentsSnapshot): void => {
   assertV2Semantics(snapshot);
 };
 
-type JsonValue = boolean | JsonObject | JsonValue[] | null | number | string | undefined;
-interface JsonObject {
-  [key: string]: JsonValue;
-}
-interface LegacyTurn extends JsonObject {
-  phase?: "pending" | "running";
-}
-interface LegacyAgent extends JsonObject {
-  queue: LegacyTurn[];
-}
-interface LegacyV1Snapshot extends JsonObject {
-  protocolLatch: "v1";
-  state: JsonObject & { agents: LegacyAgent[] };
-}
-const LegacyV1SnapshotSchema = Type.Unsafe<LegacyV1Snapshot>(
-  Type.Object(
-    {
-      protocolLatch: Type.Literal("v1"),
-      state: Type.Object(
-        {
-          agents: Type.Array(
-            Type.Object(
-              {
-                queue: Type.Array(Type.Object({}, { additionalProperties: true })),
-              },
-              { additionalProperties: true },
-            ),
-          ),
-        },
-        { additionalProperties: true },
-      ),
-    },
-    { additionalProperties: true },
-  ),
-);
-
-const migrateLegacyV1QueuePhases = (value: JsonValue): JsonValue => {
-  if (!Value.Check(LegacyV1SnapshotSchema, value)) {
-    return value;
-  }
-  return {
-    ...value,
-    state: {
-      ...value.state,
-      agents: value.state.agents.map((agent) => {
-        return {
-          ...agent,
-          queue: agent.queue.map((turn) => {
-            if (turn.phase !== "pending" && turn.phase !== "running") {
-              return turn;
-            }
-            const migrated = { ...turn };
-            delete migrated.phase;
-            return migrated;
-          }),
-        };
-      }),
-    },
-  };
-};
+type JsonValue = boolean | JsonValue[] | null | number | string | { [key: string]: JsonValue };
 
 const assertSnapshot = (value: JsonValue, expectedRoot: RootBinding): SubagentsSnapshot => {
   if (!Value.Check(SnapshotSchema, value)) {
@@ -348,7 +288,6 @@ export const createMemoryControlStore = (snapshot?: SubagentsSnapshot): ControlS
   let current = snapshot === undefined ? undefined : structuredClone(snapshot);
   return {
     load: () => Promise.resolve(current === undefined ? undefined : structuredClone(current)),
-    persistent: false,
     write: (serialized, onCommit) => {
       current = Value.Decode(SnapshotSchema, JSON.parse(serialized));
       onCommit();
@@ -360,7 +299,6 @@ export const createMemoryControlStore = (snapshot?: SubagentsSnapshot): ControlS
 class FileControlStore implements ControlStore {
   readonly #directory: string;
   readonly #filePath: string;
-  readonly persistent = true;
   readonly #root: RootBinding;
 
   constructor(directory: string, filePath: string, root: RootBinding) {
@@ -393,7 +331,7 @@ class FileControlStore implements ControlStore {
           throw new Error("Subagent control state exceeds its maximum size");
         }
         const contents = await readFile(this.#filePath, "utf-8");
-        snapshot = assertSnapshot(migrateLegacyV1QueuePhases(JSON.parse(contents)), this.#root);
+        snapshot = assertSnapshot(JSON.parse(contents), this.#root);
       }
       return snapshot;
     });

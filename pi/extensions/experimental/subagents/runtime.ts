@@ -71,13 +71,12 @@ export interface ChildRuntime {
   abort: () => Promise<void>;
   commit: () => void;
   dispose: () => Promise<void>;
-  getMessages: () => readonly unknown[];
   isStreaming: () => boolean;
   rollback: () => Promise<void>;
   sendMessage: (
     message: RuntimeMessage,
     onEnqueued?: () => void,
-    startIfIdle?: boolean,
+    triggerTurn?: boolean,
   ) => ChildDelivery;
   startTurn: (input: PromptInput) => ChildTurn;
   readonly sessionFile: string;
@@ -382,6 +381,22 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
     const cursor = new TranscriptCursor(sessionFile);
     let poisonError: PermanentChildError | undefined;
+    const customStarts: string[] = [];
+    const startedCustom = new Set<string>();
+    const pendingCustom = new Map<string, VoidDeferred>();
+    const pendingPassive: RuntimeMessage[] = [];
+    const terminatingToolCalls = new Set<string>();
+    interface ActiveAttempt {
+      accepted: VoidDeferred;
+      boundary: unknown;
+      cancellation: VoidDeferred;
+      cancellationError?: Error;
+      finished: VoidDeferred;
+      preflight: boolean;
+      userSeen: boolean;
+    }
+    let activeAttempt: ActiveAttempt | undefined;
+    let settlementFlush: Promise<void> | undefined;
     const poisoned = Promise.withResolvers<never>();
     void ignored(poisoned.promise);
     const poison = (cause: unknown): PermanentChildError => {
@@ -459,8 +474,80 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       projectTrusted: request.trusted,
     });
     const excludedExtensionPaths = new Set<string>();
+    const flushPassive = async (triggerTurn: boolean): Promise<void> => {
+      const session = createdSession;
+      if (session === undefined) {
+        throw new Error("Child session is unavailable");
+      }
+      const pending = pendingPassive.splice(0, triggerTurn ? 1 : pendingPassive.length);
+      for (const message of pending) {
+        const receipt = pendingCustom.get(message.details.communicationId);
+        try {
+          await session.sendCustomMessage(
+            { ...message, display: false },
+            { deliverAs: "steer", triggerTurn },
+          );
+          if (!triggerTurn) {
+            await receipt?.promise;
+          }
+        } catch (error) {
+          const failure = poison(error);
+          pendingCustom.get(message.details.communicationId)?.reject(failure);
+          pendingCustom.delete(message.details.communicationId);
+          throw failure;
+        }
+      }
+    };
     const hostBridge: ExtensionFactory = async (pi) => {
+      pi.on("session_before_compact", () =>
+        activeAttempt?.cancellationError !== undefined ? { cancel: true } : undefined,
+      );
       await request.bridge(pi);
+      pi.on("input", () =>
+        activeAttempt?.preflight === true && activeAttempt.cancellationError !== undefined
+          ? { action: "handled" }
+          : undefined,
+      );
+      pi.on("turn_start", () => {
+        terminatingToolCalls.clear();
+      });
+      pi.on("tool_execution_end", (event) => {
+        if (event.result?.terminate === true) {
+          terminatingToolCalls.add(event.toolCallId);
+        }
+      });
+      pi.on("turn_end", async (event, ctx) => {
+        const terminal =
+          ctx.signal?.aborted === true ||
+          (event.message.role === "assistant" &&
+            (event.message.stopReason === "error" || event.message.stopReason === "aborted"));
+        const continues =
+          !terminal &&
+          event.toolResults.length > 0 &&
+          event.toolResults.some(({ toolCallId }) => !terminatingToolCalls.has(toolCallId));
+        try {
+          if (continues && !ctx.hasPendingMessages()) {
+            await flushPassive(true);
+          }
+        } catch (error) {
+          throw poison(error);
+        } finally {
+          terminatingToolCalls.clear();
+        }
+      });
+      pi.on("agent_settled", async () => {
+        const operation = flushPassive(false);
+        settlementFlush = operation;
+        try {
+          await operation;
+        } catch (error) {
+          throw poison(error);
+        } finally {
+          if (settlementFlush === operation) {
+            settlementFlush = undefined;
+          }
+        }
+      });
       pi.on("tool_call", async () => {
         assertHealthy();
         await cursor.verify();
@@ -540,6 +627,17 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       tools: request.tools,
     });
     createdSession = session;
+    const stream = session.agent.streamFunction;
+    session.agent.streamFunction = (model, context, options) => {
+      const cancellation = activeAttempt?.cancellationError;
+      if (cancellation !== undefined) {
+        if (session.agent.signal?.aborted !== true) {
+          session.agent.abort();
+        }
+        throw cancellation;
+      }
+      return stream(model, context, options);
+    };
     const activeModel = session.model;
     const activeContext = sessionManager.buildSessionContext();
     if (
@@ -556,21 +654,13 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     await session.bindExtensions({ mode: "print" });
 
     let committed = !materialized.fresh;
-    let disposed = false;
-    let activeAttempt:
-      | {
-          accepted: VoidDeferred;
-          boundary: unknown;
-          userSeen: boolean;
-        }
-      | undefined;
-    const pendingCustom = new Map<string, VoidDeferred>();
-    const customStarts: string[] = [];
-
+    let disposal: Promise<void> | undefined;
     const unsubscribe = session.subscribe((event) => {
       if (event.type === "message_start" && event.message.role === "custom") {
         if (Value.Check(CommunicationDetailsSchema, event.message.details)) {
-          customStarts.push(event.message.details.communicationId);
+          const { communicationId } = event.message.details;
+          customStarts.push(communicationId);
+          startedCustom.add(communicationId);
         }
         return;
       }
@@ -604,10 +694,11 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
             try {
               await verifyCustomDelivery(deliveryId);
               pendingCustom.get(deliveryId)?.resolve();
-              pendingCustom.delete(deliveryId);
             } catch (error) {
               pendingCustom.get(deliveryId)?.reject(error);
+            } finally {
               pendingCustom.delete(deliveryId);
+              startedCustom.delete(deliveryId);
             }
           })();
         });
@@ -635,19 +726,35 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         throw new Error("Child is already running");
       }
       const accepted = createVoidDeferred();
+      const cancellation = createVoidDeferred();
+      const finished = createVoidDeferred();
       const boundary = session.state.messages.at(-1);
-      const attempt = { accepted, boundary, userSeen: false };
+      const attempt: ActiveAttempt = {
+        accepted,
+        boundary,
+        cancellation,
+        finished,
+        preflight: true,
+        userSeen: false,
+      };
       activeAttempt = attempt;
+      const prompt = session.prompt(input.text, {
+        expandPromptTemplates: false,
+        images: input.images,
+        preflightResult: (success) => {
+          if (!success) {
+            return;
+          }
+          if (attempt.cancellationError !== undefined) {
+            throw attempt.cancellationError;
+          }
+          attempt.preflight = false;
+        },
+        source: "extension",
+      });
       const settled = (async () => {
         try {
-          await Promise.race([
-            session.prompt(input.text, {
-              expandPromptTemplates: false,
-              images: input.images,
-              source: "extension",
-            }),
-            poisoned.promise,
-          ]);
+          await Promise.race([prompt, cancellation.promise, poisoned.promise]);
           await yieldImmediate();
           if (!attempt.userSeen) {
             throw new Error("Child input did not produce a user turn");
@@ -661,43 +768,126 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           accepted.reject(error);
           throw error;
         } finally {
+          await ignored(prompt);
           if (activeAttempt === attempt) {
             activeAttempt = undefined;
           }
+          attempt.finished.resolve();
         }
       })();
       void ignored(accepted.promise);
+      void ignored(cancellation.promise);
       void ignored(settled);
       return { accepted: accepted.promise, settled };
     };
 
+    const cancelAttempt = (cause: Error): void => {
+      const attempt = activeAttempt;
+      if (attempt === undefined || attempt.cancellationError !== undefined) {
+        return;
+      }
+      attempt.cancellationError = cause;
+      if (attempt.preflight) {
+        attempt.cancellation.reject(cause);
+      }
+    };
+
+    const stop = async (failure: Error, waitForAttempt = false): Promise<void> => {
+      const attempt = activeAttempt;
+      cancelAttempt(failure);
+      session.clearQueue();
+      session.abortCompaction();
+      const postRun =
+        attempt !== undefined &&
+        !attempt.preflight &&
+        session.isStreaming &&
+        session.agent.signal === undefined;
+      let stopError: unknown;
+      try {
+        const abort = session.abort();
+        if (waitForAttempt || !postRun) {
+          await abort;
+        } else {
+          void ignored(abort);
+        }
+      } catch (error) {
+        stopError = error;
+      }
+      if (waitForAttempt) {
+        await attempt?.finished.promise;
+      }
+      try {
+        await settlementFlush;
+      } catch (error) {
+        stopError ??= error;
+      }
+      await Promise.allSettled(
+        [...pendingCustom]
+          .filter(([deliveryId]) => startedCustom.has(deliveryId))
+          .map(([, delivery]) => delivery.promise),
+      );
+      for (const [deliveryId, delivery] of pendingCustom) {
+        if (!startedCustom.has(deliveryId)) {
+          delivery.reject(failure);
+          pendingCustom.delete(deliveryId);
+        }
+      }
+      pendingPassive.length = 0;
+      if (stopError !== undefined) {
+        throw stopError;
+      }
+      assertHealthy();
+    };
+
     const runtime: ChildRuntime = {
-      abort: () => session.abort(),
+      async abort() {
+        await stop(new Error("Child turn was aborted"));
+      },
       commit() {
         committed = true;
       },
-      async dispose() {
-        if (disposed) {
-          return;
+      dispose() {
+        if (disposal === undefined) {
+          const deferred = createVoidDeferred();
+          disposal = deferred.promise;
+          void (async () => {
+            const failure = new PermanentChildError("Child runtime was disposed");
+            const preflight = activeAttempt?.preflight === true;
+            const stopping = stop(failure, true);
+            try {
+              if (preflight) {
+                const shutdown = session.extensionRunner.emit({
+                  reason: "quit",
+                  type: "session_shutdown",
+                });
+                const [stopResult, shutdownResult] = await Promise.allSettled([stopping, shutdown]);
+                if (shutdownResult.status === "rejected") {
+                  throw shutdownResult.reason;
+                }
+                if (stopResult.status === "rejected") {
+                  throw stopResult.reason;
+                }
+              } else {
+                try {
+                  await stopping;
+                } finally {
+                  await session.extensionRunner.emit({
+                    reason: "quit",
+                    type: "session_shutdown",
+                  });
+                }
+              }
+            } finally {
+              try {
+                unsubscribe();
+              } finally {
+                session.dispose();
+              }
+            }
+          })().then(deferred.resolve, deferred.reject);
         }
-        disposed = true;
-        unsubscribe();
-        const failure = new PermanentChildError("Child runtime was disposed");
-        activeAttempt?.accepted.reject(failure);
-        for (const delivery of pendingCustom.values()) {
-          delivery.reject(failure);
-        }
-        pendingCustom.clear();
-        try {
-          await session.extensionRunner.emit({
-            reason: "quit",
-            type: "session_shutdown",
-          });
-        } finally {
-          session.dispose();
-        }
+        return disposal;
       },
-      getMessages: () => session.state.messages,
       isStreaming: () => session.isStreaming,
       async rollback() {
         try {
@@ -708,22 +898,27 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           }
         }
       },
-      sendMessage(message, onEnqueued, startIfIdle = false) {
+      sendMessage(message, onEnqueued, triggerTurn = false) {
         assertHealthy();
-        if (startIfIdle && !session.isStreaming) {
+        if (triggerTurn && !session.isStreaming) {
           return startTurn({ text: message.content });
         }
         const { communicationId: deliveryId } = message.details;
         const accepted = createVoidDeferred();
         pendingCustom.set(deliveryId, accepted);
         const streaming = session.isStreaming;
+        if (streaming && !triggerTurn) {
+          pendingPassive.push(message);
+          onEnqueued?.();
+          return { accepted: accepted.promise };
+        }
         const operation = (async () => {
           try {
             await session.sendCustomMessage(
               { ...message, display: false },
               {
                 deliverAs: "steer",
-                triggerTurn: streaming,
+                triggerTurn: streaming && triggerTurn,
               },
             );
             onEnqueued?.();
