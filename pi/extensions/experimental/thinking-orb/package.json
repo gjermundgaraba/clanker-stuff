@@ -1,0 +1,59 @@
+{
+  "name": "@clanker-stuff/thinking-orb",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pane-local Ghostty Thinking Orb overlay that animates while the agent works.",
+  "keywords": [
+    "pi-package"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/thinking-orb#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/extensions/experimental/thinking-orb"
+  },
+  "files": [
+    "index.ts",
+    "config.ts",
+    "control-image.ts",
+    "ghostty.ts",
+    "kitty.ts",
+    "layout.ts",
+    "lifecycle.ts",
+    "overlay.ts",
+    "setup.ts",
+    "shaders/thinking-orb-overlay.glsl",
+    "shaders/THIRD_PARTY_NOTICES.md",
+    "docs/ghostty.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/pi-extension-paths": "workspace:^"
+  },
+  "devDependencies": {
+    "vitest": "*"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
