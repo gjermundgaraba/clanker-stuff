@@ -26,3 +26,6 @@ coverage/
 .github/hooks/
 .opencode/
 .pi/
+__pycache__/
+# regenerable capture intermediates (node scripts/orb-font/capture.mjs)
+scripts/orb-font/frames-*.json

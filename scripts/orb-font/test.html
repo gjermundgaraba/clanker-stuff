@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ThinkingOrbs.ttf flipbook test</title>
+<style>
+  @font-face { font-family: "Thinking Orbs"; src: url("ThinkingOrbs.ttf"); }
+  body { background: #070707; color: #ddd; font: 13px monospace; padding: 24px; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; }
+  .orb { text-align: center; }
+  .big { font-family: "Thinking Orbs"; font-size: 96px; line-height: 1; color: #eee; }
+  .cell { font-family: "Thinking Orbs"; font-size: 18px; color: #eee; }
+  .label { margin-top: 6px; color: #888; }
+</style>
+</head>
+<body>
+<h3>ThinkingOrbs.ttf — PUA flipbook</h3>
+<div class="row" id="row"></div>
+<script src="orbs-meta.js"></script>
+<script>
+Promise.resolve(window.ORBS_META).then(meta => {
+  const row = document.getElementById("row");
+  const anims = [];
+  for (const [state, { base, count }] of Object.entries(meta.states)) {
+    const disp = meta.display[state];
+    const div = document.createElement("div");
+    div.className = "orb";
+    const big = document.createElement("div");
+    big.className = "big";
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.textContent = "one cell: [x] done";
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = `${state} (${disp.count}f/${count}f)`;
+    div.append(big, cell, label);
+    row.append(div);
+    anims.push({ big, cell, base, count, disp, i: 0 });
+  }
+  setInterval(() => {
+    for (const a of anims) {
+      a.big.textContent = String.fromCodePoint(a.disp.base + (a.i % a.disp.count));
+      a.cell.textContent = `one cell: [${String.fromCodePoint(a.base + (a.i % a.count))}] done`;
+      a.i++;
+    }
+  }, 1000 / meta.fps);
+});
+</script>
+</body>
+</html>

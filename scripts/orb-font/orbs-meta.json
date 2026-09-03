@@ -1,0 +1,87 @@
+{
+  "fps": 30,
+  "states": {
+    "working": {
+      "base": 1105920,
+      "count": 43
+    },
+    "searching": {
+      "base": 1106176,
+      "count": 101
+    },
+    "solving": {
+      "base": 1106432,
+      "count": 150
+    },
+    "listening": {
+      "base": 1106688,
+      "count": 112
+    },
+    "connecting": {
+      "base": 1106944,
+      "count": 102
+    },
+    "weaving": {
+      "base": 1107200,
+      "count": 150
+    },
+    "composing": {
+      "base": 1107456,
+      "count": 107
+    },
+    "breathing": {
+      "base": 1107712,
+      "count": 88
+    },
+    "shaping": {
+      "base": 1107968,
+      "count": 97
+    },
+    "cube": {
+      "base": 1108224,
+      "count": 45
+    }
+  },
+  "display": {
+    "working": {
+      "base": 1110016,
+      "count": 87
+    },
+    "searching": {
+      "base": 1110272,
+      "count": 129
+    },
+    "solving": {
+      "base": 1110528,
+      "count": 64
+    },
+    "listening": {
+      "base": 1110784,
+      "count": 62
+    },
+    "connecting": {
+      "base": 1111040,
+      "count": 48
+    },
+    "weaving": {
+      "base": 1111296,
+      "count": 92
+    },
+    "composing": {
+      "base": 1111552,
+      "count": 143
+    },
+    "breathing": {
+      "base": 1111808,
+      "count": 103
+    },
+    "shaping": {
+      "base": 1112064,
+      "count": 87
+    },
+    "cube": {
+      "base": 1112320,
+      "count": 45
+    }
+  }
+}
