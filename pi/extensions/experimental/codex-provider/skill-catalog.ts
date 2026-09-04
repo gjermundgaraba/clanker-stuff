@@ -7,7 +7,7 @@ import { formatSkillsForPrompt } from "@earendil-works/pi-coding-agent";
 
 const READ_GUIDANCE =
   "Use the read tool to load a skill's file when the task matches its description.";
-const FILE_LOADERS = ["exec_command", "exec", "bash"] as const;
+const FILE_LOADERS = ["exec_command", "exec"] as const;
 
 export const exposeSkillsWithoutRead = (
   event: BeforeAgentStartEvent,

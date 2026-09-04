@@ -424,15 +424,15 @@ export const toolOperations = {
   },
 
   async runShell(input: ShellInput, execution: OperationContext): Promise<OperationResult> {
+    const cwd =
+      input.cwd === undefined ? execution.ctx.cwd : resolvePath(input.cwd, execution.ctx.cwd);
     return await runDefinition(
-      createBashToolDefinition(
-        input.cwd === undefined ? execution.ctx.cwd : resolvePath(input.cwd, execution.ctx.cwd),
-      ),
+      createBashToolDefinition(cwd),
       {
         command: input.command,
         timeout: input.timeoutMs === undefined ? undefined : input.timeoutMs / 1000,
       },
-      execution,
+      { ...execution, ctx: { ...execution.ctx, cwd } },
     );
   },
 

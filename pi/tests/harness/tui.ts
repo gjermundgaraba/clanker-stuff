@@ -68,6 +68,7 @@ const createOverlayHandle = (remove?: () => void): OverlayHandle => {
       focused = false;
       remove?.();
     },
+    getBounds: () => undefined,
     isFocused: () => focused,
     isHidden: () => hidden,
     setHidden(nextHidden: boolean) {

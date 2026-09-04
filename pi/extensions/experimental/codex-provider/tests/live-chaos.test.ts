@@ -5,9 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
+import type { RpcClient } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { removeCopiedAuth, waitForCrashCheckpoint } from "../scripts/live-chaos.js";
+import {
+  abortRpcCompaction,
+  removeCopiedAuth,
+  waitForCrashCheckpoint,
+} from "../scripts/live-chaos.js";
 
 class FakeChild extends EventEmitter {
   readonly signals: NodeJS.Signals[] = [];
@@ -40,7 +45,27 @@ const captureError = async (promise: Promise<unknown>) => {
   }
 };
 
-describe("live crash infrastructure", () => {
+const rpcCompactionHarness = () => {
+  type Listener = Parameters<RpcClient["onEvent"]>[0];
+  const compaction = Promise.withResolvers<Awaited<ReturnType<RpcClient["compact"]>>>();
+  const listeners = new Set<Listener>();
+  const client = {
+    abort: vi.fn(async () => {}),
+    compact: vi.fn(() => compaction.promise),
+    onEvent: vi.fn((listener: Listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
+  } satisfies Pick<RpcClient, "abort" | "compact" | "onEvent">;
+  const start = () => {
+    for (const listener of listeners) {
+      listener({ type: "compaction_start", reason: "manual" });
+    }
+  };
+  return { client, compaction, listeners, start };
+};
+
+describe("live chaos infrastructure", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -136,5 +161,58 @@ describe("live crash infrastructure", () => {
     } finally {
       await rm(root, { force: true, recursive: true });
     }
+  });
+
+  it("cleans up RPC compaction startup while cancellation remains pending", async () => {
+    vi.useFakeTimers();
+    const { client, compaction, listeners, start } = rpcCompactionHarness();
+    const aborting = Promise.withResolvers<void>();
+    const abortCalled = Promise.withResolvers<void>();
+    const cancellation = new Error("Compaction cancelled");
+    client.abort.mockImplementation(() => {
+      abortCalled.resolve();
+      return aborting.promise;
+    });
+
+    const result = abortRpcCompaction(client);
+    start();
+    await abortCalled.promise;
+
+    expect(client.abort).toHaveBeenCalledOnce();
+    expect(listeners).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    compaction.reject(cancellation);
+    aborting.resolve();
+    await expect(result).resolves.toStrictEqual([
+      { reason: cancellation, status: "rejected" },
+      { status: "fulfilled", value: undefined },
+    ]);
+  });
+
+  it("stops waiting and removes its listener when RPC compaction fails before starting", async () => {
+    const { client, compaction, listeners } = rpcCompactionHarness();
+    const failure = new Error("RPC process exited");
+    const rejection = captureError(abortRpcCompaction(client));
+
+    compaction.reject(failure);
+
+    await expect(rejection).resolves.toBe(failure);
+    expect(client.abort).not.toHaveBeenCalled();
+    expect(listeners).toHaveLength(0);
+  });
+
+  it("bounds a stalled RPC compaction start and removes its event listener", async () => {
+    vi.useFakeTimers();
+    const { client, listeners } = rpcCompactionHarness();
+    const rejection = captureError(abortRpcCompaction(client, 25));
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(rejection).resolves.toMatchObject({
+      message: "RPC compaction did not start within 25ms",
+    });
+    expect(client.abort).not.toHaveBeenCalled();
+    expect(listeners).toHaveLength(0);
   });
 });

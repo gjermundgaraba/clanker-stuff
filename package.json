@@ -17,6 +17,7 @@
   "devDependencies": {
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
+    "@earendil-works/pi-server": "catalog:",
     "@earendil-works/pi-tui": "catalog:",
     "@oxlint/plugins": "catalog:",
     "@types/node": "catalog:",

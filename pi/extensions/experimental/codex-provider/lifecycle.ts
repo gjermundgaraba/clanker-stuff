@@ -195,7 +195,6 @@ interface LifecycleState {
       }
     | {
         abort: () => void;
-        cancelOverlap: () => void;
         completion: Promise<null>;
         finish: () => void;
         kind: "lifecycle";
@@ -722,6 +721,20 @@ const setLifecycleStatus = (ctx: ExtensionContext, message: string | undefined):
   });
 };
 
+const abortable = async <T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> => {
+  signal.throwIfAborted();
+  const aborted = Promise.withResolvers<T>();
+  const onAbort = () => {
+    aborted.reject(signal.reason);
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    return await Promise.race([run(), aborted.promise]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+};
+
 const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
   const operation = state.inFlight;
   if (operation?.kind !== "lifecycle") {
@@ -843,7 +856,7 @@ const runLifecycleHook = async (
   if (state.inFlight) {
     const active = state.inFlight;
     if (active.kind === "lifecycle") {
-      active.cancelOverlap();
+      active.abort();
       if (active.settled) {
         releaseSettledLifecycleOperation(state, ctx, providerRuntime);
       } else {
@@ -859,7 +872,6 @@ const runLifecycleHook = async (
   const sessionId = ctx.sessionManager.getSessionId();
   const operationController = new AbortController();
   const completion = Promise.withResolvers<null>();
-  let cancelledByOverlap = false;
   const signal = AbortSignal.any([
     event.signal,
     state.controller.signal,
@@ -868,9 +880,7 @@ const runLifecycleHook = async (
   const isCurrent = () => {
     try {
       if (
-        cancelledByOverlap ||
-        event.signal.aborted ||
-        state.controller.signal.aborted ||
+        signal.aborted ||
         state.generation !== generation ||
         ctx.sessionManager.getSessionId() !== sessionId ||
         ctx.sessionManager.getLeafId() !== leafId ||
@@ -896,7 +906,7 @@ const runLifecycleHook = async (
     }
   };
   const notifyStale = (key: string, message: string) => {
-    if (!cancelledByOverlap) {
+    if (!signal.aborted) {
       notifyOnce(state, key, ctx, message, "error");
     }
   };
@@ -904,7 +914,10 @@ const runLifecycleHook = async (
   const operation = (async (): Promise<SessionBeforeCompactResult> => {
     setLifecycleStatus(ctx, STATUS_MESSAGE);
     try {
-      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+      const auth = await abortable(() => ctx.modelRegistry.getApiKeyAndHeaders(model), signal);
+      if (signal.aborted) {
+        return { cancel: true };
+      }
       if (!auth.ok || !hasResolvedLifecycleAuth(auth.apiKey)) {
         notifyOnce(
           state,
@@ -1000,13 +1013,15 @@ const runLifecycleHook = async (
         },
       };
     } catch {
-      notifyOnce(
-        state,
-        `${operationKey}:failure`,
-        ctx,
-        "OpenAI remote compaction failed; local context was left unchanged.",
-        "error",
-      );
+      if (!signal.aborted) {
+        notifyOnce(
+          state,
+          `${operationKey}:failure`,
+          ctx,
+          "OpenAI remote compaction failed; local context was left unchanged.",
+          "error",
+        );
+      }
       return { cancel: true };
     } finally {
       setLifecycleStatus(ctx, undefined);
@@ -1015,10 +1030,6 @@ const runLifecycleHook = async (
 
   const lifecycleOperation = {
     abort: () => {
-      operationController.abort();
-    },
-    cancelOverlap: () => {
-      cancelledByOverlap = true;
       operationController.abort();
     },
     completion: completion.promise,

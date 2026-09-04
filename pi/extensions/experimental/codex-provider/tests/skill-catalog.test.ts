@@ -44,7 +44,7 @@ const createContext = (provider = "openai-codex"): ExtensionContext =>
   host.createContext({ model: { ...createToolsModel("gpt-5.6-sol"), provider } });
 
 describe("Codex skill catalog", () => {
-  it.each(["exec_command", "exec", "bash"])(
+  it.each(["exec_command", "exec"])(
     "restores loaded skill metadata with the active %s loader",
     (loader) => {
       const event = createEvent([loader]);
@@ -70,6 +70,7 @@ describe("Codex skill catalog", () => {
     expect(
       exposeSkillsWithoutRead(createEvent(["exec_command"]), createContext("anthropic")),
     ).toBeUndefined();
+    expect(exposeSkillsWithoutRead(createEvent(["bash"]), createContext())).toBeUndefined();
     expect(exposeSkillsWithoutRead(createEvent(["apply_patch"]), createContext())).toBeUndefined();
     expect(
       exposeSkillsWithoutRead(createEvent(["exec_command"], [disabled]), createContext()),

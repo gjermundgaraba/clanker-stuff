@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -291,5 +291,26 @@ describe("profile execution", () => {
     expect(textContent(result)).toContain("Full output:");
     await expect(readFile(details.fullOutputPath, "utf-8")).resolves.toContain("line\nline\n");
     await rm(details.fullOutputPath);
+  });
+
+  it("runs Kimi shell commands in their requested cwd", async () => {
+    const cwd = await createTempDirectory();
+    const requestedCwd = path.join(cwd, "nested");
+    await mkdir(requestedCwd);
+    const model = createModel("kimi-k3");
+    const host = createExtensionHost(extension, { model });
+    const ctx = host.createContext({ cwd, model });
+    await host.emitSessionStart(ctx);
+
+    const result = await host.runTool(
+      "Bash",
+      {
+        command: 'node -e "process.stdout.write(process.cwd())"',
+        cwd: requestedCwd,
+      },
+      ctx,
+    );
+
+    expect(textContent(result)).toContain(requestedCwd);
   });
 });

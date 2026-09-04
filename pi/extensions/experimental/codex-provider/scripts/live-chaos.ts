@@ -42,6 +42,34 @@ interface CrashChild {
 export const removeCopiedAuth = (agentDir: string) =>
   rm(path.join(agentDir, "auth.json"), { force: true });
 
+export const abortRpcCompaction = async (
+  client: Pick<RpcClient, "abort" | "compact" | "onEvent">,
+  timeoutMs = 30_000,
+) => {
+  const started = Promise.withResolvers<void>();
+  const unsubscribe = client.onEvent((event) => {
+    if (event.type === "compaction_start" && event.reason === "manual") {
+      started.resolve();
+    }
+  });
+  const timeout = setTimeout(() => {
+    started.reject(new Error(`RPC compaction did not start within ${timeoutMs}ms`));
+  }, timeoutMs);
+  try {
+    const compacting = client.compact("aborted RPC compaction");
+    await Promise.race([
+      started.promise,
+      compacting.then(() => {
+        throw new Error("RPC compaction completed before compaction_start");
+      }),
+    ]);
+    return Promise.allSettled([compacting, client.abort()]);
+  } finally {
+    clearTimeout(timeout);
+    unsubscribe();
+  }
+};
+
 const runRpc = async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "codex-provider-rpc-"));
   const agentDir = path.join(root, "agent");
@@ -97,28 +125,24 @@ const runRpc = async () => {
     console.log(`Live RPC artifacts: ${root}`);
     await client.start();
     await client.promptAndWait(
-      `RPC CONCURRENCY SOURCE. Reply only READY.\n${"r".repeat(20_000)}`,
+      `RPC ABORT RECOVERY SOURCE. Reply only READY.\n${"r".repeat(20_000)}`,
       undefined,
       120_000,
     );
-    const concurrent = await Promise.allSettled([
-      client.compact("first concurrent RPC compaction"),
-      client.compact("second concurrent RPC compaction"),
-    ]);
-    const concurrentResults = concurrent.map((result) =>
+    const cancelled = await abortRpcCompaction(client);
+    const cancelledResults = cancelled.map((result) =>
       result.status === "rejected" ? String(result.reason) : "fulfilled",
     );
     assert(
-      concurrent.every(
-        (result) =>
-          result.status === "rejected" && String(result.reason).includes("Compaction cancelled"),
-      ),
-      `Concurrent RPC results were ${concurrentResults.join(", ")}`,
+      cancelled[0]?.status === "rejected" &&
+        String(cancelled[0].reason).includes("Compaction cancelled") &&
+        cancelled[1]?.status === "fulfilled",
+      `Aborted RPC results were ${cancelledResults.join(", ")}`,
     );
     const cancelledEntries = await client.getEntries();
     assert(
       cancelledEntries.entries.every((entry) => entry.type !== "compaction"),
-      "Cancelled concurrent RPC compaction persisted a compaction entry",
+      "Cancelled RPC compaction persisted a compaction entry",
     );
 
     await client.compact("recovery RPC compaction");
@@ -139,7 +163,7 @@ const runRpc = async () => {
     console.log(
       JSON.stringify(
         {
-          cancelledCompactions: concurrent.length,
+          cancelledCompactions: 1,
           checkpointResponseId: parsed.checkpoint.response.id,
           model: `openai-codex/${LIVE_MODEL}`,
           sessionFile: state.sessionFile,

@@ -1,7 +1,7 @@
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionCommandContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { Container, SettingsList, Text } from "@earendil-works/pi-tui";
-import type { SettingItem } from "@earendil-works/pi-tui";
+import type { SettingItem, TuiMouseEvent } from "@earendil-works/pi-tui";
 
 export const showToolsPicker = async (
   ctx: ExtensionCommandContext,
@@ -35,6 +35,9 @@ export const showToolsPicker = async (
       handleInput(data: string) {
         settings.handleInput(data);
         tui.requestRender();
+      },
+      handleMouse(event: TuiMouseEvent) {
+        return container.handleMouse(event);
       },
       invalidate() {
         container.invalidate();

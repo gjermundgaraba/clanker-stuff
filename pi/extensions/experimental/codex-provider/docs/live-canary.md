@@ -173,13 +173,13 @@ vp run @clanker-stuff/codex-provider#test:live:fault
 
 This mode interrupts the first real `/responses` compaction response body inside the client after the HTTP request succeeds. It identifies compaction structurally by the trailing `compaction_trigger`, matching the provider protocol rather than assuming a separate endpoint. The provider must retry, persist exactly two schema-v1 checkpoints across two rounds, and replay them in a fresh process. The runner requires exactly one injected fault and at least one extra compaction request.
 
-## Concurrent RPC run
+## RPC abort run
 
 ```bash
 vp run @clanker-stuff/codex-provider#test:live:rpc
 ```
 
-This launches Pi's real RPC process and sends two `compact` commands without awaiting either one. Both overlapping compactions must cancel without persisting a partial entry. A following recovery compaction must persist one schema-v1 lifecycle checkpoint and remain usable on the next prompt. The isolated artifacts are retained, but their copied `auth.json` is removed before exit.
+This launches Pi's real RPC process, starts a manual compaction, and aborts it after the `compaction_start` event. The compaction must cancel without persisting a partial entry. A following recovery compaction must persist one schema-v1 lifecycle checkpoint and remain usable on the next prompt. The isolated artifacts are retained, but their copied `auth.json` is removed before exit.
 
 ## Crash/restart run
 
@@ -207,7 +207,7 @@ This canary makes paid model requests, depends on the installed Pi environment a
 vp run @clanker-stuff/codex-provider#test:live:marathon
 ```
 
-The marathon deliberately composes existing canaries: a ten-round SSE soak, WebSocket branch isolation, two real-window mid-turn tool loops, client stream-fault recovery, concurrent RPC recovery, and checkpoint-boundary `SIGKILL` recovery. It consumes roughly one million or more provider-context tokens; retries increase that total.
+The marathon deliberately composes existing canaries: a ten-round SSE soak, WebSocket branch isolation, two real-window mid-turn tool loops, client stream-fault recovery, RPC abort recovery, and checkpoint-boundary `SIGKILL` recovery. It consumes roughly one million or more provider-context tokens; retries increase that total.
 
 ## Optional manual TUI smoke
 

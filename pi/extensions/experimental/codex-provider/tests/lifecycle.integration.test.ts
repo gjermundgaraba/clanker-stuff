@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { zstdDecompressSync } from "node:zlib";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
@@ -3369,26 +3368,23 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it("cancels overlapping lifecycle compactions without sharing a result", async () => {
-    const paths = await workspace("codex-lifecycle-concurrent-");
+  it("cancels an active lifecycle compaction on abort and recovers without sharing a result", async () => {
+    const paths = await workspace("codex-lifecycle-abort-");
     const sideRequestsStarted = Promise.withResolvers<null>();
-    const pendingResponses: {
-      readonly resolve: () => void;
-    }[] = [];
     let sideRequests = 0;
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         sideRequests += 1;
+        if (sideRequests > 1) {
+          return compactResponse("abort-recovery");
+        }
         sideRequestsStarted.resolve(null);
         const pending = Promise.withResolvers<Response>();
-        pendingResponses.push({
-          resolve: () => pending.resolve(compactResponse("concurrent-native")),
-        });
         const signal = init?.signal;
         const onAbort = () => {
-          const error = new Error("aborted concurrent compaction");
+          const error = new Error("aborted lifecycle compaction");
           error.name = "AbortError";
           pending.reject(error);
         };
@@ -3399,7 +3395,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         }
         return pending.promise;
       }
-      return assistantResponse("concurrent-source");
+      return assistantResponse("abort-source");
     });
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
@@ -3420,16 +3416,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     });
 
     try {
-      await session.prompt("concurrent lifecycle source");
+      await session.prompt("abort lifecycle source");
       const first = session.compact("first instructions");
       await sideRequestsStarted.promise;
-      const second = session.compact("second instructions");
-      const settled = Promise.allSettled([first, second]);
-      await delay(0);
-      for (const pending of pendingResponses) {
-        pending.resolve();
-      }
-      const results = await settled;
+      const results = await Promise.allSettled([first, session.abort()]);
+      await session.compact("recovery instructions");
+      const active = resolveActiveCheckpointBoundary(manager.getBranch());
 
       expect({
         compactions: manager.getBranch().filter((entry) => entry.type === "compaction").length,
@@ -3437,12 +3429,14 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         reasons: results.map((result) =>
           result.status === "rejected" ? String(result.reason) : "fulfilled",
         ),
+        response: active.kind === "checkpoint" ? active.checkpoint.response.id : undefined,
         sideRequests,
       }).toStrictEqual({
-        compactions: 0,
+        compactions: 1,
         notifications: [],
-        reasons: ["Error: Compaction cancelled", "Error: Compaction cancelled"],
-        sideRequests: 1,
+        reasons: ["Error: Compaction cancelled", "fulfilled"],
+        response: "resp_abort-recovery",
+        sideRequests: 2,
       });
     } finally {
       session.dispose();
@@ -3450,30 +3444,50 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
-  it("holds the lifecycle lock until its matching compact event", async () => {
-    const paths = await workspace("codex-lifecycle-install-lock-");
-    const firstHookFinished = Promise.withResolvers<null>();
-    const releaseFirstHook = Promise.withResolvers<null>();
-    let beforeCompactEvents = 0;
-    const delayFirstInstall: ExtensionFactory = (pi) => {
-      pi.on("session_before_compact", async () => {
-        beforeCompactEvents += 1;
-        if (beforeCompactEvents === 1) {
-          firstHookFinished.resolve(null);
-          await releaseFirstHook.promise;
-        }
+  it("skips lifecycle authentication when a preceding hook aborts compaction", async () => {
+    const paths = await workspace("codex-lifecycle-pre-aborted-");
+    let abortCompaction = () => {};
+    const abortBeforeLifecycle: ExtensionFactory = (pi) => {
+      pi.on("session_before_compact", () => {
+        abortCompaction();
       });
     };
-    let nativeCompactions = 0;
-    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
-      const headers = new Headers(init?.headers);
-      const request = requestJson(init?.body, headers);
-      if (inputItemTypes(request.input).includes("compaction_trigger")) {
-        nativeCompactions += 1;
-        return compactResponse(`install-lock-${nativeCompactions}`);
-      }
-      return assistantResponse("install-lock-source");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<FetchFunction>(async () => assistantResponse("pre-aborted-source")),
+    );
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: true,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [abortBeforeLifecycle, codexCompactionExtension],
+      rootDir: paths.rootDir,
+      sessionManager: SessionManager.inMemory(paths.cwd),
     });
+    abortCompaction = () => {
+      session.abortCompaction();
+    };
+    const authSpy = vi.spyOn(session.extensionRunner.getModelRegistry(), "getApiKeyAndHeaders");
+
+    try {
+      await session.prompt("pre-aborted lifecycle source");
+      await expect(session.compact()).rejects.toThrow("Compaction cancelled");
+
+      expect(authSpy).not.toHaveBeenCalled();
+    } finally {
+      authSpy.mockRestore();
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
+  it("settles abort while lifecycle authentication is pending without reporting failure", async () => {
+    const paths = await workspace("codex-lifecycle-auth-abort-");
+    const authStarted = Promise.withResolvers<null>();
+    const pendingAuth = Promise.withResolvers<{ error: string; ok: false }>();
+    const fetch = vi.fn<FetchFunction>(async () => assistantResponse("auth-abort-source"));
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     const notifications: string[] = [];
@@ -3483,7 +3497,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         keepRecentTokens: 1,
         reserveTokens: 1000,
       },
-      extensionFactories: [codexCompactionExtension, delayFirstInstall],
+      extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
       uiContext: mockUiContext({
@@ -3491,32 +3505,45 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         setStatus: () => null,
       }),
     });
+    const authSpy = vi
+      .spyOn(session.extensionRunner.getModelRegistry(), "getApiKeyAndHeaders")
+      .mockImplementation(() => {
+        authStarted.resolve(null);
+        return pendingAuth.promise;
+      });
+    let cleanup: Promise<unknown> | undefined;
 
     try {
-      await session.prompt("install lock source");
-      const first = session.compact("first install");
-      await firstHookFinished.promise;
-      const second = session.compact("second install");
-      const settled = Promise.allSettled([first, second]);
-      await delay(0);
-      releaseFirstHook.resolve(null);
+      await session.prompt("lifecycle authentication abort source");
+      const compacting = session.compact();
+      await authStarted.promise;
+      const aborting = session.abort();
+      const settled = Promise.allSettled([compacting, aborting]);
+      cleanup = settled;
+      await vi.waitFor(() => expect(session.isIdle).toBe(true), { timeout: 1000 });
       const results = await settled;
+      pendingAuth.resolve({ error: "late authentication failure", ok: false });
+      await Promise.resolve();
 
       expect({
+        authCalls: authSpy.mock.calls.length,
         compactions: manager.getBranch().filter((entry) => entry.type === "compaction").length,
-        installErrors: notifications.filter((message) =>
-          message.includes("installation could not be verified"),
+        fetches: fetch.mock.calls.length,
+        notifications,
+        reasons: results.map((result) =>
+          result.status === "rejected" ? String(result.reason) : "fulfilled",
         ),
-        nativeCompactions,
-        statuses: results.map((result) => result.status),
       }).toStrictEqual({
+        authCalls: 1,
         compactions: 0,
-        installErrors: [],
-        nativeCompactions: 1,
-        statuses: ["rejected", "rejected"],
+        fetches: 1,
+        notifications: [],
+        reasons: ["Error: Compaction cancelled", "fulfilled"],
       });
     } finally {
-      releaseFirstHook.resolve(null);
+      pendingAuth.resolve({ error: "cleanup authentication failure", ok: false });
+      await cleanup;
+      authSpy.mockRestore();
       session.dispose();
       await rm(paths.rootDir, { force: true, recursive: true });
     }

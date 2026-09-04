@@ -9,7 +9,8 @@ export const installSkillMentionEditor = (
   const previous = ctx.ui.getEditorComponent();
   ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => {
     const editor =
-      previous?.(tui, editorTheme, keybindings) ?? new CustomEditor(tui, editorTheme, keybindings);
+      previous?.(tui, editorTheme, keybindings) ??
+      new CustomEditor(tui, editorTheme, keybindings, { embedWorkingStatus: true });
     const render = editor.render.bind(editor);
 
     editor.render = (width) => {
