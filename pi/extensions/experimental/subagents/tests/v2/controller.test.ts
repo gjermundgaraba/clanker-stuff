@@ -801,6 +801,7 @@ describe("V2 controller", () => {
       true,
     );
     controller.setUltra("/root", true);
+    controller.setRootServiceTier("priority");
 
     await controller.spawn(
       "/root",
@@ -821,7 +822,20 @@ describe("V2 controller", () => {
       },
       sessionId: "/root/reviewer",
     });
-    expect(contract?.inheritedUltra).toBe(false);
+    expect(contract).toMatchObject({
+      inheritedServiceTier: "priority",
+      inheritedUltra: false,
+    });
+
+    controller.setRootServiceTier(null);
+    childHosts[0]?.events.emit(COLLABORATION_CONTRACT_REQUEST, {
+      context: childHosts[0].createContext(),
+      provide: (value: CollaborationContract) => {
+        contract = value;
+      },
+      sessionId: "/root/reviewer",
+    });
+    expect(contract?.inheritedServiceTier).toBeNull();
   });
 
   it("interrupts a pending child before its runtime loads", async () => {

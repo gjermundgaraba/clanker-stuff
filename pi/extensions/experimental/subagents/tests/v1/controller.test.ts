@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
 import { DEFAULT_CONFIG } from "../../config.js";
 import type { RoleConfig } from "../../config.js";
+import { COLLABORATION_CONTRACT_REQUEST } from "../../contract.js";
+import type { CollaborationContract } from "../../contract.js";
 import { TreeCoordinator } from "../../coordinator.js";
 import { NicknamePool } from "../../nicknames.js";
 import { PermanentChildError } from "../../permanent-error.js";
@@ -13,7 +16,11 @@ import { freshSnapshot, createMemoryControlStore, rootBinding } from "../../snap
 import { V1Controller } from "../../v1/controller.js";
 import { createChildContext, FakeChildRuntime } from "../fixtures/child-runtime.js";
 
-const setup = async (maximum = 2, roles: Record<string, RoleConfig> = {}) => {
+const setup = async (
+  maximum = 2,
+  roles: Record<string, RoleConfig> = {},
+  bridgeChildren = false,
+) => {
   const root = rootBinding("v1-test");
   const coordinator = new TreeCoordinator();
   await coordinator.install(createMemoryControlStore(), freshSnapshot("v1", root), true);
@@ -25,13 +32,19 @@ const setup = async (maximum = 2, roles: Record<string, RoleConfig> = {}) => {
   };
   const prompts: string[] = [];
   const backgroundErrors: unknown[] = [];
+  const childHosts: ReturnType<typeof createExtensionHost>[] = [];
   const runtimeFailures: Error[] = [];
   const runtimeLoads: PromiseWithResolvers<FakeChildRuntime>[] = [];
   let nextId = 0;
-  const createRuntime = vi.fn<ChildRuntimeFactory>(async ({ identity, prompt }) => {
+  const createRuntime = vi.fn<ChildRuntimeFactory>(async ({ bridge, identity, prompt }) => {
     const failure = runtimeFailures.shift();
     if (failure !== undefined) {
       throw failure;
+    }
+    if (bridgeChildren) {
+      const host = createExtensionHost(bridge, { sessionId: identity });
+      await host.ready;
+      childHosts.push(host);
     }
     prompts.push(prompt);
     const pending = runtimeLoads.shift();
@@ -56,6 +69,7 @@ const setup = async (maximum = 2, roles: Record<string, RoleConfig> = {}) => {
   controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined);
   return {
     backgroundErrors,
+    childHosts,
     controller,
     coordinator,
     createRuntime,
@@ -68,6 +82,28 @@ const setup = async (maximum = 2, roles: Record<string, RoleConfig> = {}) => {
 };
 
 describe("V1 controller", () => {
+  it("publishes live root service-tier changes to existing children", async () => {
+    const { childHosts, controller, ctx } = await setup(2, {}, true);
+    controller.setRootServiceTier("priority");
+    await controller.spawn({ forkContext: false, message: "work" }, ctx);
+
+    const readTier = (): CollaborationContract["inheritedServiceTier"] => {
+      let contract: CollaborationContract | undefined;
+      childHosts[0]?.events.emit(COLLABORATION_CONTRACT_REQUEST, {
+        context: childHosts[0].createContext(),
+        provide: (value: CollaborationContract) => {
+          contract = value;
+        },
+        sessionId: "agent-1",
+      });
+      return contract?.inheritedServiceTier;
+    };
+
+    expect(readTier()).toBe("priority");
+    controller.setRootServiceTier(null);
+    expect(readTier()).toBeNull();
+  });
+
   it("publishes pending work before starting it and atomically records completion", async () => {
     const { controller, coordinator, ctx, runtimes } = await setup();
     const spawned = await controller.spawn({ forkContext: false, message: "do work" }, ctx);

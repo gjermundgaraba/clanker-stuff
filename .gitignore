@@ -31,6 +31,7 @@ coverage/
 .github/hooks/
 .opencode/
 .pi/
+.pr-lens/
 .harbor/
 pi/evals/.cache/
 pi/evals/suites/*/generated/

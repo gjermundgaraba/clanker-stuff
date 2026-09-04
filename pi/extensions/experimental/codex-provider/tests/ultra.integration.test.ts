@@ -230,4 +230,86 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("propagates root Fast changes to V2 child providers", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "codex-fast-coload-"));
+    const cwd = path.join(rootDir, "project");
+    const agentDir = path.join(rootDir, "agent-config");
+    await Promise.all([mkdir(cwd, { recursive: true }), mkdir(agentDir, { recursive: true })]);
+    await writeFile(
+      path.join(agentDir, "subagents.json"),
+      `${JSON.stringify({ protocols: { "*": "v2" }, version: 1 })}\n`,
+    );
+    await writeFile(
+      path.join(agentDir, "settings.json"),
+      `${JSON.stringify({ packages: [SUBAGENTS_ROOT, CODEX_PROVIDER_ROOT] })}\n`,
+    );
+    vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+    const requests: WireRecord[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        requests.push(requestJson(init?.body, new Headers(init?.headers)));
+        return sse(responseEvents(`fast-child-${requests.length}`, "done"));
+      }),
+    );
+    let session: AgentSession | undefined;
+
+    try {
+      const model = Object.assign(
+        {
+          ...SPIKE_MODEL,
+          id: "gpt-5.6-sol",
+          name: "GPT-5.6 Sol",
+        },
+        { multiAgentVersion: "v2" as const },
+      );
+      session = await createRealCodexSession({
+        extensionFactories: [subagentsExtension, codexProviderExtension],
+        model,
+        rootDir,
+        sessionManager: SessionManager.inMemory(cwd),
+      });
+      const activeSession = session;
+      const spawn = activeSession.getToolDefinition("spawn_agent");
+      if (spawn === undefined) {
+        throw new Error("Subagents V2 tools were not registered");
+      }
+      const runChild = async (message: string, taskName: string) => {
+        const expected = requests.length + 1;
+        await spawn.execute(
+          `spawn-${message}`,
+          { fork_turns: "none", message, task_name: taskName },
+          undefined,
+          undefined,
+          activeSession.extensionRunner.createContext(),
+        );
+        await vi.waitFor(
+          () => {
+            expect(requests).toHaveLength(expected);
+          },
+          { timeout: 10_000 },
+        );
+      };
+
+      await runChild("standard", "standard");
+      expect(requests.at(-1)?.service_tier).toBeUndefined();
+
+      await activeSession.prompt("/fast");
+      await runChild("priority", "priority");
+      expect(requests.at(-1)?.service_tier).toBe("priority");
+
+      await activeSession.prompt("/fast");
+      await runChild("standard-again", "standard_again");
+      expect(requests.at(-1)?.service_tier).toBeUndefined();
+    } finally {
+      if (session?.hasExtensionHandlers("session_shutdown")) {
+        await session.extensionRunner.emit({ reason: "quit", type: "session_shutdown" });
+      }
+      session?.dispose();
+      await rm(rootDir, { force: true, recursive: true });
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  }, 30_000);
 });

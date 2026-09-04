@@ -120,7 +120,7 @@ describe("Codex fast mode", () => {
     }
     const state = createFastModeState(api, {
       load: () => loading.promise,
-      path: "test-fast.json",
+      path: path.join(tempRoot, "serialize-fast.json"),
       save,
     });
     const ctx = host.createContext();
@@ -143,6 +143,39 @@ describe("Codex fast mode", () => {
     });
   });
 
+  it("applies live inherited tier changes without rewriting the local preference", async () => {
+    let api: ExtensionAPI | undefined;
+    const host = createExtensionHost((pi) => {
+      api = pi;
+    });
+    await host.ready;
+    if (api === undefined) {
+      throw new Error("Extension API was not initialized");
+    }
+    const saves: boolean[] = [];
+    const config = {
+      load: async () => false,
+      path: path.join(tempRoot, "inherited-fast.json"),
+      save: async (next: boolean) => {
+        saves.push(next);
+      },
+    };
+    const state = createFastModeState(api, config);
+    const ctx = host.createContext();
+
+    await state.start(ctx, false);
+    expect(state.isEnabled()).toBeFalsy();
+    expect(state.localServiceTier()).toBeNull();
+
+    state.setInheritedServiceTier("priority");
+    expect(state.isEnabled()).toBeTruthy();
+    expect(state.localServiceTier()).toBeNull();
+
+    state.setInheritedServiceTier(null);
+    expect(state.isEnabled()).toBeFalsy();
+    expect(saves).toStrictEqual([]);
+  });
+
   it("does not update state or UI when shutdown wins an in-flight operation", async () => {
     const loading = Promise.withResolvers<boolean>();
     const saving = Promise.withResolvers<null>();
@@ -160,7 +193,7 @@ describe("Codex fast mode", () => {
     }
     const state = createFastModeState(api, {
       load,
-      path: "test-fast.json",
+      path: path.join(tempRoot, "shutdown-load-fast.json"),
       save,
     });
     const ctx = host.createContext();
@@ -199,7 +232,7 @@ describe("Codex fast mode", () => {
     }
     const state = createFastModeState(api, {
       load: async () => false,
-      path: "test-fast.json",
+      path: path.join(tempRoot, "shutdown-toggle-fast.json"),
       save,
     });
     const ctx = host.createContext();

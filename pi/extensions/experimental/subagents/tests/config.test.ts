@@ -33,7 +33,6 @@ describe(parseConfig, () => {
             instructions: "Research",
             model: "model",
             nicknames: ["Scout"],
-            provider: "provider",
             thinking: "high",
           },
         },
@@ -64,26 +63,36 @@ describe(parseConfig, () => {
     }
   });
 
-  it("accepts Codex-style bare model ids when resolution is unambiguous", () => {
-    const models = [model("parent", "shared"), model("other", "shared"), model("other", "unique")];
+  it("resolves model ids only within the inherited provider", () => {
+    const models = [
+      model("parent", "shared"),
+      model("other", "shared"),
+      model("other", "unique"),
+      model("parent", "nested/model"),
+    ];
     const registry = {
       find: (provider: string, id: string) =>
         models.find((model) => model.provider === provider && model.id === id),
-      getAll: () => models,
     };
 
     expect(parseModelOverride("shared", registry, models[0])?.provider).toBe("parent");
-    expect(parseModelOverride("unique", registry, models[0])).toBe(models[2]);
-    expect(() => parseModelOverride("shared", registry)).toThrow("Ambiguous model");
+    expect(parseModelOverride("nested/model", registry, models[0])).toBe(models[3]);
+    expect(() => parseModelOverride("unique", registry, models[0])).toThrow(
+      "Unknown model: parent/unique",
+    );
+    expect(() => parseModelOverride("other/unique", registry, models[0])).toThrow(
+      "Unknown model: parent/other/unique",
+    );
+    expect(() => parseModelOverride("shared", registry)).toThrow("inherited parent model");
   });
 
-  it("requires provider-selecting roles to name their model", () => {
+  it("rejects provider-selecting roles", () => {
     expect(() =>
       parseConfig({
-        roles: { reviewer: { provider: "other" } },
+        roles: { reviewer: { model: "model", provider: "other" } },
         version: 1,
       }),
-    ).toThrow("Role reviewer must set model when provider is set");
+    ).toThrow("strict version 1 object");
   });
 
   it("rejects role names that do not match the public agent_type grammar", () => {
@@ -104,7 +113,6 @@ describe(parseConfig, () => {
         [parentRoleModel, requestedProviderRoleModel, requested].find(
           (model) => model.provider === provider && model.id === id,
         ),
-      getAll: () => [parentRoleModel, requestedProviderRoleModel, requested],
     };
 
     expect(
@@ -114,7 +122,7 @@ describe(parseConfig, () => {
           roles: { reviewer: { model: "role-model" } },
         },
         "reviewer",
-        "requested/request-model",
+        undefined,
         undefined,
         registry,
         model("parent", "parent-model"),

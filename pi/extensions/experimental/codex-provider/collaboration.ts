@@ -22,6 +22,7 @@ const V2_NAMES = new Set([
 ]);
 
 export interface CollaborationContract {
+  inheritedServiceTier?: "priority" | null;
   inheritedUltra?: boolean;
   nestedTools: readonly NestedToolContract[];
   protocol: "off" | "v1" | "v2";
@@ -36,6 +37,7 @@ type JsonRecord = Static<typeof JsonRecordSchema>;
 const BooleanSchema = Type.Boolean();
 const StringSchema = Type.String();
 const FunctionSchema = Type.Function([], WireValueSchema);
+const ServiceTierSchema = Type.Union([Type.Literal("priority"), Type.Null()]);
 
 interface NestedToolContract {
   definition: ToolDefinition;
@@ -57,6 +59,7 @@ interface CollaborationContext {
 export interface CollaborationContractRequest {
   readonly context: ExtensionContext;
   readonly provide: (value: WireValue) => void;
+  readonly rootServiceTier?: "priority" | null;
   readonly sessionId: string;
   readonly ultra?: boolean;
 }
@@ -80,37 +83,43 @@ const requestContract = (
   pi: CollaborationApi,
   ctx: ExtensionContext & CollaborationContext,
   ultra?: boolean,
+  rootServiceTier?: "priority" | null,
 ): CollaborationContract | undefined => {
   let contract: CollaborationContract | undefined;
+  const sessionId = ctx.sessionManager.getSessionId();
   const request: CollaborationContractRequest = {
     context: ctx,
     provide(value: WireValue) {
-      if (
-        isRecord(value) &&
-        value.version === 1 &&
-        value.sessionId === ctx.sessionManager.getSessionId() &&
-        (value.protocol === "off" || value.protocol === "v1" || value.protocol === "v2") &&
-        (value.inheritedUltra === undefined || Value.Check(BooleanSchema, value.inheritedUltra)) &&
-        Array.isArray(value.nestedTools) &&
-        value.nestedTools.every(isNestedToolContract)
-      ) {
-        contract = {
-          nestedTools: value.nestedTools,
-          protocol: value.protocol,
-          sessionId: value.sessionId,
-          version: value.version,
-        };
-        if (Value.Check(BooleanSchema, value.inheritedUltra)) {
-          contract.inheritedUltra = value.inheritedUltra;
-        }
+      if (!isRecord(value)) {
+        return;
       }
+      const { inheritedServiceTier, inheritedUltra, nestedTools, protocol } = value;
+      if (
+        value.version !== 1 ||
+        value.sessionId !== sessionId ||
+        (protocol !== "off" && protocol !== "v1" && protocol !== "v2") ||
+        (inheritedServiceTier !== undefined &&
+          !Value.Check(ServiceTierSchema, inheritedServiceTier)) ||
+        (inheritedUltra !== undefined && !Value.Check(BooleanSchema, inheritedUltra)) ||
+        !Array.isArray(nestedTools) ||
+        !nestedTools.every(isNestedToolContract)
+      ) {
+        return;
+      }
+      contract = {
+        inheritedServiceTier,
+        inheritedUltra,
+        nestedTools,
+        protocol,
+        sessionId,
+        version: 1,
+      };
     },
-    sessionId: ctx.sessionManager.getSessionId(),
+    rootServiceTier,
+    sessionId,
+    ultra,
   };
-  pi.events.emit(
-    COLLABORATION_CONTRACT_REQUEST,
-    ultra === undefined ? request : { ...request, ultra },
-  );
+  pi.events.emit(COLLABORATION_CONTRACT_REQUEST, request);
   return contract;
 };
 export const requestCollaborationContract = requestContract;

@@ -247,6 +247,10 @@ const REMOTE_CATALOG = {
       default_reasoning_summary: "concise",
       display_name: "Remote Codex",
       effective_context_window_percent: 95,
+      model_messages: {
+        multi_agent: { mode: { proactive: "Catalog proactive policy." } },
+      },
+      multi_agent_reasoning_effort: "medium",
       multi_agent_version: "v2",
       priority: 1,
       service_tiers: [{ id: "priority" }],
@@ -321,7 +325,11 @@ const REMOTE_CATALOG = {
   ],
 };
 
-const fetchRemoteCatalog = async () => {
+interface RemoteCatalogPayload {
+  readonly models: readonly object[];
+}
+
+const fetchRemoteCatalog = async (remoteCatalog: RemoteCatalogPayload = REMOTE_CATALOG) => {
   const catalog = createCodexModelCatalog();
   const runtime = createProviderRuntime(defaultObservability, () => false, catalog);
   const requests: Request[] = [];
@@ -339,7 +347,7 @@ const fetchRemoteCatalog = async () => {
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     requests.push(new Request(input, init));
     return requests.length === 1
-      ? Response.json(REMOTE_CATALOG, {
+      ? Response.json(remoteCatalog, {
           headers: { etag: '"catalog-1"' },
         })
       : new Response(null, { status: 304 });
@@ -531,12 +539,16 @@ describe("Codex provider", () => {
     const [standardMessage] = wireRecords(body.input);
     const [standardImage] = wireRecords(standardMessage?.content);
     const clientMetadata = wireRecord(body.client_metadata);
+    const turnMetadata = wireRecord(
+      JSON.parse(wireString(clientMetadata["x-codex-turn-metadata"])),
+    );
+    const requestHeaders = new Headers(requests[0]?.headers);
     expect({
       callbackCounts: [payloads.length, responses.length],
-      clientMetadata: JSON.parse(wireString(clientMetadata["x-codex-turn-metadata"])),
+      clientMetadata: turnMetadata,
       diagnostics: message.diagnostics,
       endTurn: message.endTurn,
-      header: new Headers(requests[0]?.headers).get("x-openai-internal-codex-responses-lite"),
+      header: requestHeaders.get("x-openai-internal-codex-responses-lite"),
       instructions: body.instructions,
       output: message.content,
       requestCount: requests.length,
@@ -547,12 +559,17 @@ describe("Codex provider", () => {
         name,
         type,
       })),
+      windowHeader: requestHeaders.get("x-codex-window-id"),
+      windowProjection: clientMetadata["x-codex-window-id"],
     }).toMatchObject({
       callbackCounts: [1, 1],
       clientMetadata: {
+        context_window_id: expect.any(String),
         request_kind: "turn",
         session_id: "session-sse",
         thread_id: "session-sse",
+        window_id: "session-sse:0",
+        window_number: 0,
       },
       diagnostics: undefined,
       endTurn: false,
@@ -571,8 +588,71 @@ describe("Codex provider", () => {
         { name: "exec", type: "custom" },
         { name: "wait", type: "function" },
       ],
+      windowHeader: "session-sse:0",
+      windowProjection: "session-sse:0",
     });
     expect(clientMetadata["x-codex-turn-metadata"]).toStrictEqual(expect.any(String));
+  });
+
+  it("keeps restored window identity across turns and standalone compaction", async () => {
+    const requests: RequestInit[] = [];
+    const runtime = createCodexProviderRuntime();
+    const sessionId = "session-restored-window";
+    const contextWindowId = "019c1234-5678-7000-8000-000000000000";
+    vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
+      const request = init ?? {};
+      requests.push(request);
+      return requestKind(readBody(request.body)) === "compaction"
+        ? sse(compactionEvents("resp_restored_compaction"))
+        : sse(responseEvents("resp_restored_window", "done"));
+    });
+    runtime.installWindow(sessionId, {
+      currentWindowId: contextWindowId,
+      previousWindowId: "019c1234-5678-7000-8000-000000000001",
+      windowNumber: 4,
+    });
+    runtime.beginTurn(sessionId);
+
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId,
+        transport: "sse",
+      })
+      .result();
+    runtime.endTurn(sessionId);
+    await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model: SPIKE_MODEL,
+      phase: "standalone",
+      reason: "manual",
+      sessionId,
+      signal: new AbortController().signal,
+      thinkingLevel: "medium",
+    });
+
+    const expectedWindow = {
+      canonical: {
+        context_window_id: contextWindowId,
+        window_id: `${sessionId}:4`,
+        window_number: 4,
+      },
+      header: `${sessionId}:4`,
+      projection: `${sessionId}:4`,
+    };
+    expect(
+      requests.map((request) => {
+        const metadata = wireRecord(readBody(request.body).client_metadata);
+        return {
+          canonical: wireRecord(JSON.parse(wireString(metadata["x-codex-turn-metadata"]))),
+          header: new Headers(request.headers).get("x-codex-window-id"),
+          projection: metadata["x-codex-window-id"],
+        };
+      }),
+    ).toMatchObject([expectedWindow, expectedWindow]);
   });
 
   it("derives authoritative SSE routing hints from the final request", async () => {
@@ -728,7 +808,7 @@ describe("Codex provider", () => {
     expect(message.usage.cost.total).toBeCloseTo(2.4e-5, 10);
   });
 
-  it("snapshots fast mode for turns and inline compaction", async () => {
+  it("applies live fast mode to inline compaction and later turns", async () => {
     let fastMode = false;
     const requests: WireRecord[] = [];
     vi.stubGlobal("WebSocket", null);
@@ -777,7 +857,7 @@ describe("Codex provider", () => {
       })),
     ).toStrictEqual([
       { kind: "turn", tier: undefined },
-      { kind: "compaction", tier: undefined },
+      { kind: "compaction", tier: "priority" },
       { kind: "turn", tier: "priority" },
     ]);
   });
@@ -1207,7 +1287,7 @@ describe("Codex provider", () => {
     expect(websocket).not.toHaveBeenCalled();
   });
 
-  it("restores authoritative remote model lists and selectors offline", async () => {
+  it("restores authoritative remote models and reprojects cached selectors offline", async () => {
     const { getStored, publish, requests, runtime, signal } = await fetchRemoteCatalog();
 
     await runtime.provider.refreshModels?.({
@@ -1230,35 +1310,35 @@ describe("Codex provider", () => {
       (model) => model.id === "gpt-5.6-remote",
     );
     const stored = getStored();
-    const restored = await restoreCatalog(stored);
+    const restored = await restoreCatalog({
+      ...stored,
+      models: stored.models.map((model) =>
+        model.id === "gpt-5.6-remote"
+          ? {
+              ...model,
+              reasoning: false,
+              thinkingLevelMap: {
+                high: null,
+                low: null,
+                max: null,
+                medium: null,
+                minimal: null,
+                off: null,
+                xhigh: null,
+              },
+            }
+          : model,
+      ),
+    });
     const omitted = await restoreCatalog({
       ...stored,
       models: stored.models.filter((model) => model.id !== "gpt-5.6-luna"),
     });
-    const invalid = await restoreCatalog({
-      ...stored,
-      models: stored.models.map((model) => {
-        const withoutVersion = { ...model };
-        Reflect.deleteProperty(withoutVersion, "codexProviderCacheVersion");
-        return model.id === "gpt-5.6-sol"
-          ? { ...withoutVersion, multiAgentVersion: "v1" as const }
-          : withoutVersion;
-      }),
-    });
-    const versionPresence = Object.fromEntries(
-      restored.provider
-        .getModels()
-        .filter((model) => ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].includes(model.id))
-        .map((model) => [model.id, "multiAgentVersion" in model]),
-    );
-    const invalidSol = invalid.provider.getModels().find((model) => model.id === "gpt-5.6-sol");
-    const restoredSol = restored.provider.getModels().find((model) => model.id === "gpt-5.6-sol");
+    const restoredRemote = restored.provider
+      .getModels()
+      .find((model) => model.id === "gpt-5.6-remote");
 
     expect({
-      invalidCacheSolVersion:
-        invalidSol !== undefined && "multiAgentVersion" in invalidSol
-          ? invalidSol.multiAgentVersion
-          : undefined,
       liveCatalog: runtime.provider.getModels().map((model) => model.id),
       liveRemoteAfterRepeatedRestore: runtime.provider
         .getModels()
@@ -1269,17 +1349,15 @@ describe("Codex provider", () => {
       persistedRemoteAfterNotModified,
       refreshRequests: requests.length,
       request: requests[0]?.url,
-      restoredFallbackVersion:
-        restoredSol !== undefined && "multiAgentVersion" in restoredSol
-          ? restoredSol.multiAgentVersion
-          : undefined,
       restoredRemoteCatalog: restored.provider
         .getModels()
         .some((model) => model.id === "gpt-5.6-remote"),
+      restoredRemoteProjection: {
+        reasoning: restoredRemote?.reasoning,
+        thinkingLevelMap: restoredRemote?.thinkingLevelMap,
+      },
       routingHint: requests[0]?.headers.get("x-codex-routing-hint"),
-      versionPresence,
     }).toStrictEqual({
-      invalidCacheSolVersion: "v2",
       liveCatalog: [
         "gpt-5.6-remote",
         SPIKE_MODEL.id,
@@ -1292,14 +1370,20 @@ describe("Codex provider", () => {
       persistedRemoteAfterNotModified: true,
       refreshRequests: 2,
       request: expect.stringContaining("/codex/models?client_version="),
-      restoredFallbackVersion: undefined,
       restoredRemoteCatalog: true,
-      routingHint: null,
-      versionPresence: {
-        "gpt-5.6-luna": false,
-        "gpt-5.6-sol": false,
-        "gpt-5.6-terra": false,
+      restoredRemoteProjection: {
+        reasoning: true,
+        thinkingLevelMap: {
+          high: null,
+          low: null,
+          max: "max",
+          medium: "medium",
+          minimal: null,
+          off: null,
+          xhigh: null,
+        },
       },
+      routingHint: null,
     });
   });
 
@@ -1395,7 +1479,6 @@ describe("Codex provider", () => {
   });
 
   it("projects remote reasoning, fast-mode, and context-window metadata", async () => {
-    expect(createCodexModelCatalog().supportsUltra(FAST_MODEL)).toBeFalsy();
     const { catalog, runtime } = await fetchRemoteCatalog();
     const [remoteModel] = runtime.provider.getModels();
     if (!remoteModel) {
@@ -1406,7 +1489,7 @@ describe("Codex provider", () => {
       metadata: runtime.getModelMetadata(remoteModel.id)?.comp_hash,
       model: remoteModel,
       supportsFastMode: runtime.supportsFastMode(remoteModel),
-      supportsUltra: catalog.supportsUltra(remoteModel),
+      ultra: catalog.getUltraSettings(remoteModel),
       unsupportedMetadata: runtime.getModelMetadata("gpt-5.5"),
       window: runtime.getModelWindow(remoteModel),
     }).toMatchObject({
@@ -1418,7 +1501,10 @@ describe("Codex provider", () => {
         multiAgentVersion: "v2",
       },
       supportsFastMode: true,
-      supportsUltra: true,
+      ultra: {
+        proactivePolicy: "Catalog proactive policy.",
+        reasoningLevel: "medium",
+      },
       unsupportedMetadata: undefined,
       window: {
         autoCompactTokens: 150_000,
@@ -1443,26 +1529,27 @@ describe("Codex provider", () => {
     }
     expect({
       reasoning: nullLimitModel.reasoning,
-      supportsUltra: catalog.supportsUltra(nullLimitModel),
       thinkingLevelMap: nullLimitModel.thinkingLevelMap,
+      ultra: catalog.getUltraSettings(nullLimitModel),
       window: runtime.getModelWindow(nullLimitModel),
     }).toStrictEqual({
-      reasoning: false,
-      supportsUltra: false,
+      reasoning: true,
       thinkingLevelMap: {
         high: null,
         low: null,
         max: null,
-        medium: null,
+        medium: "medium",
         minimal: null,
         off: null,
         xhigh: null,
       },
+      ultra: { reasoningLevel: "medium" },
       window: {
         autoCompactTokens: 244_800,
         effectiveWindowTokens: 258_400,
       },
     });
+
     const defaultRequests: RequestInit[] = [];
     await runtime.provider
       .streamSimple(nullLimitModel, context([]), {
@@ -1476,6 +1563,81 @@ describe("Codex provider", () => {
       })
       .result();
     expect(readBody(defaultRequests[0]?.body).reasoning).toBeUndefined();
+  });
+
+  it("preserves Ultra none reasoning for turns and compaction", async () => {
+    const { catalog, runtime } = await fetchRemoteCatalog({
+      models: [
+        {
+          ...REMOTE_CATALOG.models[0],
+          default_reasoning_level: "high",
+          multi_agent_reasoning_effort: "none",
+          supported_reasoning_levels: ["none", "ultra"].map((effort) => ({ effort })),
+        },
+      ],
+    });
+    const [model] = runtime.provider.getModels();
+    if (!model) {
+      throw new Error("Remote model was not projected");
+    }
+    const requests: WireRecord[] = [];
+    vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = readBody(init?.body);
+      requests.push(body);
+      return requestKind(body) === "compaction"
+        ? sse(compactionEvents("resp_none_compaction"))
+        : sse(responseEvents("resp_none_turn", "done"));
+    });
+
+    await runtime.provider
+      .streamSimple(model, context([]), {
+        apiKey: SPIKE_API_KEY,
+        sessionId: "session-none",
+        transport: "sse",
+      })
+      .result();
+    await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model,
+      phase: "standalone",
+      reason: "manual",
+      sessionId: "session-none",
+      signal: new AbortController().signal,
+      thinkingLevel: "off",
+    });
+
+    expect({
+      efforts: requests.map((request) => wireRecord(request.reasoning).effort),
+      reasoning: model.reasoning,
+      ultra: catalog.getUltraSettings(model),
+    }).toStrictEqual({
+      efforts: ["none", "none"],
+      reasoning: false,
+      ultra: {
+        proactivePolicy: "Catalog proactive policy.",
+        reasoningLevel: "off",
+      },
+    });
+  });
+
+  it("falls back to the last representable Ultra reasoning level", async () => {
+    const { catalog, runtime } = await fetchRemoteCatalog({
+      models: [
+        {
+          ...REMOTE_CATALOG.models[0],
+          multi_agent_reasoning_effort: undefined,
+          supported_reasoning_levels: ["none", "ultra"].map((effort) => ({ effort })),
+        },
+      ],
+    });
+
+    expect(catalog.getUltraSettings(runtime.provider.getModels()[0])).toStrictEqual({
+      proactivePolicy: "Catalog proactive policy.",
+      reasoningLevel: "off",
+    });
   });
 
   it("restores Responses Lite request behavior from cached metadata", async () => {
@@ -1632,17 +1794,84 @@ describe("Codex provider", () => {
       liteFrames.map((frame) => ({
         inputTypes: wireRecords(frame.input).map((item) => item.type ?? item.role),
         previousResponseId: frame.previous_response_id,
+        requestKind: requestKind(frame),
+        windowId: wireRecord(frame.client_metadata)["x-codex-window-id"],
       })),
     ).toStrictEqual([
       {
         inputTypes: ["additional_tools", "message"],
         previousResponseId: undefined,
+        requestKind: "prewarm",
+        windowId: "session-lite-ws:0",
       },
       {
         inputTypes: ["additional_tools", "message", "user"],
         previousResponseId: undefined,
+        requestKind: "turn",
+        windowId: "session-lite-ws:0",
       },
     ]);
+    const ssePrefixIds = liteInput.slice(0, 2).map((item) => item.id);
+    const websocketPrefixIds = liteFrames.map((frame) =>
+      wireRecords(frame.input)
+        .slice(0, 2)
+        .map((item) => item.id),
+    );
+    expect(websocketPrefixIds[0]).toStrictEqual(websocketPrefixIds[1]);
+    expect(websocketPrefixIds[0]).not.toStrictEqual(ssePrefixIds);
+    expect(websocketPrefixIds[0]).toStrictEqual([
+      expect.stringMatching(/^at_[0-9a-f-]{36}$/u),
+      expect.stringMatching(/^msg_[0-9a-f-]{36}$/u),
+    ]);
+  });
+
+  it("gives Responses Lite prefix payloads stable thread-sensitive IDs", async () => {
+    const { getStored } = await fetchRemoteCatalog();
+    const runtime = await restoreCatalog(getStored());
+    const [model] = runtime.provider.getModels();
+    if (!model) {
+      throw new Error("Cached remote model was not restored");
+    }
+    const requests: RequestInit[] = [];
+    const run = async (sessionId: string, systemPrompt: string, tools = CODE_MODE_TOOLS) => {
+      await runtime.provider
+        .streamSimple(
+          model,
+          {
+            ...context([]),
+            systemPrompt,
+            tools,
+          },
+          {
+            apiKey: SPIKE_API_KEY,
+            fetch: async (_input, init) => {
+              requests.push(init ?? {});
+              return sse(responseEvents(`resp_prefix_${requests.length}`, "done"));
+            },
+            sessionId,
+            transport: "sse",
+          },
+        )
+        .result();
+    };
+
+    await run("lite-prefix-thread", "System truth");
+    await run("lite-prefix-thread", "System truth");
+    await run("lite-prefix-thread", "Different instructions");
+    await run("lite-prefix-thread", "System truth", []);
+    await run("lite-prefix-other-thread", "System truth");
+
+    const prefixes = requests.map((request) =>
+      wireRecords(readBody(request.body).input)
+        .slice(0, 2)
+        .map((item) => item.id),
+    );
+    expect(prefixes[0]).toStrictEqual(prefixes[1]);
+    expect(prefixes[0]?.[0]).toStrictEqual(prefixes[2]?.[0]);
+    expect(prefixes[0]?.[1]).not.toStrictEqual(prefixes[2]?.[1]);
+    expect(prefixes[0]?.[0]).not.toStrictEqual(prefixes[3]?.[0]);
+    expect(prefixes[0]).not.toStrictEqual(prefixes[4]);
+    expect(wireRecords(readBody(requests[3]?.body).input)[0]?.tools).toStrictEqual([]);
   });
 
   it("omits transformed Responses Lite image URLs with mixed-case HTTP schemes", async () => {
@@ -3597,6 +3826,7 @@ describe("Codex provider", () => {
 
     expect({
       compaction: metadata.compaction,
+      contextWindowId: metadata.context_window_id,
       headerMetadata: headers.get("x-codex-turn-metadata"),
       requestKind: metadata.request_kind,
       responseId: result.responseId,
@@ -3605,6 +3835,9 @@ describe("Codex provider", () => {
         .slice(0, -1)
         .map((item) => wireString(wireRecords(item.content)[0]?.text)),
       trigger: compactInput.at(-1)?.type,
+      windowHeader: headers.get("x-codex-window-id"),
+      windowId: metadata.window_id,
+      windowNumber: metadata.window_number,
     }).toStrictEqual({
       compaction: {
         implementation: "responses_compaction_v2",
@@ -3613,12 +3846,16 @@ describe("Codex provider", () => {
         strategy: "memento",
         trigger: "auto",
       },
+      contextWindowId: expect.any(String),
       headerMetadata: JSON.stringify(metadata),
       requestKind: "compaction",
       responseId: "resp_compact",
       routingHint: `model=${SPIKE_MODEL.id};tier=flex`,
       sourceText: ["prefix", "compact me"],
       trigger: "compaction_trigger",
+      windowHeader: "session-compact:0",
+      windowId: "session-compact:0",
+      windowNumber: 0,
     });
   });
 });

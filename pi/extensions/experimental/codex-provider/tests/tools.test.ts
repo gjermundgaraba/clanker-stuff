@@ -7,6 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
 import toolsExtension from "../../tools/index.js";
+import { COLLABORATION_CONTRACT_REQUEST } from "../collaboration.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 
@@ -34,7 +35,7 @@ const withCollaborationContract =
       parameters: Type.Object({}, { additionalProperties: false }),
     };
     pi.registerTool(nested);
-    pi.events.on("clanker-stuff:subagents:contract:request", (request) => {
+    pi.events.on(COLLABORATION_CONTRACT_REQUEST, (request) => {
       const parsed = Value.Parse(ContractRequestSchema, request);
       parsed.provide({
         nestedTools: [{ definition: nested }],

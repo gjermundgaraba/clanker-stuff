@@ -1,16 +1,25 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import type { CollaborationContractRequest } from "../collaboration.js";
+import {
+  COLLABORATION_CONTRACT_REQUEST,
+  type CollaborationContractRequest,
+} from "../collaboration.js";
+import type { CodexUltraSettings } from "../model-catalog.js";
 import { registerCodexUltra } from "../ultra/index.js";
 import { createToolsModel } from "./fixtures.js";
 
-const CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
 const MODEL = createToolsModel("gpt-5.6-sol", true);
 const SECOND_MODEL = createToolsModel("gpt-5.6-terra", true);
-const catalog = {
-  supportsUltra: (model: typeof MODEL | undefined) => model === MODEL,
+const ULTRA_SETTINGS = { reasoningLevel: "max" } as const;
+type TestCatalog = {
+  getUltraSettings: (model: Model<Api> | undefined) => CodexUltraSettings | undefined;
+};
+const catalog: TestCatalog = {
+  getUltraSettings: (model: Model<Api> | undefined) =>
+    model === MODEL ? ULTRA_SETTINGS : undefined,
 };
 
 type CustomEntry = Extract<SessionEntry, { type: "custom" }>;
@@ -26,7 +35,7 @@ const state = (enabled: boolean): CustomEntry => ({
 
 const createHost = (
   entries: SessionEntry[] = [],
-  testCatalog = catalog,
+  testCatalog: TestCatalog = catalog,
   collaboration: "missing" | "v2" = "v2",
   inheritedUltra = false,
   flags?: Record<string, boolean | string>,
@@ -34,7 +43,7 @@ const createHost = (
   createExtensionHost(
     (pi) => {
       if (collaboration === "v2") {
-        pi.events.on(CONTRACT_REQUEST, (value) => {
+        pi.events.on(COLLABORATION_CONTRACT_REQUEST, (value) => {
           // SAFETY: this host handles only collaboration requests emitted by registerCodexUltra.
           const request = value as CollaborationContractRequest;
           request.provide({
@@ -107,9 +116,11 @@ describe("Codex Ultra", () => {
       await host.emitSessionStart(ctx, reason);
       expect(host.getThinkingLevel()).toBe("max");
       const [result] = await host.emit("before_agent_start", beforeAgentStart, ctx);
-      expect(result).toMatchObject({
-        systemPrompt: expect.stringContaining("Proactive multi-agent delegation is active."),
-      });
+      // SAFETY: every host in this table uses the nonempty built-in Ultra policy.
+      const { systemPrompt: prompt } = result as { systemPrompt: string };
+      expect(prompt).toContain("Proactive multi-agent delegation is active.");
+      expect(prompt).toContain("User requests override this hint.");
+      expect(prompt).toContain("no matter if you are root or subagent");
     }
   });
 
@@ -140,7 +151,8 @@ describe("Codex Ultra", () => {
 
   it("reasserts Max across thinking changes and compatible model switches", async () => {
     const eligible = {
-      supportsUltra: (model: typeof MODEL | undefined) => model === MODEL || model === SECOND_MODEL,
+      getUltraSettings: (model: typeof MODEL | undefined) =>
+        model === MODEL || model === SECOND_MODEL ? ULTRA_SETTINGS : undefined,
     };
     const host = createHost([], eligible);
     const ctx = host.createContext({ model: MODEL });
@@ -197,7 +209,9 @@ describe("Codex Ultra", () => {
 
   it("refreshes missing metadata only while restoring or explicitly enabling", async () => {
     let live = false;
-    const restoring = createHost([state(true)], { supportsUltra: () => live });
+    const restoring = createHost([state(true)], {
+      getUltraSettings: () => (live ? ULTRA_SETTINGS : undefined),
+    });
     const restoringCtx = restoring.createContext({ model: MODEL });
     const restoreRefresh = vi
       .spyOn(restoringCtx.modelRegistry, "refresh")
@@ -214,7 +228,9 @@ describe("Codex Ultra", () => {
     expect(restoreRefresh).toHaveBeenCalledOnce();
 
     live = false;
-    const enabling = createHost([], { supportsUltra: () => live });
+    const enabling = createHost([], {
+      getUltraSettings: () => (live ? ULTRA_SETTINGS : undefined),
+    });
     const enablingCtx = enabling.createContext({ model: MODEL });
     await enabling.emitSessionStart(enablingCtx);
     const release = Promise.withResolvers<null>();
@@ -235,7 +251,7 @@ describe("Codex Ultra", () => {
   it("ignores a stale enable refresh after the selected model changes", async () => {
     let live = false;
     const host = createHost([], {
-      supportsUltra: (model) => model === MODEL && live,
+      getUltraSettings: (model) => (model === MODEL && live ? ULTRA_SETTINGS : undefined),
     });
     const ctx = host.createContext({ model: MODEL });
     await host.emitSessionStart(ctx);
@@ -282,5 +298,41 @@ describe("Codex Ultra", () => {
 
     expect(host.getThinkingLevel()).toBe("off");
     expect(result).toBeUndefined();
+  });
+
+  it("uses catalog reasoning and proactive-policy overrides, including empty suppression", async () => {
+    const custom = createHost([], {
+      getUltraSettings: (model) =>
+        model === MODEL
+          ? { proactivePolicy: "Catalog-owned proactive policy.", reasoningLevel: "high" }
+          : undefined,
+    });
+    const customCtx = custom.createContext({ model: MODEL });
+    await custom.emitSessionStart(customCtx);
+    await custom.runCommand("ultra", "", customCtx);
+    const [customPrompt] = await custom.emit("before_agent_start", beforeAgentStart, customCtx);
+
+    expect(custom.getThinkingLevel()).toBe("high");
+    expect(customPrompt).toMatchObject({
+      systemPrompt: expect.stringContaining(
+        "<multi_agent_mode>Catalog-owned proactive policy.</multi_agent_mode>",
+      ),
+    });
+
+    const suppressed = createHost([], {
+      getUltraSettings: (model) =>
+        model === MODEL ? { proactivePolicy: "", reasoningLevel: "low" } : undefined,
+    });
+    const suppressedCtx = suppressed.createContext({ model: MODEL });
+    await suppressed.emitSessionStart(suppressedCtx);
+    await suppressed.runCommand("ultra", "", suppressedCtx);
+    const [suppressedPrompt] = await suppressed.emit(
+      "before_agent_start",
+      beforeAgentStart,
+      suppressedCtx,
+    );
+
+    expect(suppressed.getThinkingLevel()).toBe("low");
+    expect(suppressedPrompt).toBeUndefined();
   });
 });

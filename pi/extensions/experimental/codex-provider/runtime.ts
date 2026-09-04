@@ -17,6 +17,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { branchNeedsCodex } from "./checkpoint-marker.js";
+import { requestCollaborationContract } from "./collaboration.js";
 import { createFastModeConfigStore, createFastModeState } from "./fast-mode.js";
 import type { createCodexLifecycle } from "./lifecycle.js";
 import { createCodexModelCatalog } from "./model-catalog.js";
@@ -41,8 +42,27 @@ export const createCodexRuntime = (
     setFastFooterActive,
   );
   let agentRunActive = false;
+  let fastContext: ExtensionContext | undefined;
   let pendingModelSelection: { ctx: ExtensionContext; event: ModelSelectEvent } | undefined;
   let pendingStart: ExtensionContext | undefined;
+  const applyInheritedFastMode = (ctx: ExtensionContext, publish = false): void => {
+    fastContext = ctx;
+    const contract = requestCollaborationContract(
+      pi,
+      ctx,
+      undefined,
+      publish ? fastMode.localServiceTier() : undefined,
+    );
+    if (contract?.inheritedServiceTier !== undefined) {
+      fastMode.setInheritedServiceTier(contract.inheritedServiceTier);
+    }
+  };
+  const isFastModeEnabled = (): boolean => {
+    if (fastContext !== undefined) {
+      applyInheritedFastMode(fastContext);
+    }
+    return fastMode.isEnabled();
+  };
 
   const codex = createLazySingleton<CodexLifecycle>(
     async (signal) => {
@@ -54,7 +74,7 @@ export const createCodexRuntime = (
       return createCodexLifecycle(
         pi,
         new CodexObservability(path.join(storage.dataDir, "codex-provider.sqlite")),
-        fastMode.isEnabled,
+        isFastModeEnabled,
         catalog,
       );
     },
@@ -96,10 +116,12 @@ export const createCodexRuntime = (
       codex.get()?.settled(ctx);
     },
     beforeAgentStart: async (ctx: ExtensionContext): Promise<void> => {
+      applyInheritedFastMode(ctx, true);
       const loaded = await maybeLoad(() => isCodexModel(ctx.model));
       loaded?.beforeAgentStart(ctx);
     },
     beforeCompact: async (event: SessionBeforeCompactEvent, ctx: ExtensionContext) => {
+      applyInheritedFastMode(ctx, true);
       const loaded = await maybeLoad(
         () => isCodexModel(ctx.model) || branchNeedsCodex(event.branchEntries),
       );
@@ -129,6 +151,7 @@ export const createCodexRuntime = (
     },
     fast: async (ctx: ExtensionCommandContext): Promise<void> => {
       await fastMode.toggle(ctx);
+      applyInheritedFastMode(ctx, true);
       if (!codex.isStopped()) {
         refreshFastStatus(ctx);
       }
@@ -141,6 +164,7 @@ export const createCodexRuntime = (
       codex.get()?.messageEnd(event, ctx);
     },
     modelSelect: (event: ModelSelectEvent, ctx: ExtensionContext): void => {
+      applyInheritedFastMode(ctx);
       const loaded = codex.get();
       if (loaded === undefined) {
         pendingModelSelection = { ctx, event };
@@ -165,6 +189,7 @@ export const createCodexRuntime = (
         loaded.start(ctx);
       }
       await fastMode.start(ctx, startup);
+      applyInheritedFastMode(ctx, true);
       if (!codex.isStopped()) {
         refreshFastStatus(ctx);
       }
@@ -172,6 +197,7 @@ export const createCodexRuntime = (
     shutdown: async (ctx: ExtensionContext): Promise<void> => {
       agentRunActive = false;
       fastMode.stop();
+      fastContext = undefined;
       pendingStart = undefined;
       pendingModelSelection = undefined;
       await codex.stop((loaded) => {

@@ -16,7 +16,7 @@ Follow the audited [local load-last deployment contract](docs/local-deployment.m
 
 ## Usage
 
-OpenAI Codex requests compact and replay opaque checkpoints automatically; with [`subagents`](../subagents) loaded first, run [`/ultra`](docs/ultra.md) or start with `--ultra` for Max-effort proactive V2 delegation, `/code-mode` for Code Mode, `/fast` for priority service, or `/codex-provider` for status.
+OpenAI Codex requests compact and replay opaque checkpoints automatically; with [`subagents`](../subagents) loaded first, run [`/ultra`](docs/ultra.md) or start with `--ultra` for catalog-resolved proactive V2 delegation, `/code-mode` for Code Mode, `/fast` for priority service, or `/codex-provider` for status.
 
 ## Configuration
 

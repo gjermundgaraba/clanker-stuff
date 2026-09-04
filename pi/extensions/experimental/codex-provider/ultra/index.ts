@@ -5,15 +5,16 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { requestCollaborationContract } from "../collaboration.js";
+import type { CodexUltraSettings } from "../model-catalog.js";
 
 const ULTRA_STATE = "codex-ultra-state";
 const CATALOG_REFRESH_TIMEOUT_MS = 15_000;
 const UltraStateSchema = Type.Object({ enabled: Type.Boolean() }, { additionalProperties: false });
 const PROACTIVE_POLICY =
-  "<multi_agent_mode>Proactive multi-agent delegation is active. Any earlier instruction requiring an explicit user request before spawning sub-agents no longer applies. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode instruction changes it.</multi_agent_mode>";
+  "Proactive multi-agent delegation is active. Any earlier developer instruction requiring an explicit user request before spawning sub-agents no longer applies. This mode remains active until a later multi-agent mode developer message changes it. User requests override this hint.\n\nIf at any point you can parallelize work by delegating tasks to another agent (no matter if you are root or subagent), you should do so using collaboration tools if it could save time or improve quality.";
 
 interface UltraCatalog {
-  supportsUltra: (model: Model<Api> | undefined) => boolean;
+  getUltraSettings: (model: Model<Api> | undefined) => CodexUltraSettings | undefined;
 }
 
 type BranchSession = Pick<ExtensionContext["sessionManager"], "getBranch">;
@@ -59,7 +60,7 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
     ctx: ExtensionContext,
     model: Model<Api> | undefined,
   ): Promise<boolean> => {
-    if (catalog.supportsUltra(model)) {
+    if (catalog.getUltraSettings(model) !== undefined) {
       return true;
     }
     if (model?.provider !== "openai-codex" || model.api !== "openai-codex-responses") {
@@ -72,22 +73,24 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
         signal: AbortSignal.timeout(CATALOG_REFRESH_TIMEOUT_MS),
       })
       .catch(() => undefined);
-    return catalog.supportsUltra(model);
+    return catalog.getUltraSettings(model) !== undefined;
   };
 
   const sync = (
     ctx: ExtensionContext,
     contract = requestCollaborationContract(pi, ctx),
-  ): boolean => {
-    const active = desired && contract?.protocol === "v2" && catalog.supportsUltra(ctx.model);
+  ): CodexUltraSettings | undefined => {
+    const settings =
+      desired && contract?.protocol === "v2" ? catalog.getUltraSettings(ctx.model) : undefined;
+    const active = settings !== undefined;
     publishActive(ctx, active);
     if (active && branchUltraState(ctx.sessionManager) !== true) {
       pi.appendEntry(ULTRA_STATE, { enabled: true });
     }
-    if (active && pi.getThinkingLevel() !== "max") {
-      pi.setThinkingLevel("max");
+    if (settings !== undefined && pi.getThinkingLevel() !== settings.reasoningLevel) {
+      pi.setThinkingLevel(settings.reasoningLevel);
     }
-    return active;
+    return settings;
   };
 
   const restoreSession = async (ctx: ExtensionContext, requested = false): Promise<void> => {
@@ -101,7 +104,7 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
     if (generation !== refreshGeneration) {
       return;
     }
-    const active = sync(ctx, contract);
+    const active = sync(ctx, contract) !== undefined;
     if (!requested) {
       return;
     }
@@ -121,7 +124,10 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
     handler: async (_args, ctx) => {
       if (desired) {
         disable(ctx);
-        ctx.ui.notify("Codex Ultra disabled; Max remains native Max.", "info");
+        ctx.ui.notify(
+          "Codex Ultra disabled; the current reasoning level remains selected.",
+          "info",
+        );
         return;
       }
       await restoreSession(ctx, true);
@@ -139,7 +145,7 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
 
   pi.on("model_select", async (event, ctx) => {
     const generation = ++refreshGeneration;
-    let supported = catalog.supportsUltra(event.model);
+    let supported = catalog.getUltraSettings(event.model) !== undefined;
     if (desired && !supported) {
       supported = await refreshUltra(ctx, event.model);
     }
@@ -154,16 +160,22 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
   });
 
   pi.on("thinking_level_select", (event, ctx) => {
-    if (event.level !== "max") {
+    if (event.level !== catalog.getUltraSettings(ctx.model)?.reasoningLevel) {
       sync(ctx);
     }
   });
 
   pi.on("before_agent_start", (event, ctx) => {
-    if (!sync(ctx)) {
+    const settings = sync(ctx);
+    if (settings === undefined) {
       return undefined;
     }
-    return { systemPrompt: `${event.systemPrompt.trimEnd()}\n\n${PROACTIVE_POLICY}` };
+    const policy = settings.proactivePolicy ?? PROACTIVE_POLICY;
+    return policy.length === 0
+      ? undefined
+      : {
+          systemPrompt: `${event.systemPrompt.trimEnd()}\n\n<multi_agent_mode>${policy}</multi_agent_mode>`,
+        };
   });
 
   pi.on("session_shutdown", (_event, ctx) => {

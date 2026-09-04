@@ -27,7 +27,6 @@
     "manager.ts",
     "model-contract.ts",
     "nicknames.ts",
-    "orchestrate.ts",
     "permanent-error.ts",
     "runtime.ts",
     "selection.ts",

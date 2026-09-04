@@ -72,8 +72,10 @@ export const createFastModeState = (
   setFooterActive: (active: boolean) => void = () => null,
 ) => {
   let enabled = false;
+  let inherited: boolean | undefined;
   let operation = Promise.resolve();
   let stopped = false;
+  const current = (): boolean => inherited ?? enabled;
 
   const enqueue = (task: () => Promise<void>): Promise<void> =>
     (operation = runAfter(operation, task));
@@ -82,14 +84,18 @@ export const createFastModeState = (
     ctx: ExtensionContext,
     supportsFastMode: (model: Model<string> | undefined) => boolean,
   ): void => {
-    const active = enabled && supportsFastMode(ctx.model);
+    const active = current() && supportsFastMode(ctx.model);
     ctx.ui.setStatus(FAST_MODE_STATUS_KEY, active ? "⚡" : undefined);
     setFooterActive(active);
   };
 
   return {
-    isEnabled: (): boolean => enabled,
+    isEnabled: current,
+    localServiceTier: (): "priority" | null => (enabled ? "priority" : null),
     refresh,
+    setInheritedServiceTier: (tier: "priority" | null): void => {
+      inherited = tier === "priority";
+    },
     start: (ctx: ExtensionContext, useStartupFlag: boolean): Promise<void> =>
       enqueue(async () => {
         if (stopped) {
@@ -138,7 +144,7 @@ export const createFastModeState = (
           return;
         }
         enabled = next;
-        ctx.ui.notify(`Codex fast mode ${enabled ? "enabled" : "disabled"}`);
+        ctx.ui.notify(`Codex fast mode ${next ? "enabled" : "disabled"}`);
       }),
   };
 };

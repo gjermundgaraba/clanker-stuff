@@ -141,7 +141,7 @@ const modelParameters = (config: SubagentsConfig) =>
         model: Type.Optional(
           Type.String({
             description:
-              "Model override. Use a model id, or provider/model when the id is ambiguous.",
+              "Model override within the inherited provider. Omit unless explicitly requested.",
             minLength: 1,
           }),
         ),

@@ -670,6 +670,44 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }
   });
 
+  it("preserves off reasoning across inference and native compaction", async () => {
+    const paths = await workspace("codex-reasoning-off-");
+    const requests: WireRecord[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<FetchFunction>(async (_input, init) => {
+        const request = requestJson(init?.body, new Headers(init?.headers));
+        requests.push(request);
+        return inputItemTypes(request.input).includes("compaction_trigger")
+          ? compactResponse("reasoning-off")
+          : assistantResponse("reasoning-off");
+      }),
+    );
+    const session = await createRealCodexSession({
+      compaction: {
+        enabled: true,
+        keepRecentTokens: 1,
+        reserveTokens: 1000,
+      },
+      extensionFactories: [codexCompactionExtension],
+      rootDir: paths.rootDir,
+      sessionManager: SessionManager.inMemory(paths.cwd),
+    });
+
+    try {
+      session.setThinkingLevel("off");
+      await session.prompt("preserve reasoning off");
+      await session.compact();
+
+      expect(
+        requests.map((request) => wireString(wireRecord(request.reasoning).effort)),
+      ).toStrictEqual(["none", "none"]);
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
+
   it("preserves the built-in request body apart from canonical metadata and merges its feature header", async () => {
     const paths = await workspace("codex-inline-unchanged-");
     const bodies: Uint8Array[] = [];

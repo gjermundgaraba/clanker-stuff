@@ -34,32 +34,40 @@ const PropertiesSchema = Type.Object(
 const JsonObjectSchema = Type.Object({}, { additionalProperties: true });
 
 describe("pinned Codex collaboration contract", () => {
-  it("distinguishes a read-only contract request from an explicit Ultra update", async () => {
-    const updates: (boolean | undefined)[] = [];
+  it("distinguishes reads from explicit Ultra and root service-tier updates", async () => {
+    const updates: {
+      rootServiceTier: "priority" | null | undefined;
+      ultra: boolean | undefined;
+    }[] = [];
     const host = createExtensionHost((pi) => {
       registerContractResponder(
         pi,
         () => ({ nestedTools: [], protocol: "v2", sessionId: "contract-session" }),
-        (_ctx, ultra) => updates.push(ultra),
+        (_ctx, ultra, rootServiceTier) => updates.push({ rootServiceTier, ultra }),
       );
     });
     await host.ready;
-    const request = (ultra?: boolean) => {
-      const payload = {
+    const request = (ultra?: boolean, rootServiceTier?: "priority" | null) => {
+      host.events.emit(COLLABORATION_CONTRACT_REQUEST, {
         context: host.createContext(),
         provide: () => {},
+        rootServiceTier,
         sessionId: "contract-session",
-      };
-      host.events.emit(
-        COLLABORATION_CONTRACT_REQUEST,
-        ultra === undefined ? payload : { ...payload, ultra },
-      );
+        ultra,
+      });
     };
 
     request();
     request(false);
+    request(undefined, "priority");
+    request(undefined, null);
 
-    expect(updates).toStrictEqual([undefined, false]);
+    expect(updates).toStrictEqual([
+      { rootServiceTier: undefined, ultra: undefined },
+      { rootServiceTier: undefined, ultra: false },
+      { rootServiceTier: "priority", ultra: undefined },
+      { rootServiceTier: null, ultra: undefined },
+    ]);
   });
 
   it("keeps the Pi V1 and V2 tool families aligned with Codex", async () => {

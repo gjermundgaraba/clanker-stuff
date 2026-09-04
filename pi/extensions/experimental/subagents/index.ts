@@ -17,7 +17,6 @@ const subagents = async (pi: ExtensionAPI) => {
   const manager = new SubagentManager(pi, options);
 
   pi.on("session_start", manager.start.bind(manager));
-  pi.on("resources_discover", (_event, ctx) => manager.discoverResources(ctx));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
   pi.on("agent_start", manager.agentStart.bind(manager));
   pi.on("agent_end", manager.agentEnd.bind(manager));

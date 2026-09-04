@@ -26,7 +26,6 @@ const RoleSchema = Type.Object(
         { minItems: 1 },
       ),
     ),
-    provider: Type.Optional(Type.String({ minLength: 1 })),
     thinking: Type.Optional(ThinkingSchema),
   },
   STRICT,
@@ -96,11 +95,6 @@ export const parseConfig = <T>(value: T): SubagentsConfig => {
   if (!Value.Check(SubagentsConfigSchema, value)) {
     throw new Error("config must be a strict version 1 object");
   }
-  for (const [name, role] of Object.entries(value.roles ?? {})) {
-    if (role.provider !== undefined && role.model === undefined) {
-      throw new Error(`Role ${name} must set model when provider is set`);
-    }
-  }
   return {
     ...value,
     expose_spawn_agent_model_overrides: value.expose_spawn_agent_model_overrides ?? true,
@@ -134,7 +128,7 @@ export interface ChildSettings {
   model: Model<Api> | undefined;
   thinking: AgentThinkingLevel | undefined;
 }
-type ModelLookup = Pick<ModelRegistry, "find" | "getAll">;
+type ModelLookup = Pick<ModelRegistry, "find">;
 
 export const isThinkingLevel = (value: string): value is AgentThinkingLevel =>
   THINKING_LEVELS.some((level) => level === value);
@@ -155,30 +149,10 @@ export const parseModelOverride = (
   if (requested === undefined || requested === "") {
     return fallback;
   }
-  const separator = requested.indexOf("/");
-  if (separator === -1) {
-    const models = registry.getAll();
-    const inheritedProvider = fallback
-      ? models.find(
-          (candidate) => candidate.provider === fallback.provider && candidate.id === requested,
-        )
-      : undefined;
-    if (inheritedProvider !== undefined) {
-      return inheritedProvider;
-    }
-    const matches = models.filter((candidate) => candidate.id === requested);
-    if (matches.length === 1) {
-      return matches[0];
-    }
-    if (matches.length > 1) {
-      throw new Error(`Ambiguous model: ${requested}; use provider/model format`);
-    }
-    throw new Error(`Unknown model: ${requested}`);
+  if (fallback === undefined) {
+    throw new Error("Cannot resolve a model override without an inherited parent model");
   }
-  if (separator < 1 || separator === requested.length - 1) {
-    throw new Error("model must be a model id or use provider/model format");
-  }
-  return findModel(requested.slice(0, separator), requested.slice(separator + 1), registry);
+  return findModel(fallback.provider, requested, registry);
 };
 
 export const resolveChildSettings = (
@@ -199,10 +173,7 @@ export const resolveChildSettings = (
   }
   let model = parseModelOverride(requestedModel, registry, parentModel);
   if (role?.model !== undefined) {
-    model =
-      role.provider === undefined
-        ? parseModelOverride(role.model, registry, parentModel)
-        : findModel(role.provider, role.model, registry);
+    model = parseModelOverride(role.model, registry, parentModel);
   }
   const settings: ChildSettings = {
     model,

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
 
@@ -12,11 +13,11 @@ import type {
   AssistantMessage,
   Context,
   Model,
+  ModelThinkingLevel,
   OpenAICodexResponsesOptions,
   Provider,
   ProviderEnv,
   ProviderHeaders,
-  SimpleStreamOptions,
   StreamFunction,
   Tool,
   Usage,
@@ -67,6 +68,7 @@ const REQUEST_COMPRESSION_LEVEL = 3;
 const WEBSOCKET_BETA = "responses_websockets=2026-02-06";
 const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
 const WEBSOCKET_MAX_AGE_MS = 55 * 60_000;
+const UUID_NAMESPACE_OID = "6ba7b812-9dad-11d1-80b4-00c04fd430c8";
 export const ALLOWED_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
 
 type SupportedModel = Model<"openai-codex-responses">;
@@ -226,7 +228,6 @@ interface SessionRuntime {
     value: WebSocketLike;
   };
   turn?: {
-    fastModeEnabled: boolean;
     id: string;
     prewarmed: boolean;
     startedAt: number;
@@ -402,7 +403,7 @@ export interface CodexCompactionRequest {
   readonly phase: "mid-turn" | "overflow-retry" | "pre-sampling" | "standalone";
   readonly sessionId: string;
   readonly signal: AbortSignal;
-  readonly thinkingLevel: SimpleStreamOptions["reasoning"];
+  readonly thinkingLevel: ModelThinkingLevel;
 }
 
 export interface CodexCompactionResult {
@@ -426,6 +427,17 @@ const validateRequestReasoningEffort = (body: JsonRecord): void => {
   if (effort !== undefined && !isCodexWireReasoningEffort(effort)) {
     throw new Error(`Unsupported Codex Responses reasoning effort: ${JSON.stringify(effort)}`);
   }
+};
+
+const toCodexReasoningEffort = (
+  model: SupportedModel,
+  level: ModelThinkingLevel | undefined,
+): OpenAICodexResponsesOptions["reasoningEffort"] => {
+  if (level !== undefined && level !== "off") {
+    return level;
+  }
+  const offEffort = model.thinkingLevelMap?.off;
+  return offEffort === null || (offEffort === undefined && !model.reasoning) ? undefined : "none";
 };
 
 const isAborted = (signal: AbortSignal | undefined) => signal?.aborted ?? false;
@@ -588,6 +600,22 @@ const initialUsage = (): Usage => ({
   totalTokens: 0,
 });
 
+const uuidBytes = (uuid: string) => Buffer.from(uuid.replaceAll("-", ""), "hex");
+
+const uuidV5 = (namespace: string, name: string) => {
+  const digest = createHash("sha1").update(uuidBytes(namespace)).update(name).digest();
+  digest[6] = ((digest[6] ?? 0) % 16) + 80;
+  digest[8] = ((digest[8] ?? 0) % 64) + 128;
+  const hex = digest.subarray(0, 16).toString("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
+};
+
 const requestMetadata = (
   sessionId: string,
   session: SessionRuntime,
@@ -598,21 +626,24 @@ const requestMetadata = (
   if (!turn) {
     throw new Error("Codex turn is not initialized");
   }
+  const windowId = `${sessionId}:${session.window.number}`;
   const canonical = JSON.stringify({
     compaction: compaction ? compaction : undefined,
+    context_window_id: session.window.currentId,
     request_kind: kind,
     session_id: sessionId,
     thread_id: sessionId,
     turn_id: turn.id,
     turn_started_at_unix_ms: turn.startedAt,
-    window_id: session.window.currentId,
+    window_id: windowId,
+    window_number: session.window.number,
   });
   return {
     session_id: sessionId,
     thread_id: sessionId,
     turn_id: turn.id,
     "x-codex-turn-metadata": canonical,
-    "x-codex-window-id": session.window.currentId,
+    "x-codex-window-id": windowId,
   };
 };
 
@@ -679,13 +710,20 @@ const buildRequestBody = (
       : undefined;
   const lite = metadata?.use_responses_lite === true;
   if (lite) {
-    const prefix: ResponsesInputItem[] = [];
-    if ((tools?.length ?? 0) > 0) {
-      prefix.push({ role: "developer", tools, type: "additional_tools" });
-    }
+    const prefixNamespace = uuidV5(UUID_NAMESPACE_OID, sessionId);
+    const additionalTools = tools ?? [];
+    const prefix: ResponsesInputItem[] = [
+      {
+        id: `at_${uuidV5(prefixNamespace, JSON.stringify(additionalTools))}`,
+        role: "developer",
+        tools: additionalTools,
+        type: "additional_tools",
+      },
+    ];
     if (context.systemPrompt !== undefined && context.systemPrompt.length > 0) {
       prefix.push({
         content: [{ text: context.systemPrompt, type: "input_text" }],
+        id: `msg_${uuidV5(prefixNamespace, context.systemPrompt)}`,
         role: "developer",
         type: "message",
       });
@@ -1574,7 +1612,10 @@ const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRu
   if (Value.Check(StringValueSchema, metadata)) {
     headers.set("x-codex-turn-metadata", metadata);
   }
-  headers.set("x-codex-window-id", session.window.currentId);
+  const windowId = clientMetadata?.["x-codex-window-id"];
+  if (Value.Check(StringValueSchema, windowId)) {
+    headers.set("x-codex-window-id", windowId);
+  }
   if (session.turn?.state !== undefined && session.turn.state.length > 0) {
     headers.set("x-codex-turn-state", session.turn.state);
   }
@@ -2062,9 +2103,12 @@ export const createCodexProviderRuntime = (
     const runtimeSessionId = standalone
       ? `${request.sessionId}:compaction:${uuidv7()}`
       : request.sessionId;
-    const session = standalone ? createSession() : getSession(runtimeSessionId);
+    const logicalSession = getSession(request.sessionId);
+    const session = standalone ? createSession() : logicalSession;
+    if (standalone) {
+      session.window = { ...logicalSession.window };
+    }
     session.turn ??= {
-      fastModeEnabled: isFastModeEnabled(),
       id: uuidv7(),
       prewarmed: true,
       startedAt: Date.now(),
@@ -2074,11 +2118,9 @@ export const createCodexProviderRuntime = (
       env: request.env,
       headers: request.headers,
       maxRetries: 0,
-      reasoningEffort: request.thinkingLevel,
+      reasoningEffort: toCodexReasoningEffort(request.model, request.thinkingLevel),
       serviceTier:
-        session.turn.fastModeEnabled && catalog.supportsFastMode(request.model)
-          ? "priority"
-          : undefined,
+        isFastModeEnabled() && catalog.supportsFastMode(request.model) ? "priority" : undefined,
       sessionId: runtimeSessionId,
       signal: request.signal,
       transport: requestTransport.getStore() ?? "auto",
@@ -2375,7 +2417,6 @@ export const createCodexProviderRuntime = (
         }
         const session = getSession(sessionId);
         session.turn ??= {
-          fastModeEnabled: isFastModeEnabled(),
           id: uuidv7(),
           prewarmed: false,
           startedAt: Date.now(),
@@ -2404,7 +2445,7 @@ export const createCodexProviderRuntime = (
         }
         const prewarmInput = built.responsesLite ? built.body.input.slice(0, litePrefixLength) : [];
         let requestBody = built.body;
-        if (session.turn?.fastModeEnabled === true && catalog.supportsFastMode(model)) {
+        if (isFastModeEnabled() && catalog.supportsFastMode(model)) {
           requestBody.service_tier = "priority";
         }
         if (built.responsesLite) {
@@ -2602,7 +2643,7 @@ export const createCodexProviderRuntime = (
         : undefined;
     return stream(model, context, {
       ...baseOptions,
-      reasoningEffort: level === "off" ? undefined : level,
+      reasoningEffort: toCodexReasoningEffort(model, level),
       toolChoice: options?.toolChoice,
     } satisfies OpenAICodexResponsesOptions);
   };
@@ -2627,7 +2668,6 @@ export const createCodexProviderRuntime = (
     beginTurn(sessionId: string) {
       const session = getSession(sessionId);
       session.turn = {
-        fastModeEnabled: isFastModeEnabled(),
         id: uuidv7(),
         prewarmed: false,
         startedAt: Date.now(),

@@ -946,8 +946,7 @@ const runLifecycleHook = async (
         reason: event.reason,
         sessionId,
         signal,
-        thinkingLevel:
-          requestSnapshot.thinkingLevel === "off" ? undefined : requestSnapshot.thinkingLevel,
+        thinkingLevel: requestSnapshot.thinkingLevel,
       });
 
       if (!isCurrent()) {
@@ -1835,8 +1834,7 @@ const runInlineCompactionOperation = async (
         reason: "threshold",
         sessionId: ctx.sessionManager.getSessionId(),
         signal,
-        thinkingLevel:
-          requestSnapshot.thinkingLevel === "off" ? undefined : requestSnapshot.thinkingLevel,
+        thinkingLevel: requestSnapshot.thinkingLevel,
       };
       let execution = await runEffectiveProviderCompaction(providerRuntime, compactionOptions);
       if (!execution.ok && compactionModel && execution.currentModelFallback && !signal.aborted) {

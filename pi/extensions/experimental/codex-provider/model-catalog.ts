@@ -21,8 +21,6 @@ import { openaiCodexProvider } from "#pi-openai-codex";
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";
 const MODEL_CACHE_TTL_MS = 300_000;
 const MODEL_CLIENT_VERSION = "0.0.0";
-const MODEL_CACHE_VERSION = 2;
-const MODEL_CACHE_VERSION_FIELD = "codexProviderCacheVersion";
 const MODEL_CACHE_METADATA_FIELD = "codexProviderMetadata";
 const MODEL_CACHE_ACCOUNT_FIELD = "codexProviderAccountId";
 const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
@@ -33,7 +31,6 @@ type SupportedModel = Model<"openai-codex-responses"> & {
 };
 type CachedSupportedModel = SupportedModel & {
   readonly codexProviderAccountId: string;
-  readonly codexProviderCacheVersion: 2;
   readonly codexProviderMetadata: CodexModelMetadata;
 };
 type CodexProvider = Provider<"openai-codex-responses">;
@@ -56,18 +53,43 @@ const PI_CODEX_REASONING_EFFORTS = {
   off: "none",
   xhigh: "xhigh",
 } as const satisfies Record<ModelThinkingLevel, CodexWireReasoningEffort>;
-const CODEX_WIRE_REASONING_EFFORT_SET: ReadonlySet<string> = new Set(
-  Object.values(PI_CODEX_REASONING_EFFORTS),
+const CODEX_PI_REASONING_LEVELS: ReadonlyMap<string, ModelThinkingLevel> = new Map(
+  Object.entries(PI_CODEX_REASONING_EFFORTS).map(([level, effort]) => [
+    effort,
+    // SAFETY: the source record's satisfies constraint limits every key to ModelThinkingLevel.
+    level as ModelThinkingLevel,
+  ]),
 );
 const ReasoningEffortInputSchema = Type.Unknown();
 type ReasoningEffortInput = Static<typeof ReasoningEffortInputSchema>;
 const BooleanValueSchema = Type.Boolean();
 const ReasoningEffortStringSchema = Type.String();
+const ModelMessagesSchema = Type.Union([
+  Type.Object({
+    multi_agent: Type.Optional(
+      Type.Union([
+        Type.Object({
+          mode: Type.Optional(
+            Type.Union([
+              Type.Object({
+                hint_text: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+                proactive: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+              }),
+              Type.Null(),
+            ]),
+          ),
+        }),
+        Type.Null(),
+      ]),
+    ),
+  }),
+  Type.Null(),
+]);
 
 export const isCodexWireReasoningEffort = (
   value: ReasoningEffortInput,
 ): value is CodexWireReasoningEffort =>
-  Value.Check(ReasoningEffortStringSchema, value) && CODEX_WIRE_REASONING_EFFORT_SET.has(value);
+  Value.Check(ReasoningEffortStringSchema, value) && CODEX_PI_REASONING_LEVELS.has(value);
 
 const storedApiKeyAuth: ApiKeyAuth = {
   name: "OpenAI Codex access token",
@@ -91,6 +113,8 @@ export interface CodexModelReasoningLevel {
   readonly effort?: string;
 }
 
+export type CodexModelMessages = Static<typeof ModelMessagesSchema>;
+
 export interface CodexModelMetadataWire {
   readonly auto_compact_token_limit?: number | null;
   readonly base_instructions?: string;
@@ -104,6 +128,8 @@ export interface CodexModelMetadataWire {
   readonly effective_context_window_percent?: number | null;
   readonly input_modalities?: readonly string[];
   readonly max_context_window?: number | null;
+  readonly model_messages?: CodexModelMessages;
+  readonly multi_agent_reasoning_effort?: string | null;
   readonly multi_agent_version?: string | null;
   readonly priority?: number;
   readonly service_tiers?: readonly (CodexModelServiceTier | null)[];
@@ -134,6 +160,8 @@ export interface CodexModelMetadata {
   readonly effective_context_window_percent: number;
   readonly input_modalities?: readonly string[];
   readonly max_context_window?: number;
+  readonly model_messages?: CodexModelMessages;
+  readonly multi_agent_reasoning_effort?: string | null;
   readonly multi_agent_version?: string | null;
   readonly priority: number;
   readonly service_tiers?: readonly (CodexModelServiceTier | null)[];
@@ -149,6 +177,11 @@ export interface CodexModelMetadata {
   };
   readonly use_responses_lite: boolean;
   readonly visibility: string;
+}
+
+export interface CodexUltraSettings {
+  readonly proactivePolicy?: string;
+  readonly reasoningLevel: ModelThinkingLevel;
 }
 
 const FALLBACK_FAST_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]);
@@ -194,16 +227,6 @@ const seedFallbackModel = (model: SupportedModel): SupportedModel => {
     codexOutputTokenLimit: DEFAULT_OUTPUT_TOKEN_LIMIT,
   };
   return version === undefined ? seeded : { ...seeded, multiAgentVersion: version };
-};
-
-const restoreCachedModel = (model: CachedSupportedModel): SupportedModel => {
-  const {
-    codexProviderAccountId: _accountId,
-    codexProviderCacheVersion: _cacheVersion,
-    codexProviderMetadata: _metadata,
-    ...restored
-  } = model;
-  return restored;
 };
 
 export const resolveCodexResponsesUrl = (baseUrl?: string): string => {
@@ -282,6 +305,34 @@ const reasoningLevels = (metadata: CodexModelMetadata) =>
     return value?.effort === undefined ? [] : [value.effort];
   });
 
+const piReasoningLevel = (effort: string): ModelThinkingLevel | undefined =>
+  CODEX_PI_REASONING_LEVELS.get(effort);
+
+const ultraSettings = (
+  metadata: CodexModelMetadata | undefined,
+): CodexUltraSettings | undefined => {
+  if (metadata?.multi_agent_version !== "v2") {
+    return undefined;
+  }
+  const levels = reasoningLevels(metadata);
+  if (!levels.includes("ultra")) {
+    return undefined;
+  }
+  const configured = metadata.multi_agent_reasoning_effort;
+  const configuredLevel =
+    configured !== undefined && configured !== null && levels.includes(configured)
+      ? piReasoningLevel(configured)
+      : undefined;
+  const representable = levels.flatMap((effort) => piReasoningLevel(effort) ?? []);
+  const fallback =
+    configuredLevel ?? (representable.includes("max") ? "max" : (representable.at(-1) ?? "medium"));
+  const mode = metadata.model_messages?.multi_agent?.mode;
+  const policy = mode?.hint_text ?? mode?.proactive;
+  return Value.Check(ReasoningEffortStringSchema, policy)
+    ? { proactivePolicy: policy, reasoningLevel: fallback }
+    : { reasoningLevel: fallback };
+};
+
 const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata => {
   if (!(value instanceof Object) || Array.isArray(value)) {
     throw new Error("Codex model metadata must be an object");
@@ -332,6 +383,19 @@ const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata =
   if (truncationPolicy !== undefined && !isTruncationPolicy(truncationPolicy)) {
     throw new Error("Codex model truncation policy is invalid");
   }
+  if (
+    value.multi_agent_reasoning_effort !== undefined &&
+    value.multi_agent_reasoning_effort !== null &&
+    !Value.Check(ReasoningEffortStringSchema, value.multi_agent_reasoning_effort)
+  ) {
+    throw new Error("Codex model multi-agent reasoning effort is invalid");
+  }
+  if (
+    value.model_messages !== undefined &&
+    !Value.Check(ModelMessagesSchema, value.model_messages)
+  ) {
+    throw new Error("Codex model messages are invalid");
+  }
   const parsed: CodexModelMetadata = {
     ...value,
     auto_compact_token_limit: autoCompactTokenLimit,
@@ -364,7 +428,6 @@ const cacheModel = (
 ): CachedSupportedModel => ({
   ...model,
   [MODEL_CACHE_ACCOUNT_FIELD]: accountId,
-  [MODEL_CACHE_VERSION_FIELD]: MODEL_CACHE_VERSION,
   [MODEL_CACHE_METADATA_FIELD]: metadata,
 });
 
@@ -381,23 +444,19 @@ const cacheCatalog = (
     return cacheModel(model, metadata, accountId);
   });
 
-const isCurrentCachedModel = (model: Model<Api>): model is CachedSupportedModel =>
+const isCachedModel = (model: Model<Api>): model is CachedSupportedModel =>
   model.api === "openai-codex-responses" &&
   model.provider === "openai-codex" &&
   MODEL_CACHE_ACCOUNT_FIELD in model &&
   Value.Check(ReasoningEffortStringSchema, model[MODEL_CACHE_ACCOUNT_FIELD]) &&
   model[MODEL_CACHE_ACCOUNT_FIELD].length > 0 &&
-  MODEL_CACHE_VERSION_FIELD in model &&
-  model[MODEL_CACHE_VERSION_FIELD] === MODEL_CACHE_VERSION &&
-  MODEL_CACHE_METADATA_FIELD in model &&
-  (!("multiAgentVersion" in model) ||
-    model.multiAgentVersion === undefined ||
-    (Value.Check(ReasoningEffortStringSchema, model.multiAgentVersion) &&
-      isMultiAgentVersion(model.multiAgentVersion)));
+  MODEL_CACHE_METADATA_FIELD in model;
 
-const restoreCurrentCache = (
+const restoreCache = (
   stored: RefreshModelsContext["stored"],
   accountId: string,
+  fallback: readonly SupportedModel[],
+  baseUrl: string,
 ):
   | {
       readonly accountId: string;
@@ -408,11 +467,11 @@ const restoreCurrentCache = (
   if (stored === undefined || stored.models.length === 0) {
     return undefined;
   }
-  const cachedModels: CachedSupportedModel[] = [];
   const metadata = new Map<string, CodexModelMetadata>();
+  const models: SupportedModel[] = [];
   try {
     for (const model of stored.models) {
-      if (!isCurrentCachedModel(model)) {
+      if (!isCachedModel(model)) {
         return undefined;
       }
       if (model[MODEL_CACHE_ACCOUNT_FIELD] !== accountId) {
@@ -422,8 +481,8 @@ const restoreCurrentCache = (
       if (parsed.slug !== model.id || metadata.has(model.id)) {
         return undefined;
       }
-      cachedModels.push(model);
       metadata.set(model.id, parsed);
+      models.push(projectModel(parsed, fallback, baseUrl));
     }
   } catch {
     return undefined;
@@ -431,7 +490,7 @@ const restoreCurrentCache = (
   return {
     accountId,
     metadata,
-    models: cachedModels.map(restoreCachedModel),
+    models,
   };
 };
 
@@ -442,12 +501,17 @@ const projectModel = (
 ): SupportedModel => {
   const existing = fallback.find((model) => model.id === metadata.slug);
   const supportedReasoningEfforts = reasoningLevels(metadata).filter(isCodexWireReasoningEffort);
+  const ultraReasoning = ultraSettings(metadata);
+  const projectedReasoningEfforts =
+    ultraReasoning === undefined
+      ? supportedReasoningEfforts
+      : [...supportedReasoningEfforts, PI_CODEX_REASONING_EFFORTS[ultraReasoning.reasoningLevel]];
   const hasRemoteReasoningLevels = metadata.supported_reasoning_levels !== undefined;
   const thinkingLevelMap = hasRemoteReasoningLevels
     ? Object.fromEntries(
         Object.entries(PI_CODEX_REASONING_EFFORTS).map(([piLevel, wireEffort]) => [
           piLevel,
-          supportedReasoningEfforts.includes(wireEffort) ? wireEffort : null,
+          projectedReasoningEfforts.includes(wireEffort) ? wireEffort : null,
         ]),
       )
     : existing?.thinkingLevelMap;
@@ -486,7 +550,7 @@ const projectModel = (
     name: metadata.display_name,
     provider: "openai-codex",
     reasoning: hasRemoteReasoningLevels
-      ? supportedReasoningEfforts.some((level) => level !== "none")
+      ? projectedReasoningEfforts.some((level) => level !== "none")
       : existing?.reasoning === true,
   };
   if (thinkingLevelMap !== undefined) {
@@ -579,7 +643,10 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
       onAccountChanged?.();
     }
     if (stored !== undefined && catalog.kind === "fallback") {
-      const current = accountId === undefined ? undefined : restoreCurrentCache(stored, accountId);
+      const current =
+        accountId === undefined
+          ? undefined
+          : restoreCache(stored, accountId, fallback, base.baseUrl ?? DEFAULT_BASE_URL);
       if (
         !(await context.publish({
           update: () => {
@@ -720,6 +787,12 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
     getModelMetadata: modelMetadata,
     getModelWindow: (model: SupportedModel) => modelWindow(model, modelMetadata(model.id)),
     getModels: catalogModels,
+    getUltraSettings: (model: Model<Api> | undefined): CodexUltraSettings | undefined => {
+      if (model?.provider !== "openai-codex" || model.api !== "openai-codex-responses") {
+        return undefined;
+      }
+      return ultraSettings(modelMetadata(model.id));
+    },
     refreshModels,
     supportsFastMode: (model: Model<Api> | undefined): boolean => {
       if (model?.provider !== "openai-codex" || model.api !== "openai-codex-responses") {
@@ -729,17 +802,6 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
       return metadata === undefined
         ? FALLBACK_FAST_MODELS.has(model.id)
         : modelSupportsServiceTier(metadata, "priority");
-    },
-    supportsUltra: (model: Model<Api> | undefined): boolean => {
-      if (model?.provider !== "openai-codex" || model.api !== "openai-codex-responses") {
-        return false;
-      }
-      const metadata = modelMetadata(model.id);
-      return (
-        metadata?.multi_agent_version === "v2" &&
-        reasoningLevels(metadata).includes("ultra") &&
-        reasoningLevels(metadata).includes("max")
-      );
     },
   };
 };

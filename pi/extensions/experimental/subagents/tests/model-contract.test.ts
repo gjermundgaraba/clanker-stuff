@@ -31,11 +31,13 @@ describe("Pi model-facing collaboration contract", () => {
       customUsage: root.includes("Use the project-specific delegation workflow."),
       defaultUsage: root.includes("Keep immediate blockers local"),
       delegation: root.includes("Explicit delegation is enabled."),
+      researchIsNotPermission: root.includes("Requests for depth, thoroughness, research"),
       mailbox: root.includes("Message Type: MESSAGE | FINAL_ANSWER"),
     }).toStrictEqual({
       customUsage: true,
       defaultUsage: false,
       delegation: true,
+      researchIsNotPermission: true,
       mailbox: true,
     });
 
@@ -56,7 +58,10 @@ describe("Pi model-facing collaboration contract", () => {
       prompts: { delegation: "proactive" as const },
     };
 
-    expect(v2ChildCapabilityPrompt(proactive, true)).toContain("Proactive delegation is enabled.");
+    expect(v2ChildCapabilityPrompt(proactive, true)).toContain(
+      "Proactive multi-agent delegation is enabled.",
+    );
+    expect(v2ChildCapabilityPrompt(proactive, true)).toContain("User requests override this hint.");
     expect(v2ChildCapabilityPrompt(proactive, true)).toContain(
       "Descendants receive these tools only when their own resolved models declare V2.",
     );
@@ -77,11 +82,27 @@ describe("Pi model-facing collaboration contract", () => {
     expect(v1SpawnDescription(DEFAULT_CONFIG)).toContain(
       "Delegate non-blocking work with a clear, disjoint scope.",
     );
+    expect(v1SpawnDescription(DEFAULT_CONFIG)).toContain(
+      "Do not set model or reasoning overrides unless the user explicitly asks",
+    );
+    expect(v2RootPrompt(DEFAULT_CONFIG, 3)).toContain(
+      "Only set model or reasoning overrides when explicitly requested",
+    );
+    expect(v2RootPrompt(DEFAULT_CONFIG, 3)).toContain(
+      "inherit the parent model and reasoning effort and do not accept overrides",
+    );
   });
 
   it("never promises uniform child tools in the V2 spawn description", () => {
     expect(v2SpawnDescription()).toContain("only when its resolved model declares V2");
     expect(v2SpawnDescription()).not.toContain("same tools");
+  });
+
+  it("lets provider-owned Ultra replace the configured V2 delegation policy", () => {
+    expect(v2RootPrompt(DEFAULT_CONFIG, 3, false)).not.toContain("Explicit delegation is enabled.");
+    expect(v2ChildCapabilityPrompt(DEFAULT_CONFIG, true, false)).not.toContain(
+      "Explicit delegation is enabled.",
+    );
   });
 
   it("uses the supported Codex error envelope wording", () => {

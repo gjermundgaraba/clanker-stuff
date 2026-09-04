@@ -4,7 +4,7 @@ Reference research and implementation contract for the experimental Pi extension
 
 ## Reference snapshots
 
-- Codex: `openai/codex` `origin/main` at `90ae0c4ef944bb80a3c725d15910289dfbb7db51`, inspected 2026-09-01.
+- Codex: `openai/codex` `origin/main` at `389dd5645944891b65e4ca584125bbb0c852d352`, inspected 2026-09-03.
 - Pi: `earendil-works/pi` tag `v0.84.4` at `b79e4cc834970cca69daebffab7df1da7d1e52c4`.
 
 Codex introduced the feature in three commits:
@@ -12,6 +12,12 @@ Codex introduced the feature in three commits:
 - `7c1e36c23f` — prepare focus tracking, eligibility, bounded history, and rendering (#40696).
 - `40ba7da7b4` — add scheduling, isolated structured requests, stale-result rejection, and retry (#40697).
 - `6988d390b3` — enable automatic generation and `/recap` (#40705).
+
+Codex later added one recap-specific preference:
+
+- `8ea297ff60` — add `tui.auto_recap`, enabled by default, to disable automatic generation while keeping `/recap` available (#42101).
+
+Apart from this opt-out gate, the refresh found no changes to the recap algorithm described below.
 
 ## What the feature is
 
@@ -42,6 +48,8 @@ Manual failures are visible and are not retried:
 
 ### Automatic recap
 
+Automatic recap is enabled by default. Setting `tui.auto_recap` to `false` cancels scheduled checks, rejects new automatic requests, and discards pending automatic results without retrying. It does not disable manual `/recap`.
+
 Codex schedules a recap only when all of these are true:
 
 - the terminal is unfocused;
@@ -62,8 +70,6 @@ A failed or interrupted turn does not increase the completed-turn count, but it 
 Automatic generation has no loading cell. A failure is logged and retried once, 30 seconds later, provided the conversation revision has not changed. Regaining focus cancels automatic eligibility and makes any eventual result stale; manual requests survive focus changes.
 
 On non-Windows platforms, Codex enables crossterm focus reporting and maps terminal focus events into `TuiEvent::FocusGained` and `TuiEvent::FocusLost`. Focus reporting is disabled on Windows, so the manual command remains the reliable path there.
-
-The inspected TUI has no recap-specific feature flag or configuration.
 
 ## Generation pipeline
 
@@ -177,6 +183,7 @@ The card is only a Codex TUI history cell. It is not written to the app-server t
 | Area                                                                            | Source                                                                                    |
 | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Policy, prompt, history bounds, request lifecycle, freshness, retry, state      | `codex-rs/tui/src/app/recap.rs`                                                           |
+| Automatic-recap preference                                                      | `codex-rs/config/src/types.rs`, `codex-rs/tui/src/local_settings.rs`                      |
 | Hidden structured thread, tool isolation, timeout, response collection, cleanup | `codex-rs/tui/src/temporary_structured_request.rs`                                        |
 | Terminal focus enable/disable and TUI focus events                              | `codex-rs/tui/src/tui.rs`, `codex-rs/tui/src/tui/event_stream.rs`                         |
 | Focus and turn-finish scheduling                                                | `codex-rs/tui/src/app.rs`, `codex-rs/tui/src/app/thread_routing.rs`                       |
@@ -197,6 +204,8 @@ The Pi extension retains Codex's turn thresholds, prompt policy, bounded-history
 - the first recap requires three completed turns and later recaps require two more completed turns;
 - the result is a durable, display-only inline custom entry; and
 - generation requires an explicitly configured secondary model and never falls back to the active model.
+
+The refreshed Codex snapshot leaves these algorithmic choices aligned. The extension does not mirror `tui.auto_recap`: loading this experimental extension is already an opt-in to automatic recaps, and unlike Codex it has no manual recap command to preserve when automatic generation is disabled. Leaving the extension unloaded is the corresponding opt-out.
 
 There is no focus requirement or three-minute delay. `agent_settled` guarantees that Pi has no automatic retry, compaction, or queued continuation left, but it does not mean the terminal is unfocused. This is an intentional product difference rather than an emulation of Codex's focus behavior.
 

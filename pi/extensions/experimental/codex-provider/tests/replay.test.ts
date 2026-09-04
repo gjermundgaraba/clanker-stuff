@@ -48,10 +48,15 @@ const user = (
 
 const textUser = (text: string) => user([{ text, type: "input_text" }]);
 
-const agentMessage = (text: string) => ({
-  author: "assistant",
-  content: [{ text, type: "input_text" }],
-  recipient: "user",
+const agentMessage = (
+  text: string,
+  author = "assistant",
+  recipient = "user",
+  trailingContent: readonly { text: string; type: "input_text" }[] = [],
+) => ({
+  author,
+  content: [{ text, type: "input_text" }, ...trailingContent],
+  recipient,
   type: "agent_message",
 });
 
@@ -311,6 +316,35 @@ describe("replacement and token policy", () => {
       "message",
       "agent_message",
       "compaction",
+    ]);
+  });
+
+  it("drops descendant progress while retaining tasks and unrelated agent messages", () => {
+    const result = buildCheckpointReplacement(
+      [
+        agentMessage("Message Type: MESSAGE\nchild progress", "/root/child", "/root"),
+        agentMessage("Message Type: MESSAGE\nparent task", "/root", "/root/child"),
+        agentMessage("Message Type: MESSAGE\nsibling update", "/root/a", "/root/b"),
+        agentMessage("Message Type: TASK\nchild task", "/root/child", "/root"),
+        agentMessage("Message Type: FINAL_ANSWER\nfinished", "/root", "/root/child"),
+        agentMessage("prefix", "/root/child", "/root", [
+          { text: "Message Type: MESSAGE\nnot first", type: "input_text" },
+        ]),
+      ],
+      compaction(),
+    );
+
+    expect(
+      result
+        .filter((item) => item.type === "agent_message")
+        .map((item) =>
+          item.content.flatMap((part) => (part.type === "input_text" ? [part.text] : [])).join("|"),
+        ),
+    ).toStrictEqual([
+      "Message Type: MESSAGE\nparent task",
+      "Message Type: MESSAGE\nsibling update",
+      "Message Type: TASK\nchild task",
+      "prefix|Message Type: MESSAGE\nnot first",
     ]);
   });
 

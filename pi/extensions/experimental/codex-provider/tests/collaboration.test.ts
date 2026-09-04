@@ -7,6 +7,7 @@ import { createExtensionHost } from "../../../../tests/harness/extension-host.js
 import { codexContractFixture } from "../../subagents/docs/fixtures/codex-contract.generated.js";
 import type { CollaborationContractRequest } from "../collaboration.js";
 import {
+  COLLABORATION_CONTRACT_REQUEST,
   PI_SUBAGENTS_NAMESPACE,
   requestCollaborationContract,
   rewriteCollaborationTools,
@@ -36,15 +37,22 @@ const namespaceMemberNames = (namespace: WireValue): string[] => {
   });
 };
 
-const harness = (protocol?: "off" | "v1" | "v2", nestedTools: readonly ToolDefinition[] = []) => {
+const harness = (
+  protocol?: "off" | "v1" | "v2",
+  nestedTools: readonly ToolDefinition[] = [],
+  inheritedServiceTier?: WireValue,
+) => {
   const sessionId = "collaboration-session";
+  let requestedServiceTier: "priority" | null | undefined;
   let requestedUltra: boolean | undefined;
   const pi = {
     events: {
       emit(channel: string, request: CollaborationContractRequest) {
+        requestedServiceTier = request.rootServiceTier;
         requestedUltra = request.ultra;
-        if (channel === "clanker-stuff:subagents:contract:request" && protocol !== undefined) {
+        if (channel === COLLABORATION_CONTRACT_REQUEST && protocol !== undefined) {
           request.provide({
+            inheritedServiceTier,
             nestedTools: nestedTools.map((definition) => ({ definition })),
             protocol,
             sessionId,
@@ -58,7 +66,12 @@ const harness = (protocol?: "off" | "v1" | "v2", nestedTools: readonly ToolDefin
     model: createToolsModel("gpt-5.6-sol"),
     sessionId,
   }).createContext();
-  return { ctx, pi, requestedUltra: () => requestedUltra };
+  return {
+    ctx,
+    pi,
+    requestedServiceTier: () => requestedServiceTier,
+    requestedUltra: () => requestedUltra,
+  };
 };
 
 describe("Codex collaboration wire projection", () => {
@@ -140,12 +153,24 @@ describe("Codex collaboration wire projection", () => {
     });
   });
 
-  it("leaves ordinary contract reads inert and accepts an explicit Ultra update", () => {
-    const active = harness("v2");
+  it("keeps reads inert and exchanges explicit Ultra and live service-tier state", () => {
+    const active = harness("v2", [], null);
 
     expect(requestCollaborationContract(active.pi, active.ctx)?.protocol).toBe("v2");
     expect(active.requestedUltra()).toBeUndefined();
+    expect(active.requestedServiceTier()).toBeUndefined();
     expect(requestCollaborationContract(active.pi, active.ctx, true)?.protocol).toBe("v2");
     expect(active.requestedUltra()).toBeTruthy();
+    expect(
+      requestCollaborationContract(active.pi, active.ctx, undefined, "priority")
+        ?.inheritedServiceTier,
+    ).toBeNull();
+    expect(active.requestedServiceTier()).toBe("priority");
+  });
+
+  it("rejects malformed inherited state", () => {
+    const malformed = harness("v2", [], "default");
+
+    expect(requestCollaborationContract(malformed.pi, malformed.ctx)).toBeUndefined();
   });
 });

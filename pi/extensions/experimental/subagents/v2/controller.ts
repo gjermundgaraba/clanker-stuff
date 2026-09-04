@@ -9,6 +9,7 @@ import type {
 import type { AgentThinkingLevel, SubagentsConfig } from "../config.js";
 import { resolveChildSettings, roleInstructions } from "../config.js";
 import { registerContractResponder } from "../contract.js";
+import type { RootServiceTier } from "../contract.js";
 import type { TreeCoordinator } from "../coordinator.js";
 import { forkHistory } from "../history.js";
 import type { ForkTurns } from "../history.js";
@@ -167,6 +168,7 @@ export class V2Controller {
   #promptOptions: BuildSystemPromptOptions | undefined;
   #rootApi: ToolEndpoint | undefined;
   #rootRunning = false;
+  #rootServiceTier: RootServiceTier | undefined;
 
   constructor(dependencies: V2ControllerDependencies) {
     this.#config = dependencies.config;
@@ -227,6 +229,7 @@ export class V2Controller {
     const unsubscribeContract = registerContractResponder(
       api,
       (ctx) => ({
+        inheritedServiceTier: this.#rootServiceTier,
         inheritedUltra: this.#ultraInheritance.has(pathname),
         nestedTools: [],
         protocol: "v2",
@@ -266,7 +269,11 @@ export class V2Controller {
       if (owns()) {
         applyEligibility(ctx.model, ctx.modelRegistry);
         response = {
-          systemPrompt: `${event.systemPrompt}\n\n${v2ChildCapabilityPrompt(this.#config, collaborationEnabled)}`,
+          systemPrompt: `${event.systemPrompt}\n\n${v2ChildCapabilityPrompt(
+            this.#config,
+            collaborationEnabled,
+            !this.#ultraAgents.has(pathname),
+          )}`,
         };
       }
       return response;
@@ -301,7 +308,7 @@ export class V2Controller {
   }
 
   rootPrompt(): string {
-    return v2RootPrompt(this.#config, this.#maxChildren);
+    return v2RootPrompt(this.#config, this.#maxChildren, !this.#ultraAgents.has(ROOT_AGENT_PATH));
   }
 
   setUltra(pathname: string, enabled: boolean): void {
@@ -310,6 +317,10 @@ export class V2Controller {
     } else {
       this.#ultraAgents.delete(pathname);
     }
+  }
+
+  setRootServiceTier(tier: RootServiceTier | undefined): void {
+    this.#rootServiceTier = tier;
   }
 
   describe(): string {
@@ -435,10 +446,7 @@ export class V2Controller {
         this.#slots.set(pathname, { token });
         reservation.residency = false;
         runtime = await this.#createRuntime({
-          bridge: (api) => {
-            this.attachChild(pathname, api, token);
-            return Promise.resolve();
-          },
+          bridge: (api) => this.attachChild(pathname, api, token),
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
           history: forkHistory(ctx.sessionManager.buildContextEntries(), input.forkTurns),
@@ -1523,10 +1531,7 @@ export class V2Controller {
       slot.load = (async () => {
         const current = this.#requireNode(pathname);
         const runtime = await this.#createRuntime({
-          bridge: (api) => {
-            this.attachChild(pathname, api, token);
-            return Promise.resolve();
-          },
+          bridge: (api) => this.attachChild(pathname, api, token),
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
           history: [],

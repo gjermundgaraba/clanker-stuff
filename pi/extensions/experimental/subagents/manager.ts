@@ -24,7 +24,6 @@ import { registerContractResponder } from "./contract.js";
 import type { NestedToolContract } from "./contract.js";
 import { TreeCoordinator } from "./coordinator.js";
 import { NicknamePool } from "./nicknames.js";
-import { discoverOrchestrateSkill } from "./orchestrate.js";
 import { resolveProtocol } from "./selection.js";
 import type { Protocol } from "./selection.js";
 import { createControlStore, freshSnapshot, rootBinding } from "./snapshot.js";
@@ -163,8 +162,12 @@ export class SubagentManager {
               sessionId: phase.sessionId,
             };
       },
-      (ctx, ultra) => {
+      (ctx, ultra, rootServiceTier) => {
         this.#refreshProtocol(ctx);
+        if (rootServiceTier !== undefined) {
+          this.#v1.setRootServiceTier(rootServiceTier);
+          this.#v2.setRootServiceTier(rootServiceTier);
+        }
         if (ultra !== undefined) {
           this.#v2.setUltra(ROOT_AGENT_PATH, ultra);
         }
@@ -187,6 +190,8 @@ export class SubagentManager {
     this.#rootAttempt = undefined;
     this.#rootCanSteerV1 = false;
     this.#rootRunning = false;
+    this.#v1.setRootServiceTier(undefined);
+    this.#v2.setRootServiceTier(undefined);
     this.#rootToolTerminates.clear();
     this.#rootCursor = undefined;
     this.#rootSessionManager = ctx.sessionManager;
@@ -447,17 +452,6 @@ export class SubagentManager {
         isError: true,
       };
     }
-  }
-
-  discoverResources(ctx: ExtensionContext): { skillPaths: string[] } | undefined {
-    const phase = this.#sessionPhase;
-    if (
-      phase.kind === "awaiting-session" ||
-      phase.sessionId !== ctx.sessionManager.getSessionId()
-    ) {
-      return undefined;
-    }
-    return discoverOrchestrateSkill(ctx, phase.protocol);
   }
 
   describe(): string {

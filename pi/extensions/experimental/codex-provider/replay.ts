@@ -408,16 +408,21 @@ const buildReplacement = (
       continue;
     }
     if (item.type === "agent_message") {
+      const first = item.content[0];
+      const firstText = first?.type === "input_text" ? first.text : undefined;
+      const descendant = item.author.startsWith(`${item.recipient}/`);
+      if (
+        firstText?.startsWith("Message Type: FINAL_ANSWER\n") === true ||
+        (descendant && firstText?.startsWith("Message Type: MESSAGE\n") === true)
+      ) {
+        continue;
+      }
       const text = item.content
         .filter((part) => part.type === "input_text")
         .map((part) => part.text)
         .join("");
       const tokens = Math.max(1, tokensForUtf8(text));
-      if (
-        tokens <= 10_000 &&
-        tokens <= remaining &&
-        !text.startsWith("Message Type: FINAL_ANSWER\n")
-      ) {
+      if (tokens <= 10_000 && tokens <= remaining) {
         retainedReversed.push(item);
         remaining -= tokens;
       }

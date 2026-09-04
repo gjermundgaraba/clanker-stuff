@@ -16,6 +16,7 @@ export interface NestedToolContract {
 }
 
 export interface CollaborationContract {
+  readonly inheritedServiceTier?: RootServiceTier;
   readonly inheritedUltra?: boolean;
   readonly nestedTools: readonly NestedToolContract[];
   readonly protocol: Protocol;
@@ -23,9 +24,12 @@ export interface CollaborationContract {
   readonly version: 1;
 }
 
+export type RootServiceTier = "priority" | null;
+
 interface ContractRequest {
   context: ProtocolResolutionContext;
   provide: (contract: CollaborationContract) => void;
+  rootServiceTier?: RootServiceTier;
   sessionId: string;
   ultra?: boolean;
 }
@@ -60,6 +64,7 @@ const ContractRequestSchema = Type.Unsafe<ContractRequest>(
     {
       context: ProtocolResolutionContextSchema,
       provide: Type.Function([Type.Unknown()], Type.Void()),
+      rootServiceTier: Type.Optional(Type.Union([Type.Literal("priority"), Type.Null()])),
       sessionId: Type.String(),
       ultra: Type.Optional(Type.Boolean()),
     },
@@ -69,15 +74,12 @@ const ContractRequestSchema = Type.Unsafe<ContractRequest>(
 
 export const registerContractResponder = (
   pi: ExtensionAPI,
-  current: (ctx: ProtocolResolutionContext) =>
-    | {
-        nestedTools: readonly NestedToolContract[];
-        protocol: Protocol;
-        sessionId: string;
-        inheritedUltra?: boolean;
-      }
-    | undefined,
-  prepare?: (ctx: ProtocolResolutionContext, ultra: boolean | undefined) => void,
+  current: (ctx: ProtocolResolutionContext) => Omit<CollaborationContract, "version"> | undefined,
+  prepare?: (
+    ctx: ProtocolResolutionContext,
+    ultra: boolean | undefined,
+    rootServiceTier: RootServiceTier | undefined,
+  ) => void,
 ) =>
   pi.events.on(COLLABORATION_CONTRACT_REQUEST, (value) => {
     if (!Value.Check(ContractRequestSchema, value)) {
@@ -86,19 +88,9 @@ export const registerContractResponder = (
     if (current(value.context)?.sessionId !== value.sessionId) {
       return;
     }
-    prepare?.(value.context, value.ultra);
+    prepare?.(value.context, value.ultra, value.rootServiceTier);
     const prepared = current(value.context);
     if (prepared?.sessionId === value.sessionId) {
-      const contract: CollaborationContract = {
-        nestedTools: prepared.nestedTools,
-        protocol: prepared.protocol,
-        sessionId: prepared.sessionId,
-        version: 1,
-      };
-      value.provide(
-        prepared.inheritedUltra === undefined
-          ? contract
-          : { ...contract, inheritedUltra: prepared.inheritedUltra },
-      );
+      value.provide({ ...prepared, version: 1 });
     }
   });

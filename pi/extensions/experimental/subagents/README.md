@@ -16,7 +16,7 @@ Load `pi/extensions/experimental/subagents/index.ts` as a local extension; npm i
 
 - Models get either the UUID-based V1 tools or hierarchical V2 tools; run `/agents` to inspect the active durable tree.
 - Delegation defaults to explicit requests and each child runs an independent Pi session in the same trusted project boundary.
-- With OpenAI Codex active, the vendored `orchestrate` skill is discovered automatically to guide substantial delegation.
+- Proactive configuration changes the model-facing mode policy; opt into the vendored skill with `pi --skill pi/extensions/experimental/subagents/vendor/orchestrate/SKILL.md`.
 
 ## Configuration
 

@@ -8,6 +8,8 @@ import type {
 
 import type { AgentThinkingLevel, SubagentsConfig } from "../config.js";
 import { resolveChildSettings, roleInstructions } from "../config.js";
+import { registerContractResponder } from "../contract.js";
+import type { RootServiceTier } from "../contract.js";
 import type { TreeCoordinator } from "../coordinator.js";
 import { forkHistory } from "../history.js";
 import { KeyedSerialQueue } from "../keyed-queue.js";
@@ -230,6 +232,7 @@ export class V1Controller {
   #closing = false;
   #promptOptions: BuildSystemPromptOptions | undefined;
   #rootApi: ToolEndpoint | undefined;
+  #rootServiceTier: RootServiceTier | undefined;
 
   constructor(dependencies: V1ControllerDependencies) {
     this.#config = dependencies.config;
@@ -246,6 +249,10 @@ export class V1Controller {
   setRoot(api: ToolEndpoint, promptOptions: BuildSystemPromptOptions | undefined): void {
     this.#rootApi = api;
     this.#promptOptions = promptOptions;
+  }
+
+  setRootServiceTier(tier: RootServiceTier | undefined): void {
+    this.#rootServiceTier = tier;
   }
 
   async reset(): Promise<void> {
@@ -361,7 +368,7 @@ export class V1Controller {
         );
         const tools = this.#rootTools();
         runtime = await this.#createRuntime({
-          bridge: () => Promise.resolve(),
+          bridge: (api) => this.#bridge(api),
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
           history: input.forkContext
@@ -733,6 +740,16 @@ export class V1Controller {
     return this.#rootApi.getActiveTools().filter((name) => !v1ToolNames.has(name));
   }
 
+  #bridge(api: ExtensionAPI): void {
+    const unsubscribe = registerContractResponder(api, (ctx) => ({
+      inheritedServiceTier: this.#rootServiceTier,
+      nestedTools: [],
+      protocol: "v1",
+      sessionId: ctx.sessionManager.getSessionId(),
+    }));
+    api.on("session_shutdown", unsubscribe);
+  }
+
   async #load(
     id: string,
     ctx: CallerContext,
@@ -771,7 +788,7 @@ export class V1Controller {
           throw new Error(`Unknown agent: ${id}`);
         }
         const runtime = await this.#createRuntime({
-          bridge: () => Promise.resolve(),
+          bridge: (api) => this.#bridge(api),
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
           history: [],
