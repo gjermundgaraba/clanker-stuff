@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 const CODEX_COMMIT = "389dd5645944891b65e4ca584125bbb0c852d352";
+const CATALOG_COMMIT = "f1aac1e885f676a1129f2da0c46a3dba86392fc6";
 const CONFIG_PATH = "codex-rs/core/src/config/mod.rs";
 const PLAN_PATH = "codex-rs/core/src/tools/spec_plan.rs";
 const SPEC_PATH = "codex-rs/core/src/tools/handlers/multi_agents_spec.rs";
@@ -23,8 +24,8 @@ if ((mode !== "--check" && mode !== "--write") || extraArguments.length !== 0) {
   throw new Error("Usage: extract-codex-contracts.ts --check|--write");
 }
 
-const source = (sourcePath: string): string =>
-  execFileSync("git", ["show", `${CODEX_COMMIT}:${sourcePath}`], {
+const source = (sourcePath: string, commit = CODEX_COMMIT): string =>
+  execFileSync("git", ["show", `${commit}:${sourcePath}`], {
     cwd: checkout,
     encoding: "utf-8",
   });
@@ -156,7 +157,7 @@ const CatalogSchema = Type.Object(
   },
   { additionalProperties: true },
 );
-const parsedCatalog = JSON.parse(source(CATALOG_PATH));
+const parsedCatalog = JSON.parse(source(CATALOG_PATH, CATALOG_COMMIT));
 if (!Value.Check(CatalogSchema, parsedCatalog)) {
   throw new TypeError(`Expected models in ${CATALOG_PATH}`);
 }
@@ -166,10 +167,12 @@ const catalogVersion = (slug: string): string | null | undefined =>
 
 const fixture = {
   catalog: {
+    commit: CATALOG_COMMIT,
     declarations: {
       "gpt-5.6-luna": catalogVersion("gpt-5.6-luna"),
       "gpt-5.6-sol": catalogVersion("gpt-5.6-sol"),
       "gpt-5.6-terra": catalogVersion("gpt-5.6-terra"),
+      "gpt-6-astra": catalogVersion("gpt-6-astra"),
     },
   },
   commit: CODEX_COMMIT,

@@ -511,7 +511,7 @@ const renderCodeModeResult = (
   const { status } = details;
   let statusColor: "error" | "success" | "warning" = "success";
   let statusText = "✓ completed";
-  if (details.scriptError !== undefined) {
+  if (context.isError || details.scriptError !== undefined) {
     statusColor = "error";
     statusText = "✗ error";
   } else if (status === "running") {
@@ -524,6 +524,13 @@ const renderCodeModeResult = (
     statusText = "■ terminated";
   }
   container.addChild(new Text(theme.fg(statusColor, statusText), 0, 0));
+  if (context.isError) {
+    for (const item of result.content) {
+      if (item.type === "text") {
+        container.addChild(new Text(theme.fg("error", item.text), 1, 0));
+      }
+    }
+  }
   for (const trace of traces) {
     const nested = tools.get(trace.name);
     const renderContext = {

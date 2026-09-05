@@ -670,7 +670,7 @@ const buildRequestBody = (
   kind: "prewarm" | "turn" = "turn",
 ) => {
   if (!isSupportedCodexModelId(model.id)) {
-    throw new Error(`Codex provider supports only GPT-5.6 models: ${model.id}`);
+    throw new Error(`Unsupported Codex provider model: ${model.id}`);
   }
   const grammarToolInputProperties = createGrammarToolInputProperties(
     context.tools,

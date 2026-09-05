@@ -392,7 +392,7 @@ describe("Codex provider", () => {
     defaultObservability.close();
   });
 
-  it("exposes, filters, and executes only GPT-5.6 models", async () => {
+  it("exposes supported Codex models and rejects unsupported model requests", async () => {
     const runtime = createCodexProviderRuntime();
     const unsupportedModel = {
       ...SPIKE_MODEL,
@@ -427,7 +427,7 @@ describe("Codex provider", () => {
         signal: new AbortController().signal,
         thinkingLevel: "medium",
       }),
-    ).rejects.toThrow("Codex provider supports only GPT-5.6 models: gpt-5.5");
+    ).rejects.toThrow("Unsupported Codex provider model: gpt-5.5");
 
     const listedModels = runtime.provider.getModels();
     expect({
@@ -441,15 +441,91 @@ describe("Codex provider", () => {
       ),
     }).toStrictEqual({
       filtered: [SPIKE_MODEL.id],
-      listed: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+      listed: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
       versions: expectedFallbackMultiAgentVersions,
     });
     expect(message).toMatchObject({
-      errorMessage: "Codex provider supports only GPT-5.6 models: gpt-5.5",
+      errorMessage: "Unsupported Codex provider model: gpt-5.5",
       stopReason: "error",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { fast: false, inputTokens: 8, expectedCost: 0.00018 },
+    { fast: true, inputTokens: 8, expectedCost: 0.00036 },
+    { fast: false, inputTokens: 272_001, expectedCost: 5.44017 },
+    { fast: true, inputTokens: 272_001, expectedCost: 10.88034 },
+  ])(
+    "sends Astra Lite requests and prices $inputTokens input tokens with Fast=$fast",
+    async ({ fast, inputTokens, expectedCost }) => {
+      const runtime = createCodexProviderRuntime(defaultObservability, () => fast);
+      const model = runtime.provider.getModels().find(({ id }) => id === "gpt-6-astra");
+      if (model === undefined) {
+        throw new Error("Astra fallback model is missing");
+      }
+      let request: RequestInit | undefined;
+      const message = await runtime.provider
+        .streamSimple(
+          model,
+          {
+            ...context([]),
+            tools: CODE_MODE_TOOLS,
+          },
+          {
+            apiKey: SPIKE_API_KEY,
+            fetch: async (_input, init) => {
+              request = init;
+              return sse(
+                responseEvents("resp_astra", "done").map((event) =>
+                  event.type === "response.done" && "response" in event
+                    ? {
+                        ...event,
+                        response: {
+                          ...event.response,
+                          usage: {
+                            input_tokens: inputTokens,
+                            input_tokens_details: { cached_tokens: 0 },
+                            output_tokens: 2,
+                            total_tokens: inputTokens + 2,
+                          },
+                        },
+                      }
+                    : event,
+                ),
+              );
+            },
+            sessionId: "session-astra",
+            transport: "sse",
+          },
+        )
+        .result();
+      expect(message.stopReason).toBe("stop");
+      const body = readBody(request?.body);
+      expect(body).toMatchObject({
+        model: "gpt-6-astra",
+        instructions: "",
+        input: [
+          {
+            type: "additional_tools",
+            tools: [
+              { name: "exec", type: "custom" },
+              { name: "wait", type: "function" },
+            ],
+          },
+          { role: "developer", type: "message" },
+        ],
+        reasoning: { context: "all_turns", effort: "low" },
+      });
+      expect(body.tools).toBeUndefined();
+      expect(wireRecord(body.reasoning).summary).toBeUndefined();
+      expect(body.service_tier).toBe(fast ? "priority" : undefined);
+      expect(new Headers(request?.headers).get("x-openai-internal-codex-responses-lite")).toBe(
+        "true",
+      );
+      expect(message.usage.cost.total).toBeCloseTo(expectedCost, 10);
+    },
+  );
 
   it.each([
     {

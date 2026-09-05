@@ -120,7 +120,7 @@ const AudioItemSchema = Type.Object({ type: Type.Literal("input_audio") });
 const RuntimeBodyWireSchema = Type.Object({
   cell_id: Type.String(),
   content_items: Type.Optional(Type.Array(Type.Unknown())),
-  error_text: Type.Optional(Type.String()),
+  error_text: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
 export const RuntimeResponseWireSchema = Type.Union([
@@ -183,7 +183,7 @@ export const parseRuntimeResponse = (wire: RuntimeResponseWire): RuntimeResponse
   return {
     cellId: body.cell_id,
     contentItems: parseContentItems(body.content_items ?? []),
-    errorText: body.error_text,
+    errorText: body.error_text ?? undefined,
     kind: "result",
   };
 };

@@ -14,7 +14,7 @@ export const registerCodexTools = (
   tools.registerOwner();
 
   pi.registerCommand("code-mode", {
-    description: "Toggle GPT-5.6 Codex Code Mode",
+    description: "Toggle Code Mode when the Codex model has no required tool mode",
     handler: (_args, ctx) => {
       tools.toggle(ctx);
       return Promise.resolve();
@@ -32,7 +32,8 @@ export const registerCodexTools = (
   });
   pi.on("before_agent_start", (event, ctx) => tools.beforeAgentStart(event.systemPrompt, ctx));
   pi.on("session_before_compact", (_event, ctx) => {
-    tools.apply(ctx);
+    // A refresh during a running turn takes effect at the next before_agent_start.
+    tools.apply(ctx, ctx.isIdle());
   });
   pi.on("session_shutdown", (event) => tools.shutdown(event.reason));
 };

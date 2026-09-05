@@ -1,3 +1,8 @@
+import {
+  TOOL_OWNER_PROTOCOL_VERSION,
+  TOOL_OWNER_REQUEST_EVENT,
+} from "@clanker-stuff/tool-owner-protocol";
+import type { ToolOwnerRegistration } from "@clanker-stuff/tool-owner-protocol";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -81,6 +86,164 @@ const selectionEntry = (
 });
 
 describe("Codex tools", () => {
+  it("resolves refreshed policy for commands without changing the manual preference", async () => {
+    const model = createToolsModel("gpt-5.6-sol", true);
+    let refreshed = { ...model, codexToolMode: "code_mode_only" };
+    const host = createExtensionHost(registerCodexTools, { model });
+    const ctx = host.createContext({
+      model,
+      modelRegistry: { find: () => refreshed },
+    });
+    await host.emitSessionStart();
+    await host.runCommand("code-mode", "", ctx);
+    expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+    expect(host.getNotifications()).toContainEqual({
+      message: "gpt-5.6-sol requires Code Mode; /code-mode cannot change it.",
+      type: "info",
+    });
+    refreshed = { ...model, codexToolMode: "future" };
+    await host.emit(
+      "session_before_compact",
+      { type: "session_before_compact" },
+      {
+        ...ctx,
+        isIdle: () => false,
+      },
+    );
+    expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+    await host.emit(
+      "before_agent_start",
+      {
+        prompt: "test",
+        systemPrompt: "Base",
+        systemPromptOptions: {},
+        type: "before_agent_start",
+      },
+      ctx,
+    );
+    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
+  });
+
+  it.each(["gpt-6-astra", "gpt-5.6-sol"])(
+    "starts %s in catalog-required Code Mode and cannot toggle it off",
+    async (id) => {
+      const model = { ...createToolsModel(id, true), codexToolMode: "code_mode_only" };
+      const host = createExtensionHost(registerCodexTools, { model });
+      const ctx = host.createContext({ model });
+      await host.emitSessionStart(ctx);
+      expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+      expect(host.getStatus("codex-code-mode")).toBe("</>");
+
+      await host.runCommand("code-mode", "", ctx);
+      expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+      expect(host.getNotifications()).toContainEqual({
+        message: `${id} requires Code Mode; /code-mode cannot change it.`,
+        type: "info",
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "preserves the optional Code Mode preference %s across every declared mode",
+    async (enabled) => {
+      const optional = createToolsModel("gpt-5.6-sol", true);
+      const host = createExtensionHost(registerCodexTools, { model: optional });
+      await host.emitSessionStart();
+      if (enabled) {
+        await host.runCommand("code-mode", "", host.createContext({ model: optional }));
+      }
+      for (const [mode, names, label] of [
+        ["direct", DIRECT_NAMES, "direct tools"],
+        ["code_mode", [...DIRECT_NAMES, ...CODE_NAMES], "direct tools with Code Mode"],
+        ["code_mode_only", CODE_NAMES, "Code Mode"],
+      ] as const) {
+        const required = { ...createToolsModel("gpt-6-astra", true), codexToolMode: mode };
+        await selectModel(host, optional, required);
+        expect(host.getActiveTools()).toStrictEqual(names);
+        expect(host.getStatus("codex-code-mode")).toBe(mode === "direct" ? undefined : "</>");
+        await host.runCommand("code-mode", "", host.createContext({ model: required }));
+        expect(host.getActiveTools()).toStrictEqual(names);
+        expect(host.getNotifications()).toContainEqual({
+          message: `gpt-6-astra requires ${label}; /code-mode cannot change it.`,
+          type: "info",
+        });
+        await selectModel(host, required, optional);
+        expect(host.getActiveTools()).toStrictEqual(enabled ? CODE_NAMES : DIRECT_NAMES);
+      }
+
+      const unsupported = createToolsModel("deepseek-v4-pro");
+      await selectModel(host, optional, unsupported);
+      expect(host.getActiveTools()).toStrictEqual(PI_NAMES);
+    },
+  );
+
+  it("uses the requested model for tool-owner visibility", async () => {
+    const optional = createToolsModel("gpt-5.6-sol", true);
+    const required = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode_only" };
+    let owner: ToolOwnerRegistration | undefined;
+    const host = createExtensionHost(
+      (pi) => {
+        registerCodexTools(pi);
+        pi.on("session_start", () => {
+          pi.events.emit(TOOL_OWNER_REQUEST_EVENT, {
+            protocol: TOOL_OWNER_PROTOCOL_VERSION,
+            provide: (registration: ToolOwnerRegistration) => {
+              owner = registration;
+            },
+            type: "request",
+          });
+        });
+      },
+      { model: optional },
+    );
+    await host.emitSessionStart();
+    expect(owner?.visibleNames(required)).toStrictEqual(CODE_NAMES);
+    const hybrid = { ...required, codexToolMode: "code_mode" };
+    expect(owner?.visibleNames(hybrid)).toStrictEqual([...DIRECT_NAMES, ...CODE_NAMES]);
+    await selectModel(host, optional, required);
+    expect(owner?.visibleNames(optional)).toStrictEqual(DIRECT_NAMES);
+    expect(owner?.visibleNames()).toStrictEqual(CODE_NAMES);
+  });
+
+  it("honors individual hybrid choices and preserves external tools across mode changes", async () => {
+    const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode" };
+    const host = createExtensionHost(registerCodexTools, {
+      activeTools: [...PI_NAMES, "ask_question"],
+      externalTools: ["ask_question"],
+      entries: [selectionEntry("choices", null, { apply_patch: false, wait: false })],
+      leafId: "choices",
+      model,
+    });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toStrictEqual([
+      "ask_question",
+      "exec_command",
+      "write_stdin",
+      "view_image",
+      "exec",
+    ]);
+    const direct = { ...model, codexToolMode: "direct" };
+    await selectModel(host, model, direct);
+    expect(host.getActiveTools()).toStrictEqual([
+      "ask_question",
+      "exec_command",
+      "write_stdin",
+      "view_image",
+    ]);
+    await selectModel(host, direct, model);
+    expect(host.getActiveTools()).toContain("exec");
+    expect(host.getActiveTools()).not.toContain("wait");
+  });
+
+  it("keeps unknown selectors manually toggleable", async () => {
+    const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "future" };
+    const host = createExtensionHost(registerCodexTools, { model });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
+    await host.runCommand("code-mode", "", host.createContext({ model }));
+    expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+  });
+
   it("normalizes Pi's initial all-extension-tool activation", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
     const host = createExtensionHost(registerCodexTools, { model });
@@ -93,14 +256,17 @@ describe("Codex tools", () => {
     expect([...host.getRegisteredTools().keys()]).toStrictEqual([...DIRECT_NAMES, ...CODE_NAMES]);
   });
 
-  it("gates activation on model and grammar-tool support", async () => {
-    const model = createToolsModel("gpt-5.6-sol");
-    const host = createExtensionHost(registerCodexTools, { model });
+  it.each(["gpt-5.6-sol", "gpt-6-astra"])(
+    "gates %s activation on grammar-tool support",
+    async (id) => {
+      const model = { ...createToolsModel(id), codexToolMode: "code_mode_only" };
+      const host = createExtensionHost(registerCodexTools, { model });
 
-    await host.emitSessionStart();
+      await host.emitSessionStart();
 
-    expect(host.getActiveTools()).toStrictEqual(PI_NAMES);
-  });
+      expect(host.getActiveTools()).toStrictEqual(PI_NAMES);
+    },
+  );
 
   it("restores Pi tools after a model switch without the tools extension", async () => {
     const codex = createToolsModel("gpt-5.6-sol", true);
@@ -195,7 +361,10 @@ describe("Codex tools", () => {
   ] as const)(
     "keeps %s collaboration on its intended Code Mode surface",
     async (protocol, nested) => {
-      const model = createToolsModel("gpt-5.6-sol", true);
+      const model =
+        protocol === "v2"
+          ? { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode_only" }
+          : createToolsModel("gpt-5.6-sol", true);
       const host = createExtensionHost(withCollaborationContract(protocol), {
         activeTools: ["spawn_agent"],
         allTools: ["spawn_agent"],
@@ -203,7 +372,9 @@ describe("Codex tools", () => {
       });
       const ctx = host.createContext({ model });
       await host.emitSessionStart(ctx);
-      await host.runCommand("code-mode", "", ctx);
+      if (protocol === "v1") {
+        await host.runCommand("code-mode", "", ctx);
+      }
 
       const [prompt] = await host.emit(
         "before_agent_start",
@@ -219,7 +390,7 @@ describe("Codex tools", () => {
         ? Value.Parse(PromptResultSchema, prompt).systemPrompt
         : "";
       expect(systemPrompt.includes("pi_subagents__spawn_agent")).toBe(nested);
-      expect(host.getActiveTools()).toContain("spawn_agent");
+      expect(host.getActiveTools()).toStrictEqual(["spawn_agent", ...CODE_NAMES]);
     },
   );
 

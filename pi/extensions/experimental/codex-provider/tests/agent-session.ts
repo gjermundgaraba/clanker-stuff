@@ -10,6 +10,7 @@ import type {
   ExtensionUIContext,
   RetrySettings,
   SessionManager,
+  Skill,
 } from "@earendil-works/pi-coding-agent";
 import {
   DefaultResourceLoader,
@@ -28,6 +29,7 @@ interface RealCodexSessionOptions {
   retry?: RetrySettings;
   rootDir: string;
   sessionManager: SessionManager;
+  skills?: Skill[];
   transport?: Transport;
   onExtensionError?: (error: ExtensionError) => void;
   uiContext?: ExtensionUIContext;
@@ -83,6 +85,7 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
     noSkills: true,
     noThemes: true,
     settingsManager,
+    skillsOverride: () => ({ skills: options.skills ?? [], diagnostics: [] }),
     systemPrompt: options.systemPrompt ?? "phase-zero AgentSession",
   });
   await resourceLoader.reload();

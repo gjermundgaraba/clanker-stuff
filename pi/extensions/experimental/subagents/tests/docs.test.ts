@@ -22,7 +22,7 @@ describe("Codex parity documentation", () => {
     }
   });
 
-  it("keeps contract references discoverable at one pinned Codex commit", async () => {
+  it("keeps contract and catalog references at their pinned Codex revisions", async () => {
     const names = [
       "codex-model-facing-contract.md",
       "codex-parity.md",
@@ -38,7 +38,11 @@ describe("Codex parity documentation", () => {
       path.resolve(docsDir, "../../codex-provider/docs/codex-baseline.md"),
       "utf-8",
     );
-    const { commit } = codexContractFixture;
+    const { catalog, commit } = codexContractFixture;
+    const catalogPath = "codex-rs/models-manager/models.json";
+    expect(documents["codex-parity.md"]).toContain(
+      `https://github.com/openai/codex/blob/${catalog.commit}/${catalogPath}`,
+    );
     for (const link of [
       "codex-model-facing-contract.md",
       "codex-parity.md",
@@ -56,12 +60,17 @@ describe("Codex parity documentation", () => {
       "codex-reference.md",
     ] as const) {
       expect(documents[name]).toContain(commit);
-      const linkedCommits = [
+      const linkedSources = [
         ...documents[name].matchAll(
-          /github\.com\/openai\/codex\/(?:blob|tree)\/(?<commit>[a-f0-9]{40})/gu,
+          /github\.com\/openai\/codex\/(?:blob|tree)\/(?<commit>[a-f0-9]{40})(?:\/(?<path>[^\s)#]+))?/gu,
         ),
-      ].map((match) => match.groups?.commit);
-      expect(new Set(linkedCommits)).toStrictEqual(new Set([commit]));
+      ];
+      expect(linkedSources.length).toBeGreaterThan(0);
+      for (const source of linkedSources) {
+        expect(source.groups?.commit, `${name}: ${source[0]}`).toBe(
+          source.groups?.path === catalogPath ? catalog.commit : commit,
+        );
+      }
     }
     expect(providerBaseline).toContain(commit);
   });

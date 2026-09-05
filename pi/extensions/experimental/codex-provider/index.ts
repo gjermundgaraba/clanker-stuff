@@ -36,7 +36,10 @@ export default function codexProviderExtension(pi: ExtensionAPI): void {
   pi.on("model_select", (event, ctx) => {
     runtime.modelSelect(event, ctx);
   });
-  pi.on("before_agent_start", (event, ctx) => exposeSkillsWithoutRead(event, ctx));
+  // Tool policy can change after Pi captures this event's systemPromptOptions.
+  pi.on("before_agent_start", (event, ctx) =>
+    exposeSkillsWithoutRead(event, ctx, pi.getActiveTools()),
+  );
   pi.on("before_agent_start", (_event, ctx) => runtime.beforeAgentStart(ctx));
   pi.on("agent_end", () => {
     runtime.agentEnd();

@@ -39,6 +39,7 @@ export const createCodexToolsController = (
   let piToolNames: Set<string> | undefined;
   let codeModeEnabled = false;
   let currentModel: ExtensionContext["model"];
+  let modelRegistry: ExtensionContext["modelRegistry"] | undefined;
   let suppressedPiNames: string[] = [];
   // Discover after Pi binds the runtime, then preserve built-in identity across profile overrides.
   const builtinToolNames = () =>
@@ -49,19 +50,40 @@ export const createCodexToolsController = (
         .map(({ name }) => name),
     ));
 
-  const codeModeActive = () =>
-    codeModeEnabled && currentModel !== undefined && isCodexToolsModel(currentModel);
+  const declaredMode = (model: ExtensionContext["model"]) => {
+    if (model === undefined || !isCodexToolsModel(model) || !("codexToolMode" in model)) {
+      return undefined;
+    }
+    const mode = model.codexToolMode;
+    return mode === "direct" || mode === "code_mode" || mode === "code_mode_only"
+      ? mode
+      : undefined;
+  };
+
+  const effectiveMode = (model: ExtensionContext["model"]) =>
+    declaredMode(model) ?? (codeModeEnabled ? "code_mode_only" : "direct");
+
+  const resolveModel = (model: ExtensionContext["model"]) =>
+    model === undefined ? undefined : (modelRegistry?.find(model.provider, model.id) ?? model);
+
+  const codeModeActive = (model: ExtensionContext["model"] = currentModel) =>
+    model !== undefined && isCodexToolsModel(model) && effectiveMode(model) !== "direct";
 
   const visibleNames = (model: ExtensionContext["model"] = currentModel): string[] => {
     if (model === undefined || !isCodexToolsModel(model)) {
       return [];
     }
-    return codeModeEnabled ? codeNames : directNames;
+    const mode = effectiveMode(model);
+    return mode === "code_mode" ? toolNames : mode === "code_mode_only" ? codeNames : directNames;
   };
 
-  const apply = (ctx: ExtensionContext): void => {
+  const apply = (ctx: ExtensionContext, refreshModel = true): void => {
     const previousModel = currentModel;
-    currentModel = ctx.model;
+    modelRegistry = ctx.modelRegistry;
+    if (refreshModel) {
+      // Catalog refresh replaces registry models without replacing the session's selected object.
+      currentModel = resolveModel(ctx.model);
+    }
     const collaboration = requestCollaborationContract(pi, ctx);
     codeMode.setNestedTools([
       ...direct.nestedDefinitions.map((definition) => ({ definition })),
@@ -76,7 +98,7 @@ export const createCodexToolsController = (
     ctx.ui.setStatus(CODE_MODE_STATUS_KEY, active ? "</>" : undefined);
     setFooterActive(active);
     const activeNames = pi.getActiveTools();
-    if (ctx.model === undefined || !isCodexToolsModel(ctx.model)) {
+    if (currentModel === undefined || !isCodexToolsModel(currentModel)) {
       const remainingNames = activeNames.filter((name) => !codexToolNameSet.has(name));
       pi.setActiveTools([...new Set([...suppressedPiNames, ...remainingNames])]);
       suppressedPiNames = [];
@@ -88,10 +110,7 @@ export const createCodexToolsController = (
     const externalNames = activeNames.filter(
       (name) => !builtinToolNames().has(name) && !codexToolNameSet.has(name),
     );
-    pi.setActiveTools([
-      ...externalNames,
-      ...selection.enabled(codeModeActive() ? codeNames : directNames),
-    ]);
+    pi.setActiveTools([...externalNames, ...selection.enabled(visibleNames())]);
   };
   const owner = {
     names: toolNames,
@@ -100,8 +119,9 @@ export const createCodexToolsController = (
       apply(ctx);
     },
     suppressedNames: (model: ExtensionContext["model"] = currentModel) =>
-      model !== undefined && isCodexToolsModel(model) ? [...builtinToolNames()] : [],
-    visibleNames,
+      isCodexToolsModel(resolveModel(model)) ? [...builtinToolNames()] : [],
+    visibleNames: (model: ExtensionContext["model"] = currentModel) =>
+      visibleNames(resolveModel(model)),
   } satisfies ToolOwnerRegistration;
 
   return {
@@ -144,6 +164,18 @@ export const createCodexToolsController = (
       apply(ctx);
     },
     toggle(ctx: ExtensionContext): void {
+      modelRegistry = ctx.modelRegistry;
+      const mode = declaredMode(resolveModel(ctx.model));
+      if (mode !== undefined) {
+        apply(ctx);
+        const label = {
+          direct: "direct tools",
+          code_mode: "direct tools with Code Mode",
+          code_mode_only: "Code Mode",
+        }[mode];
+        ctx.ui.notify(`${ctx.model?.id} requires ${label}; /code-mode cannot change it.`, "info");
+        return;
+      }
       codeModeEnabled = !codeModeEnabled;
       apply(ctx);
       ctx.ui.notify(`Code Mode ${codeModeEnabled ? "enabled" : "disabled"}`, "info");

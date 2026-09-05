@@ -72,8 +72,14 @@ const waitForNotify = (client: RpcClient, messagePrefix: string, timeoutMs = 10_
   });
 };
 
-const toolNames = (events: readonly JsonAgentSessionEvent[]) =>
-  events.flatMap((event) => (event.type === "tool_execution_start" ? [event.toolName] : []));
+const toolNames = (events: readonly JsonAgentSessionEvent[]) => {
+  for (const event of events) {
+    if (event.type === "tool_execution_end") {
+      assert(!event.isError, `${event.toolName} failed: ${JSON.stringify(event.result)}`);
+    }
+  }
+  return events.flatMap((event) => (event.type === "tool_execution_start" ? [event.toolName] : []));
+};
 
 const isLiveModel = (
   model: { readonly api: string; readonly id: string; readonly provider: string } | undefined,
@@ -81,6 +87,19 @@ const isLiveModel = (
   model?.provider === "openai-codex" &&
   model.api === "openai-codex-responses" &&
   model.id === LIVE_MODEL;
+
+export const assertNativeModelContext = (
+  model: { readonly contextWindow: number; readonly codexVisibility?: unknown },
+  declaredModel: { readonly contextWindow: number } | undefined,
+): void => {
+  assert(
+    model.contextWindow > 4096 &&
+      (declaredModel === undefined
+        ? model.codexVisibility === "hide"
+        : model.contextWindow === declaredModel.contextWindow),
+    "Installed canary is not using the model's native declared context window",
+  );
+};
 
 const requireCommands = (commands: Awaited<ReturnType<RpcClient["getCommands"]>>) => {
   for (const name of ["code-mode", "codex-provider", "tools"]) {
@@ -174,12 +193,11 @@ const run = async () => {
       ({ id, provider }) =>
         id === initialState.model?.id && provider === initialState.model.provider,
     );
-    assert(
-      initialState.model.contextWindow > 4096 &&
-        initialState.model.contextWindow === declaredModel?.contextWindow,
-      "Installed canary is not using the model's native declared context window",
-    );
+    assertNativeModelContext(initialState.model, declaredModel);
     requireCommands(await client.getCommands());
+    const toolMode =
+      "codexToolMode" in initialState.model ? initialState.model.codexToolMode : undefined;
+    const codeModeRequired = toolMode === "code_mode" || toolMode === "code_mode_only";
 
     await client.promptAndWait(
       "Create a unique recall token in the exact format OPAQUE- followed by 12 uppercase hexadecimal characters. Reply only with that token.",
@@ -196,15 +214,17 @@ const run = async () => {
     );
 
     const initialEvents = await client.promptAndWait(
-      "Remember the opaque token from the previous turn without repeating it. Call exec_command exactly once to run `cat source.txt`. Then call apply_patch exactly once to create result.txt whose only line is the command output. Do not call any other tool. Reply exactly INITIAL_OK followed by the environment code from the project instructions.",
+      codeModeRequired
+        ? "Remember the opaque token from the previous turn without repeating it. Call exec exactly once and no other top-level tool. In that JavaScript call, first await tools.exec_command to run `cat source.txt`, then await tools.apply_patch to create result.txt whose only line is the command output. Reply exactly INITIAL_OK followed by the environment code from the project instructions."
+        : "Remember the opaque token from the previous turn without repeating it. Call exec_command exactly once to run `cat source.txt`. Then call apply_patch exactly once to create result.txt whose only line is the command output. Do not call any other tool. Reply exactly INITIAL_OK followed by the environment code from the project instructions.",
       undefined,
       180_000,
     );
     const initialTools = toolNames(initialEvents);
     deepStrictEqual(
       initialTools,
-      ["exec_command", "apply_patch"],
-      "Initial turn did not use only the direct Codex tools",
+      codeModeRequired ? ["exec"] : ["exec_command", "apply_patch"],
+      "Initial turn did not use the model's startup tool profile",
     );
     const copied = await readFile(path.join(cwd, "result.txt"), "utf-8");
     assert(copied.trim() === sentinel, "Initial turn did not copy the sentinel safely");
@@ -217,20 +237,25 @@ const run = async () => {
       "Initial turn did not load the project context",
     );
 
-    const codeModeEnabled = waitForNotify(client, "Code Mode enabled");
+    const codeModeEnabled = waitForNotify(
+      client,
+      toolMode === "direct" || codeModeRequired ? `${LIVE_MODEL} requires ` : "Code Mode enabled",
+    );
     await client.prompt("/code-mode");
     await codeModeEnabled;
-    const codeModeEvents = await client.promptAndWait(
-      `Call exec exactly once and do not call any other top-level tool. In that JavaScript call, first await tools.exec_command with command "true" and ignore its result, then await tools.apply_patch to create code-mode.txt whose only line is exactly ${sentinel}. Reply exactly CODE_MODE_OK.`,
-      undefined,
-      180_000,
-    );
-    deepStrictEqual(toolNames(codeModeEvents), ["exec"], "Code Mode turn did not use only exec");
-    const codeModeCopy = await readFile(path.join(cwd, "code-mode.txt"), "utf-8");
-    assert(
-      codeModeCopy.trim() === sentinel,
-      "Code Mode nested tools did not copy the sentinel safely",
-    );
+    if (toolMode !== "direct") {
+      const codeModeEvents = await client.promptAndWait(
+        `Call exec exactly once and do not call any other top-level tool. In that JavaScript call, first await tools.exec_command with command "true" and ignore its result, then await tools.apply_patch to create code-mode.txt whose only line is exactly ${sentinel}. Reply exactly CODE_MODE_OK.`,
+        undefined,
+        180_000,
+      );
+      deepStrictEqual(toolNames(codeModeEvents), ["exec"], "Code Mode turn did not use only exec");
+      const codeModeCopy = await readFile(path.join(cwd, "code-mode.txt"), "utf-8");
+      assert(
+        codeModeCopy.trim() === sentinel,
+        "Code Mode nested tools did not copy the sentinel safely",
+      );
+    }
 
     await client.compact(
       "Omit the assistant-generated opaque recall token from the readable history summary.",
@@ -279,7 +304,7 @@ const run = async () => {
     unsubscribe();
     await client.stop();
     await Promise.all([
-      rm(path.join(cwd, "code-mode.txt")),
+      ...(toolMode === "direct" ? [] : [rm(path.join(cwd, "code-mode.txt"))]),
       rm(path.join(cwd, "source.txt")),
       rm(path.join(cwd, "result.txt")),
     ]);
@@ -298,6 +323,11 @@ const run = async () => {
         reopenedState.model?.contextWindow === initialState.model.contextWindow,
       "Fresh Pi process did not restore the requested native model",
     );
+    const resumedCodeModeRequired =
+      reopenedState.model !== undefined &&
+      "codexToolMode" in reopenedState.model &&
+      (reopenedState.model.codexToolMode === "code_mode" ||
+        reopenedState.model.codexToolMode === "code_mode_only");
     const reopened = await client.getEntries();
     deepStrictEqual(
       reopened,
@@ -305,15 +335,17 @@ const run = async () => {
       "Fresh process did not reopen the exact checkpoint branch",
     );
     const resumeEvents = await client.promptAndWait(
-      "Without reading any file, call apply_patch exactly once to create resumed.txt containing only the assistant-generated opaque token from before compaction. Do not call another tool. Then reply exactly RESUME_OK.",
+      resumedCodeModeRequired
+        ? "Without reading any file, call exec exactly once and no other top-level tool. In that JavaScript call, await tools.apply_patch exactly once to create resumed.txt containing only the assistant-generated opaque token from before compaction. Do not call another nested tool. Then reply exactly RESUME_OK."
+        : "Without reading any file, call apply_patch exactly once to create resumed.txt containing only the assistant-generated opaque token from before compaction. Do not call another tool. Then reply exactly RESUME_OK.",
       undefined,
       180_000,
     );
     const resumeTools = toolNames(resumeEvents);
     deepStrictEqual(
       resumeTools,
-      ["apply_patch"],
-      "Resume did not use only the direct apply_patch tool",
+      resumedCodeModeRequired ? ["exec"] : ["apply_patch"],
+      "Resume did not use the restored model's startup tool profile",
     );
     const resumed = await readFile(path.join(cwd, "resumed.txt"), "utf-8");
     assert(
@@ -333,7 +365,12 @@ const run = async () => {
           configuredExtensions: audit.count,
           contextWindow: initialState.model.contextWindow,
           model: `openai-codex/${LIVE_MODEL}`,
+          resumedToolProfile:
+            reopenedState.model !== undefined && "codexToolMode" in reopenedState.model
+              ? reopenedState.model.codexToolMode
+              : "direct",
           sessionFile: state.sessionFile,
+          startupToolProfile: toolMode ?? "direct",
           status: "passed",
         },
         null,

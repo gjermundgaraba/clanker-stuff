@@ -14,6 +14,7 @@ import {
   nestedToolKey,
   parseExecSource,
   parseHostMessage,
+  runtimeResponseFromValue,
   toWireToolDefinition,
 } from "../code-mode/protocol.js";
 import { CodeModeRuntime, toNestedTool, toPiContent } from "../code-mode/tools.js";
@@ -264,14 +265,26 @@ describe("Codex code mode", () => {
       throw new Error("exec renderer is missing");
     }
 
-    const render = (details: WireRecord) =>
+    const render = (details: WireRecord, isError = false) =>
       renderComponent(
         renderResult(
-          { content: [], details },
+          { content: [{ type: "text", text: "Host failed" }], details },
           { expanded: false, isPartial: details.status === "running" },
           createIdentityTheme(),
-          // SAFETY: These trace-free fixtures never invoke a nested renderer, so context is not read.
-          {} as never,
+          {
+            args: {},
+            argsComplete: true,
+            cwd: "/tmp",
+            executionStarted: true,
+            expanded: false,
+            invalidate() {},
+            isError,
+            isPartial: false,
+            lastComponent: undefined,
+            showImages: false,
+            state: {},
+            toolCallId: "call-1",
+          },
         ),
       )?.trimEnd();
 
@@ -280,6 +293,7 @@ describe("Codex code mode", () => {
     expect(render({ status: "result" })).toBe("✓ completed");
     expect(render({ status: "terminated" })).toBe("■ terminated");
     expect(render({ scriptError: "boom", status: "result" })).toBe("✗ error");
+    expect(render({}, true)).toMatch(/✗ error\s+Host failed/u);
   });
 
   it("adds nested tool instructions only with Code Mode", async () => {
@@ -524,6 +538,38 @@ describe("Codex code mode", () => {
       ),
     ).toThrow("invalid operation result");
   });
+
+  it.each([null, undefined, "Script failed"])(
+    "parses a host result with error_text %s",
+    (errorText) => {
+      const message = parseHostMessage(
+        JSON.stringify({
+          id: 2,
+          result: {
+            status: "ok",
+            value: {
+              Result: {
+                cell_id: "1",
+                code_mode_host_duration_ns: 1_000,
+                content_items: [{ type: "input_text", text: "42" }],
+                error_text: errorText,
+              },
+            },
+          },
+          type: "execute/initialResponse",
+        }),
+      );
+      if (message.type !== "execute/initialResponse" || message.result.status !== "ok") {
+        throw new Error("Expected a successful host reply");
+      }
+      expect(runtimeResponseFromValue(message.result.value)).toStrictEqual({
+        cellId: "1",
+        contentItems: [{ type: "input_text", text: "42" }],
+        errorText: errorText ?? undefined,
+        kind: "result",
+      });
+    },
+  );
 
   it("contains hostile trace values", () => {
     const hostile = new Proxy(

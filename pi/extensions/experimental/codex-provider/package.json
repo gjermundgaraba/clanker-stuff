@@ -58,6 +58,7 @@
   },
   "exports": "./index.ts",
   "scripts": {
+    "check:code-mode-host": "jiti ./scripts/check-code-mode-host.ts",
     "eval:agents": "jiti ./scripts/evaluate-agents.ts",
     "eval:agents:dry": "jiti ./scripts/evaluate-agents.ts --dry-run",
     "eval:agents:smoke": "jiti ./scripts/evaluate-agents.ts --smoke",

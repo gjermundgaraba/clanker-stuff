@@ -12,18 +12,17 @@ const FILE_LOADERS = ["exec_command", "exec"] as const;
 export const exposeSkillsWithoutRead = (
   event: BeforeAgentStartEvent,
   ctx: ExtensionContext,
+  activeTools: readonly string[],
 ): BeforeAgentStartEventResult | undefined => {
-  const { selectedTools } = event.systemPromptOptions;
   if (
     ctx.model?.provider !== "openai-codex" ||
-    selectedTools === undefined ||
-    selectedTools.includes("read") ||
+    activeTools.includes("read") ||
     event.systemPrompt.includes("<available_skills>")
   ) {
     return undefined;
   }
 
-  const loader = FILE_LOADERS.find((name) => selectedTools.includes(name));
+  const loader = FILE_LOADERS.find((name) => activeTools.includes(name));
   if (loader === undefined) {
     return undefined;
   }

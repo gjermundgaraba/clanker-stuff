@@ -15,7 +15,12 @@ const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
 const CODE_MODE_OUTPUT_TOKEN_LIMIT = (1024 * 1024) / 4;
 const NumberSchema = Type.Number();
 
-export const CODEX_MODEL_IDS = new Set(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
+export const CODEX_MODEL_IDS = new Set([
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-6-astra",
+]);
 
 const APPLY_PATCH_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF

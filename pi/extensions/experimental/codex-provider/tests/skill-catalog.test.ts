@@ -45,14 +45,14 @@ const createContext = (provider = "openai-codex"): ExtensionContext =>
 
 describe("Codex skill catalog", () => {
   it.each(["exec_command", "exec"])(
-    "restores loaded skill metadata with the active %s loader",
+    "restores loaded skill metadata with active %s despite stale prompt options",
     (loader) => {
-      const event = createEvent([loader]);
+      const event = createEvent([loader === "exec" ? "exec_command" : "exec"]);
 
-      expect(exposeSkillsWithoutRead(event, createContext())?.systemPrompt).toContain(
+      expect(exposeSkillsWithoutRead(event, createContext(), [loader])?.systemPrompt).toContain(
         `Use the \`${loader}\` tool to load a skill's file when the task matches its description.`,
       );
-      expect(exposeSkillsWithoutRead(event, createContext())?.systemPrompt).toContain(
+      expect(exposeSkillsWithoutRead(event, createContext(), [loader])?.systemPrompt).toContain(
         "<available_skills>\n  <skill>\n    <name>example</name>\n    <description>Example &amp; verification</description>\n    <location>/tmp/example/SKILL.md</location>",
       );
     },
@@ -61,19 +61,27 @@ describe("Codex skill catalog", () => {
   it("defers to Pi's catalog when read is active", () => {
     const event = createEvent(["read"]);
 
-    expect(exposeSkillsWithoutRead(event, createContext())).toBeUndefined();
+    expect(exposeSkillsWithoutRead(event, createContext(), ["read"])).toBeUndefined();
   });
 
   it("does not expose a catalog outside the applicable Codex tool path", () => {
     const disabled = { ...SKILL, disableModelInvocation: true };
 
     expect(
-      exposeSkillsWithoutRead(createEvent(["exec_command"]), createContext("anthropic")),
+      exposeSkillsWithoutRead(createEvent(["exec_command"]), createContext("anthropic"), [
+        "exec_command",
+      ]),
     ).toBeUndefined();
-    expect(exposeSkillsWithoutRead(createEvent(["bash"]), createContext())).toBeUndefined();
-    expect(exposeSkillsWithoutRead(createEvent(["apply_patch"]), createContext())).toBeUndefined();
     expect(
-      exposeSkillsWithoutRead(createEvent(["exec_command"], [disabled]), createContext()),
+      exposeSkillsWithoutRead(createEvent(["bash"]), createContext(), ["bash"]),
+    ).toBeUndefined();
+    expect(
+      exposeSkillsWithoutRead(createEvent(["apply_patch"]), createContext(), ["apply_patch"]),
+    ).toBeUndefined();
+    expect(
+      exposeSkillsWithoutRead(createEvent(["exec_command"], [disabled]), createContext(), [
+        "exec_command",
+      ]),
     ).toBeUndefined();
   });
 });
