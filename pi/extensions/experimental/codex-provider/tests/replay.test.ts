@@ -301,6 +301,12 @@ describe("request framing and finalized replay", () => {
 });
 
 describe("replacement and token policy", () => {
+  it("counts UTF-8 tokens without changing surrogate or rounding behavior", () => {
+    expect(
+      ["", "a", "abcde", "ééé", "🦄🦄", "\ud800", "a\udfffé"].map(tokensForUtf8),
+    ).toStrictEqual([0, 1, 2, 2, 2, 1, 2]);
+  });
+
   it("retains bounded non-final agent messages in source order", () => {
     const result = buildCheckpointReplacement(
       [
@@ -497,6 +503,22 @@ describe("replacement and token policy", () => {
 });
 
 describe("tool history normalization", () => {
+  it("preserves UUIDv5 names and UTF-8 replacement of lone surrogates", () => {
+    expect([
+      syntheticOutputId("fco", "item_\ud800"),
+      syntheticOutputId("ctco", "🦄"),
+      syntheticOutputId("tso", "item_fc"),
+      syntheticOutputId("fco", ""),
+      syntheticOutputId("fco", null),
+    ]).toStrictEqual([
+      "fco_5f06a601-174c-5203-87b3-a550e8d33de1",
+      "ctco_b1be352a-0389-54e8-ac29-b1e4cdd37f7f",
+      "tso_d612e5ae-a182-51ad-bcf3-9cf900cfc8fb",
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("removes orphan/duplicate outputs and deterministically repairs supported calls", () => {
     const existingOutput = {
       call_id: "call-existing",

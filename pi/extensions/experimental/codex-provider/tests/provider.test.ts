@@ -1936,6 +1936,7 @@ describe("Codex provider", () => {
     await run("lite-prefix-thread", "Different instructions");
     await run("lite-prefix-thread", "System truth", []);
     await run("lite-prefix-other-thread", "System truth");
+    await run("lite-prefix-thread", "Prompt \udfff 🦄", []);
 
     const prefixes = requests.map((request) =>
       wireRecords(readBody(request.body).input)
@@ -1947,6 +1948,12 @@ describe("Codex provider", () => {
     expect(prefixes[0]?.[1]).not.toStrictEqual(prefixes[2]?.[1]);
     expect(prefixes[0]?.[0]).not.toStrictEqual(prefixes[3]?.[0]);
     expect(prefixes[0]).not.toStrictEqual(prefixes[4]);
+    expect(prefixes[0]?.[1]).toBe("msg_1618027a-fb22-5260-8640-a4760473e0ca");
+    expect(prefixes[3]?.[0]).toBe("at_edeb3b90-78d6-5e03-bd01-059dd9d48b6e");
+    expect(prefixes[5]).toStrictEqual([
+      "at_edeb3b90-78d6-5e03-bd01-059dd9d48b6e",
+      "msg_f62f51a6-6596-5f85-9276-123a2fbeabed",
+    ]);
     expect(wireRecords(readBody(requests[3]?.body).input)[0]?.tools).toStrictEqual([]);
   });
 

@@ -1,5 +1,7 @@
 import { ok as assert } from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
+import type { EventEmitter } from "node:events";
 import {
   chmod,
   copyFile,
@@ -15,6 +17,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { createRequire } from "node:module";
 import type { Readable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
 
@@ -33,10 +36,8 @@ const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
 
-interface CrashChild {
+interface CrashChild extends EventEmitter {
   kill(signal: "SIGKILL"): boolean;
-  once(event: "error", listener: (error: Error) => void): this;
-  once(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
 }
 
 export const removeCopiedAuth = (agentDir: string) =>
@@ -230,7 +231,7 @@ const findCheckpoint = async (
   return undefined;
 };
 
-export const waitForCrashCheckpoint = ({
+export const waitForCrashCheckpoint = async ({
   child,
   find,
   pollIntervalMs = 250,
@@ -243,52 +244,10 @@ export const waitForCrashCheckpoint = ({
   readonly stdout: Readable;
   readonly timeoutMs?: number;
 }): Promise<{ readonly killed: boolean; readonly root?: string }> => {
-  const result = Promise.withResolvers<{
-    readonly killed: boolean;
-    readonly root?: string;
-  }>();
-  let poll: NodeJS.Timeout | undefined;
+  const controller = new AbortController();
+  const { signal } = controller;
   let root: string | undefined;
-  let settled = false;
   const lines = createInterface({ input: stdout });
-  const cleanup = () => {
-    if (poll !== undefined) {
-      clearTimeout(poll);
-    }
-    lines.close();
-  };
-  const fail = (error: WireValue) => {
-    if (settled) {
-      return;
-    }
-    settled = true;
-    cleanup();
-    child.kill("SIGKILL");
-    result.reject(error);
-  };
-  const schedulePoll = () => {
-    poll = setTimeout(() => {
-      void (async () => {
-        try {
-          if (root !== undefined && (await find(root)) !== undefined) {
-            child.kill("SIGKILL");
-            return;
-          }
-          schedulePoll();
-        } catch (error) {
-          fail(error);
-        }
-      })();
-    }, pollIntervalMs);
-  };
-  AbortSignal.timeout(timeoutMs).addEventListener(
-    "abort",
-    () => {
-      fail(new Error("Crash canary did not persist a checkpoint in 10 minutes"));
-    },
-    { once: true },
-  );
-
   lines.on("line", (line) => {
     if (root === undefined && line.startsWith("Live artifacts: ")) {
       const candidate = line.slice("Live artifacts: ".length).trim();
@@ -297,17 +256,48 @@ export const waitForCrashCheckpoint = ({
       }
     }
   });
-  child.once("error", fail);
-  child.once("exit", (_code, signal) => {
-    if (settled) {
-      return;
+  const exited = once(child, "exit", { signal }).then(([, exitSignal]: readonly unknown[]) => ({
+    killed: exitSignal === "SIGKILL",
+    root,
+  }));
+  // Stop synchronously: events.once() propagates its result through later microtasks.
+  const stop = () => controller.abort();
+  child.once("exit", stop);
+  child.once("error", stop);
+  const poll = async () => {
+    while (true) {
+      await delay(pollIntervalMs, undefined, { signal });
+      if (root !== undefined) {
+        const checkpoint = await find(root);
+        // An uncancellable file lookup may finish after the child has exited.
+        signal.throwIfAborted();
+        if (checkpoint !== undefined) {
+          child.kill("SIGKILL");
+          return exited;
+        }
+      }
     }
-    settled = true;
-    cleanup();
-    result.resolve({ killed: signal === "SIGKILL", root });
+  };
+  const timeout = delay(timeoutMs, undefined, { signal }).then(() => {
+    throw new Error(`Crash canary did not persist a checkpoint within ${timeoutMs}ms`);
   });
-  schedulePoll();
-  return result.promise;
+  try {
+    return await Promise.race([exited, poll(), timeout]).catch((error) => {
+      // Cancellation can reach the polling loop before events.once() has settled.
+      if (signal.aborted) {
+        return exited;
+      }
+      throw error;
+    });
+  } catch (error) {
+    child.kill("SIGKILL");
+    throw error;
+  } finally {
+    child.off("exit", stop);
+    child.off("error", stop);
+    controller.abort();
+    lines.close();
+  }
 };
 
 const runCrash = async () => {

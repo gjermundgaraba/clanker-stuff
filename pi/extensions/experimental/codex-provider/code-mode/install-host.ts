@@ -1,6 +1,6 @@
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -77,7 +77,7 @@ export const installCodeModeHost = async ({
         { cause: error },
       );
     }
-    const actualSha256 = createHash("sha256").update(bytes).digest("hex");
+    const actualSha256 = hash("sha256", bytes);
     if (actualSha256 !== expectedSha256) {
       throw new Error(`Checksum mismatch for ${assetName}`);
     }

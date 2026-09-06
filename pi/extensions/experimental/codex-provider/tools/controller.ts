@@ -144,7 +144,7 @@ export const createCodexToolsController = (
       pi.events.on(TOOL_OWNER_REQUEST_EVENT, (request) => {
         if (Value.Check(ToolOwnerRequestSchema, request)) {
           builtinToolNames();
-          Value.Parse(ToolOwnerRequestSchema, request).provide(owner);
+          request.provide(owner);
         }
       });
     },

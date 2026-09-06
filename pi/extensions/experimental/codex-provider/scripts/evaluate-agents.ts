@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
   chmodSync,
   copyFileSync,
@@ -22,6 +23,7 @@ import { Value } from "typebox/value";
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.ts";
 import { evaluationTasks } from "../evals/tasks.ts";
 import type { EvaluationTask } from "../evals/tasks.ts";
+import { runNodeTests } from "./run-node-tests.ts";
 import { isWireRecord as isRecord, NumberValueSchema, StringValueSchema } from "./wire.ts";
 import type { WireRecord as JsonRecord, WireValue } from "./wire.ts";
 
@@ -235,7 +237,7 @@ const sanitizeEvent = (
   };
 };
 
-const runJsonProcess = async (
+export const runJsonProcess = async (
   executable: string,
   args: readonly string[],
   cwd: string,
@@ -268,7 +270,6 @@ const runJsonProcess = async (
   });
   child.stdin.end(input);
   let forceKill: NodeJS.Timeout | undefined;
-  const exit = Promise.withResolvers<number | null>();
   const timer = setTimeout(() => {
     timedOut = true;
     child.kill("SIGTERM");
@@ -276,14 +277,14 @@ const runJsonProcess = async (
       child.kill("SIGKILL");
     }, 5000);
   }, timeoutMs);
-  child.once("error", exit.reject);
-  child.once("close", (code) => {
+  try {
+    // SAFETY: ChildProcess "close" emits its exit code and terminating signal.
+    const [exitCode] = (await once(child, "close")) as [number | null, NodeJS.Signals | null];
+    return { exitCode, timedOut };
+  } finally {
     clearTimeout(timer);
     clearTimeout(forceKill);
-    exit.resolve(code);
-  });
-  const exitCode = await exit.promise;
-  return { exitCode, timedOut };
+  }
 };
 
 export const command = (
@@ -370,16 +371,15 @@ const grade = (cwd: string, task: EvaluationTask): Grade => {
   const hiddenPath = path.join(cwd, "test/evaluation-hidden.test.js");
   mkdirSync(path.dirname(hiddenPath), { recursive: true });
   writeFileSync(hiddenPath, task.hiddenTest);
-  let result: ReturnType<typeof command>;
+  let result: ReturnType<typeof runNodeTests>;
   try {
-    result = command(process.execPath, ["--test"], cwd);
+    result = runNodeTests(cwd);
   } finally {
     rmSync(hiddenPath, { force: true });
   }
-  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  const tests = Number(/^(?:#|ℹ) tests (?<count>\d+)$/mu.exec(output)?.groups?.count ?? 0);
+  const tests = result.summary?.counts.tests ?? 0;
   return {
-    passed: result.status === 0 && protectedFilesIntact,
+    passed: result.status === 0 && result.summary?.success === true && protectedFilesIntact,
     protectedFilesIntact,
     tests,
   };

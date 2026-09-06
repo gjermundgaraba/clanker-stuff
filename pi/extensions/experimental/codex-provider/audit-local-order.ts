@@ -1,10 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { DefaultResourceLoader, SettingsManager, VERSION } from "@earendil-works/pi-coding-agent";
+import {
+  DefaultResourceLoader,
+  getAgentDir,
+  SettingsManager,
+  VERSION,
+} from "@earendil-works/pi-coding-agent";
 
 const TARGET_PATH = realpathSync(path.join(import.meta.dirname, "index.ts"));
 export const SUPPORTED_PI_VERSION = "0.85.0";
@@ -35,9 +39,7 @@ export const auditLocalOrder = async (options?: {
     );
   }
   const cwd = path.resolve(options?.cwd ?? process.cwd());
-  const agentDir = path.resolve(
-    options?.agentDir ?? process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"),
-  );
+  const agentDir = path.resolve(options?.agentDir ?? getAgentDir());
   const settingsManager = SettingsManager.create(cwd, agentDir, {
     projectTrusted: true,
   });

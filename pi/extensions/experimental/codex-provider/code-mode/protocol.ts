@@ -48,11 +48,10 @@ export const parseExecSource = (source: string): ExecPragma => {
   if (rest.join("\n").trim() === "") {
     throw new Error("exec pragma must be followed by JavaScript source");
   }
-  const raw: unknown = JSON.parse(trimmed.slice("// @exec:".length).trim());
-  if (!Value.Check(ExecOptionsRecordSchema, raw)) {
+  const options: unknown = JSON.parse(trimmed.slice("// @exec:".length).trim());
+  if (!Value.Check(ExecOptionsRecordSchema, options)) {
     throw new Error("exec pragma must contain a JSON object");
   }
-  const options = Value.Parse(ExecOptionsRecordSchema, raw);
   for (const key of Object.keys(options)) {
     if (key !== "yield_time_ms" && key !== "max_output_tokens") {
       throw new Error(`Unsupported exec pragma field: ${key}`);
@@ -79,11 +78,10 @@ const requireNumber = (field: ExecOptionWire | undefined, name: string): number 
   if (field === undefined) {
     return undefined;
   }
-  const NumberSchema = Type.Number();
-  if (!Value.Check(NumberSchema, field)) {
+  if (typeof field !== "number" || !Number.isFinite(field)) {
     throw new Error(`${name} must be a safe integer from 0 to ${Number.MAX_SAFE_INTEGER}`);
   }
-  return Value.Parse(NumberSchema, field);
+  return field;
 };
 
 const parseInteger = (
@@ -151,13 +149,12 @@ const parseContentItems = (items: readonly unknown[]): RuntimeContentItem[] =>
       throw new Error("Code-mode audio output is not supported by Pi");
     }
     if (Value.Check(TextItemSchema, item)) {
-      return Value.Parse(TextItemSchema, item);
+      return item;
     }
     if (Value.Check(ImageItemSchema, item)) {
-      const image = Value.Parse(ImageItemSchema, item);
-      return image.detail === undefined
-        ? { image_url: image.image_url, type: "input_image" }
-        : { detail: image.detail, image_url: image.image_url, type: "input_image" };
+      return item.detail === undefined
+        ? { image_url: item.image_url, type: "input_image" }
+        : { detail: item.detail, image_url: item.image_url, type: "input_image" };
     }
     throw new Error("Code-mode host returned an invalid content item");
   });
@@ -309,13 +306,13 @@ const classifyHostResult = (result: Static<typeof HostResultSchema>): HostResult
   if (Value.Check(RuntimeResponseWireSchema, raw)) {
     return {
       status: "ok",
-      value: { kind: "response", wire: Value.Parse(RuntimeResponseWireSchema, raw) },
+      value: { kind: "response", wire: raw },
     };
   }
   if (Value.Check(RuntimeOutcomeWireSchema, raw)) {
     return {
       status: "ok",
-      value: { kind: "outcome", wire: Value.Parse(RuntimeOutcomeWireSchema, raw) },
+      value: { kind: "outcome", wire: raw },
     };
   }
   return { status: "ok", value: { kind: "event", wire: raw } };
@@ -326,18 +323,18 @@ export const parseHostMessage = (text: string): HostMessage => {
   if (!Value.Check(MessageTypeSchema, raw)) {
     throw new Error("Code-mode host returned an invalid message");
   }
-  const { type } = Value.Parse(MessageTypeSchema, raw);
+  const { type } = raw;
   if (type === "connection/ready") {
     if (!Value.Check(ConnectionReadySchema, raw)) {
       throw new Error("Code-mode host negotiated an invalid protocol");
     }
-    return Value.Parse(ConnectionReadySchema, raw);
+    return raw;
   }
   if (type === "connection/rejected") {
     if (!Value.Check(ConnectionRejectedSchema, raw)) {
       throw new Error("Code-mode host returned an invalid rejection");
     }
-    return Value.Parse(ConnectionRejectedSchema, raw);
+    return raw;
   }
   if (type === "operation/response" || type === "execute/initialResponse") {
     const schema =
@@ -345,34 +342,33 @@ export const parseHostMessage = (text: string): HostMessage => {
     if (!Value.Check(schema, raw)) {
       throw new Error("Code-mode host returned an invalid operation result");
     }
-    const parsed = Value.Parse(schema, raw);
-    const result = classifyHostResult(parsed.result);
-    return { id: parsed.id, result, type };
+    const result = classifyHostResult(raw.result);
+    return { id: raw.id, result, type };
   }
   if (type === "delegate/cancel") {
     if (!Value.Check(DelegateCancelSchema, raw)) {
       throw new Error("Code-mode host returned an invalid cancellation");
     }
-    return Value.Parse(DelegateCancelSchema, raw);
+    return raw;
   }
   if (type === "cell/closed") {
     if (!Value.Check(CellClosedSchema, raw)) {
       throw new TypeError("Code-mode host returned an invalid cell closure");
     }
-    return Value.Parse(CellClosedSchema, raw);
+    return raw;
   }
   if (type === "delegate/request") {
     if (!Value.Check(DelegateRequestSchema, raw)) {
       throw new Error("Code-mode host returned an invalid delegate request");
     }
-    return Value.Parse(DelegateRequestSchema, raw);
+    return raw;
   }
   throw new Error(`Code-mode host returned an unsupported message: ${type}`);
 };
 
 export const executionCellId = (value: HostResultValue | null): string | undefined =>
   value?.kind === "event" && Value.Check(ExecutionStartedWireSchema, value.wire)
-    ? Value.Parse(ExecutionStartedWireSchema, value.wire).cellId
+    ? value.wire.cellId
     : undefined;
 
 export const runtimeOutcome = (value: HostResultValue | null): RuntimeResponseWire | undefined =>

@@ -145,6 +145,15 @@ describe("checkpoint protocol", () => {
     });
     expect(() => canonicalJson(new Date(0))).toThrow("non-JSON value");
     expect(() => canonicalJson(/not-json/u)).toThrow("non-JSON value");
+    expect(canonicalJson([null, true, false, -0, "🦄", { b: 2, a: 1 }])).toBe(
+      '[null,true,false,0,"🦄",{"a":1,"b":2}]',
+    );
+    for (const invalid of [NaN, Infinity, -Infinity, undefined, 1n, Symbol("not-json")]) {
+      expect(() => canonicalJson(invalid)).toThrow();
+    }
+    expect(Object.isFrozen(parsed.checkpoint.response.usage)).toBe(true);
+    source.response.usage.input = 999;
+    expect(parsed.checkpoint.response.usage.input).not.toBe(999);
 
     expect([
       decideCheckpointCompatibility(parsed.checkpoint, {

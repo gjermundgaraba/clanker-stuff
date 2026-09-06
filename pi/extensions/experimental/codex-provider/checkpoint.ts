@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -18,96 +18,19 @@ export const RETAINED_USER_IMAGE_PLACEHOLDER = "image content omitted from compa
 export const REMOTE_USER_IMAGE_PLACEHOLDER =
   "image content omitted because remote image URLs are not supported";
 
-export interface InputTextItem {
-  readonly text: string;
-  readonly type: "input_text";
-}
+type Immutable<T> = { readonly [Key in keyof T]: Immutable<T[Key]> };
 
-export interface InputImageItem {
-  readonly image_url: string;
-  readonly type: "input_image";
-}
-
+export type InputTextItem = Immutable<Static<typeof InputTextItemSchema>>;
+export type InputImageItem = Immutable<Static<typeof InputImageItemSchema>>;
 export type RealUserContentItem = InputImageItem | InputTextItem;
+export type RealUserInputItem = Immutable<Static<typeof RealUserInputItemSchema>>;
+export type CheckpointUserInputItem = Immutable<Static<typeof CheckpointUserInputItemSchema>>;
+export type CheckpointAgentMessageItem = Immutable<Static<typeof CheckpointAgentMessageItemSchema>>;
+export type CanonicalCompactionItem = Immutable<Static<typeof CanonicalCompactionItemSchema>>;
+export type CheckpointReplacementItem = Checkpoint["replacement"][number];
+export type Checkpoint = Immutable<Static<typeof CheckpointSchema>>;
 
-export interface RealUserInputItem {
-  readonly content: readonly RealUserContentItem[];
-  readonly role: "user";
-  readonly type: "message";
-}
-
-export interface CheckpointUserInputItem {
-  readonly content: readonly InputTextItem[];
-  readonly role: "user";
-  readonly type: "message";
-}
-
-export interface CheckpointAgentMessageItem {
-  readonly author: string;
-  readonly content: readonly (
-    | InputTextItem
-    | { readonly encrypted_content: string; readonly type: "encrypted_content" }
-  )[];
-  readonly id?: string;
-  readonly internal_chat_message_metadata_passthrough?: {
-    readonly turn_id?: string;
-  };
-  readonly recipient: string;
-  readonly type: "agent_message";
-}
-
-export interface CanonicalCompactionItem {
-  readonly encrypted_content: string;
-  readonly id?: string;
-  readonly internal_chat_message_metadata_passthrough?: {
-    readonly turn_id?: string;
-  };
-  readonly type: "compaction";
-}
-
-export type CheckpointReplacementItem =
-  | CanonicalCompactionItem
-  | CheckpointUserInputItem
-  | CheckpointAgentMessageItem;
-
-type MutableCompactionItem = {
-  -readonly [K in keyof CanonicalCompactionItem]: CanonicalCompactionItem[K];
-};
-
-export interface Checkpoint {
-  readonly identity: {
-    readonly api: "openai-codex-responses";
-    readonly baseUrl: string | null;
-    readonly model: string;
-    readonly provider: "openai-codex";
-  };
-  readonly phase: "mid-turn" | "overflow-retry" | "pre-sampling" | "standalone";
-  readonly protocol: "openai-responses-compaction-v2";
-  readonly reason: "manual" | "overflow" | "threshold";
-  readonly replacement: readonly CheckpointReplacementItem[];
-  readonly replacementSha256: string;
-  readonly response: {
-    readonly id: string;
-    readonly usage: {
-      readonly cacheRead: number;
-      readonly cacheWrite: number;
-      readonly input: number;
-      readonly output: number;
-      readonly totalTokens: number;
-    };
-  };
-  readonly runtime: {
-    readonly compHash: string | null;
-    readonly currentWindowId: string;
-    readonly effectiveTokenLimit: number;
-    readonly previousWindowId: string | null;
-    readonly requestSchemaVersion: 1;
-    readonly windowNumber: number;
-  };
-  readonly schema: "clanker.codex-provider/checkpoint";
-  readonly sourceTokens: number;
-  readonly version: 1;
-}
+type MutableCompactionItem = Static<typeof CanonicalCompactionItemSchema>;
 
 export type CheckpointParseResult =
   | {
@@ -161,10 +84,6 @@ const WireValueSchema = Type.Unknown();
 export type CheckpointInput = Static<typeof WireValueSchema>;
 type WireValue = CheckpointInput;
 
-const StringValueSchema = Type.String();
-const BooleanValueSchema = Type.Boolean();
-const NumberValueSchema = Type.Number();
-const UnknownArraySchema = Type.Array(Type.Unknown());
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type UnknownRecord = Static<typeof UnknownRecordSchema>;
 const IdentifierSchema = Type.String({
@@ -367,7 +286,7 @@ export const parseCompactionItem = (
   if (!Value.Check(CompactionWireSchema, value)) {
     throw new Error("compaction is invalid");
   }
-  const item = Value.Clone(Value.Parse(CompactionWireSchema, value));
+  const item = Value.Clone(value);
   if (item.type === "compaction_summary" && options.allowAlias !== true) {
     validationError("compaction.type is not canonical");
   }
@@ -395,7 +314,7 @@ export const parseRealUserInputItem = (
   if (!Value.Check(RealUserInputItemSchema, value)) {
     throw new Error(`${path} must be a canonical user message`);
   }
-  return Value.Clone(Value.Parse(RealUserInputItemSchema, value));
+  return Value.Clone(value);
 };
 
 export const parseAgentMessageItem = (
@@ -405,25 +324,23 @@ export const parseAgentMessageItem = (
   if (!Value.Check(CheckpointAgentMessageItemSchema, value)) {
     throw new Error(`${path} must be a canonical agent message`);
   }
-  return Value.Clone(Value.Parse(CheckpointAgentMessageItemSchema, value));
+  return Value.Clone(value);
 };
 
 const canonicalize = (value: WireValue, ancestors: WeakSet<object>): string => {
   if (value === null) {
     return "null";
   }
-  if (Value.Check(StringValueSchema, value) || Value.Check(BooleanValueSchema, value)) {
+  if (typeof value === "string" || typeof value === "boolean") {
     return JSON.stringify(value) ?? validationError("canonical JSON contains a non-JSON value");
   }
-  if (Value.Check(NumberValueSchema, value)) {
+  if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       validationError("canonical JSON cannot contain non-finite numbers");
     }
-    return Object.is(value, -0)
-      ? "0"
-      : (JSON.stringify(value) ?? validationError("canonical JSON contains a non-JSON value"));
+    return JSON.stringify(value);
   }
-  if (Value.Check(UnknownArraySchema, value)) {
+  if (Array.isArray(value)) {
     if (ancestors.has(value)) {
       return validationError("canonical JSON cannot contain cycles");
     }
@@ -449,11 +366,10 @@ const canonicalize = (value: WireValue, ancestors: WeakSet<object>): string => {
 
 export const canonicalJson = (value: WireValue) => canonicalize(value, new WeakSet());
 
-export const sha256Canonical = (value: WireValue) =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex");
+export const sha256Canonical = (value: WireValue) => hash("sha256", canonicalJson(value));
 
-const parseCheckpointValue = (value: WireValue): Checkpoint => {
-  const checkpoint = Value.Clone(Value.Parse(CheckpointSchema, value));
+const parseCheckpointValue = (value: Static<typeof CheckpointSchema>): Checkpoint => {
+  const checkpoint = Value.Clone(value);
   const compactionIndexes = checkpoint.replacement.flatMap((item, index) =>
     item.type === "compaction" ? [index] : [],
   );
@@ -473,7 +389,7 @@ const parseCheckpointValue = (value: WireValue): Checkpoint => {
 };
 
 const deepFreeze = <T>(value: T): T => {
-  if (!Object.isFrozen(value) && Value.Check(UnknownArraySchema, value)) {
+  if (!Object.isFrozen(value) && Array.isArray(value)) {
     for (const child of value) {
       deepFreeze(child);
     }
@@ -554,8 +470,7 @@ export const resolveCheckpointCarrier = (entry: SessionEntry) => {
   if (!Value.Check(LifecycleDetailsSchema, entry.details)) {
     return { carrier: "lifecycle", kind: "invalid-checkpoint" } as const;
   }
-  const details = Value.Parse(LifecycleDetailsSchema, entry.details);
-  const parsed = parseCheckpoint(details.checkpoint);
+  const parsed = parseCheckpoint(entry.details.checkpoint);
   return parsed.ok
     ? ({
         carrier: "lifecycle",

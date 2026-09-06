@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { v5 as uuidV5 } from "uuid";
 
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -27,11 +27,9 @@ export const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not
 export const FRAME_MARKER_PREFIX = "[codex-provider:frame:";
 
 const SYNTHETIC_OUTPUT_NAMESPACE = "90d38d3e-6a5b-4d52-bfe2-2f1e634bfac4";
-const encoder = new TextEncoder();
 
 const WireValueSchema = Type.Unknown();
 type WireValue = Static<typeof WireValueSchema>;
-const UnknownArraySchema = Type.Array(Type.Unknown());
 export const ResponsesInputItemSchema = Type.Record(Type.String(), Type.Unknown());
 export type ResponsesInputItem = Readonly<Static<typeof ResponsesInputItemSchema>>;
 const InputTextSchema = Type.Object({ text: Type.String(), type: Type.Literal("input_text") });
@@ -69,10 +67,9 @@ export type FinalizedFrameResult =
 const isRecord = (value: WireValue): value is ResponsesInputItem =>
   Value.Check(ResponsesInputItemSchema, value);
 
-const isUnknownArray = (value: WireValue): value is WireValue[] =>
-  Value.Check(UnknownArraySchema, value);
+const isUnknownArray = (value: WireValue): value is WireValue[] => Array.isArray(value);
 
-const utf8Bytes = (value: string) => encoder.encode(value).byteLength;
+const utf8Bytes = (value: string) => Buffer.byteLength(value, "utf8");
 
 export const frameMarkerText = (edge: "end" | "start", nonce: string) =>
   `${FRAME_MARKER_PREFIX}${edge}:${nonce}]`;
@@ -491,19 +488,6 @@ export const buildTransientCheckpointReplacement = (
   );
 };
 
-const uuidBytes = (uuid: string) => Buffer.from(uuid.replaceAll("-", ""), "hex");
-
-const formatUuid = (bytes: Uint8Array) => {
-  const hex = Buffer.from(bytes).toString("hex");
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20),
-  ].join("-");
-};
-
 export const syntheticOutputId = (
   prefix: "ctco" | "fco" | "tso",
   sourceItemId: WireValue,
@@ -511,13 +495,7 @@ export const syntheticOutputId = (
   if (!Value.Check(NonemptyStringSchema, sourceItemId)) {
     return undefined;
   }
-  const digest = createHash("sha1")
-    .update(uuidBytes(SYNTHETIC_OUTPUT_NAMESPACE))
-    .update(`${prefix}:${sourceItemId}`)
-    .digest();
-  digest[6] = ((digest[6] ?? 0) % 16) + 80;
-  digest[8] = ((digest[8] ?? 0) % 64) + 128;
-  return `${prefix}_${formatUuid(digest.subarray(0, 16))}`;
+  return `${prefix}_${uuidV5(Buffer.from(`${prefix}:${sourceItemId}`, "utf8"), SYNTHETIC_OUTPUT_NAMESPACE)}`;
 };
 
 type OutputFamily = "custom" | "function" | "tool-search";

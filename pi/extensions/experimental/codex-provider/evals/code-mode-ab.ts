@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
   chmodSync,
   copyFileSync,
@@ -12,10 +13,10 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import type { Api, AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -23,11 +24,11 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { ensureCodeModeHostBinary } from "../code-mode/binary.ts";
+import { runNodeTests } from "../scripts/run-node-tests.ts";
+import { captureNativeOutput, emptyMetrics, nativeMetrics } from "./native-exec.ts";
+import type { Metrics, NativeExecEvent } from "./native-exec.ts";
 
 type SessionMessage = Awaited<ReturnType<typeof createAgentSession>>["session"]["messages"][number];
 
@@ -326,24 +327,6 @@ interface Evaluation {
   tests: number;
 }
 
-interface Metrics {
-  assistantTurns: number;
-  costUsd: number;
-  elapsedMs: number;
-  firstResponseMs: number | null;
-  stopReasons: string[];
-  toolCalls: number;
-  toolNames: Record<string, number>;
-  usage: {
-    cacheRead: number;
-    cacheWrite: number;
-    input: number;
-    output: number;
-    reasoning: number;
-    totalTokens: number;
-  };
-}
-
 interface VariantResult {
   activeTools: string[];
   error?: string;
@@ -353,31 +336,6 @@ interface VariantResult {
   trial: number;
   workspace: string;
 }
-
-const NativeExecEventSchema = Type.Object({
-  item: Type.Optional(
-    Type.Object({
-      id: Type.Optional(Type.String()),
-      text: Type.Optional(Type.String()),
-      type: Type.Optional(Type.String()),
-    }),
-  ),
-  message: Type.Optional(Type.String()),
-  type: Type.Optional(Type.String()),
-  usage: Type.Optional(
-    Type.Object({
-      cache_write_input_tokens: Type.Optional(Type.Number()),
-      cached_input_tokens: Type.Optional(Type.Number()),
-      input_tokens: Type.Optional(Type.Number()),
-      output_tokens: Type.Optional(Type.Number()),
-      reasoning_output_tokens: Type.Optional(Type.Number()),
-    }),
-  ),
-});
-type NativeExecEvent = Static<typeof NativeExecEventSchema>;
-
-const parseCount = (output: string, name: string) =>
-  Number(new RegExp(`^(?:#|ℹ) ${name} (\\d+)$`, "mu").exec(output)?.[1] ?? 0);
 
 const command = (executable: string, args: string[], cwd: string, timeout = 30_000) => {
   const result = spawnSync(executable, args, {
@@ -434,38 +392,24 @@ const evaluate = (cwd: string): Evaluation => {
   const hiddenPath = path.join(cwd, "test/eval-hidden.test.js");
   mkdirSync(path.dirname(hiddenPath), { recursive: true });
   writeFileSync(hiddenPath, HIDDEN_TEST);
-  const result = command(process.execPath, ["--test"], cwd, 60_000);
-  rmSync(hiddenPath, { force: true });
-  const tests = parseCount(result.output, "tests");
-  const pass = parseCount(result.output, "pass");
-  const fail = parseCount(result.output, "fail");
+  let result: ReturnType<typeof runNodeTests>;
+  try {
+    result = runNodeTests(cwd);
+  } finally {
+    rmSync(hiddenPath, { force: true });
+  }
+  const tests = result.summary?.counts.tests ?? 0;
+  const pass = result.summary?.counts.passed ?? 0;
+  const fail = result.summary?.counts.failed ?? 0;
   return {
     fail,
     output: result.output,
     pass,
-    passed: result.status === 0 && protectedFilesIntact,
+    passed: result.status === 0 && result.summary?.success === true && protectedFilesIntact,
     protectedFilesIntact,
     tests,
   };
 };
-
-const emptyMetrics = (): Metrics => ({
-  assistantTurns: 0,
-  costUsd: 0,
-  elapsedMs: 0,
-  firstResponseMs: null,
-  stopReasons: [],
-  toolCalls: 0,
-  toolNames: {},
-  usage: {
-    cacheRead: 0,
-    cacheWrite: 0,
-    input: 0,
-    output: 0,
-    reasoning: 0,
-    totalTokens: 0,
-  },
-});
 
 const addUsage = (metrics: Metrics, usage: Usage) => {
   metrics.usage.input += usage.input;
@@ -474,10 +418,9 @@ const addUsage = (metrics: Metrics, usage: Usage) => {
   metrics.usage.cacheWrite += usage.cacheWrite;
   metrics.usage.reasoning += usage.reasoning ?? 0;
   metrics.usage.totalTokens += usage.totalTokens;
-  metrics.costUsd += usage.cost.total;
 };
 
-const collectMetrics = (
+export const collectMetrics = (
   messages: readonly SessionMessage[],
   elapsedMs: number,
   firstResponseMs: number | null,
@@ -489,6 +432,10 @@ const collectMetrics = (
     (message): message is AssistantMessage => message.role === "assistant",
   );
   metrics.assistantTurns = assistants.length;
+  metrics.estimatedCostUsd = assistants.reduce(
+    (total, message) => total + message.usage.cost.total,
+    0,
+  );
 
   for (const message of assistants) {
     addUsage(metrics, message.usage);
@@ -516,88 +463,10 @@ const finalText = (messages: readonly SessionMessage[]) => {
   );
 };
 
-const parseNativeEvent = (line: string): NativeExecEvent | undefined => {
-  try {
-    const value = JSON.parse(line);
-    return Value.Check(NativeExecEventSchema, value)
-      ? Value.Parse(NativeExecEventSchema, value)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-const nativeMetrics = (
-  events: NativeExecEvent[],
-  elapsedMs: number,
-  firstResponseMs: number | null,
-  model: Model<Api>,
-): Metrics => {
-  const metrics = emptyMetrics();
-  metrics.elapsedMs = elapsedMs;
-  metrics.firstResponseMs = firstResponseMs;
-  const completion = events.findLast((event) => event.type === "turn.completed");
-  const usage = completion?.usage;
-  const inputTokens = usage?.input_tokens ?? 0;
-  const cacheRead = usage?.cached_input_tokens ?? 0;
-  const cacheWrite = usage?.cache_write_input_tokens ?? 0;
-  const output = usage?.output_tokens ?? 0;
-  const input = Math.max(0, inputTokens - cacheRead - cacheWrite);
-  metrics.usage = {
-    cacheRead,
-    cacheWrite,
-    input,
-    output,
-    reasoning: usage?.reasoning_output_tokens ?? 0,
-    totalTokens: inputTokens + output,
-  };
-  metrics.costUsd =
-    (input * model.cost.input +
-      cacheRead * model.cost.cacheRead +
-      cacheWrite * model.cost.cacheWrite +
-      output * model.cost.output) /
-    1_000_000;
-  const toolTypes = new Set([
-    "collab_tool_call",
-    "command_execution",
-    "file_change",
-    "mcp_tool_call",
-    "web_search",
-  ]);
-  const completedIds = new Set<string>();
-  for (const event of events) {
-    if (event.type === "item.completed" && event.item?.type === "agent_message") {
-      metrics.assistantTurns += 1;
-    }
-    const itemType = event.item?.type;
-    const itemId = event.item?.id;
-    if (
-      event.type !== "item.completed" ||
-      itemType === undefined ||
-      itemId === undefined ||
-      !toolTypes.has(itemType) ||
-      completedIds.has(itemId)
-    ) {
-      continue;
-    }
-    completedIds.add(itemId);
-    metrics.toolCalls += 1;
-    metrics.toolNames[itemType] = (metrics.toolNames[itemType] ?? 0) + 1;
-  }
-  let stopReason = "unknown";
-  if (completion) {
-    stopReason = "stop";
-  } else if (events.some((event) => event.type === "turn.failed")) {
-    stopReason = "error";
-  }
-  metrics.stopReasons.push(stopReason);
-  return metrics;
-};
-
 const runNativeVariant = async (
   trial: number,
   cwd: string,
-  model: Model<Api>,
+  modelId: string,
   thinking: ThinkingLevel,
   timeoutMs: number,
 ): Promise<VariantResult> => {
@@ -622,9 +491,6 @@ const runNativeVariant = async (
   }
   const startedAt = Date.now();
   let firstResponseMs: number | null = null;
-  let stdout = "";
-  let stderr = "";
-  let pendingLine = "";
   const events: NativeExecEvent[] = [];
   let errorMessage: string | undefined;
   const nativeThinking = thinking === "off" ? "minimal" : thinking;
@@ -641,7 +507,7 @@ const runNativeVariant = async (
       "--sandbox",
       "workspace-write",
       "--model",
-      model.id,
+      modelId,
       "--config",
       `model_reasoning_effort="${nativeThinking}"`,
       "--config",
@@ -657,36 +523,18 @@ const runNativeVariant = async (
     },
   );
   child.stdin.end(TASK_PROMPT);
-  const consumeLines = (chunk: string, flush = false) => {
-    pendingLine += chunk;
-    const lines = pendingLine.split("\n");
-    pendingLine = flush ? "" : (lines.pop() ?? "");
-    for (const line of lines) {
-      const event = parseNativeEvent(line);
-      if (!event) {
-        continue;
-      }
-      events.push(event);
-      if (
-        firstResponseMs === null &&
-        (event.type === "item.started" || event.type === "item.completed")
-      ) {
-        firstResponseMs = Date.now() - startedAt;
-      }
+  const captured = captureNativeOutput(child, (event) => {
+    events.push(event);
+    if (
+      firstResponseMs === null &&
+      (event.type === "item.started" || event.type === "item.completed")
+    ) {
+      firstResponseMs = Date.now() - startedAt;
     }
-  };
-  child.stdout.on("data", (chunk: Buffer) => {
-    const text = chunk.toString();
-    stdout += text;
-    consumeLines(text);
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
   });
 
   let timedOut = false;
   let forceKill: NodeJS.Timeout | undefined;
-  const exit = Promise.withResolvers<number | null>();
   const timer = setTimeout(() => {
     timedOut = true;
     child.kill("SIGTERM");
@@ -694,18 +542,19 @@ const runNativeVariant = async (
       child.kill("SIGKILL");
     }, 5000);
   }, timeoutMs);
-  child.once("error", exit.reject);
-  child.once("close", (code) => {
+  let exitCode: number | null = null;
+  try {
+    // SAFETY: ChildProcess "close" emits its exit code and terminating signal.
+    [exitCode] = (await once(child, "close")) as [number | null, NodeJS.Signals | null];
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  } finally {
     clearTimeout(timer);
     clearTimeout(forceKill);
-    exit.resolve(code);
-  });
-  const exitCode = await exit.promise.catch((error) => {
-    errorMessage = error instanceof Error ? error.message : String(error);
-    return null;
-  });
+  }
   rmSync(nativeCodexHome, { force: true, recursive: true });
-  consumeLines("", true);
+  captured.flush();
+  const { stdout, stderr } = captured;
   const elapsedMs = Date.now() - startedAt;
   if (timedOut) {
     errorMessage = `Timed out after ${timeoutMs} ms`;
@@ -738,7 +587,7 @@ const runNativeVariant = async (
     activeTools: ["native-codex-code-mode"],
     error: errorMessage !== undefined && errorMessage.length > 0 ? errorMessage : undefined,
     evaluation,
-    metrics: nativeMetrics(events, elapsedMs, firstResponseMs, model),
+    metrics: nativeMetrics(events, elapsedMs, firstResponseMs),
     mode: "native",
     trial,
     workspace: cwd,
@@ -887,13 +736,17 @@ const runPiVariant = async (
   };
 };
 
-const average = (values: number[]) =>
-  values.reduce((total, value) => total + value, 0) / values.length;
+const average = (values: readonly (number | null)[]) =>
+  values.length > 0 && values.every((value) => value !== null)
+    ? values.reduce((total, value) => total + value, 0) / values.length
+    : null;
 
-const percent = (codeValue: number, directValue: number) =>
-  directValue === 0 ? null : ((codeValue - directValue) / directValue) * 100;
+const percent = (value: number | null, baseline: number | null) =>
+  value === null || baseline === null || baseline === 0
+    ? null
+    : ((value - baseline) / baseline) * 100;
 
-const summarize = (results: VariantResult[]) => {
+export const summarize = (results: readonly VariantResult[]) => {
   const byMode = (mode: Mode) => results.filter((result) => result.mode === mode);
   const summary = Object.fromEntries(
     MODES.map((mode) => {
@@ -901,11 +754,13 @@ const summarize = (results: VariantResult[]) => {
       return [
         mode,
         {
-          averageCostUsd: average(variants.map((result) => result.metrics.costUsd)),
+          averageEstimatedCostUsd: average(
+            variants.map((result) => result.metrics.estimatedCostUsd),
+          ),
           averageElapsedMs: average(variants.map((result) => result.metrics.elapsedMs)),
           averageOutputTokens: average(variants.map((result) => result.metrics.usage.output)),
           averageTotalTokens: average(variants.map((result) => result.metrics.usage.totalTokens)),
-          passRate: variants.filter((result) => result.evaluation.passed).length / variants.length,
+          passRate: average(variants.map((result) => Number(result.evaluation.passed))),
         },
       ];
     }),
@@ -914,19 +769,30 @@ const summarize = (results: VariantResult[]) => {
   return {
     byMode: summary,
     codeModeDeltaPercent: {
-      cost: percent(code.averageCostUsd, direct.averageCostUsd),
+      estimatedCost: percent(code.averageEstimatedCostUsd, direct.averageEstimatedCostUsd),
       elapsed: percent(code.averageElapsedMs, direct.averageElapsedMs),
       outputTokens: percent(code.averageOutputTokens, direct.averageOutputTokens),
       totalTokens: percent(code.averageTotalTokens, direct.averageTotalTokens),
     },
     nativeCodexDeltaPercent: {
-      cost: percent(native.averageCostUsd, direct.averageCostUsd),
+      estimatedCost: percent(native.averageEstimatedCostUsd, direct.averageEstimatedCostUsd),
       elapsed: percent(native.averageElapsedMs, direct.averageElapsedMs),
       outputTokens: percent(native.averageOutputTokens, direct.averageOutputTokens),
       totalTokens: percent(native.averageTotalTokens, direct.averageTotalTokens),
     },
   };
 };
+
+export const formatResult = (result: VariantResult) => ({
+  estimatedCostUsd: result.metrics.estimatedCostUsd?.toFixed(4) ?? "N/A",
+  elapsedSec: (result.metrics.elapsedMs / 1000).toFixed(1),
+  mode: result.mode,
+  passed: result.evaluation.passed,
+  tests: `${result.evaluation.pass}/${result.evaluation.tests}`,
+  tokens: result.metrics.usage.totalTokens,
+  toolCalls: result.metrics.toolCalls,
+  trial: result.trial,
+});
 
 const help = () => {
   console.log(`Usage: vp run eval:code-mode [options]
@@ -1015,7 +881,7 @@ const main = async () => {
           ? await runNativeVariant(
               trial,
               path.join(output, `trial-${String(trial).padStart(2, "0")}`, mode),
-              model,
+              model.id,
               thinking,
               timeoutMinutes * 60_000,
             )
@@ -1043,17 +909,9 @@ const main = async () => {
     thinking,
   };
   writeFileSync(path.join(output, "results.json"), `${JSON.stringify(report, null, 2)}\n`);
-  console.table(
-    results.map((result) => ({
-      costUsd: result.metrics.costUsd.toFixed(4),
-      elapsedSec: (result.metrics.elapsedMs / 1000).toFixed(1),
-      mode: result.mode,
-      passed: result.evaluation.passed,
-      tests: `${result.evaluation.pass}/${result.evaluation.tests}`,
-      tokens: result.metrics.usage.totalTokens,
-      toolCalls: result.metrics.toolCalls,
-      trial: result.trial,
-    })),
+  console.table(results.map(formatResult));
+  console.log(
+    "Cost estimates use Pi's per-response catalog pricing, not billed amounts. Native cost is N/A: Codex JSONL exposes thread totals, not per-request usage.",
   );
   console.log("\nCode Mode delta (negative is lower/faster):");
   console.log(comparison.codeModeDeltaPercent);
@@ -1062,4 +920,9 @@ const main = async () => {
   console.log(`\nFull results: ${path.join(output, "results.json")}`);
 };
 
-await main();
+if (
+  process.argv[1] !== undefined &&
+  pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+) {
+  await main();
+}

@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
 
@@ -19,14 +18,15 @@ import type {
   ProviderEnv,
   ProviderHeaders,
   StreamFunction,
-  Tool,
   Usage,
 } from "@earendil-works/pi-ai";
+import { v5 as uuidV5 } from "uuid";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import { createGrammarToolInputProperties } from "#pi-constrained-sampling";
+import { splitDeferredTools } from "#pi-deferred-tools";
 import {
   convertResponsesMessages,
   convertResponsesTools,
@@ -59,6 +59,7 @@ import {
   shrinkTrailingOutputs,
 } from "./replay.js";
 import type { ResponsesInputItem } from "./replay.js";
+import { parseSseEvents } from "./sse.js";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
@@ -85,11 +86,9 @@ const TransformedRequestBodySchema = Type.Intersect([
   Type.Object({ input: Type.Array(JsonRecordSchema) }),
 ]);
 type TransformedRequestBody = Static<typeof TransformedRequestBodySchema>;
-const StringValueSchema = Type.String();
-const NumberValueSchema = Type.Number();
 const ResponseStreamEventEnvelopeSchema = Type.Intersect([
   JsonRecordSchema,
-  Type.Object({ type: StringValueSchema }),
+  Type.Object({ type: Type.String() }),
 ]);
 type PiResponseStreamEvent =
   Parameters<typeof processResponsesStream>[0] extends AsyncIterable<infer Event> ? Event : never;
@@ -463,48 +462,33 @@ const prepareLiteContent = (content: WireValue): WireValue => {
   });
 };
 
+const prepareLiteInputItem = (item: ResponsesInputItem): ResponsesInputItem => {
+  if (
+    "content" in item &&
+    (item.type === "message" ||
+      item.role === "user" ||
+      item.role === "developer" ||
+      item.role === "system")
+  ) {
+    return { ...item, content: prepareLiteContent(item.content) };
+  }
+  if (
+    (item.type === "function_call_output" || item.type === "custom_tool_call_output") &&
+    Array.isArray(item.output)
+  ) {
+    return { ...item, output: prepareLiteContent(item.output) };
+  }
+  return item;
+};
+
 const prepareLiteRequest = (body: RequestBody): RequestBody => ({
   ...body,
-  input: body.input.map((item) => {
-    if (
-      "content" in item &&
-      (item.type === "message" ||
-        item.role === "user" ||
-        item.role === "developer" ||
-        item.role === "system")
-    ) {
-      return { ...item, content: prepareLiteContent(item.content) };
-    }
-    if (
-      (item.type === "function_call_output" || item.type === "custom_tool_call_output") &&
-      Array.isArray(item.output)
-    ) {
-      return { ...item, output: prepareLiteContent(item.output) };
-    }
-    return item;
-  }),
+  input: body.input.map(prepareLiteInputItem),
 });
 
 const prepareLiteTransformedRequest = (body: TransformedRequestBody): TransformedRequestBody => ({
   ...body,
-  input: body.input.map((item) => {
-    if (
-      "content" in item &&
-      (item.type === "message" ||
-        item.role === "user" ||
-        item.role === "developer" ||
-        item.role === "system")
-    ) {
-      return { ...item, content: prepareLiteContent(item.content) };
-    }
-    if (
-      (item.type === "function_call_output" || item.type === "custom_tool_call_output") &&
-      Array.isArray(item.output)
-    ) {
-      return { ...item, output: prepareLiteContent(item.output) };
-    }
-    return item;
-  }),
+  input: body.input.map(prepareLiteInputItem),
 });
 
 // Codex truncates by Unicode scalar value, not grapheme cluster.
@@ -554,43 +538,6 @@ const buildBaseHeaders = (
   return createCodexHeaders(model, apiKey, requestId, options?.headers);
 };
 
-const splitDeferredTools = (context: Context, enabled: boolean) => {
-  const unique = new Map((context.tools ?? []).map((tool) => [tool.name, tool]));
-  if (!enabled) {
-    return {
-      deferred: new Map<string, Tool>(),
-      immediate: [...unique.values()],
-    };
-  }
-  const deferredNames = new Set<string>();
-  const usedNames = new Set<string>();
-  for (const message of context.messages) {
-    if (message.role === "assistant") {
-      for (const block of message.content) {
-        if (block.type === "toolCall") {
-          usedNames.add(block.name);
-        }
-      }
-    } else if (message.role === "toolResult") {
-      for (const name of message.addedToolNames ?? []) {
-        if (!usedNames.has(name)) {
-          deferredNames.add(name);
-        }
-      }
-    }
-  }
-  const deferred = new Map<string, Tool>();
-  const immediate: Tool[] = [];
-  for (const [name, tool] of unique) {
-    if (deferredNames.has(name)) {
-      deferred.set(name, tool);
-    } else {
-      immediate.push(tool);
-    }
-  }
-  return { deferred, immediate };
-};
-
 const initialUsage = (): Usage => ({
   cacheRead: 0,
   cacheWrite: 0,
@@ -599,22 +546,6 @@ const initialUsage = (): Usage => ({
   output: 0,
   totalTokens: 0,
 });
-
-const uuidBytes = (uuid: string) => Buffer.from(uuid.replaceAll("-", ""), "hex");
-
-const uuidV5 = (namespace: string, name: string) => {
-  const digest = createHash("sha1").update(uuidBytes(namespace)).update(name).digest();
-  digest[6] = ((digest[6] ?? 0) % 16) + 80;
-  digest[8] = ((digest[8] ?? 0) % 64) + 128;
-  const hex = digest.subarray(0, 16).toString("hex");
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20),
-  ].join("-");
-};
 
 const requestMetadata = (
   sessionId: string,
@@ -710,11 +641,11 @@ const buildRequestBody = (
       : undefined;
   const lite = metadata?.use_responses_lite === true;
   if (lite) {
-    const prefixNamespace = uuidV5(UUID_NAMESPACE_OID, sessionId);
+    const prefixNamespace = uuidV5(Buffer.from(sessionId, "utf8"), UUID_NAMESPACE_OID);
     const additionalTools = tools ?? [];
     const prefix: ResponsesInputItem[] = [
       {
-        id: `at_${uuidV5(prefixNamespace, JSON.stringify(additionalTools))}`,
+        id: `at_${uuidV5(Buffer.from(JSON.stringify(additionalTools), "utf8"), prefixNamespace)}`,
         role: "developer",
         tools: additionalTools,
         type: "additional_tools",
@@ -723,7 +654,7 @@ const buildRequestBody = (
     if (context.systemPrompt !== undefined && context.systemPrompt.length > 0) {
       prefix.push({
         content: [{ text: context.systemPrompt, type: "input_text" }],
-        id: `msg_${uuidV5(prefixNamespace, context.systemPrompt)}`,
+        id: `msg_${uuidV5(Buffer.from(context.systemPrompt, "utf8"), prefixNamespace)}`,
         role: "developer",
         type: "message",
       });
@@ -840,7 +771,7 @@ const normalizedContinuationOutputItem = (value: WireValue): ResponsesInputItem 
     return undefined;
   }
   if (value.type === "reasoning") {
-    return cloneJson(Value.Parse(JsonRecordSchema, value));
+    return cloneJson(value);
   }
   if (value.type === "message") {
     const [content] = value.content;
@@ -907,9 +838,8 @@ const continuationOutputMatches = (
       isRecord(terminalItem) &&
       terminalItem.type === "reasoning" &&
       item.id === terminalItem.id &&
-      (!Value.Check(StringValueSchema, item.encrypted_content) ||
-        item.encrypted_content.length === 0) &&
-      Value.Check(StringValueSchema, terminalItem.encrypted_content) &&
+      (typeof item.encrypted_content !== "string" || item.encrypted_content.length === 0) &&
+      typeof terminalItem.encrypted_content === "string" &&
       terminalItem.encrypted_content.length > 0
     ) {
       return { ...item, encrypted_content: terminalItem.encrypted_content };
@@ -950,9 +880,7 @@ const jsonWireValue = (value: WireValue): WireValue => {
 };
 
 const requestObservation = (body: JsonRecord) => {
-  const cacheKey = Value.Check(StringValueSchema, body.prompt_cache_key)
-    ? body.prompt_cache_key
-    : undefined;
+  const cacheKey = typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : undefined;
   const cacheEnabled = cacheKey !== undefined && cacheKey.length > 0;
   try {
     if (!Array.isArray(body.input)) {
@@ -1051,26 +979,28 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
     isTerminalResponseEvent(event) &&
     Value.Check(EndTurnResponseSchema, event.response)
   ) {
-    output.endTurn = Value.Parse(EndTurnResponseSchema, event.response).end_turn;
+    output.endTurn = event.response.end_turn;
   }
   if (event.type === "error") {
     const nested = isRecord(event.error) ? event.error : undefined;
-    const status = Value.Check(NumberValueSchema, event.status)
-      ? event.status
-      : Value.Check(NumberValueSchema, nested?.status)
-        ? nested.status
-        : undefined;
+    const status =
+      typeof event.status === "number" && Number.isFinite(event.status)
+        ? event.status
+        : typeof nested?.status === "number" && Number.isFinite(nested?.status)
+          ? nested.status
+          : undefined;
     if (status !== undefined) {
       throw responseError(status, JSON.stringify({ error: nested ?? event }));
     }
-    const code = [event.code, nested?.code, nested?.type].find((value) =>
-      Value.Check(StringValueSchema, value),
+    const code = [event.code, nested?.code, nested?.type].find(
+      (value) => typeof value === "string",
     );
-    const message = Value.Check(StringValueSchema, event.message)
-      ? event.message
-      : Value.Check(StringValueSchema, nested?.message)
-        ? nested.message
-        : code;
+    const message =
+      typeof event.message === "string"
+        ? event.message
+        : typeof nested?.message === "string"
+          ? nested.message
+          : code;
     const resolvedMessage = message ?? "Codex request failed";
     throw new CodexProviderError(
       resolvedMessage,
@@ -1081,10 +1011,8 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
   if (event.type === "response.failed") {
     const response = isRecord(event.response) ? event.response : undefined;
     const error = isRecord(response?.error) ? response.error : undefined;
-    const message = Value.Check(StringValueSchema, error?.message)
-      ? error.message
-      : "Codex response failed";
-    const code = Value.Check(StringValueSchema, error?.code) ? error.code : undefined;
+    const message = typeof error?.message === "string" ? error.message : "Codex response failed";
+    const code = typeof error?.code === "string" ? error.code : undefined;
     const classification = responseFailureClassification(code);
     throw new CodexProviderError(
       message,
@@ -1121,7 +1049,7 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
     if (!Value.Check(ResponsesInputItemSchema, event.item)) {
       capture.continuationBlocked = true;
     } else {
-      capture.outputItems.push(cloneJson(Value.Parse(ResponsesInputItemSchema, event.item)));
+      capture.outputItems.push(cloneJson(event.item));
       if (!Value.Check(ContinuationOutputItemSchema, event.item)) {
         capture.continuationBlocked = true;
       }
@@ -1129,10 +1057,10 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
   }
   if (isTerminalResponseEvent(event)) {
     const response = isRecord(event.response) ? event.response : undefined;
-    if (Value.Check(StringValueSchema, response?.id)) {
+    if (typeof response?.id === "string") {
       capture.responseId = response.id;
     }
-    if (Value.Check(StringValueSchema, response?.service_tier)) {
+    if (typeof response?.service_tier === "string") {
       capture.serviceTier = response.service_tier;
     }
     capture.completed = event.type !== "response.incomplete" && response?.status !== "incomplete";
@@ -1152,24 +1080,32 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
       const details = isRecord(rawUsage.input_tokens_details)
         ? rawUsage.input_tokens_details
         : undefined;
-      const cached = Value.Check(NumberValueSchema, details?.cached_tokens)
-        ? details.cached_tokens
-        : 0;
-      const cacheWrite = Value.Check(NumberValueSchema, details?.cache_write_tokens)
-        ? details.cache_write_tokens
-        : 0;
-      const input = Value.Check(NumberValueSchema, rawUsage.input_tokens)
-        ? rawUsage.input_tokens
-        : 0;
+      const cached =
+        typeof details?.cached_tokens === "number" && Number.isFinite(details?.cached_tokens)
+          ? details.cached_tokens
+          : 0;
+      const cacheWrite =
+        typeof details?.cache_write_tokens === "number" &&
+        Number.isFinite(details?.cache_write_tokens)
+          ? details.cache_write_tokens
+          : 0;
+      const input =
+        typeof rawUsage.input_tokens === "number" && Number.isFinite(rawUsage.input_tokens)
+          ? rawUsage.input_tokens
+          : 0;
       capture.usage = {
         ...initialUsage(),
         cacheRead: cached,
         cacheWrite,
         input: Math.max(0, input - cached - cacheWrite),
-        output: Value.Check(NumberValueSchema, rawUsage.output_tokens) ? rawUsage.output_tokens : 0,
-        totalTokens: Value.Check(NumberValueSchema, rawUsage.total_tokens)
-          ? rawUsage.total_tokens
-          : 0,
+        output:
+          typeof rawUsage.output_tokens === "number" && Number.isFinite(rawUsage.output_tokens)
+            ? rawUsage.output_tokens
+            : 0,
+        totalTokens:
+          typeof rawUsage.total_tokens === "number" && Number.isFinite(rawUsage.total_tokens)
+            ? rawUsage.total_tokens
+            : 0,
       };
     }
   }
@@ -1182,7 +1118,7 @@ const terminalTurnState = (event: JsonRecord): string | undefined => {
   for (const [name, value] of Object.entries(event.headers)) {
     if (
       name.toLowerCase() === "x-codex-turn-state" &&
-      Value.Check(StringValueSchema, value) &&
+      typeof value === "string" &&
       value.length > 0
     ) {
       return value;
@@ -1190,54 +1126,6 @@ const terminalTurnState = (event: JsonRecord): string | undefined => {
   }
   return undefined;
 };
-
-async function* parseSse(response: Response, signal?: AbortSignal): AsyncGenerator<JsonRecord> {
-  if (!response.body) {
-    throw new Error("Codex response has no body");
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  const abort = () => void reader.cancel();
-  signal?.addEventListener("abort", abort, { once: true });
-  try {
-    while (true) {
-      if (isAborted(signal)) {
-        throw new Error("Request was aborted");
-      }
-      const result = await reader.read();
-      const { done, value } = result;
-      buffer += decoder.decode(value, { stream: !done });
-      const normalized = buffer.replaceAll("\r\n", "\n");
-      const chunks = normalized.split("\n\n");
-      buffer = done ? "" : (chunks.pop() ?? "");
-      for (const chunk of chunks) {
-        const data = chunk
-          .split("\n")
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trimStart())
-          .join("\n")
-          .trim();
-        if (data.length > 0 && data !== "[DONE]") {
-          const parsed: unknown = JSON.parse(data);
-          if (!isRecord(parsed)) {
-            throw new Error("Codex stream event must be an object");
-          }
-          yield parsed;
-        }
-      }
-      if (done) {
-        return;
-      }
-    }
-  } finally {
-    signal?.removeEventListener("abort", abort);
-    await reader.cancel().catch(() => {
-      // Reader cancellation is best effort during cleanup.
-    });
-    reader.releaseLock();
-  }
-}
 
 const retryDelay = (response: Response, attempt: number) => {
   const milliseconds = response.headers.get("retry-after-ms");
@@ -1297,16 +1185,15 @@ const responseError = (status: number, text: string) => {
     const parsed: unknown = JSON.parse(text);
     const error = isRecord(parsed) && isRecord(parsed.error) ? parsed.error : undefined;
     if (error !== undefined) {
-      const code = Value.Check(StringValueSchema, error.code)
-        ? error.code
-        : Value.Check(StringValueSchema, error.type)
-          ? error.type
-          : undefined;
+      const code =
+        typeof error.code === "string"
+          ? error.code
+          : typeof error.type === "string"
+            ? error.type
+            : undefined;
       const classification = responseErrorClassification(status, code, text);
       return new CodexProviderError(
-        Value.Check(StringValueSchema, error.message)
-          ? error.message
-          : `Codex request failed (${status})`,
+        typeof error.message === "string" ? error.message : `Codex request failed (${status})`,
         code,
         classification.retryable,
         status,
@@ -1389,7 +1276,7 @@ const connectSocket = async (
   if (!Value.Check(WebSocketConstructorSchema, constructorValue)) {
     throw new WebSocketUnavailableError("WebSocket transport is unavailable");
   }
-  const Constructor = Value.Parse(WebSocketConstructorSchema, constructorValue);
+  const Constructor = constructorValue;
   signal?.throwIfAborted();
   trace.websocketHandshakeAttempts += 1;
   let socket: WebSocketLike;
@@ -1398,7 +1285,7 @@ const connectSocket = async (
     if (!Value.Check(WebSocketLikeSchema, socketValue)) {
       throw new WebSocketUnavailableError("WebSocket transport returned an invalid socket");
     }
-    socket = Value.Parse(WebSocketLikeSchema, socketValue);
+    socket = socketValue;
   } catch (error) {
     trace.websocketHandshakeFailures += 1;
     throw error;
@@ -1476,8 +1363,8 @@ const messageData = async (event: WireValue) => {
   if (!Value.Check(WebSocketMessageSchema, event)) {
     throw new Error("Unsupported WebSocket message payload");
   }
-  const data = Value.Parse(WebSocketMessageSchema, event).data;
-  if (Value.Check(StringValueSchema, data)) {
+  const data = event.data;
+  if (typeof data === "string") {
     return data;
   }
   if (data instanceof ArrayBuffer) {
@@ -1609,11 +1496,11 @@ async function* bufferInitialResponseCreated(
 const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRuntime) => {
   const clientMetadata = isRecord(body.client_metadata) ? body.client_metadata : undefined;
   const metadata = clientMetadata?.["x-codex-turn-metadata"];
-  if (Value.Check(StringValueSchema, metadata)) {
+  if (typeof metadata === "string") {
     headers.set("x-codex-turn-metadata", metadata);
   }
   const windowId = clientMetadata?.["x-codex-window-id"];
-  if (Value.Check(StringValueSchema, windowId)) {
+  if (typeof windowId === "string") {
     headers.set("x-codex-window-id", windowId);
   }
   if (session.turn?.state !== undefined && session.turn.state.length > 0) {
@@ -1623,10 +1510,8 @@ const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRu
 
 const applyRoutingHint = (headers: Headers, body: JsonRecord) => {
   headers.set("originator", body.service_tier === "priority" ? "codex_cli_rs" : "pi");
-  const model = Value.Check(StringValueSchema, body.model) ? body.model : "";
-  const tier = Value.Check(StringValueSchema, body.service_tier)
-    ? `;tier=${body.service_tier}`
-    : "";
+  const model = typeof body.model === "string" ? body.model : "";
+  const tier = typeof body.service_tier === "string" ? `;tier=${body.service_tier}` : "";
   const hint = `model=${model}${tier}`;
   headers.set("x-codex-routing-hint", hint);
 };
@@ -1724,7 +1609,7 @@ const sseEvents = async function* sseEvents(
       if (response.ok) {
         let terminal = false;
         for await (const event of bufferInitialResponseCreated(
-          parseSse(response, options?.signal),
+          parseSseEvents(response, options?.signal),
           attempt,
         )) {
           terminal ||= isTerminalResponseEvent(event);
@@ -1866,7 +1751,7 @@ const websocketEvents = async function* websocketEvents(
         ? beginInferenceAttempt(recovery, "websocket", delta === undefined ? "full" : "delta")
         : undefined;
       try {
-        const requestRecord = Value.Parse(JsonRecordSchema, requestBody);
+        const requestRecord: JsonRecord = requestBody;
         const clientMetadata = isRecord(requestRecord.client_metadata)
           ? requestRecord.client_metadata
           : {};
@@ -2154,9 +2039,10 @@ export const createCodexProviderRuntime = (
       if (source.some((item) => item.type === "compaction_trigger")) {
         throw new Error("Compaction source already contains a trigger");
       }
-      const instructions = Value.Check(StringValueSchema, envelope.instructions)
-        ? envelope.instructions
-        : (request.context.systemPrompt ?? "");
+      const instructions =
+        typeof envelope.instructions === "string"
+          ? envelope.instructions
+          : (request.context.systemPrompt ?? "");
       const normalized = normalizeToolHistory(
         omitUnsupportedUserImages(source, request.model.input.includes("image")),
       );
@@ -2461,7 +2347,7 @@ export const createCodexProviderRuntime = (
           if (!Value.Check(TransformedRequestBodySchema, transformed)) {
             throw new Error("Codex payload transform returned an invalid request");
           }
-          body = Value.Parse(TransformedRequestBodySchema, transformed);
+          body = transformed;
           if (built.responsesLite) {
             body = prepareLiteTransformedRequest(body);
           }
@@ -2619,12 +2505,12 @@ export const createCodexProviderRuntime = (
             inferenceAttempts: recovery.attempts,
             inferenceDispatches: recovery.dispatches,
           },
-          turnId: Value.Check(StringValueSchema, observedMetadata?.turn_id)
-            ? observedMetadata.turn_id
-            : undefined,
-          windowId: Value.Check(StringValueSchema, observedMetadata?.["x-codex-window-id"])
-            ? observedMetadata["x-codex-window-id"]
-            : undefined,
+          turnId:
+            typeof observedMetadata?.turn_id === "string" ? observedMetadata.turn_id : undefined,
+          windowId:
+            typeof observedMetadata?.["x-codex-window-id"] === "string"
+              ? observedMetadata["x-codex-window-id"]
+              : undefined,
         });
       }
     })();

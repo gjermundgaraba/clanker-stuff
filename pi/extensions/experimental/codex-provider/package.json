@@ -31,6 +31,7 @@
     "renderer.ts",
     "replay.ts",
     "runtime.ts",
+    "sse.ts",
     "skill-catalog.ts",
     "status.ts",
     "code-mode",
@@ -51,7 +52,9 @@
   ],
   "type": "module",
   "imports": {
+    "#pi-abort": "@earendil-works/pi-ai/utils/abort",
     "#pi-constrained-sampling": "@earendil-works/pi-ai/api/constrained-sampling",
+    "#pi-deferred-tools": "@earendil-works/pi-ai/utils/deferred-tools",
     "#pi-openai-codex": "@earendil-works/pi-ai/providers/openai-codex",
     "#pi-responses": "@earendil-works/pi-ai/api/openai-responses-shared",
     "#pi-simple-options": "@earendil-works/pi-ai/api/simple-options"
@@ -86,7 +89,9 @@
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
-    "@clanker-stuff/tool-owner-protocol": "workspace:^"
+    "@clanker-stuff/tool-owner-protocol": "workspace:^",
+    "eventsource-parser": "4.1.0",
+    "uuid": "14.0.2"
   },
   "devDependencies": {
     "jiti": "2.7.0",

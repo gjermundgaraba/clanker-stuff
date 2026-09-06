@@ -52,6 +52,13 @@ export default defineConfig({
       "anti-slop/require-safety-comment-for-type-assertion": "error",
       "vite-plus/prefer-vite-plus-imports": "error",
     },
+    overrides: [
+      {
+        files: ["pi/extensions/experimental/codex-provider/**/*.ts"],
+        // Primitive narrowing is intentional here; schemas validate protocol boundaries.
+        rules: { "anti-slop/no-runtime-typeof": "off" },
+      },
+    ],
   },
   staged: {
     "*": "vp check --fix",

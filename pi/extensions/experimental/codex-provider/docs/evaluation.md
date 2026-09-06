@@ -71,6 +71,8 @@ The provider-local benchmark compares direct Codex tools, `/code-mode`, and nati
 vp run @clanker-stuff/codex-provider#eval:code-mode --runs 3
 ```
 
-Use `--prepare-only` for a no-model-call fixture check. Results include hidden-test outcomes, active tools, elapsed and first-response times, token usage, cost, and each workspace diff.
+Use `--prepare-only` for a no-model-call fixture check. Results include hidden-test outcomes, active tools, elapsed and first-response times, token usage, `estimatedCostUsd`, and each workspace diff.
+
+For Pi, `estimatedCostUsd` sums per-response model-catalog cost estimates; these are not billed amounts. Native Codex always reports `null`, displayed as `N/A`: its JSONL usage contains thread totals without the per-request boundaries needed to apply pricing tiers. Cost averages remain `null` if any contributing run has unavailable cost. Cost comparisons are available only between Pi arms, and are `null` when either cost is unavailable or the baseline is zero.
 
 Elapsed and first-response timing starts with the task prompt. Fixture creation, session setup, and Code Mode host download or installation are excluded; starting the installed host process and executing tools remain measured.

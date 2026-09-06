@@ -123,12 +123,11 @@ const observedContextFrameDiagnostics = (observations: readonly CodexObservation
     ) {
       return [];
     }
-    const parsed = Value.Parse(ContextFrameFailureSchema, data);
     return [
       {
-        baselineMessages: parsed.baseline.messageCount,
-        eventMessages: parsed.event.messageCount,
-        frameResult: parsed.frameResult,
+        baselineMessages: data.baseline.messageCount,
+        eventMessages: data.event.messageCount,
+        frameResult: data.frameResult,
         timestamp: observation.timestamp,
       },
     ];
@@ -145,7 +144,7 @@ const observedTransportFallbackDiagnostics = (observations: readonly CodexObserv
     }
     return [
       {
-        configuredTransport: Value.Parse(TransportFallbackSchema, data).transport.configured,
+        configuredTransport: data.transport.configured,
         timestamp: observation.timestamp,
       },
     ];
@@ -157,20 +156,19 @@ const requestObservations = (observations: readonly CodexObservation[]) =>
     if (observation.kind !== "request" || !Value.Check(RequestObservationSchema, data)) {
       return [];
     }
-    const parsed = Value.Parse(RequestObservationSchema, data);
     return [
       {
-        cacheEnabled: parsed.request.cacheEnabled,
-        cacheKeyHash: parsed.request.cacheKeyHash,
-        cacheReadTokens: parsed.response.cacheReadTokens,
-        cacheWriteTokens: parsed.response.cacheWriteTokens,
-        inputItemHashes: parsed.request.inputItemHashes,
-        inputTokens: parsed.response.inputTokens,
-        instructionsHash: parsed.request.instructionsHash,
-        model: parsed.model,
-        stableRequestHash: parsed.request.stableRequestHash,
+        cacheEnabled: data.request.cacheEnabled,
+        cacheKeyHash: data.request.cacheKeyHash,
+        cacheReadTokens: data.response.cacheReadTokens,
+        cacheWriteTokens: data.response.cacheWriteTokens,
+        inputItemHashes: data.request.inputItemHashes,
+        inputTokens: data.response.inputTokens,
+        instructionsHash: data.request.instructionsHash,
+        model: data.model,
+        stableRequestHash: data.request.stableRequestHash,
         timestamp: observation.timestamp,
-        toolsHash: parsed.request.toolsHash,
+        toolsHash: data.request.toolsHash,
       },
     ];
   });
@@ -281,7 +279,7 @@ const compactionFailures = (observations: readonly CodexObservation[]) =>
     (observation) =>
       observation.kind === "compaction" &&
       Value.Check(CompactionOutcomeSchema, observation.data) &&
-      Value.Parse(CompactionOutcomeSchema, observation.data).outcome !== "success",
+      observation.data.outcome !== "success",
   );
 
 const tally = (values: readonly string[]) =>

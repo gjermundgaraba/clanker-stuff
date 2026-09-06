@@ -20,7 +20,7 @@ const parseConfig = (text: string): boolean => {
   if (!Value.Check(FastConfigSchema, parsed)) {
     throw new Error('config must be exactly { "fast": boolean }');
   }
-  return Value.Parse(FastConfigSchema, parsed).fast;
+  return parsed.fast;
 };
 
 const runAfter = async (previous: Promise<void>, task: () => Promise<void>): Promise<void> => {

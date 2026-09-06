@@ -20,15 +20,13 @@ interface UltraCatalog {
 type BranchSession = Pick<ExtensionContext["sessionManager"], "getBranch">;
 
 const branchUltraState = (session: BranchSession): boolean | undefined => {
-  let enabled: boolean | undefined;
-  for (const entry of session.getBranch()) {
-    if (entry.type === "custom" && entry.customType === ULTRA_STATE) {
-      enabled = Value.Check(UltraStateSchema, entry.data)
-        ? Value.Parse(UltraStateSchema, entry.data).enabled
-        : false;
-    }
+  const entry = session
+    .getBranch()
+    .findLast((entry) => entry.type === "custom" && entry.customType === ULTRA_STATE);
+  if (entry?.type !== "custom") {
+    return undefined;
   }
-  return enabled;
+  return Value.Check(UltraStateSchema, entry.data) ? entry.data.enabled : false;
 };
 
 export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): void => {

@@ -5,8 +5,10 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import type { Static } from "typebox";
 import { Value } from "typebox/value";
+
+import { operationSignal, raceWithAbortSignal } from "#pi-abort";
+import { resolveGrammarConstrainedSampling } from "#pi-constrained-sampling";
 
 import type { CodeModeHostClient } from "./host-client.js";
 import { DEFAULT_CODE_MODE_OUTPUT_TOKENS, MAX_CODE_MODE_OUTPUT_TOKENS } from "./protocol.js";
@@ -23,8 +25,7 @@ import { RuntimeToolTraceSchema } from "./types.js";
 const DEFAULT_WAIT_MS = 10_000;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 const strict = { additionalProperties: false } as const;
-const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
-type JsonRecord = Static<typeof JsonRecordSchema>;
+type JsonRecord = { [key: string]: RuntimeValue };
 
 const EXEC_PARAMETERS = Type.Object({ code: Type.String() }, strict);
 const WAIT_PARAMETERS = Type.Object(
@@ -217,7 +218,7 @@ export class CodeModeRuntime {
 
   private async getClient(signal: AbortSignal | undefined): Promise<CodeModeHostClient> {
     signal?.throwIfAborted();
-    const client = await abortable(this.client.load(), signal);
+    const client = await raceWithAbortSignal(this.client.load(), operationSignal(signal));
     if (client === undefined) {
       throw new Error("Code Mode runtime is stopped");
     }
@@ -228,23 +229,6 @@ export class CodeModeRuntime {
     return this.nestedToolDescriptors.map(toNestedTool);
   }
 }
-
-const abortable = async <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> => {
-  signal?.throwIfAborted();
-  if (signal === undefined) {
-    return await promise;
-  }
-  const aborted = Promise.withResolvers<T>();
-  const onAbort = () => {
-    aborted.reject(signal.reason);
-  };
-  signal.addEventListener("abort", onAbort, { once: true });
-  try {
-    return await Promise.race([promise, aborted.promise]);
-  } finally {
-    signal.removeEventListener("abort", onAbort);
-  }
-};
 
 export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => {
   const { definition, namespace, outputSchema } = descriptor;
@@ -294,26 +278,20 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
 };
 
 const freeformInputProperty = (definition: ToolDefinition): string | undefined => {
-  if (
-    definition.constrainedSampling === undefined ||
-    definition.constrainedSampling === false ||
-    definition.constrainedSampling.type !== "grammar"
-  ) {
+  const grammar = resolveGrammarConstrainedSampling(definition, true);
+  if (grammar === undefined) {
     return undefined;
   }
+  // Code Mode passes only the freeform string, never additional optional arguments.
   const schema = definition.parameters;
-  if (!isRecord(schema) || !isRecord(schema.properties)) {
-    throw new Error(`Grammar-constrained tool ${definition.name} must have one string parameter`);
-  }
-  const properties = Object.entries(schema.properties);
   if (
-    properties.length !== 1 ||
-    !isRecord(properties[0]?.[1]) ||
-    properties[0][1].type !== "string"
+    !isRecord(schema) ||
+    !isRecord(schema.properties) ||
+    Object.keys(schema.properties).length !== 1
   ) {
     throw new Error(`Grammar-constrained tool ${definition.name} must have one string parameter`);
   }
-  return properties[0][0];
+  return grammar.inputProperty;
 };
 
 const codeModeName = (name: string, namespace?: string): string => {
@@ -586,7 +564,8 @@ const renderCodeModeResult = (
   return container;
 };
 
-const isRecord = (value: RuntimeValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
+const isRecord = (value: RuntimeValue): value is JsonRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isRuntimeToolTrace = (value: RuntimeValue): value is RuntimeToolTrace =>
   Value.Check(RuntimeToolTraceSchema, value);

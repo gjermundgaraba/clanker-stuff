@@ -1,3 +1,5 @@
+import { parseArgs } from "node:util";
+
 export type TransportMode = "fallback" | "sse" | "websocket";
 
 export type ParentScenarioKind =
@@ -39,25 +41,32 @@ export type ChildInvocation = {
 export type LiveInvocation = ParentInvocation | ChildInvocation;
 
 const PARENT_FLAGS = [
-  ["--branch", "branch"],
-  ["--capabilities", "capabilities"],
-  ["--real-window", "real-window"],
-  ["--mid-turn", "mid-turn"],
-  ["--soak", "soak"],
-  ["--stream-fault", "stream-fault"],
-  ["--threshold", "threshold"],
-] as const satisfies readonly (readonly [string, ParentScenarioKind])[];
+  "branch",
+  "capabilities",
+  "real-window",
+  "mid-turn",
+  "soak",
+  "stream-fault",
+  "threshold",
+] as const satisfies readonly ParentScenarioKind[];
 
 const CHILD_FLAGS = [
-  ["--branch-child", "branch-child"],
-  ["--restart-child", "restart-child"],
-] as const satisfies readonly (readonly [string, ChildScenarioKind])[];
+  "branch-child",
+  "restart-child",
+] as const satisfies readonly ChildScenarioKind[];
 
 const TRANSPORT_FLAGS = [
-  ["--fallback", "fallback"],
-  ["--sse", "sse"],
-  ["--websocket", "websocket"],
-] as const satisfies readonly (readonly [string, TransportMode])[];
+  "fallback",
+  "sse",
+  "websocket",
+] as const satisfies readonly TransportMode[];
+
+const OPTIONS = Object.fromEntries(
+  [...PARENT_FLAGS, ...CHILD_FLAGS, ...TRANSPORT_FLAGS, "help"].map((flag) => [
+    flag,
+    { type: "boolean" as const },
+  ]),
+);
 
 const assertOption: (condition: boolean, message: string) => asserts condition = (
   condition,
@@ -69,9 +78,9 @@ const assertOption: (condition: boolean, message: string) => asserts condition =
 };
 
 const selected = <Value extends string>(
-  args: readonly string[],
-  choices: readonly (readonly [string, Value])[],
-): Value[] => choices.flatMap(([flag, value]) => (args.includes(flag) ? [value] : []));
+  values: Readonly<Record<string, boolean | undefined>>,
+  choices: readonly Value[],
+): Value[] => choices.filter((flag) => values[flag] === true);
 
 const DEFAULT_ROUNDS = {
   branch: 2,
@@ -106,8 +115,10 @@ export const parseTransport = (value: string): TransportMode => {
   return value;
 };
 
-const parseParentTransport = (args: readonly string[]): TransportMode => {
-  const transports = selected(args, TRANSPORT_FLAGS);
+const parseParentTransport = (
+  values: Readonly<Record<string, boolean | undefined>>,
+): TransportMode => {
+  const transports = selected(values, TRANSPORT_FLAGS);
   assertOption(
     transports.length <= 1,
     "Choose only one transport: --sse, --websocket, or --fallback",
@@ -132,9 +143,23 @@ export const parseLiveInvocation = (
   args: readonly string[],
   environment: Readonly<Record<string, string | undefined>>,
 ): LiveInvocation => {
-  const transport = parseParentTransport(args);
-  const parentKinds = selected(args, PARENT_FLAGS);
-  const childKinds = selected(args, CHILD_FLAGS);
+  const { tokens, values } = parseArgs({
+    allowPositionals: false,
+    args: [...args],
+    options: OPTIONS,
+    strict: true,
+    tokens: true,
+  });
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    if (token.kind === "option") {
+      assertOption(!seen.has(token.name), `Option --${token.name} may only be specified once`);
+      seen.add(token.name);
+    }
+  }
+  const transport = parseParentTransport(values);
+  const parentKinds = selected(values, PARENT_FLAGS);
+  const childKinds = selected(values, CHILD_FLAGS);
   assertOption(
     parentKinds.length <= 1,
     "Choose only one behavior mode: --branch, --capabilities, --real-window, --mid-turn, --soak, --stream-fault, or --threshold",
@@ -165,7 +190,7 @@ export const parseLiveInvocation = (
 
   const kind = parentKinds[0] ?? "standard";
   assertTransportAllowed(kind, transport);
-  const rounds = args.includes("--help")
+  const rounds = values.help
     ? DEFAULT_ROUNDS[kind]
     : positiveInteger(environment, "CODEX_COMPACTION_LIVE_ROUNDS", DEFAULT_ROUNDS[kind]);
   assertOption(allowsOneRound(kind) || rounds >= 2, "Live canary requires at least 2 compactions");
@@ -173,7 +198,7 @@ export const parseLiveInvocation = (
     kind,
     process: "parent",
     rounds,
-    showHelp: args.includes("--help"),
+    showHelp: values.help === true,
     transport,
   };
 };

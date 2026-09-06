@@ -183,6 +183,7 @@ describe("codex-provider package", () => {
         "package/replay.ts",
         "package/runtime.ts",
         "package/skill-catalog.ts",
+        "package/sse.ts",
         "package/status.ts",
         "package/tools/controller.ts",
         "package/tools/direct.ts",

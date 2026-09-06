@@ -11,6 +11,7 @@ const CAPABILITY_FIELDS = [
   "support_verbosity",
   "supports_parallel_tool_calls",
 ] as const;
+const WINDOW_FIELDS = ["auto_compact_token_limit", "context_window", "max_context_window"] as const;
 
 const remoteModel = {
   display_name: "Boundary model",
@@ -259,6 +260,132 @@ describe("Codex model catalog", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, null, false, true, "true", 1])(
+    "preserves native metadata and normalizes null defaults with use_responses_lite=%s",
+    async (useResponsesLite) => {
+      const nativeMetadata = {
+        ...remoteModel,
+        auto_compact_token_limit: null,
+        context_window: null,
+        default_reasoning_summary: "future_summary",
+        default_service_tier: null,
+        default_verbosity: "future_verbosity",
+        effective_context_window_percent: null,
+        max_context_window: null,
+        multi_agent_reasoning_effort: "future_effort",
+        multi_agent_version: "future_version",
+        service_tiers: [null, { id: "future_tier", future_field: true }],
+        supported_reasoning_levels: [null, "future_effort", { effort: "future_effort", rank: 1 }],
+        tool_mode: "future_mode",
+        use_responses_lite: useResponsesLite,
+      };
+      const stored = await fetchStoredCatalog([nativeMetadata]);
+      const expectedMetadata = {
+        ...nativeMetadata,
+        auto_compact_token_limit: undefined,
+        context_window: undefined,
+        effective_context_window_percent: 95,
+        max_context_window: undefined,
+        tool_mode: undefined,
+        use_responses_lite: useResponsesLite === true,
+      };
+      expect(stored.models[0]).toMatchObject({ codexProviderMetadata: expectedMetadata });
+
+      const catalog = createCodexModelCatalog();
+      await catalog.refreshModels(
+        refreshContext(async (publication) => {
+          publication.update?.();
+          return true;
+        }, stored),
+      );
+      expect(catalog.getModelMetadata(remoteModel.slug)).toMatchObject(expectedMetadata);
+    },
+  );
+
+  it.each([
+    { payload: null, message: "Codex model response is malformed" },
+    { payload: { models: {} }, message: "Codex model response is malformed" },
+    { payload: { models: [null] }, message: "Codex model metadata must be an object" },
+    { payload: { models: [[]] }, message: "Codex model metadata must be an object" },
+    ...["display_name", "slug", "visibility"].flatMap((field) => [
+      {
+        payload: { models: [{ ...remoteModel, [field]: 1 }] },
+        message: "Codex model metadata must be an object",
+      },
+      ...[undefined, ""].map((value) => ({
+        payload: { models: [{ ...remoteModel, [field]: value }] },
+        message: `Codex model metadata ${field} is invalid`,
+      })),
+    ]),
+  ])("preserves entry-boundary errors: $message ($payload)", async ({ payload, message }) => {
+    const catalog = createCodexModelCatalog();
+    vi.stubGlobal("fetch", async () => Response.json(payload));
+    const publish = vi.fn<RefreshModelsContext["publish"]>();
+    const refreshing = catalog.refreshModels(refreshContext(publish));
+    await expect(refreshing).rejects.toMatchObject({ message, name: "Error" });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ...WINDOW_FIELDS.flatMap((field) =>
+      [-1, 1.5, Number.MAX_SAFE_INTEGER + 1].map((value) => ({
+        field,
+        value,
+        message: `Codex model metadata ${field} is invalid`,
+        name: "Error",
+      })),
+    ),
+    ...[0, 101, 1.5].map((value) => ({
+      field: "effective_context_window_percent",
+      value,
+      message: "Codex model effective context percentage is invalid",
+      name: "Error",
+    })),
+    ...[1.5, Number.MAX_SAFE_INTEGER + 1].map((value) => ({
+      field: "priority",
+      value,
+      message: "Codex model metadata capabilities are invalid",
+      name: "TypeError",
+    })),
+    ...[-1, 1.5, Number.MAX_SAFE_INTEGER + 1].map((limit) => ({
+      field: "truncation_policy",
+      value: { mode: "tokens", limit },
+      message: "Codex model truncation policy is invalid",
+      name: "Error",
+    })),
+    {
+      field: "truncation_policy",
+      value: { mode: "future_mode", limit: 0 },
+      message: "Codex model truncation policy is invalid",
+      name: "Error",
+    },
+  ])("preserves numeric validation for $field=$value", async ({ field, value, message, name }) => {
+    const catalog = createCodexModelCatalog();
+    vi.stubGlobal("fetch", async () =>
+      Response.json({ models: [{ ...remoteModel, [field]: value }] }),
+    );
+    const publish = vi.fn<RefreshModelsContext["publish"]>();
+    await expect(catalog.refreshModels(refreshContext(publish))).rejects.toMatchObject({
+      message,
+      name,
+    });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it.each([0, Number.MAX_SAFE_INTEGER])("accepts safe integer limits of %s", async (limit) => {
+    const metadata = {
+      ...remoteModel,
+      auto_compact_token_limit: limit,
+      context_window: limit,
+      effective_context_window_percent: limit === 0 ? 1 : 100,
+      max_context_window: limit,
+      priority: limit === 0 ? Number.MIN_SAFE_INTEGER : limit,
+      truncation_policy: { mode: "tokens", limit },
+    };
+    const stored = await fetchStoredCatalog([metadata]);
+    expect(stored.models[0]).toMatchObject({ codexProviderMetadata: metadata });
+  });
+
   it.each(CAPABILITY_FIELDS)("rejects non-boolean remote %s metadata", async (field) => {
     const catalog = createCodexModelCatalog();
     vi.stubGlobal("fetch", async () =>
@@ -272,7 +399,10 @@ describe("Codex model catalog", () => {
           return true;
         }),
       ),
-    ).rejects.toThrow("Codex model metadata capabilities are invalid");
+    ).rejects.toMatchObject({
+      message: "Codex model metadata capabilities are invalid",
+      name: "TypeError",
+    });
     expect(catalog.getModels().some((model) => model.id === remoteModel.slug)).toBeFalsy();
   });
 

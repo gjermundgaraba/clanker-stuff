@@ -117,6 +117,39 @@ describe("live multi-compaction options", () => {
     });
   });
 
+  it.each([
+    [["--typo"], "Unknown option"],
+    [["--help", "--typo"], "Unknown option"],
+    [["branch"], "Unexpected argument"],
+    [["--sse", "websocket"], "Unexpected argument"],
+    [["--sse=true"], "does not take an argument"],
+    [["--", "--help"], "Unexpected argument"],
+    [["--branch", "--", "--soak"], "Unexpected argument"],
+  ] as const)("rejects invalid arguments %j before running a canary", (args, message) => {
+    expect(() => parse(args)).toThrow(message);
+  });
+
+  it.each(["--branch", "--branch-child", "--sse", "--help"])(
+    "rejects duplicate %s options",
+    (flag) => {
+      expect(() => parse([flag, flag])).toThrow(`Option ${flag} may only be specified once`);
+    },
+  );
+
+  it("honors the option terminator without treating later arguments as flags", () => {
+    expect(parse(["--"])).toStrictEqual(parse([]));
+    expect(parse(["--branch", "--help", "--"])).toStrictEqual(parse(["--branch", "--help"]));
+  });
+
+  it.each([
+    ["--branch-child", "CODEX_COMPACTION_BRANCH_TRANSPORT"],
+    ["--restart-child", "CODEX_COMPACTION_RESTART_TRANSPORT"],
+  ] as const)("requires a valid transport environment for %s", (flag, name) => {
+    expect(() => parse([flag])).toThrow(`${name} is required`);
+    expect(() => parse([flag], { [name]: "" })).toThrow(`${name} is required`);
+    expect(() => parse([flag], { [name]: "auto" })).toThrow("Unknown transport mode: auto");
+  });
+
   it("validates transport values and retains mid-turn real-window semantics", () => {
     expect(() => parseTransport("auto")).toThrow("Unknown transport mode: auto");
     expect(usesRealWindow("mid-turn")).toBeTruthy();

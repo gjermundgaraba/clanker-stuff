@@ -1,37 +1,9 @@
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
-import { Type } from "typebox";
-import { Value } from "typebox/value";
-
 import type { RuntimeToolResult, RuntimeToolTrace, RuntimeValue } from "./types.js";
 
 const MAX_TRACE_TEXT_CHARS = 32_768;
 const MAX_TRACE_DETAILS_CHARS = 65_536;
 const MAX_SERIALIZED_NODES = 4096;
-
-const UnknownArraySchema = Type.Array(Type.Unknown());
-const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
-const BooleanValueSchema = Type.Boolean();
-const NumberValueSchema = Type.Number();
-const StringValueSchema = Type.String();
-const FunctionValueSchema = Type.Function([], Type.Unknown());
-const BigIntValueSchema = Type.BigInt();
-const SymbolValueSchema = Type.Symbol();
-
-const isUnknownArray = (value: RuntimeValue): value is RuntimeValue[] => {
-  try {
-    return Value.Check(UnknownArraySchema, value);
-  } catch {
-    return false;
-  }
-};
-
-const isUnknownRecord = (value: RuntimeValue): value is { [key: string]: RuntimeValue } => {
-  try {
-    return Value.Check(UnknownRecordSchema, value);
-  } catch {
-    return false;
-  }
-};
 
 type SanitizedValue =
   | boolean
@@ -46,9 +18,10 @@ export function toolResultFromValue(value: RuntimeValue): RuntimeToolResult {
   return {
     content: [
       {
-        text: Value.Check(StringValueSchema, value)
-          ? value
-          : safeStringify(value, "(non-serializable tool result)"),
+        text:
+          typeof value === "string"
+            ? value
+            : safeStringify(value, "(non-serializable tool result)"),
         type: "text",
       },
     ],
@@ -142,21 +115,17 @@ function sanitizeValue(value: RuntimeValue, budget: SerializationBudget): Saniti
   }
   budget.nodesRemaining = nodesRemaining - 1;
   budget.remaining = Math.max(0, budget.remaining - 1);
-  if (value === null || value === undefined || Value.Check(BooleanValueSchema, value)) {
+  if (value === null || value === undefined || typeof value === "boolean") {
     return value;
   }
-  if (Value.Check(NumberValueSchema, value)) {
+  if (typeof value === "number" && Number.isFinite(value)) {
     budget.remaining = Math.max(0, budget.remaining - 8);
-    return Number.isFinite(value) ? value : String(value);
+    return value;
   }
-  if (
-    Value.Check(BigIntValueSchema, value) ||
-    Value.Check(SymbolValueSchema, value) ||
-    Value.Check(FunctionValueSchema, value)
-  ) {
+  if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function") {
     return sanitizeValue(String(value), budget);
   }
-  if (Value.Check(StringValueSchema, value)) {
+  if (typeof value === "string") {
     const available = Math.max(0, budget.remaining);
     budget.remaining -= Math.min(value.length, available);
     return value.length <= available
@@ -170,53 +139,43 @@ function sanitizeValue(value: RuntimeValue, budget: SerializationBudget): Saniti
     if (value instanceof Date) {
       return value.toISOString();
     }
-  } catch {
-    return "[unavailable object]";
-  }
-  const seen = budget.seen ?? new WeakSet<object>();
-  try {
+    if (typeof value !== "object") {
+      return "[unavailable object]";
+    }
+    const seen = budget.seen ?? new WeakSet<object>();
     if (seen.has(value)) {
       return "[circular]";
     }
     seen.add(value);
-  } catch {
-    return "[unavailable object]";
-  }
-  const childBudget = { ...budget, depth: depth + 1, seen };
-  if (isUnknownArray(value)) {
-    const output: SanitizedValue[] = [];
-    for (const item of value) {
+    const childBudget = { ...budget, depth: depth + 1, seen };
+    if (Array.isArray(value)) {
+      const output: SanitizedValue[] = [];
+      for (const item of value) {
+        if (budget.remaining <= 0) {
+          output.push("[values omitted]");
+          break;
+        }
+        output.push(sanitizeValue(item, childBudget));
+        budget.remaining = childBudget.remaining;
+        budget.nodesRemaining = childBudget.nodesRemaining ?? 0;
+      }
+      return output;
+    }
+    const output: { [key: string]: SanitizedValue } = {};
+    for (const [key, entry] of Object.entries(value)) {
       if (budget.remaining <= 0) {
-        output.push("[values omitted]");
+        output.trace_truncated = true;
         break;
       }
-      output.push(sanitizeValue(item, childBudget));
+      childBudget.remaining = Math.max(0, childBudget.remaining - key.length - 1);
+      output[key] = sanitizeValue(entry, childBudget);
       budget.remaining = childBudget.remaining;
       budget.nodesRemaining = childBudget.nodesRemaining ?? 0;
     }
     return output;
-  }
-  if (!isUnknownRecord(value)) {
-    return "[unavailable object]";
-  }
-  const output: { [key: string]: SanitizedValue } = {};
-  let entries: [string, RuntimeValue][];
-  try {
-    entries = Object.entries(value);
   } catch {
     return "[unavailable object]";
   }
-  for (const [key, entry] of entries) {
-    if (budget.remaining <= 0) {
-      output.trace_truncated = true;
-      break;
-    }
-    childBudget.remaining = Math.max(0, childBudget.remaining - key.length - 1);
-    output[key] = sanitizeValue(entry, childBudget);
-    budget.remaining = childBudget.remaining;
-    budget.nodesRemaining = childBudget.nodesRemaining ?? 0;
-  }
-  return output;
 }
 
 function cloneRuntimeToolResult(result: RuntimeToolResult): RuntimeToolResult {

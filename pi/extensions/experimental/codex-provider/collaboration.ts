@@ -141,8 +141,8 @@ const namespaceTools = (
     return [...tools];
   }
   const presentSet = new Set(present);
-  const completeV1 = [...V1_NAMES].every((name) => presentSet.has(name));
-  const completeV2 = [...V2_NAMES].every((name) => presentSet.has(name));
+  const completeV1 = V1_NAMES.isSubsetOf(presentSet);
+  const completeV2 = V2_NAMES.isSubsetOf(presentSet);
   if (contract === undefined) {
     if (completeV1 || completeV2) {
       throw new Error("Codex collaboration tools are active without a matching session contract");

@@ -17,6 +17,28 @@ describe("live stream-fault probe", () => {
     }
   });
 
+  it("observes multiline SSE failures across byte and CRLF boundaries without consuming the response", async () => {
+    const body =
+      ': heartbeat\r\ndata:{"type":"response.failed",\r\ndata: "response":{"error":{"code":"€_failure"}}}\r\n\r\ndata: [DONE]\r\n\r\n';
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (const byte of Buffer.from(body)) {
+              controller.enqueue(new Uint8Array([byte]));
+            }
+            controller.close();
+          },
+        }),
+      );
+    const probe = installTransportProbe("sse", true);
+
+    const response = await fetch("https://api.openai.com/v1/responses");
+
+    expect(await response.text()).toBe(body);
+    await expect(probe.failures()).resolves.toStrictEqual(["€_failure"]);
+  });
+
   it("cancels the faulted response independently while observing ordinary failures", async () => {
     let cancelled = false;
     let request = 0;

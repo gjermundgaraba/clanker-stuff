@@ -5,7 +5,6 @@ import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createReadToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Value } from "typebox/value";
 
 import { resolvePath } from "./path.js";
 import type { ProcessManager, ProcessResult } from "./process.js";
@@ -13,7 +12,6 @@ import type { ProcessManager, ProcessResult } from "./process.js";
 const strict = { additionalProperties: false } as const;
 const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
 const CODE_MODE_OUTPUT_TOKEN_LIMIT = (1024 * 1024) / 4;
-const NumberSchema = Type.Number();
 
 export const CODEX_MODEL_IDS = new Set([
   "gpt-5.6-sol",
@@ -213,9 +211,7 @@ const outputTokenPolicy = (ctx: Pick<ExtensionContext, "model" | "modelRegistry"
     model !== undefined && "codexOutputTokenLimit" in model
       ? model.codexOutputTokenLimit
       : undefined;
-  return Value.Check(NumberSchema, configured) &&
-    Number.isSafeInteger(configured) &&
-    configured >= 0
+  return typeof configured === "number" && Number.isSafeInteger(configured) && configured >= 0
     ? configured
     : DEFAULT_OUTPUT_TOKEN_LIMIT;
 };

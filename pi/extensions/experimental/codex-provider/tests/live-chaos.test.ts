@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { RpcClient } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -28,13 +29,14 @@ const watch = (
   child: FakeChild,
   stdout: PassThrough,
   find: (root: string) => Promise<object | undefined>,
+  timeoutMs = 1000,
 ) =>
   waitForCrashCheckpoint({
     child,
     find,
     pollIntervalMs: 10,
     stdout,
-    timeoutMs: 100,
+    timeoutMs,
   });
 
 const captureError = async (promise: Promise<unknown>) => {
@@ -85,7 +87,6 @@ describe("live chaos infrastructure", () => {
   });
 
   it("waits for a complete artifact line before polling", async () => {
-    vi.useFakeTimers();
     const child = new FakeChild();
     const stdout = new PassThrough();
     const find = vi.fn<(root: string) => Promise<object | undefined>>(async () => ({
@@ -94,11 +95,10 @@ describe("live chaos infrastructure", () => {
     const result = watch(child, stdout, find);
 
     stdout.write("Live artifacts: /tmp/part");
-    await vi.advanceTimersByTimeAsync(10);
+    await delay(20);
     expect(find).not.toHaveBeenCalled();
 
     stdout.write("ial\n");
-    await vi.advanceTimersByTimeAsync(10);
     await expect(result).resolves.toStrictEqual({
       killed: true,
       root: "/tmp/partial",
@@ -107,7 +107,6 @@ describe("live chaos infrastructure", () => {
   });
 
   it("propagates polling errors and stops all later polling", async () => {
-    vi.useFakeTimers();
     const child = new FakeChild();
     const stdout = new PassThrough();
     const find = vi
@@ -117,18 +116,16 @@ describe("live chaos infrastructure", () => {
     const rejection = captureError(result);
 
     stdout.write("Live artifacts: /tmp/artifacts\n");
-    await vi.advanceTimersByTimeAsync(10);
     await expect(rejection).resolves.toMatchObject({
       message: "unreadable session",
     });
-    await vi.advanceTimersByTimeAsync(1000);
+    await delay(120);
 
     expect(find).toHaveBeenCalledOnce();
     expect(child.signals).toStrictEqual(["SIGKILL"]);
   });
 
   it("cleans up polling and timeout work after a spawn error", async () => {
-    vi.useFakeTimers();
     const child = new FakeChild();
     const stdout = new PassThrough();
     const find = vi.fn<(root: string) => Promise<object | undefined>>(async () => {});
@@ -137,10 +134,107 @@ describe("live chaos infrastructure", () => {
 
     child.emit("error", new Error("spawn failed"));
     await expect(rejection).resolves.toMatchObject({ message: "spawn failed" });
-    await vi.advanceTimersByTimeAsync(1000);
+    await delay(120);
 
     expect(find).not.toHaveBeenCalled();
     expect(child.signals).toStrictEqual(["SIGKILL"]);
+  });
+
+  it.each([undefined, { checkpoint: true }])(
+    "does not resume polling or kill an exited child after a pending lookup returns %j",
+    async (checkpoint) => {
+      const child = new FakeChild();
+      const stdout = new PassThrough();
+      const lookup = Promise.withResolvers<object | undefined>();
+      const lookupStarted = Promise.withResolvers<void>();
+      const find = vi.fn<(root: string) => Promise<object | undefined>>(() => {
+        lookupStarted.resolve();
+        return lookup.promise;
+      });
+      const result = watch(child, stdout, find);
+
+      stdout.write("Live artifacts: /tmp/artifacts\n");
+      await lookupStarted.promise;
+      expect(find).toHaveBeenCalledOnce();
+      child.emit("exit", 0, null);
+      lookup.resolve(checkpoint);
+      await expect(result).resolves.toStrictEqual({ killed: false, root: "/tmp/artifacts" });
+      await delay(120);
+
+      expect(find).toHaveBeenCalledOnce();
+      expect(child.signals).toStrictEqual([]);
+      expect(child.listenerCount("exit")).toBe(0);
+      expect(child.listenerCount("error")).toBe(0);
+      expect(stdout.listenerCount("data")).toBe(0);
+    },
+  );
+
+  it("consumes a pending lookup rejection after the child has exited", async () => {
+    const child = new FakeChild();
+    const stdout = new PassThrough();
+    const lookup = Promise.withResolvers<object | undefined>();
+    const lookupStarted = Promise.withResolvers<void>();
+    const find = vi.fn<(root: string) => Promise<object | undefined>>(() => {
+      lookupStarted.resolve();
+      return lookup.promise;
+    });
+    const result = watch(child, stdout, find);
+
+    stdout.write("Live artifacts: /tmp/artifacts\n");
+    await lookupStarted.promise;
+    expect(find).toHaveBeenCalledOnce();
+    child.emit("exit", 0, null);
+    lookup.reject(new Error("late lookup failure"));
+    await expect(result).resolves.toMatchObject({ killed: false });
+    await delay(120);
+
+    expect(child.signals).toStrictEqual([]);
+    expect(find).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a child error when a checkpoint lookup completes in the same turn", async () => {
+    const child = new FakeChild();
+    const stdout = new PassThrough();
+    const lookup = Promise.withResolvers<object | undefined>();
+    const lookupStarted = Promise.withResolvers<void>();
+    const find = vi.fn<(root: string) => Promise<object | undefined>>(() => {
+      lookupStarted.resolve();
+      return lookup.promise;
+    });
+    const rejection = captureError(watch(child, stdout, find));
+    const failure = new Error("child failed");
+
+    stdout.write("Live artifacts: /tmp/artifacts\n");
+    await lookupStarted.promise;
+    child.emit("error", failure);
+    lookup.resolve({ checkpoint: true });
+
+    await expect(rejection).resolves.toBe(failure);
+    await delay(120);
+    expect(child.signals).toStrictEqual(["SIGKILL"]);
+    expect(find).toHaveBeenCalledOnce();
+    expect(child.listenerCount("exit")).toBe(0);
+    expect(child.listenerCount("error")).toBe(0);
+  });
+
+  it("bounds a stalled checkpoint lookup and does not kill again when it completes", async () => {
+    const child = new FakeChild();
+    const stdout = new PassThrough();
+    const lookup = Promise.withResolvers<object | undefined>();
+    const find = vi.fn<(root: string) => Promise<object | undefined>>(() => lookup.promise);
+    const rejection = captureError(watch(child, stdout, find, 100));
+
+    stdout.write("Live artifacts: /tmp/artifacts\n");
+    await expect(rejection).resolves.toMatchObject({
+      message: "Crash canary did not persist a checkpoint within 100ms",
+    });
+    lookup.resolve({ checkpoint: true });
+    await delay(120);
+
+    expect(child.signals).toStrictEqual(["SIGKILL"]);
+    expect(find).toHaveBeenCalledOnce();
+    expect(child.listenerCount("exit")).toBe(0);
+    expect(child.listenerCount("error")).toBe(0);
   });
 
   it("removes copied auth while retaining diagnostic artifacts", async () => {

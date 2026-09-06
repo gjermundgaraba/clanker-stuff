@@ -356,6 +356,28 @@ describe("Codex direct tools", () => {
     expect(result.details).toMatchObject({ effectiveMaxOutputTokens: 0 });
   });
 
+  it.each([NaN, Infinity, -Infinity, -1, 0.5, Number.MAX_SAFE_INTEGER + 1])(
+    "falls back to the default output policy for invalid numeric limit %s",
+    async (limit) => {
+      const direct = createCodexDirectTools();
+      const host = createExtensionHost((pi) => {
+        for (const definition of direct.definitions) {
+          pi.registerTool(definition);
+        }
+      });
+      const ctx = host.createContext({ model: createPolicyModel(limit) });
+
+      const result = await host.runTool(
+        "exec_command",
+        { cmd: "default policy", max_output_tokens: 100_000 },
+        ctx,
+      );
+      await direct.dispose();
+
+      expect(result.details).toMatchObject({ effectiveMaxOutputTokens: 10_000 });
+    },
+  );
+
   it("builds the distinct process result only for nested Code Mode calls", async () => {
     processManager.start.mockResolvedValueOnce({
       durationMs: 1000,

@@ -212,6 +212,34 @@ describe("Codex code mode", () => {
     }).toStrictEqual({ execute: 1, factory: 1, shutdown: 1 });
   });
 
+  it("does not start a client for an already-aborted caller", async () => {
+    const stub = createHostClientStub();
+    const factory = vi.fn(async () => stub.client);
+    const runtime = new CodeModeRuntime({ createClient: factory });
+    const controller = new AbortController();
+    const reason = new Error("cancelled before startup");
+    controller.abort(reason);
+
+    await expect(executeCode(runtime, controller.signal)).rejects.toBe(reason);
+    expect(factory).not.toHaveBeenCalled();
+    await runtime.shutdown();
+  });
+
+  it("observes startup failures after a caller aborts", async () => {
+    const starting = Promise.withResolvers<CodeModeHostClient>();
+    const runtime = new CodeModeRuntime({ createClient: async () => starting.promise });
+    const controller = new AbortController();
+    const execution = executeCode(runtime, controller.signal);
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+
+    controller.abort();
+    await expect(execution).rejects.toMatchObject({ name: "AbortError" });
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+
+    starting.reject(new Error("late startup failure"));
+    await runtime.shutdown();
+  });
+
   it("retries client creation after a startup failure", async () => {
     const retry = createHostClientStub();
     const retryFactory = vi
@@ -467,6 +495,65 @@ describe("Codex code mode", () => {
     );
   });
 
+  it.each([
+    { label: "an optional input", parameters: Type.Object({ code: Type.Optional(Type.String()) }) },
+    { label: "a non-string input", parameters: Type.Object({ code: Type.Number() }) },
+    {
+      label: "multiple required inputs",
+      parameters: Type.Object({ code: Type.String(), extra: Type.String() }),
+    },
+    {
+      label: "an additional optional input",
+      parameters: Type.Object({ code: Type.String(), extra: Type.Optional(Type.String()) }),
+    },
+  ])("rejects freeform tools with $label", ({ parameters }) => {
+    expect(() =>
+      toNestedTool({
+        definition: {
+          constrainedSampling: { type: "grammar", variants: { openai_lark: "start: /.+/" } },
+          description: "test",
+          execute: async () => ({ content: [], details: {} }),
+          label: "Test",
+          name: "test",
+          parameters,
+        },
+      }),
+    ).toThrow(/[Gg]rammar/);
+  });
+
+  it.each([{}, { openai_lark: "" }, { openai_lark: " \n\t" }, { openai_regex: "" }])(
+    "rejects freeform tools without a nonempty supported grammar: %j",
+    (variants) => {
+      expect(() =>
+        toNestedTool({
+          definition: {
+            constrainedSampling: { type: "grammar", variants },
+            description: "test",
+            execute: async () => ({ content: [], details: {} }),
+            label: "Test",
+            name: "test",
+            parameters: Type.Object({ code: Type.String() }),
+          },
+        }),
+      ).toThrow("no supported grammar variant was provided");
+    },
+  );
+
+  it("accepts a supported regex grammar for freeform calls", () => {
+    const nested = toNestedTool({
+      definition: {
+        constrainedSampling: { type: "grammar", variants: { openai_regex: ".+" } },
+        description: "test",
+        execute: async () => ({ content: [], details: {} }),
+        label: "Test",
+        name: "test",
+        parameters: Type.Object({ code: Type.String() }),
+      },
+    });
+
+    expect(toWireToolDefinition(nested)).toMatchObject({ input_schema: null, kind: "freeform" });
+  });
+
   it("rejects text returned by nested view_image", async () => {
     const nested = toNestedTool({
       definition: {
@@ -582,5 +669,56 @@ describe("Codex code mode", () => {
     );
 
     expect(sanitizeTraceInput(hostile, 100)).toBe("[unavailable object]");
+  });
+
+  it("contains hostile object getters, array accessors, and revoked proxies", () => {
+    const hostileGetter = {
+      get value() {
+        throw new Error("hostile getter");
+      },
+    };
+    const hostileArray = new Proxy([1], {
+      get: () => {
+        throw new Error("hostile array accessor");
+      },
+    });
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+
+    for (const value of [hostileGetter, hostileArray, revoked.proxy]) {
+      expect(sanitizeTraceInput(value, 100)).toBe("[unavailable object]");
+    }
+  });
+
+  it.each([NaN, Infinity, -Infinity])("preserves trace rejection of non-finite %s", (value) => {
+    expect(sanitizeTraceInput(value, 100)).toBe("[unavailable object]");
+  });
+
+  it("preserves trace primitives, dates, circular references, and value budgets", () => {
+    const primitives = [null, undefined, true, false, 0, -0, 1.5, "text"];
+    expect(sanitizeTraceInput(primitives, 100)).toStrictEqual(primitives);
+    expect(sanitizeTraceInput([1n, Symbol("test")], 100)).toStrictEqual(["1", "Symbol(test)"]);
+    expect(sanitizeTraceInput(new Date("2026-01-01"), 100)).toBe("2026-01-01T00:00:00.000Z");
+    const circular: unknown[] = [];
+    circular.push(circular);
+    expect(sanitizeTraceInput(circular, 100)).toStrictEqual(["[circular]"]);
+    expect(sanitizeTraceInput("text", 0)).toBe("[value limit]");
+    expect(sanitizeTraceInput("a".repeat(100), 30)).toBe("aaaaaaaa[value truncated]");
+    expect(sanitizeTraceInput([1, 2], 2)).toStrictEqual([1, "[values omitted]"]);
+    expect(sanitizeTraceInput({ first: 1, second: 2 }, 2)).toStrictEqual({
+      first: "[value limit]",
+      trace_truncated: true,
+    });
+    let deep: unknown[] = [];
+    for (let i = 0; i < 13; i += 1) {
+      deep = [deep];
+    }
+    expect(JSON.stringify(sanitizeTraceInput(deep, 100))).toContain("[depth limit]");
+    const manyNodes = Array.from({ length: 4097 }, () => null);
+    const sanitized = sanitizeTraceInput(manyNodes, 100_000);
+    if (!Array.isArray(sanitized)) {
+      throw new Error("Expected a sanitized array");
+    }
+    expect(sanitized.slice(-2)).toStrictEqual(["[value limit]", "[value limit]"]);
   });
 });

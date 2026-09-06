@@ -106,11 +106,10 @@ export class CodexObservability {
         if (!Value.Check(ObservationRowSchema, row)) {
           throw new TypeError("SQLite returned an invalid observation row");
         }
-        const parsed = Value.Parse(ObservationRowSchema, row);
         return {
-          data: JSON.parse(parsed.data),
-          kind: parsed.kind,
-          timestamp: parsed.timestamp,
+          data: JSON.parse(row.data),
+          kind: row.kind,
+          timestamp: row.timestamp,
         };
       });
     } catch (error) {

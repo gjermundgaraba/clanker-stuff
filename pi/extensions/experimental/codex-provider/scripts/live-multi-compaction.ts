@@ -28,6 +28,7 @@ import { Value } from "typebox/value";
 
 import type { Checkpoint } from "../checkpoint.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
+import { parseSseEvents } from "../sse.js";
 import type {
   ChildInvocation,
   ParentInvocation,
@@ -216,16 +217,8 @@ export const installTransportProbe = (
   const responses: string[] = [];
   const requests: { readonly body?: string; readonly pathname: string }[] = [];
   const observeFailures = async (response: Response) => {
-    const body = await response.clone().text();
-    for (const line of body.split("\n")) {
-      if (!line.startsWith("data: ")) {
-        continue;
-      }
-      try {
-        const value: WireValue = JSON.parse(line.slice(6));
-        if (!isRecord(value) || !Value.Check(StringValueSchema, value.type)) {
-          continue;
-        }
+    try {
+      for await (const value of parseSseEvents(response.clone())) {
         const responseValue = isRecord(value.response) ? value.response : undefined;
         if (value.type !== "response.failed") {
           continue;
@@ -234,9 +227,9 @@ export const installTransportProbe = (
         failures.push(
           Value.Check(StringValueSchema, errorValue?.code) ? errorValue.code : "response.failed",
         );
-      } catch {
-        // The provider owns strict response parsing.
       }
+    } catch {
+      // The provider owns strict response parsing; observation is best-effort.
     }
   };
   let sseRequests = 0;

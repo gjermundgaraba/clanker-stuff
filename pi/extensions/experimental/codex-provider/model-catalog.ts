@@ -64,8 +64,13 @@ const CODEX_PI_REASONING_LEVELS: ReadonlyMap<string, ModelThinkingLevel> = new M
 );
 const ReasoningEffortInputSchema = Type.Unknown();
 type ReasoningEffortInput = Static<typeof ReasoningEffortInputSchema>;
-const BooleanValueSchema = Type.Boolean();
-const ReasoningEffortStringSchema = Type.String();
+const ModelsPayloadSchema = Type.Object({ models: Type.Array(Type.Unknown()) });
+// Keep the entry boundary permissive for native fields not interpreted by this provider.
+const ModelEntrySchema = Type.Object({
+  display_name: Type.Optional(Type.String()),
+  slug: Type.Optional(Type.String()),
+  visibility: Type.Optional(Type.String()),
+});
 const ModelMessagesSchema = Type.Union([
   Type.Object({
     multi_agent: Type.Optional(
@@ -91,7 +96,7 @@ const ModelMessagesSchema = Type.Union([
 export const isCodexWireReasoningEffort = (
   value: ReasoningEffortInput,
 ): value is CodexWireReasoningEffort =>
-  Value.Check(ReasoningEffortStringSchema, value) && CODEX_PI_REASONING_LEVELS.has(value);
+  typeof value === "string" && CODEX_PI_REASONING_LEVELS.has(value);
 
 const storedApiKeyAuth: ApiKeyAuth = {
   name: "OpenAI Codex access token",
@@ -119,7 +124,7 @@ export type CodexModelMessages = Static<typeof ModelMessagesSchema>;
 
 export type CodexToolMode = "direct" | "code_mode" | "code_mode_only";
 
-export interface CodexModelMetadataWire {
+export interface CodexModelMetadataWire extends Readonly<Static<typeof ModelEntrySchema>> {
   readonly auto_compact_token_limit?: number | null;
   readonly base_instructions?: string;
   readonly comp_hash?: string;
@@ -128,7 +133,6 @@ export interface CodexModelMetadataWire {
   readonly default_reasoning_summary?: "auto" | "concise" | "detailed" | "none";
   readonly default_service_tier?: string;
   readonly default_verbosity?: "high" | "low" | "medium";
-  readonly display_name?: string;
   readonly effective_context_window_percent?: number | null;
   readonly input_modalities?: readonly string[];
   readonly max_context_window?: number | null;
@@ -137,7 +141,6 @@ export interface CodexModelMetadataWire {
   readonly multi_agent_version?: string | null;
   readonly priority?: number;
   readonly service_tiers?: readonly (CodexModelServiceTier | null)[];
-  readonly slug?: string;
   readonly supported_in_api?: boolean;
   readonly supported_reasoning_levels?: readonly (string | CodexModelReasoningLevel | null)[];
   readonly support_verbosity?: boolean;
@@ -149,37 +152,19 @@ export interface CodexModelMetadataWire {
   };
   readonly tool_mode?: string | null;
   readonly use_responses_lite?: boolean | null;
-  readonly visibility?: string;
 }
 
-export interface CodexModelMetadata {
+export interface CodexModelMetadata extends CodexModelMetadataWire {
   readonly auto_compact_token_limit?: number;
-  readonly base_instructions?: string;
-  readonly comp_hash?: string;
   readonly context_window?: number;
-  readonly default_reasoning_level?: string;
-  readonly default_reasoning_summary?: "auto" | "concise" | "detailed" | "none";
-  readonly default_service_tier?: string;
-  readonly default_verbosity?: "high" | "low" | "medium";
   readonly display_name: string;
   readonly effective_context_window_percent: number;
-  readonly input_modalities?: readonly string[];
   readonly max_context_window?: number;
-  readonly model_messages?: CodexModelMessages;
-  readonly multi_agent_reasoning_effort?: string | null;
-  readonly multi_agent_version?: string | null;
   readonly priority: number;
-  readonly service_tiers?: readonly (CodexModelServiceTier | null)[];
   readonly slug: string;
   readonly supported_in_api: boolean;
-  readonly supported_reasoning_levels?: readonly (string | CodexModelReasoningLevel | null)[];
   readonly support_verbosity: boolean;
-  readonly supports_reasoning_summary_parameter?: boolean;
   readonly supports_parallel_tool_calls: boolean;
-  readonly truncation_policy?: {
-    readonly limit: number;
-    readonly mode: "bytes" | "tokens";
-  };
   readonly tool_mode?: CodexToolMode;
   readonly use_responses_lite: boolean;
   readonly visibility: string;
@@ -322,8 +307,7 @@ const extractAccountId = (token: string): string => {
     if (!Value.Check(TokenPayloadSchema, payload)) {
       throw new Error("invalid token payload");
     }
-    return Value.Parse(TokenPayloadSchema, payload)["https://api.openai.com/auth"]
-      .chatgpt_account_id;
+    return payload["https://api.openai.com/auth"].chatgpt_account_id;
   } catch {
     throw new Error("Failed to extract accountId from OpenAI credential");
   }
@@ -363,7 +347,7 @@ export const createCodexHeaders = (
 
 const reasoningLevels = (metadata: CodexModelMetadata) =>
   (metadata.supported_reasoning_levels ?? []).flatMap((value) => {
-    if (Value.Check(ReasoningEffortStringSchema, value)) {
+    if (typeof value === "string") {
       return [value];
     }
     return value?.effort === undefined ? [] : [value.effort];
@@ -392,7 +376,7 @@ const ultraSettings = (
     configuredLevel ?? (representable.includes("max") ? "max" : (representable.at(-1) ?? "medium"));
   const mode = metadata.model_messages?.multi_agent?.mode;
   const policy = mode?.hint_text ?? mode?.proactive;
-  return Value.Check(ReasoningEffortStringSchema, policy)
+  return typeof policy === "string"
     ? { proactivePolicy: policy, reasoningLevel: fallback }
     : { reasoningLevel: fallback };
 };
@@ -418,9 +402,9 @@ const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata =
     supports_parallel_tool_calls: supportsParallelToolCalls,
   } = value;
   if (
-    !Value.Check(BooleanValueSchema, supportedInApi) ||
-    !Value.Check(BooleanValueSchema, supportVerbosity) ||
-    !Value.Check(BooleanValueSchema, supportsParallelToolCalls) ||
+    typeof supportedInApi !== "boolean" ||
+    typeof supportVerbosity !== "boolean" ||
+    typeof supportsParallelToolCalls !== "boolean" ||
     priority === undefined ||
     !Number.isSafeInteger(priority)
   ) {
@@ -450,7 +434,7 @@ const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata =
   if (
     value.multi_agent_reasoning_effort !== undefined &&
     value.multi_agent_reasoning_effort !== null &&
-    !Value.Check(ReasoningEffortStringSchema, value.multi_agent_reasoning_effort)
+    typeof value.multi_agent_reasoning_effort !== "string"
   ) {
     throw new Error("Codex model multi-agent reasoning effort is invalid");
   }
@@ -513,7 +497,7 @@ const isCachedModel = (model: Model<Api>): model is CachedSupportedModel =>
   model.api === "openai-codex-responses" &&
   model.provider === "openai-codex" &&
   MODEL_CACHE_ACCOUNT_FIELD in model &&
-  Value.Check(ReasoningEffortStringSchema, model[MODEL_CACHE_ACCOUNT_FIELD]) &&
+  typeof model[MODEL_CACHE_ACCOUNT_FIELD] === "string" &&
   model[MODEL_CACHE_ACCOUNT_FIELD].length > 0 &&
   MODEL_CACHE_METADATA_FIELD in model;
 
@@ -808,22 +792,16 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
       throw new Error(`Codex model refresh failed (${response.status})`);
     }
     const payload: unknown = await response.json();
-    const ModelsPayloadSchema = Type.Object({ models: Type.Array(Type.Unknown()) });
     if (!Value.Check(ModelsPayloadSchema, payload)) {
       throw new Error("Codex model response is malformed");
     }
-    const metadataValues = Value.Parse(ModelsPayloadSchema, payload).models;
+    const metadataValues = payload.models;
     const nextMetadata = new Map<string, CodexModelMetadata>();
     for (const value of metadataValues) {
-      const ModelEntrySchema = Type.Object({
-        display_name: Type.Optional(Type.String()),
-        slug: Type.Optional(Type.String()),
-        visibility: Type.Optional(Type.String()),
-      });
       if (!Value.Check(ModelEntrySchema, value)) {
         throw new Error("Codex model metadata must be an object");
       }
-      const metadata = parseModelMetadata(Value.Parse(ModelEntrySchema, value));
+      const metadata = parseModelMetadata(value);
       if (
         (metadata.visibility === "list" || metadata.visibility === "hide") &&
         isSupportedCodexModelId(metadata.slug) &&

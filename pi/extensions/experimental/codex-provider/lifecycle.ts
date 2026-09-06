@@ -25,6 +25,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
+import { raceWithAbortSignal } from "#pi-abort";
 import { convertResponsesMessages } from "#pi-responses";
 
 import {
@@ -87,13 +88,6 @@ const WireValueSchema = Type.Unknown();
 type WireValue = Static<typeof WireValueSchema>;
 const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type JsonRecord = Static<typeof JsonRecordSchema>;
-const UnknownArraySchema = Type.Array(Type.Unknown());
-const StringValueSchema = Type.String();
-const NumberValueSchema = Type.Number();
-const BooleanValueSchema = Type.Boolean();
-const FunctionValueSchema = Type.Function([], Type.Unknown());
-const BigIntValueSchema = Type.BigInt();
-const SymbolValueSchema = Type.Symbol();
 const TypeTaggedSchema = Type.Object({ type: Type.String() });
 const ImageItemSchema = Type.Object({
   image_url: Type.String(),
@@ -246,8 +240,7 @@ export const resolveCheckpointPhase = (options: {
 
 const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
-const isUnknownArray = (value: WireValue): value is WireValue[] =>
-  Value.Check(UnknownArraySchema, value);
+const isUnknownArray = (value: WireValue): value is WireValue[] => Array.isArray(value);
 
 const isAbortError = (cause: unknown) =>
   (Value.Check(NamedErrorSchema, cause) && cause.name === "AbortError") ||
@@ -721,20 +714,6 @@ const setLifecycleStatus = (ctx: ExtensionContext, message: string | undefined):
   });
 };
 
-const abortable = async <T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> => {
-  signal.throwIfAborted();
-  const aborted = Promise.withResolvers<T>();
-  const onAbort = () => {
-    aborted.reject(signal.reason);
-  };
-  signal.addEventListener("abort", onAbort, { once: true });
-  try {
-    return await Promise.race([run(), aborted.promise]);
-  } finally {
-    signal.removeEventListener("abort", onAbort);
-  }
-};
-
 const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
   const operation = state.inFlight;
   if (operation?.kind !== "lifecycle") {
@@ -914,7 +893,8 @@ const runLifecycleHook = async (
   const operation = (async (): Promise<SessionBeforeCompactResult> => {
     setLifecycleStatus(ctx, STATUS_MESSAGE);
     try {
-      const auth = await abortable(() => ctx.modelRegistry.getApiKeyAndHeaders(model), signal);
+      signal.throwIfAborted();
+      const auth = await raceWithAbortSignal(ctx.modelRegistry.getApiKeyAndHeaders(model), signal);
       if (signal.aborted) {
         return { cancel: true };
       }
@@ -1116,22 +1096,22 @@ const diagnosticContentType = (content: WireValue) => {
   if (Value.Check(TypeTaggedSchema, content)) {
     return content.type;
   }
-  if (Value.Check(StringValueSchema, content)) {
+  if (typeof content === "string") {
     return "string";
   }
-  if (Value.Check(NumberValueSchema, content)) {
+  if (typeof content === "number" && Number.isFinite(content)) {
     return "number";
   }
-  if (Value.Check(BooleanValueSchema, content)) {
+  if (typeof content === "boolean") {
     return "boolean";
   }
-  if (Value.Check(FunctionValueSchema, content)) {
+  if (typeof content === "function") {
     return "function";
   }
-  if (Value.Check(BigIntValueSchema, content)) {
+  if (typeof content === "bigint") {
     return "bigint";
   }
-  if (Value.Check(SymbolValueSchema, content)) {
+  if (typeof content === "symbol") {
     return "symbol";
   }
   return content === undefined ? "undefined" : "object";
@@ -1150,13 +1130,11 @@ const messageDiagnostic = (message: ContextEvent["messages"][number] | undefined
     hash: hashJsonClone(message),
     role: message.role,
     stopReason:
-      "stopReason" in message && Value.Check(StringValueSchema, message.stopReason)
+      "stopReason" in message && typeof message.stopReason === "string"
         ? message.stopReason
         : undefined,
     toolName:
-      "toolName" in message && Value.Check(StringValueSchema, message.toolName)
-        ? message.toolName
-        : undefined,
+      "toolName" in message && typeof message.toolName === "string" ? message.toolName : undefined,
   };
 };
 
@@ -1581,7 +1559,7 @@ export const parseFinalizedResponsesEnvelope = (
   if (!Value.Check(FinalizedResponsesEnvelopeSchema, payload)) {
     return undefined;
   }
-  const envelope = Value.Clone(Value.Parse(FinalizedResponsesEnvelopeSchema, payload));
+  const envelope = Value.Clone(payload);
   return envelope.model === model.id &&
     !envelope.input.some((item) => item.type === "compaction_trigger")
     ? envelope
@@ -1668,9 +1646,7 @@ const prepareFinalizedReplay = (
       frame.fallbackAssistantIds,
     ),
   );
-  const instructions = Value.Check(StringValueSchema, envelope.instructions)
-    ? envelope.instructions
-    : "";
+  const instructions = typeof envelope.instructions === "string" ? envelope.instructions : "";
   const estimatedTokens = estimateModelVisibleTokens(instructions, effectiveInput);
   const freshUsageTokens = freshAssistantUsageTokens(
     branch,
@@ -1972,9 +1948,7 @@ const runUnframedCandidateHook = async (
   }
   const authoritativeInput = jsonInputClone(envelope.input);
   const split = splitUnframedInput(authoritativeInput);
-  const instructions = Value.Check(StringValueSchema, envelope.instructions)
-    ? envelope.instructions
-    : "";
+  const instructions = typeof envelope.instructions === "string" ? envelope.instructions : "";
   const transitionCompaction = transitionCompactionModel(
     state,
     providerRuntime,
@@ -2106,7 +2080,7 @@ const runBeforeProviderRequestHook = async (
     state,
     providerRuntime,
     model,
-    Value.Check(StringValueSchema, envelope.instructions) ? envelope.instructions : "",
+    typeof envelope.instructions === "string" ? envelope.instructions : "",
     effectiveInput,
   );
   const compactionModel = transitionCompaction?.model;
@@ -2228,9 +2202,7 @@ const restoreTransition = (state: LifecycleState, ctx: ExtensionContext) => {
   }
   const branch = ctx.sessionManager.getBranch();
   state.transition = resolvePreviousTurnTransition(branch, currentModel, (provider, model) =>
-    ctx.modelRegistry
-      .getAll()
-      .find((candidate) => candidate.provider === provider && candidate.id === model),
+    ctx.modelRegistry.find(provider, model),
   );
 };
 

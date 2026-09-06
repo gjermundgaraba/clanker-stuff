@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { access } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { ExtensionContext, TruncationResult } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, getShellConfig } from "@earendil-works/pi-coding-agent";
@@ -240,17 +241,14 @@ const wait = async (
       if (yieldMs === undefined) {
         await session.exitPromise;
       } else {
-        const elapsed = Promise.withResolvers<null>();
-        const timeout = setTimeout(
-          () => {
-            elapsed.resolve(null);
-          },
-          Math.max(0, yieldMs),
-        );
+        const timeout = new AbortController();
         try {
-          await Promise.race([session.exitPromise, elapsed.promise]);
+          await Promise.race([
+            session.exitPromise,
+            delay(Math.max(0, yieldMs), undefined, { signal: timeout.signal }),
+          ]);
         } finally {
-          clearTimeout(timeout);
+          timeout.abort();
         }
       }
     }
