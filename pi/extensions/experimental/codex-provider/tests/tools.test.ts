@@ -1,9 +1,3 @@
-import {
-  TOOL_OWNER_PROTOCOL_VERSION,
-  TOOL_OWNER_REQUEST_EVENT,
-} from "@clanker-stuff/tool-owner-protocol";
-import type { ToolOwnerRegistration } from "@clanker-stuff/tool-owner-protocol";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -11,7 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
-import toolsExtension from "../../tools/index.js";
+import toolPickerExtension from "../../../tool-picker/index.js";
 import { COLLABORATION_CONTRACT_REQUEST } from "../collaboration.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
@@ -24,11 +18,6 @@ const ContractRequestSchema = Type.Object({
   sessionId: Type.String(),
 });
 const PromptResultSchema = Type.Object({ systemPrompt: Type.String() });
-
-const combinedExtension = (pi: Parameters<typeof toolsExtension>[0]) => {
-  toolsExtension(pi);
-  registerCodexTools(pi);
-};
 
 const withCollaborationContract =
   (protocol: "v1" | "v2") => (pi: Parameters<typeof registerCodexTools>[0]) => {
@@ -64,27 +53,6 @@ const selectModel = async (
   );
 };
 
-const messageEntry = (id: string, parentId: string | null): SessionEntry => ({
-  id,
-  message: { content: "message", role: "user", timestamp: 1 },
-  parentId,
-  timestamp: "2026-04-20T00:00:00.000Z",
-  type: "message",
-});
-
-const selectionEntry = (
-  id: string,
-  parentId: string | null,
-  tools: Record<string, boolean>,
-): SessionEntry => ({
-  customType: "codex-provider-tools",
-  data: tools,
-  id,
-  parentId,
-  timestamp: "2026-04-20T00:00:00.000Z",
-  type: "custom",
-});
-
 describe("Codex tools", () => {
   it("resolves refreshed policy for commands without changing the manual preference", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
@@ -111,16 +79,7 @@ describe("Codex tools", () => {
       },
     );
     expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
-    await host.emit(
-      "before_agent_start",
-      {
-        prompt: "test",
-        systemPrompt: "Base",
-        systemPromptOptions: {},
-        type: "before_agent_start",
-      },
-      ctx,
-    );
+    await host.emit("input", { text: "test", source: "interactive", type: "input" }, ctx);
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
   });
 
@@ -177,62 +136,25 @@ describe("Codex tools", () => {
     },
   );
 
-  it("uses the requested model for tool-owner visibility", async () => {
-    const optional = createToolsModel("gpt-5.6-sol", true);
-    const required = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode_only" };
-    let owner: ToolOwnerRegistration | undefined;
-    const host = createExtensionHost(
-      (pi) => {
-        registerCodexTools(pi);
-        pi.on("session_start", () => {
-          pi.events.emit(TOOL_OWNER_REQUEST_EVENT, {
-            protocol: TOOL_OWNER_PROTOCOL_VERSION,
-            provide: (registration: ToolOwnerRegistration) => {
-              owner = registration;
-            },
-            type: "request",
-          });
-        });
-      },
-      { model: optional },
-    );
-    await host.emitSessionStart();
-    expect(owner?.visibleNames(required)).toStrictEqual(CODE_NAMES);
-    const hybrid = { ...required, codexToolMode: "code_mode" };
-    expect(owner?.visibleNames(hybrid)).toStrictEqual([...DIRECT_NAMES, ...CODE_NAMES]);
-    await selectModel(host, optional, required);
-    expect(owner?.visibleNames(optional)).toStrictEqual(DIRECT_NAMES);
-    expect(owner?.visibleNames()).toStrictEqual(CODE_NAMES);
-  });
-
-  it("honors individual hybrid choices and preserves external tools across mode changes", async () => {
+  it("preserves external tools while applying declared hybrid and direct modes", async () => {
     const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode" };
     const host = createExtensionHost(registerCodexTools, {
       activeTools: [...PI_NAMES, "ask_question"],
+      allTools: [...PI_NAMES, "ask_question"],
       externalTools: ["ask_question"],
-      entries: [selectionEntry("choices", null, { apply_patch: false, wait: false })],
-      leafId: "choices",
       model,
     });
     await host.emitSessionStart();
-    expect(host.getActiveTools()).toStrictEqual([
-      "ask_question",
-      "exec_command",
-      "write_stdin",
-      "view_image",
-      "exec",
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES, ...CODE_NAMES]);
+    // Picker changes are allowed, but a model event reapplies the declared set.
+    host.setActiveTools(
+      host.getActiveTools().filter((name) => name !== "apply_patch" && name !== "wait"),
+    );
     const direct = { ...model, codexToolMode: "direct" };
     await selectModel(host, model, direct);
-    expect(host.getActiveTools()).toStrictEqual([
-      "ask_question",
-      "exec_command",
-      "write_stdin",
-      "view_image",
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
     await selectModel(host, direct, model);
-    expect(host.getActiveTools()).toContain("exec");
-    expect(host.getActiveTools()).not.toContain("wait");
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES, ...CODE_NAMES]);
   });
 
   it("keeps unknown selectors manually toggleable", async () => {
@@ -242,6 +164,58 @@ describe("Codex tools", () => {
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
     await host.runCommand("code-mode", "", host.createContext({ model }));
     expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+  });
+
+  it.each(["picker first", "picker last"])("changes tools independently with %s", async (order) => {
+    const model = createToolsModel("gpt-5.6-sol", true);
+    const host = createExtensionHost(
+      (pi) => {
+        for (const extension of order === "picker first"
+          ? [toolPickerExtension, registerCodexTools]
+          : [registerCodexTools, toolPickerExtension]) {
+          extension(pi);
+        }
+      },
+      { model },
+    );
+    await host.emitSessionStart();
+    initTheme("dark");
+    const ui = createCustomUiDriver({ keys: [" ", "\u001B"], captureRender: "before" });
+    await host.runCommand("tools", "", host.createContext({ ui: { custom: ui.custom } }));
+
+    for (const name of [...PI_NAMES, ...DIRECT_NAMES, ...CODE_NAMES]) {
+      expect(ui.getLastRender()).toContain(name);
+    }
+    // The picker can enable a Pi built-in even while Codex tools are active.
+    expect(host.getActiveTools()).toStrictEqual([...DIRECT_NAMES, "read"]);
+    expect(host.getAppendedEntries().at(-1)).toMatchObject({
+      customType: "tool-picker-config",
+      data: { read: true },
+    });
+
+    // A model event applies the provider's normal set; the picker does not fight it.
+    await selectModel(host, model, createToolsModel("gpt-5.6-terra", true));
+    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
+    await host.runCommand("code-mode");
+    expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
+    expect(host.getAppendedEntries()).toMatchObject([
+      { customType: "tool-picker-baseline" },
+      { customType: "tool-picker-config" },
+    ]);
+  });
+
+  it("preserves unrelated extension tools across model changes", async () => {
+    const codex = createToolsModel("gpt-5.6-sol", true);
+    const host = createExtensionHost(registerCodexTools, {
+      activeTools: ["read", "ask_question"],
+      allTools: [...PI_NAMES, "ask_question"],
+      externalTools: ["ask_question"],
+      model: codex,
+    });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
+    await selectModel(host, codex, createToolsModel("deepseek-v4-pro"));
+    expect(host.getActiveTools()).toStrictEqual(["read", "ask_question"]);
   });
 
   it("normalizes Pi's initial all-extension-tool activation", async () => {
@@ -256,6 +230,41 @@ describe("Codex tools", () => {
     expect([...host.getRegisteredTools().keys()]).toStrictEqual([...DIRECT_NAMES, ...CODE_NAMES]);
   });
 
+  it.each([true, false])("normalizes tools on input only when idle is %s", async (idle) => {
+    const host = createExtensionHost(registerCodexTools, {
+      model: createToolsModel("gpt-5.6-sol", true),
+    });
+    await host.emitSessionStart();
+    const selected = ["read", "write_stdin"];
+    host.setActiveTools(selected);
+
+    await host.emit(
+      "input",
+      { text: "test", source: "interactive", type: "input" },
+      host.createContext({ isIdle: () => idle }),
+    );
+
+    expect(host.getActiveTools()).toStrictEqual(idle ? DIRECT_NAMES : selected);
+  });
+
+  it("does not normalize tools after prompt metadata has been captured", async () => {
+    const host = createExtensionHost(registerCodexTools, {
+      model: createToolsModel("gpt-5.6-sol", true),
+    });
+    await host.emitSessionStart();
+    const selected = ["write_stdin"];
+    host.setActiveTools(selected);
+
+    await host.emit("before_agent_start", {
+      prompt: "test",
+      systemPrompt: "Base",
+      systemPromptOptions: { selectedTools: selected },
+      type: "before_agent_start",
+    });
+
+    expect(host.getActiveTools()).toStrictEqual(selected);
+  });
+
   it.each(["gpt-5.6-sol", "gpt-6-astra"])(
     "gates %s activation on grammar-tool support",
     async (id) => {
@@ -268,7 +277,7 @@ describe("Codex tools", () => {
     },
   );
 
-  it("restores Pi tools after a model switch without the tools extension", async () => {
+  it("restores Pi tools after a model switch", async () => {
     const codex = createToolsModel("gpt-5.6-sol", true);
     const host = createExtensionHost(registerCodexTools, { model: codex });
     await host.emitSessionStart();
@@ -296,21 +305,6 @@ describe("Codex tools", () => {
     expect(host.getActiveTools()).toStrictEqual(builtinNames);
   });
 
-  it("suppresses Pi tools restored after a native profile", async () => {
-    const grok = createToolsModel("grok-build-0.1");
-    const host = createExtensionHost(combinedExtension, {
-      activeTools: ["grep"],
-      allTools: [...PI_NAMES, "grep"],
-      model: grok,
-    });
-    await host.emitSessionStart();
-    expect(host.getActiveTools()).toContain("grep");
-
-    await selectModel(host, grok, createToolsModel("gpt-5.6-sol", true));
-
-    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
-  });
-
   it.each([
     ["openai", "openai-responses"],
     ["azure-openai-responses", "azure-openai-responses"],
@@ -320,7 +314,7 @@ describe("Codex tools", () => {
       api,
       provider,
     });
-    const host = createExtensionHost(combinedExtension, { model: codex });
+    const host = createExtensionHost(registerCodexTools, { model: codex });
     await host.emitSessionStart();
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
 
@@ -393,87 +387,4 @@ describe("Codex tools", () => {
       expect(host.getActiveTools()).toStrictEqual(["spawn_agent", ...CODE_NAMES]);
     },
   );
-
-  it("delegates provider-owned choices from /tools", async () => {
-    const model = createToolsModel("gpt-5.6-sol", true);
-    const host = createExtensionHost(combinedExtension, {
-      entries: [messageEntry("root", null), messageEntry("branch-b", "root")],
-      leafId: "root",
-      model,
-    });
-    await host.emitSessionStart();
-    initTheme("dark");
-    const ui = createCustomUiDriver({
-      captureRender: "before",
-      keys: [" ", "\u001B"],
-      width: 120,
-    });
-    const ctx = host.createContext();
-    ctx.ui.custom = ui.custom;
-
-    await host.runCommand("tools", "", ctx);
-
-    expect(ui.getLastRender()).not.toContain("read");
-    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
-    expect(host.getAppendedEntries().at(-1)).toMatchObject({
-      customType: "codex-provider-tools",
-      data: { exec_command: false },
-    });
-
-    host.setLeafId("branch-b");
-    await host.emitSessionStart(ctx, "resume");
-    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES.slice(1));
-  });
-
-  it("cooperates with non-Codex profiles and external tools", async () => {
-    const codex = createToolsModel("gpt-5.6-sol", true);
-    const host = createExtensionHost(combinedExtension, {
-      activeTools: ["read", "bash", "ask_question"],
-      allTools: ["read", "bash", "edit", "write", "grep", "find", "ls", "ask_question"],
-      externalTools: ["ask_question"],
-      model: codex,
-    });
-    await host.emitSessionStart();
-    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
-
-    const claude = createToolsModel("claude-opus-5");
-    await selectModel(host, codex, claude);
-    expect(host.getActiveTools()).toStrictEqual([
-      "ask_question",
-      "Read",
-      "Write",
-      "Edit",
-      "Glob",
-      "Grep",
-      "Bash",
-    ]);
-
-    const unsupported = createToolsModel("deepseek-v4-pro");
-    await selectModel(host, claude, unsupported);
-    expect(host.getActiveTools()).toStrictEqual(["read", "bash", "ask_question"]);
-
-    await selectModel(host, unsupported, codex);
-    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
-  });
-
-  it("restores provider-owned choices from the active branch", async () => {
-    const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(combinedExtension, {
-      entries: [
-        messageEntry("root", null),
-        selectionEntry("selection-a", "root", { apply_patch: false }),
-        messageEntry("branch-b", "root"),
-      ],
-      leafId: "selection-a",
-      model,
-    });
-    await host.emitSessionStart();
-    expect(host.getActiveTools()).toStrictEqual(
-      DIRECT_NAMES.filter((name) => name !== "apply_patch"),
-    );
-
-    host.setLeafId("branch-b");
-    await host.emitSessionTree();
-    expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
-  });
 });

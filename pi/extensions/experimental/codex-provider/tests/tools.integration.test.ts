@@ -3,10 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 
-import { SessionManager, createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import {
+  createSyntheticSourceInfo,
+  initTheme,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import toolsExtension from "../../tools/index.js";
+import toolPickerExtension from "../../../tool-picker/index.js";
+import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
 import codexProviderExtension from "../index.js";
 import { createRealCodexSession } from "./agent-session.js";
 import { createToolsModel, wireArray, wireRecord, wireString } from "./fixtures.js";
@@ -81,7 +88,7 @@ describe("Codex tools with a real AgentSession", () => {
       );
     });
     const session = await createRealCodexSession({
-      extensionFactories: [toolsExtension, codexProviderExtension],
+      extensionFactories: [toolPickerExtension, codexProviderExtension],
       model: createToolsModel("gpt-5.6-sol", true),
       rootDir,
       sessionManager: SessionManager.inMemory(cwd),
@@ -135,13 +142,13 @@ describe("Codex tools with a real AgentSession", () => {
     }
   });
 
-  it("normalizes startup and toggles Code Mode with the supported load order", async () => {
+  it("normalizes startup and toggles Code Mode", async () => {
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "codex-tools-"));
     const cwd = path.join(rootDir, "project");
     await mkdir(cwd, { recursive: true });
     vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
     const session = await createRealCodexSession({
-      extensionFactories: [toolsExtension, codexProviderExtension],
+      extensionFactories: [codexProviderExtension],
       model: createToolsModel("gpt-5.6-sol", true),
       rootDir,
       sessionManager: SessionManager.inMemory(cwd),
@@ -159,8 +166,103 @@ describe("Codex tools with a real AgentSession", () => {
   });
 
   it.each([
+    ["Direct Mode", "exec_command"],
+    ["Code Mode", "exec"],
+    ["enabled Pi read", "read"],
+  ])(
+    "keeps skill visibility and tool metadata consistent after toggling %s tools",
+    async (mode, toolName) => {
+      const rootDir = await mkdtemp(path.join(os.tmpdir(), "codex-tools-"));
+      const cwd = path.join(rootDir, "project");
+      await mkdir(cwd, { recursive: true });
+      vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
+      initTheme("dark");
+      const notify = vi.fn<ExtensionUIContext["notify"]>();
+      const onExtensionError = vi.fn();
+      const captureTools = vi.fn<(tools: string[] | undefined) => void>();
+      // SAFETY: These extensions use only custom, notify, and setStatus from the UI context.
+      const uiContext = Object.assign({} as ExtensionUIContext, { notify, setStatus: () => {} });
+      const session = await createRealCodexSession({
+        extensionFactories: [
+          toolPickerExtension,
+          (pi) =>
+            pi.on("before_agent_start", (event) => ({
+              systemPrompt: `${event.systemPrompt}\nEarlier extension guidance.`,
+            })),
+          codexProviderExtension,
+          (pi) =>
+            pi.on("before_agent_start", (event) =>
+              captureTools(event.systemPromptOptions.selectedTools),
+            ),
+        ],
+        model: createToolsModel("gpt-5.6-sol", true),
+        mode: "tui",
+        onExtensionError,
+        rootDir,
+        sessionManager: SessionManager.inMemory(cwd),
+        uiContext,
+        skills: [
+          {
+            name: "example",
+            description: "A loaded skill",
+            baseDir: "/virtual/example",
+            filePath: "/virtual/example/SKILL.md",
+            disableModelInvocation: false,
+            sourceInfo: createSyntheticSourceInfo("<test-skill>", { source: "test" }),
+          },
+        ],
+      });
+      const stream = vi.fn<typeof session.agent.streamFunction>((model) => {
+        const result = createAssistantMessageEventStream();
+        result.push({
+          type: "done",
+          reason: "stop",
+          message: {
+            ...fauxAssistantMessage("ok"),
+            api: model.api,
+            model: model.id,
+            provider: model.provider,
+          },
+        });
+        return result;
+      });
+      session.agent.streamFunction = stream;
+
+      try {
+        if (mode === "Code Mode") await session.prompt("/code-mode");
+        const index = session.getAllTools().findIndex(({ name }) => name === toolName);
+        expect(index).toBeGreaterThanOrEqual(0);
+        const ui = createCustomUiDriver({
+          keys: [...Array<string>(index).fill("\u001B[B"), " ", "\u001B"],
+        });
+        uiContext.custom = ui.custom;
+        await session.prompt("/tools");
+        expect(session.getActiveToolNames().includes(toolName)).toBe(toolName === "read");
+
+        await session.prompt("Use the loaded skill");
+
+        const expected = mode === "Code Mode" ? CODE_NAMES : DIRECT_NAMES;
+        expect(captureTools).toHaveBeenLastCalledWith(expected);
+        const context = stream.mock.calls.at(-1)?.[1];
+        expect(context?.tools?.map(({ name }) => name)).toStrictEqual(expected);
+        expect(context?.systemPrompt).toContain("<available_skills>");
+        expect(context?.systemPrompt).toContain("<name>example</name>");
+        expect(context?.systemPrompt).toContain("Earlier extension guidance.");
+        expect(context?.systemPrompt).toContain(
+          `Use the \`${mode === "Code Mode" ? "exec" : "exec_command"}\` tool to load a skill`,
+        );
+        expect(onExtensionError).not.toHaveBeenCalled();
+      } finally {
+        session.dispose();
+        await rm(rootDir, { force: true, recursive: true });
+      }
+    },
+  );
+
+  it.each([
     ["standalone", [codexProviderExtension]],
-    ["with the tools extension", [toolsExtension, codexProviderExtension]],
+    ["with tool-picker", [toolPickerExtension, codexProviderExtension]],
+    ["with tool-picker last", [codexProviderExtension, toolPickerExtension]],
   ] as const)(
     "restores Pi tools after reload and model switch when %s",
     async (_configuration, extensionFactories) => {

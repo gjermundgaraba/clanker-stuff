@@ -102,7 +102,7 @@ export const assertNativeModelContext = (
 };
 
 const requireCommands = (commands: Awaited<ReturnType<RpcClient["getCommands"]>>) => {
-  for (const name of ["code-mode", "codex-provider", "tools"]) {
+  for (const name of ["code-mode", "codex-provider"]) {
     assert(
       commands.some((command) => command.name === name),
       `Installed /${name} command is unavailable`,

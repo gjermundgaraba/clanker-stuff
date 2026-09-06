@@ -192,7 +192,6 @@ describe("codex-provider package", () => {
         "package/tools/process-output.ts",
         "package/tools/process.ts",
         "package/tools/register.ts",
-        "package/tools/selection.ts",
         "package/ultra/index.ts",
       ].toSorted(),
     );
@@ -215,10 +214,6 @@ describe("codex-provider package", () => {
             "@clanker-stuff/pi-extension-paths": `file:${path.resolve(
               PACKAGE_ROOT,
               "../../../packages/extension-paths",
-            )}`,
-            "@clanker-stuff/tool-owner-protocol": `file:${path.resolve(
-              PACKAGE_ROOT,
-              "../../../packages/tool-owner-protocol",
             )}`,
             "@earendil-works/pi-ai": SUPPORTED_PI_VERSION,
             "@earendil-works/pi-coding-agent": SUPPORTED_PI_VERSION,
@@ -249,7 +244,6 @@ describe("codex-provider package", () => {
         "@clanker-stuff/footer-protocol": "^0.1.0",
         "@clanker-stuff/lazy-singleton": "^0.1.0",
         "@clanker-stuff/pi-extension-paths": "^0.1.0",
-        "@clanker-stuff/tool-owner-protocol": "^0.1.0",
       },
       name: "@clanker-stuff/codex-provider",
       peerDependencies: {

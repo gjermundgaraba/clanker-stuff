@@ -89,7 +89,6 @@
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
-    "@clanker-stuff/tool-owner-protocol": "workspace:^",
     "eventsource-parser": "4.1.0",
     "uuid": "14.0.2"
   },

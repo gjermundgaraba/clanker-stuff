@@ -7,6 +7,7 @@ import type {
   CompactionSettings,
   ExtensionError,
   ExtensionFactory,
+  ExtensionContext,
   ExtensionUIContext,
   RetrySettings,
   SessionManager,
@@ -26,6 +27,7 @@ interface RealCodexSessionOptions {
   compaction?: CompactionSettings;
   extensionFactories: ExtensionFactory[];
   model?: Model<Api>;
+  mode?: ExtensionContext["mode"];
   retry?: RetrySettings;
   rootDir: string;
   sessionManager: SessionManager;
@@ -100,6 +102,7 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
     settingsManager,
   });
   await created.session.bindExtensions({
+    mode: options.mode,
     onError: options.onExtensionError,
     uiContext: options.uiContext,
   });

@@ -13,6 +13,7 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | [`@clanker-stuff/shell-resume-history`](pi/extensions/shell-resume-history) | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits.                 |
 | [`@clanker-stuff/stash`](pi/extensions/stash)                               | Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text.               |
 | [`@clanker-stuff/timer`](pi/extensions/timer)                               | Tracks agent execution time and displays a live running timer in the status bar.                    |
+| [`@clanker-stuff/tool-picker`](pi/extensions/tool-picker)                   | Adds /tools for choosing active tools, with selections saved per session branch.                    |
 
 ## Experimental pi extensions
 
@@ -24,7 +25,6 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | [`@clanker-stuff/recap`](pi/extensions/experimental/recap)                   | Automatically adds durable conversation recap cards after settled Pi turns using a configured secondary model.                                                            |
 | [`@clanker-stuff/side`](pi/extensions/experimental/side)                     | Adds a concurrent multi-turn /side conversation with an adaptive side panel.                                                                                              |
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)           | Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models. |
-| [`@clanker-stuff/tools`](pi/extensions/experimental/tools)                   | Adapts pi's coding tools to model-native interfaces and adds /tools for choosing active tools.                                                                            |
 | [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                   | Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.                                                                    |
 
 Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.
