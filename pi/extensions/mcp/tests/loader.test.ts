@@ -312,8 +312,8 @@ describe("mcp loader", () => {
     alphaFixture.releaseInitialization();
     await restore;
 
-    expect(initialBetaFixture.getInitializationCount()).toBe(1);
-    expect(replacementBetaFixture.getInitializationCount()).toBe(0);
+    expect(initialBetaFixture.getDiscoveryCount()).toBe(1);
+    expect(replacementBetaFixture.getDiscoveryCount()).toBe(0);
   });
 
   it("restores persisted manager tools on session_start without config", async () => {

@@ -37,14 +37,26 @@ export const startMcpHttpFixture = async (
   expireSessionOnce = false,
   pauseInitialization = false,
 ) => {
-  const mcpHandler = createMcpHandler(() => createFixtureMcpServer());
+  const legacy = expireSessionOnce || pauseInitialization;
+  const mcpHandler = createMcpHandler(() => createFixtureMcpServer(), {
+    legacy: legacy ? "stateless" : "reject",
+  });
   const initializationGate = Promise.withResolvers<null>();
   const initializationStarted = Promise.withResolvers<null>();
   let initializationCount = 0;
+  let discoveryCount = 0;
   let sessionExpired = false;
   const handleMcpRequest = toNodeHandler({
     async fetch(request, options) {
       const body = request.method === "POST" ? await request.clone().json() : undefined;
+      // Session-expiry and initialization-gate tests exercise legacy servers.
+      if (legacy && isJSONRPCRequest(body) && body.method === "server/discover") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          error: { code: -32601, message: "Method not found" },
+        });
+      }
       if (pauseInitialization && isInitializeRequest(body)) {
         initializationStarted.resolve(null);
         await initializationGate.promise;
@@ -61,6 +73,9 @@ export const startMcpHttpFixture = async (
       }
 
       const response = await mcpHandler.fetch(request, options);
+      if (isJSONRPCRequest(body) && body.method === "server/discover") {
+        discoveryCount += 1;
+      }
       if (isInitializeRequest(body)) {
         initializationCount += 1;
         response.headers.set("mcp-session-id", randomUUID());
@@ -172,6 +187,7 @@ export const startMcpHttpFixture = async (
       await once(server, "close");
     },
     getInitializationCount: () => initializationCount,
+    getDiscoveryCount: () => discoveryCount,
     releaseInitialization: () => initializationGate.resolve(null),
     url: `${issuer}/mcp`,
     waitForInitialization: () => initializationStarted.promise,

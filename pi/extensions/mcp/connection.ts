@@ -120,6 +120,27 @@ const createHttpAuthProvider = (
   };
 };
 
+const connectTransport = async (
+  client: Client,
+  transport: StdioClientTransport | StreamableHTTPClientTransport,
+  signal?: AbortSignal,
+): Promise<void> => {
+  signal?.throwIfAborted();
+  // The SDK's discovery probe ignores connect()'s signal until negotiation finishes.
+  const onAbort = () => {
+    void transport.close().catch(() => {});
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    await client.connect(transport, signal ? { signal } : undefined);
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
+};
+
 export const connectToServer = async (
   serverName: string,
   serverConfig: McpConfig["mcpServers"][string],
@@ -127,7 +148,10 @@ export const connectToServer = async (
   interactive: boolean,
   signal?: AbortSignal,
 ): Promise<McpClientConnection> => {
-  const client = new Client({ name: "pi-mcp", version: "0.1.0" });
+  const client = new Client(
+    { name: "pi-mcp", version: "0.1.0" },
+    { versionNegotiation: { mode: "auto" } },
+  );
 
   if (serverConfig.type === "stdio") {
     const transport = new StdioClientTransport({
@@ -136,7 +160,7 @@ export const connectToServer = async (
       env: serverConfig.env,
       stderr: "ignore",
     });
-    await client.connect(transport, signal ? { signal } : undefined);
+    await connectTransport(client, transport, signal);
     return { client, close: () => client.close(), transport: {} };
   }
 
@@ -150,6 +174,6 @@ export const connectToServer = async (
     authProvider: authProvider?.provider,
     requestInit: { headers: serverConfig.headers ?? {} },
   });
-  await client.connect(transport, signal ? { signal } : undefined);
+  await connectTransport(client, transport, signal);
   return { client, close: () => client.close(), transport };
 };
