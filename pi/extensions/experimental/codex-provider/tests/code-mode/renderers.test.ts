@@ -1,84 +1,24 @@
 import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
-import { createIdentityTheme, createMockTui } from "../../../../../tests/harness/tui.js";
-import { CodeModeRuntime } from "../../code-mode/tools.js";
+import { createMockTui } from "../../../../../tests/harness/tui.js";
 import type { RuntimeToolTrace } from "../../code-mode/types.js";
-import { createCodexDirectTools } from "../../tools/direct.js";
-import { formatProcessMetadata } from "../../tools/process-metadata.js";
 import { stripAnsi } from "../../tools/renderers.js";
+import {
+  codeModeTool,
+  context,
+  processTrace,
+  result,
+  rows,
+  theme,
+} from "../fixtures/code-mode-rendering.js";
 
-type Context = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
-const context = (expanded = false): Context => ({
-  args: {},
-  argsComplete: true,
-  cwd: "/tmp/demo",
-  executionStarted: true,
-  expanded,
-  invalidate() {},
-  isError: false,
-  isPartial: false,
-  lastComponent: undefined,
-  showImages: false,
-  state: {},
-  toolCallId: "synthetic",
-});
-const theme = createIdentityTheme();
 const SUCCESS_BG = "48;2;40;50;40m";
 const ERROR_BG = "48;2;60;40;40m";
 const PENDING_BG = "48;2;40;40;50m";
-// Content rows only: the shell's blank padding rows and one-column side padding are dropped.
-// Content never starts or ends with a blank row.
-const rows = (component: Component, width = 80): string[] => {
-  const lines = component.render(width).map((line) => stripAnsi(line).trimEnd().replace(/^ /u, ""));
-  while (lines[0] === "") lines.shift();
-  while (lines.at(-1) === "") lines.pop();
-  return lines;
-};
 const isPaddingRow = (line: string | undefined): boolean =>
   line !== undefined && line.length > 0 && stripAnsi(line).trim().length === 0;
-const codeModeTool = (name = "exec") => {
-  const runtime = new CodeModeRuntime();
-  runtime.setNestedTools(
-    createCodexDirectTools().nestedDefinitions.map((definition) => ({ definition })),
-  );
-  const tool = runtime.createTools().find((tool) => tool.name === name);
-  if (!tool?.renderCall || !tool.renderResult) throw new Error("Missing Code Mode renderer");
-  return { definition: tool, renderCall: tool.renderCall, renderResult: tool.renderResult };
-};
-const processTrace = (id: string, cmd: string, output: string, exitCode = 0): RuntimeToolTrace => {
-  const details = {
-    durationMs: 1200,
-    exitCode,
-    status: "exited" as const,
-    codeModeResult: {
-      output,
-      exit_code: exitCode,
-      wall_time_seconds: 1.2,
-      original_token_count: 30,
-    },
-  };
-  return {
-    id,
-    input: { cmd },
-    name: "exec_command",
-    status: "done",
-    result: {
-      content: [{ type: "text", text: `${output}\n\n${formatProcessMetadata(details)}` }],
-      details,
-    },
-  };
-};
-const result = (traces: RuntimeToolTrace[], output: string[] = [], status = "result") => ({
-  content: [
-    { type: "text" as const, text: "Script completed" },
-    ...output.map((text) => ({ type: "text" as const, text })),
-  ],
-  details: { cellId: "demo", codeMode: true, status, traces },
-});
 
 beforeAll(() => initTheme("dark"));
 
@@ -496,8 +436,9 @@ describe("Code Mode display", () => {
 
   it("keeps wait identity and termination visible while sharing the compact layout", () => {
     const tool = codeModeTool("wait");
-    const ctx = context();
-    const call = tool.renderCall({ cell_id: "cell-9", terminate: true }, theme, ctx);
+    const args = { cell_id: "cell-9", terminate: true };
+    const ctx = { ...context(), args };
+    const call = tool.renderCall(args, theme, ctx);
     expect(rows(call)).toEqual(["Terminate cell-9"]);
     const output = tool.renderResult(
       result([processTrace("a", "echo hello", "hello")], [], "terminated"),

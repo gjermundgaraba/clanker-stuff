@@ -6,12 +6,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { keyHint, truncateToVisualLines } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Container, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Box,
+  Container,
+  Text,
+  TruncatedText,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import {
-  codeBlockComponent,
   displayedProcessOutput,
   formatCodeBlock,
   inlineText,
@@ -20,6 +26,12 @@ import {
   sanitizeDisplayText,
 } from "../tools/renderers.js";
 import type { Unparsed } from "../tools/renderers.js";
+import {
+  cachedBox,
+  cachedLines,
+  codeBlockComponent,
+  lazyComponent,
+} from "../tools/render-components.js";
 
 import { codeModeOutput } from "./output-display.js";
 import type { NestedTool, RuntimeToolTrace, RuntimeValue } from "./types.js";
@@ -40,13 +52,10 @@ interface TraceRendererState {
   result?: Component;
 }
 
-type ShellTone = "toolPendingBg" | "toolSuccessBg" | "toolErrorBg";
+type Kind = "exec" | "wait";
 
 interface CodeModeRenderState {
-  hasTraces?: boolean;
   hasResult?: boolean;
-  tone?: ShellTone;
-  action?: "Exec" | "Wait" | "Terminate";
   nested?: Map<string, TraceRendererState>;
 }
 
@@ -58,39 +67,32 @@ const WaitArgsSchema = Type.Object({
 });
 type Outcome = "done" | "running" | "error";
 
-const SHELL_PADDING_X = 1;
-
-const shellRow = (line: string, width: number, paint: (text: string) => string): string =>
-  paint(`${line}${" ".repeat(Math.max(0, width - visibleWidth(line)))}`);
-
-/**
- * Pi's default shell colors the whole row by the outer result, so a completed script would give
- * its failed nested commands a green success background. Code Mode draws the same box itself and
- * takes the color from the worst nested outcome instead. The call and result components share one
- * box: whichever is visible first draws the top padding row and the last one draws the bottom.
- */
-export const renderCodeModeShell = (
-  inner: Component,
-  role: "call" | "result",
-  theme: Theme,
-  context: RenderContext,
-): Component => ({
-  invalidate() {
-    inner.invalidate();
+/** Pi still owns images and click-to-expand; only the box color is extension-owned. */
+export const codeModeRenderers = (
+  kind: Kind,
+  tools: () => Map<string, NestedTool>,
+): Pick<ToolDefinition, "renderCall" | "renderResult" | "renderShell"> => ({
+  renderShell: "self",
+  renderCall(args, theme, context: RenderContext) {
+    // Pi calls this slot before renderResult on every update. The result slot takes over the
+    // entire box before the next draw, even when it is only a partial result.
+    context.state.hasResult = false;
+    const pending = lazyComponent(() => {
+      const box = new Box(1, 1, (text) => theme.bg("toolPendingBg", text));
+      box.addChild(callContent(kind, args, theme, context.expanded));
+      return cachedBox(box);
+    });
+    return {
+      invalidate() {
+        pending.invalidate();
+      },
+      render(width) {
+        return context.state.hasResult ? [] : pending.render(width);
+      },
+    };
   },
-  render(width) {
-    const lines = inner.render(Math.max(1, width - SHELL_PADDING_X * 2));
-    if (lines.length === 0) return [];
-    const paint = (text: string) => theme.bg(context.state.tone ?? "toolPendingBg", text);
-    const callVisible = context.expanded || context.state.hasTraces !== true;
-    const top = role === "call" || !callVisible;
-    const bottom = role === "result" || context.state.hasResult !== true;
-    const pad = " ".repeat(SHELL_PADDING_X);
-    return [
-      ...(top ? [shellRow("", width, paint)] : []),
-      ...lines.map((line) => shellRow(`${pad}${line}`, width, paint)),
-      ...(bottom ? [shellRow("", width, paint)] : []),
-    ];
+  renderResult(result, options, theme, context: RenderContext) {
+    return renderCodeModeResult(kind, result, options, theme, context, tools());
   },
 });
 
@@ -179,43 +181,31 @@ const formatExecCall = (args: Unparsed, theme: Theme): string => {
     : [header, ...formatCodeBlock(source, "javascript").map((line) => `  ${line}`)].join("\n");
 };
 
-export const renderExecCall = (args: Unparsed, theme: Theme, context: RenderContext): Component => {
-  context.state.action = "Exec";
-  return {
-    invalidate() {},
-    render(width) {
-      // Pi creates the call component before the result component. Read shared state at
-      // draw time so the first completed frame already replaces the wrapper with its calls.
-      if (!context.expanded && context.state.hasTraces) return [];
-      return codeBlockComponent(
-        formatExecCall(args, theme),
-        theme,
-        context.expanded,
-        SCRIPT_PREVIEW_ROWS + 1,
-      ).render(width);
-    },
-  };
-};
+const actionLabel = (kind: Kind, args: Unparsed): string =>
+  kind === "exec"
+    ? "Exec"
+    : Value.Check(WaitArgsSchema, args) && args.terminate === true
+      ? "Terminate"
+      : "Wait";
 
-export const renderWaitCall = (args: Unparsed, theme: Theme, context: RenderContext): Component => {
+const callContent = (kind: Kind, args: Unparsed, theme: Theme, expanded: boolean): Component => {
+  if (kind === "exec") {
+    return codeBlockComponent(
+      formatExecCall(args, theme),
+      theme,
+      expanded,
+      SCRIPT_PREVIEW_ROWS + 1,
+    );
+  }
   const valid = Value.Check(WaitArgsSchema, args);
-  const action = valid && args.terminate === true ? "Terminate" : "Wait";
-  context.state.action = action;
-  const title = theme.fg("toolTitle", theme.bold(action));
+  const title = theme.fg("toolTitle", theme.bold(actionLabel(kind, args)));
   const cell = valid ? args.cell_id : undefined;
   const text = !valid
     ? `${title} ${theme.fg("error", "[invalid arg]")}`
     : cell === undefined
       ? title
       : `${title} ${theme.fg("muted", inlineText(cell))}`;
-  return {
-    invalidate() {},
-    render(width) {
-      return !context.expanded && context.state.hasTraces
-        ? []
-        : [truncateToWidth(text, width, "…")];
-    },
-  };
+  return new TruncatedText(text);
 };
 
 const traceRenderers = (
@@ -361,7 +351,8 @@ const countLabel = (traces: RuntimeToolTrace[]): string => {
   return `${traces.length} ${noun}${traces.length === 1 ? "" : "s"}`;
 };
 
-export const renderCodeModeResult = (
+const renderCodeModeResult = (
+  kind: Kind,
   result: AgentToolResult<RuntimeValue>,
   options: ToolRenderResultOptions,
   theme: Theme,
@@ -376,7 +367,6 @@ export const renderCodeModeResult = (
         Value.Check(RuntimeToolTraceSchema, value),
       )
     : [];
-  context.state.hasTraces = traces.length > 0;
   const retainedIds = new Set(traces.map((trace) => trace.id));
   for (const id of context.state.nested?.keys() ?? []) {
     if (!retainedIds.has(id)) context.state.nested?.delete(id);
@@ -391,7 +381,7 @@ export const renderCodeModeResult = (
   const outcomes = traceOutcomes(traces);
   const failed = traces.some((trace) => displayedOutcome(trace, outcomes) === "error");
   context.state.hasResult = true;
-  context.state.tone = options.isPartial
+  const tone = options.isPartial
     ? "toolPendingBg"
     : context.isError || scriptError.length > 0 || failed
       ? "toolErrorBg"
@@ -406,13 +396,18 @@ export const renderCodeModeResult = (
   const heading =
     traces.length === 0
       ? summary
-      : `${theme.fg("toolTitle", theme.bold(options.expanded ? "Results" : (context.state.action ?? "Exec")))} ${theme.fg("muted", `· ${countLabel(traces)} ·`)} ${summary}`;
+      : `${theme.fg("toolTitle", theme.bold(options.expanded ? "Results" : actionLabel(kind, context.args)))} ${theme.fg("muted", `· ${countLabel(traces)} ·`)} ${summary}`;
   const errors = context.isError
     ? sanitizeDisplayText(textContent(result))
     : sanitizeDisplayText(scriptError);
   const outputs = context.isError
     ? []
     : codeModeOutput(result.content.slice(1), traces, theme, options.expanded);
+
+  const box = new Box(1, 1, (text) => theme.bg(tone, text));
+  if (options.expanded || traces.length === 0) {
+    box.addChild(callContent(kind, context.args, theme, options.expanded));
+  }
 
   if (options.expanded) {
     const container = new Container();
@@ -444,7 +439,8 @@ export const renderCodeModeResult = (
         ),
       );
     }
-    return container;
+    box.addChild(container);
+    return cachedBox(box);
   }
 
   const selected = selectTraces(traces, outcomes);
@@ -453,71 +449,80 @@ export const renderCodeModeResult = (
     ...traceRenderers(trace, tools.get(trace.name), options, theme, context),
   }));
   const hidden = traces.filter((trace) => !selected.includes(trace));
-  return {
-    invalidate() {
-      for (const call of calls) call.call.invalidate();
-    },
-    render(width) {
-      const rows = [truncateToWidth(heading, width, "…")];
-      const inlineOutputIds = new Set<string>();
-      let errorsHidden = false;
-      if (errors.length > 0) {
-        const errorRows = new Text(theme.fg("error", errors), 0, 0).render(width);
-        rows.push(...errorRows.slice(0, 3));
-        errorsHidden = errorRows.length > 3;
-      }
-      let previewBudget = Math.max(0, COLLAPSED_TRACE_ROWS - calls.length - (rows.length - 1));
-      for (const { trace, call } of calls) {
-        const outcome = displayedOutcome(trace, outcomes);
-        rows.push(compactTraceRow(trace, call, theme, width, outcome));
-        if (outcome !== "error" || previewBudget === 0) continue;
-        // The returned envelope is complete; the trace copy may have been truncated head-first.
-        const text = outputs.find((item) => item.traceId === trace.id)?.plain ?? traceOutput(trace);
-        if (text.length === 0) continue;
-        const preview = truncateToVisualLines(
-          theme.fg("error", text),
-          Math.min(3, previewBudget),
-          Math.max(1, width - 4),
-        );
-        rows.push(...preview.visualLines.map((line) => truncateToWidth(`    ${line}`, width, "…")));
-        previewBudget -= preview.visualLines.length;
-        inlineOutputIds.add(trace.id);
-      }
-      const output = outputs
-        .filter((item) => item.traceId === undefined || !inlineOutputIds.has(item.traceId))
-        .map((item) => item.text)
-        .join("\n");
-      const outputBudget = Math.min(OUTPUT_PREVIEW_ROWS, COLLAPSED_RESULT_ROWS - rows.length - 2);
-      let outputHidden = false;
-      if (output.length > 0 && outputBudget > 0) {
-        const preview = truncateToVisualLines(output, outputBudget, width);
-        rows.push("", ...preview.visualLines);
-        outputHidden = preview.skippedCount > 0;
-      } else if (output.length > 0) outputHidden = true;
-      const notes: string[] = [];
-      if (hidden.length > 0) {
-        notes.push(`${hidden.length} more calls`);
-        const failed = hidden.filter(
-          (trace) => displayedOutcome(trace, outcomes) === "error",
-        ).length;
-        const running = hidden.filter(
-          (trace) => displayedOutcome(trace, outcomes) === "running",
-        ).length;
-        if (failed > 0) notes.push(`${failed} failed`);
-        if (running > 0) notes.push(`${running} running`);
-      }
-      if (dropped > 0) notes.push(`${dropped} calls not traced`);
-      if (traces.length > 0 || outputHidden || errorsHidden) {
-        const label = notes.length > 0 ? `${notes.join(" · ")} · ` : "";
-        rows.push(
-          truncateToWidth(
-            `${theme.fg("muted", `… ${label}`)}${keyHint("app.tools.expand", "details")}`,
-            width,
-            "…",
-          ),
-        );
-      }
-      return rows;
-    },
-  };
+  box.addChild(
+    cachedLines(
+      (width) => {
+        const rows = [truncateToWidth(heading, width, "…")];
+        const inlineOutputIds = new Set<string>();
+        let errorsHidden = false;
+        if (errors.length > 0) {
+          const errorRows = new Text(theme.fg("error", errors), 0, 0).render(width);
+          rows.push(...errorRows.slice(0, 3));
+          errorsHidden = errorRows.length > 3;
+        }
+        let previewBudget = Math.max(0, COLLAPSED_TRACE_ROWS - calls.length - (rows.length - 1));
+        for (const { trace, call } of calls) {
+          const outcome = displayedOutcome(trace, outcomes);
+          rows.push(compactTraceRow(trace, call, theme, width, outcome));
+          if (outcome !== "error" || previewBudget === 0) continue;
+          // The returned envelope is complete; the trace copy may have been truncated head-first.
+          const text =
+            outputs.find((item) => item.traceId === trace.id)?.plain ?? traceOutput(trace);
+          if (text.length === 0) continue;
+          const preview = truncateToVisualLines(
+            theme.fg("error", text),
+            Math.min(3, previewBudget),
+            Math.max(1, width - 4),
+          );
+          rows.push(
+            ...preview.visualLines.map((line) => truncateToWidth(`    ${line}`, width, "…")),
+          );
+          previewBudget -= preview.visualLines.length;
+          inlineOutputIds.add(trace.id);
+        }
+        const output = outputs
+          .filter((item) => item.traceId === undefined || !inlineOutputIds.has(item.traceId))
+          .map((item) => item.text)
+          .join("\n");
+        const outputBudget = Math.min(OUTPUT_PREVIEW_ROWS, COLLAPSED_RESULT_ROWS - rows.length - 2);
+        let outputHidden = false;
+        if (output.length > 0 && outputBudget > 0) {
+          const preview = truncateToVisualLines(output, outputBudget, width);
+          rows.push("", ...preview.visualLines);
+          outputHidden = preview.skippedCount > 0;
+        } else if (output.length > 0) outputHidden = true;
+        const notes: string[] = [];
+        if (hidden.length > 0) {
+          notes.push(`${hidden.length} more calls`);
+          const failed = hidden.filter(
+            (trace) => displayedOutcome(trace, outcomes) === "error",
+          ).length;
+          const running = hidden.filter(
+            (trace) => displayedOutcome(trace, outcomes) === "running",
+          ).length;
+          if (failed > 0) notes.push(`${failed} failed`);
+          if (running > 0) notes.push(`${running} running`);
+        }
+        if (dropped > 0) notes.push(`${dropped} calls not traced`);
+        if (traces.length > 0 || outputHidden || errorsHidden) {
+          const label = notes.length > 0 ? `${notes.join(" · ")} · ` : "";
+          rows.push(
+            truncateToWidth(
+              `${theme.fg("muted", `… ${label}`)}${keyHint("app.tools.expand", "details")}`,
+              width,
+              "…",
+            ),
+          );
+        }
+        return rows;
+      },
+      () => {
+        for (const call of calls) {
+          call.call.invalidate();
+          call.result?.invalidate();
+        }
+      },
+    ),
+  );
+  return cachedBox(box);
 };

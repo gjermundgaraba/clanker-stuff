@@ -111,8 +111,10 @@ describe("direct tool display boundaries", () => {
   it("omits unknown deletion counts and gets completed counts on the first row draw", () => {
     const args = { patch: "*** Begin Patch\n*** Delete File: old.txt\n*** End Patch" };
     const ctx = context();
-    const call = applyPatchRenderers.renderCall?.(args, theme, ctx);
-    expect(rows(call).join("\n")).toBe("apply_patch Delete old.txt");
+    const pending = applyPatchRenderers.renderCall?.(args, theme, ctx);
+    expect(rows(pending).join("\n")).toBe("apply_patch Delete old.txt");
+    // Pi invokes both slots on an update before drawing the new call component.
+    const call = applyPatchRenderers.renderCall?.(args, theme, { ...ctx, lastComponent: pending });
     applyPatchRenderers.renderResult?.(
       {
         content: [],

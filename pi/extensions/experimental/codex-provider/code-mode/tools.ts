@@ -10,12 +10,7 @@ import { resolveGrammarConstrainedSampling } from "#pi-constrained-sampling";
 
 import type { CodeModeHostClient } from "./host-client.js";
 import { DEFAULT_CODE_MODE_OUTPUT_TOKENS, MAX_CODE_MODE_OUTPUT_TOKENS } from "./protocol.js";
-import {
-  renderCodeModeResult,
-  renderCodeModeShell,
-  renderExecCall,
-  renderWaitCall,
-} from "./renderers.js";
+import { codeModeRenderers } from "./renderers.js";
 import type {
   NestedTool,
   RuntimeContentItem,
@@ -148,18 +143,7 @@ export class CodeModeRuntime {
         label: "Exec",
         name: "exec",
         parameters: EXEC_PARAMETERS,
-        renderShell: "self",
-        renderCall(args, theme, context) {
-          return renderCodeModeShell(renderExecCall(args, theme, context), "call", theme, context);
-        },
-        renderResult(result, options, theme, context) {
-          return renderCodeModeShell(
-            renderCodeModeResult(result, options, theme, context, currentByName()),
-            "result",
-            theme,
-            context,
-          );
-        },
+        ...codeModeRenderers("exec", currentByName),
       }),
       defineTool({
         description: WAIT_DESCRIPTION,
@@ -184,18 +168,7 @@ export class CodeModeRuntime {
         label: "Wait",
         name: "wait",
         parameters: WAIT_PARAMETERS,
-        renderShell: "self",
-        renderCall(args, theme, context) {
-          return renderCodeModeShell(renderWaitCall(args, theme, context), "call", theme, context);
-        },
-        renderResult(result, options, theme, context) {
-          return renderCodeModeShell(
-            renderCodeModeResult(result, options, theme, context, currentByName()),
-            "result",
-            theme,
-            context,
-          );
-        },
+        ...codeModeRenderers("wait", currentByName),
       }),
     ];
   }

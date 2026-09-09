@@ -196,6 +196,7 @@ describe("codex-provider package", () => {
         "package/tools/process-output.ts",
         "package/tools/process.ts",
         "package/tools/register.ts",
+        "package/tools/render-components.ts",
         "package/tools/renderers.ts",
         "package/ultra/index.ts",
       ].toSorted(),

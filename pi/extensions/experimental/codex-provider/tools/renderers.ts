@@ -14,13 +14,7 @@ import type {
   ToolDefinition,
   ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import {
-  formatSize,
-  highlightCode,
-  keyHint,
-  renderDiff,
-  truncateToVisualLines,
-} from "@earendil-works/pi-coding-agent";
+import { formatSize, highlightCode, renderDiff } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Container, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -32,6 +26,7 @@ import { TRACE_VALUE_TRUNCATED_MARKER } from "../code-mode/trace-values.js";
 import type { PatchChange } from "./patch-summary.js";
 import { PatchChangeSchema, PatchDiffSchema, summarizePatchText } from "./patch-summary.js";
 import { formatProcessMetadata } from "./process-metadata.js";
+import { codeBlockComponent, lazyComponent, tailPreview } from "./render-components.js";
 
 export const COMMAND_PREVIEW_LINES = 3;
 export const OUTPUT_PREVIEW_LINES = 5;
@@ -139,90 +134,6 @@ export const shortenPath = (path: string): string => {
 };
 
 const formatDuration = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
-
-export const expandHint = (theme: Theme, label: string): string =>
-  `${theme.fg("muted", `${label} ·`)} ${keyHint("app.tools.expand", "to expand")}`;
-
-/** Keeps the last N visual lines of styled text, like Pi's bash tool, with a width cache. */
-export class TailPreview implements Component {
-  private cachedWidth: number | undefined;
-  private cachedLines: string[] = [];
-  private cachedSkipped = 0;
-
-  constructor(
-    private readonly styledText: string,
-    private readonly maxLines: number,
-    private readonly hint: (skipped: number) => string,
-  ) {}
-
-  invalidate(): void {
-    this.cachedWidth = undefined;
-  }
-
-  render(width: number): string[] {
-    if (this.cachedWidth !== width) {
-      const preview = truncateToVisualLines(this.styledText, this.maxLines, width);
-      this.cachedLines = preview.visualLines;
-      this.cachedSkipped = preview.skippedCount;
-      this.cachedWidth = width;
-    }
-    if (this.cachedSkipped > 0) {
-      return [
-        "",
-        truncateToWidth(this.hint(this.cachedSkipped), width, "..."),
-        ...this.cachedLines,
-      ];
-    }
-    return ["", ...this.cachedLines];
-  }
-}
-
-/** Keeps the first N visual rows of styled text and appends an expand hint for the rest. */
-export class HeadPreview implements Component {
-  private cachedWidth: number | undefined;
-  private cachedLines: string[] = [];
-
-  constructor(
-    private readonly styledText: string,
-    private readonly maxLines: number,
-    private readonly hint: (skipped: number) => string,
-  ) {}
-
-  invalidate(): void {
-    this.cachedWidth = undefined;
-  }
-
-  render(width: number): string[] {
-    if (this.cachedWidth !== width) {
-      const all = new Text(this.styledText, 0, 0).render(width);
-      this.cachedLines =
-        all.length > this.maxLines
-          ? [
-              ...all.slice(0, this.maxLines),
-              truncateToWidth(this.hint(all.length - this.maxLines), width, "..."),
-            ]
-          : all;
-      this.cachedWidth = width;
-    }
-    return this.cachedLines;
-  }
-}
-
-/**
- * Wraps a highlighted code block in a component that collapses to `previewLines` screen rows,
- * so long single-line commands cannot flood the row when collapsed.
- */
-export const codeBlockComponent = (
-  styledText: string,
-  theme: Theme,
-  expanded: boolean,
-  previewLines: number,
-): Component =>
-  expanded
-    ? new Text(styledText, 0, 0)
-    : new HeadPreview(styledText, previewLines, (skipped) =>
-        expandHint(theme, `… +${skipped} lines`),
-      );
 
 /** Indentation grows with nesting, so deep or dense values keep their original layout instead. */
 const JSON_FORMAT_MAX_DEPTH = 32;
@@ -453,11 +364,7 @@ export const renderProcessResult = (
     if (options.expanded) {
       container.addChild(new Text(`\n${styled}`, 0, 0));
     } else {
-      container.addChild(
-        new TailPreview(styled, OUTPUT_PREVIEW_LINES, (skipped) =>
-          expandHint(theme, `… ${skipped} earlier lines`),
-        ),
-      );
+      container.addChild(tailPreview(styled, OUTPUT_PREVIEW_LINES, theme));
     }
   } else if (details.status !== "running") {
     container.addChild(new Text(`\n${theme.fg("muted", "(no output)")}`, 0, 0));
@@ -703,17 +610,14 @@ export const applyPatchRenderers: Renderers = {
     // rendered so the completed result can supply the header on the first draw.
     // SAFETY: This renderer pair owns the row-local patch state.
     const state = context.state as PatchCallState;
-    return {
-      invalidate() {},
-      render(width) {
-        return codeBlockComponent(
-          formatApplyPatchCall(args, theme, state),
-          theme,
-          context.expanded,
-          PATCH_FILE_PREVIEW_ROWS + 1,
-        ).render(width);
-      },
-    };
+    return lazyComponent(() =>
+      codeBlockComponent(
+        formatApplyPatchCall(args, theme, state),
+        theme,
+        context.expanded,
+        PATCH_FILE_PREVIEW_ROWS + 1,
+      ),
+    );
   },
   renderResult(result, options, theme, context) {
     // SAFETY: This renderer pair owns the row-local patch state.
@@ -732,7 +636,6 @@ export const applyPatchRenderers: Renderers = {
     }
     const body = formatApplyPatchResult(details, theme);
     if (body.length > 0) {
-      container.addChild(new Text("", 0, 0));
       container.addChild(codeBlockComponent(body, theme, options.expanded, DIFF_PREVIEW_LINES));
     }
     return container;

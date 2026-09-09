@@ -321,11 +321,12 @@ describe("Codex code mode", () => {
         .filter((line) => line.length > 0)
         .join("\n");
 
-    expect(render({ status: "running" })).toBe("● running");
-    expect(render({ status: "yielded" })).toBe("◌ running");
-    expect(render({ status: "result" })).toBe("✓ completed");
-    expect(render({ status: "terminated" })).toBe("■ terminated");
-    expect(render({ scriptError: "boom", status: "result" })).toMatch(/^✗ error\s+boom$/u);
+    // Once a result exists, its slot owns the header as well as the status.
+    expect(render({ status: "running" })).toBe("Exec …\n● running");
+    expect(render({ status: "yielded" })).toBe("Exec …\n◌ running");
+    expect(render({ status: "result" })).toBe("Exec …\n✓ completed");
+    expect(render({ status: "terminated" })).toBe("Exec …\n■ terminated");
+    expect(render({ scriptError: "boom", status: "result" })).toMatch(/^Exec …\n✗ error\s+boom$/u);
     expect(render({}, true)).toMatch(/✗ error\s+Host failed/u);
   });
 
