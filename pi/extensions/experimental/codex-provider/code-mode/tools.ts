@@ -3,24 +3,26 @@ import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { Value } from "typebox/value";
 
 import { operationSignal, raceWithAbortSignal } from "#pi-abort";
 import { resolveGrammarConstrainedSampling } from "#pi-constrained-sampling";
 
 import type { CodeModeHostClient } from "./host-client.js";
 import { DEFAULT_CODE_MODE_OUTPUT_TOKENS, MAX_CODE_MODE_OUTPUT_TOKENS } from "./protocol.js";
+import {
+  renderCodeModeResult,
+  renderCodeModeShell,
+  renderExecCall,
+  renderWaitCall,
+} from "./renderers.js";
 import type {
   NestedTool,
   RuntimeContentItem,
   RuntimeResponse,
   RuntimeToolResult,
-  RuntimeToolTrace,
   RuntimeValue,
 } from "./types.js";
-import { RuntimeToolTraceSchema } from "./types.js";
 
 const DEFAULT_WAIT_MS = 10_000;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
@@ -146,16 +148,17 @@ export class CodeModeRuntime {
         label: "Exec",
         name: "exec",
         parameters: EXEC_PARAMETERS,
-        renderCall(args, theme) {
-          const source = args.code ?? "(invalid source)";
-          return new Text(
-            `${theme.fg("toolTitle", theme.bold("exec"))}\n${theme.fg("toolOutput", source)}`,
-            0,
-            0,
-          );
+        renderShell: "self",
+        renderCall(args, theme, context) {
+          return renderCodeModeShell(renderExecCall(args, theme, context), "call", theme, context);
         },
         renderResult(result, options, theme, context) {
-          return renderCodeModeResult(result, options, theme, context, currentByName());
+          return renderCodeModeShell(
+            renderCodeModeResult(result, options, theme, context, currentByName()),
+            "result",
+            theme,
+            context,
+          );
         },
       }),
       defineTool({
@@ -181,16 +184,17 @@ export class CodeModeRuntime {
         label: "Wait",
         name: "wait",
         parameters: WAIT_PARAMETERS,
-        renderCall(args, theme) {
-          const action = args.terminate === true ? "terminate" : "wait";
-          return new Text(
-            theme.fg("toolTitle", theme.bold(`${action} ${args.cell_id ?? ""}`)),
-            0,
-            0,
-          );
+        renderShell: "self",
+        renderCall(args, theme, context) {
+          return renderCodeModeShell(renderWaitCall(args, theme, context), "call", theme, context);
         },
         renderResult(result, options, theme, context) {
-          return renderCodeModeResult(result, options, theme, context, currentByName());
+          return renderCodeModeShell(
+            renderCodeModeResult(result, options, theme, context, currentByName()),
+            "result",
+            theme,
+            context,
+          );
         },
       }),
     ];
@@ -268,6 +272,9 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
     },
     usage: usageFor(codeModeName(definition.name, namespace)),
   };
+  if (freeformProperty !== undefined) {
+    nested.freeformProperty = freeformProperty;
+  }
   if (namespace !== undefined) {
     nested.namespace = namespace;
   }
@@ -476,96 +483,5 @@ const truncateTextContent = <
   });
 };
 
-const renderCodeModeResult = (
-  result: AgentToolResult<unknown>,
-  options: { expanded: boolean; isPartial: boolean },
-  theme: Parameters<NonNullable<ToolDefinition["renderResult"]>>[2],
-  context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3],
-  tools: Map<string, NestedTool>,
-) => {
-  const details = isRecord(result.details) ? result.details : {};
-  const traces = Array.isArray(details.traces) ? details.traces.filter(isRuntimeToolTrace) : [];
-  const container = new Container();
-  const { status } = details;
-  let statusColor: "error" | "success" | "warning" = "success";
-  let statusText = "✓ completed";
-  if (context.isError || details.scriptError !== undefined) {
-    statusColor = "error";
-    statusText = "✗ error";
-  } else if (status === "running") {
-    statusColor = "warning";
-    statusText = "● running";
-  } else if (status === "yielded") {
-    statusColor = "warning";
-    statusText = "◌ yielded";
-  } else if (status === "terminated") {
-    statusText = "■ terminated";
-  }
-  container.addChild(new Text(theme.fg(statusColor, statusText), 0, 0));
-  if (context.isError) {
-    for (const item of result.content) {
-      if (item.type === "text") {
-        container.addChild(new Text(theme.fg("error", item.text), 1, 0));
-      }
-    }
-  }
-  for (const trace of traces) {
-    const nested = tools.get(trace.name);
-    const renderContext = {
-      ...context,
-      args: trace.input,
-      toolCallId: trace.id,
-    };
-    try {
-      if (nested?.definition.renderCall) {
-        container.addChild(nested.definition.renderCall(trace.input, theme, renderContext));
-      } else {
-        container.addChild(
-          new Text(
-            theme.fg(
-              trace.status === "error" ? "error" : "toolTitle",
-              `${trace.status === "done" ? "✓" : trace.status === "error" ? "✗" : "…"} ${trace.name}`,
-            ),
-            0,
-            0,
-          ),
-        );
-      }
-      if (trace.result !== undefined && nested?.definition.renderResult !== undefined) {
-        container.addChild(
-          nested.definition.renderResult(
-            {
-              content: trace.result.content,
-              details: trace.result.details,
-            },
-            {
-              expanded: options.expanded,
-              isPartial: trace.status === "running",
-            },
-            theme,
-            renderContext,
-          ),
-        );
-      } else if (trace.error !== undefined && trace.error.length > 0) {
-        container.addChild(new Text(theme.fg("error", trace.error), 1, 0));
-      } else if (options.expanded && trace.result !== undefined) {
-        const text = trace.result.content
-          .filter((item): item is { type: "text"; text: string } => item.type === "text")
-          .map((item) => item.text)
-          .join("\n");
-        if (text.length > 0) {
-          container.addChild(new Text(theme.fg("toolOutput", text), 1, 0));
-        }
-      }
-    } catch {
-      container.addChild(new Text(trace.name, 0, 0));
-    }
-  }
-  return container;
-};
-
 const isRecord = (value: RuntimeValue): value is JsonRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-const isRuntimeToolTrace = (value: RuntimeValue): value is RuntimeToolTrace =>
-  Value.Check(RuntimeToolTraceSchema, value);

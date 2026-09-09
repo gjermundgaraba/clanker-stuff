@@ -314,13 +314,18 @@ describe("Codex code mode", () => {
             toolCallId: "call-1",
           },
         ),
-      )?.trimEnd();
+      )
+        ?.split("\n")
+        // Drop the Code Mode shell: blank padding rows and one column of side padding.
+        .map((line) => line.trimEnd().replace(/^ /u, ""))
+        .filter((line) => line.length > 0)
+        .join("\n");
 
     expect(render({ status: "running" })).toBe("● running");
-    expect(render({ status: "yielded" })).toBe("◌ yielded");
+    expect(render({ status: "yielded" })).toBe("◌ running");
     expect(render({ status: "result" })).toBe("✓ completed");
     expect(render({ status: "terminated" })).toBe("■ terminated");
-    expect(render({ scriptError: "boom", status: "result" })).toBe("✗ error");
+    expect(render({ scriptError: "boom", status: "result" })).toMatch(/^✗ error\s+boom$/u);
     expect(render({}, true)).toMatch(/✗ error\s+Host failed/u);
   });
 

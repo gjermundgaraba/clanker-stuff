@@ -34,6 +34,8 @@ export type RuntimeToolTrace = Static<typeof RuntimeToolTraceSchema>;
 
 export interface NestedTool {
   definition: ToolDefinition;
+  /** Argument property that receives the raw freeform string; undefined for function tools. */
+  freeformProperty?: string;
   kind: "freeform" | "function";
   name: string;
   namespace?: string;

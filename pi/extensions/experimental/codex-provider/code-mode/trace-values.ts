@@ -4,6 +4,8 @@ import type { RuntimeToolResult, RuntimeToolTrace, RuntimeValue } from "./types.
 const MAX_TRACE_TEXT_CHARS = 32_768;
 const MAX_TRACE_DETAILS_CHARS = 65_536;
 const MAX_SERIALIZED_NODES = 4096;
+/** Appended to a string the trace budget cut short; renderers treat such arguments as partial. */
+export const TRACE_VALUE_TRUNCATED_MARKER = "[value truncated]";
 
 type SanitizedValue =
   | boolean
@@ -130,7 +132,7 @@ function sanitizeValue(value: RuntimeValue, budget: SerializationBudget): Saniti
     budget.remaining -= Math.min(value.length, available);
     return value.length <= available
       ? value
-      : `${value.slice(0, Math.max(0, available - 21))}[value truncated]`;
+      : `${value.slice(0, Math.max(0, available - 21))}${TRACE_VALUE_TRUNCATED_MARKER}`;
   }
   if (depth >= 12) {
     return "[depth limit]";

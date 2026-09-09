@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +10,8 @@ import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { boundRuntimeToolResult } from "../code-mode/trace-values.js";
+import { MAX_DIFF_CHARS } from "../tools/patch.js";
 import { ProcessManager } from "../tools/process.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
@@ -16,6 +19,18 @@ import { createToolsModel } from "./fixtures.js";
 vi.mock(import("@earendil-works/pi-coding-agent"), { spy: true });
 
 const tempDirectories: string[] = [];
+const ChangesSchema = Type.Object({
+  changes: Type.Array(
+    Type.Object({
+      changed: Type.Boolean(),
+      from: Type.Optional(Type.String()),
+      kind: Type.String(),
+      lines: Type.Optional(Type.Object({ added: Type.Number(), removed: Type.Number() })),
+      path: Type.String(),
+    }),
+  ),
+  diffs: Type.Array(Type.Object({ diff: Type.String(), index: Type.Integer() })),
+});
 const SessionDetailsSchema = Type.Object({
   running: Type.Optional(Type.Boolean()),
   sessionId: Type.Optional(Type.Number()),
@@ -86,6 +101,261 @@ describe("profile execution", () => {
     await expect(readFile(path.join(cwd, "example.txt"), "utf-8")).rejects.toThrow("ENOENT");
     await expect(readFile(path.join(cwd, "delete.txt"), "utf-8")).rejects.toThrow("ENOENT");
   });
+
+  it.skipIf(process.platform === "win32")(
+    "deletes non-regular files without reading them and records only regular-file diffs",
+    async () => {
+      const cwd = await createTempDirectory();
+      execFileSync("mkfifo", [path.join(cwd, "pipe")]);
+      await writeFile(path.join(cwd, "plain.txt"), "one\ntwo\n", "utf-8");
+      const model = createToolsModel("gpt-5.6-terra", true);
+      const host = createExtensionHost(registerCodexTools, { model });
+      const ctx = host.createContext({ cwd, model });
+      await host.emitSessionStart(ctx);
+
+      const result = await Promise.race([
+        host.runTool(
+          "apply_patch",
+          {
+            patch: [
+              "*** Begin Patch",
+              "*** Delete File: pipe",
+              "*** Delete File: plain.txt",
+              "*** End Patch",
+            ].join("\n"),
+          },
+          ctx,
+        ),
+        delay(5000).then(() => {
+          throw new Error("apply_patch blocked on the FIFO");
+        }),
+      ]);
+      const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
+      expect(changes).toEqual([
+        { changed: true, kind: "delete", path: "pipe" },
+        { changed: true, kind: "delete", lines: { added: 0, removed: 2 }, path: "plain.txt" },
+      ]);
+      expect(diffs.map((entry) => entry.index)).toEqual([1]);
+      expect(diffs[0]?.diff).toContain("-1 one");
+      await expect(readFile(path.join(cwd, "plain.txt"), "utf-8")).rejects.toThrow("ENOENT");
+    },
+  );
+
+  it("keeps every change's metadata ahead of the diffs under the nested trace bound", async () => {
+    const cwd = await createTempDirectory();
+    const big = Array.from({ length: 3000 }, (_, i) => `+${"x".repeat(30)} ${i}`);
+    const names = Array.from({ length: 200 }, (_, i) => `dir/file-${i}.txt`);
+    const model = createToolsModel("gpt-5.6-terra", true);
+    const host = createExtensionHost(registerCodexTools, { model });
+    const ctx = host.createContext({ cwd, model });
+    await host.emitSessionStart(ctx);
+
+    const result = await host.runTool(
+      "apply_patch",
+      {
+        patch: [
+          "*** Begin Patch",
+          ...["big-a.txt", "big-b.txt", "big-c.txt", "big-d.txt"].flatMap((name) => [
+            `*** Add File: ${name}`,
+            ...big,
+          ]),
+          ...names.flatMap((name) => [`*** Add File: ${name}`, "+one", "+two"]),
+          "*** End Patch",
+        ].join("\n"),
+      },
+      ctx,
+    );
+    const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
+    expect(changes).toHaveLength(204);
+    expect(diffs).toHaveLength(204);
+    // Each diff is capped on its own; there is no shared budget to exhaust.
+    expect(Math.max(...diffs.map((entry) => entry.diff.length))).toBeLessThanOrEqual(
+      MAX_DIFF_CHARS + 40,
+    );
+    expect(diffs[0]).toMatchObject({ index: 0 });
+    expect(diffs[0]?.diff).toContain("[diff truncated for display]");
+
+    // Nested Code Mode traces cut details in key order, so the diffs absorb the cut and the
+    // change list stays complete.
+    expect(Object.keys(Value.Parse(Type.Object({}), result.details))).toEqual(["changes", "diffs"]);
+    const traced = Value.Parse(
+      Type.Object({ changes: Type.Array(Type.Unknown()), diffs: Type.Array(Type.Unknown()) }),
+      boundRuntimeToolResult({ content: [], details: result.details }, 0).details,
+    );
+    expect(traced.changes).toEqual(changes);
+    expect(traced.diffs.length).toBeLessThan(diffs.length);
+  });
+
+  it("skips the display diff for a large rewrite but keeps it for a small edit", async () => {
+    const cwd = await createTempDirectory();
+    const lines = Array.from({ length: 6000 }, (_, i) => `line ${i} ${"x".repeat(30)}`);
+    await writeFile(path.join(cwd, "big.txt"), `${lines.join("\n")}\n`, "utf-8");
+    const model = createToolsModel("gpt-5.6-terra", true);
+    const host = createExtensionHost(registerCodexTools, { model });
+    const ctx = host.createContext({ cwd, model });
+    await host.emitSessionStart(ctx);
+
+    const startedAt = performance.now();
+    const rewrite = await host.runTool(
+      "apply_patch",
+      {
+        patch: [
+          "*** Begin Patch",
+          "*** Update File: big.txt",
+          "@@",
+          ...lines.map((line) => `-${line}`),
+          ...lines.map((line) => `+${line.replace("line", "row")}`),
+          "*** End Patch",
+        ].join("\n"),
+      },
+      ctx,
+    );
+    // A full Myers diff of this rewrite takes seconds on the event loop; the patch's own line
+    // counts bound the work up front so the change records metadata only.
+    expect(performance.now() - startedAt).toBeLessThan(1500);
+    const rewritten = Value.Parse(ChangesSchema, rewrite.details);
+    expect(rewritten.changes).toEqual([
+      { changed: true, kind: "update", lines: { added: 6000, removed: 6000 }, path: "big.txt" },
+    ]);
+    expect(rewritten.diffs).toEqual([]);
+    await expect(readFile(path.join(cwd, "big.txt"), "utf-8")).resolves.toContain("row 5999 ");
+
+    const edit = await host.runTool(
+      "apply_patch",
+      {
+        patch: [
+          "*** Begin Patch",
+          "*** Update File: big.txt",
+          "@@",
+          `-row 3000 ${"x".repeat(30)}`,
+          `+row 3000 changed`,
+          "*** End Patch",
+        ].join("\n"),
+      },
+      ctx,
+    );
+    const edited = Value.Parse(ChangesSchema, edit.details);
+    expect(edited.changes[0]).toMatchObject({ changed: true, lines: { added: 1, removed: 1 } });
+    expect(edited.diffs[0]?.diff).toContain("+3001 row 3000 changed");
+
+    // Fuzzy matching lets context lines replace file lines that differ only in whitespace, so a
+    // context-only hunk can rewrite every line and must count toward the bound as well.
+    await writeFile(
+      path.join(cwd, "spaced.txt"),
+      `${lines.map((line) => `${line}  `).join("\n")}\n`,
+      "utf-8",
+    );
+    const contextStartedAt = performance.now();
+    const contextOnly = await host.runTool(
+      "apply_patch",
+      {
+        patch: [
+          "*** Begin Patch",
+          "*** Update File: spaced.txt",
+          "@@",
+          ...lines.map((line) => ` ${line}`),
+          "*** End Patch",
+        ].join("\n"),
+      },
+      ctx,
+    );
+    expect(performance.now() - contextStartedAt).toBeLessThan(1500);
+    const normalized = Value.Parse(ChangesSchema, contextOnly.details);
+    // No plus or minus lines, yet the contents changed; `changed` records that directly.
+    expect(normalized.changes).toEqual([
+      { changed: true, kind: "update", lines: { added: 0, removed: 0 }, path: "spaced.txt" },
+    ]);
+    expect(normalized.diffs).toEqual([]);
+    await expect(readFile(path.join(cwd, "spaced.txt"), "utf-8")).resolves.toBe(
+      `${lines.join("\n")}\n`,
+    );
+  });
+
+  it("counts deleted lines exactly beyond the diff read limit and per operation", async () => {
+    const cwd = await createTempDirectory();
+    const line = `${"y".repeat(120)}\n`;
+    const bigLines = Math.ceil((1024 * 1024) / line.length) + 500;
+    await writeFile(path.join(cwd, "huge.txt"), line.repeat(bigLines), "utf-8");
+    const model = createToolsModel("gpt-5.6-terra", true);
+    const host = createExtensionHost(registerCodexTools, { model });
+    const ctx = host.createContext({ cwd, model });
+    await host.emitSessionStart(ctx);
+
+    const result = await host.runTool(
+      "apply_patch",
+      {
+        patch: [
+          "*** Begin Patch",
+          "*** Delete File: huge.txt",
+          "*** Add File: a.txt",
+          "+old",
+          "*** Update File: a.txt",
+          "@@",
+          "-old",
+          "+new",
+          "*** End Patch",
+        ].join("\n"),
+      },
+      ctx,
+    );
+    const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
+    // Too large to diff, yet its line count is exact rather than a false zero.
+    expect(changes[0]).toEqual({
+      changed: true,
+      kind: "delete",
+      lines: { added: 0, removed: bigLines },
+      path: "huge.txt",
+    });
+    // The same path touched twice keeps one diff per operation.
+    expect(diffs.map((entry) => entry.index)).toEqual([1, 2]);
+    expect(diffs[0]?.diff).toBe("+1 old");
+    expect(diffs[1]?.diff).toContain("-1 old");
+    expect(diffs[1]?.diff).toContain("+1 new");
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "deletes unreadable files and leaves their counts unknown",
+    async () => {
+      const cwd = await createTempDirectory();
+      const line = `${"y".repeat(120)}\n`;
+      await writeFile(path.join(cwd, "huge.txt"), line.repeat(9000), {
+        encoding: "utf-8",
+        mode: 0,
+      });
+      await writeFile(path.join(cwd, "small.txt"), "one\ntwo\nthree\n", {
+        encoding: "utf-8",
+        mode: 0,
+      });
+      const model = createToolsModel("gpt-5.6-terra", true);
+      const host = createExtensionHost(registerCodexTools, { model });
+      const ctx = host.createContext({ cwd, model });
+      await host.emitSessionStart(ctx);
+
+      const result = await host.runTool(
+        "apply_patch",
+        {
+          patch: [
+            "*** Begin Patch",
+            "*** Delete File: huge.txt",
+            "*** Delete File: small.txt",
+            "*** Add File: a.txt",
+            "+new",
+            "*** End Patch",
+          ].join("\n"),
+        },
+        ctx,
+      );
+      // Display metadata is best-effort: an unreadable file is still deleted, and its count is
+      // absent rather than a false zero.
+      const { changes } = Value.Parse(ChangesSchema, result.details);
+      expect(changes.slice(0, 2)).toEqual([
+        { changed: true, kind: "delete", path: "huge.txt" },
+        { changed: true, kind: "delete", path: "small.txt" },
+      ]);
+      await expect(readFile(path.join(cwd, "huge.txt"), "utf-8")).rejects.toThrow("ENOENT");
+      await expect(readFile(path.join(cwd, "small.txt"), "utf-8")).rejects.toThrow("ENOENT");
+    },
+  );
 
   it("applies Codex move-only patches", async () => {
     const cwd = await createTempDirectory();
@@ -364,7 +634,9 @@ describe("profile execution", () => {
     });
     const details = Value.Parse(OutputDetailsSchema, result.details);
 
-    expect(details.truncation?.truncated).toBeTruthy();
+    // The returned text was rebuilt from the full output file, so the capture buffer's line
+    // truncation no longer describes it and must not be reported.
+    expect(details.truncation).toBeUndefined();
     expect(details.fullOutputPath).toBeTypeOf("string");
     expect(textContent(result)).not.toContain("Warning: truncated output");
     expect(textContent(result)).toContain("Full output:");

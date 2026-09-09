@@ -8,6 +8,13 @@ import { Type } from "typebox";
 
 import { resolvePath } from "./path.js";
 import type { ProcessManager, ProcessResult } from "./process.js";
+import { formatProcessMetadata } from "./process-metadata.js";
+import {
+  applyPatchRenderers,
+  execCommandRenderers,
+  viewImageRenderers,
+  writeStdinRenderers,
+} from "./renderers.js";
 
 const strict = { additionalProperties: false } as const;
 const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
@@ -216,23 +223,6 @@ const outputTokenPolicy = (ctx: Pick<ExtensionContext, "model" | "modelRegistry"
     : DEFAULT_OUTPUT_TOKEN_LIMIT;
 };
 
-const formatProcessMetadata = (result: ProcessResult): string => {
-  let status = `Process exited with code ${result.exitCode ?? "unknown"}.`;
-  if (result.status === "running") {
-    status = "Process is still running.";
-  } else if (result.status === "killed") {
-    status = "Process was killed.";
-  }
-  const output = [status];
-  if (result.fullOutputPath !== undefined && result.fullOutputPath.length > 0) {
-    output.push(`[Full output: ${result.fullOutputPath}]`);
-  }
-  if (result.sessionId !== undefined) {
-    output.push(`Session ID: ${result.sessionId}`);
-  }
-  return output.join("\n\n");
-};
-
 const codeModeResult = (
   result: ProcessResult,
   output: ReturnType<typeof truncateCodexOutput> | undefined,
@@ -276,11 +266,16 @@ const processResult = async (
   }
   const metadata = formatProcessMetadata(result);
   const content = truncated.content.length === 0 ? metadata : `${truncated.content}\n\n${metadata}`;
-  const { output: _output, ...details } = result;
+  const { output: _output, truncation, ...details } = result;
   const resultDetails = {
     ...details,
     effectiveMaxOutputTokens: effectiveLimit,
   };
+  // The capture snapshot's line truncation describes the in-memory buffer. When the returned text
+  // was rebuilt from the full output file it no longer describes what the model or the row sees.
+  if (truncation !== undefined && result.fullOutputPath === undefined) {
+    Object.assign(resultDetails, { truncation });
+  }
   if (nested) {
     Object.assign(resultDetails, { codeModeResult: codeModeResult(result, nestedOutput) });
   }
@@ -314,6 +309,7 @@ export const createCodexDirectTools = () => {
   };
   const execCommand = (nested: boolean) =>
     defineTool({
+      ...execCommandRenderers,
       name: "exec_command",
       label: "Execute Command",
       description:
@@ -351,6 +347,7 @@ export const createCodexDirectTools = () => {
     });
   const writeStdin = (nested: boolean) =>
     defineTool({
+      ...writeStdinRenderers,
       name: "write_stdin",
       label: "Write Stdin",
       description: "Writes to or polls a running exec_command session.",
@@ -388,6 +385,7 @@ export const createCodexDirectTools = () => {
     });
   const sharedDefinitions = [
     defineTool({
+      ...applyPatchRenderers,
       name: "apply_patch",
       label: "Apply Patch",
       description:
@@ -400,12 +398,12 @@ export const createCodexDirectTools = () => {
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
         const { applyPatch } = await import("./patch.js");
         const result = await applyPatch(params.patch, ctx.cwd, signal);
-        return textResult(result.output, {
-          changes: result.changes,
-        });
+        // Key order matters: a bounded copy of these details is cut from the end.
+        return textResult(result.output, { changes: result.changes, diffs: result.diffs });
       },
     }),
     defineTool({
+      ...viewImageRenderers,
       name: "view_image",
       label: "View Image",
       description: "Attach a local image to the conversation.",
