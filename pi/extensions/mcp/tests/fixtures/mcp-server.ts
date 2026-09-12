@@ -8,6 +8,17 @@ export const createFixtureMcpServer = (scenario = "normal"): McpServer => {
     version: "1.0.0",
   });
 
+  if (scenario === "changed") {
+    server.registerTool(
+      "search",
+      { inputSchema: z.object({ term: z.string() }) },
+      async ({ term }) => ({
+        content: [{ type: "text", text: `changed: ${term}` }],
+      }),
+    );
+    return server;
+  }
+
   if (scenario === "collision") {
     server.registerTool("foo-bar", { inputSchema: z.object({ query: z.string() }) }, async () => ({
       content: [{ text: "collision", type: "text" }],
@@ -26,9 +37,7 @@ export const createFixtureMcpServer = (scenario = "normal"): McpServer => {
     },
     async ({ query }): Promise<CallToolResult> => {
       let text = `result: ${query}`;
-      if (scenario === "oversize") {
-        text = "😀".repeat(300_000);
-      } else if (scenario === "large") {
+      if (scenario === "large") {
         text = "result\n".repeat(20_000);
       } else if (scenario === "error") {
         text = "failure\n".repeat(20_000);

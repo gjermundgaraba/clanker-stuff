@@ -19,10 +19,9 @@ export const createMcpRuntime = (pi: ExtensionAPI) => {
 
   const restore = async (ctx: ExtensionContext): Promise<void> => {
     if (
-      loader.isStopped() ||
-      (loader.get() === undefined &&
-        !loader.isLoading() &&
-        loadedServerNames(ctx.sessionManager.getBranch()).length === 0)
+      loader.get() === undefined &&
+      !loader.isLoading() &&
+      loadedServerNames(ctx.sessionManager.getBranch()).length === 0
     ) {
       return;
     }

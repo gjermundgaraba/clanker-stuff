@@ -17,19 +17,23 @@
     "directory": "pi/extensions/mcp"
   },
   "files": [
+    "LICENSE",
+    "README.md",
+    "abort.ts",
     "bridge.ts",
     "config.ts",
     "connection.ts",
+    "docs",
     "index.ts",
     "loaded-servers.ts",
     "loader.ts",
     "manager.ts",
+    "oauth-store.ts",
     "oauth.ts",
+    "open-browser.ts",
+    "results.ts",
     "runtime.ts",
-    "servers.ts",
-    "README.md",
-    "LICENSE",
-    "docs"
+    "servers.ts"
   ],
   "type": "module",
   "exports": "./index.ts",
@@ -41,15 +45,18 @@
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/core": "^2.0.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "proper-lockfile": "^4.1.2",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@types/proper-lockfile": "^4.1.4",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
   },

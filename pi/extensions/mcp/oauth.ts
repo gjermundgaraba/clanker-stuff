@@ -1,363 +1,316 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import path from "node:path";
 
-import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import {
+  auth,
+  InsufficientScopeError,
+  extractWWWAuthenticateParams,
+  UnauthorizedError,
+  SdkHttpError,
+} from "@modelcontextprotocol/client";
 import type {
+  AuthProvider,
   OAuthClientProvider,
   OAuthDiscoveryState,
-  OAuthServerInfo,
   OAuthClientMetadata,
   StoredOAuthClientInformation,
   StoredOAuthTokens,
-  AuthorizationServerMetadata,
 } from "@modelcontextprotocol/client";
+import type { HttpServerConfig } from "./config.js";
+import { awaitWithSignal } from "./abort.js";
 import {
-  OAuthClientInformationFullSchema,
-  OAuthClientInformationSchema,
-  OAuthMetadataSchema,
-  OAuthProtectedResourceMetadataSchema,
-  OAuthTokensSchema,
-  OpenIdProviderDiscoveryMetadataSchema,
-} from "@modelcontextprotocol/core";
-import { z } from "zod/v4";
+  AuthorizationMetadataSchema,
+  oauthStatePath,
+  readOAuthState,
+  updateOAuthState,
+  withOAuthLock,
+} from "./oauth-store.js";
 
-import type { HttpOAuthAuthorizationCodeConfig } from "./config.js";
+const oauthFetch =
+  (signal?: AbortSignal): typeof fetch =>
+  (input, init) => {
+    const signals = [AbortSignal.timeout(30_000)];
+    if (signal) signals.push(signal);
+    if (input instanceof Request) signals.push(input.signal);
+    if (init?.signal) signals.push(init.signal);
+    return fetch(input, { ...init, signal: AbortSignal.any(signals) });
+  };
 
-const OAUTH_STATE_FILE = "mcp-oauth.json";
-const DEFAULT_REDIRECT_PORT = 33_418;
-const CALLBACK_PATH = "/callback";
-const CALLBACK_HOST = "localhost";
+export const isAuthorizationError = (cause: unknown): boolean =>
+  UnauthorizedError.isInstance(cause) ||
+  cause instanceof InsufficientScopeError ||
+  (SdkHttpError.isInstance(cause) && cause.status === 401);
 
-const AuthorizationServerMetadataSchema = z.union([
-  OAuthMetadataSchema,
-  OpenIdProviderDiscoveryMetadataSchema,
-]);
-
-const DiscoveryStateSchema = z.object({
-  authorizationServerMetadata: AuthorizationServerMetadataSchema.optional(),
-  authorizationServerUrl: z.string(),
-  resourceMetadata: OAuthProtectedResourceMetadataSchema.optional(),
-  resourceMetadataUrl: z.string().optional(),
-});
-
-// SEP-2352: the SDK stamps `issuer` on credentials before persisting them and
-// warns when a read comes back without it. The core wire schemas strip unknown
-// fields, so storage schemas must re-add `issuer` to round-trip the stamp.
-const issuerStampFields = { issuer: z.string().optional() };
-
-const StoredServerOAuthStateSchema = z.object({
-  clientInformation: z
-    .union([
-      OAuthClientInformationFullSchema.extend(issuerStampFields),
-      OAuthClientInformationSchema.extend(issuerStampFields),
-    ])
-    .optional(),
-  codeVerifier: z.string().min(1).optional(),
-  discoveryState: DiscoveryStateSchema.optional(),
-  tokens: OAuthTokensSchema.extend(issuerStampFields).optional(),
-});
-
-const StoredOAuthStateSchema = z.object({
-  servers: z.record(z.string(), StoredServerOAuthStateSchema),
-});
-
-type StoredServerOAuthState = z.infer<typeof StoredServerOAuthStateSchema>;
-type StoredOAuthState = z.infer<typeof StoredOAuthStateSchema>;
-
-const getOAuthStatePath = (): string =>
-  path.join(getExtensionStoragePaths("mcp").dataDir, OAUTH_STATE_FILE);
-
-const parseStoredOAuthState = (text: string): StoredOAuthState => {
-  const result = StoredOAuthStateSchema.safeParse(JSON.parse(text));
-  if (!result.success) {
-    throw new Error("invalid MCP OAuth state", { cause: result.error });
-  }
-  return result.data;
+const requestedScopes = (...scopes: (string | undefined)[]): string | undefined => {
+  const words = scopes.flatMap((scope) => scope?.split(/\s+/u).filter(Boolean) ?? []);
+  return [...new Set(words)].join(" ") || undefined;
 };
 
-const fetchAuthorizationServerMetadata = async (
-  url: string,
-): Promise<AuthorizationServerMetadata> => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(
-      `failed to fetch OAuth authorization server metadata: ${response.status} ${response.statusText}`,
-    );
-  }
-  return AuthorizationServerMetadataSchema.parse(await response.json());
-};
-
-export const startOAuthCallbackServer = async (
-  redirectUrl: URL,
-  expectedState: string,
-): Promise<OAuthCallbackServer> => {
-  const {
-    promise: codePromise,
-    resolve: resolveCode,
-    reject: rejectCode,
-  } = Promise.withResolvers<OAuthCallbackResult>();
-
+export const startOAuthCallbackServer = async (redirectUrl: URL, expectedState: string) => {
+  const code = Promise.withResolvers<{ code: string; iss?: string }>();
+  // Requests can arrive before waitForCode attaches its rejection handler.
+  void code.promise.catch(() => {});
   const server = createServer((req, res) => {
-    const requestUrl = new URL(req.url ?? "/", redirectUrl.origin);
-    if (requestUrl.pathname !== redirectUrl.pathname) {
-      res.writeHead(404).end("Not found");
+    const url = URL.parse(req.url ?? "/", redirectUrl);
+    if (!url) {
+      res.writeHead(400).end();
       return;
     }
-
-    const state = requestUrl.searchParams.get("state");
-    if (state !== expectedState) {
+    if (url.pathname !== redirectUrl.pathname) {
+      res.writeHead(404).end();
+      return;
+    }
+    if (url.searchParams.get("state") !== expectedState) {
+      // Unrelated local requests must not cancel a legitimate authorization attempt.
       res.writeHead(400).end("Invalid OAuth state.");
-      rejectCode(new Error("MCP OAuth callback state mismatch"));
       return;
     }
-
-    const error = requestUrl.searchParams.get("error");
-    if (error !== null && error !== "") {
-      res.writeHead(400).end("OAuth failed. You can close this tab.");
-      rejectCode(new Error(`MCP OAuth failed: ${error}`));
+    const error = url.searchParams.get("error");
+    const value = url.searchParams.get("code");
+    if (error || !value) {
+      res.writeHead(400).end("Authorization failed. You can close this tab.");
+      code.reject(new Error(error ? `MCP OAuth failed: ${error}` : "Missing OAuth code"));
       return;
     }
-
-    const code = requestUrl.searchParams.get("code");
-    if (code === null || code === "") {
-      res.writeHead(400).end("Missing OAuth code.");
-      rejectCode(new Error("MCP OAuth callback did not include a code"));
-      return;
-    }
-
     res
       .writeHead(200, { "Content-Type": "text/plain" })
       .end("MCP authorization complete. You can close this tab.");
-    resolveCode({
-      code,
-      iss: requestUrl.searchParams.get("iss") ?? undefined,
-    });
+    code.resolve({ code: value, iss: url.searchParams.get("iss") ?? undefined });
   });
-
-  // Real callers still observe this promise; this only prevents an unhandled rejection.
-  void codePromise.catch(() => null);
-
   server.listen(Number(redirectUrl.port), redirectUrl.hostname);
   await once(server, "listening");
-  server.on("error", rejectCode);
-
+  server.on("error", code.reject);
+  const address = server.address();
+  // eslint-disable-next-line anti-slop/no-runtime-typeof -- node:http returns a TCP address or a pipe name; we bound TCP.
+  if (address === null || typeof address === "string")
+    throw new Error("OAuth listener has no TCP address");
+  const boundUrl = new URL(redirectUrl);
+  boundUrl.port = String(address.port);
   return {
+    redirectUrl: boundUrl,
+    waitForCode: (signal?: AbortSignal) => awaitWithSignal(code.promise, signal),
     close: async () => {
-      if (!server.listening) {
-        return;
-      }
+      if (!server.listening) return;
+      const closed = once(server, "close");
       server.close();
-      await once(server, "close");
-    },
-    waitForCode: async (signal?: AbortSignal) => {
-      if (signal === undefined) {
-        return await codePromise;
-      }
-      signal.throwIfAborted();
-      return await Promise.race([
-        codePromise,
-        once(signal, "abort").then(() => {
-          throw new Error("MCP OAuth authorization was cancelled");
-        }),
-      ]);
+      server.closeAllConnections();
+      await closed;
     },
   };
 };
 
-const writeOAuthState = async (state: StoredOAuthState): Promise<void> => {
-  const filePath = getOAuthStatePath();
-  await mkdir(path.dirname(filePath), { mode: 0o700, recursive: true });
-  const tempPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
-  try {
-    await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
-      encoding: "utf-8",
-      flag: "wx",
-      mode: 0o600,
-    });
-    await rename(tempPath, filePath);
-  } finally {
-    await rm(tempPath, { force: true });
-  }
-};
-
-const readOAuthState = async (): Promise<StoredOAuthState> => {
-  try {
-    const contents = await readFile(getOAuthStatePath(), "utf-8");
-    return parseStoredOAuthState(contents);
-  } catch (error) {
-    if (error instanceof Object && "code" in error && error.code === "ENOENT") {
-      return { servers: {} };
-    }
-    throw error;
-  }
-};
-
-const readServerState = async (serverName: string): Promise<StoredServerOAuthState | undefined> => {
-  const state = await readOAuthState();
-  return state.servers[serverName];
-};
-
-const updateServerState = async (
-  serverName: string,
-  update: (state: StoredServerOAuthState) => void,
-): Promise<void> => {
-  const filePath = getOAuthStatePath();
-  await withFileMutationQueue(filePath, async () => {
-    const state = await readOAuthState();
-    const serverState = state.servers[serverName] ?? {};
-    update(serverState);
-    state.servers[serverName] = serverState;
-    await writeOAuthState(state);
-  });
-};
-
 export class PersistentMcpOAuthProvider implements OAuthClientProvider {
-  private readonly redirectUrlValue: URL;
-  private readonly stateValue = randomUUID();
-  private readonly serverName: string;
-  private readonly config: HttpOAuthAuthorizationCodeConfig;
-  private readonly onAuthorizationUrl: (url: URL) => void;
+  readonly statePath: string;
+  private readonly expectedState = randomUUID();
+  redirectUrl: URL;
+  authorizationUrl?: URL;
+  private verifier?: string;
+  private authorizationClient?: StoredOAuthClientInformation;
+  private discovery?: OAuthDiscoveryState;
+  private readonly config: NonNullable<HttpServerConfig["oauth"]>;
+  private fetcher: typeof fetch = oauthFetch();
 
-  constructor(
-    serverName: string,
-    config: HttpOAuthAuthorizationCodeConfig,
-    onAuthorizationUrl: (url: URL) => void,
-  ) {
-    this.serverName = serverName;
-    this.config = config;
-    this.onAuthorizationUrl = onAuthorizationUrl;
-    this.redirectUrlValue = new URL(
-      `http://${CALLBACK_HOST}:${config.callbackPort ?? DEFAULT_REDIRECT_PORT}${CALLBACK_PATH}`,
-    );
+  constructor(serverConfig: HttpServerConfig) {
+    this.config = serverConfig.oauth ?? {};
+    this.statePath = oauthStatePath(serverConfig);
+    this.redirectUrl = new URL(`http://localhost:${this.config.callbackPort ?? 0}/callback`);
   }
 
-  get redirectUrl(): URL {
-    return this.redirectUrlValue;
+  setFetch(fetcher: typeof fetch): void {
+    this.fetcher = fetcher;
   }
-
-  get expectedState(): string {
-    return this.stateValue;
+  state(): string {
+    return this.expectedState;
   }
-
   get clientMetadata(): OAuthClientMetadata {
     return {
       client_name: this.config.clientName ?? "pi MCP",
       grant_types: ["authorization_code", "refresh_token"],
-      redirect_uris: [this.redirectUrl.toString()],
+      redirect_uris: [this.redirectUrl.href],
       response_types: ["code"],
       scope: this.config.scopes,
-      token_endpoint_auth_method:
-        this.config.clientSecret !== undefined && this.config.clientSecret !== ""
-          ? "client_secret_post"
-          : undefined,
+      token_endpoint_auth_method: this.config.clientSecret ? "client_secret_post" : "none",
     };
   }
-
-  state(): string {
-    return this.stateValue;
-  }
-
   async clientInformation(): Promise<StoredOAuthClientInformation | undefined> {
-    if (this.config.clientId !== undefined && this.config.clientId !== "") {
-      return {
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-      };
-    }
-    const serverState = await readServerState(this.serverName);
-    return serverState?.clientInformation;
+    if (this.authorizationClient) return this.authorizationClient;
+    const stored = (await readOAuthState(this.statePath)).clientInformation;
+    if (stored) return stored;
+    if (this.config.clientId)
+      return { client_id: this.config.clientId, client_secret: this.config.clientSecret };
+    return undefined;
   }
-
-  async saveClientInformation(clientInformation: StoredOAuthClientInformation): Promise<void> {
-    if (this.config.clientId !== undefined && this.config.clientId !== "") {
-      return;
-    }
-    await updateServerState(this.serverName, (state) => {
-      state.clientInformation = clientInformation;
+  async saveClientInformation(value: StoredOAuthClientInformation): Promise<void> {
+    await updateOAuthState(this.statePath, (state) => {
+      state.clientInformation = value;
     });
   }
-
   async tokens(): Promise<StoredOAuthTokens | undefined> {
-    const serverState = await readServerState(this.serverName);
-    return serverState?.tokens;
+    return (await readOAuthState(this.statePath)).tokens;
   }
-
-  async saveTokens(tokens: StoredOAuthTokens): Promise<void> {
-    await updateServerState(this.serverName, (state) => {
-      state.tokens = tokens;
+  async saveTokens(value: StoredOAuthTokens): Promise<void> {
+    await updateOAuthState(this.statePath, (state) => {
+      state.tokens = value;
+      if (this.authorizationClient) {
+        state.clientInformation = this.authorizationClient;
+        state.discoveryState = this.discovery;
+      }
     });
   }
-
+  clearHandshake(): void {
+    this.verifier = undefined;
+    this.authorizationClient = undefined;
+    this.discovery = undefined;
+    this.authorizationUrl = undefined;
+  }
   async invalidateCredentials(
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
-    await updateServerState(this.serverName, (state) => {
-      if (scope === "all" || scope === "client") {
-        delete state.clientInformation;
-      }
-      if (scope === "all" || scope === "tokens") {
-        delete state.tokens;
-      }
-      if (scope === "all" || scope === "verifier") {
-        delete state.codeVerifier;
-      }
-      if (scope === "all" || scope === "discovery") {
-        delete state.discoveryState;
-      }
+    if (scope === "all" || scope === "verifier") this.verifier = undefined;
+    if (scope === "all" || scope === "client" || scope === "verifier")
+      this.authorizationClient = undefined;
+    if (scope === "all" || scope === "discovery") this.discovery = undefined;
+    if (scope === "verifier") return;
+    await updateOAuthState(this.statePath, (state) => {
+      if (scope === "all" || scope === "client") delete state.clientInformation;
+      if (scope === "all" || scope === "tokens") delete state.tokens;
+      if (scope === "all" || scope === "discovery") delete state.discoveryState;
     });
   }
-
-  redirectToAuthorization(authorizationUrl: URL): void {
-    this.onAuthorizationUrl(authorizationUrl);
+  redirectToAuthorization(url: URL): void {
+    this.authorizationUrl = url;
   }
-
-  async saveCodeVerifier(codeVerifier: string): Promise<void> {
-    await updateServerState(this.serverName, (state) => {
-      state.codeVerifier = codeVerifier;
+  async saveCodeVerifier(value: string): Promise<void> {
+    // Keep the registration paired with this PKCE handshake while other processes authorize.
+    this.authorizationClient = await this.clientInformation();
+    this.verifier = value;
+  }
+  codeVerifier(): string {
+    if (!this.verifier) throw new Error("No MCP OAuth code verifier saved");
+    return this.verifier;
+  }
+  async saveDiscoveryState(value: OAuthDiscoveryState): Promise<void> {
+    this.discovery = value;
+    await updateOAuthState(this.statePath, (state) => {
+      state.discoveryState = value;
     });
   }
-
-  async codeVerifier(): Promise<string> {
-    const serverState = await readServerState(this.serverName);
-    const codeVerifier = serverState?.codeVerifier;
-    if (codeVerifier === undefined || codeVerifier === "") {
-      throw new Error("No MCP OAuth code verifier saved");
-    }
-    return codeVerifier;
-  }
-
-  async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
-    await updateServerState(this.serverName, (serverState) => {
-      serverState.discoveryState = state;
-    });
-  }
-
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
-    if (
-      this.config.authServerMetadataUrl !== undefined &&
-      this.config.authServerMetadataUrl !== ""
-    ) {
-      const metadata = await fetchAuthorizationServerMetadata(this.config.authServerMetadataUrl);
-      return {
-        authorizationServerMetadata: metadata,
+    if (this.discovery) return this.discovery;
+    this.discovery = (await readOAuthState(this.statePath)).discoveryState;
+    if (!this.discovery && this.config.authServerMetadataUrl) {
+      const response = await this.fetcher(this.config.authServerMetadataUrl);
+      if (!response.ok) throw new Error(`OAuth metadata request failed: ${response.status}`);
+      const metadata = AuthorizationMetadataSchema.parse(await response.json());
+      this.discovery = {
         authorizationServerUrl: metadata.issuer,
-      } satisfies OAuthServerInfo;
+        authorizationServerMetadata: metadata,
+      };
     }
-    const serverState = await readServerState(this.serverName);
-    return serverState?.discoveryState;
+    return this.discovery;
+  }
+
+  async prepareRedirect(url: URL): Promise<void> {
+    this.redirectUrl = url;
+    // A dynamically registered client may have an exact redirect URI. Register it again for a new port.
+    const stored = (await readOAuthState(this.statePath)).clientInformation;
+    if (
+      !this.config.clientId &&
+      stored &&
+      "redirect_uris" in stored &&
+      !stored.redirect_uris.includes(url.href)
+    ) {
+      await this.invalidateCredentials("client");
+    }
   }
 }
 
-export interface OAuthCallbackServer {
-  waitForCode: (signal?: AbortSignal) => Promise<OAuthCallbackResult>;
-  close: () => Promise<void>;
-}
-
-export interface OAuthCallbackResult {
-  code: string;
-  iss?: string;
-}
+/** Adapter keeps SDK OAuth logic, but owns refresh serialization and the explicit browser boundary. */
+export const createHttpAuth = (serverConfig: HttpServerConfig) => {
+  const provider = new PersistentMcpOAuthProvider(serverConfig);
+  let lastToken: string | undefined;
+  let challenge: ReturnType<typeof extractWWWAuthenticateParams> = {};
+  let operationSignal: AbortSignal | undefined;
+  const authProvider: AuthProvider = {
+    token: async () => {
+      lastToken = (await provider.tokens())?.access_token;
+      return lastToken;
+    },
+    onUnauthorized: async ({ response }) => {
+      const rejectedToken = lastToken;
+      challenge = extractWWWAuthenticateParams(response);
+      await withOAuthLock(`${provider.statePath}.auth`, operationSignal, async () => {
+        const current = await provider.tokens();
+        if (current?.access_token && current.access_token !== rejectedToken) return;
+        if (!current?.refresh_token)
+          throw new UnauthorizedError(
+            "MCP authorization required. Reconnect with /mcp or mcp_connect.",
+          );
+        const fetchFn = oauthFetch(operationSignal);
+        provider.setFetch(fetchFn);
+        const result = await auth(provider, {
+          serverUrl: serverConfig.url,
+          ...challenge,
+          scope: requestedScopes(serverConfig.oauth?.scopes, challenge.scope),
+          fetchFn,
+        });
+        if (result === "REDIRECT")
+          throw new UnauthorizedError(
+            "MCP authorization required. Reconnect with /mcp or mcp_connect.",
+          );
+      });
+    },
+  };
+  return {
+    authProvider,
+    setSignal: (signal?: AbortSignal) => {
+      operationSignal = signal;
+    },
+    authorize: async (
+      notifyUrl: (url: URL) => void,
+      signal?: AbortSignal,
+      scopeError?: InsufficientScopeError,
+    ) => {
+      signal?.throwIfAborted();
+      if (scopeError)
+        challenge = {
+          scope: scopeError.requiredScope,
+          resourceMetadataUrl: scopeError.resourceMetadataUrl,
+        };
+      provider.clearHandshake();
+      const callback = await startOAuthCallbackServer(provider.redirectUrl, provider.state());
+      try {
+        const fetchFn = oauthFetch(signal);
+        provider.setFetch(fetchFn);
+        const result = await withOAuthLock(`${provider.statePath}.auth`, signal, async () => {
+          await provider.prepareRedirect(callback.redirectUrl);
+          return await auth(provider, {
+            serverUrl: serverConfig.url,
+            ...challenge,
+            scope: requestedScopes(serverConfig.oauth?.scopes, challenge.scope),
+            fetchFn,
+            forceReauthorization: true,
+          });
+        });
+        const authorizationUrl = provider.authorizationUrl;
+        if (result !== "REDIRECT" || !authorizationUrl)
+          throw new Error("MCP OAuth did not redirect to an authorization URL");
+        notifyUrl(authorizationUrl);
+        const { code, iss } = await callback.waitForCode(signal);
+        await withOAuthLock(`${provider.statePath}.auth`, signal, () =>
+          auth(provider, {
+            serverUrl: serverConfig.url,
+            authorizationCode: code,
+            iss,
+            scope: requestedScopes(serverConfig.oauth?.scopes, challenge.scope),
+            fetchFn,
+          }),
+        );
+      } finally {
+        provider.clearHandshake();
+        await callback.close();
+      }
+    },
+  };
+};

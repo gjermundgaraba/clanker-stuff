@@ -1,45 +1,81 @@
 # MCP configuration
 
-The MCP extension reads server configuration from:
+The extension reads two files:
 
-1. Global config: `<agent-dir>/mcp.json`, normally `~/.pi/agent/mcp.json`
-2. Project-local config: `<current-cwd>/.pi/mcp.json`
+1. Global: `<agent-dir>/mcp.json`, normally `~/.pi/agent/mcp.json`
+2. Project: `<current-cwd>/.pi/mcp.json`, only when Pi trusts the project
 
-The extension honors Pi's configured agent and project-directory names.
+Pi's configured agent and project-directory names are honored. Parent directories are not searched. Project entries override global entries with the same name, even when the project entry is invalid. An object without `mcpServers` is an empty configuration. An invalid server entry does not prevent connecting other servers; malformed JSON or an invalid document structure (including a present `mcpServers` that is not an object) must be repaired first.
 
-Both files use the same shape:
+## Server definitions
 
 ```json
 {
   "mcpServers": {
-    "server-name": {
-      "type": "streamable-http",
+    "remote": {
+      "type": "http",
       "url": "https://example.com/mcp",
       "oauth": {}
+    },
+    "local": {
+      "type": "stdio",
+      "command": "my-mcp-server",
+      "args": ["--token", "${MCP_TOKEN}"],
+      "env": { "LOG_LEVEL": "${MCP_LOG_LEVEL:-warn}" }
     }
   }
 }
 ```
 
-When both files exist, `mcpServers` is merged shallowly. Project-local servers override global servers with the same name.
+Supported types are `stdio` and `http`. HTTP uses the MCP SDK's automatic protocol negotiation, including legacy Streamable HTTP servers. There is no separate SSE transport option. Stdio processes start in the current Pi working directory.
 
-Project-local configuration is loaded only after pi marks the current project as trusted. Lookup is limited to `.pi/mcp.json` under the current pi working directory; parent directories are not searched.
+String fields support `${VAR}` and `${VAR:-fallback}`. Missing variables without a fallback fail only when that server is connected. Stored configuration retains the placeholders. Server definitions reject unknown fields to catch typos; unrelated top-level document fields and other server entries survive manager edits.
+
+HTTP entries accept optional `headers`, a string-to-string map. Set `oauth: {}` for browser-based OAuth with dynamic client registration, or omit `oauth` for unauthenticated/header-authenticated servers. OAuth options:
+
+- `clientId`, `clientSecret`: pre-registered client credentials, when required by the provider.
+- `clientName`: registration display name; defaults to `pi MCP`.
+- `scopes`: space-separated requested scopes. These are combined with scopes required by server challenges, without duplicates. If neither is supplied, the SDK uses discovery defaults.
+- `authServerMetadataUrl`: explicit authorization-server metadata URL instead of initial discovery.
+- `callbackPort`: fixed localhost callback port for providers requiring an exact redirect URI. Otherwise the OS allocates a free port. The callback path is `/callback`.
+
+`clientSecret` configures client authentication for the authorization-code flow, not a client-credentials grant. When registering a static client, allow the chosen `http://localhost:<port>/callback` redirect URI.
+
+## Loading and reconnecting
+
+Run `/mcp` and choose a server. Choosing an already connected server replaces the connection and refreshes its configuration and tool schemas. Removed tools are deactivated. Generated tool names contain a readable prefix and a stable identity hash and fit provider name limits.
+
+Loaded server names are saved in the session branch. Restoring a branch activates its servers without opening a browser; failed restores produce a warning. A closed connection, expired MCP session, or failed authorization deactivates its tools. Use `/mcp` or `mcp_connect` to recover. Changing a file alone does not reload an active connection.
+
+Connection operations are serialized per server. Ordinary connects reuse a healthy connection; explicit reconnects always replace it. Cancellation prevents queued operations from starting.
+
+The extension does not reconnect and replay tool calls automatically. An explicit MCP session-expiry HTTP 404 requires reconnecting before calling tools again. A failed response does not prove that a mutating operation did not execute.
+
+Connection establishment is bounded to 30 seconds per attempt. Established tool calls use the SDK's request timeout and caller cancellation, not the setup deadline. Streaming response bodies have no additional extension-imposed deadline.
 
 ## MCP manager
 
-`/mcp` always includes the built-in `mcp-manager`, even when no config exists or a config is invalid. Loading it exposes four tools:
+`/mcp` always includes `mcp-manager`, even with no configuration or a malformed file. Selecting it enables four native Pi tools; it does not start another MCP server:
 
-- `add_mcp` adds a stdio or HTTP server to one config scope. Existing names are not overwritten.
-- `remove_mcp` removes a server from one config scope. It does not unload tools already active in the session.
-- `list_mcps` lists effective server names and scopes without returning commands, arguments, environment values, URLs, headers, or OAuth settings.
-- `connect` loads a server through the same connection path as selecting it from `/mcp`.
+- `mcp_set`: create or replace a complete server entry in `global` or trusted `project` scope. Replacement does not merge with the previous entry or reload an active connection.
+- `mcp_remove`: remove a server from one scope, including invalid entries. An absent entry is success without creating or rewriting a file. This does not unload tools already active in the session.
+- `mcp_list`: list effective names, scopes, and validation diagnostics without exposing configuration values.
+- `mcp_connect`: connect a named server. Set `reconnect: true` to reload an active server's configuration and tool schemas.
 
-The name `mcp-manager` is reserved and cannot be added. A manually configured collision is ignored, but `remove_mcp` can delete it from a selected scope.
+Manager tools use the current execution context's working directory and trust decision. The name `mcp-manager` is reserved; a manually configured collision is ignored but can be removed with `mcp_remove`.
 
-## Security note
+## OAuth and credentials
 
-Project-local `.pi/mcp.json` files are executable configuration. A server entry can define `stdio` commands that run local programs, and HTTP servers can receive context and tool arguments sent by the agent.
+Valid access tokens are reused without opening a browser, including tokens without refresh tokens. Refreshes are serialized across Pi processes sharing a connection identity. Browser interaction is limited to explicit interactive connects; ordinary tool execution never launches a browser. Expired grants, rejected refreshed tokens, or additional required scopes prompt an explicit reconnect. If refresh cannot restore access, an explicit interactive connect starts browser reauthorization.
 
-Pi's project trust gate prevents this extension from reading or modifying `.pi/mcp.json` in an untrusted project. Review the file before trusting an unfamiliar repository. Manager mutations preserve `${VAR}` placeholders and use atomic writes, but tool arguments are still stored in the pi session; prefer environment placeholders over literal secrets. Previously loaded servers reconnect without opening a browser; run `/mcp` explicitly when interactive OAuth is required.
+In TUI mode, `/mcp` and `mcp_connect` open the authorization URL in the default browser after the callback listener is ready. The URL is also displayed for manual use if browser launch fails. RPC displays the URL without opening a browser on the host. Cancellation closes the callback listener; OAuth network requests and lock acquisition have bounded waits.
 
-Truncated MCP tool output is persisted with private permissions. Each file is limited to 1 MiB, and the newest 10 files are retained up to 5 MiB total. Older output paths shown in session history can therefore expire.
+Credentials live in `<agent-dir>/data/mcp/oauth/<identity-hash>.json`, with private file permissions and atomic writes. Identity includes the expanded endpoint URL, headers, client ID/secret, scopes, metadata URL, and callback port. The server's display name and OAuth `clientName` do not affect credential identity. Changing identity fields uses a new credential file. PKCE verifiers stay in memory, and the client registration and discovery snapshot are pinned for each browser handshake. A corrupt credential file affects only that identity; the error identifies the file to fix or remove before authorizing again.
+
+## Output and security
+
+Project `.pi/mcp.json` files are executable configuration. Stdio entries run local programs, and HTTP servers receive tool arguments and any context sent to them. Review unfamiliar configuration before trusting a project. Pi's trust gate prevents the extension from reading or modifying project configuration in an untrusted project.
+
+Manager mutations are queued and atomic. Tool arguments are still stored in the Pi session: prefer environment placeholders over literal secrets.
+
+Text output uses Pi's standard truncation limits; supported images retain their position among text blocks. Structured output is appended unless an existing text payload already contains equivalent JSON. Distinct text and structured data are both retained. Overflow is saved under `<agent-dir>/data/mcp/results/` with private permissions, capped at 1 MiB per file. Files older than seven days are eligible for cleanup on the first overflow write of each extension runtime. There is no aggregate size or file-count quota. Paths in session history are temporary, and saved output may itself be partial. A persistence failure produces a warning without converting a successful remote operation into a failed tool call.

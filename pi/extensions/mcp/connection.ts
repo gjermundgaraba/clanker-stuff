@@ -1,27 +1,20 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
-  auth,
-  UnauthorizedError,
+  InsufficientScopeError,
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
+import type { Transport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-
-import type { HttpServerConfig, McpConfig } from "./config.js";
-import { PersistentMcpOAuthProvider, startOAuthCallbackServer } from "./oauth.js";
+import type { McpServerConfig } from "./config.js";
+import { createHttpAuth, isAuthorizationError } from "./oauth.js";
 
 export type McpClient = Pick<Client, "callTool" | "listTools">;
-
-export interface McpTransport {
-  readonly sessionId?: string;
-}
-
 export interface McpClientConnection {
   client: McpClient;
   close: () => Promise<void>;
-  transport: McpTransport;
+  transport: Pick<Transport, "sessionId">;
+  closed?: AbortSignal;
 }
-
 export type McpConnectionFactory = (
   interactive: boolean,
   signal?: AbortSignal,
@@ -39,141 +32,93 @@ export const errorMessage = (cause: unknown): string => {
   return cause.message;
 };
 
-const authorizeHttpProvider = async (
-  serverName: string,
-  serverUrl: URL,
-  authProvider: {
-    notifyAuthorizationUrl: () => void;
-    provider: PersistentMcpOAuthProvider;
-  },
-  interactive: boolean,
-  signal?: AbortSignal,
-): Promise<void> => {
-  const result = await auth(authProvider.provider, { serverUrl });
-  if (result === "AUTHORIZED") {
-    return;
-  }
-  if (!interactive) {
-    throw new UnauthorizedError(
-      `MCP server ${serverName} requires interactive OAuth authorization`,
-    );
-  }
-
-  const callbackServer = await startOAuthCallbackServer(
-    authProvider.provider.redirectUrl,
-    authProvider.provider.expectedState,
-  );
-  try {
-    authProvider.notifyAuthorizationUrl();
-    const { code, iss } = await callbackServer.waitForCode(signal);
-    const finishResult = await auth(authProvider.provider, {
-      authorizationCode: code,
-      iss,
-      serverUrl,
-    });
-    if (finishResult !== "AUTHORIZED") {
-      throw new UnauthorizedError("Failed to authorize MCP server");
-    }
-  } finally {
-    await callbackServer.close().catch(() => {
-      // Best-effort cleanup after the authorization attempt.
-    });
-  }
-};
-
-const createHttpAuthProvider = (
-  serverName: string,
-  serverConfig: HttpServerConfig,
-  ui: Pick<ExtensionCommandContext["ui"], "notify">,
-  interactive: boolean,
-):
-  | {
-      notifyAuthorizationUrl: () => void;
-      provider: PersistentMcpOAuthProvider;
-    }
-  | undefined => {
-  if (!serverConfig.oauth) {
-    return undefined;
-  }
-  let authorizationUrl: URL | undefined;
-  const provider = new PersistentMcpOAuthProvider(serverName, serverConfig.oauth, (url) => {
-    if (!interactive) {
-      throw new UnauthorizedError(
-        `MCP server ${serverName} requires interactive OAuth authorization`,
-      );
-    }
-    authorizationUrl = url;
-  });
-  return {
-    notifyAuthorizationUrl: () => {
-      if (!authorizationUrl) {
-        throw new UnauthorizedError(
-          `MCP server ${serverName} did not provide an OAuth authorization URL`,
-        );
-      }
-      ui.notify(
-        `Authorize MCP server ${serverName}:\n${authorizationUrl.toString()}\nWaiting for OAuth authorization...`,
-        "info",
-      );
-    },
-    provider,
-  };
-};
-
 const connectTransport = async (
   client: Client,
-  transport: StdioClientTransport | StreamableHTTPClientTransport,
-  signal?: AbortSignal,
+  transport: Transport,
+  signal: AbortSignal,
 ): Promise<void> => {
-  signal?.throwIfAborted();
+  signal.throwIfAborted();
   // The SDK's discovery probe ignores connect()'s signal until negotiation finishes.
   const onAbort = () => {
     void transport.close().catch(() => {});
   };
-  signal?.addEventListener("abort", onAbort, { once: true });
+  signal.addEventListener("abort", onAbort, { once: true });
   try {
-    await client.connect(transport, signal ? { signal } : undefined);
+    await client.connect(transport, { signal });
   } catch (error) {
-    signal?.throwIfAborted();
+    signal.throwIfAborted();
     throw error;
   } finally {
-    signal?.removeEventListener("abort", onAbort);
+    signal.removeEventListener("abort", onAbort);
   }
 };
 
-export const connectToServer = async (
-  serverName: string,
-  serverConfig: McpConfig["mcpServers"][string],
-  ui: Pick<ExtensionCommandContext["ui"], "notify">,
-  interactive: boolean,
-  signal?: AbortSignal,
-): Promise<McpClientConnection> => {
-  const client = new Client(
-    { name: "pi-mcp", version: "0.1.0" },
-    { versionNegotiation: { mode: "auto" } },
-  );
+interface ConnectOptions {
+  serverConfig: McpServerConfig;
+  onAuthorizationUrl?: (url: URL) => void;
+  signal?: AbortSignal;
+  cwd?: string;
+}
 
-  if (serverConfig.type === "stdio") {
-    const transport = new StdioClientTransport({
-      args: serverConfig.args,
-      command: serverConfig.command,
-      env: serverConfig.env,
-      stderr: "ignore",
-    });
-    await connectTransport(client, transport, signal);
-    return { client, close: () => client.close(), transport: {} };
+export const connectToServer = async ({
+  serverConfig,
+  onAuthorizationUrl,
+  signal,
+  cwd,
+}: ConnectOptions): Promise<McpClientConnection> => {
+  const httpAuth =
+    serverConfig.type === "http" && serverConfig.oauth ? createHttpAuth(serverConfig) : undefined;
+  const lifetime = new AbortController();
+  const attempt = async (): Promise<McpClientConnection> => {
+    const connectSignal = AbortSignal.any([
+      ...(signal ? [signal] : []),
+      AbortSignal.timeout(30_000),
+    ]);
+    connectSignal.throwIfAborted();
+    httpAuth?.setSignal(connectSignal);
+    const client = new Client(
+      { name: "pi-mcp", version: "0.1.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
+    const transport: Transport =
+      serverConfig.type === "stdio"
+        ? new StdioClientTransport({
+            command: serverConfig.command,
+            args: serverConfig.args,
+            env: serverConfig.env,
+            cwd,
+            stderr: "ignore",
+          })
+        : new StreamableHTTPClientTransport(new URL(serverConfig.url), {
+            authProvider: httpAuth?.authProvider,
+            requestInit: { headers: serverConfig.headers ?? {} },
+          });
+    try {
+      await connectTransport(client, transport, connectSignal);
+      connectSignal.throwIfAborted();
+      httpAuth?.setSignal(lifetime.signal);
+      client.onclose = () => lifetime.abort();
+      return {
+        client,
+        transport,
+        closed: lifetime.signal,
+        close: async () => {
+          lifetime.abort();
+          await client.close();
+        },
+      };
+    } catch (error) {
+      await client.close().catch(() => {});
+      await transport.close().catch(() => {});
+      throw error;
+    }
+  };
+  try {
+    return await attempt();
+  } catch (error) {
+    const scopeError = error instanceof InsufficientScopeError ? error : undefined;
+    if (!httpAuth || !onAuthorizationUrl || !isAuthorizationError(error)) throw error;
+    await httpAuth.authorize(onAuthorizationUrl, signal, scopeError);
+    return await attempt();
   }
-
-  const serverUrl = new URL(serverConfig.url);
-  const authProvider = createHttpAuthProvider(serverName, serverConfig, ui, interactive);
-  if (authProvider) {
-    await authorizeHttpProvider(serverName, serverUrl, authProvider, interactive, signal);
-  }
-
-  const transport = new StreamableHTTPClientTransport(serverUrl, {
-    authProvider: authProvider?.provider,
-    requestInit: { headers: serverConfig.headers ?? {} },
-  });
-  await connectTransport(client, transport, signal);
-  return { client, close: () => client.close(), transport };
 };

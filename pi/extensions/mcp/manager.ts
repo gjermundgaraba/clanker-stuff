@@ -1,146 +1,93 @@
-import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
-import { McpServer } from "@modelcontextprotocol/server";
-import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { z } from "zod/v4";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 
-import { ServerConfigSchema } from "./config.js";
-import type { ListedMcpServer, McpConfigScope, McpServerConfig } from "./config.js";
-import type { McpClientConnection } from "./connection.js";
+import { setMcpServer, listMcpServers, removeMcpServer, ServerConfigSchema } from "./config.js";
 
 export const MCP_MANAGER_SERVER_NAME = "mcp-manager";
-
-const ScopeSchema = z.enum(["global", "project"]);
-
-export interface McpManagerListResult {
-  error?: string;
-  servers: (ListedMcpServer | { name: string; scope: "built-in" })[];
-}
-
-export interface McpManagerBackend {
-  add: (
-    name: string,
-    serverConfig: McpServerConfig,
-    scope: McpConfigScope,
-    signal: AbortSignal,
-  ) => Promise<void>;
-  connect: (name: string, signal: AbortSignal) => Promise<number>;
-  list: (signal: AbortSignal) => Promise<McpManagerListResult>;
-  remove: (name: string, scope: McpConfigScope, signal: AbortSignal) => Promise<void>;
-}
-
+export const MANAGER_TOOL_NAMES = ["mcp_set", "mcp_remove", "mcp_list", "mcp_connect"];
+const ScopeSchema = StringEnum(["global", "project"] as const);
+const NameSchema = Type.String({ minLength: 1 });
 const textResult = (text: string) => ({
-  content: [{ text, type: "text" as const }],
+  content: [{ type: "text" as const, text }],
+  details: undefined,
+});
+export const configOptions = (ctx: ExtensionContext) => ({
+  cwd: ctx.cwd,
+  projectTrusted: ctx.isProjectTrusted(),
 });
 
-const createManagerServer = (backend: McpManagerBackend): McpServer => {
-  const server = new McpServer({
-    name: "pi-mcp-manager",
-    version: "0.1.0",
-  });
-
-  server.registerTool(
-    "add_mcp",
-    {
-      description: "Add an MCP server to the global or trusted project-local configuration",
-      inputSchema: z
-        .object({
-          config: ServerConfigSchema,
-          name: z.string().min(1),
-          scope: ScopeSchema,
-        })
-        .strict(),
-    },
-    async ({ config, name, scope }, ctx) => {
-      await backend.add(name, config, scope, ctx.mcpReq.signal);
-      return textResult(`Added MCP server ${name} to the ${scope} config`);
-    },
-  );
-
-  server.registerTool(
-    "remove_mcp",
-    {
-      description: "Remove an MCP server from the global or trusted project-local configuration",
-      inputSchema: z
-        .object({
-          name: z.string().min(1),
-          scope: ScopeSchema,
-        })
-        .strict(),
-    },
-    async ({ name, scope }, ctx) => {
-      await backend.remove(name, scope, ctx.mcpReq.signal);
-      return textResult(`Removed MCP server ${name} from the ${scope} config`);
-    },
-  );
-
-  server.registerTool(
-    "list_mcps",
-    {
-      description: "List accessible MCP servers without exposing their configuration",
-      inputSchema: z.object({}).strict(),
-    },
-    async (_args, ctx) => {
-      const result = await backend.list(ctx.mcpReq.signal);
-      const lines = result.servers.map(({ name, scope }) => `${name} (${scope})`);
-      if (result.error !== undefined && result.error !== "") {
-        lines.push("", `Warning: ${result.error}`);
-      }
-      return textResult(lines.join("\n"));
-    },
-  );
-
-  server.registerTool(
-    "connect",
-    {
-      description:
-        "Connect an accessible MCP server and activate its tools in the current pi session",
-      inputSchema: z.object({ name: z.string().min(1) }).strict(),
-    },
-    async ({ name }, ctx) => {
-      const toolCount = await backend.connect(name, ctx.mcpReq.signal);
-      return textResult(`MCP server ${name} was loaded with ${toolCount} tools`);
-    },
-  );
-
-  return server;
-};
-
-export const createMcpManagerConnection = async (
-  backend: McpManagerBackend,
+type Connect = (
+  ctx: ExtensionContext,
+  name: string,
+  reconnect: boolean,
   signal?: AbortSignal,
-): Promise<Omit<McpClientConnection, "client"> & { client: Client }> => {
-  signal?.throwIfAborted();
-  // ponytail: process-local transport; use a process transport if isolation is needed.
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const serverHandle = serveStdio(() => createManagerServer(backend), {
-    legacy: "reject",
-    transport: serverTransport,
-  });
-  const client = new Client(
-    { name: "pi-mcp", version: "0.1.0" },
-    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
-  );
+) => Promise<number>;
 
-  try {
-    await client.connect(clientTransport, signal === undefined ? undefined : { signal });
-  } catch (error) {
-    await serverHandle.close().catch(() => {
-      // Preserve the connection error.
-    });
-    throw error;
-  }
-
-  return {
-    client,
-    close: async () => {
-      const results = await Promise.allSettled([client.close(), serverHandle.close()]);
-      const failed = results.find(
-        (result): result is PromiseRejectedResult => result.status === "rejected",
-      );
-      if (failed) {
-        throw failed.reason;
-      }
+export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void => {
+  const collision = pi.getAllTools().find(({ name }) => MANAGER_TOOL_NAMES.includes(name));
+  if (collision) throw new Error(`MCP manager tool name collision: ${collision.name}`);
+  pi.registerTool({
+    name: "mcp_set",
+    label: "Set MCP server",
+    description:
+      "Create or replace a complete MCP server entry in global or trusted project configuration. Does not reload an active connection. Prefer environment placeholders over literal secrets.",
+    parameters: Type.Object(
+      { name: NameSchema, scope: ScopeSchema, config: ServerConfigSchema },
+      { additionalProperties: false },
+    ),
+    async execute(_id, args, signal, _update, ctx) {
+      if (args.name === MCP_MANAGER_SERVER_NAME)
+        throw new Error(`MCP server name ${MCP_MANAGER_SERVER_NAME} is reserved`);
+      await setMcpServer(args.name, args.config, args.scope, configOptions(ctx), signal);
+      return textResult(`Set MCP server ${args.name} to the ${args.scope} config`);
     },
-    transport: {},
-  };
+  });
+  pi.registerTool({
+    name: "mcp_remove",
+    label: "Remove MCP server",
+    description:
+      "Remove an MCP server from configuration; already absent is success. Does not unload already active tools.",
+    parameters: Type.Object(
+      { name: NameSchema, scope: ScopeSchema },
+      { additionalProperties: false },
+    ),
+    async execute(_id, args, signal, _update, ctx) {
+      await removeMcpServer(args.name, args.scope, configOptions(ctx), signal);
+      return textResult(`MCP server ${args.name} is absent from the ${args.scope} config`);
+    },
+  });
+  pi.registerTool({
+    name: "mcp_list",
+    label: "List MCP servers",
+    description:
+      "List configured MCP servers and validation diagnostics without exposing configuration or secrets.",
+    parameters: Type.Object({}, { additionalProperties: false }),
+    async execute(_id, _args, signal, _update, ctx) {
+      signal?.throwIfAborted();
+      const servers = await listMcpServers(configOptions(ctx));
+      return textResult(
+        [
+          `${MCP_MANAGER_SERVER_NAME} (built-in)`,
+          ...servers
+            .filter(({ name }) => name !== MCP_MANAGER_SERVER_NAME)
+            .map(({ name, scope, error }) => `${name} (${scope})${error ? `: ${error}` : ""}`),
+        ].join("\n"),
+      );
+    },
+  });
+  pi.registerTool({
+    name: "mcp_connect",
+    label: "Connect MCP server",
+    description:
+      "Connect an MCP server and activate its tools. Set reconnect to replace a broken connection, reauthorize, or refresh tools/configuration. Never retry an uncertain mutating tool call automatically.",
+    parameters: Type.Object(
+      { name: NameSchema, reconnect: Type.Optional(Type.Boolean()) },
+      { additionalProperties: false },
+    ),
+    async execute(_id, args, signal, _update, ctx) {
+      const count = await connect(ctx, args.name, args.reconnect ?? false, signal);
+      return textResult(`MCP server ${args.name} was loaded with ${count} tools`);
+    },
+  });
 };

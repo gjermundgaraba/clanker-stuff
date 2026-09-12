@@ -31,7 +31,6 @@ interface McpTestState {
   hosts: ReturnType<typeof createExtensionHostBase>[];
   httpFixtures: { close: () => Promise<void> }[];
   localConfigPath: string;
-  previousAgentDir: string | undefined;
   projectDir: string;
 }
 
@@ -54,7 +53,6 @@ export const setupMcpTest = () => {
     hosts: [],
     httpFixtures: [],
     localConfigPath: "",
-    previousAgentDir: undefined,
     projectDir: "",
   };
 
@@ -62,9 +60,8 @@ export const setupMcpTest = () => {
     const suffix = `${Date.now()}-${Math.random()}`;
     state.homeDir = path.join(tmpdir(), `pi-mcp-extension-${suffix}`);
     state.projectDir = path.join(tmpdir(), `pi-mcp-project-${suffix}`);
-    state.previousAgentDir = process.env.PI_CODING_AGENT_DIR;
     const agentDir = path.join(state.homeDir, ".pi", "agent");
-    process.env.PI_CODING_AGENT_DIR = agentDir;
+    vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
     state.configPath = path.join(agentDir, "mcp.json");
     state.dataDir = path.join(agentDir, "data", "mcp");
     state.localConfigPath = path.join(state.projectDir, ".pi", "mcp.json");
@@ -75,11 +72,7 @@ export const setupMcpTest = () => {
   afterEach(async () => {
     await Promise.all(state.hosts.map((host) => host.emitSessionShutdown()));
     await Promise.all(state.httpFixtures.map((fixture) => fixture.close()));
-    if (state.previousAgentDir === undefined) {
-      Reflect.deleteProperty(process.env, "PI_CODING_AGENT_DIR");
-    } else {
-      process.env.PI_CODING_AGENT_DIR = state.previousAgentDir;
-    }
+    vi.unstubAllEnvs();
     await rm(state.homeDir, { force: true, recursive: true });
     await rm(state.projectDir, { force: true, recursive: true });
   });
@@ -90,12 +83,8 @@ export const setupMcpTest = () => {
     return host;
   };
 
-  const startHttpFixture = async (
-    oauth = false,
-    expireSessionOnce = false,
-    pauseInitialization = false,
-  ) => {
-    const fixture = await startMcpHttpFixture(oauth, expireSessionOnce, pauseInitialization);
+  const startHttpFixture = async (options?: Parameters<typeof startMcpHttpFixture>[0]) => {
+    const fixture = await startMcpHttpFixture(options);
     state.httpFixtures.push(fixture);
     return fixture;
   };

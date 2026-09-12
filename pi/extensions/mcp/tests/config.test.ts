@@ -1,107 +1,135 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { Value } from "typebox/value";
+import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  setMcpServer,
   expandMcpServerConfig,
   listMcpServers,
   loadMcpConfig,
-  McpConfigSchema,
+  ServerConfigSchema,
+  removeMcpServer,
 } from "../config.js";
 import { envVarRef, setupMcpTest } from "./helpers.js";
 
 describe("MCP config schema validation", () => {
-  it("accepts http server config", () => {
-    const config = {
-      mcpServers: {
-        github: {
-          headers: { Authorization: "Bearer token" },
-          type: "http",
-          url: "https://api.githubcopilot.com/mcp/",
-        },
+  it.each([
+    { type: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer token" } },
+    {
+      type: "http",
+      url: "https://example.com/mcp",
+      oauth: {
+        authServerMetadataUrl: "https://example.com/metadata",
+        callbackPort: 33418,
+        clientId: "client",
+        clientSecret: "secret",
+        clientName: "pi MCP",
+        scopes: "tools",
       },
-    };
-    expect(McpConfigSchema.safeParse(config).success).toBeTruthy();
-  });
-
-  it("accepts OAuth http server config", () => {
-    expect(
-      McpConfigSchema.safeParse({
-        mcpServers: {
-          interactive: {
-            oauth: {
-              authServerMetadataUrl: "https://auth.example.com/.well-known/openid-configuration",
-              callbackPort: 33_418,
-              clientId: "client-id",
-              clientName: "pi MCP",
-              scopes: "tools",
-            },
-            type: "http",
-            url: "https://mcp.example.com",
-          },
-          machine: {
-            oauth: {
-              clientId: "client-id",
-              clientSecret: "client-secret",
-            },
-            type: "streamable-http",
-            url: "https://machine.example.com",
-          },
-        },
-      }).success,
-    ).toBeTruthy();
-  });
-
-  it("accepts stdio server config", () => {
-    const config = {
-      mcpServers: {
-        "local-db": {
-          args: ["--port", "8080"],
-          command: "/usr/local/bin/db-server",
-          env: { DB_URL: "postgresql://..." },
-          type: "stdio",
-        },
-      },
-    };
-    expect(McpConfigSchema.safeParse(config).success).toBeTruthy();
-  });
-
-  it("rejects unknown server config fields", () => {
-    expect(
-      McpConfigSchema.safeParse({
-        mcpServers: {
-          api: {
-            extra: true,
-            type: "http",
-            url: "https://mcp.example.com",
-          },
-        },
-      }).success,
-    ).toBeFalsy();
-    expect(
-      McpConfigSchema.safeParse({
-        mcpServers: {
-          local: {
-            command: "/usr/bin/mcp-local",
-            extra: true,
-            type: "stdio",
-          },
-        },
-      }).success,
-    ).toBeFalsy();
+    },
+    { type: "stdio", command: "mcp-server", args: ["--port", "8080"], env: { TOKEN: "token" } },
+  ])("accepts $type server configuration", (server) => {
+    expect(Value.Check(ServerConfigSchema, server)).toBe(true);
+    expect(Value.Check(ServerConfigSchema, { ...server, extra: true })).toBe(false);
   });
 });
 
 describe(loadMcpConfig, () => {
   const t = setupMcpTest();
 
+  it("normalizes a missing server map and preserves unrelated document fields", async () => {
+    await t.writeConfig({ note: "keep" });
+    expect(await loadMcpConfig()).toEqual({ mcpServers: {} });
+    await setMcpServer("remote", { type: "stdio", command: "first", args: ["old"] }, "global", {});
+    await setMcpServer("remote", { type: "stdio", command: "replacement" }, "global", {});
+    expect(JSON.parse(await readFile(t.configPath, "utf-8"))).toEqual({
+      note: "keep",
+      mcpServers: { remote: { type: "stdio", command: "replacement" } },
+    });
+  });
+
+  it.each([null, [], { mcpServers: null }, { mcpServers: [] }, { mcpServers: 1 }])(
+    "rejects an invalid document: %j",
+    async (document) => {
+      await t.writeConfig(document);
+      await expect(loadMcpConfig()).rejects.toThrow("invalid config");
+    },
+  );
+
+  it("rejects malformed JSON", async () => {
+    await t.writeConfig({});
+    await writeFile(t.configPath, "{broken");
+    await expect(loadMcpConfig()).rejects.toThrow();
+  });
+
+  it("removing an absent server neither creates nor rewrites configuration", async () => {
+    await removeMcpServer("absent", "global", {});
+    await expect(stat(t.configPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await t.writeConfig({ note: "keep" });
+    const before = await stat(t.configPath);
+    await removeMcpServer("absent", "global", {});
+    expect((await stat(t.configPath)).mtimeMs).toBe(before.mtimeMs);
+    expect(await readFile(t.configPath, "utf-8")).toBe('{"note":"keep"}\n');
+  });
+
+  it("does not mutate configuration after cancellation while queued", async () => {
+    await t.writeConfig({ mcpServers: {} });
+    const held = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const blocker = withFileMutationQueue(t.configPath, async () => {
+      held.resolve();
+      await release.promise;
+    });
+    await held.promise;
+    const controller = new AbortController();
+    const mutation = setMcpServer(
+      "canceled",
+      { type: "stdio", command: "fixture" },
+      "global",
+      {},
+      controller.signal,
+    );
+    controller.abort();
+    release.resolve();
+    await blocker;
+    await expect(mutation).rejects.toMatchObject({ name: "AbortError" });
+    expect(await loadMcpConfig()).toEqual({ mcpServers: {} });
+  });
+
+  it("preserves malformed entries and unknown document fields during concurrent mutations", async () => {
+    await t.writeConfig({ note: "keep me", mcpServers: { broken: { type: "future" } } });
+    await Promise.all(
+      ["one", "two", "three"].map((name) =>
+        setMcpServer(name, { type: "stdio", command: "fixture" }, "global", {}),
+      ),
+    );
+    expect(JSON.parse(await readFile(t.configPath, "utf-8"))).toEqual({
+      note: "keep me",
+      mcpServers: {
+        broken: { type: "future" },
+        one: { type: "stdio", command: "fixture" },
+        two: { type: "stdio", command: "fixture" },
+        three: { type: "stdio", command: "fixture" },
+      },
+    });
+    expect(await listMcpServers({})).toContainEqual({
+      name: "broken",
+      scope: "global",
+      error: "Invalid server configuration",
+    });
+    await removeMcpServer("broken", "global", {});
+    expect(await listMcpServers({})).toHaveLength(3);
+  });
+
   it("loads project-local .pi/mcp.json when global config is missing", async () => {
     await t.writeLocalConfig({
       mcpServers: {
         project: {
           oauth: {},
-          type: "streamable-http",
+          type: "http",
           url: "https://project.example.com/mcp",
         },
       },
@@ -112,7 +140,7 @@ describe(loadMcpConfig, () => {
         mcpServers: {
           project: {
             oauth: {},
-            type: "streamable-http",
+            type: "http",
             url: "https://project.example.com/mcp",
           },
         },
@@ -173,7 +201,7 @@ describe(loadMcpConfig, () => {
     });
   });
 
-  it("rejects invalid project-local config", async () => {
+  it("isolates invalid entries and permits removing them", async () => {
     await mkdir(path.dirname(t.localConfigPath), { recursive: true });
     await writeFile(
       t.localConfigPath,
@@ -181,17 +209,23 @@ describe(loadMcpConfig, () => {
       "utf-8",
     );
 
-    await expect(loadMcpConfig({ cwd: t.projectDir, projectTrusted: true })).rejects.toThrow(
-      /invalid config .*mcp\.json/u,
-    );
+    const options = { cwd: t.projectDir, projectTrusted: true };
+    const config = await loadMcpConfig(options);
+    expect(() => expandMcpServerConfig(config.mcpServers.bad)).toThrow("Invalid MCP server");
+    expect(await listMcpServers(options)).toEqual([
+      { name: "bad", scope: "project", error: "Invalid server configuration" },
+    ]);
+    await removeMcpServer("bad", "project", options);
+    expect(await listMcpServers(options)).toEqual([]);
   });
 
   it("expands Claude-style environment variables for a selected server", async () => {
-    process.env.MCP_TEST_COMMAND = "/usr/bin/test-mcp";
-    process.env.MCP_TEST_TOKEN = "secret-token";
-    process.env.MCP_TEST_BASE_URL = "https://api.example.com";
-    process.env.MCP_TEST_CLIENT_ID = "oauth-client";
-    process.env.MCP_TEST_CLIENT_SECRET = "oauth-secret";
+    vi.stubEnv("MCP_TEST_COMMAND", "/usr/bin/test-mcp");
+    vi.stubEnv("MCP_TEST_TOKEN", "secret-token");
+    vi.stubEnv("MCP_TEST_BASE_URL", "https://api.example.com");
+    vi.stubEnv("MCP_TEST_CLIENT_ID", "oauth-client");
+    vi.stubEnv("MCP_TEST_CLIENT_SECRET", "oauth-secret");
+    vi.stubEnv("MCP_TEST_CACHE", undefined);
     await t.writeConfig({
       mcpServers: {
         local: {
@@ -219,9 +253,6 @@ describe(loadMcpConfig, () => {
     const config = await loadMcpConfig();
     const local = config.mcpServers.local;
     const remote = config.mcpServers.remote;
-    if (local === undefined || remote === undefined) {
-      throw new Error("missing MCP test server config");
-    }
 
     expect({
       mcpServers: {
@@ -249,15 +280,10 @@ describe(loadMcpConfig, () => {
         },
       },
     });
-
-    Reflect.deleteProperty(process.env, "MCP_TEST_COMMAND");
-    Reflect.deleteProperty(process.env, "MCP_TEST_TOKEN");
-    Reflect.deleteProperty(process.env, "MCP_TEST_BASE_URL");
-    Reflect.deleteProperty(process.env, "MCP_TEST_CLIENT_ID");
-    Reflect.deleteProperty(process.env, "MCP_TEST_CLIENT_SECRET");
   });
 
   it("reports missing environment variables", async () => {
+    vi.stubEnv("MCP_TEST_MISSING_TOKEN", undefined);
     await t.writeConfig({
       mcpServers: {
         remote: {
@@ -273,9 +299,6 @@ describe(loadMcpConfig, () => {
     await expect(listMcpServers({})).resolves.toStrictEqual([{ name: "remote", scope: "global" }]);
     const config = await loadMcpConfig();
     const remote = config.mcpServers.remote;
-    if (remote === undefined) {
-      throw new Error("missing MCP test server config");
-    }
     expect(() => expandMcpServerConfig(remote)).toThrow(
       "missing environment variable in MCP config: MCP_TEST_MISSING_TOKEN",
     );

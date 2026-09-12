@@ -1,3 +1,4 @@
+import { toGeneratedToolName } from "../bridge.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -6,7 +7,7 @@ import mcp from "../index.js";
 import { MCP_MANAGER_SERVER_NAME } from "../manager.js";
 import { envVarRef, fixtureServer, setupMcpTest } from "./helpers.js";
 
-const createBranchSession = () => {
+const createBranchSession = ({ chained = false }: { chained?: boolean } = {}) => {
   const timestamp = new Date().toISOString();
   return {
     entries: [
@@ -29,21 +30,32 @@ const createBranchSession = () => {
         customType: "mcp-server-loaded",
         data: { serverName: "beta" },
         id: "beta-load",
-        parentId: "root",
+        parentId: chained ? "alpha-load" : "root",
         timestamp,
         type: "custom",
       },
     ] satisfies SessionEntry[],
     hasUI: false,
-    leafId: "alpha-load",
+    leafId: chained ? "beta-load" : "alpha-load",
   };
 };
 
 describe("mcp loader", () => {
   const t = setupMcpTest();
 
+  it("does not open the picker when shutdown wins the first-load race", async () => {
+    const host = t.createExtensionHost(mcp);
+    const select = vi.fn();
+    const ctx = host.createContext({ ui: { select } });
+    const command = host.runCommand("mcp", "", ctx);
+    await host.emitSessionShutdown(ctx);
+    await command;
+    expect(select).not.toHaveBeenCalled();
+    expect(host.getRegisteredTools().size).toBe(0);
+  });
+
   it("does not load servers on session_start without persisted entries", async () => {
-    await t.writeConfig({ invalid: true });
+    await t.writeConfig({ mcpServers: null });
     const host = t.createExtensionHost(mcp);
 
     await host.ready;
@@ -91,11 +103,11 @@ describe("mcp loader", () => {
       `○ ${MCP_MANAGER_SERVER_NAME}`,
       "○ project",
     ]);
-    expect(host.getRegisteredTools().has("mcp_project__search")).toBeTruthy();
+    expect(host.getRegisteredTools().has(toGeneratedToolName("project", "search"))).toBeTruthy();
   });
 
   it("connects the selected server and registers its tools as active", async () => {
-    Reflect.deleteProperty(process.env, "MCP_TEST_MISSING_COMMAND");
+    vi.stubEnv("MCP_TEST_MISSING_COMMAND", undefined);
     await t.writeConfig({
       mcpServers: {
         broken: { command: envVarRef("MCP_TEST_MISSING_COMMAND"), type: "stdio" },
@@ -110,12 +122,12 @@ describe("mcp loader", () => {
     });
 
     await host.runCommand("mcp", "", ctx);
-    const result = await host.runTool("mcp_github__search", {
+    const result = await host.runTool(toGeneratedToolName("github", "search"), {
       query: "needle",
     });
 
-    expect(host.getActiveTools()).toContain("mcp_github__search");
-    expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
+    expect(host.getActiveTools()).toContain(toGeneratedToolName("github", "search"));
+    expect(host.getRegisteredTools().has(toGeneratedToolName("github", "search"))).toBeTruthy();
     expect(host.getNotifications()).toContainEqual({
       message: "MCP server github was loaded with 1 tools",
       type: undefined,
@@ -139,7 +151,7 @@ describe("mcp loader", () => {
 
     expect(select).toHaveBeenLastCalledWith("MCP server", [
       `○ ${MCP_MANAGER_SERVER_NAME}`,
-      "● github (active)",
+      "● github (reconnect)",
     ]);
   });
 
@@ -164,7 +176,7 @@ describe("mcp loader", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(customOpened).toBeTruthy();
-    expect(host.getRegisteredTools().has("mcp_github__search")).toBeTruthy();
+    expect(host.getRegisteredTools().has(toGeneratedToolName("github", "search"))).toBeTruthy();
     expect(host.getNotifications()).toContainEqual({
       message: "MCP server github was loaded with 1 tools",
       type: undefined,
@@ -184,7 +196,7 @@ describe("mcp loader", () => {
   });
 
   it("shows the manager when MCP config is invalid", async () => {
-    await t.writeConfig({ invalid: true });
+    await t.writeConfig({ mcpServers: null });
     const host = t.createExtensionHost(mcp);
     const select = vi.fn<() => Promise<string | undefined>>();
     const ctx = host.createContext({ ui: { select } });
@@ -218,27 +230,35 @@ describe("mcp loader", () => {
   });
 
   it("continues restoring persisted servers after one fails", async () => {
-    Reflect.deleteProperty(process.env, "MCP_TEST_MISSING_COMMAND");
+    vi.stubEnv("MCP_TEST_MISSING_COMMAND", undefined);
     await t.writeConfig({
       mcpServers: {
         alpha: { command: envVarRef("MCP_TEST_MISSING_COMMAND"), type: "stdio" },
         beta: fixtureServer(),
       },
     });
-    const session = createBranchSession();
-    const betaEntry = session.entries.at(-1);
-    if (!betaEntry) {
-      throw new Error("missing beta fixture entry");
-    }
-    betaEntry.parentId = "alpha-load";
-    session.leafId = "beta-load";
+    const session = createBranchSession({ chained: true });
     const host = t.createExtensionHost(mcp, session);
 
     await host.ready;
     await host.emitSessionStart();
 
-    expect(host.getRegisteredTools().has("mcp_beta__search")).toBeTruthy();
-    expect(host.getActiveTools()).toContain("mcp_beta__search");
+    expect(host.getRegisteredTools().has(toGeneratedToolName("beta", "search"))).toBeTruthy();
+    expect(host.getActiveTools()).toContain(toGeneratedToolName("beta", "search"));
+  });
+
+  it("preserves externally owned manager names during branch reconciliation", async () => {
+    await t.writeConfig({ mcpServers: { alpha: fixtureServer() } });
+    const host = t.createExtensionHost(mcp, {
+      ...createBranchSession(),
+      externalTools: ["mcp_list"],
+      activeTools: ["read", "mcp_list"],
+    });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toContain("mcp_list");
+    host.setLeafId("root");
+    await host.emitSessionTree();
+    expect(host.getActiveTools()).toContain("mcp_list");
   });
 
   it("reconciles loaded tools when switching session branches", async () => {
@@ -251,17 +271,17 @@ describe("mcp loader", () => {
     const host = t.createExtensionHost(mcp, createBranchSession());
 
     await host.emitSessionStart();
-    expect(host.getActiveTools()).toContain("mcp_alpha__search");
+    expect(host.getActiveTools()).toContain(toGeneratedToolName("alpha", "search"));
 
     host.setLeafId("beta-load");
     await host.emitSessionTree();
 
-    expect(host.getActiveTools()).not.toContain("mcp_alpha__search");
-    expect(host.getActiveTools()).toContain("mcp_beta__search");
+    expect(host.getActiveTools()).not.toContain(toGeneratedToolName("alpha", "search"));
+    expect(host.getActiveTools()).toContain(toGeneratedToolName("beta", "search"));
   });
 
   it("does not reactivate tools from an obsolete concurrent restore", async () => {
-    const alphaFixture = await t.startHttpFixture(false, false, true);
+    const alphaFixture = await t.startHttpFixture({ pauseInitialization: true });
     const betaFixture = await t.startHttpFixture();
     await t.writeConfig({
       mcpServers: {
@@ -278,12 +298,12 @@ describe("mcp loader", () => {
     alphaFixture.releaseInitialization();
     await alphaRestore;
 
-    expect(host.getActiveTools()).not.toContain("mcp_alpha__search");
-    expect(host.getActiveTools()).toContain("mcp_beta__search");
+    expect(host.getActiveTools()).not.toContain(toGeneratedToolName("alpha", "search"));
+    expect(host.getActiveTools()).toContain(toGeneratedToolName("beta", "search"));
   });
 
   it("uses one configuration snapshot for a restore", async () => {
-    const alphaFixture = await t.startHttpFixture(false, false, true);
+    const alphaFixture = await t.startHttpFixture({ pauseInitialization: true });
     const initialBetaFixture = await t.startHttpFixture();
     const replacementBetaFixture = await t.startHttpFixture();
     await t.writeConfig({
@@ -292,13 +312,7 @@ describe("mcp loader", () => {
         beta: { type: "http", url: initialBetaFixture.url },
       },
     });
-    const session = createBranchSession();
-    const betaEntry = session.entries.at(-1);
-    if (!betaEntry) {
-      throw new Error("missing beta fixture entry");
-    }
-    betaEntry.parentId = "alpha-load";
-    session.leafId = "beta-load";
+    const session = createBranchSession({ chained: true });
     const host = t.createExtensionHost(mcp, session);
 
     const restore = host.emitSessionStart();
@@ -335,6 +349,6 @@ describe("mcp loader", () => {
 
     await host.emitSessionStart();
 
-    expect(host.getRegisteredTools().has("mcp_mcp_manager__list_mcps")).toBeTruthy();
+    expect(host.getRegisteredTools().has("mcp_list")).toBeTruthy();
   });
 });
