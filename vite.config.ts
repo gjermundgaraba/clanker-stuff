@@ -54,6 +54,11 @@ export default defineConfig({
     },
     overrides: [
       {
+        files: ["pi/extensions/experimental/shape-spinner/**/*.{ts,mjs}"],
+        // Shape is the geometric domain here, not a structural placeholder.
+        rules: { "anti-slop/no-shape-in-symbol-names": "off" },
+      },
+      {
         files: ["pi/extensions/experimental/codex-provider/**/*.ts"],
         // Primitive narrowing is intentional here; schemas validate protocol boundaries.
         rules: { "anti-slop/no-runtime-typeof": "off" },
