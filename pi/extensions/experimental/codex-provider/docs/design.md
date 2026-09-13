@@ -4,6 +4,8 @@ This extension is the always-on `openai-codex` provider for the controlled Pi in
 
 The implementation follows the compatibility objective and pinned [Codex and Pi source baseline](codex-baseline.md). It supports only provider `openai-codex` with API `openai-codex-responses`; it is not a generic OpenAI or Azure provider.
 
+The [2026-09-13 upstream review](upstream-review.md) records newer Codex behavior and proposed follow-ups. In particular, current upstream lists Astra in its fallback catalog and clears sticky turn routing on account-owner changes; the implementation described here still needs those two updates.
+
 ## Runtime ownership
 
 | Responsibility                                                                          | Implementation                                                                                      |

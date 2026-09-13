@@ -6,8 +6,8 @@ import path from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
-const CODEX_COMMIT = "389dd5645944891b65e4ca584125bbb0c852d352";
-const CATALOG_COMMIT = "f1aac1e885f676a1129f2da0c46a3dba86392fc6";
+const CODEX_COMMIT = "36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564";
+const CATALOG_COMMIT = "36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564";
 const CONFIG_PATH = "codex-rs/core/src/config/mod.rs";
 const PLAN_PATH = "codex-rs/core/src/tools/spec_plan.rs";
 const SPEC_PATH = "codex-rs/core/src/tools/handlers/multi_agents_spec.rs";

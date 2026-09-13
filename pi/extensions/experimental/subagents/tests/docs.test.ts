@@ -22,7 +22,7 @@ describe("Codex parity documentation", () => {
     }
   });
 
-  it("keeps contract and catalog references at their pinned Codex revisions", async () => {
+  it("distinguishes the behavior baseline from refreshed contract and catalog evidence", async () => {
     const names = [
       "codex-model-facing-contract.md",
       "codex-parity.md",
@@ -31,7 +31,9 @@ describe("Codex parity documentation", () => {
     ] as const;
     const documents = Object.fromEntries(
       await Promise.all(
-        names.map(async (name) => [name, await readFile(path.join(docsDir, name), "utf-8")]),
+        names.map(
+          async (name) => [name, await readFile(path.join(docsDir, name), "utf-8")] as const,
+        ),
       ),
     );
     const providerBaseline = await readFile(
@@ -39,6 +41,7 @@ describe("Codex parity documentation", () => {
       "utf-8",
     );
     const { catalog, commit } = codexContractFixture;
+    const behaviorCommit = "389dd5645944891b65e4ca584125bbb0c852d352";
     const catalogPath = "codex-rs/models-manager/models.json";
     expect(documents["codex-parity.md"]).toContain(
       `https://github.com/openai/codex/blob/${catalog.commit}/${catalogPath}`,
@@ -59,19 +62,17 @@ describe("Codex parity documentation", () => {
       "codex-parity.md",
       "codex-reference.md",
     ] as const) {
-      expect(documents[name]).toContain(commit);
-      const linkedSources = [
-        ...documents[name].matchAll(
-          /github\.com\/openai\/codex\/(?:blob|tree)\/(?<commit>[a-f0-9]{40})(?:\/(?<path>[^\s)#]+))?/gu,
-        ),
-      ];
-      expect(linkedSources.length).toBeGreaterThan(0);
-      for (const source of linkedSources) {
-        expect(source.groups?.commit, `${name}: ${source[0]}`).toBe(
-          source.groups?.path === catalogPath ? catalog.commit : commit,
-        );
-      }
+      const introduction = documents[name].split("\n## ")[0];
+      const baselineDeclaration = introduction
+        .split("\n\n")
+        .find((part) => part.startsWith("This "));
+      expect(baselineDeclaration, name).toContain(
+        `https://github.com/openai/codex/tree/${behaviorCommit}`,
+      );
+      expect(introduction, name).toContain(commit);
+      expect(introduction, name).toContain("(../../codex-provider/docs/upstream-review.md)");
     }
+    expect(providerBaseline).toContain(`https://github.com/openai/codex/tree/${behaviorCommit}`);
     expect(providerBaseline).toContain(commit);
   });
 });

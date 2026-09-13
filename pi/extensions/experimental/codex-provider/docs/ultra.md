@@ -13,6 +13,8 @@ This distinction is essential for provider parity. Sending `"ultra"` directly in
 
 ## Research baseline
 
+The [2026-09-13 upstream review](upstream-review.md) covers relevant changes through `36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564`. The extracted collaboration facts and compared Astra Ultra mapping are unchanged. New feature-gated reasoning-effort configuration history is separate follow-up work; this document retains the historical research baseline below.
+
 This document was verified on 2026-09-03 against a clean local checkout of [`openai/codex`](https://github.com/openai/codex) at [`389dd5645944891b65e4ca584125bbb0c852d352`](https://github.com/openai/codex/tree/389dd5645944891b65e4ca584125bbb0c852d352), authored 2026-09-02 14:45:41 UTC and committed 2026-09-02 14:57:34 UTC. The checkout's `main` matched its local `origin/main` tracking ref. All Codex source links below are pinned to that revision.
 
 The mode was introduced by [`df1199fddb0c41441b7cd5a1f48bc48514a617dd`](https://github.com/openai/codex/commit/df1199fddb0c41441b7cd5a1f48bc48514a617dd). Commit [`7f135e1314433a53d4e348cbf7d3df6072e5971a`](https://github.com/openai/codex/commit/7f135e1314433a53d4e348cbf7d3df6072e5971a) later made the concrete reasoning effort model-aware, and [`03861e69ef549717c0fc7045abad56321d4a082b`](https://github.com/openai/codex/commit/03861e69ef549717c0fc7045abad56321d4a082b) added catalog-owned mode text.

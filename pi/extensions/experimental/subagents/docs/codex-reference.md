@@ -2,6 +2,8 @@
 
 This document records the upstream application architecture that surrounds the [Codex model-facing contract](codex-model-facing-contract.md). It is descriptive reference material pinned to OpenAI Codex [`389dd5645944891b65e4ca584125bbb0c852d352`](https://github.com/openai/codex/tree/389dd5645944891b65e4ca584125bbb0c852d352), not the normative Pi contract. Pi behavior is defined by [protocols](protocols.md), and every known match or difference belongs in the [parity ledger](codex-parity.md).
 
+The [2026-09-13 upstream review](../../codex-provider/docs/upstream-review.md) records relevant changes through [`36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564`](https://github.com/openai/codex/tree/36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564), including V2 child inventory, forked configuration/authorization context, and delegated attribution. The historical architecture descriptions and source links below retain their original baseline. Only the selected generated contract facts have been repinned to that newer revision.
+
 ## 1. Control-plane ownership
 
 Codex implements collaboration in core, not in its Responses provider. A tree-scoped `AgentControl` owns:
