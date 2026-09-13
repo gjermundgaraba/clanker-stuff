@@ -41,6 +41,7 @@ const extension =
     });
     pi.on("session_start", manager.start.bind(manager));
     pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
+    pi.on("context", manager.context.bind(manager));
     pi.on("model_select", manager.modelSelect.bind(manager));
     pi.on("tool_call", manager.toolCall.bind(manager));
     pi.registerCommand("agents", {
@@ -53,6 +54,19 @@ const extension =
   };
 
 describe("subagents extension selection", () => {
+  it("does not change V1 model context", async () => {
+    const contextHook = vi.spyOn(V2Controller.prototype, "context");
+    const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
+      model: model("v1"),
+    });
+    await host.ready;
+    await host.emitSessionStart();
+    const messages = [{ role: "user" as const, content: "work", timestamp: 1 }];
+    await host.emit("context", { type: "context", messages });
+    expect(contextHook).not.toHaveBeenCalled();
+    expect(messages).toStrictEqual([{ role: "user", content: "work", timestamp: 1 }]);
+  });
+
   it("defaults undeclared models to V1", async () => {
     const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
       model: model(),

@@ -44,6 +44,7 @@ import type { CanonicalCompactionItem } from "./checkpoint.js";
 import {
   createCodexHeaders,
   createCodexModelCatalog,
+  extractAccountId,
   isCodexWireReasoningEffort,
   isSupportedCodexModelId,
   modelSupportsServiceTier,
@@ -59,6 +60,8 @@ import {
   shrinkTrailingOutputs,
 } from "./replay.js";
 import type { ResponsesInputItem } from "./replay.js";
+import { CodexSamplingBound } from "./sampling-bound.js";
+import type { SamplingScope } from "@clanker-stuff/mcp/sampling-protocol";
 import { parseSseEvents } from "./sse.js";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
@@ -186,6 +189,7 @@ interface ResponseCapture {
   socket?: WebSocketLike;
   terminalOutput?: unknown[];
   usage?: Usage;
+  usageComplete?: boolean;
 }
 
 interface ContinuationState {
@@ -215,6 +219,7 @@ type WebSocketLike = Static<typeof WebSocketLikeSchema>;
 const WebSocketConstructorSchema = Type.Function([Type.String(), Type.Unknown()], Type.Unknown());
 
 interface SessionRuntime {
+  accountId?: string;
   continuation?: ContinuationState;
   fallbackToSse: boolean;
   socket?: {
@@ -1067,8 +1072,12 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
         capture.terminalOutput = cloneJson(response.output);
       }
     }
+  }
+  {
+    const response = isRecord(event.response) ? event.response : undefined;
     const rawUsage = isRecord(response?.usage) ? response.usage : undefined;
     if (rawUsage) {
+      capture.usageComplete = isTerminalResponseEvent(event);
       const details = isRecord(rawUsage.input_tokens_details)
         ? rawUsage.input_tokens_details
         : undefined;
@@ -1099,6 +1108,12 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
             ? rawUsage.total_tokens
             : 0,
       };
+      if (
+        isRecord(rawUsage.output_tokens_details) &&
+        typeof rawUsage.output_tokens_details.reasoning_tokens === "number"
+      ) {
+        capture.usage.reasoning = rawUsage.output_tokens_details.reasoning_tokens;
+      }
     }
   }
 };
@@ -1379,6 +1394,7 @@ async function* parseWebSocket(
   const queue: (Error | JsonRecord)[] = [];
   let wake: (() => void) | undefined;
   let finished = false;
+  let listening = true;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   const enqueue = (value: Error | JsonRecord) => {
     queue.push(value);
@@ -1405,6 +1421,7 @@ async function* parseWebSocket(
   const onMessage = (event: unknown) => {
     void messageData(event)
       .then((data) => {
+        if (!listening) return;
         const value: unknown = JSON.parse(data);
         if (!isRecord(value)) {
           throw new Error("Codex WebSocket event must be an object");
@@ -1441,6 +1458,7 @@ async function* parseWebSocket(
       finished = isTerminalResponseEvent(value);
     }
   } finally {
+    listening = false;
     clearTimeout(idleTimer);
     signal?.removeEventListener("abort", onAbort);
     socket.removeEventListener("close", onClose);
@@ -1782,6 +1800,7 @@ const websocketEvents = async function* websocketEvents(
           ),
           attempt,
         )) {
+          captureEvent(capture, event);
           mapCodexEvent(event);
           const turnState = terminalTurnState(event);
           if (
@@ -1792,7 +1811,6 @@ const websocketEvents = async function* websocketEvents(
             session.turn.state = turnState;
           }
           emitted = true;
-          captureEvent(capture, event);
           yield event;
         }
         capture.socket = capture.completed ? socket : undefined;
@@ -1868,6 +1886,11 @@ function successfulOutput(output: AssistantMessage): asserts output is Assistant
   }
 }
 
+const resolveServiceTier = <Tier extends string | null | undefined>(
+  responseTier: Tier,
+  requestTier: Tier,
+): Tier => (responseTier === "default" ? requestTier : (responseTier ?? requestTier));
+
 const applyServiceTier = (usage: Usage, tier: string | null | undefined) => {
   const multiplier = tier === "flex" ? 0.5 : tier === "priority" ? 2 : 1;
   if (multiplier === 1) {
@@ -1888,6 +1911,39 @@ export const createCodexProviderRuntime = (
 ) => {
   const { base } = catalog;
   const sessions = new Map<string, SessionRuntime>();
+  interface SamplingOperation {
+    bound: CodexSamplingBound;
+    disposed: boolean;
+    started: boolean;
+    sessionId?: string;
+    controller?: AbortController;
+    task?: Promise<void>;
+  }
+  const samplingOperation = new AsyncLocalStorage<SamplingOperation>();
+  const activeSampling = new Set<SamplingScope>();
+  const synchronizeAccount = (sessionId: string, apiKey: string) => {
+    let session = getSession(sessionId);
+    const accountId = extractAccountId(apiKey);
+    if (session.accountId !== undefined && session.accountId !== accountId) {
+      closeSocket(session);
+      // Detach the old record: an already-running SSE callback may still hold it.
+      // Such a callback must never install the former account's turn state into
+      // the newly authenticated request's state.
+      const previous = session;
+      session = createSession();
+      session.window = { ...previous.window };
+      if (previous.turn) {
+        session.turn = {
+          id: previous.turn.id,
+          startedAt: previous.turn.startedAt,
+          prewarmed: false,
+        };
+      }
+      sessions.set(sessionId, session);
+    }
+    session.accountId = accountId;
+    return session;
+  };
   const requestTransport = new AsyncLocalStorage<
     NonNullable<OpenAICodexResponsesOptions["transport"]>
   >();
@@ -1980,7 +2036,7 @@ export const createCodexProviderRuntime = (
     const runtimeSessionId = standalone
       ? `${request.sessionId}:compaction:${uuidv7()}`
       : request.sessionId;
-    const logicalSession = getSession(request.sessionId);
+    const logicalSession = synchronizeAccount(request.sessionId, request.apiKey);
     const session = standalone ? createSession() : logicalSession;
     if (standalone) {
       session.window = { ...logicalSession.window };
@@ -2127,9 +2183,7 @@ export const createCodexProviderRuntime = (
           calculateCost(request.model, capture.usage);
           applyServiceTier(
             capture.usage,
-            capture.serviceTier === "default"
-              ? body.service_tier
-              : (capture.serviceTier ?? body.service_tier),
+            resolveServiceTier(capture.serviceTier, body.service_tier),
           );
           compactionResult = {
             compaction: compactions[0],
@@ -2268,6 +2322,39 @@ export const createCodexProviderRuntime = (
     context,
     options,
   ) => {
+    const operation = samplingOperation.getStore();
+    if (operation?.disposed) throw new Error("Sampling scope is disposed");
+    if (operation?.started) throw new Error("Sampling scope permits exactly one provider request");
+    if (
+      operation &&
+      (context.tools?.length ||
+        context.messages.some(
+          (message) =>
+            (message.role !== "user" && message.role !== "assistant") ||
+            (typeof message.content !== "string" &&
+              message.content.some((block) => block.type !== "text")),
+        ))
+    ) {
+      throw new Error("Codex sampling supports text messages without tools only");
+    }
+    if (
+      operation &&
+      (model.id !== operation.bound.model.id || model.provider !== operation.bound.model.provider)
+    ) {
+      throw new Error("Sampling scope model does not match registry request");
+    }
+    const controller = operation ? new AbortController() : undefined;
+    if (operation && controller) {
+      operation.started = true;
+      operation.controller = controller;
+      options = {
+        ...options,
+        maxRetries: 0,
+        signal: options?.signal
+          ? AbortSignal.any([options.signal, controller.signal])
+          : controller.signal,
+      };
+    }
     const events = createAssistantMessageEventStream();
     const output: AssistantMessage = {
       api: "openai-codex-responses",
@@ -2283,17 +2370,47 @@ export const createCodexProviderRuntime = (
       options?.sessionId !== undefined && options.sessionId.length > 0
         ? options.sessionId
         : uuidv7();
+    if (operation) {
+      if (sessions.has(sessionId)) {
+        operation.controller = undefined;
+        throw new Error("Sampling identity collides with an existing provider session");
+      }
+      operation.sessionId = sessionId;
+    }
+    let settle: (() => void) | undefined;
+    const task = operation
+      ? new Promise<void>((resolve) => {
+          settle = resolve;
+        })
+      : undefined;
+    if (operation) operation.task = task;
     const startedAt = Date.now();
     const trace = createRequestTrace();
     const recovery = createInferenceRecovery(options);
     let observedBody: OutboundRequestBody | undefined;
     let observedError: unknown;
+    const capture: ResponseCapture = { completed: false, outputItems: [] };
+    const applySamplingUsage = () => {
+      if (!operation || !capture.usage) return;
+      output.usage = { ...capture.usage, cost: { ...capture.usage.cost } };
+      calculateCost(model, output.usage);
+      applyServiceTier(
+        output.usage,
+        resolveServiceTier(
+          capture.serviceTier,
+          observedBody ? requestServiceTier(observedBody) : undefined,
+        ),
+      );
+      operation.bound.status.usage = output.usage;
+      operation.bound.status.usageComplete = capture.usageComplete === true;
+    };
     void (async () => {
       try {
         if (options?.apiKey === undefined || options.apiKey.length === 0) {
           throw new Error(`No API key for provider: ${model.provider}`);
         }
-        const session = getSession(sessionId);
+        options.signal?.throwIfAborted();
+        const session = synchronizeAccount(sessionId, options.apiKey);
         session.turn ??= {
           id: uuidv7(),
           prewarmed: false,
@@ -2360,10 +2477,6 @@ export const createCodexProviderRuntime = (
           prewarmCompatible ? prewarmInput : undefined,
           trace,
         );
-        const capture: ResponseCapture = {
-          completed: false,
-          outputItems: [],
-        };
         let started = false;
         const source = async function* source() {
           for await (const event of normalEvents(
@@ -2383,14 +2496,22 @@ export const createCodexProviderRuntime = (
               started = true;
               events.push({ partial: output, type: "start" });
             }
-            yield toPiResponseStreamEvent(event, output);
+            options?.signal?.throwIfAborted();
+            if (operation && capture.usage) {
+              applySamplingUsage();
+            }
+            const mapped = operation ? operation.bound.transform(event) : event;
+            if (mapped) yield toPiResponseStreamEvent(mapped, output);
+            if (operation?.bound.status.limitReached) {
+              controller?.abort();
+              throw new Error("Sampling output token limit reached");
+            }
           }
         };
         await processResponsesStream(source(), output, events, model, {
           applyServiceTierPricing: applyServiceTier,
           grammarToolInputProperties: built.grammarToolInputProperties,
-          resolveServiceTier: (responseTier, requestTier) =>
-            responseTier === "default" ? requestTier : (responseTier ?? requestTier),
+          resolveServiceTier,
           serviceTier: requestServiceTier(body),
         });
         successfulOutput(output);
@@ -2435,12 +2556,20 @@ export const createCodexProviderRuntime = (
         });
         events.end();
       } catch (error) {
+        applySamplingUsage();
         observedError = error;
         for (const block of output.content) {
           if (isRecord(block)) {
             delete block.customInput;
             delete block.partialJson;
           }
+        }
+        if (operation?.bound.status.limitReached) {
+          output.stopReason = "length";
+          delete output.errorMessage;
+          events.push({ message: output, reason: "length", type: "done" });
+          events.end();
+          return;
         }
         output.stopReason = isAborted(options?.signal) ? "aborted" : "error";
         output.errorMessage = error instanceof Error ? error.message : String(error);
@@ -2451,6 +2580,11 @@ export const createCodexProviderRuntime = (
         });
         events.end();
       } finally {
+        if (operation) {
+          operation.controller = undefined;
+          operation.task = undefined;
+        }
+        settle?.();
         for (const attempt of recovery.attempts) {
           if (attempt.finalDecision !== "pending") {
             continue;
@@ -2534,6 +2668,40 @@ export const createCodexProviderRuntime = (
     }
   };
 
+  const createSamplingScope = (model: Model<string>, maxTokens: number): SamplingScope => {
+    const operation: SamplingOperation = {
+      bound: new CodexSamplingBound(model, maxTokens),
+      disposed: false,
+      started: false,
+    };
+    let disposal: Promise<void> | undefined;
+    const scope: SamplingScope = {
+      boundText: (text) => operation.bound.boundText(text),
+      status: operation.bound.status,
+      run: (callback) => {
+        if (operation.disposed) throw new Error("Sampling scope is disposed");
+        return samplingOperation.run(operation, callback);
+      },
+      dispose: () => {
+        if (disposal) return disposal;
+        operation.disposed = true;
+        operation.controller?.abort();
+        if (operation.sessionId !== undefined) {
+          const session = sessions.get(operation.sessionId);
+          if (session) closeSocket(session);
+        }
+        disposal = (async () => {
+          await operation.task;
+          if (operation.sessionId !== undefined) closeSession(operation.sessionId);
+          activeSampling.delete(scope);
+        })();
+        return disposal;
+      },
+    };
+    activeSampling.add(scope);
+    return scope;
+  };
+
   const provider: Provider<"openai-codex-responses"> = {
     ...base,
     getModels: catalog.getModels,
@@ -2552,6 +2720,14 @@ export const createCodexProviderRuntime = (
       };
     },
     closeSession,
+    createSamplingScope,
+    disposeSamplingScopes: () => Promise.all([...activeSampling].map((scope) => scope.dispose())),
+    samplingDiagnostics: () => ({
+      sessions: sessions.size,
+      scopes: activeSampling.size,
+      sockets: [...sessions.values()].filter((session) => session.socket).length,
+      timers: [...sessions.values()].filter((session) => session.socket?.idleTimer).length,
+    }),
     compact,
     consumeTransportFallback(sessionId: string) {
       const session = sessions.get(sessionId);

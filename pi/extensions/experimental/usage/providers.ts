@@ -25,9 +25,30 @@ export interface UsageSnapshot {
   provider: SupportedProvider;
   planLabel?: string;
   windows: UsageWindow[];
+  ordinaryUsageAllowed?: boolean;
+  additionalLimits?: UsageLimit[];
   creditsRemaining?: number;
   fetchedAt: number;
 }
+
+/** A quota identity is independent of its windows' reset periods. */
+export interface UsageLimit {
+  id: string;
+  label: string;
+  model?: string;
+  allowed?: boolean;
+  windows: UsageWindow[];
+}
+
+export const usageWindows = (snapshot: UsageSnapshot): UsageWindow[] => [
+  ...snapshot.windows,
+  ...(snapshot.additionalLimits ?? []).flatMap((limit) =>
+    limit.windows.map((window) => ({
+      ...window,
+      label: `${limit.label} [${limit.id}]${limit.model === undefined ? "" : ` (${limit.model})`} ${window.label}`,
+    })),
+  ),
+];
 
 export interface UsageFetchError {
   message: string;
@@ -46,7 +67,12 @@ export const usageFailure = (
 const NO_WINDOWS_MESSAGE = "no usage windows in response";
 
 export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult => {
-  if (snapshot.windows.length === 0) {
+  if (
+    snapshot.windows.length === 0 &&
+    snapshot.ordinaryUsageAllowed === undefined &&
+    (snapshot.additionalLimits?.length ?? 0) === 0 &&
+    snapshot.creditsRemaining === undefined
+  ) {
     return usageFailure(NO_WINDOWS_MESSAGE);
   }
   return { ok: true, snapshot };

@@ -272,12 +272,17 @@ export const createUsageController = (
         return;
       }
       refresh(ctx, getActiveProvider(ctx.model), parsed.refresh);
+      const commandCache = cache;
       const results = await Promise.all(
         SUPPORTED_PROVIDERS.map(async (provider) => ({
           provider,
           result: await getOrFetch(provider, ctx, parsed.refresh),
         })),
       );
+      // Account replacement invalidates pending command results as well as footer refreshes.
+      if (commandCache !== cache) {
+        return;
+      }
       const available = results.filter(
         ({ result }) => result.ok || result.error.kind === "failure",
       );

@@ -92,6 +92,18 @@ describe("timer", () => {
     expect(host.getStatus("timer")).toBe(`· 0.0s · ${clockAt(TIMER_INTERVAL_MS * 24)}`);
   });
 
+  it("keeps counting work while an async answer dialog is open", () => {
+    const { host, ctx, timer } = setup();
+    timer.start(ctx);
+    timer.setAsyncPrompt({ active: true });
+    timer.pause(ctx);
+    vi.advanceTimersByTime(1000);
+    timer.resume(ctx);
+    timer.setAsyncPrompt({ active: false });
+    timer.stop(ctx);
+    expect(host.getStatus("timer")).toBe(`● 1.0s · ${clockAt(1000)}`);
+  });
+
   it("excludes time spent waiting in a UI prompt", () => {
     const { host, ctx, timer } = setup();
     timer.start(ctx);

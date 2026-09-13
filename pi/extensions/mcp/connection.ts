@@ -1,6 +1,9 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { ContextClient } from "./capabilities.js";
+import type { McpCallContext } from "./capabilities.js";
+import type { Client } from "@modelcontextprotocol/client";
 import {
   InsufficientScopeError,
-  Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import type { Transport } from "@modelcontextprotocol/client";
@@ -14,6 +17,7 @@ export interface McpClientConnection {
   close: () => Promise<void>;
   transport: Pick<Transport, "sessionId">;
   closed?: AbortSignal;
+  withContext?: <T>(context: McpCallContext, run: () => Promise<T>) => Promise<T>;
 }
 export type McpConnectionFactory = (
   interactive: boolean,
@@ -54,17 +58,23 @@ const connectTransport = async (
 };
 
 interface ConnectOptions {
+  pi?: Pick<ExtensionAPI, "events">;
+  serverName?: string;
   serverConfig: McpServerConfig;
   onAuthorizationUrl?: (url: URL) => void;
   signal?: AbortSignal;
   cwd?: string;
+  getWorkspace?: () => string | undefined;
 }
 
 export const connectToServer = async ({
   serverConfig,
+  pi,
+  serverName,
   onAuthorizationUrl,
   signal,
-  cwd,
+  cwd = process.cwd(),
+  getWorkspace = () => cwd,
 }: ConnectOptions): Promise<McpClientConnection> => {
   const httpAuth =
     serverConfig.type === "http" && serverConfig.oauth ? createHttpAuth(serverConfig) : undefined;
@@ -76,10 +86,7 @@ export const connectToServer = async ({
     ]);
     connectSignal.throwIfAborted();
     httpAuth?.setSignal(connectSignal);
-    const client = new Client(
-      { name: "pi-mcp", version: "0.1.0" },
-      { versionNegotiation: { mode: "auto" } },
-    );
+    const client = new ContextClient(pi, serverName, getWorkspace);
     const transport: Transport =
       serverConfig.type === "stdio"
         ? new StdioClientTransport({
@@ -100,11 +107,16 @@ export const connectToServer = async ({
       client.onclose = () => lifetime.abort();
       return {
         client,
+        withContext: (context, run) => client.withContext(context, run),
         transport,
         closed: lifetime.signal,
         close: async () => {
           lifetime.abort();
-          await client.close();
+          try {
+            await client.close();
+          } finally {
+            await client.settleCalls();
+          }
         },
       };
     } catch (error) {

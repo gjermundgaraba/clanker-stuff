@@ -606,7 +606,9 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       sessionManager,
       settingsManager,
       thinkingLevel: selectedThinking,
-      tools: request.tools,
+      tools: request.tools.filter(
+        (name) => name !== "request_user_input_async" && name !== "send_message_to_user_async",
+      ),
     });
     createdSession = session;
     const stream = session.agent.streamFunction;

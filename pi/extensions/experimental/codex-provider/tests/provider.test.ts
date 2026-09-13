@@ -2413,7 +2413,7 @@ describe("Codex provider", () => {
       ],
       prewarmInput: [],
       requestCount: 7,
-      requestKinds: ["prewarm", "turn", "turn", "turn", "turn", "turn", "turn", "turn"],
+      requestKinds: ["prewarm", "turn", "turn", "turn", "turn", "turn", "prewarm", "turn", "turn"],
       socketCountBeforeClose: 1,
       socketUrls: [
         "wss://phase-zero.invalid/backend-api/codex/responses",

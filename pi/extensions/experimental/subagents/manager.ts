@@ -4,6 +4,7 @@ import { setImmediate as yieldImmediate } from "node:timers/promises";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
   BeforeAgentStartEvent,
+  ContextEvent,
   ExtensionAPI,
   ExtensionContext,
   InputEvent,
@@ -311,6 +312,12 @@ export class SubagentManager {
     this.#rootToolTerminates.clear();
     this.#syncRoot();
     this.#scheduleRootDelivery();
+  }
+
+  context(event: ContextEvent) {
+    if (this.#sessionPhase.protocol === "v2" && this.#healthError() === undefined) {
+      return this.#v2.context(ROOT_AGENT_PATH, event);
+    }
   }
 
   async agentEnd(): Promise<void> {

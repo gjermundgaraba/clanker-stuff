@@ -12,6 +12,7 @@ import {
 import type { AskQuestionFlowResult, Question } from "../questions.js";
 import { createHelpText, decodeAskQuestionIntent, isSingleCharShortcut } from "./input.js";
 import type { DecodedIntent } from "./input.js";
+import { runQueuedPrompt } from "@clanker-stuff/pi-user-input/queue";
 import { renderPrompt } from "./render.js";
 import type { EditMode, EditTarget, PromptView } from "./render.js";
 
@@ -47,7 +48,7 @@ const createInlineEditor = (tui: TUI, theme: Pick<Theme, "fg">): Editor =>
     },
   });
 
-export const runAskQuestionPrompt = async (
+const showQuestionPrompt = async (
   ctx: ExtensionContext,
   questions: Question[],
   signal?: AbortSignal,
@@ -337,6 +338,7 @@ export const runAskQuestionPrompt = async (
 
     return {
       dispose() {
+        finish({ cancelled: true, reason: "external_aborted" });
         surfaceFocused = false;
         if (editMode.kind !== "none") {
           editMode.editor.focused = false;
@@ -361,4 +363,25 @@ export const runAskQuestionPrompt = async (
       render: (width: number) => renderPrompt(currentView(), width),
     };
   });
+};
+
+export const runQuestionPrompt = async (
+  ctx: ExtensionContext,
+  questions: Question[],
+  signal?: AbortSignal,
+  onPrompt?: (active: boolean) => void,
+): Promise<AskQuestionFlowResult> => {
+  try {
+    return await runQueuedPrompt(ctx, signal, async (activeSignal) => {
+      onPrompt?.(true);
+      try {
+        return await showQuestionPrompt(ctx, questions, activeSignal);
+      } finally {
+        onPrompt?.(false);
+      }
+    });
+  } catch (error) {
+    if (signal?.aborted) return { cancelled: true, reason: "external_aborted" };
+    throw error;
+  }
 };

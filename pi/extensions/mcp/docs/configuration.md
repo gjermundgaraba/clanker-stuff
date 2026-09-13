@@ -79,3 +79,25 @@ Project `.pi/mcp.json` files are executable configuration. Stdio entries run loc
 Manager mutations are queued and atomic. Tool arguments are still stored in the Pi session: prefer environment placeholders over literal secrets.
 
 Text output uses Pi's standard truncation limits; supported images retain their position among text blocks. Structured output is appended unless an existing text payload already contains equivalent JSON. Distinct text and structured data are both retained. Overflow is saved under `<agent-dir>/data/mcp/results/` with private permissions, capped at 1 MiB per file. Files older than seven days are eligible for cleanup on the first overflow write of each extension runtime. There is no aggregate size or file-count quota. Paths in session history are temporary, and saved output may itself be partial. A persistence failure produces a warning without converting a successful remote operation into a failed tool call.
+
+## Forms, links, and workspace roots
+
+Connected servers can request forms and URL interactions during tool calls. Requests identify the server and use the context of the originating tool execution, including when multiple servers or tools run concurrently. Roots are also available during initialization and while idle, using the current Pi session workspace. Roots requested within a tool call use that call's workspace. Session changes update existing connections without retaining an old context. Roots advertise the workspace as a `file:` URI; they do not enforce filesystem access.
+
+Forms preserve strings, numbers, integers, booleans, single choices, and multiple string choices. Optional fields can be skipped. Defaults are suggestions; they never submit a response. Review the completed form, then choose Accept, Decline, or Cancel. Headless runs return Cancel. Form and link prompts share the question extension's UI queue. Cancellation, branch/session replacement, connection closure, and shutdown release active and queued interactions.
+
+URL interactions show the destination before the user chooses Open URL. TUI opens the browser only after that choice; RPC displays a link for manual navigation. Choose Completed after finishing in the browser. Legacy server completion notifications also finish a waiting interaction. URL interactions are separate from OAuth authorization to connect Pi to a server.
+
+The SDK's existing continuation engine fulfils embedded input requests and carries opaque request state across rounds. Modern calls can overlap. Legacy reverse requests do not carry a reliable originating-call identity, so calls on a legacy connection are serialized. Form, URL, and sampling requests outside a tool call are rejected rather than borrowing session context. SDK roots and sampling APIs remain intentionally supported despite their 2026-07-28 deprecation.
+
+## Automatic model sampling
+
+Servers may request sampling without a per-server switch or confirmation. Sampling uses the model selected when the originating tool starts, through Pi's model registry and authentication. It receives only server-supplied text messages and system instructions. Pi history, local tools, and recursive agent execution are excluded. Server model preferences do not override the selected Pi model.
+
+As of 2026-09-13, automatic inference requires the Codex extension's bounded sampling scope and a supported GPT-5 model. Other adapters and Astra are rejected before inference because a verified token-accounting and request-disposal contract is not available for them. There is no silent unbounded fallback. Image/audio inputs, tools, non-text outputs, invalid budgets, and empty stop sequences are rejected. Positive integer budgets are capped at the selected model's output limit.
+
+For supported Codex models, the provider limits the returned concatenated text using the model's verified tokenizer and aborts streaming when the limit is reached. MCP reports `maxTokens` at that boundary. Reasoning is not returned and is excluded from the returned-text budget. Backend reasoning and output generated before cancellation can still incur usage. Client cancellation is best effort; this is not a native backend generation or billing ceiling. No native generation-limit guarantee is claimed.
+
+Each sampling operation owns a fresh provider scope. Completion, failures, cancellation, length limits, and conversion errors all await explicit scope disposal, which releases its transport and continuation state. Ordinary Pi sessions and overlapping sampling operations remain independent. Provider-reported usage is attached to the originating tool result, including unsuccessful later continuations; each sample also records whether accounting is complete. Incomplete accounting means final usage did not arrive, not zero usage or an exact saving.
+
+See [Testing MCP](testing.md) for the shared local server, automated coverage, and manual scenarios.

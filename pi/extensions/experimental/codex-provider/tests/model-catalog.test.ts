@@ -112,7 +112,8 @@ describe("Codex model catalog", () => {
     expect(astra).toMatchObject({
       codexOutputTokenLimit: 10_000,
       codexToolMode: "code_mode_only",
-      codexVisibility: "hide",
+      codexVisibility: "list",
+      codexSupportedTools: ["send_user_message_async", "clock"],
       compat: {
         supportsAdditionalTools: true,
         supportsOpenAIGrammarTools: true,
@@ -150,7 +151,7 @@ describe("Codex model catalog", () => {
       catalog.base
         .filterModels?.(catalog.getModels(), undefined)
         .some((model) => model.id === "gpt-6-astra"),
-    ).toBeFalsy();
+    ).toBeTruthy();
     if (astra === undefined) throw new Error("Missing Astra fallback");
     expect(catalog.getModelWindow(astra)).toEqual({
       autoCompactTokens: 244_800,
@@ -302,7 +303,33 @@ describe("Codex model catalog", () => {
     },
   );
 
+  it("projects refreshed experimental tool capabilities and restores them from the account cache", async () => {
+    const stored = await fetchStoredCatalog([
+      {
+        ...remoteModel,
+        experimental_supported_tools: ["request_user_input_async", "send_message_to_user_async"],
+      },
+    ]);
+    expect(stored.models[0]).toMatchObject({
+      codexSupportedTools: ["request_user_input_async", "send_message_to_user_async"],
+    });
+    const catalog = createCodexModelCatalog();
+    await catalog.refreshModels(
+      refreshContext(async (publication) => {
+        publication.update?.();
+        return true;
+      }, stored),
+    );
+    expect(catalog.getModels()[0]).toMatchObject({
+      codexSupportedTools: ["request_user_input_async", "send_message_to_user_async"],
+    });
+  });
+
   it.each([
+    ...[null, "request_user_input_async", [42]].map((value) => ({
+      payload: { models: [{ ...remoteModel, experimental_supported_tools: value }] },
+      message: "Codex model experimental tools are invalid",
+    })),
     { payload: null, message: "Codex model response is malformed" },
     { payload: { models: {} }, message: "Codex model response is malformed" },
     { payload: { models: [null] }, message: "Codex model metadata must be an object" },

@@ -32,16 +32,27 @@
     "open-browser.ts",
     "results.ts",
     "runtime.ts",
-    "servers.ts"
+    "servers.ts",
+    "interactions.ts",
+    "elicitation-schema.ts",
+    "capabilities.ts",
+    "sampling.ts",
+    "sampling-protocol.ts"
   ],
   "type": "module",
-  "exports": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./sampling-protocol": {
+      "types": "./sampling-protocol.ts"
+    }
+  },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-user-input": "workspace:^",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/core": "^2.0.0",
     "proper-lockfile": "^4.1.2",

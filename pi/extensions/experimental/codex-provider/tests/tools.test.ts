@@ -54,6 +54,40 @@ const selectModel = async (
 };
 
 describe("Codex tools", () => {
+  it("keeps supported async tools direct in Code Mode and restores them across model changes", async () => {
+    const asyncNames = ["request_user_input_async", "send_message_to_user_async"];
+    const model = {
+      ...createToolsModel("gpt-6-astra", true),
+      codexToolMode: "code_mode_only",
+      codexSupportedTools: ["send_user_message_async"],
+    };
+    const host = createExtensionHost(registerCodexTools, {
+      model,
+      activeTools: [...PI_NAMES, ...asyncNames],
+      allTools: [...PI_NAMES, ...asyncNames],
+      externalTools: asyncNames,
+    });
+    await host.emitSessionStart();
+    expect(host.getActiveTools()).toStrictEqual(["request_user_input_async", ...CODE_NAMES]);
+    const results = await host.emit("before_agent_start", {
+      type: "before_agent_start",
+      prompt: "task",
+      systemPrompt: "base",
+    });
+    expect(JSON.stringify(results)).not.toContain("tools.request_user_input_async");
+    expect(JSON.stringify(results)).not.toContain("tools.send_message_to_user_async");
+    const supported = { ...model, codexSupportedTools: [...asyncNames] };
+    await selectModel(host, model, supported);
+    expect(host.getActiveTools()).toEqual(expect.arrayContaining(asyncNames));
+    const unsupported = createToolsModel("gpt-5.6-sol", true);
+    await selectModel(host, supported, unsupported);
+    expect(host.getActiveTools()).not.toEqual(expect.arrayContaining(asyncNames));
+    const other = createToolsModel("deepseek-v4-pro");
+    await selectModel(host, unsupported, other);
+    expect(host.getActiveTools()).toEqual(expect.arrayContaining([...PI_NAMES, ...asyncNames]));
+    await host.emitSessionShutdown();
+  });
+
   it.each(["direct", "code_mode_only"] as const)(
     "pins the evaluation tool surface and prompt to %s",
     async (mode) => {

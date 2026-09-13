@@ -125,4 +125,53 @@ describe("mcp connection", () => {
       }
     },
   );
+  it.each(["image", "structured", "mixed"])(
+    "serves %s results from the shared HTTP fixture",
+    async (scenario) => {
+      const fixture = await t.startHttpFixture({ scenario });
+      const connection = await connectToServer({
+        serverConfig: { type: "http", url: fixture.url },
+      });
+      try {
+        const result = await connection.client.callTool({
+          name: "search",
+          arguments: { query: "content" },
+        });
+        if (scenario === "image" || scenario === "mixed") {
+          const image = result.content.find((item) => item.type === "image");
+          expect(image).toBeDefined();
+          if (image?.type === "image")
+            expect(Buffer.from(image.data, "base64").subarray(1, 4).toString()).toBe("PNG");
+        }
+        if (scenario === "structured" || scenario === "mixed")
+          expect(result.structuredContent).toMatchObject({ query: "content" });
+        expect(fixture.state.operations).toBe(1);
+      } finally {
+        await connection.close();
+      }
+    },
+  );
+
+  it("exposes deterministic pause/release and malformed-result controls without replay", async () => {
+    const fixture = await t.startHttpFixture();
+    const connection = await connectToServer({ serverConfig: { type: "http", url: fixture.url } });
+    const origin = new URL(fixture.url).origin;
+    try {
+      await fetch(`${origin}/control?action=pause`, { method: "POST" });
+      const call = connection.client.callTool({ name: "search", arguments: { query: "paused" } });
+      await expect.poll(fixture.getToolCallCount).toBe(1);
+      expect(fixture.state.operations).toBe(0);
+      await fetch(`${origin}/control?action=release`, { method: "POST" });
+      await call;
+      await fetch(`${origin}/control?action=malformed-next`, { method: "POST" });
+      await expect(
+        connection.client.callTool({ name: "search", arguments: { query: "malformed" } }),
+      ).rejects.toThrow();
+      const records = await (await fetch(`${origin}/records`)).json();
+      expect(records).toMatchObject({ operations: 1, records: [{ tool: "search", round: 0 }] });
+      expect(fixture.requests.filter((request) => request.method === "tools/call")).toHaveLength(2);
+    } finally {
+      await connection.close();
+    }
+  });
 });

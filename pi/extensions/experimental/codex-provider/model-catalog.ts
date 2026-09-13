@@ -28,6 +28,7 @@ const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
 type SupportedModel = Model<"openai-codex-responses"> & {
   readonly codexOutputTokenLimit?: number;
   readonly codexToolMode?: CodexToolMode;
+  readonly codexSupportedTools?: readonly string[];
   readonly codexVisibility?: string;
   readonly multiAgentVersion?: "disabled" | "v1" | "v2";
 };
@@ -131,6 +132,7 @@ export interface CodexModelMetadataWire extends Readonly<Static<typeof ModelEntr
   readonly default_verbosity?: "high" | "low" | "medium";
   readonly effective_context_window_percent?: number | null;
   readonly input_modalities?: readonly string[];
+  readonly experimental_supported_tools?: readonly string[];
   readonly max_context_window?: number | null;
   readonly model_messages?: CodexModelMessages;
   readonly multi_agent_reasoning_effort?: string | null;
@@ -187,6 +189,7 @@ const ASTRA_METADATA: CodexModelMetadata = {
   multi_agent_version: "v2",
   priority: 1,
   service_tiers: [{ id: "priority" }],
+  experimental_supported_tools: ["send_user_message_async", "clock"],
   slug: "gpt-6-astra",
   supported_in_api: true,
   supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max", "ultra"],
@@ -196,7 +199,7 @@ const ASTRA_METADATA: CodexModelMetadata = {
   tool_mode: "code_mode_only",
   truncation_policy: { limit: 10_000, mode: "tokens" },
   use_responses_lite: true,
-  visibility: "hide",
+  visibility: "list",
 };
 
 const ASTRA_MODEL: SupportedModel = {
@@ -295,7 +298,7 @@ const resolveModelsUrl = (baseUrl?: string): string => {
   return responseUrl.toString();
 };
 
-const extractAccountId = (token: string): string => {
+export const extractAccountId = (token: string): string => {
   try {
     const payload: unknown = JSON.parse(
       Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf-8"),
@@ -440,6 +443,13 @@ const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata =
   ) {
     throw new Error("Codex model messages are invalid");
   }
+  if (
+    value.experimental_supported_tools !== undefined &&
+    (!Array.isArray(value.experimental_supported_tools) ||
+      value.experimental_supported_tools.some((tool) => typeof tool !== "string"))
+  ) {
+    throw new Error("Codex model experimental tools are invalid");
+  }
   const parsed: CodexModelMetadata = {
     ...value,
     auto_compact_token_limit: autoCompactTokenLimit,
@@ -579,6 +589,7 @@ const projectModel = (
     baseUrl: existing?.baseUrl ?? baseUrl,
     codexOutputTokenLimit: outputTokenLimit,
     codexToolMode: metadata.tool_mode,
+    codexSupportedTools: metadata.experimental_supported_tools,
     codexVisibility: metadata.visibility,
     compat: existing?.compat,
     contextWindow,

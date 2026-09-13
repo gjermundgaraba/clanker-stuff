@@ -18,6 +18,7 @@ import subagents from "../index.js";
 import { createControlStore, rootBinding } from "../snapshot.js";
 import { V1_NOTIFICATION_TYPE } from "../v1/controller.js";
 import { SUBAGENT_MESSAGE_TYPE } from "../v2/protocol.js";
+import { CHILD_CONTEXT_TYPE } from "../v2/context.js";
 
 const configuredHarness = async (
   protocol: "v1" | "v2",
@@ -241,7 +242,13 @@ describe("root subagent delivery", () => {
           await childRelease.promise;
           return fauxAssistantMessage("child answer");
         },
-        fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" }),
+        () => {
+          const payload = lastProviderPayloadText(harness);
+          expect(payload).toContain("<environment_context>");
+          expect(payload).toContain('<agent name=\\"/root/worker\\" />');
+          expect(payload.match(/<subagents>/gu)).toHaveLength(1);
+          return fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" });
+        },
         fauxAssistantMessage("integrated"),
       ]);
 
@@ -259,6 +266,9 @@ describe("root subagent delivery", () => {
       await waitForRootAcknowledgement(harness, "v2");
       expect(lastProviderPayloadText(harness)).toContain("child answer");
       expect(harness.messages().at(-1)).toMatchObject({ role: "assistant" });
+      expect(lastProviderPayloadText(harness).match(/<subagents>/gu)).toHaveLength(1);
+      expect(JSON.stringify(harness.sessionManager.getBranch())).not.toContain(CHILD_CONTEXT_TYPE);
+      expect(JSON.stringify(harness.messages())).not.toContain(CHILD_CONTEXT_TYPE);
     } finally {
       childRelease.resolve(null);
       await cleanup();

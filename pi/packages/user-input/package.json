@@ -1,0 +1,42 @@
+{
+  "name": "@clanker-stuff/pi-user-input",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Coordinates cancellable prompts across Pi extensions.",
+  "keywords": [
+    "pi",
+    "pi-extension"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/packages/user-input#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/packages/user-input"
+  },
+  "files": [
+    "queue.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": {
+    "./queue": "./queue.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

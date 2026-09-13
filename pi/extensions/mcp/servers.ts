@@ -1,3 +1,5 @@
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { SamplingUsage } from "./sampling.js";
 import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { SdkHttpError } from "@modelcontextprotocol/client";
@@ -41,6 +43,8 @@ export class McpServerPool {
   private readonly loads = new Map<string, Promise<number>>();
   private readonly servers = new Map<string, ServerRecord>();
   private readonly shutdown = new AbortController();
+  private calls = new AbortController();
+  private readonly accounting = new Map<string, SamplingUsage[]>();
   private readonly persistOutput = createOutputStore();
 
   private readonly pi: McpToolRegistry;
@@ -135,8 +139,17 @@ export class McpServerPool {
             label: `${serverName}: ${tool.name}`,
             description: tool.description ?? `MCP tool ${tool.name} from ${serverName}`,
             parameters: Type.Unsafe<ToolArguments>(tool.inputSchema),
-            execute: async (_id, args, executeSignal) => {
-              const result = await this.callTool(serverName, tool.name, args, executeSignal);
+            execute: async (id, args, executeSignal, _update, ctx) => {
+              const sampling: SamplingUsage[] = [];
+              this.accounting.set(id, sampling);
+              const result = await this.callTool(
+                serverName,
+                tool.name,
+                args,
+                executeSignal,
+                ctx,
+                (usage) => sampling.push(usage),
+              );
               const converted = mcpResultToPiContent(result);
               const details: McpToolDetails = {
                 serverName,
@@ -187,9 +200,21 @@ export class McpServerPool {
     }
   }
 
+  cancelCalls(): void {
+    this.calls.abort();
+    this.calls = new AbortController();
+  }
+
+  takeUsage(id: string): SamplingUsage[] | undefined {
+    const usage = this.accounting.get(id);
+    this.accounting.delete(id);
+    return usage?.length ? usage : undefined;
+  }
+
   async closeAll(): Promise<void> {
     if (this.shutdown.signal.aborted) return;
     this.shutdown.abort();
+    this.cancelCalls();
     const connections = [...this.servers.values()].flatMap((server) =>
       server.connection ? [server.connection] : [],
     );
@@ -205,6 +230,8 @@ export class McpServerPool {
     toolName: string,
     args: Parameters<McpClientConnection["client"]["callTool"]>[0]["arguments"],
     signal?: AbortSignal,
+    ctx?: ExtensionContext,
+    reportUsage: (usage: SamplingUsage) => void = () => {},
   ): Promise<CallToolResult> {
     const server = this.servers.get(serverName);
     const connection = server?.connection;
@@ -212,8 +239,17 @@ export class McpServerPool {
       throw new Error(
         `MCP server ${serverName} is disconnected. Reconnect with /mcp or mcp_connect.`,
       );
+    signal = AbortSignal.any([
+      this.shutdown.signal,
+      this.calls.signal,
+      ...(signal ? [signal] : []),
+      ...(connection.closed ? [connection.closed] : []),
+    ]);
+    const call = () => connection.client.callTool({ name: toolName, arguments: args }, { signal });
     try {
-      return await connection.client.callTool({ name: toolName, arguments: args }, { signal });
+      return await (ctx && connection.withContext
+        ? connection.withContext({ ctx, model: ctx.model, signal, reportUsage }, call)
+        : call());
     } catch (error) {
       signal?.throwIfAborted();
       const authorization = isAuthorizationError(error);

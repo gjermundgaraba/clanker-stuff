@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
+import type { SamplingEvents, SamplingScopeRequest } from "@clanker-stuff/mcp/sampling-protocol";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import type { Model } from "@earendil-works/pi-ai";
 import type {
@@ -42,6 +43,7 @@ export const createCodexRuntime = (
     setFastFooterActive,
   );
   let agentRunActive = false;
+  let samplingGeneration = 0;
   let fastContext: ExtensionContext | undefined;
   let pendingModelSelection: { ctx: ExtensionContext; event: ModelSelectEvent } | undefined;
   let pendingStart: ExtensionContext | undefined;
@@ -103,6 +105,32 @@ export const createCodexRuntime = (
   const refreshFastStatus = (ctx: ExtensionContext): void => {
     fastMode.refresh(ctx, catalog.supportsFastMode);
   };
+
+  const samplingListener = (payload: unknown) => {
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      !("resolve" in payload) ||
+      typeof payload.resolve !== "function" ||
+      !("model" in payload) ||
+      !("maxTokens" in payload)
+    )
+      return;
+    // SAFETY: MCP sends this extension-owned event using the shared sampling protocol;
+    // model and budget are validated before any inference by createSamplingScope.
+    const request = payload as SamplingScopeRequest;
+    const generation = samplingGeneration;
+    request.resolve(
+      requireCodex().then((loaded) => {
+        if (generation !== samplingGeneration) throw new Error("Sampling origin session changed");
+        return loaded.createSamplingScope(request.model, request.maxTokens);
+      }),
+    );
+  };
+  const unsubscribeSampling = pi.events.on(
+    "clanker-codex:sampling-scope-request" satisfies keyof SamplingEvents,
+    samplingListener,
+  );
 
   return {
     agentEnd: (): void => {
@@ -181,6 +209,8 @@ export const createCodexRuntime = (
     },
     sessionStart: async (ctx: ExtensionContext, startup: boolean): Promise<void> => {
       agentRunActive = false;
+      samplingGeneration += 1;
+      await codex.get()?.disposeSamplingScopes();
       const loaded = codex.get();
       if (loaded === undefined) {
         pendingStart = ctx;
@@ -196,6 +226,9 @@ export const createCodexRuntime = (
     },
     shutdown: async (ctx: ExtensionContext): Promise<void> => {
       agentRunActive = false;
+      unsubscribeSampling();
+      samplingGeneration += 1;
+      await codex.get()?.disposeSamplingScopes();
       fastMode.stop();
       fastContext = undefined;
       pendingStart = undefined;

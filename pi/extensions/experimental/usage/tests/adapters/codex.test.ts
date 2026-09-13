@@ -224,7 +224,93 @@ describe("codex fetch", () => {
     expect(result.ok).toBeTruthy();
     const [url, , options] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://chatgpt.com/backend-api/wham/usage");
-    expect(options?.headers?.Authorization).toBe(`Bearer ${token}`);
-    expect(options?.headers?.["ChatGPT-Account-Id"]).toBe("acct_abc");
+    expect(options?.headers).toStrictEqual({
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      "ChatGPT-Account-Id": "acct_abc",
+    });
+    expect(fetchJson).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Codex additional limits", () => {
+  it("keeps quota identity and model separate from coincident reset periods", () => {
+    const result = mapCodexUsagePayload(
+      {
+        rate_limit: { allowed: false, primary_window: { used_percent: 100 } },
+        additional_rate_limits: [
+          {
+            limit_name: "Extra",
+            metered_feature: "feature-a",
+            normal_model_slug: "model-a",
+            rate_limit: { allowed: true, primary_window: { used_percent: 30 } },
+          },
+          {
+            limit_name: "Extra",
+            metered_feature: "feature-b",
+            normal_model_slug: "model-b",
+            rate_limit: { allowed: false, primary_window: { used_percent: 70 } },
+          },
+        ],
+      },
+      1000,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      snapshot: {
+        ordinaryUsageAllowed: false,
+        windows: [{ id: "5h", remainingPercent: 0 }],
+        additionalLimits: [
+          {
+            id: "feature-a",
+            label: "Extra",
+            model: "model-a",
+            allowed: true,
+            windows: [{ id: "5h", remainingPercent: 70 }],
+          },
+          {
+            id: "feature-b",
+            label: "Extra",
+            model: "model-b",
+            allowed: false,
+            windows: [{ id: "5h", remainingPercent: 30 }],
+          },
+        ],
+      },
+    });
+  });
+
+  it("preserves eligibility-only responses, absent eligibility, and nullable quota fields", () => {
+    expect(mapCodexUsagePayload({ rate_limit: { allowed: false } }, 1000)).toMatchObject({
+      ok: true,
+      snapshot: { ordinaryUsageAllowed: false, windows: [] },
+    });
+    const result = mapCodexUsagePayload(
+      {
+        credits: null,
+        rate_limit: null,
+        additional_rate_limits: [
+          {
+            limit_name: "Extra",
+            metered_feature: "extra",
+            normal_model_slug: null,
+            rate_limit: null,
+          },
+        ],
+      },
+      1000,
+    );
+    expect(result).toStrictEqual({
+      ok: true,
+      snapshot: {
+        fetchedAt: 1000,
+        provider: "openai-codex",
+        windows: [],
+        additionalLimits: [{ id: "extra", label: "Extra", windows: [] }],
+      },
+    });
+    expect(mapCodexUsagePayload({ additional_rate_limits: null, rate_limit: null }, 1000).ok).toBe(
+      false,
+    );
   });
 });

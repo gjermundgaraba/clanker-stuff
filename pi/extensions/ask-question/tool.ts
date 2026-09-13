@@ -246,8 +246,8 @@ export const executeAskQuestion = async (
   });
 
   try {
-    const { runAskQuestionPrompt } = await import("./dialog/controller.js");
-    const flow = await runAskQuestionPrompt(ctx, questions, signal);
+    const { runQuestionPrompt } = await import("./dialog/controller.js");
+    const flow = await runQuestionPrompt(ctx, questions, signal);
 
     if (flow.cancelled) {
       ctx.abort();

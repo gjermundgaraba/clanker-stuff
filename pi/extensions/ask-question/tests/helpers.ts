@@ -6,9 +6,8 @@ import {
   createCustomUiDriver,
   createKeybindings as createSharedKeybindings,
 } from "../../../tests/harness/tui.js";
-import { runAskQuestionPrompt } from "../dialog/controller.js";
 import askQuestion from "../index.js";
-import { executeAskQuestion, parseQuestionsFromParameters } from "../tool.js";
+import { executeAskQuestion } from "../tool.js";
 import type { AskQuestionParameters } from "../tool.js";
 import type { buildCancelledToolResult, buildSuccessToolResult } from "../tool.js";
 
@@ -37,14 +36,6 @@ const DEFAULT_KEYBINDINGS = createSharedKeybindings({
   "tui.input.submit": [KEY_ENTER],
   "tui.select.cancel": [KEY_ESCAPE],
   "tui.select.confirm": [KEY_ENTER],
-});
-
-export const VIM_STYLE_KEYBINDINGS = createSharedKeybindings({
-  "tui.input.submit": [KEY_ENTER],
-  "tui.select.cancel": ["x"],
-  "tui.select.confirm": ["y"],
-  "tui.select.down": ["j"],
-  "tui.select.up": ["k"],
 });
 
 export const expectSuccessResult = (result: ToolResult): SuccessDetails => {
@@ -95,28 +86,4 @@ export const executeTool = async (
   const result = await executeAskQuestion(host, params, options.signal, ctx);
 
   return { abortCalls, blockedEvents, result };
-};
-
-export const renderFlowWithKeys = async (
-  params: AskQuestionParameters,
-  keys: string[],
-  keybindings: KeybindingsManager = DEFAULT_KEYBINDINGS,
-): Promise<string> => {
-  const host = createAskQuestionHost();
-  const abortController = new AbortController();
-  const customUi = createCustomUiDriver({
-    captureRender: "after",
-    keybindings,
-    keys,
-    onAfterCapture: () => abortController.abort(),
-  });
-  const ctx = host.createContext({
-    ui: {
-      custom: customUi.custom,
-    },
-  });
-
-  await runAskQuestionPrompt(ctx, parseQuestionsFromParameters(params), abortController.signal);
-
-  return customUi.getLastRender() ?? "";
 };

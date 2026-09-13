@@ -25,6 +25,7 @@ export const createCodexToolsController = (
   let currentModel: ExtensionContext["model"];
   let modelRegistry: ExtensionContext["modelRegistry"] | undefined;
   let suppressedPiNames: string[] = [];
+  let suppressedAsyncNames: string[] = [];
   const builtinToolNames = () =>
     new Set(
       pi
@@ -72,7 +73,8 @@ export const createCodexToolsController = (
     const active = codeModeActive();
     ctx.ui.setStatus(CODE_MODE_STATUS_KEY, active ? "</>" : undefined);
     setFooterActive(active);
-    const activeNames = pi.getActiveTools();
+    const activeNames = [...new Set([...pi.getActiveTools(), ...suppressedAsyncNames])];
+    suppressedAsyncNames = [];
     if (currentModel === undefined || !isCodexToolsModel(currentModel)) {
       const remainingNames = activeNames.filter((name) => !codexToolNameSet.has(name));
       pi.setActiveTools([...new Set([...suppressedPiNames, ...remainingNames])]);
@@ -83,9 +85,21 @@ export const createCodexToolsController = (
     if (previousModel === undefined || !isCodexToolsModel(previousModel)) {
       suppressedPiNames = activeNames.filter((name) => builtinNames.has(name));
     }
-    const externalNames = activeNames.filter(
-      (name) => !builtinNames.has(name) && !codexToolNameSet.has(name),
-    );
+    const externalNames = activeNames.filter((name) => {
+      if (builtinNames.has(name) || codexToolNameSet.has(name)) return false;
+      const supported =
+        currentModel !== undefined &&
+        "codexSupportedTools" in currentModel &&
+        Array.isArray(currentModel.codexSupportedTools)
+          ? currentModel.codexSupportedTools
+          : [];
+      const available =
+        name === "request_user_input_async"
+          ? supported.includes(name) || supported.includes("send_user_message_async")
+          : name !== "send_message_to_user_async" || supported.includes(name);
+      if (!available) suppressedAsyncNames.push(name);
+      return available;
+    });
     const mode = effectiveMode(currentModel);
     const names =
       mode === "code_mode"
@@ -110,7 +124,9 @@ export const createCodexToolsController = (
     definitions: [...directDefinitions, ...codeDefinitions],
     async shutdown(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (reason === "reload") {
-        pi.setActiveTools([...new Set([...suppressedPiNames, ...pi.getActiveTools()])]);
+        pi.setActiveTools([
+          ...new Set([...suppressedPiNames, ...suppressedAsyncNames, ...pi.getActiveTools()]),
+        ]);
       }
       await codeMode.shutdown();
       await direct.dispose();

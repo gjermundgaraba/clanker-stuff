@@ -109,7 +109,42 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
   if (!existsSync(path.join(dir, "README.md"))) {
     errors.push(`${label}: missing README.md`);
   }
-  if (pkg.exports !== "./index.ts") {
+  const isExtensionPackage = dir.startsWith("pi/extensions/");
+  const subpathExports =
+    typeof pkg.exports === "object" && pkg.exports !== null && !Array.isArray(pkg.exports)
+      ? Object.entries(pkg.exports)
+      : undefined;
+  if (subpathExports !== undefined && subpathExports.length > 0) {
+    if (
+      isExtensionPackage &&
+      !subpathExports.some(([subpath, target]) => subpath === "." && target === "./index.ts")
+    ) {
+      errors.push(`${label}: expected root export to be ./index.ts`);
+    }
+    for (const [subpath, exported] of subpathExports) {
+      const typeOnly =
+        typeof exported === "object" &&
+        exported !== null &&
+        Object.keys(exported).length === 1 &&
+        "types" in exported;
+      const target = typeOnly ? exported.types : exported;
+      if (
+        (subpath !== "." && !subpath.startsWith("./")) ||
+        typeof target !== "string" ||
+        !target.startsWith("./") ||
+        target.includes("..", 2) ||
+        !target.endsWith(".ts") ||
+        !existsSync(path.join(dir, target)) ||
+        !pkg.files?.some(
+          (entry) => target.slice(2) === entry || target.slice(2).startsWith(`${entry}/`),
+        )
+      ) {
+        errors.push(
+          `${label}: shared export ${subpath} must point to a published TypeScript source file`,
+        );
+      }
+    }
+  } else if (pkg.exports !== "./index.ts") {
     errors.push(`${label}: expected exports to be ./index.ts`);
   }
   if (!Array.isArray(pkg.files) || pkg.files.length === 0) {
@@ -121,7 +156,6 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
       }
     }
   }
-  const isExtensionPackage = dir.startsWith("pi/extensions/");
   const isExperimentalExtensionPackage = dir.startsWith("pi/extensions/experimental/");
   if (isExtensionPackage) {
     if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type {
   BuildSystemPromptOptions,
+  ContextEvent,
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -39,6 +40,7 @@ import {
 } from "./protocol.js";
 import type { Communication, PersistedAgent, V2Snapshot } from "./protocol.js";
 import { registerV2Tools } from "./tools.js";
+import { childContextSummary, withChildContext } from "./context.js";
 
 const MAX_ERROR_LENGTH = 1000;
 const V2_TOOL_SET: ReadonlySet<string> = new Set(V2_TOOL_NAMES);
@@ -283,6 +285,11 @@ export class V2Controller {
         this.notify(pathname);
       }
     });
+    api.on("context", (event) => {
+      if (owns()) {
+        return this.context(pathname, event);
+      }
+    });
     api.on("session_start", (_event, ctx) => {
       if (!owns()) {
         return;
@@ -309,6 +316,10 @@ export class V2Controller {
 
   rootPrompt(): string {
     return v2RootPrompt(this.#config, this.#maxChildren, !this.#ultraAgents.has(ROOT_AGENT_PATH));
+  }
+
+  context(pathname: string, event: ContextEvent): { messages: ContextEvent["messages"] } {
+    return withChildContext(event.messages, childContextSummary(pathname, this.list(pathname)));
   }
 
   setUltra(pathname: string, enabled: boolean): void {

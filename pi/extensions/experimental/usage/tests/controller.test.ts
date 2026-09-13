@@ -305,6 +305,43 @@ describe("usage controller", () => {
     await host.emitSessionShutdown(context);
   });
 
+  it("discards an old-account command result after an account change", async () => {
+    const extension = stubDependencies({ value: 1000 });
+    const old = Promise.withResolvers<void>();
+    let requests = 0;
+    fetchJson.mockImplementation(async (url, schema, options) => {
+      if (!url.includes("/wham/usage"))
+        return { kind: "response", message: "unavailable", ok: false };
+      requests += 1;
+      if (requests === 1) {
+        await old.promise;
+        return okFetch({
+          plan_type: "old-account",
+          rate_limit: { allowed: false, primary_window: { used_percent: 11 } },
+        })(url, schema, options);
+      }
+      return okFetch({
+        plan_type: "new-account",
+        rate_limit: { allowed: true, primary_window: { used_percent: 77 } },
+      })(url, schema, options);
+    });
+    const host = createExtensionHost(extension, { model: codexModel });
+    const context = host.createContext({ model: codexModel });
+    const command = host.runCommand("usage", "", context);
+    await vi.waitFor(() => expect(requests).toBe(1));
+    host.events.emit("clanker-codex:account-changed", null);
+    await vi.waitFor(() => expect(host.getStatus("usage")).toContain("77%"));
+    old.resolve();
+    await command;
+    expect(
+      host
+        .getNotifications()
+        .map(({ message }) => message)
+        .join("\n"),
+    ).not.toContain("old-account");
+    await host.emitSessionShutdown(context);
+  });
+
   it("publishes loading, error, ready, and stale health", async () => {
     const nowRef = { value: 1000 };
     const extension = stubDependencies(nowRef);

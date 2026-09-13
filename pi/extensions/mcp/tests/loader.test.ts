@@ -1,3 +1,5 @@
+import { fileURLToPath, pathToFileURL } from "node:url";
+import * as connections from "../connection.js";
 import { toGeneratedToolName } from "../bridge.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -42,6 +44,59 @@ const createBranchSession = ({ chained = false }: { chained?: boolean } = {}) =>
 
 describe("mcp loader", () => {
   const t = setupMcpTest();
+
+  it("updates idle roots on a reused connection without retaining an invalidated session context", async () => {
+    await t.writeConfig({
+      mcpServers: {
+        alpha: {
+          type: "stdio",
+          command: process.execPath,
+          args: [
+            fileURLToPath(new URL("./fixtures/elicitation-peer.ts", import.meta.url)),
+            "legacy",
+            "roots",
+          ],
+        },
+      },
+    });
+    const connect = connections.connectToServer;
+    let connection: connections.McpClientConnection | undefined;
+    const spy = vi.spyOn(connections, "connectToServer").mockImplementation(async (options) => {
+      connection = await connect(options);
+      return connection;
+    });
+    const host = t.createExtensionHost(mcp, createBranchSession());
+    const original = host.createContext({ cwd: process.cwd() });
+    try {
+      await host.emitSessionStart(original);
+      expect((await connection!.client.callTool({ name: "startup-roots" })).content).toEqual([
+        {
+          type: "text",
+          text: JSON.stringify({
+            roots: [{ uri: pathToFileURL(process.cwd()).href, name: "Workspace" }],
+          }),
+        },
+      ]);
+      Object.defineProperty(original, "cwd", {
+        get: () => {
+          throw new Error("original session invalidated");
+        },
+      });
+      const next = host.createContext({ cwd: t.projectDir });
+      await host.emitSessionStart(next, "resume");
+      expect(spy).toHaveBeenCalledOnce();
+      expect((await connection!.client.callTool({ name: "interact" })).content).toEqual([
+        {
+          type: "text",
+          text: JSON.stringify({
+            roots: [{ uri: pathToFileURL(t.projectDir).href, name: "Workspace" }],
+          }),
+        },
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   it("does not open the picker when shutdown wins the first-load race", async () => {
     const host = t.createExtensionHost(mcp);

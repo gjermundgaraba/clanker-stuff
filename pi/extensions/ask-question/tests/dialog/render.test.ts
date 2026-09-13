@@ -7,23 +7,25 @@ import { createHelpText } from "../../dialog/input.js";
 import { renderPrompt } from "../../dialog/render.js";
 import { createQuestionSessions } from "../../questions.js";
 import type { Question } from "../../questions.js";
-import type { AskQuestionParameters } from "../../tool.js";
-import { KEY_SPACE, KEY_TAB, VIM_STYLE_KEYBINDINGS, renderFlowWithKeys } from "../helpers.js";
+import { KEY_SPACE, KEY_TAB, VIM_STYLE_KEYBINDINGS, renderFlowWithKeys } from "./helpers.js";
 
-const singleQuestionParams = {
-  questions: [
-    {
-      header: "Plan",
-      options: [{ label: "Yes" }, { label: "No" }],
-      question: "Which plan do you want?",
-    },
-  ],
-} satisfies AskQuestionParameters;
+const singleQuestion: Question[] = [
+  {
+    header: "Plan",
+    multiSelect: false,
+    options: [
+      { kind: "option", label: "Yes" },
+      { kind: "option", label: "No" },
+      { kind: "other", label: "Other" },
+    ],
+    question: "Which plan do you want?",
+  },
+];
 
-describe("ask-question dialog rendering", () => {
+describe("question dialog rendering", () => {
   it("shows an incomplete single-select Other answer", async () => {
     const rendered = await renderFlowWithKeys(
-      singleQuestionParams,
+      singleQuestion,
       ["j", "j", "y", "x", KEY_TAB, "y"],
       VIM_STYLE_KEYBINDINGS,
     );
@@ -34,16 +36,18 @@ describe("ask-question dialog rendering", () => {
 
   it("shows an incomplete multi-select Other answer", async () => {
     const rendered = await renderFlowWithKeys(
-      {
-        questions: [
-          {
-            header: "Features",
-            multiSelect: true,
-            options: [{ label: "Feature A" }, { label: "Feature B" }],
-            question: "Which features do you need?",
-          },
-        ],
-      },
+      [
+        {
+          header: "Features",
+          multiSelect: true,
+          options: [
+            { kind: "option", label: "Feature A" },
+            { kind: "option", label: "Feature B" },
+            { kind: "other", label: "Other" },
+          ],
+          question: "Which features do you need?",
+        },
+      ],
       ["j", "j", KEY_SPACE, "x", KEY_TAB, "y"],
       VIM_STYLE_KEYBINDINGS,
     );
@@ -53,21 +57,22 @@ describe("ask-question dialog rendering", () => {
   });
 
   it("shows details only for the highlighted option", async () => {
-    const params = {
-      questions: [
-        {
-          header: "Plan",
-          options: [
-            {
-              details: "Best default for most teams.",
-              label: "Fast (Suggested)",
-            },
-            { label: "Safe" },
-          ],
-          question: "Which plan do you want?",
-        },
-      ],
-    };
+    const params: Question[] = [
+      {
+        header: "Plan",
+        multiSelect: false,
+        options: [
+          {
+            kind: "option",
+            details: "Best default for most teams.",
+            label: "Fast (Suggested)",
+          },
+          { kind: "option", label: "Safe" },
+          { kind: "other", label: "Other" },
+        ],
+        question: "Which plan do you want?",
+      },
+    ];
 
     const renderedWithDetails = await renderFlowWithKeys(params, []);
     const renderedWithoutDetails = await renderFlowWithKeys(params, ["j"], VIM_STYLE_KEYBINDINGS);
@@ -78,9 +83,9 @@ describe("ask-question dialog rendering", () => {
   });
 
   it("renders remapped help and the active edit target", async () => {
-    const initial = await renderFlowWithKeys(singleQuestionParams, [], VIM_STYLE_KEYBINDINGS);
+    const initial = await renderFlowWithKeys(singleQuestion, [], VIM_STYLE_KEYBINDINGS);
     const editing = await renderFlowWithKeys(
-      singleQuestionParams,
+      singleQuestion,
       ["y", "n"],
       createKeybindings({
         "tui.input.submit": ["s"],
@@ -99,16 +104,18 @@ describe("ask-question dialog rendering", () => {
 
   it("describes Space as a toggle for multi-select Other", async () => {
     const rendered = await renderFlowWithKeys(
-      {
-        questions: [
-          {
-            header: "Features",
-            multiSelect: true,
-            options: [{ label: "Feature A" }, { label: "Feature B" }],
-            question: "Which features do you need?",
-          },
-        ],
-      },
+      [
+        {
+          header: "Features",
+          multiSelect: true,
+          options: [
+            { kind: "option", label: "Feature A" },
+            { kind: "option", label: "Feature B" },
+            { kind: "other", label: "Other" },
+          ],
+          question: "Which features do you need?",
+        },
+      ],
       ["j", "j"],
       VIM_STYLE_KEYBINDINGS,
     );

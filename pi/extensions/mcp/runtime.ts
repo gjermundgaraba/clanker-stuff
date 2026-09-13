@@ -35,6 +35,7 @@ export const createMcpRuntime = (pi: ExtensionAPI) => {
       await activeLoader?.pickAndLoad(ctx);
     },
     restore,
+    toolResult: (id: string, details: unknown) => loader.get()?.toolResult(id, details),
     shutdown: async (): Promise<void> => {
       await loader.stop((activeLoader) => activeLoader.dispose());
     },

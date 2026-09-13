@@ -10,6 +10,7 @@ export default function mcp(pi: ExtensionAPI): void {
     handler: (_args, ctx) => runtime.pickAndLoad(ctx),
   });
 
+  pi.on("tool_result", (event) => runtime.toolResult(event.toolCallId, event.details));
   pi.on("session_start", (_event, ctx) => runtime.restore(ctx));
   pi.on("session_tree", (_event, ctx) => runtime.restore(ctx));
   pi.on("session_shutdown", () => runtime.shutdown());

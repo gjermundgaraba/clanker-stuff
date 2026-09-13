@@ -33,6 +33,7 @@
     "replay.ts",
     "runtime.ts",
     "sse.ts",
+    "sampling-bound.ts",
     "skill-catalog.ts",
     "status.ts",
     "code-mode",
@@ -91,9 +92,11 @@
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "eventsource-parser": "4.1.0",
+    "js-tiktoken": "1.0.21",
     "uuid": "14.0.2"
   },
   "devDependencies": {
+    "@clanker-stuff/mcp": "workspace:^",
     "jiti": "2.7.0",
     "vite": "catalog:",
     "vite-plus": "catalog:"

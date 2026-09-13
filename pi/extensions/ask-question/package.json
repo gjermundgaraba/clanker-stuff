@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/ask-question",
   "version": "0.1.0",
   "private": false,
-  "description": "Lets pi ask multiple-choice clarification questions before continuing.",
+  "description": "Lets pi ask blocking or asynchronous questions and send attention messages.",
   "keywords": [
     "pi-package"
   ],
@@ -17,17 +17,24 @@
     "directory": "pi/extensions/ask-question"
   },
   "files": [
-    "dialog",
     "index.ts",
-    "questions.ts",
     "tool.ts",
+    "questions.ts",
+    "dialog",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "async.ts",
+    "docs",
+    "NOTICE",
+    "LICENSE-APACHE"
   ],
   "type": "module",
   "exports": "./index.ts",
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/pi-user-input": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

@@ -2344,6 +2344,8 @@ export const createCodexLifecycle = (
         !isSupportedLifecycleModel(event.model);
     },
     provider: providerRuntime.provider,
+    createSamplingScope: providerRuntime.createSamplingScope,
+    disposeSamplingScopes: providerRuntime.disposeSamplingScopes,
     runCommand: async (_args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const { model } = ctx;
       const supportedModel = isSupportedLifecycleModel(model) ? model : undefined;

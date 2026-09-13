@@ -23,6 +23,7 @@ export const createTimer = () => {
   let elapsedMs = 0;
   let segmentStart: number | undefined;
   let promptActive = false;
+  let asyncPrompt = false;
   // Start time while running, finish time once settled.
   let clockTime: string | undefined;
   let intervalId: ReturnType<typeof setInterval> | undefined;
@@ -64,12 +65,19 @@ export const createTimer = () => {
   };
 
   return {
+    setAsyncPrompt(value: unknown) {
+      asyncPrompt =
+        typeof value === "object" && value !== null && "active" in value && value.active === true;
+    },
     dispose() {
       active = false;
       segmentStart = undefined;
+      promptActive = false;
+      asyncPrompt = false;
       clear();
     },
     pause(ctx: ExtensionContext) {
+      if (asyncPrompt) return;
       promptActive = true;
       if (!active || segmentStart === undefined) {
         return;
@@ -80,6 +88,7 @@ export const createTimer = () => {
       updateStatus(ctx);
     },
     resume(ctx: ExtensionContext) {
+      if (!promptActive) return;
       promptActive = false;
       if (!active || segmentStart !== undefined) {
         return;

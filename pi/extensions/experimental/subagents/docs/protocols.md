@@ -155,6 +155,14 @@ Root notifications remain in the outbox until a matching custom-message entry is
 
 By default, the root plus at most three child turns can run concurrently, and at most three child runtimes may be resident. Terminal and explicitly interrupted V2 runtimes are unloaded; their durable identities reload on later communication. This is deliberately simpler than Codex's LRU residency cache while preserving its model-facing lazy-load behavior. Codex-compatible `list_agents` output shows only resident runtimes; `/agents` shows all durable identities.
 
+### V2 child inventory
+
+Before every model request, including tool continuations and post-compaction requests, V2 prepends one ephemeral user-role `<environment_context>` message containing its direct-child `<subagents>` inventory. The inventory comes from the authoritative control graph, includes unloaded registered children, omits nicknames and statuses, and excludes grandchildren. Resident children precede unloaded children; canonical paths sort alphabetically within each group. The subagents block, including its wrapper and indentation, contains at most eight children and 1,024 UTF-8 bytes, matching the selected 2026-09-13 Codex delta. An oversized path is skipped so later fitting children can still appear.
+
+The context hook replaces its own previous ephemeral prefix and emits no block for an empty inventory. It never appends session entries or changes the active branch. Restored controllers therefore rebuild inventories from the existing graph without a new persistent store. The prefix remains outside the durable baseline used by provider context alignment and is regenerated after compaction. Unchanged inventories retain a stable prefix for transport continuation; an inventory change safely requires full context. Pi's supported context boundary replaces Codex world-state diff updates; V1 receives no inventory change. `list_agents` still lists resident runtimes and `/agents` still shows durable identities.
+
+Child runtimes exclude the root-only asynchronous `request_user_input_async` and `send_message_to_user_async` tools from inherited active tools. The existing blocking `ask_question` capability is separate.
+
 ## Forking and persistence
 
 `fork_turns` follows Codex parsing: surrounding whitespace and ASCII case are ignored for `none`/`all`, an empty string means `all`, and decimal positive integers may have a leading plus sign or zeroes. Values through the 64-bit host `usize` maximum are accepted. Pi saturates values above JavaScript's safe-integer range to its largest safe last-N sentinel, which still selects all feasible Pi history without relabeling the request as full-history mode. Forks keep user text, completed assistant text, and compaction summaries. They drop reasoning, tool calls/results, interrupted assistant output, response IDs, and inherited usage. V1's `fork_context: true` is the full-history form.

@@ -4,6 +4,7 @@ import { createTimer } from "./timer.js";
 
 export default function timerExtension(pi: ExtensionAPI): void {
   const timer = createTimer();
+  pi.events.on("clanker:async-prompt", (event) => timer.setAsyncPrompt(event));
 
   pi.on("agent_start", (_event, ctx) => {
     timer.start(ctx);

@@ -18,6 +18,7 @@ const subagents = async (pi: ExtensionAPI) => {
 
   pi.on("session_start", manager.start.bind(manager));
   pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
+  pi.on("context", manager.context.bind(manager));
   pi.on("agent_start", manager.agentStart.bind(manager));
   pi.on("agent_end", manager.agentEnd.bind(manager));
   pi.on("agent_settled", manager.agentSettled.bind(manager));

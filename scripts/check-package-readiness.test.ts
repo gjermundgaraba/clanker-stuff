@@ -143,6 +143,41 @@ describe("package readiness", () => {
     });
   });
 
+  it("allows published shared-library subpaths and rejects unpublished targets", () => {
+    const root = createFixture(true, false);
+    const packageJsonPath = path.join(root, "pi/packages/sample/package.json");
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+    pkg.exports = { "./dialog": "./index.ts" };
+    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
+    pkg.files = ["README.md", "LICENSE"];
+    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    expect(validateFixture(root).stderr).toContain(
+      "must point to a published TypeScript source file",
+    );
+  });
+
+  it("allows published type-only extension protocols while retaining the entrypoint", () => {
+    const root = createFixture(true);
+    const packageDir = path.join(root, "pi/extensions/experimental/sample");
+    const packageJsonPath = path.join(packageDir, "package.json");
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+    writeFileSync(path.join(packageDir, "sampling-protocol.ts"), "export interface Scope {}\n");
+    pkg.files.push("sampling-protocol.ts");
+    pkg.exports = { ".": "./index.ts", "./sampling-protocol": { types: "./sampling-protocol.ts" } };
+    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
+    delete pkg.exports["."];
+    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    expect(validateFixture(root).stderr).toContain("expected root export to be ./index.ts");
+    pkg.exports["."] = "./index.ts";
+    pkg.files = ["index.ts", "README.md", "LICENSE"];
+    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    expect(validateFixture(root).stderr).toContain(
+      "must point to a published TypeScript source file",
+    );
+  });
+
   it.each([
     [
       "stable",

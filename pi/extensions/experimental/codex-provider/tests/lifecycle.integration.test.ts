@@ -20,6 +20,11 @@ import {
 import codexCompactionExtension from "../index.js";
 import { CodexObservability } from "../observability.js";
 import { FRAME_MARKER_PREFIX } from "../replay.js";
+import {
+  childContextSummary,
+  CHILD_CONTEXT_TYPE,
+  withChildContext,
+} from "../../subagents/v2/context.js";
 import { createRealCodexSession } from "./agent-session.js";
 import {
   createToolsModel,
@@ -1746,6 +1751,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           },
           input: 20,
           output: 3,
+          reasoning: 0,
           totalTokens: 23,
         },
         persistedUsage: {
@@ -2109,6 +2115,78 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await rm(paths.rootDir, { force: true, recursive: true });
     }
   });
+
+  it.each(["before", "after"] as const)(
+    "refreshes an ephemeral V2 inventory %s the provider context hook across compaction replay",
+    async (order) => {
+      const paths = await workspace(`codex-v2-context-${order}-`);
+      const requests: WireRecord[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<FetchFunction>(async (_input, init) => {
+          const request = requestJson(init?.body, new Headers(init?.headers));
+          requests.push(request);
+          return inputItemTypes(request.input).includes("compaction_trigger")
+            ? compactResponse(`inventory-${requests.length}`)
+            : assistantResponse(`inventory-${requests.length}`);
+        }),
+      );
+      let childPath = "/root/first_child";
+      const inventory: ExtensionFactory = (pi) => {
+        pi.on("context", (contextEvent) =>
+          withChildContext(
+            contextEvent.messages,
+            childContextSummary("/root", [{ path: childPath, resident: true }]),
+          ),
+        );
+      };
+      const manager = SessionManager.inMemory(paths.cwd);
+      const session = await createRealCodexSession({
+        compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 1000 },
+        extensionFactories:
+          order === "before"
+            ? [inventory, codexCompactionExtension]
+            : [codexCompactionExtension, inventory],
+        model: { ...SPIKE_MODEL, contextWindow: 4000, maxTokens: 1000 },
+        rootDir: paths.rootDir,
+        sessionManager: manager,
+        systemPrompt: "short",
+      });
+      try {
+        await session.prompt("x".repeat(15_000));
+        expect(requests.length).toBeGreaterThanOrEqual(2);
+        expect(inputItemTypes(requests[0]?.input)).toContain("compaction_trigger");
+        for (const request of requests) {
+          const text = JSON.stringify(request.input);
+          expect(text.match(/<subagents>/gu)).toHaveLength(1);
+          expect(text).toContain("/root/first_child");
+          expect(text).not.toContain(FRAME_MARKER_PREFIX);
+        }
+        const checkpoint = resolveActiveCheckpointBoundary(manager.getBranch());
+        expect(checkpoint.kind).toBe("checkpoint");
+        expect(JSON.stringify(checkpoint)).not.toContain("/root/first_child");
+        const firstRequestCount = requests.length;
+        childPath = "/root/second_child";
+        await session.prompt("Continue with the current children.");
+        expect(requests.length).toBeGreaterThan(firstRequestCount);
+        const secondRequests = requests.slice(firstRequestCount);
+        for (const request of secondRequests) {
+          const text = JSON.stringify(request.input);
+          expect(text.match(/<subagents>/gu)).toHaveLength(1);
+          expect(text).toContain("/root/second_child");
+          expect(text).not.toContain("/root/first_child");
+          expect(text).not.toContain(FRAME_MARKER_PREFIX);
+        }
+        expect(inputItemTypes(secondRequests.at(-1)?.input)).toContain("compaction");
+        expect(JSON.stringify(manager.getBranch())).not.toContain(CHILD_CONTEXT_TYPE);
+        expect(JSON.stringify(manager.getBranch())).not.toContain("<subagents>");
+        expect(JSON.stringify(session.messages)).not.toContain(CHILD_CONTEXT_TYPE);
+      } finally {
+        session.dispose();
+        await rm(paths.rootDir, { force: true, recursive: true });
+      }
+    },
+  );
 
   it("compacts inline before pre-sampling and continues the pending request", async () => {
     const paths = await workspace("codex-inline-pre-sampling-");

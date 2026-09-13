@@ -9,6 +9,7 @@ const timer = vi.hoisted(() => ({
   pause: vi.fn<(ctx: ExtensionContext) => void>(),
   resume: vi.fn<(ctx: ExtensionContext) => void>(),
   start: vi.fn<(ctx: ExtensionContext) => void>(),
+  setAsyncPrompt: vi.fn<(value: unknown) => void>(),
   stop: vi.fn<(ctx: ExtensionContext) => void>(),
 }));
 

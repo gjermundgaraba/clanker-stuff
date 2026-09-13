@@ -1,7 +1,7 @@
 import type { FooterWidgetHealthState, FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 
 import { formatResetDuration } from "./format.js";
-import { providerDisplayName } from "./providers.js";
+import { providerDisplayName, usageWindows } from "./providers.js";
 import type { SupportedProvider, UsageSnapshot, UsageWindow } from "./providers.js";
 
 const ACTIVE_WIDGET_ID = "clanker.usage.active";
@@ -137,12 +137,22 @@ export const activeSnapshot = (
           { text: "─".repeat(10 - filled), tone: "dim" as const },
           { text: ` ${rounded}${reset}`, tone: toneFor(percent) },
         ]
-      : state === "loading"
-        ? [{ text: "loading usage", tone: "dim" as const }]
-        : [];
+      : snapshot?.ordinaryUsageAllowed !== undefined
+        ? [
+            {
+              text: `${providerLabel(snapshot)} ordinary usage ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`,
+              tone: snapshot.ordinaryUsageAllowed ? ("text" as const) : ("warning" as const),
+            },
+          ]
+        : state === "loading"
+          ? [{ text: "loading usage", tone: "dim" as const }]
+          : [];
   return {
     consumesStatusKeys: [STATUS_KEY],
-    content: full,
+    content:
+      snapshot?.ordinaryUsageAllowed === false && window
+        ? [...full, { text: " · ordinary usage unavailable", tone: "warning" }]
+        : full,
     defaults: { enabled: true },
     health: health(state, now, message),
     icon: {
@@ -163,7 +173,11 @@ export const detailsSnapshot = (
   const { message, state } = healthFor(presentation);
   const active = snapshot ? selectActiveWindow(snapshot) : undefined;
   // ponytail: eight rich detail windows stay within protocol text bounds; /usage still shows all.
-  const windows = snapshot?.windows.filter((window) => window !== active).slice(0, 8) ?? [];
+  const windows = snapshot
+    ? usageWindows(snapshot)
+        .filter((window) => window !== active)
+        .slice(0, 8)
+    : [];
   const full = windows.map((window, index) => ({
     text: `${index === 0 ? "" : " · "}${richText(window.label, 80)} ${Math.round(usedPercent(window))}%${
       window.resetsAt !== undefined && window.resetsAt.length > 0
@@ -188,9 +202,12 @@ export const fallbackText = (presentation: UsagePresentation): string => {
   if (snapshot && window) {
     const marker = presentation.kind === "stale" ? " !" : "";
     return richText(
-      `usage ${providerDisplayName(snapshot.provider)} ${window.label} ${Math.round(usedPercent(window))}%${marker}`,
+      `usage ${providerDisplayName(snapshot.provider)} ${window.label} ${Math.round(usedPercent(window))}%${snapshot.ordinaryUsageAllowed === false ? " ordinary unavailable" : ""}${marker}`,
       240,
     );
+  }
+  if (snapshot?.ordinaryUsageAllowed !== undefined) {
+    return `usage ${providerDisplayName(snapshot.provider)} ordinary ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`;
   }
   return presentation.kind === "loading" ? "usage loading" : "usage unavailable";
 };

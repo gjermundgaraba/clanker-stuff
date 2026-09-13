@@ -13,6 +13,7 @@ export interface OtherQuestionOption {
 export type QuestionOption = ListedQuestionOption | OtherQuestionOption;
 
 export interface Question {
+  defaultOption?: number;
   header: string;
   multiSelect: boolean;
   options: QuestionOption[];
@@ -54,7 +55,9 @@ export const createQuestionSessions = (questions: Question[]): QuestionSession[]
     question,
     state: {
       cursor: 0,
-      selectedIndexes: new Set<number>(),
+      selectedIndexes: new Set<number>(
+        question.defaultOption === undefined ? [] : [question.defaultOption],
+      ),
       textByOptionIndex: question.options.map((): string | undefined => undefined),
     },
   }));

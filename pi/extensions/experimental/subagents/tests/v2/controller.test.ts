@@ -1323,3 +1323,47 @@ describe("V2 controller", () => {
     await expect(waiting).rejects.toThrow("This operation was aborted");
   });
 });
+
+describe("V2 child context boundaries", () => {
+  it("refreshes root and nested inventories from graph state through unloading and cold restoration", async () => {
+    const { controller, coordinator, ctx, childHosts, runtimes } = await setup(3, {}, false, true);
+    const event = { type: "context" as const, messages: [] };
+    expect(controller.context("/root", event).messages).toHaveLength(0);
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    await controller.spawn(
+      "/root/worker",
+      { forkTurns: "none", message: "nested", taskName: "nested" },
+      ctx,
+    );
+    await vi.waitFor(() => expect(runtimes[1]?.turns).toHaveLength(1));
+    const rootSummary = JSON.stringify(controller.context("/root", event).messages);
+    expect(rootSummary).toContain("/root/worker");
+    expect(rootSummary).not.toContain("/root/worker/nested");
+    const childResult = await childHosts[0]?.emit("context", event);
+    expect(JSON.stringify(childResult)).toContain("/root/worker/nested");
+    expect(JSON.stringify(childResult)).not.toContain("nickname");
+    await controller.interrupt("/root", "worker");
+    await vi.waitFor(() =>
+      expect(controller.list("/root").find(({ path }) => path === "/root/worker")?.resident).toBe(
+        false,
+      ),
+    );
+    expect(JSON.stringify(controller.context("/root", event))).toContain("/root/worker");
+    await controller.reset();
+    await controller.restore(ctx);
+    expect(
+      controller.list("/root").filter(({ path, resident }) => path !== "/root" && resident),
+    ).toHaveLength(0);
+    expect(JSON.stringify(controller.context("/root", event))).toContain("/root/worker");
+    expect(JSON.stringify(controller.context("/root/worker", event))).toContain(
+      "/root/worker/nested",
+    );
+    expect(coordinator.state.protocolLatch).toBe("v2");
+    await controller.shutdown();
+  });
+});

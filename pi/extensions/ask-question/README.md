@@ -1,6 +1,6 @@
 # ask-question
 
-Lets pi ask multiple-choice clarification questions before continuing.
+Lets pi ask blocking or asynchronous questions and send attention messages.
 
 ## Install
 
@@ -10,4 +10,8 @@ pi install npm:@clanker-stuff/ask-question
 
 ## Usage
 
-Pi can call `ask_question` when it needs one or more structured clarification answers.
+Pi can ask blocking or asynchronous questions; use `/answers` to answer or dismiss pending async questions.
+
+## Configuration
+
+See [interaction behavior](docs/interactions.md).

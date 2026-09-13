@@ -18,6 +18,7 @@ import {
 import { activateTools } from "./bridge.js";
 import { openBrowser } from "./open-browser.js";
 import { McpServerPool } from "./servers.js";
+import { sumUsage } from "./sampling.js";
 
 type LoaderResult<T> = { type: "ok"; value: T } | { type: "error"; error: unknown };
 
@@ -73,6 +74,7 @@ const listAvailableServers = async (ctx: ExtensionContext): Promise<McpManagerLi
 
 export const createMcpLoader = (pi: ExtensionAPI) => {
   const serverPool = new McpServerPool(pi);
+  let workspace: string | undefined;
   let managerRegistered = false;
   let restoreGeneration = 0;
   let desiredServerNames: readonly string[] = [];
@@ -88,6 +90,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       signal?: AbortSignal;
     },
   ) => {
+    const cwd = ctx.cwd;
     let toolCount: number;
     if (serverName === MCP_MANAGER_SERVER_NAME) {
       if (!managerRegistered) {
@@ -110,8 +113,11 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
         connectionFactory: (interactive, signal) =>
           connectToServer({
             serverConfig,
+            pi,
+            serverName,
             signal,
-            cwd: ctx.cwd,
+            cwd,
+            getWorkspace: () => workspace,
             onAuthorizationUrl: interactive
               ? (url) => {
                   ctx.ui.notify(
@@ -136,8 +142,24 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
   };
 
   return {
-    dispose: (): Promise<void> => serverPool.closeAll(),
+    toolResult: (id: string, details: unknown) => {
+      const samples = serverPool.takeUsage(id);
+      return samples
+        ? {
+            usage: sumUsage(samples),
+            details: {
+              ...detailsForUsage(details),
+              sampling: samples,
+            },
+          }
+        : undefined;
+    },
+    dispose: (): Promise<void> => {
+      workspace = undefined;
+      return serverPool.closeAll();
+    },
     pickAndLoad: async (ctx: ExtensionCommandContext): Promise<void> => {
+      workspace = ctx.cwd;
       const available = await listAvailableServers(ctx);
       if (available.error) {
         ctx.ui.notify(available.error, "error");
@@ -179,6 +201,8 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       }
     },
     restore: async (ctx: ExtensionContext): Promise<void> => {
+      workspace = ctx.cwd;
+      serverPool.cancelCalls();
       restoreGeneration += 1;
       const generation = restoreGeneration;
       const names = loadedServerNames(ctx.sessionManager.getBranch());
@@ -212,3 +236,6 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
     },
   };
 };
+
+const detailsForUsage = (details: unknown): object | undefined =>
+  typeof details === "object" && details !== null ? details : undefined;

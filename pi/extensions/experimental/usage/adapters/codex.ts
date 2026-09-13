@@ -4,7 +4,13 @@ import { Value } from "typebox/value";
 
 import { resolveOAuthAccess } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
-import type { UsageFetchResult, UsageSnapshot, UsageWindow, UsageWindowId } from "../providers.js";
+import type {
+  UsageFetchResult,
+  UsageLimit,
+  UsageSnapshot,
+  UsageWindow,
+  UsageWindowId,
+} from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
 import { isDefined, makeUsageWindow, windowIdFromLimitSeconds } from "./util.js";
@@ -42,21 +48,38 @@ const CodexRateLimitWindowSchema = Type.Object({
 });
 
 const NullableCodexRateLimitWindowSchema = Type.Union([CodexRateLimitWindowSchema, Type.Null()]);
+const CodexRateLimitSchema = Type.Object({
+  allowed: Type.Optional(Type.Boolean()),
+  primary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
+  secondary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
+});
+const NullableCodexRateLimitSchema = Type.Union([CodexRateLimitSchema, Type.Null()]);
 
 const CodexUsagePayloadSchema = Type.Object({
+  additional_rate_limits: Type.Optional(
+    Type.Union([
+      Type.Array(
+        Type.Object({
+          limit_name: Type.String(),
+          metered_feature: Type.String(),
+          normal_model_slug: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+          rate_limit: Type.Optional(NullableCodexRateLimitSchema),
+        }),
+      ),
+      Type.Null(),
+    ]),
+  ),
   credits: Type.Optional(
-    Type.Object({
-      balance: Type.Optional(Type.Union([Type.Number(), Type.String(), Type.Null()])),
-      has_credits: Type.Optional(Type.Boolean()),
-    }),
+    Type.Union([
+      Type.Object({
+        balance: Type.Optional(Type.Union([Type.Number(), Type.String(), Type.Null()])),
+        has_credits: Type.Optional(Type.Boolean()),
+      }),
+      Type.Null(),
+    ]),
   ),
   plan_type: Type.Optional(Type.String()),
-  rate_limit: Type.Optional(
-    Type.Object({
-      primary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
-      secondary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
-    }),
-  ),
+  rate_limit: Type.Optional(NullableCodexRateLimitSchema),
 });
 
 type CodexRateLimitWindow = Static<typeof CodexRateLimitWindowSchema>;
@@ -108,6 +131,28 @@ export const mapCodexUsagePayload = (
     provider: "openai-codex",
     windows,
   };
+  if (payload.rate_limit?.allowed !== undefined) {
+    snapshot.ordinaryUsageAllowed = payload.rate_limit.allowed;
+  }
+  if (payload.additional_rate_limits != null) {
+    snapshot.additionalLimits = payload.additional_rate_limits.map((limit): UsageLimit => {
+      const result: UsageLimit = {
+        id: limit.metered_feature,
+        label: limit.limit_name,
+        windows: [
+          mapWindow(limit.rate_limit?.primary_window, "5h", nowMs),
+          mapWindow(limit.rate_limit?.secondary_window, "7d", nowMs),
+        ].filter(isDefined),
+      };
+      if (limit.normal_model_slug != null) {
+        result.model = limit.normal_model_slug;
+      }
+      if (limit.rate_limit?.allowed !== undefined) {
+        result.allowed = limit.rate_limit.allowed;
+      }
+      return result;
+    });
+  }
   if (planLabel !== undefined) {
     snapshot.planLabel = planLabel;
   }

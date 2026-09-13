@@ -10,7 +10,7 @@ import {
   isJSONRPCRequest,
 } from "@modelcontextprotocol/server";
 
-import { createFixtureMcpServer } from "./mcp-server.js";
+import { createFixtureMcpServer, createFixtureState } from "./server.ts";
 import { z } from "zod/v4";
 
 export const FIXTURE_ACCESS_TOKEN = "fixture-access-token";
@@ -33,12 +33,19 @@ const readJsonObject = async (req: IncomingMessage): Promise<Record<string, Json
 };
 
 export const startMcpHttpFixture = async ({
+  scenario = "normal",
   oauth = false,
-  expireSessionOnce = false,
+  expireSessionOnce = scenario === "expired",
   pauseInitialization = false,
-}: { oauth?: boolean; expireSessionOnce?: boolean; pauseInitialization?: boolean } = {}) => {
+}: {
+  scenario?: string;
+  oauth?: boolean;
+  expireSessionOnce?: boolean;
+  pauseInitialization?: boolean;
+} = {}) => {
+  const state = createFixtureState();
   const legacy = expireSessionOnce || pauseInitialization;
-  const mcpHandler = createMcpHandler(() => createFixtureMcpServer(), {
+  const mcpHandler = createMcpHandler(() => createFixtureMcpServer(scenario, state), {
     legacy: legacy ? "stateless" : "reject",
   });
   const initializationGate = Promise.withResolvers<null>();
@@ -48,10 +55,27 @@ export const startMcpHttpFixture = async ({
   let sessionExpired = false;
   let toolCallCount = 0;
   let toolGate: Promise<void> | undefined;
+  let releaseToolCalls: (() => void) | undefined;
+  const pauseToolCalls = () => {
+    releaseToolCalls?.();
+    const gate = Promise.withResolvers<void>();
+    toolGate = gate.promise;
+    releaseToolCalls = () => gate.resolve();
+    return releaseToolCalls;
+  };
+  if (scenario === "stalled") pauseToolCalls();
+  let malformed = scenario === "malformed";
+  let drop = scenario === "drop";
+  const requests: { method: string }[] = [];
   const handleMcpRequest = toNodeHandler({
     async fetch(request, options) {
       const body = request.method === "POST" ? await request.clone().json() : undefined;
+      if (isJSONRPCRequest(body)) requests.push({ method: body.method });
       if (isJSONRPCRequest(body) && body.method === "tools/call") {
+        if (malformed) {
+          malformed = false;
+          return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: "invalid" } });
+        }
         toolCallCount += 1;
         await toolGate;
       }
@@ -103,6 +127,11 @@ export const startMcpHttpFixture = async ({
       const url = new URL(req.url ?? "/", origin);
 
       if (url.pathname === "/mcp") {
+        if (drop && req.method === "POST" && req.headers["mcp-protocol-version"]) {
+          drop = false;
+          req.destroy();
+          return;
+        }
         if (oauth && req.headers.authorization !== `Bearer ${token}`) {
           res
             .writeHead(401, {
@@ -124,6 +153,51 @@ export const startMcpHttpFixture = async ({
         return;
       }
 
+      if (url.pathname === "/records") {
+        sendJson(res, { records: state.records, operations: state.operations, requests });
+        return;
+      }
+      if (url.pathname === "/control" && req.method === "POST") {
+        switch (url.searchParams.get("action")) {
+          case "pause":
+            pauseToolCalls();
+            break;
+          case "release":
+            releaseToolCalls?.();
+            break;
+          case "expire-access":
+            token = `access-${randomUUID()}`;
+            break;
+          case "reject-refresh":
+            rejectRefresh = true;
+            break;
+          case "reject-refreshed":
+            invalidRefreshedToken = true;
+            break;
+          case "more-scope":
+            insufficientScope = true;
+            break;
+          case "malformed-next":
+            malformed = true;
+            break;
+          case "drop-next":
+            drop = true;
+            break;
+          default:
+            sendJson(res, { error: "unknown_control" }, 400);
+            return;
+        }
+        sendJson(res, { ok: true });
+        return;
+      }
+      if (url.pathname === "/interaction") {
+        res
+          .writeHead(200, { "Content-Type": "text/html" })
+          .end(
+            "<!doctype html><title>MCP local interaction</title><h1>Interaction complete</h1><p>Return to Pi and select Completed. This is separate from OAuth.</p>",
+          );
+        return;
+      }
       if (!oauth) {
         res.writeHead(404).end();
         return;
@@ -217,9 +291,15 @@ export const startMcpHttpFixture = async ({
   const { port } = z.object({ port: z.number() }).parse(server.address());
   issuer = `http://127.0.0.1:${port}`;
 
+  state.url = `${issuer}/interaction`;
   return {
+    state,
+    requests,
     close: async () => {
+      initializationGate.resolve(null);
+      releaseToolCalls?.();
       await mcpHandler.close();
+      server.closeAllConnections();
       server.close();
       await once(server, "close");
     },
@@ -232,11 +312,7 @@ export const startMcpHttpFixture = async ({
     returnInvalidRefreshedToken: () => {
       invalidRefreshedToken = true;
     },
-    pauseToolCalls: () => {
-      const gate = Promise.withResolvers<void>();
-      toolGate = gate.promise;
-      return () => gate.resolve();
-    },
+    pauseToolCalls,
     getToolCallCount: () => toolCallCount,
     requireMoreScope: () => {
       insufficientScope = true;
