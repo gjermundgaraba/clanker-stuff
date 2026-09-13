@@ -137,21 +137,15 @@ const stockV2SpawnOutputProperties = (
   hideSpawnMetadata ? hiddenSpawnOutput : visibleSpawnOutput
 ).toSorted();
 
-interface CatalogModel {
-  multi_agent_version?: string | null;
-  slug?: string;
-}
 const CatalogSchema = Type.Object(
   {
     models: Type.Array(
-      Type.Unsafe<CatalogModel>(
-        Type.Object(
-          {
-            multi_agent_version: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-            slug: Type.Optional(Type.String()),
-          },
-          { additionalProperties: true },
-        ),
+      Type.Object(
+        {
+          multi_agent_version: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+          slug: Type.Optional(Type.String()),
+        },
+        { additionalProperties: true },
       ),
     ),
   },
@@ -161,9 +155,8 @@ const parsedCatalog = JSON.parse(source(CATALOG_PATH, CATALOG_COMMIT));
 if (!Value.Check(CatalogSchema, parsedCatalog)) {
   throw new TypeError(`Expected models in ${CATALOG_PATH}`);
 }
-const catalog = { models: parsedCatalog.models };
 const catalogVersion = (slug: string): string | null | undefined =>
-  catalog.models.find((model) => model.slug === slug)?.multi_agent_version;
+  parsedCatalog.models.find((model) => model.slug === slug)?.multi_agent_version;
 
 const fixture = {
   catalog: {

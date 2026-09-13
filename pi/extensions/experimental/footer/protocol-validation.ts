@@ -1,12 +1,6 @@
-import {
-  FOOTER_PROTOCOL_VERSION,
-  FooterWidgetGlyphMapSchema,
-  parseFooterWidgetMessage,
-  parseFooterWidgetSnapshot,
-} from "@clanker-stuff/footer-protocol";
+import { FOOTER_PROTOCOL_VERSION, FooterWidgetMessageSchema } from "@clanker-stuff/footer-protocol";
 import type {
   FooterContent,
-  FooterProtocolInput,
   FooterSpan,
   FooterWidgetHealth,
   FooterWidgetIcon,
@@ -14,6 +8,8 @@ import type {
   FooterWidgetSnapshot,
 } from "@clanker-stuff/footer-protocol";
 import { Value } from "typebox/value";
+
+import { hasTerminalControl } from "./config.js";
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
@@ -29,26 +25,8 @@ const codePointLength = (value: string): number => {
   return length;
 };
 
-const hasUnsafeRichText = (value: string): boolean => {
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    if (
-      code === 0x1b ||
-      code === 0x0a ||
-      code === 0x0d ||
-      code < 0x20 ||
-      (code >= 0x7f && code <= 0x9f)
-    ) {
-      return true;
-    }
-  }
-  return false;
-};
-
-const validText = (value: string, maximum: number, allowEmpty = true): boolean =>
-  (allowEmpty || value.length > 0) &&
-  codePointLength(value) <= maximum &&
-  !hasUnsafeRichText(value);
+const validText = (value: string, maximum: number): boolean =>
+  codePointLength(value) <= maximum && !hasTerminalControl(value);
 
 export const validateRichWidgetId = (value: string): boolean =>
   ID_PATTERN.test(value) && !value.startsWith("footer.") && !value.startsWith("status:");
@@ -57,7 +35,7 @@ const copyContent = (value: FooterContent): FooterContent | undefined => {
   const spans: FooterSpan[] = [];
   let length = 0;
   for (const candidate of value) {
-    if (!validText(candidate.text, 1024)) {
+    if (hasTerminalControl(candidate.text)) {
       return undefined;
     }
     length += codePointLength(candidate.text);
@@ -73,7 +51,7 @@ const copyIcon = (value: FooterWidgetIcon | false): FooterWidgetIcon | false | u
   if (value === false) {
     return false;
   }
-  if (Value.Check(FooterWidgetGlyphMapSchema, value.glyphs)) {
+  if (typeof value.glyphs !== "string") {
     if (Object.values(value.glyphs).some((glyph) => glyph !== undefined && !validText(glyph, 16))) {
       return undefined;
     }
@@ -93,7 +71,7 @@ const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterW
       ok: false,
     };
   }
-  if (!validText(value.label, 80, false)) {
+  if (!validText(value.label, 80)) {
     return { class: "text", message: "widget label is invalid", ok: false };
   }
   const content = copyContent(value.content);
@@ -112,7 +90,7 @@ const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterW
   if (value.health !== undefined && health === undefined) {
     return { class: "health", message: "widget health is invalid", ok: false };
   }
-  if (value.consumesStatusKeys?.some((key) => !validText(key, 128, false)) === true) {
+  if (value.consumesStatusKeys?.some((key) => !validText(key, 128)) === true) {
     return {
       class: "fallback",
       message: "consumed status keys are invalid",
@@ -133,43 +111,33 @@ const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterW
   };
 };
 
-export const validateFooterWidgetSnapshot = (
-  value: FooterProtocolInput,
-): ValidationResult<FooterWidgetSnapshot> => {
-  const parsed = parseFooterWidgetSnapshot(value);
-  return parsed === undefined
-    ? { class: "schema", message: "widget must match the protocol schema", ok: false }
-    : validateSnapshot(parsed);
-};
-
 export const validateFooterWidgetMessage = (
-  value: FooterProtocolInput,
+  value: unknown,
 ): ValidationResult<FooterWidgetMessage> => {
-  const parsed = parseFooterWidgetMessage(value);
-  if (parsed === undefined) {
+  if (!Value.Check(FooterWidgetMessageSchema, value)) {
     return {
       class: "message",
       message: "widget message must match the protocol schema",
       ok: false,
     };
   }
-  if (parsed.type === "remove") {
-    return validateRichWidgetId(parsed.id)
+  if (value.type === "remove") {
+    return validateRichWidgetId(value.id)
       ? {
           ok: true,
           value: {
-            ...parsed,
+            ...value,
             protocol: FOOTER_PROTOCOL_VERSION,
           },
         }
       : { class: "id", message: "widget id is invalid or reserved", ok: false };
   }
-  const widget = validateSnapshot(parsed.widget);
+  const widget = validateSnapshot(value.widget);
   return widget.ok
     ? {
         ok: true,
         value: {
-          ...parsed,
+          ...value,
           protocol: FOOTER_PROTOCOL_VERSION,
           widget: widget.value,
         },

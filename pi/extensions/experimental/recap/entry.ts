@@ -14,9 +14,7 @@ const UNSAFE_TEXT_PATTERN =
 export const sanitizeRecapText = (value: string): string =>
   stripTerminalSequences(value).replaceAll(UNSAFE_TEXT_PATTERN, "");
 
-const EntryInputSchema = Type.Unknown();
-type EntryInput = Static<typeof EntryInputSchema>;
-const RecapEntrySchema = Type.Object(
+export const RecapEntrySchema = Type.Object(
   {
     completedTurns: Type.Integer({ minimum: 0 }),
     recap: Type.String({ minLength: 1, maxLength: RECAP_MAX_CHARS }),
@@ -26,13 +24,10 @@ const RecapEntrySchema = Type.Object(
 
 export type RecapEntryData = Static<typeof RecapEntrySchema>;
 
-export const parseRecapEntry = (value: EntryInput): RecapEntryData | undefined =>
-  Value.Check(RecapEntrySchema, value) ? value : undefined;
-
 export const registerRecapEntry = (pi: ExtensionAPI): void => {
   pi.registerEntryRenderer(RECAP_ENTRY_TYPE, (entry, _options, theme) => {
-    const data = parseRecapEntry(entry.data);
-    if (data === undefined) {
+    const data = entry.data;
+    if (!Value.Check(RecapEntrySchema, data)) {
       return undefined;
     }
 

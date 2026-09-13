@@ -199,8 +199,8 @@ const parsePatch = (patch: string): PatchOperation[] => {
         if (kind !== " " && kind !== "+" && kind !== "-") {
           throw new Error(`Invalid update line: ${line}`);
         }
-        section ??= { lines: [] };
-        if (!sections.includes(section)) {
+        if (section === undefined) {
+          section = { lines: [] };
           sections.push(section);
         }
         section.lines.push({ kind, text: line.slice(1) });

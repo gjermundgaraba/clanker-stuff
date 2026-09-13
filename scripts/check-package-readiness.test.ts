@@ -32,7 +32,7 @@ const createFixture = (
     JSON.stringify({
       engines: { node: ">=26" },
       name: "clanker-stuff",
-      packageManager: "pnpm@11",
+      packageManager: "pnpm@12.3.4",
       private: true,
     }),
   );

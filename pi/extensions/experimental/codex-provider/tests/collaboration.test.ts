@@ -13,7 +13,6 @@ import {
   rewriteCollaborationTools,
 } from "../collaboration.js";
 import { createToolsModel, wireArray, wireRecord, wireRecords } from "./fixtures.js";
-import type { WireValue } from "./fixtures.js";
 
 const V1_NAMES = codexContractFixture.v1.tools;
 const V2_NAMES = codexContractFixture.v2.tools;
@@ -26,7 +25,7 @@ const tools = (names: readonly string[]) =>
     strict: null,
     type: "function",
   }));
-const namespaceMemberNames = (namespace: WireValue): string[] => {
+const namespaceMemberNames = (namespace: unknown): string[] => {
   const members = wireRecord(namespace).tools;
   if (!Array.isArray(members)) {
     return [];
@@ -40,7 +39,7 @@ const namespaceMemberNames = (namespace: WireValue): string[] => {
 const harness = (
   protocol?: "off" | "v1" | "v2",
   nestedTools: readonly ToolDefinition[] = [],
-  inheritedServiceTier?: WireValue,
+  inheritedServiceTier?: unknown,
 ) => {
   const sessionId = "collaboration-session";
   let requestedServiceTier: "priority" | null | undefined;

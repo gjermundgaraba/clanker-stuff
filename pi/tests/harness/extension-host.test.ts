@@ -2,6 +2,7 @@ import { Type, fauxProvider } from "@earendil-works/pi-ai";
 import type {
   EntryRenderer,
   ExtensionAPI,
+  InputEvent,
   MarkdownTransformer,
   SessionShutdownEvent,
   SessionStartEvent,
@@ -87,6 +88,53 @@ const setupHost = () =>
   });
 
 describe("extension-host harness", () => {
+  it("preserves input metadata and image updates through ordered transforms", async () => {
+    const seen: InputEvent[] = [];
+    const images = [{ type: "image" as const, data: "original", mimeType: "image/png" }];
+    const replacement = [{ type: "image" as const, data: "replacement", mimeType: "image/png" }];
+    const host = createExtensionHost((pi: ExtensionAPI) => {
+      pi.on("input", () => ({ action: "transform", text: "first" }));
+      pi.on("input", (event) => {
+        seen.push(event);
+        return { action: "transform", images: replacement, text: "second" };
+      });
+      pi.on("input", (event) => {
+        seen.push(event);
+        return { action: "handled" };
+      });
+      pi.on("input", () => {
+        throw new Error("handled input continued");
+      });
+    });
+    const event: InputEvent = {
+      images,
+      source: "extension",
+      streamingBehavior: "followUp",
+      text: "original",
+      type: "input",
+    };
+    expect(await host.emitInput(event)).toStrictEqual({ action: "handled" });
+    expect(seen).toStrictEqual([
+      { ...event, text: "first" },
+      { ...event, images: replacement, text: "second" },
+    ]);
+    expect(event.text).toBe("original");
+  });
+
+  it("rejects input handler failures without continuing the chain", async () => {
+    const later = vi.fn();
+    const host = createExtensionHost((pi: ExtensionAPI) => {
+      pi.on("input", () => {
+        throw new Error("input failed");
+      });
+      pi.on("input", later);
+    });
+    await expect(
+      host.emitInput({ source: "interactive", text: "test", type: "input" }),
+    ).rejects.toThrow("input failed");
+    expect(later).not.toHaveBeenCalled();
+  });
+
   it("awaits async extension factories before running commands", async () => {
     const host = createExtensionHost(async (pi: ExtensionAPI) => {
       await Promise.resolve();

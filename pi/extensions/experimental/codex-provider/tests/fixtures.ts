@@ -4,20 +4,18 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-const WireValueSchema = Type.Unknown();
-export type WireValue = Static<typeof WireValueSchema>;
 export const WireRecordSchema = Type.Record(Type.String(), Type.Unknown());
 export type WireRecord = Static<typeof WireRecordSchema>;
 const WireArraySchema = Type.Array(Type.Unknown());
 const StringValueSchema = Type.String();
 
-export const wireRecord = (value: WireValue): WireRecord => Value.Parse(WireRecordSchema, value);
+export const wireRecord = (value: unknown): WireRecord => Value.Parse(WireRecordSchema, value);
 
-export const wireArray = (value: WireValue): WireValue[] => Value.Parse(WireArraySchema, value);
+export const wireArray = (value: unknown): unknown[] => Value.Parse(WireArraySchema, value);
 
-export const wireRecords = (value: WireValue): WireRecord[] => wireArray(value).map(wireRecord);
+export const wireRecords = (value: unknown): WireRecord[] => wireArray(value).map(wireRecord);
 
-export const wireString = (value: WireValue): string => Value.Parse(StringValueSchema, value);
+export const wireString = (value: unknown): string => Value.Parse(StringValueSchema, value);
 
 type MockUiContext = Pick<ExtensionUIContext, "notify" | "setStatus"> &
   Partial<Pick<ExtensionUIContext, "select">>;
@@ -94,7 +92,7 @@ export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
   ];
 };
 
-const jwtPart = (value: WireValue) => Buffer.from(JSON.stringify(value)).toString("base64url");
+const jwtPart = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
 
 export const makeCodexApiKey = (accountId: string): string =>
   `${jwtPart({ alg: "none", typ: "JWT" })}.${jwtPart({

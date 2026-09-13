@@ -97,14 +97,10 @@ const resolveWindows = (data: Static<typeof CodexBarHistorySchema>): HistoryWind
   return [];
 };
 
-export const parseCodexBarHistory = (
-  data: Static<typeof CodexBarHistorySchema> | undefined,
+export const mapCodexBarHistory = (
+  data: Static<typeof CodexBarHistorySchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  if (!Value.Check(CodexBarHistorySchema, data)) {
-    return usageFailure("invalid CodexBar history");
-  }
-
   const windows = resolveWindows(data);
   if (windows.length === 0) {
     return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
@@ -166,10 +162,8 @@ export const runCodexBarUsage = async (
     return usageFailure("invalid CodexBar history");
   }
 
-  return parseCodexBarHistory(
-    Value.Check(CodexBarHistorySchema, parsed)
-      ? Value.Parse(CodexBarHistorySchema, parsed)
-      : undefined,
-    now(),
-  );
+  if (!Value.Check(CodexBarHistorySchema, parsed)) {
+    return usageFailure("invalid CodexBar history");
+  }
+  return mapCodexBarHistory(parsed, now());
 };

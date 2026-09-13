@@ -102,7 +102,7 @@ const validatePath = (value: string): string => {
 };
 
 export const childAgentPath = (caller: string, taskName: string): string => {
-  if (taskName.trim() !== taskName || taskName.at(-1) === "\n" || !SEGMENT_PATTERN.test(taskName)) {
+  if (taskName.trim() !== taskName || !SEGMENT_PATTERN.test(taskName)) {
     throw new Error("task_name must contain only lowercase letters, digits, and underscores");
   }
   if (taskName === "root") {

@@ -5,25 +5,8 @@ import { createExtensionHost } from "../../../../../tests/harness/extension-host
 import { PermanentChildError } from "../../permanent-error.js";
 import type { ChildRuntime, ChildTurnOutcome, PromptInput, RuntimeMessage } from "../../runtime.js";
 
-interface VoidDeferred {
-  promise: Promise<void>;
-  reject: (cause?: unknown) => void;
-  resolve: () => void;
-}
-
-const createVoidDeferred = (): VoidDeferred => {
-  const deferred = Promise.withResolvers<undefined>();
-  return {
-    promise: deferred.promise,
-    reject: deferred.reject,
-    resolve: () => {
-      deferred.resolve(undefined);
-    },
-  };
-};
-
 export interface FakeTurn {
-  accepted: VoidDeferred;
+  accepted: PromiseWithResolvers<void>;
   input: PromptInput;
   settled: PromiseWithResolvers<ChildTurnOutcome>;
 }
@@ -44,7 +27,7 @@ export class FakeChildRuntime implements ChildRuntime {
   readonly rollback = vi.fn<ChildRuntime["rollback"]>(async () => {
     await this.dispose();
   });
-  readonly messageAcceptances: VoidDeferred[] = [];
+  readonly messageAcceptances: PromiseWithResolvers<void>[] = [];
   readonly sessionFile: string;
   readonly turns: FakeTurn[] = [];
   acceptMessages = true;
@@ -72,7 +55,7 @@ export class FakeChildRuntime implements ChildRuntime {
     if (triggerTurn && !this.streaming) {
       return this.startTurn({ text: message.content });
     }
-    const accepted = createVoidDeferred();
+    const accepted = Promise.withResolvers<void>();
     this.messageAcceptances.push(accepted);
     if (this.failPersistence) {
       accepted.reject(new PermanentChildError("append failed"));
@@ -85,7 +68,7 @@ export class FakeChildRuntime implements ChildRuntime {
 
   startTurn(input: PromptInput) {
     const turn: FakeTurn = {
-      accepted: createVoidDeferred(),
+      accepted: Promise.withResolvers<void>(),
       input,
       settled: Promise.withResolvers(),
     };

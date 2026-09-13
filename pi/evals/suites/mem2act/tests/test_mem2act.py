@@ -10,13 +10,14 @@ from unittest import TestCase
 
 from harbor.models.task.task import Task
 
+from pi_evals.jsonl import read_jsonl_objects
+
 SUITE_DIR = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location("mem2act", SUITE_DIR / "mem2act.py")
 assert SPEC and SPEC.loader
 mem2act = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(mem2act)
 
-read_jsonl = mem2act.read_jsonl
 resolve_records = mem2act.resolve_records
 stratified_sample = mem2act.stratified_sample
 write_tasks = mem2act.write_tasks
@@ -59,7 +60,7 @@ class Mem2ActTest(TestCase):
                 json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8"
             )
 
-            self.assertEqual(read_jsonl(path), [record])
+            self.assertEqual(read_jsonl_objects(path), [record])
 
     def test_resolves_only_one_complete_session_and_stratifies(self) -> None:
         records = [qa("qa-empty", "L1"), qa("qa-one", "L2"), qa("qa-many", "L3")]

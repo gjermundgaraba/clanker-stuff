@@ -5,9 +5,9 @@ import {
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
-  parseFooterReadyRequestMessage,
+  FooterReadyRequestMessageSchema,
 } from "@clanker-stuff/footer-protocol";
-import type { FooterProtocolInput } from "@clanker-stuff/footer-protocol";
+import { Value } from "typebox/value";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -311,7 +311,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     runtime = undefined;
   };
 
-  const handleWidgetMessage = (value: FooterProtocolInput): void => {
+  const handleWidgetMessage = (value: unknown): void => {
     const active = runtime;
     if (!active || active.lifecycle === "stopped") {
       return;
@@ -352,8 +352,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
   const listenForProtocolMessages = (): void => {
     protocolUnsubscribe ??= pi.events.on(FOOTER_WIDGET_EVENT, handleWidgetMessage);
     readyRequestUnsubscribe ??= pi.events.on(FOOTER_READY_REQUEST_EVENT, (value) => {
-      const request = parseFooterReadyRequestMessage(value);
-      if (runtime !== undefined && request !== undefined) {
+      if (runtime !== undefined && Value.Check(FooterReadyRequestMessageSchema, value)) {
         emitReady(runtime);
       }
     });

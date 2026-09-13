@@ -1,6 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import type { Mock } from "vite-plus/test";
 import { expect, vi } from "vite-plus/test";
@@ -19,11 +18,9 @@ export interface PendingProcess {
   signal: AbortSignal;
 }
 
-const TestValueSchema = Type.Unknown();
 const TestStringSchema = Type.String();
-type TestValue = Static<typeof TestValueSchema>;
 
-export const expectString = (value: TestValue): string => Value.Parse(TestStringSchema, value);
+export const expectString = (value: unknown): string => Value.Parse(TestStringSchema, value);
 
 export const createStarter = () => {
   const pending: PendingProcess[] = [];

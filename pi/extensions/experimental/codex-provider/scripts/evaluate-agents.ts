@@ -25,7 +25,7 @@ import { evaluationTasks } from "../evals/tasks.ts";
 import type { EvaluationTask } from "../evals/tasks.ts";
 import { runNodeTests } from "./run-node-tests.ts";
 import { isWireRecord as isRecord, NumberValueSchema, StringValueSchema } from "./wire.ts";
-import type { WireRecord as JsonRecord, WireValue } from "./wire.ts";
+import type { WireRecord as JsonRecord } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
@@ -73,7 +73,7 @@ interface EvaluationResult {
   turns: number;
 }
 
-const errorMessage = (cause: WireValue) =>
+const errorMessage = (cause: unknown) =>
   cause instanceof Error ? cause.message : "Unknown evaluation error";
 
 const emptyUsage = (): Usage => ({
@@ -94,10 +94,10 @@ const emptyMetrics = (compactions: number | null = 0): Metrics => ({
   usage: emptyUsage(),
 });
 
-const number = (value: WireValue) =>
+const number = (value: unknown) =>
   Value.Check(NumberValueSchema, value) && Number.isFinite(value) ? value : 0;
 
-const addUsage = (metrics: Metrics, value: WireValue, native = false) => {
+const addUsage = (metrics: Metrics, value: unknown, native = false) => {
   if (!isRecord(value)) {
     return;
   }
@@ -124,7 +124,7 @@ const addUsage = (metrics: Metrics, value: WireValue, native = false) => {
     number(value.input) + number(value.output) + number(value.cacheRead) + number(value.cacheWrite);
 };
 
-const sanitizeUsage = (value: WireValue, native: boolean): Usage => {
+const sanitizeUsage = (value: unknown, native: boolean): Usage => {
   const metrics = emptyMetrics();
   addUsage(metrics, value, native);
   return metrics.usage;
@@ -254,7 +254,7 @@ export const runJsonProcess = async (
   let timedOut = false;
   createInterface({ input: child.stdout }).on("line", (line) => {
     try {
-      const event: WireValue = JSON.parse(line);
+      const event: unknown = JSON.parse(line);
       if (isRecord(event)) {
         onEvent(event);
       }
@@ -440,7 +440,7 @@ export const applyExecutionOutcome = (
   return grade;
 };
 
-export const writeJsonReport = (target: string, report: WireValue) => {
+export const writeJsonReport = (target: string, report: unknown) => {
   const contents = `${JSON.stringify(report, null, 2)}\n`;
   const temporary = `${target}.tmp`;
   writeFileSync(temporary, contents);
@@ -745,7 +745,7 @@ const unexpectedFailure = (
   dryRun: boolean,
   repetition: number,
   order: number,
-  error: WireValue,
+  error: unknown,
 ): EvaluationResult => ({
   diff: emptyDiff(),
   dryRun,

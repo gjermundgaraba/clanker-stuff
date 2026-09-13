@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 
-import { expandMcpServerConfig, listMcpServers, loadMcpConfig } from "./config.js";
+import { resolveMcpServer, listMcpServers, loadMcpConfig } from "./config.js";
 import type { McpConfig } from "./config.js";
 import { connectToServer, errorMessage } from "./connection.js";
 import { loadedServerNames } from "./loaded-servers.js";
@@ -105,11 +105,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       toolCount = MANAGER_TOOL_NAMES.length;
     } else {
       const config = await (options.config ?? loadMcpConfig(configOptions(ctx)));
-      const rawServerConfig = config.mcpServers[serverName];
-      if (rawServerConfig === undefined) {
-        throw new Error(`MCP server ${serverName} is not configured`);
-      }
-      const serverConfig = expandMcpServerConfig(rawServerConfig);
+      const serverConfig = resolveMcpServer(config, serverName);
       toolCount = await serverPool.loadServer({
         connectionFactory: (interactive, signal) =>
           connectToServer({

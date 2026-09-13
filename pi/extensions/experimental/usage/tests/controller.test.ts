@@ -1,9 +1,11 @@
+import { okFetch } from "./adapters/helpers.js";
+import { Value } from "typebox/value";
 import {
   FOOTER_PROTOCOL_VERSION,
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
-  parseFooterWidgetMessage,
+  FooterWidgetMessageSchema,
 } from "@clanker-stuff/footer-protocol";
 import type { Api, Model, RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -50,25 +52,24 @@ const authClient: ProviderAuthClient = {
   }),
 };
 
-const successfulFetchJson: FetchJson = async () => ({
-  json: {
-    rate_limit: {
-      primary_window: { used_percent: 32 },
-      secondary_window: { used_percent: 66 },
-    },
+const successfulFetchJson: FetchJson = okFetch({
+  rate_limit: {
+    primary_window: { used_percent: 32 },
+    secondary_window: { used_percent: 66 },
   },
-  ok: true,
 });
 
-const fetchJson = vi.fn<FetchJson>(successfulFetchJson);
+const client = { fetchJson: successfulFetchJson };
+let fetchJson = vi.spyOn(client, "fetchJson");
 
 const publishModels: RefreshModelsContext["publish"] = () => Promise.resolve(true);
 
 const stubDependencies = (nowRef: { value: number }) => {
+  fetchJson = vi.spyOn(client, "fetchJson");
   fetchJson.mockReset();
   fetchJson.mockImplementation(successfulFetchJson);
   return createUsageExtension({
-    fetchJson,
+    fetchJson: client.fetchJson,
     now: () => nowRef.value,
     providerAuthClient: () => authClient,
   });
@@ -141,14 +142,13 @@ describe("usage controller", () => {
     let refreshModels:
       | ReturnType<typeof createCodexRuntime>["catalog"]["refreshModels"]
       | undefined;
-    fetchJson.mockImplementation(async () => {
+    fetchJson.mockImplementation(async (url, schema, options) => {
       requests += 1;
-      return {
-        json: {
-          rate_limit: { primary_window: { used_percent: requests * 10 } },
-        },
-        ok: true,
-      };
+      return okFetch({ rate_limit: { primary_window: { used_percent: requests * 10 } } })(
+        url,
+        schema,
+        options,
+      );
     });
     const host = createExtensionHost(
       (pi) => {
@@ -208,21 +208,25 @@ describe("usage controller", () => {
       json: unknown;
       ok: true;
     }>();
-    fetchJson.mockImplementation(async (url) => {
+    fetchJson.mockImplementation(async (url, schema, options) => {
       if (url.includes("/wham/usage")) {
-        return await codex.promise;
+        return okFetch((await codex.promise).json)(url, schema, options);
       }
       if (url.includes("anthropic.com")) {
-        return await claude.promise;
+        return okFetch((await claude.promise).json)(url, schema, options);
       }
-      return { message: "unavailable", ok: false };
+      return { kind: "response", message: "unavailable", ok: false };
     });
     const host = createExtensionHost(extension, { model: codexModel });
     const codexContext = host.createContext({ model: codexModel });
 
     const command = host.runCommand("usage", "", codexContext);
     await vi.waitFor(() => {
-      expect(fetchJson).toHaveBeenCalledWith(expect.any(String), expect.any(Object));
+      expect(fetchJson).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.any(Object),
+      );
     });
     const claudeContext = host.createContext({ model: claudeModel });
     await host.emit(
@@ -264,9 +268,10 @@ describe("usage controller", () => {
     const first = Promise.withResolvers<{ json: unknown; ok: true }>();
     const second = Promise.withResolvers<{ json: unknown; ok: true }>();
     let request = 0;
-    fetchJson.mockImplementation(async () => {
+    fetchJson.mockImplementation(async (url, schema, options) => {
       request += 1;
-      return await (request === 1 ? first.promise : second.promise);
+      const response = await (request === 1 ? first.promise : second.promise);
+      return okFetch(response.json)(url, schema, options);
     });
     const host = createExtensionHost(extension, { model: codexModel });
     const context = host.createContext({ model: codexModel });
@@ -305,18 +310,19 @@ describe("usage controller", () => {
     const extension = stubDependencies(nowRef);
     let requests = 0;
     const health: { message?: string; state: string }[] = [];
-    fetchJson.mockImplementation(async (url, options) => {
+    fetchJson.mockImplementation(async (url, schema, options) => {
       requests += 1;
       if (requests === 2) {
-        return successfulFetchJson(url, options);
+        return successfulFetchJson(url, schema, options);
       }
-      return { message: "boom\n[31mred", ok: false };
+      return { kind: "response", message: "boom\n[31mred", ok: false };
     });
     const host = createExtensionHost(extension, { model: codexModel });
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {
-      const message = parseFooterWidgetMessage(value);
+      const message = value;
       if (
-        message?.type === "upsert" &&
+        Value.Check(FooterWidgetMessageSchema, message) &&
+        message.type === "upsert" &&
         message.widget.id === "clanker.usage.active" &&
         message.widget.health !== undefined
       ) {

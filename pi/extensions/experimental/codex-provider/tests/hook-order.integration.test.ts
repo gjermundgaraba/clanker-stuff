@@ -11,7 +11,6 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createRealCodexSession } from "./agent-session.js";
-import type { WireValue } from "./fixtures.js";
 
 type RegistrationStrategy = "factory" | "resources_discover" | "session_start";
 type OrderedHook =
@@ -25,7 +24,7 @@ interface HookRecord {
   label: string;
 }
 
-const event = (value: WireValue) => `data: ${JSON.stringify(value)}\n\n`;
+const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 const assistantResponse = () => {
   const message = {

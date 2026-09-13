@@ -67,7 +67,7 @@ def validate_row(
     backend: str | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise ValueError("judge cache row must be an object")
     if set(value) != ROW_KEYS:
         missing, extra = sorted(ROW_KEYS - set(value)), sorted(set(value) - ROW_KEYS)
@@ -146,17 +146,15 @@ def load_cache(
 
 def write_cache(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     values, trials = [], set()
+    observed_backend = observed_model = None
     for item in rows:
-        row = validate_row(dict(item))
+        row = validate_row(item, backend=observed_backend, model=observed_model)
+        observed_backend, observed_model = row["judge_backend"], row["judge_model"]
         if row["trial"] in trials:
             raise ValueError(f"duplicate judge trial {row['trial']}")
         trials.add(row["trial"])
         values.append(row)
     values.sort(key=lambda row: row["trial"])
-    if values:
-        backend, model = values[0]["judge_backend"], values[0]["judge_model"]
-        for row in values[1:]:
-            validate_row(row, backend=backend, model=model)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in values),

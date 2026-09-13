@@ -49,12 +49,8 @@ type RuntimeState =
 
 interface RuntimeOwner {
   context?: CallerContext;
-  startLease?: StartLease;
+  startLease?: symbol;
   state: RuntimeState;
-}
-
-interface StartLease {
-  attemptId: string;
 }
 
 export interface V1ControllerDependencies {
@@ -851,7 +847,7 @@ export class V1Controller {
           | {
               attemptId: string;
               childTurn: ReturnType<ChildRuntime["startTurn"]>;
-              lease: StartLease;
+              lease: symbol;
               runtime: ChildRuntime;
             }
           | undefined;
@@ -873,7 +869,7 @@ export class V1Controller {
           if (owner.startLease !== undefined) {
             return;
           }
-          const lease: StartLease = { attemptId };
+          const lease = Symbol();
           owner.startLease = lease;
           try {
             const childTurn = runtime.startTurn(turn.input);
@@ -976,7 +972,7 @@ export class V1Controller {
       | {
           attemptId: string;
           childTurn: ReturnType<ChildRuntime["startTurn"]>;
-          lease: StartLease;
+          lease: symbol;
           runtime: ChildRuntime;
         }
       | undefined
@@ -987,7 +983,7 @@ export class V1Controller {
       | {
           attemptId: string;
           childTurn: ReturnType<ChildRuntime["startTurn"]>;
-          lease: StartLease;
+          lease: symbol;
           runtime: ChildRuntime;
         }
       | undefined;
@@ -1099,7 +1095,7 @@ export class V1Controller {
     }
   }
 
-  #releaseStartLease(id: string, lease: StartLease): void {
+  #releaseStartLease(id: string, lease: symbol): void {
     const owner = this.#runtimeOwners.get(id);
     if (owner?.startLease === lease) {
       owner.startLease = undefined;

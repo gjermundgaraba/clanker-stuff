@@ -99,21 +99,19 @@ interface Sample {
   readonly wordsAtFirstText: number;
 }
 
-const WireValueSchema = Type.Unknown();
-type WireValue = Static<typeof WireValueSchema>;
-const JsonRecordSchema = Type.Record(Type.String(), WireValueSchema);
+const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type JsonRecord = Static<typeof JsonRecordSchema>;
 const StringSchema = Type.String();
 const NumberSchema = Type.Number();
 const WebSocketProbeSchema = Type.Object({
   addEventListener: Type.Function(
-    [StringSchema, Type.Function([WireValueSchema], Type.Void())],
+    [StringSchema, Type.Function([Type.Unknown()], Type.Void())],
     Type.Void(),
   ),
-  send: Type.Function([WireValueSchema], WireValueSchema),
+  send: Type.Function([Type.Unknown()], Type.Unknown()),
 });
 
-const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
+const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
 const usageTokens = (message: AssistantMessage): number =>
   message.usage.totalTokens ||
@@ -241,7 +239,7 @@ const randomizedOrders = (pairs: number, random: () => number): Mode[][] => {
   return orders;
 };
 
-const messageText = async (event: WireValue): Promise<string | undefined> => {
+const messageText = async (event: unknown): Promise<string | undefined> => {
   const data = isRecord(event) ? event.data : undefined;
   if (Value.Check(StringSchema, data)) {
     return data;
@@ -258,7 +256,7 @@ const messageText = async (event: WireValue): Promise<string | undefined> => {
   return undefined;
 };
 
-const timingMetrics = (value: WireValue): TimingMetrics | undefined => {
+const timingMetrics = (value: unknown): TimingMetrics | undefined => {
   if (
     !isRecord(value) ||
     value.type !== "responsesapi.websocket_timing" ||
@@ -324,10 +322,10 @@ export const installWebSocketProbe = () => {
       const nativeSend = socket.send;
       Object.defineProperty(socket, "send", {
         configurable: true,
-        value(data: WireValue) {
+        value(data: unknown) {
           if (Value.Check(StringSchema, data)) {
             try {
-              const payload: WireValue = JSON.parse(data);
+              const payload: unknown = JSON.parse(data);
               if (isRecord(payload) && payload.type === "response.create") {
                 observation.responseCreateFrames.push(
                   payload.generate === false ? "prewarm" : "generation",
@@ -341,7 +339,7 @@ export const installWebSocketProbe = () => {
         },
         writable: true,
       });
-      socket.addEventListener("message", (event: WireValue) => {
+      socket.addEventListener("message", (event: unknown) => {
         messageSequence += 1;
         const currentMessageSequence = messageSequence;
         const pending = (async () => {
@@ -350,7 +348,7 @@ export const installWebSocketProbe = () => {
             return;
           }
           try {
-            const payload: WireValue = JSON.parse(text);
+            const payload: unknown = JSON.parse(text);
             const metric = timingMetrics(payload);
             if (metric !== undefined) {
               observation.metrics.push(metric);

@@ -13,6 +13,7 @@ import {
   parseRealUserInputItem,
 } from "./checkpoint.js";
 import type {
+  CanonicalCompactionItem,
   CheckpointUserInputItem,
   CheckpointAgentMessageItem,
   RealUserContentItem,
@@ -28,8 +29,6 @@ export const FRAME_MARKER_PREFIX = "[codex-provider:frame:";
 
 const SYNTHETIC_OUTPUT_NAMESPACE = "90d38d3e-6a5b-4d52-bfe2-2f1e634bfac4";
 
-const WireValueSchema = Type.Unknown();
-type WireValue = Static<typeof WireValueSchema>;
 export const ResponsesInputItemSchema = Type.Record(Type.String(), Type.Unknown());
 export type ResponsesInputItem = Readonly<Static<typeof ResponsesInputItemSchema>>;
 const InputTextSchema = Type.Object({ text: Type.String(), type: Type.Literal("input_text") });
@@ -64,17 +63,17 @@ export type FinalizedFrameResult =
       readonly suffix: readonly ResponsesInputItem[];
     };
 
-const isRecord = (value: WireValue): value is ResponsesInputItem =>
+const isRecord = (value: unknown): value is ResponsesInputItem =>
   Value.Check(ResponsesInputItemSchema, value);
 
-const isUnknownArray = (value: WireValue): value is WireValue[] => Array.isArray(value);
+const isUnknownArray = (value: unknown): value is unknown[] => Array.isArray(value);
 
 const utf8Bytes = (value: string) => Buffer.byteLength(value, "utf8");
 
 export const frameMarkerText = (edge: "end" | "start", nonce: string) =>
   `${FRAME_MARKER_PREFIX}${edge}:${nonce}]`;
 
-const canonicalJsonValue = (value: WireValue) => {
+const canonicalJsonValue = (value: unknown) => {
   try {
     const serialized = JSON.stringify(
       isRecord(value)
@@ -137,6 +136,9 @@ export const frameContiguousBaseline = <T>(
       }
     }
     if (matched) {
+      if (matches.length > 0) {
+        return { kind: "ambiguous" };
+      }
       matches.push({
         end: messageIndex,
         framed: effectiveSegment,
@@ -146,9 +148,6 @@ export const frameContiguousBaseline = <T>(
   }
   if (matches.length === 0) {
     return { kind: "missing" };
-  }
-  if (matches.length !== 1) {
-    return { kind: "ambiguous" };
   }
   const [match] = matches;
   const prefix = messages.slice(0, match.start);
@@ -247,11 +246,11 @@ export const tokensForUtf8 = (value: string) => {
   return Math.ceil(bytes / 4);
 };
 
-export const estimateModelVisibleItemTokens = (item: WireValue) => {
+export const estimateModelVisibleItemTokens = (item: ResponsesInputItem) => {
   let imageCount = 0;
   const serialized = JSON.stringify(
     item,
-    function modelVisibleReplacer(this: WireValue, key: string, value: WireValue) {
+    function modelVisibleReplacer(this: unknown, key: string, value: unknown) {
       if (
         key === "image_url" &&
         isRecord(this) &&
@@ -272,7 +271,7 @@ export const estimateModelVisibleItemTokens = (item: WireValue) => {
 
 export const estimateModelVisibleTokens = (
   instructions: string,
-  input: readonly WireValue[],
+  input: readonly ResponsesInputItem[],
 ): number => {
   let tokens = tokensForUtf8(instructions);
   for (const item of input) {
@@ -393,10 +392,9 @@ const truncateUserMessage = (
 
 const buildReplacement = (
   retainedItems: readonly (RealUserInputItem | CheckpointAgentMessageItem)[],
-  newCompaction: WireValue,
+  compaction: CanonicalCompactionItem,
   tokenBudget: number,
 ) => {
-  const compaction = parseCompactionItem(newCompaction);
   let remaining = tokenBudget;
   const retainedReversed: (RealUserInputItem | CheckpointAgentMessageItem)[] = [];
 
@@ -442,8 +440,8 @@ const buildReplacement = (
 };
 
 export const buildCheckpointReplacement = (
-  provableItems: readonly WireValue[],
-  newCompaction: WireValue,
+  provableItems: readonly unknown[],
+  newCompaction: unknown,
   tokenBudget = RETAINED_USER_TOKEN_BUDGET,
 ) => {
   if (!Number.isSafeInteger(tokenBudget) || tokenBudget < 0) {
@@ -466,12 +464,12 @@ export const buildCheckpointReplacement = (
       ),
     } satisfies CheckpointUserInputItem;
   });
-  return buildReplacement(items, newCompaction, tokenBudget);
+  return buildReplacement(items, parseCompactionItem(newCompaction), tokenBudget);
 };
 
 export const buildTransientCheckpointReplacement = (
-  provableItems: readonly WireValue[],
-  newCompaction: WireValue,
+  provableItems: readonly unknown[],
+  newCompaction: unknown,
   tokenBudget = RETAINED_USER_TOKEN_BUDGET,
 ) => {
   if (!Number.isSafeInteger(tokenBudget) || tokenBudget < 0) {
@@ -483,14 +481,14 @@ export const buildTransientCheckpointReplacement = (
         ? parseAgentMessageItem(item, `provableItems[${index}]`)
         : parseRealUserInputItem(item, `provableItems[${index}]`),
     ),
-    newCompaction,
+    parseCompactionItem(newCompaction),
     tokenBudget,
   );
 };
 
 export const syntheticOutputId = (
   prefix: "ctco" | "fco" | "tso",
-  sourceItemId: WireValue,
+  sourceItemId: unknown,
 ): string | undefined => {
   if (!Value.Check(NonemptyStringSchema, sourceItemId)) {
     return undefined;

@@ -233,14 +233,11 @@ export const createExtensionHost = (
     ctx: ExtensionContext,
   ) => {
     const eventHandlers = getHandlers().get(eventName) ?? [];
-    const runAt = async (index: number, results: unknown[]): Promise<unknown[]> => {
-      if (index >= eventHandlers.length) {
-        return results;
-      }
-      results.push(await eventHandlers[index](event, ctx));
-      return await runAt(index + 1, results);
-    };
-    return await runAt(0, []);
+    const results: unknown[] = [];
+    for (const handler of eventHandlers) {
+      results.push(await handler(event, ctx));
+    }
+    return results;
   };
 
   const buildContext = (overrides: ContextOverrides = {}) => {
@@ -514,44 +511,20 @@ export const createExtensionHost = (
     await ready;
     const inputHandlers = getHandlers().get("input") ?? [];
 
-    const runAt = async (
-      index: number,
-      currentEvent: InputEvent,
-    ): Promise<InputEventResult | { kind: "continue"; currentEvent: InputEvent }> => {
-      if (index >= inputHandlers.length) {
-        return { currentEvent, kind: "continue" };
-      }
-
-      const rawResult = await inputHandlers[index](currentEvent, ctx);
+    let currentEvent = event;
+    for (const handler of inputHandlers) {
+      const rawResult = await handler(currentEvent, ctx);
       const result =
         rawResult === undefined ? undefined : Value.Parse(InputEventResultSchema, rawResult);
-      if (!result || result.action === "continue") {
-        return await runAt(index + 1, currentEvent);
+      if (!result || result.action === "continue") continue;
+      if (result.action === "handled") return result;
+
+      currentEvent = { ...currentEvent, text: result.text };
+      if (result.images !== undefined) {
+        currentEvent.images = result.images;
       }
-
-      if (result.action === "handled") {
-        return result;
-      }
-
-      const nextEvent: InputEvent = {
-        source: currentEvent.source,
-        text: result.text,
-        type: currentEvent.type,
-      };
-      const nextImages = result.images ?? currentEvent.images;
-      if (nextImages !== undefined) {
-        nextEvent.images = nextImages;
-      }
-
-      return await runAt(index + 1, nextEvent);
-    };
-
-    const final = await runAt(0, event);
-    if (!("kind" in final)) {
-      return final;
     }
 
-    const { currentEvent } = final;
     if (currentEvent.text !== event.text || currentEvent.images !== event.images) {
       const transformed: InputEventResult = {
         action: "transform",

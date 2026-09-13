@@ -331,10 +331,6 @@ export class FooterEditor {
     this.requestRender();
   }
 
-  dispose(): void {
-    // No editor-owned subscriptions.
-  }
-
   handleInput(data: string): void {
     if (this.picker !== undefined) {
       this.handlePicker(data);
@@ -813,7 +809,6 @@ export const showFooterTextView = async (
     (tui, theme, keybindings, done) => {
       let offset = 0;
       return {
-        dispose() {},
         handleInput(data: string) {
           if (
             keybindings.matches(data, "tui.select.cancel") ||

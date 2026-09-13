@@ -82,7 +82,6 @@ export const startOAuthCallbackServer = async (redirectUrl: URL, expectedState: 
   await once(server, "listening");
   server.on("error", code.reject);
   const address = server.address();
-  // eslint-disable-next-line anti-slop/no-runtime-typeof -- node:http returns a TCP address or a pipe name; we bound TCP.
   if (address === null || typeof address === "string")
     throw new Error("OAuth listener has no TCP address");
   const boundUrl = new URL(redirectUrl);

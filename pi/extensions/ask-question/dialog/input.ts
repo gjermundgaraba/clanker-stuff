@@ -81,15 +81,7 @@ const extractPrintableText = (data: string): string => {
     return "";
   }
 
-  let out = "";
-  for (const char of data) {
-    const code = char.codePointAt(0) ?? 0;
-    const isControl = code < 32 || code === 127 || (code >= 0x80 && code <= 0x9f);
-    if (!isControl) {
-      out += char;
-    }
-  }
-  return out;
+  return data.replaceAll(/\p{Cc}/gu, "");
 };
 
 export const isSingleCharShortcut = (intent: DecodedIntent, key: string): boolean =>

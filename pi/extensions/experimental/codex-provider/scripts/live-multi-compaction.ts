@@ -44,7 +44,7 @@ import {
   parseCompactionRequestBody,
   StringValueSchema,
 } from "./wire.ts";
-import type { WireRecord, WireValue } from "./wire.ts";
+import type { WireRecord } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
@@ -157,7 +157,7 @@ const lastAssistant = (session: AgentSession): AssistantMessage | undefined =>
 const assistantText = (message: AssistantMessage | undefined) =>
   message?.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("") ?? "";
 
-const rewrittenTrailingOutputCount = (requestBodyValue: WireValue): number => {
+const rewrittenTrailingOutputCount = (requestBodyValue: unknown): number => {
   assert(isRecord(requestBodyValue), "Compaction request body is invalid");
   assert(Array.isArray(requestBodyValue.input), "Compaction input is missing");
   return requestBodyValue.input.filter((item) => {

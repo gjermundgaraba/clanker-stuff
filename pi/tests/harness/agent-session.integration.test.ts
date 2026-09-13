@@ -62,6 +62,13 @@ describe("agent-session harness", () => {
     harness = undefined;
   });
 
+  it("forwards named model selection through the registered faux facade", async () => {
+    harness = await createAgentSessionHarness({ models: [{ id: "first" }, { id: "second" }] });
+    expect(harness.faux.getModel().id).toBe("first");
+    expect(harness.faux.getModel("second")?.id).toBe("second");
+    expect(harness.faux.getModel("missing")).toBeUndefined();
+  });
+
   it("loads extensions into a real AgentSession and uses faux responses deterministically", async () => {
     harness = await createAgentSessionHarness({
       extensionFactories: [
@@ -95,10 +102,6 @@ describe("agent-session harness", () => {
             const lastUserMessageIndex = messages.findLastIndex(
               (message) => message.role === "user",
             );
-
-            if (lastUserMessageIndex < 0) {
-              return payload;
-            }
 
             const lastUserMessage = messages[lastUserMessageIndex];
             if (lastUserMessage === undefined) {

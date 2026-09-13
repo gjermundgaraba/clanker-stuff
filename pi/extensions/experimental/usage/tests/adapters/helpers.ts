@@ -1,3 +1,4 @@
+import { Value } from "typebox/value";
 import type { ProviderAuthClient } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
 
@@ -13,5 +14,8 @@ export const tokenAuthClient = (token: string): ProviderAuthClient => ({
 });
 
 export const okFetch =
-  <TJson>(json: TJson): FetchJson =>
-  async () => ({ json, ok: true });
+  (json: unknown): FetchJson =>
+  async (_url, schema) =>
+    Value.Check(schema, json)
+      ? { json, ok: true }
+      : { kind: "payload", message: "invalid usage payload", ok: false };

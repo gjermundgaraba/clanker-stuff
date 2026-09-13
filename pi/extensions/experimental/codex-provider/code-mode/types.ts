@@ -6,9 +6,6 @@ import type {
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-const OpaqueRuntimeValueSchema = Type.Unknown();
-export type RuntimeValue = Static<typeof OpaqueRuntimeValueSchema>;
-
 const RuntimeToolContentSchema = Type.Union([
   Type.Object({ text: Type.String(), type: Type.Literal("text") }),
   Type.Object({ data: Type.String(), mimeType: Type.String(), type: Type.Literal("image") }),
@@ -16,7 +13,7 @@ const RuntimeToolContentSchema = Type.Union([
 
 export const RuntimeToolResultSchema = Type.Object({
   content: Type.Array(RuntimeToolContentSchema),
-  details: Type.Optional(OpaqueRuntimeValueSchema),
+  details: Type.Optional(Type.Unknown()),
 });
 
 export type RuntimeToolResult = Static<typeof RuntimeToolResultSchema>;
@@ -24,7 +21,7 @@ export type RuntimeToolResult = Static<typeof RuntimeToolResultSchema>;
 export const RuntimeToolTraceSchema = Type.Object({
   error: Type.Optional(Type.String()),
   id: Type.String(),
-  input: OpaqueRuntimeValueSchema,
+  input: Type.Unknown(),
   name: Type.String(),
   result: Type.Optional(RuntimeToolResultSchema),
   status: Type.Union([Type.Literal("running"), Type.Literal("done"), Type.Literal("error")]),
@@ -41,11 +38,7 @@ export interface NestedTool {
   namespace?: string;
   outputSchema?: unknown;
   usage: string;
-  invoke: (
-    input: RuntimeValue,
-    context: ToolExecutionContext,
-    signal: AbortSignal,
-  ) => Promise<RuntimeValue>;
+  invoke: (input: unknown, context: ToolExecutionContext, signal: AbortSignal) => Promise<unknown>;
 }
 
 export interface ToolExecutionContext {

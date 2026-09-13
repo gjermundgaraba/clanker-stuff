@@ -25,6 +25,8 @@ export interface HistoryItem {
   timestamp: number;
 }
 
+const HistoryRowSchema = Type.Object({ last_used_at: Type.Number(), text: Type.String() });
+
 const EntryWireSchema = Type.Object({
   message: Type.Optional(
     Type.Union([
@@ -174,14 +176,12 @@ export const loadHistory = (database: DatabaseSync): HistoryItem[] =>
     )
     .all()
     .map((row) => {
-      const HistoryRowSchema = Type.Object({ last_used_at: Type.Number(), text: Type.String() });
       if (!Value.Check(HistoryRowSchema, row)) {
         throw new TypeError("SQLite returned an invalid history row");
       }
-      const parsed = Value.Parse(HistoryRowSchema, row);
       return {
-        text: parsed.text,
-        timestamp: parsed.last_used_at,
+        text: row.text,
+        timestamp: row.last_used_at,
       };
     });
 
@@ -191,7 +191,7 @@ export const getDataVersion = (database: DatabaseSync): number => {
   if (!Value.Check(NumberSchema, version)) {
     throw new TypeError("SQLite did not return a data version");
   }
-  return Value.Parse(NumberSchema, version);
+  return version;
 };
 
 const historyFromJsonl = (text: string): HistoryItem[] =>
@@ -204,7 +204,7 @@ const historyFromJsonl = (text: string): HistoryItem[] =>
       if (!Value.Check(EntryWireSchema, parsed)) {
         return [];
       }
-      const item = textFromEntry(Value.Parse(EntryWireSchema, parsed));
+      const item = textFromEntry(parsed);
       return item ? [item] : [];
     } catch {
       return [];

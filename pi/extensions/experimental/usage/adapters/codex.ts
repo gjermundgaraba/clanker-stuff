@@ -25,11 +25,7 @@ const extractChatGptAccountId = (accessToken: string): string | undefined => {
   }
 
   try {
-    const padded =
-      payload.length % 4 === 0 ? payload : `${payload}${"=".repeat(4 - (payload.length % 4))}`;
-    const json = Buffer.from(padded.replaceAll("-", "+").replaceAll("_", "/"), "base64").toString(
-      "utf-8",
-    );
+    const json = Buffer.from(payload, "base64url").toString("utf-8");
     const parsed: unknown = JSON.parse(json);
     return Value.Check(ChatGptTokenPayloadSchema, parsed)
       ? parsed[OPENAI_AUTH_CLAIM].chatgpt_account_id
@@ -86,28 +82,22 @@ const mapWindow = (
   return makeUsageWindow(id, remainingPercent, resetsAt);
 };
 
-export const parseCodexUsagePayload = (
-  payload: Static<typeof CodexUsagePayloadSchema> | undefined,
+export const mapCodexUsagePayload = (
+  payload: Static<typeof CodexUsagePayloadSchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  if (!Value.Check(CodexUsagePayloadSchema, payload)) {
-    return usageFailure("invalid usage payload");
-  }
-
   const windows = [
     mapWindow(payload.rate_limit?.primary_window, "5h", nowMs),
     mapWindow(payload.rate_limit?.secondary_window, "7d", nowMs),
   ].filter(isDefined);
 
   const planLabel = payload.plan_type;
-  const NumberSchema = Type.Number();
-  const StringSchema = Type.String();
   let creditsRemaining: number | undefined = undefined;
   if (payload.credits?.has_credits === true) {
     const balance = payload.credits.balance;
-    if (Value.Check(NumberSchema, balance) && Number.isFinite(balance)) {
+    if (typeof balance === "number" && Number.isFinite(balance)) {
       creditsRemaining = balance;
-    } else if (Value.Check(StringSchema, balance) && balance.trim() !== "") {
+    } else if (typeof balance === "string" && balance.trim() !== "") {
       const converted = Number(balance);
       creditsRemaining = Number.isFinite(converted) ? converted : undefined;
     }
@@ -139,7 +129,7 @@ export const fetchCodexUsage = async (deps: AdapterDeps): Promise<UsageFetchResu
     return usageFailure("missing ChatGPT account id in token");
   }
 
-  const response = await deps.fetchJson(WHAM_USAGE_URL, {
+  const response = await deps.fetchJson(WHAM_USAGE_URL, CodexUsagePayloadSchema, {
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${auth.value.accessToken}`,
@@ -149,12 +139,7 @@ export const fetchCodexUsage = async (deps: AdapterDeps): Promise<UsageFetchResu
   });
 
   if (response.ok) {
-    return parseCodexUsagePayload(
-      Value.Check(CodexUsagePayloadSchema, response.json)
-        ? Value.Parse(CodexUsagePayloadSchema, response.json)
-        : undefined,
-      now(),
-    );
+    return mapCodexUsagePayload(response.json, now());
   }
 
   return usageFailure(response.message);

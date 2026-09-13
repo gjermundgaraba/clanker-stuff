@@ -15,7 +15,7 @@ export const branchNeedsCodex = (branch: readonly SessionEntry[]): boolean => {
     if (entry.type === "compaction") {
       return (
         Value.Check(MarkerDetailsSchema, entry.details) &&
-        Value.Parse(MarkerDetailsSchema, entry.details).type === CHECKPOINT_CUSTOM_TYPE
+        entry.details.type === CHECKPOINT_CUSTOM_TYPE
       );
     }
   }

@@ -1,16 +1,20 @@
+import type { Static, TSchema } from "typebox";
+import { Value } from "typebox/value";
+
 export const USAGE_HTTP_TIMEOUT_MS = 12_000;
 
-export interface FetchJsonSuccess {
+export interface FetchJsonSuccess<T> {
   ok: true;
-  json: unknown;
+  json: T;
 }
 
 export interface FetchJsonFailure {
   ok: false;
+  kind: "response" | "payload";
   message: string;
 }
 
-export type FetchJsonResult = FetchJsonSuccess | FetchJsonFailure;
+export type FetchJsonResult<T> = FetchJsonSuccess<T> | FetchJsonFailure;
 
 export interface FetchJsonOptions {
   headers?: Record<string, string>;
@@ -19,9 +23,13 @@ export interface FetchJsonOptions {
   body?: string;
 }
 
-export type FetchJson = (url: string, options: FetchJsonOptions) => Promise<FetchJsonResult>;
+export type FetchJson = <S extends TSchema>(
+  url: string,
+  schema: S,
+  options: FetchJsonOptions,
+) => Promise<FetchJsonResult<Static<S>>>;
 
-export const defaultFetchJson: FetchJson = async (url, options): Promise<FetchJsonResult> => {
+export const defaultFetchJson: FetchJson = async (url, schema, options) => {
   const signal = AbortSignal.timeout(options.timeoutMs);
 
   try {
@@ -36,32 +44,35 @@ export const defaultFetchJson: FetchJson = async (url, options): Promise<FetchJs
     if (response.status === 401 || response.status === 403) {
       return {
         message: "auth rejected by usage API",
+        kind: "response",
         ok: false,
       };
     }
     if (!response.ok) {
       return {
         message: `HTTP ${response.status}`,
+        kind: "response",
         ok: false,
       };
     }
 
     try {
-      return {
-        json: text.length > 0 ? JSON.parse(text) : undefined,
-        ok: true,
-      };
+      const json: unknown = text.length > 0 ? JSON.parse(text) : undefined;
+      return Value.Check(schema, json)
+        ? { json, ok: true }
+        : { kind: "payload", message: "invalid usage payload", ok: false };
     } catch {
       return {
         message: "invalid JSON response",
+        kind: "response",
         ok: false,
       };
     }
   } catch (error) {
     if (signal.aborted) {
-      return { message: "request timed out", ok: false };
+      return { kind: "response", message: "request timed out", ok: false };
     }
     const message = error instanceof Error ? error.message : "network request failed";
-    return { message, ok: false };
+    return { kind: "response", message, ok: false };
   }
 };

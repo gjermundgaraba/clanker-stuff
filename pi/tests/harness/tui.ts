@@ -37,7 +37,7 @@ interface CustomUiRunResult<T> {
   component: CustomUiComponent;
   handle: OverlayHandle;
   rendered: string[];
-  result: T | undefined;
+  result: T;
 }
 type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
@@ -154,7 +154,6 @@ async function runCustomUi<T>(
   const width = options.width ?? 80;
   const rendered: string[] = [];
   let resolved = false;
-  let result: T | undefined;
   const pending = Promise.withResolvers<T>();
 
   const done = (value: T) => {
@@ -165,7 +164,6 @@ async function runCustomUi<T>(
       tui.hideOverlay();
     }
     resolved = true;
-    result = value;
     pending.resolve(value);
   };
 
@@ -204,9 +202,7 @@ async function runCustomUi<T>(
       await options.onAfterCapture?.();
     }
 
-    if (!resolved) {
-      result = await pending.promise;
-    }
+    const result = await pending.promise;
 
     return { component, handle, rendered, result };
   } finally {
@@ -254,8 +250,7 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
     customOptions?: CustomUiOptions,
   ): Promise<TResult> => {
     const result = await runWithState(factory, options, customOptions);
-    // SAFETY: runCustomUi waits until the custom component supplies a result.
-    return result.result as TResult;
+    return result.result;
   };
 
   return {

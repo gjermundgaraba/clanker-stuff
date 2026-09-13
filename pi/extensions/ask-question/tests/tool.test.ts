@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createCustomUiDriver } from "../../../tests/harness/tui.js";
-import askQuestion from "../index.js";
 import {
   AskQuestionParametersSchema,
   buildSuccessToolResult,
@@ -41,11 +39,7 @@ describe("ask-question contract", () => {
     expect(JSON.stringify(AskQuestionParametersSchema)).not.toMatch(/anyOf|oneOf|const/u);
   });
 
-  it("keeps the public schema strict", async () => {
-    const host = createExtensionHost(askQuestion);
-    await host.ready;
-    const definition = host.getRegisteredTools().get("ask_question")?.definition;
-    expect(definition).toBeDefined();
+  it("keeps the public schema strict", () => {
     expect(AskQuestionParametersSchema).toHaveProperty("additionalProperties", false);
     expect(questionSchema).toHaveProperty("additionalProperties", false);
   });

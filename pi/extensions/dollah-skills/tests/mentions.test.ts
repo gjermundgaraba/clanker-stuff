@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createSyntheticSourceInfo, parseSkillBlock } from "@earendil-works/pi-coding-agent";
-import type { BeforeAgentStartEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { BeforeAgentStartEvent } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -12,7 +12,7 @@ import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import type { ExtensionHostOptions } from "../../../tests/harness/extension-host.js";
 import { createIdentityTheme, renderComponent } from "../../../tests/harness/tui.js";
-import { createSkillMentions } from "../mentions.js";
+import extension from "../index.js";
 
 const SOURCE_INFO = createSyntheticSourceInfo("<test>", {
   origin: "top-level",
@@ -28,16 +28,7 @@ const InjectedSkillResultSchema = Type.Object({
 });
 
 const createMentionHost = (commands: ExtensionHostOptions["commands"] = []) =>
-  createExtensionHost(
-    (pi: ExtensionAPI) => {
-      const mentions = createSkillMentions(pi);
-      pi.registerMessageRenderer("codex-skills", mentions.render);
-      pi.on("session_start", (_event, ctx) => mentions.install(ctx));
-      pi.on("before_agent_start", (event, ctx) => mentions.inject(event, ctx));
-      pi.on("input", (event, ctx) => mentions.injectStreaming(event, ctx));
-    },
-    { commands },
-  );
+  createExtensionHost(extension, { commands });
 
 const createSkillHost = () =>
   createMentionHost([

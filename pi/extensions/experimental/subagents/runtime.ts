@@ -327,23 +327,6 @@ const ignored = async (promise: Promise<unknown>): Promise<void> => {
   }
 };
 
-interface VoidDeferred {
-  promise: Promise<void>;
-  reject: (cause?: unknown) => void;
-  resolve: () => void;
-}
-
-const createVoidDeferred = (): VoidDeferred => {
-  const deferred = Promise.withResolvers<undefined>();
-  return {
-    promise: deferred.promise,
-    reject: deferred.reject,
-    resolve: () => {
-      deferred.resolve(undefined);
-    },
-  };
-};
-
 export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   const sessionDir = path.join(request.dataDir, "sessions");
   const materialized = createMaterializedSession(request, sessionDir);
@@ -383,15 +366,14 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     let poisonError: PermanentChildError | undefined;
     const customStarts: string[] = [];
     const startedCustom = new Set<string>();
-    const pendingCustom = new Map<string, VoidDeferred>();
+    const pendingCustom = new Map<string, PromiseWithResolvers<void>>();
     const pendingPassive: RuntimeMessage[] = [];
     const terminatingToolCalls = new Set<string>();
     interface ActiveAttempt {
-      accepted: VoidDeferred;
-      boundary: unknown;
-      cancellation: VoidDeferred;
+      accepted: PromiseWithResolvers<void>;
+      cancellation: PromiseWithResolvers<void>;
       cancellationError?: Error;
-      finished: VoidDeferred;
+      finished: PromiseWithResolvers<void>;
       preflight: boolean;
       userSeen: boolean;
     }
@@ -725,13 +707,12 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       if (session.isStreaming || activeAttempt !== undefined) {
         throw new Error("Child is already running");
       }
-      const accepted = createVoidDeferred();
-      const cancellation = createVoidDeferred();
-      const finished = createVoidDeferred();
+      const accepted = Promise.withResolvers<void>();
+      const cancellation = Promise.withResolvers<void>();
+      const finished = Promise.withResolvers<void>();
       const boundary = session.state.messages.at(-1);
       const attempt: ActiveAttempt = {
         accepted,
-        boundary,
         cancellation,
         finished,
         preflight: true,
@@ -848,7 +829,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       },
       dispose() {
         if (disposal === undefined) {
-          const deferred = createVoidDeferred();
+          const deferred = Promise.withResolvers<void>();
           disposal = deferred.promise;
           void (async () => {
             const failure = new PermanentChildError("Child runtime was disposed");
@@ -904,7 +885,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           return startTurn({ text: message.content });
         }
         const { communicationId: deliveryId } = message.details;
-        const accepted = createVoidDeferred();
+        const accepted = Promise.withResolvers<void>();
         pendingCustom.set(deliveryId, accepted);
         const streaming = session.isStreaming;
         if (streaming && !triggerTurn) {

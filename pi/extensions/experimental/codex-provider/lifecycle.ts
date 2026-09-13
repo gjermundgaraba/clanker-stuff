@@ -84,8 +84,6 @@ const CONSTRAINED_SAMPLING_BY_TOOL = new Map([
 
 const STATUS_KEY = "codex-provider";
 const STATUS_MESSAGE = "Compacting with OpenAI Codex…";
-const WireValueSchema = Type.Unknown();
-type WireValue = Static<typeof WireValueSchema>;
 const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type JsonRecord = Static<typeof JsonRecordSchema>;
 const TypeTaggedSchema = Type.Object({ type: Type.String() });
@@ -112,6 +110,7 @@ const FinalizedResponsesEnvelopeSchema = Type.Intersect([
 ]);
 
 type SupportedModel = Model<"openai-codex-responses">;
+type SerializedResponseItem = ReturnType<typeof convertResponsesMessages>[number];
 
 interface SessionBeforeCompactResult {
   readonly cancel?: boolean;
@@ -238,9 +237,9 @@ export const resolveCheckpointPhase = (options: {
   return options.carrier === "inline" ? "pre-sampling" : "standalone";
 };
 
-const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
+const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
-const isUnknownArray = (value: WireValue): value is WireValue[] => Array.isArray(value);
+const isUnknownArray = (value: unknown): value is unknown[] => Array.isArray(value);
 
 const isAbortError = (cause: unknown) =>
   (Value.Check(NamedErrorSchema, cause) && cause.name === "AbortError") ||
@@ -254,7 +253,7 @@ export const isSupportedLifecycleModel = (
 export const hasResolvedLifecycleAuth = (apiKey?: string): apiKey is string =>
   apiKey !== undefined && apiKey.trim().length > 0;
 
-const hashJsonClone = (value: WireValue) => {
+const hashJsonClone = (value: unknown) => {
   const serialized = JSON.stringify(value);
   if (!serialized) {
     throw new Error("Value is not JSON serializable");
@@ -337,7 +336,7 @@ const retainedFinalizedInput = (input: readonly ResponsesInputItem[], model: Sup
       continue;
     }
     const content = Array.isArray(item.content)
-      ? item.content.map((part: WireValue) => {
+      ? item.content.map((part: unknown) => {
           if (!Value.Check(ImageItemSchema, part)) {
             return part;
           }
@@ -684,7 +683,7 @@ const snapshotLifecycleRequestState = (
 };
 
 /** UI calls must not throw after reload invalidates ctx. */
-const withUi = (ctx: ExtensionContext, run: () => void): void => {
+const withUi = (run: () => void): void => {
   try {
     run();
   } catch {
@@ -703,13 +702,13 @@ const notifyOnce = (
     return;
   }
   state.notified.add(key);
-  withUi(ctx, () => {
+  withUi(() => {
     ctx.ui.notify(message, type);
   });
 };
 
 const setLifecycleStatus = (ctx: ExtensionContext, message: string | undefined): void => {
-  withUi(ctx, () => {
+  withUi(() => {
     ctx.ui.setStatus(STATUS_KEY, message);
   });
 };
@@ -1092,7 +1091,7 @@ const contextSourceMessages = (
     ? activeCheckpoint.tail.flatMap(sessionEntryToContextMessages)
     : buildSessionContext([...branch]).messages;
 
-const diagnosticContentType = (content: WireValue) => {
+const diagnosticContentType = (content: unknown) => {
   if (Value.Check(TypeTaggedSchema, content)) {
     return content.type;
   }
@@ -1123,7 +1122,7 @@ const messageDiagnostic = (message: ContextEvent["messages"][number] | undefined
   }
   const content = "content" in message ? message.content : undefined;
   const contentTypes = Array.isArray(content)
-    ? content.map((contentItem: WireValue) => diagnosticContentType(contentItem))
+    ? content.map((contentItem: unknown) => diagnosticContentType(contentItem))
     : [diagnosticContentType(content)];
   return {
     contentTypes,
@@ -1188,7 +1187,9 @@ export const buildContextFrameDiagnostic = (options: {
   } as const;
 };
 
-const jsonInputClone = (input: readonly unknown[]): readonly ResponsesInputItem[] => {
+const jsonInputClone = (
+  input: readonly (ResponsesInputItem | SerializedResponseItem)[],
+): readonly ResponsesInputItem[] => {
   const serialized = JSON.stringify(input);
   if (!serialized) {
     throw new Error("Responses input is not JSON serializable");
@@ -1202,7 +1203,7 @@ const jsonInputClone = (input: readonly unknown[]): readonly ResponsesInputItem[
 
 const FALLBACK_ASSISTANT_ID = /^msg_pi_\d+(?:_\d+)?$/u;
 
-const assistantMessageItems = (input: readonly unknown[]) =>
+const assistantMessageItems = (input: readonly (ResponsesInputItem | SerializedResponseItem)[]) =>
   input.filter((item) => Value.Check(AssistantMessageItemSchema, item));
 
 interface AssistantIdMap {
@@ -1210,8 +1211,8 @@ interface AssistantIdMap {
 }
 
 export const buildFallbackAssistantIdMap = (
-  markerfulInput: readonly unknown[],
-  logicalInput: readonly unknown[],
+  markerfulInput: readonly (ResponsesInputItem | SerializedResponseItem)[],
+  logicalInput: readonly (ResponsesInputItem | SerializedResponseItem)[],
 ): AssistantIdMap => {
   const markerful = assistantMessageItems(markerfulInput);
   const logical = assistantMessageItems(logicalInput);
@@ -1260,8 +1261,8 @@ export const correctFallbackAssistantIds = (
 };
 
 export const hasMarkerFreeStructuralParity = (
-  markerfulInput: readonly unknown[],
-  logicalInput: readonly unknown[],
+  markerfulInput: readonly (ResponsesInputItem | SerializedResponseItem)[],
+  logicalInput: readonly (ResponsesInputItem | SerializedResponseItem)[],
   nonce: string,
   fallbackAssistantIds: Readonly<Record<string, string>>,
 ) => {
@@ -1553,7 +1554,7 @@ const runContextHook = (
 export type FinalizedResponsesEnvelope = Static<typeof FinalizedResponsesEnvelopeSchema>;
 
 export const parseFinalizedResponsesEnvelope = (
-  payload: WireValue,
+  payload: unknown,
   model: SupportedModel,
 ): FinalizedResponsesEnvelope | undefined => {
   if (!Value.Check(FinalizedResponsesEnvelopeSchema, payload)) {
@@ -1619,7 +1620,7 @@ type FinalizedReplayPreparation =
     };
 
 const prepareFinalizedReplay = (
-  payload: WireValue,
+  payload: unknown,
   model: Model<string> | undefined,
   frame: RequestFrame,
   branch: readonly SessionEntry[],
@@ -1904,10 +1905,10 @@ const runUnframedCandidateHook = async (
   state: LifecycleState,
   candidate: UnframedCandidate,
   headers: Readonly<ProviderHeaders> | undefined,
-  payload: WireValue,
+  payload: unknown,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
-): Promise<WireValue> => {
+): Promise<unknown> => {
   const { model } = ctx;
   if (
     candidate.generation !== state.generation ||
@@ -2017,10 +2018,10 @@ const runBeforeProviderRequestHook = async (
   pi: Parameters<ExtensionFactory>[0],
   state: LifecycleState,
   headers: Readonly<ProviderHeaders> | undefined,
-  payload: WireValue,
+  payload: unknown,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
-): Promise<WireValue> => {
+): Promise<unknown> => {
   const { frame } = state;
   if (!frame) {
     const { candidate } = state;

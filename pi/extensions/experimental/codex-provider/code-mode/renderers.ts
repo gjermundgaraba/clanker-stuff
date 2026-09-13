@@ -25,7 +25,6 @@ import {
   PrefixedComponent,
   sanitizeDisplayText,
 } from "../tools/renderers.js";
-import type { Unparsed } from "../tools/renderers.js";
 import {
   cachedBox,
   cachedLines,
@@ -34,7 +33,7 @@ import {
 } from "../tools/render-components.js";
 
 import { codeModeOutput } from "./output-display.js";
-import type { NestedTool, RuntimeToolTrace, RuntimeValue } from "./types.js";
+import type { NestedTool, RuntimeToolTrace } from "./types.js";
 import { RuntimeToolTraceSchema } from "./types.js";
 
 type ToolRenderContext = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
@@ -96,7 +95,7 @@ export const codeModeRenderers = (
   },
 });
 
-const textContent = (result: Pick<AgentToolResult<RuntimeValue>, "content">): string =>
+const textContent = (result: Pick<AgentToolResult<unknown>, "content">): string =>
   result.content
     .filter((item): item is { type: "text"; text: string } => item.type === "text")
     .map((item) => item.text)
@@ -164,7 +163,7 @@ const outcomeColor = (outcome: Outcome) =>
 const outcomeGlyph = (outcome: Outcome): string =>
   outcome === "error" ? "✗" : outcome === "running" ? "●" : "✓";
 
-const formatExecCall = (args: Unparsed, theme: Theme): string => {
+const formatExecCall = (args: unknown, theme: Theme): string => {
   const title = theme.fg("toolTitle", theme.bold("Exec"));
   if (!Value.Check(ExecArgsSchema, args)) return `${title} ${theme.fg("error", "[invalid arg]")}`;
   const code = args.code;
@@ -181,14 +180,14 @@ const formatExecCall = (args: Unparsed, theme: Theme): string => {
     : [header, ...formatCodeBlock(source, "javascript").map((line) => `  ${line}`)].join("\n");
 };
 
-const actionLabel = (kind: Kind, args: Unparsed): string =>
+const actionLabel = (kind: Kind, args: unknown): string =>
   kind === "exec"
     ? "Exec"
     : Value.Check(WaitArgsSchema, args) && args.terminate === true
       ? "Terminate"
       : "Wait";
 
-const callContent = (kind: Kind, args: Unparsed, theme: Theme, expanded: boolean): Component => {
+const callContent = (kind: Kind, args: unknown, theme: Theme, expanded: boolean): Component => {
   if (kind === "exec") {
     return codeBlockComponent(
       formatExecCall(args, theme),
@@ -327,7 +326,7 @@ const selectTraces = (
 };
 
 const resultStatus = (
-  status: RuntimeValue,
+  status: string | undefined,
   scriptError: boolean,
   traces: RuntimeToolTrace[],
   theme: Theme,
@@ -353,7 +352,7 @@ const countLabel = (traces: RuntimeToolTrace[]): string => {
 
 const renderCodeModeResult = (
   kind: Kind,
-  result: AgentToolResult<RuntimeValue>,
+  result: AgentToolResult<unknown>,
   options: ToolRenderResultOptions,
   theme: Theme,
   context: RenderContext,
@@ -373,7 +372,8 @@ const renderCodeModeResult = (
   }
   const scriptError =
     "scriptError" in details && typeof details.scriptError === "string" ? details.scriptError : "";
-  const status = "status" in details ? details.status : undefined;
+  const status =
+    "status" in details && typeof details.status === "string" ? details.status : undefined;
   const dropped =
     "droppedTraceCount" in details && typeof details.droppedTraceCount === "number"
       ? details.droppedTraceCount

@@ -196,15 +196,11 @@ const fauxRegistrationFacade = (
   unregister: () => void,
 ): FauxProviderRegistration => ({
   api: faux.api,
-  appendResponses: (responses) => {
-    faux.appendResponses(responses);
-  },
-  getModel: () => faux.getModel(),
-  getPendingResponseCount: () => faux.getPendingResponseCount(),
+  appendResponses: faux.appendResponses,
+  getModel: faux.getModel.bind(faux),
+  getPendingResponseCount: faux.getPendingResponseCount,
   models: faux.models,
-  setResponses: (responses) => {
-    faux.setResponses(responses);
-  },
+  setResponses: faux.setResponses,
   state: faux.state,
   unregister,
 });

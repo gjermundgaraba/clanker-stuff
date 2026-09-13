@@ -1,17 +1,19 @@
+import { okFetch } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   fetchXaiUsage,
-  parseXaiMonthlyPayload,
-  parseXaiUsagePayloads,
-  parseXaiWeeklyPayload,
+  mapXaiMonthlyPayload,
+  mapXaiUsagePayloads,
+  mapXaiWeeklyPayload,
 } from "../../adapters/xai.js";
 import type { ProviderAuthClient } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
+import { defaultFetchJson } from "../../http.js";
 
 describe("xai monthly parsing", () => {
   it("computes remaining from used/monthlyLimit moneyish values", () => {
-    const window = parseXaiMonthlyPayload({
+    const window = mapXaiMonthlyPayload({
       config: {
         billingPeriodEnd: "2026-08-01T00:00:00.000Z",
         monthlyLimit: { val: 100 },
@@ -28,7 +30,7 @@ describe("xai monthly parsing", () => {
 
   it("treats limit 0 with usage as 0% remaining", () => {
     expect(
-      parseXaiMonthlyPayload({
+      mapXaiMonthlyPayload({
         config: { monthlyLimit: 0, used: 5 },
       })?.remainingPercent,
     ).toBe(0);
@@ -37,7 +39,7 @@ describe("xai monthly parsing", () => {
 
 describe("xai weekly parsing", () => {
   it("maps creditUsagePercent and prefers currentPeriod.end", () => {
-    const window = parseXaiWeeklyPayload({
+    const window = mapXaiWeeklyPayload({
       config: {
         billingPeriodEnd: "2026-07-30T00:00:00.000Z",
         creditUsagePercent: 20,
@@ -57,7 +59,7 @@ describe("xai weekly parsing", () => {
 
   it("omits weekly usage when the percentage is missing", () => {
     expect(
-      parseXaiWeeklyPayload({
+      mapXaiWeeklyPayload({
         config: {
           billingPeriodEnd: "2026-07-28T00:00:00.000Z",
           currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY" },
@@ -68,7 +70,7 @@ describe("xai weekly parsing", () => {
 
   it("rejects non-weekly typed periods", () => {
     expect(
-      parseXaiWeeklyPayload({
+      mapXaiWeeklyPayload({
         config: {
           creditUsagePercent: 10,
           currentPeriod: { type: "USAGE_PERIOD_TYPE_MONTHLY" },
@@ -80,7 +82,7 @@ describe("xai weekly parsing", () => {
 
 describe("xai combined payloads", () => {
   it("succeeds with monthly only when weekly is absent", () => {
-    const result = parseXaiUsagePayloads(
+    const result = mapXaiUsagePayloads(
       {
         config: {
           monthlyLimit: 100,
@@ -101,7 +103,7 @@ describe("xai combined payloads", () => {
   });
 
   it("maps prepaidBalance from the credits payload", () => {
-    const result = parseXaiUsagePayloads(
+    const result = mapXaiUsagePayloads(
       {
         config: {
           monthlyLimit: 22_000,
@@ -139,10 +141,11 @@ describe("xai fetch", () => {
         source: "XAI_API_KEY",
       }),
     };
-    const fetchJson = vi.fn<FetchJson>();
+    const client = { fetchJson: okFetch(undefined) } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
     const result = await fetchXaiUsage({
       authClient,
-      fetchJson,
+      fetchJson: client.fetchJson,
       now: () => 1,
     });
     expect(result).toStrictEqual({
@@ -162,24 +165,23 @@ describe("xai fetch", () => {
         source: "OAuth",
       }),
     };
-    const fetchJson = vi.fn<FetchJson>(async (url) => {
-      if (url.includes("format=credits")) {
-        return { message: "HTTP 500", ok: false };
-      }
-      return {
-        json: {
+    const client = {
+      fetchJson: async (url, schema, options) => {
+        if (url.includes("format=credits")) {
+          return { kind: "response", message: "HTTP 500", ok: false };
+        }
+        return okFetch({
           config: {
             monthlyLimit: 200,
             used: 50,
           },
-        },
-        ok: true,
-      };
-    });
+        })(url, schema, options);
+      },
+    } satisfies { fetchJson: FetchJson };
 
     const result = await fetchXaiUsage({
       authClient,
-      fetchJson,
+      fetchJson: client.fetchJson,
       now: () => 9,
     });
     expect(result).toStrictEqual({
@@ -200,17 +202,17 @@ describe("xai fetch", () => {
         source: "OAuth",
       }),
     };
-    const fetchJson = vi.fn<FetchJson>(async (url) => {
-      if (!url.includes("format=credits")) {
-        await monthlyGate.promise;
-      }
-      return {
-        json: { config: { monthlyLimit: 100, used: 0 } },
-        ok: true,
-      };
-    });
+    const client = {
+      fetchJson: async (url, schema, options) => {
+        if (!url.includes("format=credits")) {
+          await monthlyGate.promise;
+        }
+        return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, options);
+      },
+    } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
 
-    const result = fetchXaiUsage({ authClient, fetchJson, now: () => 1 });
+    const result = fetchXaiUsage({ authClient, fetchJson: client.fetchJson, now: () => 1 });
     await vi.waitFor(() => {
       expect(fetchJson).toHaveBeenCalledTimes(2);
     });
@@ -227,19 +229,102 @@ describe("xai fetch", () => {
         source: "OAuth",
       }),
     };
-    const fetchJson = vi.fn<FetchJson>(async (url) => {
-      if (url.includes("format=credits")) {
-        return creditsGate.promise;
-      }
-      return { message: "HTTP 500", ok: false };
-    });
+    const client = {
+      fetchJson: async (url) => {
+        if (url.includes("format=credits")) {
+          return creditsGate.promise;
+        }
+        return { kind: "response", message: "HTTP 500", ok: false };
+      },
+    } satisfies { fetchJson: FetchJson };
 
-    const result = await fetchXaiUsage({ authClient, fetchJson, now: () => 1 });
+    const result = await fetchXaiUsage({ authClient, fetchJson: client.fetchJson, now: () => 1 });
 
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "HTTP 500" },
       ok: false,
     });
     creditsGate.reject(new Error("credits failed after monthly returned"));
+  });
+});
+
+describe("xai optional payload boundaries", () => {
+  it.each([200, 204])(
+    "retains weekly usage after an empty monthly HTTP %i response",
+    async (status) => {
+      vi.stubGlobal("fetch", async (url: string) =>
+        url.includes("format=credits")
+          ? Response.json({ config: { creditUsagePercent: 20, prepaidBalance: { val: 10 } } })
+          : new Response(null, { status }),
+      );
+      try {
+        const result = await fetchXaiUsage({
+          authClient: {
+            getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
+          },
+          fetchJson: defaultFetchJson,
+          now: () => 1,
+        });
+        expect(result).toStrictEqual({
+          ok: true,
+          snapshot: {
+            creditsRemaining: 10,
+            fetchedAt: 1,
+            provider: "xai",
+            windows: [{ id: "week", label: "week", remainingPercent: 80 }],
+          },
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each([
+    { monthly: null, weekly: { config: { creditUsagePercent: 20 } }, ids: ["week"] },
+    { monthly: { config: { monthlyLimit: 100, used: 10 } }, weekly: null, ids: ["month"] },
+    { monthly: { config: {} }, weekly: { config: { creditUsagePercent: 20 } }, ids: ["week"] },
+  ])("maps available windows for $ids", async ({ monthly, weekly, ids }) => {
+    const fetchJson: FetchJson = (url, schema, options) =>
+      okFetch(url.includes("format=credits") ? weekly : monthly)(url, schema, options);
+    const result = await fetchXaiUsage({
+      authClient: { getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }) },
+      fetchJson,
+      now: () => 1,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.snapshot.windows.map(({ id }) => id)).toStrictEqual(ids);
+  });
+
+  it("observes weekly rejection even when the monthly request rejects", async () => {
+    const weekly = Promise.withResolvers<never>();
+    const fetchJson: FetchJson = async (url) => {
+      if (url.includes("format=credits")) return weekly.promise;
+      throw new Error("monthly failed");
+    };
+    await expect(
+      fetchXaiUsage({
+        authClient: {
+          getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }),
+        },
+        fetchJson,
+      }),
+    ).rejects.toThrow("monthly failed");
+    weekly.reject(new Error("weekly failed"));
+  });
+
+  it("keeps valid monthly windows when weekly rejects", async () => {
+    const fetchJson: FetchJson = async (url, schema, options) => {
+      if (url.includes("format=credits")) throw new Error("weekly failed");
+      return okFetch({ config: { monthlyLimit: 100, used: 0 } })(url, schema, options);
+    };
+    const result = await fetchXaiUsage({
+      authClient: { getProviderAuth: async () => ({ auth: { apiKey: "token" }, source: "OAuth" }) },
+      fetchJson,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      snapshot: { windows: [{ id: "month", remainingPercent: 100 }] },
+    });
   });
 });

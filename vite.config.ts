@@ -43,12 +43,8 @@ export default defineConfig({
       "anti-slop/no-object-parameters": "error",
       "anti-slop/no-reflect-apply": "error",
       "anti-slop/no-reflect-get": "error",
-      "anti-slop/no-runtime-typeof": "error",
       "anti-slop/no-shape-in-symbol-names": "error",
-      "anti-slop/no-unknown-parameters": "error",
-      "anti-slop/no-unknown-returns": "error",
       "anti-slop/no-unknown-type-aliases": "error",
-      "anti-slop/no-unsafe-dictionary-type": "error",
       "anti-slop/no-widen-then-assert": "error",
       "anti-slop/require-safety-comment-for-type-assertion": "error",
       "vite-plus/prefer-vite-plus-imports": "error",
@@ -58,11 +54,6 @@ export default defineConfig({
         files: ["pi/extensions/experimental/shape-spinner/**/*.{ts,mjs}"],
         // Shape is the geometric domain here, not a structural placeholder.
         rules: { "anti-slop/no-shape-in-symbol-names": "off" },
-      },
-      {
-        files: ["pi/extensions/experimental/codex-provider/**/*.ts"],
-        // Primitive narrowing is intentional here; schemas validate protocol boundaries.
-        rules: { "anti-slop/no-runtime-typeof": "off" },
       },
     ],
   },

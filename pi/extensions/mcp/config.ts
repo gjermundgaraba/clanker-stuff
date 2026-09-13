@@ -235,8 +235,11 @@ const expandEnvRecord = (
   return expanded;
 };
 
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- Selected-server decoding boundary; validate before expanding any values.
-export const expandMcpServerConfig = (server: unknown): McpServerConfig => {
+export const resolveMcpServer = (config: McpConfig, name: string): McpServerConfig => {
+  const server = config.mcpServers[name];
+  if (server === undefined) {
+    throw new Error(`MCP server ${name} is not configured`);
+  }
   if (!Value.Check(ServerConfigSchema, server)) throw new Error("Invalid MCP server configuration");
   if (server.type === "stdio") {
     return {
@@ -247,16 +250,16 @@ export const expandMcpServerConfig = (server: unknown): McpServerConfig => {
     };
   }
 
-  const oauth =
-    server.oauth === undefined
-      ? undefined
-      : Object.fromEntries(
-          Object.entries(server.oauth).map(([key, value]) => [
-            key,
-            // eslint-disable-next-line anti-slop/no-runtime-typeof -- Already schema-validated; expand only string-valued OAuth fields.
-            typeof value === "string" ? expandEnv(value) : value,
-          ]),
-        );
+  const oauth = server.oauth === undefined ? undefined : { ...server.oauth };
+  if (oauth !== undefined) {
+    if (oauth.authServerMetadataUrl !== undefined) {
+      oauth.authServerMetadataUrl = expandEnv(oauth.authServerMetadataUrl);
+    }
+    if (oauth.clientId !== undefined) oauth.clientId = expandEnv(oauth.clientId);
+    if (oauth.clientName !== undefined) oauth.clientName = expandEnv(oauth.clientName);
+    if (oauth.clientSecret !== undefined) oauth.clientSecret = expandEnv(oauth.clientSecret);
+    if (oauth.scopes !== undefined) oauth.scopes = expandEnv(oauth.scopes);
+  }
   const httpConfig: typeof server = {
     ...server,
     url: expandEnv(server.url),

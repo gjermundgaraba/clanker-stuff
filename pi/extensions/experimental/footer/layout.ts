@@ -6,10 +6,8 @@ import type {
   FooterTruncation,
   FooterWidgetIcon,
 } from "@clanker-stuff/footer-protocol";
-import { FooterWidgetGlyphMapSchema } from "@clanker-stuff/footer-protocol";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { Value } from "typebox/value";
 
 import { hasTerminalControl } from "./config.js";
 import type { FooterConfig } from "./config.js";
@@ -89,12 +87,7 @@ const sanitizePlainText = (value: string): string => {
   let result = "";
   for (const char of value) {
     const code = char.codePointAt(0) ?? 0;
-    result +=
-      code === 0x0a || code === 0x0d
-        ? " "
-        : code < 0x20 || (code >= 0x7f && code <= 0x9f)
-          ? ""
-          : char;
+    result += code === 0x0a || code === 0x0d ? " " : hasTerminalControl(char) ? "" : char;
   }
   return result;
 };
@@ -146,12 +139,7 @@ export const sanitizeNativeStatus = (value: string): string => {
       }
       continue;
     }
-    result +=
-      code === 0x0a || code === 0x0d
-        ? " "
-        : code < 0x20 || (code >= 0x7f && code <= 0x9f)
-          ? ""
-          : char;
+    result += code === 0x0a || code === 0x0d ? " " : hasTerminalControl(char) ? "" : char;
     index += char.length;
   }
   const sanitized = result.trim();
@@ -170,7 +158,7 @@ const renderContent = (content: FooterContent, theme: FooterTheme): string =>
   content.map((span) => renderSpan(span, theme)).join("");
 
 const iconGlyph = (icon: FooterWidgetIcon, family: FooterIconFamily): string => {
-  if (!Value.Check(FooterWidgetGlyphMapSchema, icon.glyphs)) {
+  if (typeof icon.glyphs === "string") {
     return icon.glyphs;
   }
   const order: FooterIconFamily[] =
@@ -194,7 +182,7 @@ const renderLiveWidget = (
   theme: FooterTheme,
 ): string => {
   if (widget.source === "native") {
-    return sanitizeNativeStatus(widget.snapshot.content.map((span) => span.text).join(""));
+    return widget.snapshot.content.map((span) => span.text).join("");
   }
 
   const widgetIcon = widget.snapshot.icon === false ? undefined : widget.snapshot.icon;

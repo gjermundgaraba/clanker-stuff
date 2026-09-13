@@ -10,33 +10,17 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from pi_evals.jsonl import read_jsonl_objects
+
 SUITE_DIR = Path(__file__).parent
 PIN_PATH = SUITE_DIR / "mem2act.json"
 RUNTIME_PATH = SUITE_DIR / "runtime" / "mem2act.mjs"
 LEVELS = ("L1", "L2", "L3", "L4")
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
-        if not line:
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ValueError(f"{path}:{number}: invalid JSON") from error
-        if not isinstance(value, dict):
-            raise ValueError(f"{path}:{number}: expected an object")
-        records.append(value)
-    return records
-
-
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def download_sources(pin: dict[str, Any], cache_dir: Path) -> dict[str, Path]:
@@ -171,7 +155,7 @@ if (predicted?.arguments && !Array.isArray(predicted.arguments) && typeof predic
   const actual = leaves(predicted.arguments);
   const expected = leaves(gold);
   const overlap = [...actual].filter((leaf) => expected.has(leaf)).length;
-  parameterF1 = actual.size + expected.size === 0 ? 1 : 2 * overlap / (actual.size + expected.size);
+  parameterF1 = 2 * overlap / (actual.size + expected.size);
   exactArguments = Number(JSON.stringify(canonical(predicted.arguments)) === JSON.stringify(canonical(gold)));
 }}
 writeFileSync("/logs/verifier/reward.json", JSON.stringify({{
@@ -257,8 +241,8 @@ gpus = 0
 def prepare(selection: str, output: Path, cache_dir: Path, pin_path: Path = PIN_PATH) -> None:
     pin = json.loads(pin_path.read_text(encoding="utf-8"))
     paths = download_sources(pin, cache_dir)
-    qas = read_jsonl(paths["qa_dataset.jsonl"])
-    sessions = read_jsonl(paths["toolmem_conversation.jsonl"])
+    qas = read_jsonl_objects(paths["qa_dataset.jsonl"])
+    sessions = read_jsonl_objects(paths["toolmem_conversation.jsonl"])
     resolved, skipped = resolve_records(qas, sessions)
     if len(resolved) != pin["resolved_count"] or skipped != pin["skipped_qa_ids"]:
         raise ValueError("upstream Mem2Act join no longer matches pinned selection")

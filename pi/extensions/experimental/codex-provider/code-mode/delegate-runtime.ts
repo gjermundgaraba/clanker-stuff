@@ -3,12 +3,7 @@ import { nestedToolKey } from "./protocol.js";
 import type { DelegateRequestMessage, DelegateResponse } from "./protocol.js";
 import { CodeModeTraceStore } from "./trace-store.js";
 import { toolResultFromValue, truncateTraceText } from "./trace-values.js";
-import type {
-  NestedTool,
-  RuntimeResponse,
-  RuntimeToolResult,
-  ToolExecutionContext,
-} from "./types.js";
+import type { NestedTool, RuntimeResponse, ToolExecutionContext } from "./types.js";
 
 const MAX_TRACE_ERROR_CHARS = 16_384;
 const MAX_NOTIFICATION_CHARS = 16_384;
@@ -161,7 +156,7 @@ export class CodeModeDelegateRuntime {
         this.traces.emitUpdate(cellId, context);
       },
       onUpdate: (update) => {
-        trace.result = this.traces.captureResult(cellId, trace, normalizeResult(update));
+        trace.result = this.traces.captureResult(cellId, trace, update);
         this.traces.emitUpdate(cellId, context);
       },
       toolCallId: trace.id,
@@ -245,21 +240,3 @@ export class CodeModeDelegateRuntime {
     }
   }
 }
-
-const normalizeResult = (result: {
-  content: (
-    | { type: "text"; text: string }
-    | { type: "image"; data: string; mimeType: string }
-    | { type: string }
-  )[];
-  details?: unknown;
-}): RuntimeToolResult => ({
-  content: result.content.filter(
-    (
-      item,
-    ): item is { type: "text"; text: string } | { type: "image"; data: string; mimeType: string } =>
-      (item.type === "text" && "text" in item) ||
-      (item.type === "image" && "data" in item && "mimeType" in item),
-  ),
-  details: result.details,
-});

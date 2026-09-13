@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   setMcpServer,
-  expandMcpServerConfig,
+  resolveMcpServer,
   listMcpServers,
   loadMcpConfig,
   ServerConfigSchema,
@@ -34,6 +34,49 @@ describe("MCP config schema validation", () => {
   ])("accepts $type server configuration", (server) => {
     expect(Value.Check(ServerConfigSchema, server)).toBe(true);
     expect(Value.Check(ServerConfigSchema, { ...server, extra: true })).toBe(false);
+  });
+});
+
+describe(resolveMcpServer, () => {
+  it("reports a missing selected server", () => {
+    expect(() => resolveMcpServer({ mcpServers: {} }, "missing")).toThrow(
+      "MCP server missing is not configured",
+    );
+  });
+
+  it("preserves absent OAuth keys and does not mutate the source", () => {
+    const oauth = { callbackPort: 33418 };
+    const config = {
+      mcpServers: { remote: { type: "http", url: "https://example.com", oauth } },
+    };
+    expect(resolveMcpServer(config, "remote")).toStrictEqual({
+      type: "http",
+      url: "https://example.com",
+      headers: undefined,
+      oauth: { callbackPort: 33418 },
+    });
+    expect(oauth).toStrictEqual({ callbackPort: 33418 });
+  });
+
+  it.each(["url", "authServerMetadataUrl"])("checks the expanded %s URL scheme", (field) => {
+    vi.stubEnv("MCP_TEST_BAD_URL", "file:///tmp/mcp");
+    const config = {
+      mcpServers: {
+        remote: {
+          type: "http",
+          url: field === "url" ? envVarRef("MCP_TEST_BAD_URL") : "https://example.com",
+          oauth:
+            field === "authServerMetadataUrl"
+              ? { authServerMetadataUrl: envVarRef("MCP_TEST_BAD_URL") }
+              : {},
+        },
+      },
+    };
+    try {
+      expect(() => resolveMcpServer(config, "remote")).toThrow("MCP URLs must use HTTP or HTTPS");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -211,7 +254,7 @@ describe(loadMcpConfig, () => {
 
     const options = { cwd: t.projectDir, projectTrusted: true };
     const config = await loadMcpConfig(options);
-    expect(() => expandMcpServerConfig(config.mcpServers.bad)).toThrow("Invalid MCP server");
+    expect(() => resolveMcpServer(config, "bad")).toThrow("Invalid MCP server");
     expect(await listMcpServers(options)).toEqual([
       { name: "bad", scope: "project", error: "Invalid server configuration" },
     ]);
@@ -242,6 +285,8 @@ describe(loadMcpConfig, () => {
             authServerMetadataUrl: `${envVarRef("MCP_TEST_BASE_URL")}/metadata`,
             clientId: envVarRef("MCP_TEST_CLIENT_ID"),
             clientSecret: envVarRef("MCP_TEST_CLIENT_SECRET"),
+            clientName: `Pi ${envVarRef("MCP_TEST_CLIENT_ID")}`,
+            callbackPort: 33418,
             scopes: `tools:${envVarRef("MCP_TEST_CLIENT_ID")}`,
           },
           type: "http",
@@ -251,13 +296,11 @@ describe(loadMcpConfig, () => {
     });
 
     const config = await loadMcpConfig();
-    const local = config.mcpServers.local;
-    const remote = config.mcpServers.remote;
 
     expect({
       mcpServers: {
-        local: expandMcpServerConfig(local),
-        remote: expandMcpServerConfig(remote),
+        local: resolveMcpServer(config, "local"),
+        remote: resolveMcpServer(config, "remote"),
       },
     }).toStrictEqual({
       mcpServers: {
@@ -273,6 +316,8 @@ describe(loadMcpConfig, () => {
             authServerMetadataUrl: "https://api.example.com/metadata",
             clientId: "oauth-client",
             clientSecret: "oauth-secret",
+            clientName: "Pi oauth-client",
+            callbackPort: 33418,
             scopes: "tools:oauth-client",
           },
           type: "http",
@@ -298,8 +343,7 @@ describe(loadMcpConfig, () => {
 
     await expect(listMcpServers({})).resolves.toStrictEqual([{ name: "remote", scope: "global" }]);
     const config = await loadMcpConfig();
-    const remote = config.mcpServers.remote;
-    expect(() => expandMcpServerConfig(remote)).toThrow(
+    expect(() => resolveMcpServer(config, "remote")).toThrow(
       "missing environment variable in MCP config: MCP_TEST_MISSING_TOKEN",
     );
   });

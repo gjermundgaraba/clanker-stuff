@@ -9,9 +9,7 @@ import {
   resolveActiveCheckpointBoundary,
   sha256Canonical,
 } from "../checkpoint.js";
-import type { CheckpointInput } from "../checkpoint.js";
 import { sessionEntry as entry } from "./fixtures.js";
-import type { WireValue } from "./fixtures.js";
 
 const compaction = (encryptedContent = "enc_new") => ({
   encrypted_content: encryptedContent,
@@ -27,9 +25,7 @@ const user = (text = "hello") => ({
 });
 
 interface CheckpointFixture {
-  [key: string]: WireValue;
   identity: {
-    [key: string]: WireValue;
     api: string;
     baseUrl: string | null;
     model: string;
@@ -38,7 +34,7 @@ interface CheckpointFixture {
   phase: string;
   protocol: string;
   reason: string;
-  replacement: WireValue[];
+  replacement: unknown[];
   replacementSha256: string;
   response: {
     id: string;
@@ -101,13 +97,13 @@ const validCheckpoint = (): CheckpointFixture => {
   };
 };
 
-const parseKind = (value: CheckpointInput) => {
+const parseKind = (value: unknown) => {
   const parsed = parseCheckpoint(value);
   return parsed.ok ? "ok" : "invalid";
 };
 
 const mutate = (change: (checkpoint: ReturnType<typeof validCheckpoint>) => void) => {
-  const checkpoint = structuredClone(validCheckpoint());
+  const checkpoint = validCheckpoint();
   change(checkpoint);
   return checkpoint;
 };

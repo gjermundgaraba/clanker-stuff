@@ -76,3 +76,50 @@ describe(parseFooterConfig, () => {
     ).toThrow("terminal controls");
   });
 });
+
+describe("footer config constraints and copying", () => {
+  it.each([
+    { ...DEFAULT_CONFIG, rows: [] },
+    {
+      ...DEFAULT_CONFIG,
+      rows: Array.from({ length: 4 }, () => ({ left: [], center: [], right: [] })),
+    },
+    { ...DEFAULT_CONFIG, separator: "🦄".repeat(9) },
+    { ...DEFAULT_CONFIG, rows: [{ left: ["x".repeat(257)], center: [], right: [] }] },
+    { ...DEFAULT_CONFIG, widgets: { ["🦄".repeat(257)]: {} } },
+  ])("enforces structural limits on load and typed save", async (config) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "footer-limits-"));
+    try {
+      const configPath = path.join(directory, "footer.json");
+      const text = JSON.stringify(config);
+      await writeFile(configPath, text);
+      const store = createFooterConfigStore(configPath);
+      expect((await store.load()).error).toContain("Invalid");
+      await expect(store.save(config)).rejects.toThrow();
+      await expect(readFile(configPath, "utf-8")).resolves.toBe(text);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("uses code-point limits and copies rows and overrides", () => {
+    const source = {
+      ...DEFAULT_CONFIG,
+      separator: "🦄".repeat(8),
+      rows: [{ left: ["🦄".repeat(256)], center: [], right: [] }],
+      widgets: { ["🦄".repeat(256)]: { enabled: false } },
+    };
+    const config = parseFooterConfig(source);
+    source.rows[0].left[0] = "changed";
+    source.widgets["🦄".repeat(256)].enabled = true;
+    expect(config.rows[0]?.left[0]).toBe("🦄".repeat(256));
+    expect(config.widgets["🦄".repeat(256)]).toStrictEqual({ enabled: false });
+    expect(config.separator).toBe("🦄".repeat(8));
+  });
+
+  it("retains semantic separator diagnostics", () => {
+    expect(() => parseFooterConfig({ ...DEFAULT_CONFIG, separator: "\u0085" })).toThrow(
+      "printable code points",
+    );
+  });
+});

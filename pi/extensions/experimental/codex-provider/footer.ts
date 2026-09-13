@@ -3,10 +3,12 @@ import {
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
-  isFooterReadyMessage,
+  FooterReadyMessageSchema,
 } from "@clanker-stuff/footer-protocol";
 import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+import { Value } from "typebox/value";
 
 export const CODE_MODE_STATUS_KEY = "codex-code-mode";
 export const FAST_MODE_STATUS_KEY = "codex-fast";
@@ -77,7 +79,7 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
   };
 
   const readyUnsubscribe = pi.events.on(FOOTER_READY_EVENT, (value) => {
-    if (!isFooterReadyMessage(value)) {
+    if (!Value.Check(FooterReadyMessageSchema, value)) {
       return;
     }
     const { instanceId: readyInstanceId } = value;

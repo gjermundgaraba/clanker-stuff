@@ -1,4 +1,5 @@
-import { existsSync, globSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -40,42 +41,28 @@ export const readJson = (filePath: string): PackageJson => {
   }
 };
 
-const readWorkspaceDirs = (root: string): string[] => {
-  const dirs = readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8")
-    .split(/\r?\n/u)
-    .flatMap((line) => {
-      const match = /^\s*-\s*["']?(?<directory>[^"'#]+?)["']?\s*(?:#.*)?$/u.exec(line);
-      const directory = match?.groups?.directory;
-      return directory === undefined || directory.length === 0 ? [] : [directory];
-    })
-    .flatMap((directory) =>
-      directory.includes("*") ? globSync(directory, { cwd: root }) : [directory],
-    );
+const WorkspaceInventorySchema = Type.Array(Type.Object({ path: Type.String() }));
 
-  if (dirs.every((directory) => directory === ".")) {
-    throw new Error("pnpm-workspace.yaml discovered no package directories");
+export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] => {
+  const workspaceRoot = realpathSync(root);
+  const inventory: unknown = JSON.parse(
+    execFileSync("pnpm", ["list", "--recursive", "--depth", "-1", "--json"], {
+      cwd: workspaceRoot,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }),
+  );
+  if (!Value.Check(WorkspaceInventorySchema, inventory)) {
+    throw new TypeError("pnpm returned an invalid workspace inventory");
   }
-
-  return dirs;
-};
-
-export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] =>
-  readWorkspaceDirs(root).flatMap((directory) => {
-    const packageJsonPath = path.join(directory, "package.json");
-    const absolutePackageJsonPath = path.join(root, packageJsonPath);
-    if (!existsSync(absolutePackageJsonPath)) {
-      return [];
-    }
-    const packageJson = readJson(absolutePackageJsonPath);
-    return [
-      {
-        dir: directory,
-        name: packageJson.name,
-        packageJson,
-        packageJsonPath,
-      },
-    ];
+  return inventory.map((entry) => {
+    const directory = realpathSync(entry.path);
+    const dir = path.relative(workspaceRoot, directory) || ".";
+    const packageJsonPath = path.join(dir, "package.json");
+    const packageJson = readJson(path.join(directory, "package.json"));
+    return { dir, name: packageJson.name, packageJson, packageJsonPath };
   });
+};
 
 export const publishableWorkspacePackages = (root = process.cwd()): WorkspacePackage[] =>
   readWorkspacePackages(root).filter(({ packageJson }) => packageJson.private === false);

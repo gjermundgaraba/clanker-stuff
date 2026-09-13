@@ -5,7 +5,6 @@ import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import { installWebSocketProbe } from "../scripts/live-fast.js";
-import type { WireValue } from "./fixtures.js";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 
@@ -24,26 +23,26 @@ describe("live fast runner", () => {
     const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
     class FakeWebSocket {
       static readonly instances: FakeWebSocket[] = [];
-      readonly listeners = new Set<(event: { data: WireValue }) => void>();
-      readonly sent: WireValue[] = [];
+      readonly listeners = new Set<(event: { data: unknown }) => void>();
+      readonly sent: unknown[] = [];
 
       constructor() {
         FakeWebSocket.instances.push(this);
       }
 
-      addEventListener(type: string, listener: (event: { data: WireValue }) => void) {
+      addEventListener(type: string, listener: (event: { data: unknown }) => void) {
         if (type === "message") {
           this.listeners.add(listener);
         }
       }
 
-      emitMessage(data: WireValue) {
+      emitMessage(data: unknown) {
         for (const listener of this.listeners) {
           listener({ data });
         }
       }
 
-      send(data: WireValue) {
+      send(data: unknown) {
         this.sent.push(data);
       }
     }

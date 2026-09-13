@@ -1,12 +1,12 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, onTestFinished } from "vite-plus/test";
 
 import {
   CodexBarHistorySchema,
-  parseCodexBarHistory,
+  mapCodexBarHistory,
   runCodexBarUsage,
 } from "../../adapters/opencode.js";
 import { Value } from "typebox/value";
@@ -80,7 +80,7 @@ const NOW = Date.parse("2026-08-06T22:30:00Z");
 
 describe("codexbar history parsing", () => {
   it("maps session, weekly, and monthly windows from latest entries", () => {
-    const result = parseCodexBarHistory(sampleHistory(), NOW);
+    const result = mapCodexBarHistory(sampleHistory(), NOW);
 
     expect(result).toStrictEqual({
       ok: true,
@@ -112,7 +112,7 @@ describe("codexbar history parsing", () => {
   });
 
   it("takes only the latest entry from each window", () => {
-    const result = parseCodexBarHistory(
+    const result = mapCodexBarHistory(
       sampleHistory({
         monthly: [
           {
@@ -171,7 +171,7 @@ describe("codexbar history parsing", () => {
   });
 
   it("ignores windows with no entries", () => {
-    const result = parseCodexBarHistory(sampleHistory({ weekly: [] }), NOW);
+    const result = mapCodexBarHistory(sampleHistory({ weekly: [] }), NOW);
 
     expect(result.ok).toBeTruthy();
     if (!result.ok) {
@@ -181,7 +181,7 @@ describe("codexbar history parsing", () => {
   });
 
   it("reads windows from accounts when unscoped is empty", () => {
-    const result = parseCodexBarHistory(
+    const result = mapCodexBarHistory(
       accountsHistory("acct-1", [
         window("session", [
           {
@@ -211,12 +211,18 @@ describe("codexbar history parsing", () => {
   });
 
   it("uses preferredAccountKey to select among multiple accounts", () => {
-    const result = parseCodexBarHistory(
-      accountsHistory(
-        "acct-preferred",
-        [window("session", [{ capturedAt: "2026-08-06T22:11:01Z", usedPercent: 10 }])],
-        "acct-preferred",
-      ),
+    const result = mapCodexBarHistory(
+      {
+        accounts: {
+          "acct-first": [
+            window("session", [{ capturedAt: "2026-08-06T22:11:01Z", usedPercent: 80 }]),
+          ],
+          "acct-preferred": [
+            window("session", [{ capturedAt: "2026-08-06T22:11:01Z", usedPercent: 10 }]),
+          ],
+        },
+        preferredAccountKey: "acct-preferred",
+      },
       NOW,
     );
 
@@ -235,11 +241,10 @@ describe("codexbar history parsing", () => {
     const malformed = "not json";
     expect(Value.Check(CodexBarHistorySchema, malformed)).toBe(false);
     expect(Value.Check(CodexBarHistorySchema, null)).toBe(false);
-    expect(parseCodexBarHistory(undefined, 1).ok).toBeFalsy();
   });
 
   it("returns unavailable when no windows have entries", () => {
-    const result = parseCodexBarHistory({ unscoped: [] }, NOW);
+    const result = mapCodexBarHistory({ unscoped: [] }, NOW);
     expect(result.ok).toBeFalsy();
     if (result.ok) {
       return;
@@ -249,7 +254,7 @@ describe("codexbar history parsing", () => {
 
   it("returns unavailable when rendered timestamps are invalid", () => {
     const invalid = { capturedAt: "not-a-date", usedPercent: 10 };
-    const result = parseCodexBarHistory(
+    const result = mapCodexBarHistory(
       sampleHistory({
         monthly: [invalid],
         session: [invalid],
@@ -267,7 +272,7 @@ describe("codexbar history parsing", () => {
   it("returns unavailable when capturedAt is older than 2 hours", () => {
     const stale = Date.parse("2026-08-06T22:00:00Z");
     const now = stale + 3 * 60 * 60_000;
-    const result = parseCodexBarHistory(
+    const result = mapCodexBarHistory(
       sampleHistory({
         session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
       }),
@@ -284,7 +289,7 @@ describe("codexbar history parsing", () => {
   it("accepts data captured within the staleness threshold", () => {
     const captured = Date.parse("2026-08-06T22:00:00Z");
     const now = captured + 90 * 60_000;
-    const result = parseCodexBarHistory(
+    const result = mapCodexBarHistory(
       sampleHistory({
         session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
       }),
@@ -295,7 +300,7 @@ describe("codexbar history parsing", () => {
   });
 
   it("does not use an unrendered window to make rendered data look fresh", () => {
-    const result = parseCodexBarHistory(
+    const result = mapCodexBarHistory(
       {
         unscoped: [
           window("session", [
@@ -340,6 +345,7 @@ describe("reading codexbar history from disk", () => {
 
   it("reads and parses a history file", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "codexbar-history-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
     const filePath = path.join(dir, "opencodego.json");
     await writeFile(filePath, JSON.stringify(sampleHistory()), "utf-8");
 
@@ -354,8 +360,23 @@ describe("reading codexbar history from disk", () => {
     expect(result.snapshot.windows.at(1)?.remainingPercent).toBe(0);
   });
 
+  it.each([null, { unscoped: "not-an-array" }])(
+    "rejects invalid history at the file boundary",
+    async (payload) => {
+      const dir = await mkdtemp(path.join(tmpdir(), "codexbar-history-"));
+      onTestFinished(() => rm(dir, { recursive: true, force: true }));
+      const filePath = path.join(dir, "opencodego.json");
+      await writeFile(filePath, JSON.stringify(payload), "utf-8");
+      await expect(runCodexBarUsage({ filePath, now: () => NOW })).resolves.toStrictEqual({
+        ok: false,
+        error: { kind: "failure", message: "invalid CodexBar history" },
+      });
+    },
+  );
+
   it("returns failure for corrupt JSON", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "codexbar-history-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
     const filePath = path.join(dir, "opencodego.json");
     await writeFile(filePath, "{ not valid json", "utf-8");
 

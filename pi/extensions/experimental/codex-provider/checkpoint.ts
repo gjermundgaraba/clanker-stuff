@@ -80,9 +80,6 @@ export type ActiveCheckpointBoundary =
     };
 
 const strict = { additionalProperties: false };
-const WireValueSchema = Type.Unknown();
-export type CheckpointInput = Static<typeof WireValueSchema>;
-type WireValue = CheckpointInput;
 
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type UnknownRecord = Static<typeof UnknownRecordSchema>;
@@ -237,7 +234,7 @@ const validationError = (message: string): never => {
   throw new Error(message);
 };
 
-const isPlainRecord = (value: WireValue): value is UnknownRecord => {
+const isPlainRecord = (value: unknown): value is UnknownRecord => {
   try {
     if (!Value.Check(UnknownRecordSchema, value)) {
       return false;
@@ -277,7 +274,7 @@ export const normalizeBaseUrl = (value: string | null | undefined) => {
 };
 
 export const parseCompactionItem = (
-  value: WireValue,
+  value: unknown,
   options: {
     readonly allowAlias?: boolean;
     readonly allowResponseMetadata?: boolean;
@@ -308,7 +305,7 @@ export const parseCompactionItem = (
 };
 
 export const parseRealUserInputItem = (
-  value: WireValue,
+  value: unknown,
   path = "replacement item",
 ): RealUserInputItem => {
   if (!Value.Check(RealUserInputItemSchema, value)) {
@@ -317,17 +314,14 @@ export const parseRealUserInputItem = (
   return Value.Clone(value);
 };
 
-export const parseAgentMessageItem = (
-  value: WireValue,
-  path: string,
-): CheckpointAgentMessageItem => {
+export const parseAgentMessageItem = (value: unknown, path: string): CheckpointAgentMessageItem => {
   if (!Value.Check(CheckpointAgentMessageItemSchema, value)) {
     throw new Error(`${path} must be a canonical agent message`);
   }
   return Value.Clone(value);
 };
 
-const canonicalize = (value: WireValue, ancestors: WeakSet<object>): string => {
+const canonicalize = (value: unknown, ancestors: WeakSet<object>): string => {
   if (value === null) {
     return "null";
   }
@@ -364,9 +358,9 @@ const canonicalize = (value: WireValue, ancestors: WeakSet<object>): string => {
   return validationError("canonical JSON contains a non-JSON value");
 };
 
-export const canonicalJson = (value: WireValue) => canonicalize(value, new WeakSet());
+export const canonicalJson = (value: unknown) => canonicalize(value, new WeakSet());
 
-export const sha256Canonical = (value: WireValue) => hash("sha256", canonicalJson(value));
+export const sha256Canonical = (value: unknown) => hash("sha256", canonicalJson(value));
 
 const parseCheckpointValue = (value: Static<typeof CheckpointSchema>): Checkpoint => {
   const checkpoint = Value.Clone(value);
@@ -403,7 +397,7 @@ const deepFreeze = <T>(value: T): T => {
   return value;
 };
 
-export const parseCheckpoint = (value: WireValue): CheckpointParseResult => {
+export const parseCheckpoint = (value: unknown): CheckpointParseResult => {
   if (!Value.Check(CheckpointSchema, value)) {
     return {
       error: "checkpoint is invalid",

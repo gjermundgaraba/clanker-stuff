@@ -28,7 +28,7 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
   );
   writeFileSync(
     path.join(root, "package.json"),
-    JSON.stringify({ name: "clanker-stuff", private: true }),
+    JSON.stringify({ name: "clanker-stuff", packageManager: "pnpm@12.3.4", private: true }),
   );
   writeFileSync(
     path.join(packageDir, "package.json"),

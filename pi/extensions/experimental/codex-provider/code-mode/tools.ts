@@ -1,7 +1,7 @@
 // Tool descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import { validateToolArguments } from "@earendil-works/pi-ai";
-import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -16,13 +16,11 @@ import type {
   RuntimeContentItem,
   RuntimeResponse,
   RuntimeToolResult,
-  RuntimeValue,
 } from "./types.js";
 
 const DEFAULT_WAIT_MS = 10_000;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 const strict = { additionalProperties: false } as const;
-type JsonRecord = { [key: string]: RuntimeValue };
 
 const EXEC_PARAMETERS = Type.Object({ code: Type.String() }, strict);
 const WAIT_PARAMETERS = Type.Object(
@@ -217,13 +215,13 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
     async invoke(input, context, signal) {
       signal.throwIfAborted();
       const argumentsValue = freeformProperty === undefined ? input : { [freeformProperty]: input };
-      const prepared: RuntimeValue = definition.prepareArguments
+      const prepared: unknown = definition.prepareArguments
         ? definition.prepareArguments(argumentsValue)
         : argumentsValue;
       if (!isRecord(prepared)) {
         throw new TypeError(`Invalid arguments for ${definition.name}`);
       }
-      const validated: RuntimeValue = validateToolArguments(definition, {
+      const validated: unknown = validateToolArguments(definition, {
         arguments: prepared,
         id: context.toolCallId ?? `code-mode-${definition.name}`,
         name: definition.name,
@@ -239,9 +237,8 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
         },
         context.extensionContext,
       );
-      const normalized = normalizeResult(result);
-      context.captureResult?.(normalized);
-      return nestedResultValue(definition.name, normalized, outputSchema);
+      context.captureResult?.(result);
+      return nestedResultValue(definition.name, result, outputSchema);
     },
     usage: usageFor(codeModeName(definition.name, namespace)),
   };
@@ -303,11 +300,7 @@ const usageFor = (name: string) => {
   }
 };
 
-const nestedResultValue = (
-  name: string,
-  result: RuntimeToolResult,
-  outputSchema: RuntimeValue,
-): RuntimeValue => {
+const nestedResultValue = (name: string, result: RuntimeToolResult, outputSchema: unknown) => {
   const image = result.content.find((item) => item.type === "image");
   if (image?.type === "image") {
     assertSupportedImageMimeType(image.mimeType);
@@ -347,16 +340,6 @@ const nestedResultValue = (
   }
   return output || "(no output)";
 };
-
-const normalizeResult = (result: AgentToolResult<unknown>): RuntimeToolResult => ({
-  content: result.content.filter(
-    (
-      item,
-    ): item is { type: "text"; text: string } | { type: "image"; data: string; mimeType: string } =>
-      item.type === "text" || item.type === "image",
-  ),
-  details: result.details,
-});
 
 const toCodeModeToolResult = (response: RuntimeResponse, maxTokens?: number) => {
   const scriptError = response.kind === "result" ? response.errorText : undefined;
@@ -456,5 +439,5 @@ const truncateTextContent = <
   });
 };
 
-const isRecord = (value: RuntimeValue): value is JsonRecord =>
+const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

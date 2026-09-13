@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { resolveOAuthAccess } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
@@ -31,14 +30,10 @@ const parseWindow = (
   return makeUsageWindow(id, 100 - raw.utilization, parseIso(raw.resets_at));
 };
 
-export const parseClaudeUsagePayload = (
-  payload: Static<typeof ClaudeUsagePayloadSchema> | undefined,
+export const mapClaudeUsagePayload = (
+  payload: Static<typeof ClaudeUsagePayloadSchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  if (!Value.Check(ClaudeUsagePayloadSchema, payload)) {
-    return usageFailure("invalid usage payload");
-  }
-
   const windows = [
     parseWindow(payload.five_hour, "5h"),
     parseWindow(payload.seven_day, "week"),
@@ -58,7 +53,7 @@ export const fetchClaudeUsage = async (deps: AdapterDeps): Promise<UsageFetchRes
     return usageFailure(auth.message, auth.kind);
   }
 
-  const response = await deps.fetchJson(CLAUDE_USAGE_URL, {
+  const response = await deps.fetchJson(CLAUDE_USAGE_URL, ClaudeUsagePayloadSchema, {
     headers: {
       Authorization: `Bearer ${auth.value.accessToken}`,
       "anthropic-beta": "oauth-2025-04-20",
@@ -67,12 +62,7 @@ export const fetchClaudeUsage = async (deps: AdapterDeps): Promise<UsageFetchRes
   });
 
   if (response.ok) {
-    return parseClaudeUsagePayload(
-      Value.Check(ClaudeUsagePayloadSchema, response.json)
-        ? Value.Parse(ClaudeUsagePayloadSchema, response.json)
-        : undefined,
-      now(),
-    );
+    return mapClaudeUsagePayload(response.json, now());
   }
 
   return usageFailure(response.message);

@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "./checkpoint.js";
-import type { Checkpoint, CheckpointInput } from "./checkpoint.js";
+import type { Checkpoint } from "./checkpoint.js";
 import { estimateModelVisibleTokens } from "./replay.js";
 
 const phaseLabels = {
@@ -32,10 +32,7 @@ const formatSizeChange = (before: number, after: number) => {
   return `~${absolute} ${after < before ? "fewer" : "more"} (${percent.toLocaleString("en-US", { maximumFractionDigits: 1 })}% ${after < before ? "smaller" : "larger"})`;
 };
 
-export const formatCheckpointEntry = (
-  data: CheckpointInput,
-  expanded = false,
-): string | undefined => {
+export const formatCheckpointEntry = (data: unknown, expanded = false): string | undefined => {
   const parsed = parseCheckpoint(data);
   if (!parsed.ok) {
     return undefined;

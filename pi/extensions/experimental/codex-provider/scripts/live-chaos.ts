@@ -23,7 +23,6 @@ import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
 
 import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
 import { isWireRecord as isRecord } from "./wire.ts";
-import type { WireValue } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
@@ -206,7 +205,7 @@ const findCheckpoint = async (
       .split("\n")
       .flatMap((line) => {
         try {
-          const value: WireValue = JSON.parse(line);
+          const value: unknown = JSON.parse(line);
           return isRecord(value) ? [value] : [];
         } catch {
           return [];

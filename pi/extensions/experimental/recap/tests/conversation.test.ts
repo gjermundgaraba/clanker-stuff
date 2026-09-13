@@ -141,3 +141,31 @@ describe(normalizeRecap, () => {
     expect(normalizeRecap(" one\u0007\n\u202Etwo\u202C ")).toBe("one\ntwo");
   });
 });
+
+describe("UTF-8 recap prefixes", () => {
+  it.each(["\uD800", "\uDC00"])(
+    "preserves original lone surrogate %j without exceeding the byte budget",
+    (surrogate) => {
+      const session = SessionManager.inMemory();
+      const budget =
+        Math.floor((RECAP_PROMPT_MAX_BYTES - Buffer.byteLength(RECAP_PROMPT_PREFIX)) / 2) -
+        Buffer.byteLength("User: ");
+      const prefix = "a".repeat(budget - 3);
+      session.appendMessage(userMessage(`${prefix}${surrogate}tail`));
+      const prompt = buildRecapPrompt(session.getBranch());
+      expect(prompt).toBe(`${RECAP_PROMPT_PREFIX}User: ${prefix}${surrogate}`);
+      expect(prompt).not.toContain("\uFFFD");
+      expect(Buffer.byteLength(prompt ?? "")).toBeLessThanOrEqual(RECAP_PROMPT_MAX_BYTES);
+    },
+  );
+
+  it("does not include a lone surrogate when fewer than three bytes remain", () => {
+    const session = SessionManager.inMemory();
+    const budget =
+      Math.floor((RECAP_PROMPT_MAX_BYTES - Buffer.byteLength(RECAP_PROMPT_PREFIX)) / 2) -
+      Buffer.byteLength("User: ");
+    const prefix = "a".repeat(budget - 2);
+    session.appendMessage(userMessage(`${prefix}\uD800tail`));
+    expect(buildRecapPrompt(session.getBranch())).toBe(`${RECAP_PROMPT_PREFIX}User: ${prefix}`);
+  });
+});

@@ -3,7 +3,7 @@ import type { CustomEntry } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
-import { parseRecapEntry, RECAP_ENTRY_TYPE } from "../entry.js";
+import { RECAP_ENTRY_TYPE } from "../entry.js";
 import extension from "../index.js";
 import { completionMock, createRecapConfigFile, sessionWithTurns } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -12,10 +12,10 @@ const terminalControls = Array.from({ length: 0xa0 }, (_, code) =>
   code === 0x0a || (code >= 0x20 && code < 0x7f) ? "" : String.fromCharCode(code),
 ).join("");
 const bidiControls = "\u061C\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069";
-const data = parseRecapEntry({
+const data = {
   completedTurns: 3,
   recap: `Finished the parser.\u001B[31m${terminalControls}${bidiControls}\u001B[0m\nNext: test it.`,
-});
+};
 
 describe("recap extension", () => {
   it("registers only automatic lifecycle behavior and the recap renderer", async () => {
@@ -93,9 +93,6 @@ describe("recap extension", () => {
   });
 
   it("renders valid durable recap entries", async () => {
-    if (data === undefined) {
-      throw new Error("Recap fixture is invalid");
-    }
     const host = createExtensionHost(extension);
     await host.ready;
     const renderer = host.getEntryRenderer(RECAP_ENTRY_TYPE);

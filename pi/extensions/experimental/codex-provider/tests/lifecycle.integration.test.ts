@@ -30,9 +30,9 @@ import {
   wireString,
   WireRecordSchema,
 } from "./fixtures.js";
-import type { WireRecord, WireValue } from "./fixtures.js";
+import type { WireRecord } from "./fixtures.js";
 
-const event = (value: WireValue) => `data: ${JSON.stringify(value)}\n\n`;
+const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 const StringValueSchema = Type.String();
 const TypeTaggedSchema = Type.Object({ type: Type.String() });
@@ -56,7 +56,7 @@ const turnMetadata = (request: WireRecord) => {
   return Value.Check(StringValueSchema, value) ? wireRecord(JSON.parse(value)) : undefined;
 };
 
-const inputItemTypes = (input: WireValue) =>
+const inputItemTypes = (input: unknown) =>
   Array.isArray(input)
     ? wireArray(input).flatMap((item) => (Value.Check(TypeTaggedSchema, item) ? [item.type] : []))
     : [];

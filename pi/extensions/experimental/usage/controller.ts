@@ -1,9 +1,10 @@
+import { Value } from "typebox/value";
 import {
   FOOTER_PROTOCOL_VERSION,
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
-  isFooterReadyMessage,
+  FooterReadyMessageSchema,
 } from "@clanker-stuff/footer-protocol";
 import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 import type {
@@ -159,7 +160,7 @@ export const createUsageController = (
       return;
     }
     readyUnsubscribe = pi.events.on(FOOTER_READY_EVENT, (value) => {
-      if (!isFooterReadyMessage(value)) {
+      if (!Value.Check(FooterReadyMessageSchema, value)) {
         return;
       }
       const { instanceId: readyInstanceId } = value;

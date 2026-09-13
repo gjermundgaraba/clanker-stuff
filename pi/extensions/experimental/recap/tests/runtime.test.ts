@@ -1,3 +1,4 @@
+import { Value } from "typebox/value";
 import { rm } from "node:fs/promises";
 
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
@@ -5,7 +6,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { parseRecapEntry, RECAP_ENTRY_TYPE } from "../entry.js";
+import { RecapEntrySchema, RECAP_ENTRY_TYPE } from "../entry.js";
 import { createRecapRuntime, RECAP_REQUEST_TIMEOUT_MS, RECAP_RETRY_DELAY_MS } from "../runtime.js";
 import {
   completionMock,
@@ -99,7 +100,8 @@ describe("recap runtime", () => {
       throw new Error("Expected a custom recap entry");
     }
     expect(entry.customType).toBe(RECAP_ENTRY_TYPE);
-    expect(parseRecapEntry(entry.data)).toStrictEqual({
+    expect(Value.Check(RecapEntrySchema, entry.data)).toBe(true);
+    expect(entry.data).toStrictEqual({
       completedTurns: 3,
       recap: "Finished the parser. Next: test it.",
     });

@@ -4,7 +4,6 @@ import type {
   RuntimeResponse,
   RuntimeToolResult,
   RuntimeToolTrace,
-  RuntimeValue,
   ToolExecutionContext,
 } from "./types.js";
 
@@ -26,7 +25,7 @@ export class CodeModeTraceStore {
     this.droppedCounts.delete(cellId);
   }
 
-  start(cellId: string, id: string, name: string, input: RuntimeValue): RuntimeToolTrace {
+  start(cellId: string, id: string, name: string, input: unknown): RuntimeToolTrace {
     const traces = this.traces.get(cellId) ?? [];
     if (traces.length >= MAX_TRACE_COUNT) {
       traces.shift();

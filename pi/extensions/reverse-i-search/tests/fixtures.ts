@@ -1,19 +1,5 @@
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-
-const zeroUsage = {
-  cacheRead: 0,
-  cacheWrite: 0,
-  cost: {
-    cacheRead: 0,
-    cacheWrite: 0,
-    input: 0,
-    output: 0,
-    total: 0,
-  },
-  input: 0,
-  output: 0,
-  totalTokens: 0,
-};
 
 export const userEntry = (
   id: string,
@@ -31,16 +17,7 @@ export const userEntry = (
 export const nonPromptEntries = (parentId: string | null, timestamp: number): SessionEntry[] => [
   {
     id: "assistant",
-    message: {
-      api: "faux",
-      content: [{ text: "non-prompt assistant content", type: "text" }],
-      model: "faux",
-      provider: "faux",
-      role: "assistant",
-      stopReason: "stop",
-      timestamp,
-      usage: zeroUsage,
-    },
+    message: fauxAssistantMessage("non-prompt assistant content", { timestamp }),
     parentId,
     timestamp: new Date(timestamp).toISOString(),
     type: "message",

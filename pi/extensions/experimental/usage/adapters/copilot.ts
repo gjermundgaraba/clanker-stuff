@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { resolveAccessToken } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
@@ -37,14 +36,10 @@ const parseQuotaWindow = (
   return makeUsageWindow("month", quota.percent_remaining, resetsAt, label);
 };
 
-export const parseCopilotUsagePayload = (
-  payload: Static<typeof CopilotUsagePayloadSchema> | undefined,
+export const mapCopilotUsagePayload = (
+  payload: Static<typeof CopilotUsagePayloadSchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  if (!Value.Check(CopilotUsagePayloadSchema, payload)) {
-    return usageFailure("invalid usage payload");
-  }
-
   const resetsAt = parseIso(payload.quota_reset_date_utc);
   const windows = [
     parseQuotaWindow(payload.quota_snapshots?.premium_interactions, "Premium", resetsAt),
@@ -65,7 +60,7 @@ export const fetchCopilotUsage = async (deps: AdapterDeps): Promise<UsageFetchRe
     return usageFailure(auth.message, auth.kind);
   }
 
-  const response = await deps.fetchJson(COPILOT_USAGE_URL, {
+  const response = await deps.fetchJson(COPILOT_USAGE_URL, CopilotUsagePayloadSchema, {
     headers: {
       Accept: "application/json",
       Authorization: `token ${auth.value.accessToken}`,
@@ -77,12 +72,7 @@ export const fetchCopilotUsage = async (deps: AdapterDeps): Promise<UsageFetchRe
   });
 
   if (response.ok) {
-    return parseCopilotUsagePayload(
-      Value.Check(CopilotUsagePayloadSchema, response.json)
-        ? Value.Parse(CopilotUsagePayloadSchema, response.json)
-        : undefined,
-      now(),
-    );
+    return mapCopilotUsagePayload(response.json, now());
   }
 
   return usageFailure(response.message);

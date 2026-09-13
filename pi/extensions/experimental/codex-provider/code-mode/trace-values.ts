@@ -1,5 +1,5 @@
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
-import type { RuntimeToolResult, RuntimeToolTrace, RuntimeValue } from "./types.js";
+import type { RuntimeToolResult, RuntimeToolTrace } from "./types.js";
 
 const MAX_TRACE_TEXT_CHARS = 32_768;
 const MAX_TRACE_DETAILS_CHARS = 65_536;
@@ -16,7 +16,7 @@ type SanitizedValue =
   | SanitizedValue[]
   | { [key: string]: SanitizedValue };
 
-export function toolResultFromValue(value: RuntimeValue): RuntimeToolResult {
+export function toolResultFromValue(value: unknown): RuntimeToolResult {
   return {
     content: [
       {
@@ -98,7 +98,7 @@ export function truncateTraceText(text: string, remaining: number): string {
   return `${text.slice(0, Math.max(0, remaining - marker.length))}${marker}`;
 }
 
-export function sanitizeTraceInput(value: RuntimeValue, maxChars: number): SanitizedValue {
+export function sanitizeTraceInput(value: unknown, maxChars: number): SanitizedValue {
   return sanitizeValue(value, { remaining: maxChars });
 }
 
@@ -109,7 +109,7 @@ interface SerializationBudget {
   depth?: number;
 }
 
-function sanitizeValue(value: RuntimeValue, budget: SerializationBudget): SanitizedValue {
+function sanitizeValue(value: unknown, budget: SerializationBudget): SanitizedValue {
   const depth = budget.depth ?? 0;
   const nodesRemaining = budget.nodesRemaining ?? MAX_SERIALIZED_NODES;
   if (nodesRemaining <= 0 || budget.remaining <= 0) {
@@ -192,7 +192,7 @@ function cloneRuntimeToolResult(result: RuntimeToolResult): RuntimeToolResult {
   return clone;
 }
 
-function safeStringify(value: RuntimeValue, fallback: string): string {
+function safeStringify(value: unknown, fallback: string): string {
   try {
     return JSON.stringify(sanitizeValue(value, { remaining: MAX_TRACE_TEXT_CHARS })) ?? fallback;
   } catch {

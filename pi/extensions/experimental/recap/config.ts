@@ -6,8 +6,6 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
-const ConfigInputSchema = Type.Unknown();
-type ConfigInput = Static<typeof ConfigInputSchema>;
 const RecapConfigSchema = Type.Object(
   {
     model: Type.Object(
@@ -25,7 +23,7 @@ export type RecapConfig = Static<typeof RecapConfigSchema>;
 
 export const getRecapConfigPath = (): string => getExtensionStoragePaths("recap").configFile;
 
-export const parseRecapConfig = (value: ConfigInput): RecapConfig => {
+export const parseRecapConfig = (value: unknown): RecapConfig => {
   if (!Value.Check(RecapConfigSchema, value)) {
     throw new Error("config must contain only model.provider and model.id");
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchZaiUsage, parseZaiQuotaPayload, ZaiQuotaPayloadSchema } from "../../adapters/zai.js";
+import { fetchZaiUsage, mapZaiQuotaPayload, ZaiQuotaPayloadSchema } from "../../adapters/zai.js";
 import { Value } from "typebox/value";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
@@ -79,7 +79,7 @@ const tokenPayload = {
 
 describe("zai usage", () => {
   it("maps credit windows and plan level", () => {
-    const result = parseZaiQuotaPayload(creditPayload, NOW);
+    const result = mapZaiQuotaPayload(creditPayload, NOW);
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
@@ -105,7 +105,7 @@ describe("zai usage", () => {
   });
 
   it("maps token windows and monthly web-search limit", () => {
-    const result = parseZaiQuotaPayload(tokenPayload, NOW);
+    const result = mapZaiQuotaPayload(tokenPayload, NOW);
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
@@ -136,7 +136,7 @@ describe("zai usage", () => {
   });
 
   it("falls back to percentage when counts are missing", () => {
-    const result = parseZaiQuotaPayload(
+    const result = mapZaiQuotaPayload(
       {
         code: 200,
         data: {
@@ -150,7 +150,7 @@ describe("zai usage", () => {
   });
 
   it("surfaces the error envelope returned with HTTP 200", () => {
-    const result = parseZaiQuotaPayload({ code: 401, msg: "token expired or incorrect" }, NOW);
+    const result = mapZaiQuotaPayload({ code: 401, msg: "token expired or incorrect" }, NOW);
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "token expired or incorrect" },
       ok: false,
@@ -158,7 +158,7 @@ describe("zai usage", () => {
   });
 
   it("ignores unknown limit types", () => {
-    const result = parseZaiQuotaPayload(
+    const result = mapZaiQuotaPayload(
       {
         code: 200,
         data: {
@@ -180,10 +180,14 @@ describe("zai usage", () => {
     ]);
   });
 
-  it("rejects invalid payloads", () => {
+  it("rejects invalid payloads at request ingress", async () => {
     const invalidCode = { code: "200" };
     expect(Value.Check(ZaiQuotaPayloadSchema, invalidCode)).toBe(false);
-    const result = parseZaiQuotaPayload(undefined, NOW);
+    const result = await fetchZaiUsage({
+      authClient: tokenAuthClient("token"),
+      fetchJson: okFetch(invalidCode),
+      now: () => NOW,
+    });
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "invalid usage payload" },
       ok: false,
@@ -191,7 +195,7 @@ describe("zai usage", () => {
   });
 
   it("fails when no usable limits are present", () => {
-    const result = parseZaiQuotaPayload({ code: 200, data: { limits: [] } }, NOW);
+    const result = mapZaiQuotaPayload({ code: 200, data: { limits: [] } }, NOW);
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "no usage windows in response" },
       ok: false,
@@ -199,14 +203,15 @@ describe("zai usage", () => {
   });
 
   it("fetches the quota endpoint with bearer auth", async () => {
-    const fetchJson = vi.fn<FetchJson>(okFetch(creditPayload));
+    const client = { fetchJson: okFetch(creditPayload) } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
     const result = await fetchZaiUsage({
       authClient: tokenAuthClient("k"),
-      fetchJson,
+      fetchJson: client.fetchJson,
       now: () => NOW,
     });
     expect(fetchJson.mock.calls[0]?.[0]).toBe("https://api.z.ai/api/monitor/usage/quota/limit");
-    expect(fetchJson.mock.calls[0]?.[1]?.headers).toMatchObject({
+    expect(fetchJson.mock.calls[0]?.[2]?.headers).toMatchObject({
       Authorization: "Bearer k",
     });
     expect(result.ok && result.snapshot.planLabel).toBe("Pro");

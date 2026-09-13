@@ -1,6 +1,7 @@
+import { okFetch } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchCodexUsage, parseCodexUsagePayload } from "../../adapters/codex.js";
+import { fetchCodexUsage, mapCodexUsagePayload } from "../../adapters/codex.js";
 import type { ProviderAuthClient } from "../../auth.js";
 import type { FetchJson } from "../../http.js";
 
@@ -18,7 +19,7 @@ describe("codex payload parsing", () => {
   const now = Date.parse("2026-07-21T12:00:00.000Z");
 
   it("maps primary/secondary windows, plan, and credits", () => {
-    const result = parseCodexUsagePayload(
+    const result = mapCodexUsagePayload(
       {
         credits: { balance: 12.5, has_credits: true },
         plan_type: "plus",
@@ -62,7 +63,7 @@ describe("codex payload parsing", () => {
   });
 
   it("parses a string credit balance", () => {
-    const result = parseCodexUsagePayload(
+    const result = mapCodexUsagePayload(
       {
         credits: { balance: "12.5", has_credits: true },
         rate_limit: {
@@ -85,7 +86,7 @@ describe("codex payload parsing", () => {
   });
 
   it("accepts a null credit balance", () => {
-    const result = parseCodexUsagePayload(
+    const result = mapCodexUsagePayload(
       {
         credits: { balance: null, has_credits: false },
         rate_limit: {
@@ -107,12 +108,12 @@ describe("codex payload parsing", () => {
   });
 
   it("fails when windows are missing", () => {
-    const result = parseCodexUsagePayload({ rate_limit: {} }, now);
+    const result = mapCodexUsagePayload({ rate_limit: {} }, now);
     expect(result.ok).toBeFalsy();
   });
 
   it("labels team primary window as 7d from limit_window_seconds", () => {
-    const result = parseCodexUsagePayload(
+    const result = mapCodexUsagePayload(
       {
         plan_type: "team",
         rate_limit: {
@@ -146,7 +147,7 @@ describe("codex payload parsing", () => {
   });
 
   it("labels windows from limit_window_seconds when both slots present", () => {
-    const result = parseCodexUsagePayload(
+    const result = mapCodexUsagePayload(
       {
         rate_limit: {
           primary_window: {
@@ -174,7 +175,8 @@ describe("codex payload parsing", () => {
 
 describe("codex fetch", () => {
   it("rejects OAuth tokens without a ChatGPT account id", async () => {
-    const fetchJson = vi.fn<FetchJson>();
+    const client = { fetchJson: okFetch(undefined) } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
     const result = await fetchCodexUsage({
       authClient: {
         getProviderAuth: async () => ({
@@ -182,7 +184,7 @@ describe("codex fetch", () => {
           source: "OAuth",
         }),
       },
-      fetchJson,
+      fetchJson: client.fetchJson,
       now: () => 1000,
     });
 
@@ -204,23 +206,23 @@ describe("codex fetch", () => {
         source: "OAuth",
       }),
     };
-    const fetchJson = vi.fn<FetchJson>(async () => ({
-      json: {
+    const client = {
+      fetchJson: okFetch({
         rate_limit: {
           primary_window: { used_percent: 10 },
         },
-      },
-      ok: true,
-    }));
+      }),
+    } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchCodexUsage({
       authClient,
-      fetchJson,
+      fetchJson: client.fetchJson,
       now: () => 1000,
     });
 
     expect(result.ok).toBeTruthy();
-    const [url, options] = fetchJson.mock.calls[0] ?? [];
+    const [url, , options] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://chatgpt.com/backend-api/wham/usage");
     expect(options?.headers?.Authorization).toBe(`Bearer ${token}`);
     expect(options?.headers?.["ChatGPT-Account-Id"]).toBe("acct_abc");

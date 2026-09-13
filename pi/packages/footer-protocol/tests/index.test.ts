@@ -1,3 +1,4 @@
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -5,8 +6,8 @@ import {
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
-  isFooterReadyMessage,
-  isFooterReadyRequestMessage,
+  FooterReadyMessageSchema,
+  FooterReadyRequestMessageSchema,
 } from "../index.js";
 
 describe("footer protocol", () => {
@@ -23,20 +24,20 @@ describe("footer protocol", () => {
       widget: "clanker-footer:widget",
     });
     expect(
-      isFooterReadyMessage({
+      Value.Check(FooterReadyMessageSchema, {
         instanceId: "host",
         protocol: FOOTER_PROTOCOL_VERSION,
         type: "ready",
       }),
     ).toBeTruthy();
     expect(
-      isFooterReadyRequestMessage({
+      Value.Check(FooterReadyRequestMessageSchema, {
         protocol: FOOTER_PROTOCOL_VERSION,
         type: "ready-request",
       }),
     ).toBeTruthy();
     expect(
-      isFooterReadyMessage({
+      Value.Check(FooterReadyMessageSchema, {
         instanceId: "host",
         protocol: 2,
         type: "ready",

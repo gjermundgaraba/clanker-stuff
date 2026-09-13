@@ -201,6 +201,48 @@ class FrontierTest(TestCase):
             self.assertTrue(row['capture']['captured'])
             self.assertIn('event_log_error', row)
 
+    def test_recovery_statistics_require_a_valid_log_without_losing_capture_or_grade(self):
+        events = [
+            {'type': 'auto_retry_start'},
+            {'type': 'auto_retry_end', 'success': True},
+            {'type': 'auto_retry_start'},
+            {'type': 'auto_retry_end', 'success': False},
+            {'type': 'message_end', 'message': {'role': 'assistant', 'stopReason': 'error'}},
+            {'type': 'message_end', 'message': {'role': 'user'}},
+            {'type': 'notification', 'message': 'unrelated text'},
+        ]
+        valid_log = '\n \n'.join(json.dumps(event) for event in events)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            entry = f.make_schedule(root, 'sha256:frozen', '9.8.7')[0]
+            logs = root/'jobs'/entry['job_name']/'trial/agent'
+            logs.mkdir(parents=True)
+            (logs/'candidate.json').write_text('{}')
+            f.write_json(logs/'run-status.json', {
+                'outcome': 'completed', 'captured': True, 'work_seconds': 10,
+                'submission_sha256': hashlib.sha256(b'{}').hexdigest()})
+            reward = {'valid': 1, 'reward': 0.5}
+            (root/'grading'/entry['job_name']).mkdir(parents=True)
+            f.write_json(root/'grading'/entry['job_name']/'reward.json', reward)
+            with patch.object(frontier_state, 'trial_rows', return_value=[{'trial': 'trial', 'status': 'completed', 'valid': 1}]):
+                (logs/'pi-events.jsonl').write_text(valid_log)
+                row = frontier_state.read_slot(root, entry)
+                self.assertEqual(row['recovery'], {
+                    'attempts': 2, 'successful_episodes': 1,
+                    'failed_episodes': 1, 'errored_responses': 1})
+                self.assertTrue(row['comparison_eligible'])
+                for malformed in ['[]', '{"type":"message_end","message":null}',
+                                  '{"type":"message_end","message":[]}', '{"type":']:
+                    with self.subTest(malformed=malformed):
+                        (logs/'pi-events.jsonl').write_text(valid_log + '\n' + malformed)
+                        row = frontier_state.read_slot(root, entry)
+                        self.assertIn('event_log_error', row)
+                        self.assertNotIn('recovery', row)
+                        self.assertEqual(row['valid'], 0)
+                        self.assertFalse(row['comparison_eligible'])
+                        self.assertTrue(row['capture']['captured'])
+                        self.assertEqual(row['frontier'], reward)
+
     def test_prepare_rejects_untracked_upstream_before_spending(self):
         with TemporaryDirectory() as directory:
             with patch.object(f, 'command', side_effect=[f.SOURCE, '?? tasks/qubit-routing/environment/leak.py']) as command, patch.object(f, 'build') as build:

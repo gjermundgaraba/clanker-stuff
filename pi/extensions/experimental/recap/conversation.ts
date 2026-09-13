@@ -1,10 +1,11 @@
+import { Value } from "typebox/value";
 import { Buffer } from "node:buffer";
 
 import { contentText } from "@earendil-works/pi-ai";
 import type { StopReason } from "@earendil-works/pi-ai";
 import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
 
-import { parseRecapEntry, RECAP_ENTRY_TYPE, RECAP_MAX_CHARS, sanitizeRecapText } from "./entry.js";
+import { RecapEntrySchema, RECAP_ENTRY_TYPE, RECAP_MAX_CHARS, sanitizeRecapText } from "./entry.js";
 
 export const MIN_COMPLETED_TURNS = 3;
 export const MIN_TURNS_BETWEEN_RECAPS = 2;
@@ -48,8 +49,8 @@ export const conversationProgress = (entries: readonly SessionEntry[]): Conversa
 
   for (const entry of entries) {
     if (entry.type === "custom" && entry.customType === RECAP_ENTRY_TYPE) {
-      const recap = parseRecapEntry(entry.data);
-      if (recap !== undefined) {
+      const recap = entry.data;
+      if (Value.Check(RecapEntrySchema, recap)) {
         lastRecappedTurns = recap.completedTurns;
       }
       continue;
@@ -86,17 +87,8 @@ export const shouldGenerateRecap = ({
     completedTurns - lastRecappedTurns >= MIN_TURNS_BETWEEN_RECAPS);
 
 const truncateUtf8 = (value: string, maxBytes: number): string => {
-  let bytes = 0;
-  let result = "";
-  for (const character of value) {
-    const characterBytes = Buffer.byteLength(character);
-    if (bytes + characterBytes > maxBytes) {
-      break;
-    }
-    bytes += characterBytes;
-    result += character;
-  }
-  return result;
+  const { read } = new TextEncoder().encodeInto(value, new Uint8Array(maxBytes));
+  return value.slice(0, read);
 };
 
 const renderMessage = (

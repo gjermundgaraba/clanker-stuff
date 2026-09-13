@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { resolveAccessToken } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
@@ -55,15 +54,11 @@ const remainingWindow = (
   return makeUsageWindow(id, remainingPercent, resetsAt);
 };
 
-export const parseMinimaxUsagePayload = (
-  payload: Static<typeof MinimaxUsagePayloadSchema> | undefined,
+export const mapMinimaxUsagePayload = (
+  payload: Static<typeof MinimaxUsagePayloadSchema>,
   provider: "minimax" | "minimax-cn",
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  if (!Value.Check(MinimaxUsagePayloadSchema, payload)) {
-    return usageFailure("invalid usage payload");
-  }
-
   const statusCode = payload.base_resp?.status_code;
   if (statusCode !== undefined && statusCode !== 0) {
     const statusMessage =
@@ -108,7 +103,7 @@ export const fetchMinimaxUsage = async (
   }
 
   const url = provider === "minimax-cn" ? MINIMAX_CN_USAGE_URL : MINIMAX_USAGE_URL;
-  const response = await deps.fetchJson(url, {
+  const response = await deps.fetchJson(url, MinimaxUsagePayloadSchema, {
     headers: {
       Authorization: `Bearer ${auth.value.accessToken}`,
       "Content-Type": "application/json",
@@ -117,13 +112,7 @@ export const fetchMinimaxUsage = async (
   });
 
   if (response.ok) {
-    return parseMinimaxUsagePayload(
-      Value.Check(MinimaxUsagePayloadSchema, response.json)
-        ? Value.Parse(MinimaxUsagePayloadSchema, response.json)
-        : undefined,
-      provider,
-      now(),
-    );
+    return mapMinimaxUsagePayload(response.json, provider, now());
   }
 
   return usageFailure(response.message);

@@ -4,9 +4,6 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-export const WireValueSchema = Type.Unknown();
-export type WireValue = Static<typeof WireValueSchema>;
-
 export const WireRecordSchema = Type.Record(Type.String(), Type.Unknown());
 export type WireRecord = Static<typeof WireRecordSchema>;
 
@@ -14,7 +11,7 @@ export const StringValueSchema = Type.String();
 export const NumberValueSchema = Type.Number();
 export const FunctionValueSchema = Type.Function([], Type.Unknown());
 
-export const isWireRecord = (value: WireValue): value is WireRecord =>
+export const isWireRecord = (value: unknown): value is WireRecord =>
   Value.Check(WireRecordSchema, value);
 
 export const fetchRequestUrl = (input: Parameters<typeof fetch>[0]): string => {
@@ -59,11 +56,11 @@ export const parseCompactionRequestBody = (body: string | undefined): WireRecord
     return undefined;
   }
   try {
-    const value: WireValue = JSON.parse(body);
+    const value: unknown = JSON.parse(body);
     if (!isWireRecord(value) || !Array.isArray(value.input)) {
       return undefined;
     }
-    const trigger: WireValue = value.input.at(-1);
+    const trigger: unknown = value.input.at(-1);
     return isWireRecord(trigger) && trigger.type === "compaction_trigger" ? value : undefined;
   } catch {
     return undefined;

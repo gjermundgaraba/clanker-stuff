@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -20,22 +19,7 @@ vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => ({
   copyToClipboard,
 }));
 
-const { createStash } = await import("../stash.js");
-
-const extension = (pi: ExtensionAPI) => {
-  const stash = createStash();
-
-  pi.on("session_start", (_event, ctx) => stash.start(ctx));
-  pi.registerShortcut("ctrl+s", {
-    handler: (ctx) => stash.toggle(ctx),
-  });
-  pi.registerCommand("pop-stash", {
-    handler: (_args, ctx) => stash.pop(ctx),
-  });
-  pi.on("input", (event, ctx) => stash.prepareRestore(event, ctx));
-  pi.on("turn_start", (_event, ctx) => stash.commitRestore(ctx));
-  pi.on("session_shutdown", (_event, ctx) => stash.dispose(ctx));
-};
+const { default: extension } = await import("../index.js");
 
 const getStorePath = (agentDir: string, cwd: string) =>
   path.join(
@@ -99,6 +83,13 @@ describe("stash", () => {
       },
     };
   };
+
+  it("describes the registered pop command", async () => {
+    const { host } = await createHarness();
+    expect(host.getRegisteredCommands().get("pop-stash")?.description).toBe(
+      "Pop the most recent stashed editor text",
+    );
+  });
 
   beforeEach(async () => {
     agentDir = await useAgentDir();

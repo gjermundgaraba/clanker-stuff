@@ -86,6 +86,25 @@ class LongMemEvalJudgeTest(TestCase):
             with self.assertRaisesRegex(ValueError, "expected 'other'"):
                 cache.load_cache(path, model="other")
 
+    def test_write_cache_validates_identity_and_duplicates_before_replacement(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "cache.jsonl"
+            original = cache_row(trial="original")
+            cache.write_cache(path, [original])
+            previous = path.read_bytes()
+            for rows, message in [
+                ([cache_row(), cache_row()], "duplicate judge trial"),
+                ([cache_row(trial="z"), cache_row(trial="a", judge_backend="openai")], "backend"),
+                ([cache_row(trial="z"), cache_row(trial="a", judge_model="other")], "model"),
+                ([cache_row(label=1)], "label must be boolean"),
+            ]:
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(ValueError, message):
+                        cache.write_cache(path, iter(rows))
+                    self.assertEqual(path.read_bytes(), previous)
+            cache.write_cache(path, [cache_row(trial="z"), cache_row(trial="a")])
+            self.assertEqual(list(cache.load_cache(path)), ["a", "z"])
+
     def test_uses_task_specific_rubrics(self) -> None:
         temporal = judge.prompt_for(
             "temporal-reasoning", "when?", "18 days", "19 days", abstention=False

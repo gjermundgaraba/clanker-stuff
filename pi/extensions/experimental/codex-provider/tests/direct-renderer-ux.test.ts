@@ -168,4 +168,37 @@ describe("direct tool display boundaries", () => {
     ).join("\n");
     expect(rendered).toContain("new.ts\n+1 hello");
   });
+
+  it.each([0, 1, 2])(
+    "keeps original diff associations when change %i is malformed",
+    (invalidIndex) => {
+      const changes = ["first.ts", "middle.ts", "last.ts"].map((path) => ({
+        changed: true,
+        kind: "add",
+        path,
+      }));
+      const displayed = rows(
+        applyPatchRenderers.renderResult?.(
+          {
+            content: [],
+            details: {
+              changes: changes.map((change, index) =>
+                index === invalidIndex ? { trace_truncated: true } : change,
+              ),
+              diffs: changes.map((_change, index) => ({ diff: `+1 content-${index}`, index })),
+            },
+          },
+          { expanded: true, isPartial: false },
+          theme,
+          context(true),
+        ),
+      ).filter((line) => line.length > 0);
+      expect(displayed).toEqual([
+        ...changes.flatMap((change, index) =>
+          index === invalidIndex ? [] : [change.path, `+1 content-${index}`],
+        ),
+        "… further changes not recorded",
+      ]);
+    },
+  );
 });

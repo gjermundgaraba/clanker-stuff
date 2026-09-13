@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchMinimaxUsage, parseMinimaxUsagePayload } from "../../adapters/minimax.js";
+import { fetchMinimaxUsage, mapMinimaxUsagePayload } from "../../adapters/minimax.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
 
@@ -19,7 +19,7 @@ const payload = {
 
 describe("minimax usage", () => {
   it("maps interval and weekly remaining percents", () => {
-    const result = parseMinimaxUsagePayload(payload, "minimax", NOW);
+    const result = mapMinimaxUsagePayload(payload, "minimax", NOW);
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
@@ -44,7 +44,7 @@ describe("minimax usage", () => {
   });
 
   it("surfaces API errors", () => {
-    const result = parseMinimaxUsagePayload(
+    const result = mapMinimaxUsagePayload(
       { base_resp: { status_code: 1002, status_msg: "invalid token" } },
       "minimax",
       NOW,
@@ -56,9 +56,10 @@ describe("minimax usage", () => {
   });
 
   it("uses the China endpoint for minimax-cn", async () => {
-    const fetchJson = vi.fn<FetchJson>(okFetch(payload));
+    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
     const result = await fetchMinimaxUsage(
-      { authClient: tokenAuthClient("mm-token"), fetchJson, now: () => NOW },
+      { authClient: tokenAuthClient("mm-token"), fetchJson: client.fetchJson, now: () => NOW },
       "minimax-cn",
     );
     expect(fetchJson.mock.calls[0]?.[0]).toContain("minimaxi.com");

@@ -86,15 +86,27 @@ def _session_text(record: dict[str, Any], index: int) -> str:
     return f"\n\n### Prior chat\nDate: {record['haystack_dates'][index]}\n{turns}"
 
 
-def history_instruction(record: dict[str, Any], indices: Iterable[int]) -> str:
+def prepare_history(record: dict[str, Any], encoder: Any) -> tuple[tuple[str, int], ...]:
+    sessions = []
+    for index in range(len(record["haystack_session_ids"])):
+        text = _session_text(record, index)
+        sessions.append((text, len(encoder.encode(text))))
+    return tuple(sessions)
+
+
+def history_instruction(
+    record: dict[str, Any],
+    indices: Iterable[int],
+    sessions: Sequence[tuple[str, int]],
+) -> str:
     ordered = _chronological_indices(record, indices)
-    return HISTORY_PREFIX + "".join(_session_text(record, index) for index in ordered)
+    return HISTORY_PREFIX + "".join(sessions[index][0] for index in ordered)
 
 
 def _balanced_groups(
     record: dict[str, Any],
     indices: Iterable[int],
-    encoder: Any,
+    sessions: Sequence[tuple[str, int]],
     chunk_count: int,
 ) -> tuple[tuple[int, ...], ...]:
     ordered = _chronological_indices(record, indices)
@@ -107,9 +119,7 @@ def _balanced_groups(
 
     cumulative = [0]
     for index in ordered:
-        cumulative.append(
-            cumulative[-1] + len(encoder.encode(_session_text(record, index)))
-        )
+        cumulative.append(cumulative[-1] + sessions[index][1])
 
     cuts = []
     previous = 0
@@ -128,20 +138,18 @@ def _balanced_groups(
         previous = cut
 
     boundaries = (0, *cuts, len(ordered))
-    return tuple(
-        ordered[start:end] for start, end in pairwise(boundaries)
-    )
+    return tuple(ordered[start:end] for start, end in pairwise(boundaries))
 
 
 def history_chunks(
     record: dict[str, Any],
     indices: Iterable[int],
-    encoder: Any,
+    sessions: Sequence[tuple[str, int]],
     chunk_count: int,
 ) -> tuple[str, ...]:
     return tuple(
-        history_instruction(record, group)
-        for group in _balanced_groups(record, indices, encoder, chunk_count)
+        history_instruction(record, group, sessions)
+        for group in _balanced_groups(record, indices, sessions, chunk_count)
     )
 
 
@@ -158,6 +166,7 @@ def tier_indices(
     record: dict[str, Any],
     evidence_session_ids: Iterable[str],
     encoder: Any,
+    sessions: Sequence[tuple[str, int]],
     tier_steps: Mapping[int, int] = TIER_STEPS,
 ) -> dict[int, tuple[int, ...]]:
     session_ids = record["haystack_session_ids"]
@@ -172,6 +181,7 @@ def tier_indices(
     selected = set(required)
     output = {}
     tiers = sorted(tier_steps.items())
+    query_tokens = len(encoder.encode(query_instruction(record)))
 
     def rendered_tokens(indices: set[int], history_steps: int) -> int:
         history = 0
@@ -181,11 +191,11 @@ def tier_indices(
                 for instruction in history_chunks(
                     record,
                     indices,
-                    encoder,
+                    sessions,
                     min(history_steps, len(indices)),
                 )
             )
-        return history + len(encoder.encode(query_instruction(record)))
+        return history + query_tokens
 
     for budget, history_steps in tiers:
         if rendered_tokens(selected, history_steps) > budget:
@@ -211,12 +221,9 @@ def tier_indices(
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def download_sources(
@@ -514,12 +521,13 @@ def generate_tasks(
                     f"source/oracle evidence differs for {question_id}: {evidence_id}"
                 )
 
-        selected = tier_indices(record, evidence_ids, encoder)
+        sessions = prepare_history(record, encoder)
+        selected = tier_indices(record, evidence_ids, encoder, sessions)
         full_chunks = {
             budget: history_chunks(
                 record,
                 indices,
-                encoder,
+                sessions,
                 TIER_STEPS[budget],
             )
             for budget, indices in selected.items()
@@ -547,7 +555,7 @@ def generate_tasks(
             for index, session_id in enumerate(record["haystack_session_ids"])
             if session_id in set(evidence_ids)
         )
-        evidence_instruction = history_instruction(record, evidence_indices)
+        evidence_instruction = history_instruction(record, evidence_indices, sessions)
         _write_task(
             output_dir / "evidence" / f"{ordinal:02d}",
             ordinal=ordinal,

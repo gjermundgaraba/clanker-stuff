@@ -103,6 +103,7 @@ def source_hashes():
             "pi_evals/preflight.py",
             "pi_evals/adapters/pi.py",
             "pi_evals/adapters/codex.py",
+            "pi_evals/jsonl.py",
             "pi_evals/adapters/services.py",
             "pi_evals/adapters/auth.py",
             "pi_evals/protocol.py",

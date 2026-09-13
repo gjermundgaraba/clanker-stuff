@@ -24,7 +24,7 @@ import {
   wireRecords,
   wireString,
 } from "./fixtures.js";
-import type { WireRecord, WireValue } from "./fixtures.js";
+import type { WireRecord } from "./fixtures.js";
 
 const StringValueSchema = Type.String();
 const HeadersInitSchema = Type.Object({
@@ -60,7 +60,7 @@ const socketEvent = (
   }
 };
 
-const socketMessage = (socket: ScriptedSocket, value: WireValue) => {
+const socketMessage = (socket: ScriptedSocket, value: unknown) => {
   queueMicrotask(() => {
     socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) }));
   });
@@ -117,7 +117,7 @@ const createCodexProviderRuntime = (
 ) => createProviderRuntime(observability, isFastModeEnabled);
 const expectedFallbackMultiAgentVersions = codexContractFixture.catalog.declarations;
 
-const interruptedSse = (firstEvent: WireValue) => {
+const interruptedSse = (firstEvent: unknown) => {
   const bytes = new TextEncoder().encode(`data: ${JSON.stringify(firstEvent)}\n\n`);
   let sent = false;
   return new Response(
@@ -206,7 +206,7 @@ const requestKind = (frame: WireRecord) => {
   return wireString(turn.request_kind);
 };
 
-const markProtocolRetryPayload = (payload: WireValue) => ({
+const markProtocolRetryPayload = (payload: unknown) => ({
   ...wireRecord(payload),
   protocolRetryTest: true,
 });
@@ -218,7 +218,7 @@ const FAST_MODEL = {
   name: "GPT-5.6 Sol",
 };
 
-const encodeJwtPart = (value: WireValue): string =>
+const encodeJwtPart = (value: unknown): string =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
 const apiKeyForAccount = (accountId: string): string =>
@@ -566,7 +566,7 @@ describe("Codex provider", () => {
 
   it("preserves Pi callbacks and builds a complete SSE request", async () => {
     const runtime = createCodexProviderRuntime();
-    const payloads: WireValue[] = [];
+    const payloads: unknown[] = [];
     const requests: RequestInit[] = [];
     const responses: number[] = [];
     const message = await runtime.provider
@@ -2103,7 +2103,7 @@ describe("Codex provider", () => {
       },
     ];
     const responseEventsWithoutTerminalOutput = (id: string, text: string) => {
-      const events: WireValue[] = responseEvents(id, text, false);
+      const events: unknown[] = responseEvents(id, text, false);
       const terminal = wireRecord(events.at(-1));
       const response = wireRecord(terminal.response);
       delete response.output;
@@ -2118,7 +2118,7 @@ describe("Codex provider", () => {
     let responseNumber = 0;
     class MockWebSocket {
       readyState = 1;
-      private readonly listeners = new Map<string, Set<(event: WireValue) => void>>();
+      private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
       constructor(
         url: string,
@@ -2132,7 +2132,7 @@ describe("Codex provider", () => {
         queueMicrotask(() => this.emit("open", {}));
       }
 
-      addEventListener(type: string, listener: (event: WireValue) => void) {
+      addEventListener(type: string, listener: (event: unknown) => void) {
         const listeners = this.listeners.get(type) ?? new Set();
         listeners.add(listener);
         this.listeners.set(type, listeners);
@@ -2144,7 +2144,7 @@ describe("Codex provider", () => {
         this.listeners.clear();
       }
 
-      removeEventListener(type: string, listener: (event: WireValue) => void) {
+      removeEventListener(type: string, listener: (event: unknown) => void) {
         this.listeners.get(type)?.delete(listener);
       }
 
@@ -2189,7 +2189,7 @@ describe("Codex provider", () => {
         this.emit("close", {});
       }
 
-      private emit(type: string, event: WireValue) {
+      private emit(type: string, event: unknown) {
         for (const listener of this.listeners.get(type) ?? []) {
           listener(event);
         }
@@ -2263,12 +2263,12 @@ describe("Codex provider", () => {
       assistantMessage(second),
       { content: "three", role: "user", timestamp: 5 },
     ];
-    let afterClosePayload: WireValue = null;
+    let afterClosePayload: WireRecord | undefined;
     const third = await runtime.provider
       .streamSimple(socketModel, socketContext(messages), {
         apiKey: SPIKE_API_KEY,
         onPayload: (payload) => {
-          afterClosePayload = structuredClone(payload);
+          afterClosePayload = structuredClone(wireRecord(payload));
         },
         sessionId,
       })
@@ -2609,12 +2609,12 @@ describe("Codex provider", () => {
       });
     }
     messages.push({ content: "two", role: "user", timestamp: 3 });
-    let finalizedRequest: WireValue = null;
+    let finalizedRequest: WireRecord | undefined;
     await runtime.provider
       .streamSimple(SPIKE_MODEL, context(messages), {
         apiKey: SPIKE_API_KEY,
         onPayload: (payload) => {
-          finalizedRequest = structuredClone(payload);
+          finalizedRequest = structuredClone(wireRecord(payload));
         },
         sessionId: fixture.sessionId,
       })

@@ -32,9 +32,7 @@ const StashFileSchema = Type.Object({ entries: Type.Array(Type.String()) });
 const readStore = async (filePath: string): Promise<StashStore> => {
   try {
     const data: unknown = JSON.parse(await readFile(filePath, "utf-8"));
-    return Value.Check(StashFileSchema, data)
-      ? { entries: Value.Parse(StashFileSchema, data).entries }
-      : emptyStore();
+    return Value.Check(StashFileSchema, data) ? { entries: data.entries } : emptyStore();
   } catch (error) {
     if (error instanceof Object && "code" in error && error.code === "ENOENT") {
       return emptyStore();

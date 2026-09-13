@@ -1,9 +1,10 @@
+import { Value } from "typebox/value";
 import {
   FOOTER_PROTOCOL_VERSION,
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
-  parseFooterReadyMessage,
+  FooterReadyMessageSchema,
 } from "@clanker-stuff/footer-protocol";
 import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 import type { Model } from "@earendil-works/pi-ai";
@@ -47,9 +48,8 @@ describe("footer host", () => {
     const host = createExtensionHost(extension);
     const ready: string[] = [];
     host.events.on(FOOTER_READY_EVENT, (value) => {
-      const message = parseFooterReadyMessage(value);
-      if (message !== undefined) {
-        ready.push(message.instanceId);
+      if (Value.Check(FooterReadyMessageSchema, value)) {
+        ready.push(value.instanceId);
       }
     });
     const context = host.createContext();
@@ -169,7 +169,7 @@ describe("footer host", () => {
     const sessionManager = host.createContext().sessionManager;
     let ready: { instanceId: string } | undefined;
     host.events.on(FOOTER_READY_EVENT, (value) => {
-      ready = parseFooterReadyMessage(value);
+      ready = Value.Check(FooterReadyMessageSchema, value) ? value : undefined;
     });
     const context = host.createContext({
       cwd: "/tmp/project",

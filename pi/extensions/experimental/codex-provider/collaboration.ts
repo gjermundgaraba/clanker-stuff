@@ -30,13 +30,11 @@ export interface CollaborationContract {
   version: 1;
 }
 
-const WireValueSchema = Type.Unknown();
-type WireValue = Static<typeof WireValueSchema>;
-const JsonRecordSchema = Type.Record(Type.String(), WireValueSchema);
+const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type JsonRecord = Static<typeof JsonRecordSchema>;
 const BooleanSchema = Type.Boolean();
 const StringSchema = Type.String();
-const FunctionSchema = Type.Function([], WireValueSchema);
+const FunctionSchema = Type.Function([], Type.Unknown());
 const ServiceTierSchema = Type.Union([Type.Literal("priority"), Type.Null()]);
 
 interface NestedToolContract {
@@ -58,15 +56,15 @@ interface CollaborationContext {
 
 export interface CollaborationContractRequest {
   readonly context: ExtensionContext;
-  readonly provide: (value: WireValue) => void;
+  readonly provide: (value: unknown) => void;
   readonly rootServiceTier?: "priority" | null;
   readonly sessionId: string;
   readonly ultra?: boolean;
 }
 
-const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
+const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
-const isToolDefinition = (value: WireValue): value is ToolDefinition =>
+const isToolDefinition = (value: unknown): value is ToolDefinition =>
   isRecord(value) &&
   Value.Check(StringSchema, value.description) &&
   Value.Check(FunctionSchema, value.execute) &&
@@ -74,7 +72,7 @@ const isToolDefinition = (value: WireValue): value is ToolDefinition =>
   Value.Check(StringSchema, value.name) &&
   isRecord(value.parameters);
 
-const isNestedToolContract = (value: WireValue): value is NestedToolContract =>
+const isNestedToolContract = (value: unknown): value is NestedToolContract =>
   isRecord(value) &&
   isToolDefinition(value.definition) &&
   (value.outputSchema === undefined || isRecord(value.outputSchema));
@@ -89,7 +87,7 @@ const requestContract = (
   const sessionId = ctx.sessionManager.getSessionId();
   const request: CollaborationContractRequest = {
     context: ctx,
-    provide(value: WireValue) {
+    provide(value: unknown) {
       if (!isRecord(value)) {
         return;
       }
@@ -124,15 +122,15 @@ const requestContract = (
 };
 export const requestCollaborationContract = requestContract;
 
-const toolName = (tool: WireValue): string | undefined =>
+const toolName = (tool: unknown): string | undefined =>
   isRecord(tool) && tool.type === "function" && Value.Check(StringSchema, tool.name)
     ? tool.name
     : undefined;
 
 const namespaceTools = (
-  tools: readonly WireValue[],
+  tools: readonly unknown[],
   contract: CollaborationContract | undefined,
-): WireValue[] => {
+): unknown[] => {
   const present = tools.flatMap((tool) => {
     const name = toolName(tool);
     return name !== undefined && (V1_NAMES.has(name) || V2_NAMES.has(name)) ? [name] : [];
@@ -160,7 +158,7 @@ const namespaceTools = (
     throw new Error("Codex collaboration tool family is incomplete or stale");
   }
   const selected: JsonRecord[] = [];
-  const remaining: WireValue[] = [];
+  const remaining: unknown[] = [];
   let insertionIndex = 0;
   let foundFirst = false;
   for (const tool of tools) {
@@ -197,7 +195,7 @@ const namespaceTools = (
 };
 
 export const rewriteCollaborationTools = (
-  payload: WireValue,
+  payload: unknown,
   pi: CollaborationApi,
   ctx: ExtensionContext & CollaborationContext,
 ) => {
@@ -211,7 +209,7 @@ export const rewriteCollaborationTools = (
     rewritten.tools = namespaceTools(tools, contract);
   }
   if (Array.isArray(input)) {
-    rewritten.input = input.map((item: WireValue) =>
+    rewritten.input = input.map((item: unknown) =>
       isRecord(item) && item.type === "additional_tools" && Array.isArray(item.tools)
         ? { ...item, tools: namespaceTools(item.tools, contract) }
         : item,

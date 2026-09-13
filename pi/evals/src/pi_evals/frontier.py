@@ -37,7 +37,7 @@ def sources():
     """Freeze execution inputs, not unrelated suites or analysis implementations."""
     selected = {
         'src': ('pi_evals/frontier.py', 'pi_evals/frontier_state.py', 'pi_evals/trials.py', 'pi_evals/runtime.py', 'pi_evals/artifacts.py', 'pi_evals/preflight.py',
-                'pi_evals/adapters/pi.py', 'pi_evals/adapters/codex.py',
+                'pi_evals/adapters/pi.py', 'pi_evals/adapters/codex.py', 'pi_evals/jsonl.py',
                 'pi_evals/adapters/frontier.py', 'pi_evals/adapters/auth.py', 'pi_evals/protocol.py'),
         'runtime': ('Dockerfile', 'pi-eval-tools.mjs', 'eval-journal.mjs', 'codex-eval.mjs', 'pi-eval-compact.mjs'),
         'profiles': ('code-mode.yaml', 'native-astra.yaml'),

@@ -73,8 +73,6 @@ const UUID_NAMESPACE_OID = "6ba7b812-9dad-11d1-80b4-00c04fd430c8";
 export const ALLOWED_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
 
 type SupportedModel = Model<"openai-codex-responses">;
-const WireValueSchema = Type.Unknown();
-type WireValue = Static<typeof WireValueSchema>;
 const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
 type JsonRecord = Static<typeof JsonRecordSchema>;
 const isTerminalResponseEvent = (event: JsonRecord) =>
@@ -186,7 +184,7 @@ interface ResponseCapture {
   responseId?: string;
   serviceTier?: string;
   socket?: WebSocketLike;
-  terminalOutput?: WireValue[];
+  terminalOutput?: unknown[];
   usage?: Usage;
 }
 
@@ -412,7 +410,7 @@ export interface CodexCompactionResult {
   readonly usage: Usage;
 }
 
-const isRecord = (value: WireValue): value is JsonRecord => Value.Check(JsonRecordSchema, value);
+const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
 const validateRequestReasoningEffort = (body: JsonRecord): void => {
   const { reasoning } = body;
@@ -443,11 +441,11 @@ const isAborted = (signal: AbortSignal | undefined) => signal?.aborted ?? false;
 
 const cloneJson = <T>(value: T): T => structuredClone(value);
 
-const prepareLiteContent = (content: WireValue): WireValue => {
+const prepareLiteContent = (content: unknown): unknown => {
   if (!Array.isArray(content)) {
     return content;
   }
-  return content.map((item: WireValue) => {
+  return content.map((item: unknown) => {
     if (!Value.Check(LiteImageSchema, item)) {
       return item;
     }
@@ -712,30 +710,28 @@ const buildRequestBody = (
       reasoningEffort === "none"
         ? (model.thinkingLevelMap?.off ?? "none")
         : (thinkingLevelMap[reasoningEffort] ?? reasoningEffort);
-    if (mappedEffort !== null) {
-      const configuredSummary = options?.reasoningSummary ?? metadata?.default_reasoning_summary;
-      const summary =
-        metadata?.supports_reasoning_summary_parameter === false ||
-        configuredSummary === "none" ||
-        configuredSummary === "off" ||
-        configuredSummary === null
-          ? undefined
-          : (configuredSummary ?? "auto");
-      const reasoning: NonNullable<RequestBody["reasoning"]> = { effort: mappedEffort };
-      if (lite) {
-        reasoning.context = "all_turns";
-      }
-      if (summary !== undefined) {
-        reasoning.summary = summary;
-      }
-      body.reasoning = reasoning;
+    const configuredSummary = options?.reasoningSummary ?? metadata?.default_reasoning_summary;
+    const summary =
+      metadata?.supports_reasoning_summary_parameter === false ||
+      configuredSummary === "none" ||
+      configuredSummary === "off" ||
+      configuredSummary === null
+        ? undefined
+        : (configuredSummary ?? "auto");
+    const reasoning: NonNullable<RequestBody["reasoning"]> = { effort: mappedEffort };
+    if (lite) {
+      reasoning.context = "all_turns";
     }
+    if (summary !== undefined) {
+      reasoning.summary = summary;
+    }
+    body.reasoning = reasoning;
   }
   return { body, grammarToolInputProperties, responsesLite: lite };
 };
 
-const equalContinuationValue = (value: WireValue) => {
-  const serialized = JSON.stringify(value, (key: string, nested: WireValue): WireValue =>
+const equalContinuationValue = (value: unknown) => {
+  const serialized = JSON.stringify(value, (key: string, nested: unknown): unknown =>
     key === "internal_chat_message_metadata_passthrough" ? undefined : nested,
   );
   return serialized === undefined ? undefined : canonicalJson(JSON.parse(serialized));
@@ -743,11 +739,11 @@ const equalContinuationValue = (value: WireValue) => {
 
 const parseLosslessJsonRecord = (value: string): JsonRecord | undefined => {
   let lossyNumber = false;
-  let parsed: WireValue;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(
       value,
-      (_key: string, nested: WireValue, context?: { source?: string }): WireValue => {
+      (_key: string, nested: unknown, context?: { source?: string }): unknown => {
         const number = Number(context?.source);
         if (
           Object.is(nested, number) &&
@@ -766,7 +762,7 @@ const parseLosslessJsonRecord = (value: string): JsonRecord | undefined => {
   return !lossyNumber && isRecord(parsed) ? parsed : undefined;
 };
 
-const normalizedContinuationOutputItem = (value: WireValue): ResponsesInputItem | undefined => {
+const normalizedContinuationOutputItem = (value: unknown): ResponsesInputItem | undefined => {
   if (!Value.Check(ContinuationOutputItemSchema, value)) {
     return undefined;
   }
@@ -812,11 +808,11 @@ const normalizedContinuationOutputItem = (value: WireValue): ResponsesInputItem 
 };
 
 const continuationOutputMatches = (
-  outputItems: readonly WireValue[],
+  outputItems: readonly ResponsesInputItem[],
   responseItems: readonly ResponsesInputItem[],
-  terminalOutput?: readonly WireValue[],
+  terminalOutput?: readonly unknown[],
 ) => {
-  const matchesProjection = (items: readonly WireValue[]) => {
+  const matchesProjection = (items: readonly unknown[]) => {
     const normalized: ResponsesInputItem[] = [];
     for (const item of items) {
       const projected = normalizedContinuationOutputItem(item);
@@ -833,7 +829,6 @@ const continuationOutputMatches = (
   const enrichedOutputItems = outputItems.map((item, index) => {
     const terminalItem = terminalOutput[index];
     if (
-      isRecord(item) &&
       item.type === "reasoning" &&
       isRecord(terminalItem) &&
       terminalItem.type === "reasoning" &&
@@ -849,7 +844,7 @@ const continuationOutputMatches = (
   return matchesProjection(enrichedOutputItems) && matchesProjection(terminalOutput);
 };
 
-const stableRequestValue = (value: JsonRecord) => {
+const stableRequestValue = (value: OutboundRequestBody) => {
   const ignored = new Set(["client_metadata", "input", "previous_response_id", "stream_options"]);
   return Object.fromEntries(Object.entries(value).filter(([key]) => !ignored.has(key)));
 };
@@ -857,7 +852,7 @@ const stableRequestValue = (value: JsonRecord) => {
 const continuationDelta = (
   body: OutboundRequestBody,
   continuation: ContinuationState,
-): WireValue[] | undefined => {
+): ResponsesInputItem[] | undefined => {
   if (
     equalContinuationValue(stableRequestValue(body)) !==
     equalContinuationValue(stableRequestValue(continuation.request))
@@ -874,18 +869,15 @@ const continuationDelta = (
     : undefined;
 };
 
-const jsonWireValue = (value: WireValue): WireValue => {
+const jsonWireValue = (value: unknown): unknown => {
   const serialized = JSON.stringify(value);
   return serialized === undefined ? undefined : JSON.parse(serialized);
 };
 
-const requestObservation = (body: JsonRecord) => {
+const requestObservation = (body: OutboundRequestBody) => {
   const cacheKey = typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : undefined;
   const cacheEnabled = cacheKey !== undefined && cacheKey.length > 0;
   try {
-    if (!Array.isArray(body.input)) {
-      throw new Error("Codex request input is not an array");
-    }
     return {
       cacheEnabled,
       cacheKeyHash: cacheKey !== undefined ? sha256Canonical(cacheKey) : undefined,
@@ -1333,7 +1325,7 @@ const connectSocket = async (
     if (signal?.aborted === true) {
       onAbort();
     }
-  }).catch((cause: WireValue) => {
+  }).catch((cause: unknown) => {
     if (!isAborted(signal)) {
       trace.websocketHandshakeFailures += 1;
     }
@@ -1359,7 +1351,7 @@ const releaseSocket = (session: SessionRuntime, socket: WebSocketLike, keep: boo
   cached.idleTimer.unref?.();
 };
 
-const messageData = async (event: WireValue) => {
+const messageData = async (event: unknown) => {
   if (!Value.Check(WebSocketMessageSchema, event)) {
     throw new Error("Unsupported WebSocket message payload");
   }
@@ -1410,7 +1402,7 @@ async function* parseWebSocket(
   const onError = () => {
     enqueue(new Error("WebSocket error: stream failed"));
   };
-  const onMessage = (event: WireValue) => {
+  const onMessage = (event: unknown) => {
     void messageData(event)
       .then((data) => {
         const value: unknown = JSON.parse(data);
@@ -1420,7 +1412,7 @@ async function* parseWebSocket(
         armIdle();
         enqueue(value);
       })
-      .catch((cause: WireValue) => {
+      .catch((cause: unknown) => {
         enqueue(cause instanceof Error ? cause : new Error(String(cause)));
       });
   };
@@ -2294,7 +2286,7 @@ export const createCodexProviderRuntime = (
     const startedAt = Date.now();
     const trace = createRequestTrace();
     const recovery = createInferenceRecovery(options);
-    let observedBody: JsonRecord | undefined;
+    let observedBody: OutboundRequestBody | undefined;
     let observedError: unknown;
     void (async () => {
       try {

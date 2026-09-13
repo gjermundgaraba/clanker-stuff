@@ -92,13 +92,7 @@ export interface AskQuestionCancelledDetails {
 const EXPLICIT_OTHER_OPTION_ERROR =
   "Do not include an 'Other' option; the UI provides it automatically";
 
-const sanitizeDisplayText = (value: string): string =>
-  Array.from(value, (char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return code <= 0x09 || (code >= 0x0b && code <= 0x1f) || (code >= 0x7f && code <= 0x9f)
-      ? ""
-      : char;
-  }).join("");
+const sanitizeDisplayText = (value: string): string => value.replaceAll(/[^\P{Cc}\n]/gu, "");
 
 export const parseQuestionsFromParameters = (params: AskQuestionParameters): Question[] => {
   const questions: Question[] = [];

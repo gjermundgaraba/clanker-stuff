@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { resolveAccessToken } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
@@ -84,14 +83,10 @@ const planLabelFromLevel = (level: string | undefined): string | undefined =>
     ? undefined
     : `${level[0].toUpperCase()}${level.slice(1)}`;
 
-export const parseZaiQuotaPayload = (
-  payload: Static<typeof ZaiQuotaPayloadSchema> | undefined,
+export const mapZaiQuotaPayload = (
+  payload: Static<typeof ZaiQuotaPayloadSchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  if (!Value.Check(ZaiQuotaPayloadSchema, payload)) {
-    return usageFailure("invalid usage payload");
-  }
-
   const { code } = payload;
   if (code !== undefined && code !== 200) {
     const message =
@@ -117,7 +112,7 @@ export const fetchZaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
     return usageFailure(auth.message, auth.kind);
   }
 
-  const response = await deps.fetchJson(ZAI_QUOTA_URL, {
+  const response = await deps.fetchJson(ZAI_QUOTA_URL, ZaiQuotaPayloadSchema, {
     headers: {
       Authorization: `Bearer ${auth.value.accessToken}`,
     },
@@ -125,12 +120,7 @@ export const fetchZaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
   });
 
   if (response.ok) {
-    return parseZaiQuotaPayload(
-      Value.Check(ZaiQuotaPayloadSchema, response.json)
-        ? Value.Parse(ZaiQuotaPayloadSchema, response.json)
-        : undefined,
-      now(),
-    );
+    return mapZaiQuotaPayload(response.json, now());
   }
 
   return usageFailure(response.message);

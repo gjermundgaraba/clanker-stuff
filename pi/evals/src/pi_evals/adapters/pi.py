@@ -23,6 +23,7 @@ from harbor.models.trajectories import (
 )
 
 from pi_evals.adapters.auth import require_auth_file
+from pi_evals.jsonl import read_jsonl_objects
 from pi_evals.protocol import Manifest, controlled_instruction, validate_manifest
 
 _REMOTE_PI_HOME = PurePosixPath("/tmp/pi-eval")
@@ -456,20 +457,7 @@ def convert_pi_events(
 
 
 def load_pi_events(path: Path) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    if not path.exists():
-        return events
-    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ValueError(f"{path}:{number}: invalid JSON") from error
-        if not isinstance(event, dict):
-            raise ValueError(f"{path}:{number}: expected an object")
-        events.append(event)
-    return events
+    return read_jsonl_objects(path) if path.exists() else []
 
 
 class PiEval(Pi):

@@ -1,6 +1,7 @@
+import { okFetch } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchCopilotUsage, parseCopilotUsagePayload } from "../../adapters/copilot.js";
+import { fetchCopilotUsage, mapCopilotUsagePayload } from "../../adapters/copilot.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, tokenAuthClient } from "./helpers.js";
 
@@ -14,7 +15,7 @@ describe("copilot usage", () => {
   };
 
   it("maps quotas and skips unlimited quotas", () => {
-    const result = parseCopilotUsagePayload(payload, NOW);
+    const result = mapCopilotUsagePayload(payload, NOW);
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
@@ -33,22 +34,20 @@ describe("copilot usage", () => {
   });
 
   it("fails when no quota snapshots are present", () => {
-    expect(parseCopilotUsagePayload({ quota_snapshots: {} }, NOW).ok).toBeFalsy();
+    expect(mapCopilotUsagePayload({ quota_snapshots: {} }, NOW).ok).toBeFalsy();
   });
 
   it("requests the Copilot endpoint with its required headers", async () => {
-    const fetchJson = vi.fn<FetchJson>(async () => ({
-      json: payload,
-      ok: true,
-    }));
+    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
 
     await fetchCopilotUsage({
       authClient: tokenAuthClient("copilot-token"),
-      fetchJson,
+      fetchJson: client.fetchJson,
       now: () => NOW,
     });
 
-    const [url, options] = fetchJson.mock.calls[0] ?? [];
+    const [url, , options] = fetchJson.mock.calls[0] ?? [];
     expect(url).toBe("https://api.github.com/copilot_internal/user");
     expect(options?.headers?.Authorization).toBe("token copilot-token");
     expect(options?.headers?.["Editor-Version"]).toBe("vscode/1.96.2");

@@ -13,7 +13,7 @@ import { Value } from "typebox/value";
 import { auditLocalOrder, SUPPORTED_PI_VERSION } from "../audit-local-order.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
 import { isWireRecord as isRecord, StringValueSchema } from "./wire.ts";
-import type { WireRecord, WireValue } from "./wire.ts";
+import type { WireRecord } from "./wire.ts";
 
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
 const LIVE_MODEL =
@@ -46,13 +46,13 @@ const resolveInstalledPiCli = () => {
   return cliPath;
 };
 
-const eventType = (event: WireValue) =>
+const eventType = (event: unknown) =>
   isRecord(event) && Value.Check(StringValueSchema, event.type) ? event.type : undefined;
 
 const waitForNotify = (client: RpcClient, messagePrefix: string, timeoutMs = 10_000) => {
   const result = Promise.withResolvers<WireRecord>();
   const unsubscribe = client.onEvent((event) => {
-    const candidate: WireValue = event;
+    const candidate: unknown = event;
     if (
       isRecord(candidate) &&
       candidate.type === "extension_ui_request" &&

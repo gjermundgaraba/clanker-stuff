@@ -36,12 +36,10 @@ export const STDIN_PREVIEW_LINES = 3;
 
 type RenderContext = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
 type Renderers = Pick<ToolDefinition, "renderCall" | "renderResult">;
-type ToolResult = AgentToolResult<Unparsed>;
+type ToolResult = AgentToolResult<unknown>;
 type ResultLike = Pick<ToolResult, "content">;
 
 /** Tool arguments and details arrive from the session as opaque values and are parsed here. */
-const UnparsedSchema = Type.Unknown();
-export type Unparsed = Static<typeof UnparsedSchema>;
 
 const ExecCommandArgsSchema = Type.Object({
   cmd: Type.Optional(Type.String()),
@@ -79,23 +77,23 @@ const ApplyPatchDetailsSchema = Type.Object({ changes: Type.Array(Type.Unknown()
 const UnknownArraySchema = Type.Array(Type.Unknown());
 
 interface PatchDetails {
-  changes: PatchChange[];
+  entries: { change: PatchChange; diff?: string }[];
   /** False when the trace bound reached the change list itself, so the list is not authoritative. */
   complete: boolean;
-  /** Keyed by change index; a diff the trace bound cut is absent, never partial. */
-  diffs: Map<number, string>;
 }
 
 /** The change list and the diffs are validated independently: a cut in one must not hide the other. */
-const parsePatchDetails = (details: Unparsed): PatchDetails | undefined => {
+const parsePatchDetails = (details: unknown): PatchDetails | undefined => {
   if (!Value.Check(ApplyPatchDetailsSchema, details)) return undefined;
-  const changes = details.changes.filter((change) => Value.Check(PatchChangeSchema, change));
   const diffs = new Map<number, string>();
   const rawDiffs = "diffs" in details ? details.diffs : undefined;
   for (const entry of Value.Check(UnknownArraySchema, rawDiffs) ? rawDiffs : []) {
     if (Value.Check(PatchDiffSchema, entry)) diffs.set(entry.index, entry.diff);
   }
-  return { changes, complete: changes.length === details.changes.length, diffs };
+  const entries = details.changes.flatMap((change, index) =>
+    Value.Check(PatchChangeSchema, change) ? [{ change, diff: diffs.get(index) }] : [],
+  );
+  return { entries, complete: entries.length === details.changes.length };
 };
 
 const BUDGET_TRUNCATION_HEADER =
@@ -237,7 +235,7 @@ export const formatCodeBlock = (source: string, language: string): string[] =>
 const invalidArgs = (title: string, theme: Theme): string =>
   `${title} ${theme.fg("error", "[invalid arg]")}`;
 
-const formatExecCommandCall = (args: Unparsed, theme: Theme): string => {
+const formatExecCommandCall = (args: unknown, theme: Theme): string => {
   const prompt = theme.fg("toolTitle", theme.bold("$"));
   if (!Value.Check(ExecCommandArgsSchema, args)) {
     return invalidArgs(prompt, theme);
@@ -253,7 +251,7 @@ const formatExecCommandCall = (args: Unparsed, theme: Theme): string => {
   return [`${prompt} ${first}${workdir}`, ...rest.map((line) => `  ${line}`)].join("\n");
 };
 
-const formatWriteStdinCall = (args: Unparsed, theme: Theme): string => {
+const formatWriteStdinCall = (args: unknown, theme: Theme): string => {
   const label = theme.fg("toolTitle", theme.bold("stdin"));
   if (!Value.Check(WriteStdinArgsSchema, args)) {
     return invalidArgs(label, theme);
@@ -274,7 +272,7 @@ const formatWriteStdinCall = (args: Unparsed, theme: Theme): string => {
   return `${title} ${theme.fg("muted", "←")} ${theme.fg("toolOutput", escaped)}`;
 };
 
-export const parseProcessDetails = (details: Unparsed): ProcessDisplayDetails | undefined =>
+export const parseProcessDetails = (details: unknown): ProcessDisplayDetails | undefined =>
   Value.Check(ProcessDisplayDetailsSchema, details) ? details : undefined;
 
 /** Removes the model-facing trailer and budget warning so only real process output is displayed. */
@@ -530,7 +528,7 @@ const summarizePatchArgs = (patch: string): PatchSummary => {
   return { changes, partial };
 };
 
-const formatApplyPatchCall = (args: Unparsed, theme: Theme, state: PatchCallState): string => {
+const formatApplyPatchCall = (args: unknown, theme: Theme, state: PatchCallState): string => {
   const title = theme.fg("toolTitle", theme.bold("apply_patch"));
   if (!Value.Check(ApplyPatchArgsSchema, args)) {
     return invalidArgs(title, theme);
@@ -576,10 +574,9 @@ const formatApplyPatchCall = (args: Unparsed, theme: Theme, state: PatchCallStat
  * large patch entirely. A lone change repeats its name only when there is more to say than a diff.
  */
 const formatApplyPatchResult = (details: PatchDetails, theme: Theme): string => {
-  const single = details.complete && details.changes.length === 1;
+  const single = details.complete && details.entries.length === 1;
   const lines: string[] = [];
-  details.changes.forEach((change, index) => {
-    const diff = details.diffs.get(index);
+  details.entries.forEach(({ change, diff }) => {
     const path = formatPatchPath(change, theme);
     if (diff !== undefined) {
       if (!single) lines.push(path);
@@ -632,7 +629,7 @@ export const applyPatchRenderers: Renderers = {
       return container;
     }
     if (!options.isPartial && details.complete) {
-      state.completed = details.changes;
+      state.completed = details.entries.map(({ change }) => change);
     }
     const body = formatApplyPatchResult(details, theme);
     if (body.length > 0) {

@@ -38,18 +38,24 @@ def read_slot(output, entry):
             events = []
             try:
                 with events_path.open() as stream:
-                    for line in stream:
+                    for line_number, line in enumerate(stream, 1):
                         if line.strip():
-                            events.append(json.loads(line))
+                            event = json.loads(line)
+                            if not isinstance(event, dict):
+                                raise ValueError(f'line {line_number}: expected event object')
+                            if event.get('type') == 'message_end' and not isinstance(event.get('message', {}), dict):
+                                raise ValueError(f'line {line_number}: expected message object')
+                            events.append(event)
             except (ValueError, UnicodeError) as error:
                 row['event_log_error'] = str(error)
                 row['valid'] = 0
-            row['recovery'] = {
-                'attempts': sum(e.get('type') == 'auto_retry_start' for e in events),
-                'successful_episodes': sum(e.get('type') == 'auto_retry_end' and e.get('success') is True for e in events),
-                'failed_episodes': sum(e.get('type') == 'auto_retry_end' and e.get('success') is False for e in events),
-                'errored_responses': sum(e.get('type') == 'message_end' and e.get('message', {}).get('role') == 'assistant' and e['message'].get('stopReason') == 'error' for e in events),
-            }
+            else:
+                row['recovery'] = {
+                    'attempts': sum(e.get('type') == 'auto_retry_start' for e in events),
+                    'successful_episodes': sum(e.get('type') == 'auto_retry_end' and e.get('success') is True for e in events),
+                    'failed_episodes': sum(e.get('type') == 'auto_retry_end' and e.get('success') is False for e in events),
+                    'errored_responses': sum(e.get('type') == 'message_end' and e.get('message', {}).get('role') == 'assistant' and e['message'].get('stopReason') == 'error' for e in events),
+                }
         if (logs/'telemetry-error.json').exists():
             row['telemetry_error'] = json.loads((logs/'telemetry-error.json').read_text())
             row['valid'] = 0

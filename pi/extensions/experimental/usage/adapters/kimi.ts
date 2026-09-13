@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { resolveAccessToken } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
@@ -55,14 +54,10 @@ const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindo
   return makeUsageWindow(id, remainingPercent, parseIso(detail?.resetTime));
 };
 
-export const parseKimiUsagePayload = (
-  payload: Static<typeof KimiUsagePayloadSchema> | undefined,
+export const mapKimiUsagePayload = (
+  payload: Static<typeof KimiUsagePayloadSchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  if (!Value.Check(KimiUsagePayloadSchema, payload)) {
-    return usageFailure("invalid usage payload");
-  }
-
   const { limits = [], usage } = payload;
   const weeklyLimit = usage?.limit ?? 0;
   const weeklyRemaining = usage?.remaining ?? 0;
@@ -88,7 +83,7 @@ export const fetchKimiUsage = async (deps: AdapterDeps): Promise<UsageFetchResul
     return usageFailure(auth.message, auth.kind);
   }
 
-  const response = await deps.fetchJson(KIMI_USAGE_URL, {
+  const response = await deps.fetchJson(KIMI_USAGE_URL, KimiUsagePayloadSchema, {
     headers: {
       Authorization: `Bearer ${auth.value.accessToken}`,
       "Content-Type": "application/json",
@@ -97,12 +92,7 @@ export const fetchKimiUsage = async (deps: AdapterDeps): Promise<UsageFetchResul
   });
 
   if (response.ok) {
-    return parseKimiUsagePayload(
-      Value.Check(KimiUsagePayloadSchema, response.json)
-        ? Value.Parse(KimiUsagePayloadSchema, response.json)
-        : undefined,
-      now(),
-    );
+    return mapKimiUsagePayload(response.json, now());
   }
 
   return usageFailure(response.message);

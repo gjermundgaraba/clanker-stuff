@@ -35,6 +35,7 @@
     "@clanker-stuff/pi-extension-paths": "workspace:^"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

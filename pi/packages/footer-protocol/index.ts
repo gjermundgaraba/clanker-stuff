@@ -1,6 +1,5 @@
 import { Type } from "typebox";
-import type { Static, TSchema } from "typebox";
-import { Value } from "typebox/value";
+import type { Static } from "typebox";
 
 export const FOOTER_PROTOCOL_VERSION = 1 as const;
 export const FOOTER_READY_EVENT = "clanker-footer:ready";
@@ -147,36 +146,3 @@ export const FooterWidgetMessageSchema = Type.Union([
   ),
 ]);
 export type FooterWidgetMessage = Static<typeof FooterWidgetMessageSchema>;
-
-const FooterProtocolInputSchema = Type.Unknown();
-export type FooterProtocolInput = Static<typeof FooterProtocolInputSchema>;
-
-const parse = <Schema extends TSchema>(
-  schema: Schema,
-  value: FooterProtocolInput,
-): Static<Schema> | undefined => {
-  return Value.Check(schema, value) ? value : undefined;
-};
-
-export const parseFooterReadyMessage = (
-  value: FooterProtocolInput,
-): FooterReadyMessage | undefined => parse(FooterReadyMessageSchema, value);
-
-export const parseFooterReadyRequestMessage = (
-  value: FooterProtocolInput,
-): FooterReadyRequestMessage | undefined => parse(FooterReadyRequestMessageSchema, value);
-
-export const parseFooterWidgetMessage = (
-  value: FooterProtocolInput,
-): FooterWidgetMessage | undefined => parse(FooterWidgetMessageSchema, value);
-
-export const parseFooterWidgetSnapshot = (
-  value: FooterProtocolInput,
-): FooterWidgetSnapshot | undefined => parse(FooterWidgetSnapshotSchema, value);
-
-export const isFooterReadyMessage = (value: FooterProtocolInput): value is FooterReadyMessage =>
-  parseFooterReadyMessage(value) !== undefined;
-
-export const isFooterReadyRequestMessage = (
-  value: FooterProtocolInput,
-): value is FooterReadyRequestMessage => parseFooterReadyRequestMessage(value) !== undefined;

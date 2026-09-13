@@ -31,7 +31,7 @@ interface ToolAttempt {
   toolCallId: string;
 }
 
-interface EvaluationTrace {
+export interface EvaluationTrace {
   finalText: string;
   tools: readonly ToolAttempt[];
 }
@@ -133,7 +133,7 @@ const validateQueueMessages = (
   }
 };
 
-const scenarios: readonly Scenario[] = [
+export const scenarios: readonly Scenario[] = [
   {
     delegation: "explicit",
     id: "explicit-non-delegation",
@@ -198,12 +198,13 @@ const scenarios: readonly Scenario[] = [
       validateQueueMessages(trace, sends, failures);
       const lastSpawn = Math.max(...spawns.map((call) => call.sequence));
       const firstSend = Math.min(...sends.map((call) => call.sequence));
+      const lastSend = Math.max(...sends.map((call) => call.sequence));
       const waits = attempts(trace, "wait_agent");
       const firstWait = Math.min(...waits.map((call) => call.sequence));
       if (sends.length > 0 && spawns.length > 0 && firstSend < lastSpawn) {
         failures.push("queue-only messages were sent before both spawns");
       }
-      if (waits.length > 0 && sends.length > 0 && firstWait < firstSend) {
+      if (waits.length > 0 && sends.length > 0 && firstWait < lastSend) {
         failures.push("wait_agent ran before queue-only addressing completed");
       }
       if (waits.length === 0) {

@@ -62,8 +62,6 @@ const CODEX_PI_REASONING_LEVELS: ReadonlyMap<string, ModelThinkingLevel> = new M
     level as ModelThinkingLevel,
   ]),
 );
-const ReasoningEffortInputSchema = Type.Unknown();
-type ReasoningEffortInput = Static<typeof ReasoningEffortInputSchema>;
 const ModelsPayloadSchema = Type.Object({ models: Type.Array(Type.Unknown()) });
 // Keep the entry boundary permissive for native fields not interpreted by this provider.
 const ModelEntrySchema = Type.Object({
@@ -93,9 +91,7 @@ const ModelMessagesSchema = Type.Union([
   Type.Null(),
 ]);
 
-export const isCodexWireReasoningEffort = (
-  value: ReasoningEffortInput,
-): value is CodexWireReasoningEffort =>
+export const isCodexWireReasoningEffort = (value: unknown): value is CodexWireReasoningEffort =>
   typeof value === "string" && CODEX_PI_REASONING_LEVELS.has(value);
 
 const storedApiKeyAuth: ApiKeyAuth = {

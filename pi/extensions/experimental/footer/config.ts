@@ -2,35 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { FooterIconFamily } from "@clanker-stuff/footer-protocol";
+import { FooterIconFamilySchema } from "@clanker-stuff/footer-protocol";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-export interface FooterRowConfig {
-  left: string[];
-  center: string[];
-  right: string[];
-}
-
-export interface FooterWidgetOverride {
-  enabled?: boolean;
-}
-
-export interface FooterConfig {
-  version: 1;
-  enabled: boolean;
-  iconFamily: FooterIconFamily;
-  separator: string;
-  rows: FooterRowConfig[];
-  widgets: Record<string, FooterWidgetOverride>;
-}
-
 const STRICT = { additionalProperties: false } as const;
-const FooterConfigInputSchema = Type.Unknown();
-type FooterConfigInput = Static<typeof FooterConfigInputSchema>;
 const WidgetOverrideSchema = Type.Object({ enabled: Type.Optional(Type.Boolean()) }, STRICT);
 const WidgetIdSchema = Type.String({ maxLength: 256, minLength: 1 });
 const RowSchema = Type.Object(
@@ -44,7 +23,7 @@ const RowSchema = Type.Object(
 const FooterConfigSchema = Type.Object(
   {
     enabled: Type.Boolean(),
-    iconFamily: Type.Union([Type.Literal("ascii"), Type.Literal("unicode"), Type.Literal("nerd")]),
+    iconFamily: FooterIconFamilySchema,
     rows: Type.Array(RowSchema, { maxItems: 3, minItems: 1 }),
     separator: Type.String({ maxLength: 8 }),
     version: Type.Literal(1),
@@ -52,6 +31,10 @@ const FooterConfigSchema = Type.Object(
   },
   STRICT,
 );
+
+export type FooterConfig = Static<typeof FooterConfigSchema>;
+export type FooterRowConfig = Static<typeof RowSchema>;
+export type FooterWidgetOverride = Static<typeof WidgetOverrideSchema>;
 
 export const DEFAULT_CONFIG: FooterConfig = {
   enabled: true,
@@ -89,21 +72,7 @@ export interface FooterConfigStore {
   save: (config: FooterConfig) => Promise<void>;
 }
 
-export const hasTerminalControl = (value: string): boolean => {
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    if (
-      code === 0x0a ||
-      code === 0x0d ||
-      code === 0x1b ||
-      code < 0x20 ||
-      (code >= 0x7f && code <= 0x9f)
-    ) {
-      return true;
-    }
-  }
-  return false;
-};
+export const hasTerminalControl = (value: string): boolean => /\p{Cc}/u.test(value);
 
 const codePointLength = (value: string): number => {
   let length = 0;
@@ -119,7 +88,7 @@ const validateId = (id: string): void => {
   }
 };
 
-export const parseFooterConfig = (value: FooterConfigInput): FooterConfig => {
+export const parseFooterConfig = (value: unknown): FooterConfig => {
   if (!Value.Check(FooterConfigSchema, value)) {
     throw new Error("config must be a strict object");
   }

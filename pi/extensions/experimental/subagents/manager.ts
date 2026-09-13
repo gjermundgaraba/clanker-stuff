@@ -33,7 +33,12 @@ import { V1Controller, V1_NOTIFICATION_TYPE } from "./v1/controller.js";
 import { V1_TOOL_NAMES } from "./v1/protocol.js";
 import { registerV1Tools } from "./v1/tools.js";
 import { V2Controller } from "./v2/controller.js";
-import { ROOT_AGENT_PATH, SUBAGENT_MESSAGE_TYPE, V2_TOOL_NAMES } from "./v2/protocol.js";
+import {
+  communicationEnvelope,
+  ROOT_AGENT_PATH,
+  SUBAGENT_MESSAGE_TYPE,
+  V2_TOOL_NAMES,
+} from "./v2/protocol.js";
 import { registerV2Tools } from "./v2/tools.js";
 
 const ALL_TOOL_NAMES: ReadonlySet<string> = new Set([...V1_TOOL_NAMES, ...V2_TOOL_NAMES]);
@@ -664,7 +669,7 @@ export class SubagentManager {
         return;
       }
       message = {
-        content: `Message Type: ${delivery.kind}\nTask name: ${delivery.to}\nSender: ${delivery.from}\nPayload:\n${delivery.content}`,
+        content: communicationEnvelope(delivery),
         customType: SUBAGENT_MESSAGE_TYPE,
         details: {
           communicationId: delivery.id,

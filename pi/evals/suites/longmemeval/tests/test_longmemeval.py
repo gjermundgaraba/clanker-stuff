@@ -11,10 +11,13 @@ from unittest.mock import patch
 from harbor.models.task.task import Task
 
 from suites.longmemeval.longmemeval import (
+    _balanced_groups,
     download_sources,
     generate_tasks,
     history_chunks,
     history_instruction,
+    prepare_history,
+    query_instruction,
     select_records,
     tier_indices,
 )
@@ -24,6 +27,11 @@ from pi_evals.protocol import CONTROLLED_COMPACTION_MARKER
 class CharacterEncoder:
     def encode(self, value: str) -> list[str]:
         return list(value)
+
+
+class PairEncoder:
+    def encode(self, value: str) -> list[str]:
+        return [value[index : index + 2] for index in range(0, len(value), 2)]
 
 
 def record(question_id: str, question_type: str, abstention: bool = False) -> dict:
@@ -195,6 +203,7 @@ class LongMemEvalTest(TestCase):
             item,
             ["evidence"],
             CharacterEncoder(),
+            prepare_history(item, CharacterEncoder()),
             {1_000: 2, 2_000: 3},
         )
 
@@ -204,11 +213,60 @@ class LongMemEvalTest(TestCase):
 
     def test_history_uses_exact_balanced_session_chunks(self) -> None:
         item = record("q", "type")
-        chunks = history_chunks(item, range(12), CharacterEncoder(), chunk_count=6)
+        chunks = history_chunks(item, range(12), prepare_history(item, CharacterEncoder()), chunk_count=6)
 
         self.assertEqual(len(chunks), 6)
         self.assertTrue(all("HISTORY-RECORDED" in chunk for chunk in chunks))
         self.assertEqual(sum(chunk.count("### Prior chat") for chunk in chunks), 12)
+
+    def test_tiers_use_joined_tokens_at_the_exact_budget(self) -> None:
+        item = record("q", "type")
+        for session in item["haystack_sessions"]:
+            session[0]["content"] += "!"
+        encoder = PairEncoder()
+        sessions = prepare_history(item, encoder)
+        self.assertLess(
+            len(encoder.encode(sessions[0][0] + sessions[1][0])),
+            sessions[0][1] + sessions[1][1],
+        )
+
+        tiers = tier_indices(item, ["evidence"], encoder, sessions, {381: 2, 382: 2})
+
+        self.assertEqual(tiers, {381: (9, 11), 382: (6, 9, 11)})
+        chunks = history_chunks(item, tiers[382], sessions, 2)
+        self.assertEqual(
+            sum(len(encoder.encode(chunk)) for chunk in chunks)
+            + len(encoder.encode(query_instruction(item))),
+            382,
+        )
+        with self.assertRaisesRegex(ValueError, "fewer sessions"):
+            tier_indices(item, ["evidence"], encoder, sessions, {346: 2})
+
+    def test_balanced_ties_choose_earlier_cut_and_preserve_index_order(self) -> None:
+        item = record("q", "type")
+        item["haystack_dates"] = ["2026-01-01"] * 12
+        sessions = prepare_history(item, CharacterEncoder())
+
+        self.assertEqual(
+            _balanced_groups(item, reversed(range(5)), sessions, 2),
+            ((0, 1), (2, 3, 4)),
+        )
+
+    def test_prepares_each_session_and_query_once_across_tiers(self) -> None:
+        item = record("q", "type")
+        encoder = PairEncoder()
+        with patch.object(encoder, "encode", wraps=encoder.encode) as encode:
+            sessions = prepare_history(item, encoder)
+            tiers = tier_indices(
+                item, ["evidence"], encoder, sessions, {380: 2, 600: 3}
+            )
+            for budget, indices in tiers.items():
+                history_chunks(item, indices, sessions, {380: 2, 600: 3}[budget])
+            encoded = [call.args[0] for call in encode.call_args_list]
+
+        for text, _ in sessions:
+            self.assertEqual(encoded.count(text), 1)
+        self.assertEqual(encoded.count(query_instruction(item)), 1)
 
     def test_generates_four_non_leaking_conditions_with_exact_boundaries(self) -> None:
         item = record("secret-qid", "secret-type")
@@ -271,7 +329,7 @@ class LongMemEvalTest(TestCase):
         self.assertTrue(full_64k_query.startswith(CONTROLLED_COMPACTION_MARKER))
         self.assertTrue(handoff_evidence.startswith(CONTROLLED_COMPACTION_MARKER))
         self.assertFalse(evidence_only.startswith(CONTROLLED_COMPACTION_MARKER))
-        self.assertIn("blue", history_instruction(item, [11]).lower())
+        self.assertIn("blue", history_instruction(item, [11], prepare_history(item, CharacterEncoder())).lower())
 
     def test_grader_requires_one_success_at_the_exact_boundary(self) -> None:
         item = record("q", "type")
@@ -356,9 +414,10 @@ class LongMemEvalTest(TestCase):
                     (logs / "verifier/reward.json").read_text(encoding="utf-8")
                 )
 
-            self.assertEqual(grade([5])["valid_experiment"], 1)
-            self.assertEqual(grade([5])["reward"], grade([5])["quality"])
-            self.assertNotIn("valid", grade([5]))
+            valid = grade([5])
+            self.assertEqual(valid["valid_experiment"], 1)
+            self.assertEqual(valid["reward"], valid["quality"])
+            self.assertNotIn("valid", valid)
             self.assertEqual(grade([4])["valid_experiment"], 0)
             self.assertEqual(grade([5, 5])["valid_experiment"], 0)
             off = grade([], "off")

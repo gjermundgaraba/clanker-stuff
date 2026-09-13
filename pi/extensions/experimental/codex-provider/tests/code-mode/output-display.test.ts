@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { createIdentityTheme } from "../../../../../tests/harness/tui.js";
 import { codeModeOutput } from "../../code-mode/output-display.js";
-import type { RuntimeToolResult, RuntimeToolTrace, RuntimeValue } from "../../code-mode/types.js";
+import type { RuntimeToolResult, RuntimeToolTrace } from "../../code-mode/types.js";
 import { stripAnsi } from "../../tools/renderers.js";
 
 const theme = createIdentityTheme();
@@ -19,10 +19,10 @@ const running = {
   session_id: 12,
   wall_time_seconds: 0.1,
 };
-const items = (value: RuntimeValue): RuntimeToolResult["content"] => [
+const items = (value: unknown): RuntimeToolResult["content"] => [
   { text: JSON.stringify(value), type: "text" },
 ];
-const trace = (value: RuntimeValue, name = "exec_command"): RuntimeToolTrace => ({
+const trace = (value: unknown, name = "exec_command"): RuntimeToolTrace => ({
   id: "trace-1",
   input: {},
   name,

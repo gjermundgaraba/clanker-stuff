@@ -19,6 +19,7 @@ from harbor.models.trial.paths import EnvironmentPaths
 from harbor.utils.trajectory_utils import format_trajectory_json
 
 from pi_evals.adapters.auth import require_auth_file
+from pi_evals.jsonl import read_jsonl_objects
 from pi_evals.protocol import controlled_instruction, validate_manifest
 
 _OUTPUT_EVENTS_FILE = "codex-events.jsonl"
@@ -34,29 +35,14 @@ def runner_command(agent_dir: str, output_filename: str) -> str:
     )
 
 
-def _load_jsonl(path: Path) -> list[dict[str, Any]]:
-    values: list[dict[str, Any]] = []
-    if not path.exists():
-        raise ValueError(f"missing Codex event journal: {path}")
-    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
-        if not line:
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ValueError(f"{path}:{number}: invalid JSON") from error
-        if not isinstance(value, dict):
-            raise ValueError(f"{path}:{number}: expected an object")
-        values.append(value)
-    return values
-
-
 def load_codex_journal(
     path: Path, *, output_log: bool = False
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Load exact response usage and terminal compaction attempts."""
 
-    records = _load_jsonl(path)
+    if not path.exists():
+        raise ValueError(f"missing Codex event journal: {path}")
+    records = read_jsonl_objects(path)
     usage_records: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
     response_ids: set[str] = set()
@@ -137,15 +123,7 @@ def load_codex_compactions(session_dir: Path) -> list[dict[str, Any]]:
     completed_segment = -1
     compactions: list[dict[str, Any]] = []
     for path in sorted(session_dir.glob("rollout-*.jsonl")):
-        for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ValueError(f"{path}:{number}: invalid JSON") from error
-            if not isinstance(event, dict):
-                raise ValueError(f"{path}:{number}: expected an object")
+        for event in read_jsonl_objects(path):
             payload = event.get("payload")
             if (
                 event.get("type") == "event_msg"
@@ -173,7 +151,7 @@ def load_codex_turn_contexts(session_dir: Path) -> list[dict[str, Any]]:
         {"model": record.get("payload", {}).get("model"),
          "effort": record.get("payload", {}).get("effort")}
         for path in sorted(session_dir.glob("rollout-*.jsonl"))
-        for record in _load_jsonl(path)
+        for record in read_jsonl_objects(path)
         if record.get("type") == "turn_context"
     ]
 

@@ -33,9 +33,8 @@ import {
   isWireRecord as isRecord,
   parseCompactionRequestBody,
   StringValueSchema,
-  WireValueSchema,
 } from "./wire.ts";
-import type { WireRecord, WireValue } from "./wire.ts";
+import type { WireRecord } from "./wire.ts";
 
 const PRIMARY_MODEL = "gpt-5.6-sol";
 const OUTPUT_CHUNKS = 32;
@@ -43,7 +42,7 @@ const MAX_PROVIDER_CASE_TOKENS = 325_000;
 const EMPTY_CONTEXT: Context = { messages: [], tools: [] };
 const TRAMPOLINE_STOP = "compaction feasibility trampoline complete";
 const WebSocketProbeSchema = Type.Object({
-  send: Type.Function([WireValueSchema], WireValueSchema),
+  send: Type.Function([Type.Unknown()], Type.Unknown()),
 });
 
 type CompactionInput = NonNullable<CodexCompactionRequest["authoritativeInput"]>;
@@ -86,7 +85,7 @@ const assertCompactionHeaders = (headers: Headers, caseId: FeasibilityCase["id"]
   );
 };
 
-const websocketHeaders = (value: WireValue, caseId: FeasibilityCase["id"]) => {
+const websocketHeaders = (value: unknown, caseId: FeasibilityCase["id"]) => {
   assert(isRecord(value) && isRecord(value.headers), `${caseId}: WebSocket headers are missing`);
   const headers = new Headers();
   for (const [name, headerValue] of Object.entries(value.headers)) {
@@ -113,7 +112,7 @@ export const installFeasibilityRequestBudget = () => {
   let requestCount = 0;
   let active: ActiveRequest | undefined;
 
-  const abortRequest = (request: ActiveRequest, error: WireValue) => {
+  const abortRequest = (request: ActiveRequest, error: unknown) => {
     request.abort.abort(error instanceof Error ? error : new Error(String(error)));
   };
 
@@ -200,8 +199,8 @@ export const installFeasibilityRequestBudget = () => {
         const owner = active;
         assert(owner !== undefined, "Unexpected WebSocket construction");
         try {
-          const url: WireValue = argumentsList[0];
-          const options: WireValue = argumentsList[1];
+          const url: unknown = argumentsList[0];
+          const options: unknown = argumentsList[1];
           assert(
             Value.Check(StringValueSchema, url),
             `${owner.caseId}: WebSocket URL is malformed`,
@@ -223,7 +222,7 @@ export const installFeasibilityRequestBudget = () => {
         const nativeSend = socket.send;
         Object.defineProperty(socket, "send", {
           configurable: true,
-          value(data: WireValue) {
+          value(data: unknown) {
             try {
               assert(active === owner, `${owner.caseId}: WebSocket request outlived its case`);
               assert(

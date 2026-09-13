@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { resolveOAuthAccess } from "../auth.js";
 import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
@@ -35,19 +34,10 @@ const XaiPayloadSchema = Type.Object({
 type XaiConfig = Static<typeof XaiConfigSchema>;
 export type XaiPayload = Static<typeof XaiPayloadSchema>;
 
-const MoneyNumberSchema = Type.Number();
-const MoneyObjectSchema = Type.Object({ val: Type.Number() });
+const moneyValue = (value: XaiConfig["monthlyLimit"]): number | undefined =>
+  typeof value === "number" ? value : value?.val;
 
-const moneyValue = (value: XaiConfig["monthlyLimit"]): number | undefined => {
-  if (Value.Check(MoneyNumberSchema, value)) {
-    return value;
-  }
-  return Value.Check(MoneyObjectSchema, value)
-    ? Value.Parse(MoneyObjectSchema, value).val
-    : undefined;
-};
-
-export const parseXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undefined => {
+export const mapXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undefined => {
   const config = payload.config;
   const monthlyLimit = moneyValue(config.monthlyLimit);
   const used = moneyValue(config.used);
@@ -69,7 +59,7 @@ export const parseXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undef
   return makeUsageWindow("month", remainingPercent, resetsAt);
 };
 
-export const parseXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefined => {
+export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefined => {
   const config = payload.config;
 
   const { currentPeriod } = config;
@@ -91,21 +81,21 @@ export const parseXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefi
   return makeUsageWindow("week", 100 - usagePercent, resetsAt);
 };
 
-const parseXaiPrepaidBalance = (payload: XaiPayload): number | undefined =>
+const mapXaiPrepaidBalance = (payload: XaiPayload): number | undefined =>
   moneyValue(payload.config.prepaidBalance);
 
-export const parseXaiUsagePayloads = (
+export const mapXaiUsagePayloads = (
   monthlyPayload: XaiPayload | undefined,
   weeklyPayload: XaiPayload | undefined,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
   const windows = [
-    monthlyPayload === undefined ? undefined : parseXaiMonthlyPayload(monthlyPayload),
-    weeklyPayload === undefined ? undefined : parseXaiWeeklyPayload(weeklyPayload),
+    monthlyPayload === undefined ? undefined : mapXaiMonthlyPayload(monthlyPayload),
+    weeklyPayload === undefined ? undefined : mapXaiWeeklyPayload(weeklyPayload),
   ].filter(isDefined);
 
   const creditsRemaining =
-    weeklyPayload === undefined ? undefined : parseXaiPrepaidBalance(weeklyPayload);
+    weeklyPayload === undefined ? undefined : mapXaiPrepaidBalance(weeklyPayload);
 
   return usageResult(
     creditsRemaining === undefined
@@ -127,13 +117,13 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
     "x-xai-token-auth": "xai-grok-cli",
   };
 
-  const monthlyPromise = deps.fetchJson(BILLING_URL, {
+  const monthlyPromise = deps.fetchJson(BILLING_URL, XaiPayloadSchema, {
     headers,
     timeoutMs: USAGE_HTTP_TIMEOUT_MS,
   });
   const weeklyPromise = (async () => {
     try {
-      return await deps.fetchJson(CREDITS_URL, {
+      return await deps.fetchJson(CREDITS_URL, XaiPayloadSchema, {
         headers,
         timeoutMs: USAGE_HTTP_TIMEOUT_MS,
       });
@@ -143,19 +133,14 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
   })();
   const monthly = await monthlyPromise;
 
-  if (!monthly.ok) {
+  if (!monthly.ok && monthly.kind === "response") {
     return usageFailure(monthly.message);
   }
 
   const weekly = await weeklyPromise;
-  const weeklyJson = weekly !== null && weekly.ok ? weekly.json : undefined;
-  return parseXaiUsagePayloads(
-    Value.Check(XaiPayloadSchema, monthly.json)
-      ? Value.Parse(XaiPayloadSchema, monthly.json)
-      : undefined,
-    weeklyJson !== undefined && Value.Check(XaiPayloadSchema, weeklyJson)
-      ? Value.Parse(XaiPayloadSchema, weeklyJson)
-      : undefined,
+  return mapXaiUsagePayloads(
+    monthly.ok ? monthly.json : undefined,
+    weekly !== null && weekly.ok ? weekly.json : undefined,
     now(),
   );
 };
