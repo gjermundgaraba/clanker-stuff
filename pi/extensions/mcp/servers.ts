@@ -1,10 +1,10 @@
+import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { SdkHttpError } from "@modelcontextprotocol/client";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { Type } from "typebox";
 import type { TUnsafe } from "typebox";
 
-import { awaitWithSignal } from "./abort.js";
 import { activateTools, mcpResultToPiContent, toGeneratedToolName } from "./bridge.js";
 import type { McpClientConnection, McpConnectionFactory } from "./connection.js";
 import { isAuthorizationError } from "./oauth.js";
@@ -71,7 +71,7 @@ export class McpServerPool {
       if (this.loads.get(options.serverName) === load) this.loads.delete(options.serverName);
     };
     void load.then(settled, settled);
-    return await awaitWithSignal(load, signal);
+    return await raceWithAbortSignal(load, signal);
   }
 
   reconcileActiveServers(names: readonly string[]): void {

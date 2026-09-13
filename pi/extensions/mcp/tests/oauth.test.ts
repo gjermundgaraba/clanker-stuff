@@ -3,7 +3,7 @@ import { connectToServer } from "../connection.js";
 import { toGeneratedToolName } from "../bridge.js";
 import { syncBuiltinESMExports } from "node:module";
 import childProcess, { ChildProcess } from "node:child_process";
-import { once } from "node:events";
+import { getEventListeners, once } from "node:events";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
@@ -387,6 +387,34 @@ describe("mcp oauth", () => {
       await callback.close();
     }
   });
+
+  it.each(["before", "during"])(
+    "preserves other callback waiters when cancellation occurs %s waiting",
+    async (when) => {
+      const callback = await startOAuthCallbackServer(
+        new URL("http://localhost:0/callback"),
+        "expected",
+      );
+      try {
+        const controller = new AbortController();
+        const reason = new Error("Caller stopped waiting");
+        const other = new AbortController();
+        const remaining = callback.waitForCode(other.signal);
+        if (when === "before") controller.abort(reason);
+        const cancelled = callback.waitForCode(controller.signal);
+        if (when === "during") controller.abort(reason);
+
+        await expect(cancelled).rejects.toBe(reason);
+        expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+        await fetch(`${callback.redirectUrl.href}?state=expected&code=ok`);
+        await expect(remaining).resolves.toEqual({ code: "ok", iss: undefined });
+        expect(getEventListeners(other.signal, "abort")).toHaveLength(0);
+        await expect(callback.waitForCode()).resolves.toEqual({ code: "ok", iss: undefined });
+      } finally {
+        await callback.close();
+      }
+    },
+  );
 
   it("cancels a stalled OAuth metadata request", async () => {
     const fixture = await t.startHttpFixture({ oauth: true });

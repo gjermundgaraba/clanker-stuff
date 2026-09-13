@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { contentText } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { getRecapConfigPath, loadRecapConfig } from "./config.js";
@@ -147,12 +148,7 @@ class RecapRuntime {
     }, RECAP_REQUEST_TIMEOUT_MS);
 
     try {
-      const aborted = new Promise<never>((_resolve, reject) => {
-        controller.signal.addEventListener("abort", () => reject(controller.signal.reason), {
-          once: true,
-        });
-      });
-      const response = await Promise.race([
+      const response = await raceWithAbortSignal(
         ctx.modelRegistry.complete(
           model,
           {
@@ -172,8 +168,8 @@ class RecapRuntime {
             timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
           },
         ),
-        aborted,
-      ]);
+        controller.signal,
+      );
       if (response.stopReason !== "stop") {
         throw new Error(response.errorMessage ?? `Recap model stopped with ${response.stopReason}`);
       }

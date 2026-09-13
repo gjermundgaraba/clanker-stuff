@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:http";
 
+import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
 import {
   auth,
   InsufficientScopeError,
@@ -18,7 +19,6 @@ import type {
   StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
 import type { HttpServerConfig } from "./config.js";
-import { awaitWithSignal } from "./abort.js";
 import {
   AuthorizationMetadataSchema,
   oauthStatePath,
@@ -88,7 +88,8 @@ export const startOAuthCallbackServer = async (redirectUrl: URL, expectedState: 
   boundUrl.port = String(address.port);
   return {
     redirectUrl: boundUrl,
-    waitForCode: (signal?: AbortSignal) => awaitWithSignal(code.promise, signal),
+    waitForCode: (signal?: AbortSignal) =>
+      signal ? raceWithAbortSignal(code.promise, signal) : code.promise,
     close: async () => {
       if (!server.listening) return;
       const closed = once(server, "close");

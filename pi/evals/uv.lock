@@ -1190,12 +1190,14 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "harbor" },
+    { name = "openai" },
     { name = "tiktoken" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "harbor", specifier = "==0.21.0" },
+    { name = "openai", specifier = "==2.54.0" },
     { name = "tiktoken", specifier = "==0.13.0" },
 ]
 

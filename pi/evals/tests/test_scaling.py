@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 import yaml
-from pi_evals.scaling import generate_task, prepare, verify, run, SIZES
+from pi_evals.scaling import build_image, generate_task, prepare, verify, run, SIZES
 from pi_evals.runtime import ARMS
 from pi_evals.scaling_report import report
 
@@ -79,6 +79,31 @@ class ScalingTest(TestCase):
                 )
             )
             self.assertNotEqual(data, datasets["small"])
+
+    def test_service_image_replaces_base_runner_symlink_explicitly(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            task = generate_task(root, "small", "test-seed", 1)
+            with (
+                patch("pi_evals.scaling.docker") as build,
+                patch("pi_evals.scaling.image_info", return_value={"image_id": "sha256:test"}),
+                patch("pi_evals.scaling.pin_tag", return_value="test:immutable"),
+            ):
+                image = build_image(root, task, "0.154.0", "base:immutable")
+            self.assertEqual(image, "sha256:test")
+            build.assert_called_once_with(
+                "build", "--platform", "linux/amd64", "-t",
+                f"clanker-pi-evals:{task.name}", root / "build" / task.name,
+            )
+            recipe = (root / "build" / task.name / "Dockerfile").read_text()
+            self.assertIn("COPY codex-eval.mjs /opt/codex-provider/codex-runner.mjs", recipe)
+            self.assertIn("COPY service-codex.mjs /opt/codex-provider/service-codex.mjs", recipe)
+            self.assertIn(
+                "ln -sfn /opt/codex-provider/service-codex.mjs /usr/local/bin/codex-eval",
+                recipe,
+            )
+            self.assertNotIn("COPY service-codex.mjs /usr/local/bin/codex-eval", recipe)
+            self.assertEqual((task / "environment/Dockerfile").read_text(), "FROM test:immutable\n")
 
     def test_18_runs_latest_release_full_order_balance_and_freeze(self):
         with TemporaryDirectory() as directory:

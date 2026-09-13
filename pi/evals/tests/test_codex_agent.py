@@ -100,6 +100,16 @@ class CodexCompactionTest(TestCase):
         )
         self.assertEqual(result.returncode, 0)
 
+    def test_runtime_validates_json_boundaries_and_symlink_entrypoint(self) -> None:
+        result = subprocess.run(
+            ["node", "--test", "tests/codex-runtime.test.mjs"],
+            check=False,
+            cwd=Path(__file__).parents[1],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_journal_separates_usage_and_strict_attempts(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "codex-events.jsonl"

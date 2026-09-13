@@ -1,4 +1,5 @@
 import { Value } from "typebox/value";
+import { getEventListeners } from "node:events";
 import { rm } from "node:fs/promises";
 
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
@@ -93,6 +94,9 @@ describe("recap runtime", () => {
     expect(completion.mock.calls[0]?.[2]?.sessionId).toEqual(expect.any(String));
     expect(completion.mock.calls[0]?.[2]?.sessionId).not.toBe("");
     expect(completion.mock.calls[0]?.[2]?.sessionId).not.toBe(ctx.sessionManager.getSessionId());
+    const signal = completion.mock.calls[0]?.[2]?.signal;
+    if (signal === undefined) throw new Error("Missing recap abort signal");
+    expect(getEventListeners(signal, "abort")).toHaveLength(0);
 
     const [entry] = host.getAppendedEntries();
     expect(entry?.type).toBe("custom");
@@ -245,6 +249,9 @@ describe("recap runtime", () => {
 
     await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
     expect(completion.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
+    expect(completion.mock.calls[0]?.[2]?.signal?.reason).toEqual(
+      new Error("Recap request timed out"),
+    );
 
     await vi.advanceTimersByTimeAsync(RECAP_RETRY_DELAY_MS);
     expect(completion.mock.calls).toHaveLength(2);
@@ -283,6 +290,22 @@ describe("recap runtime", () => {
     expect(host.getAppendedEntries()[0]).toMatchObject({
       data: { recap: "Current recap" },
     });
+  });
+
+  it("ignores a late provider rejection after cancellation", async () => {
+    const request = Promise.withResolvers<AssistantMessage>();
+    const completion = completionMock(() => request.promise);
+    const { ctx, host, runtime } = await setup(completion);
+
+    runtime.settled(ctx);
+    runtime.cancel();
+    await flushPromises();
+    request.reject(new Error("Abandoned provider failed"));
+    await flushPromises();
+
+    expect(host.getAppendedEntries()).toHaveLength(0);
+    expect(host.getNotifications()).toHaveLength(0);
+    expect(completion.mock.calls).toHaveLength(1);
   });
 
   it.each(["length", "toolUse", "deferred"] as const)(

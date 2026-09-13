@@ -74,9 +74,9 @@ def build_image(output: Path, task: Path, version: str, base: str) -> str:
     (context / "Dockerfile").write_text(f"""FROM {base}
 RUN npm install --global --ignore-scripts "@openai/codex@{version}" && test "$(codex --version)" = "codex-cli {version}"
 COPY codex-eval.mjs /opt/codex-provider/codex-runner.mjs
-COPY service-codex.mjs /usr/local/bin/codex-eval
+COPY service-codex.mjs /opt/codex-provider/service-codex.mjs
 COPY environment/ /opt/codex-provider/
-RUN chmod 755 /usr/local/bin/codex-eval
+RUN chmod 755 /opt/codex-provider/service-codex.mjs && ln -sfn /opt/codex-provider/service-codex.mjs /usr/local/bin/codex-eval
 WORKDIR /app
 """)
     tag = f"clanker-pi-evals:{task.name}"

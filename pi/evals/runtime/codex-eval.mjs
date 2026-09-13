@@ -5,38 +5,57 @@ import { appendFileSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 const SERVER_URL = "ws://127.0.0.1:41973";
 const SERVER_WAIT_MS = 10_000;
 
+const NonEmptyStringSchema = Type.String({ minLength: 1 });
+const EvalConfigSchema = Type.Object({
+  compactBefore: Type.Boolean(),
+  compactedAfterSegment: Type.Integer({ minimum: -1 }),
+  effort: Type.Union([Type.String(), Type.Null()]),
+  instructionPath: NonEmptyStringSchema,
+  model: NonEmptyStringSchema,
+  summary: Type.Union([Type.String(), Type.Null()]),
+});
+const RpcItemSchema = Type.Object({
+  id: Type.Optional(NonEmptyStringSchema),
+  type: Type.Optional(NonEmptyStringSchema),
+});
+const RpcTurnSchema = Type.Object({
+  id: NonEmptyStringSchema,
+  status: NonEmptyStringSchema,
+});
+// Unknown fields are deliberately allowed: native service hooks consume additional params,
+// item and turn fields, and result/usage payloads are validated by their own consumers.
+const RpcParamsSchema = Type.Object({
+  item: Type.Optional(RpcItemSchema),
+  responseId: Type.Optional(NonEmptyStringSchema),
+  threadId: Type.Optional(NonEmptyStringSchema),
+  turn: Type.Optional(RpcTurnSchema),
+  turnId: Type.Optional(NonEmptyStringSchema),
+  usage: Type.Optional(Type.Unknown()),
+});
+const RpcMessageSchema = Type.Object({
+  error: Type.Optional(Type.Unknown()),
+  id: Type.Optional(Type.Union([Type.String(), Type.Integer()])),
+  method: Type.Optional(NonEmptyStringSchema),
+  params: Type.Optional(RpcParamsSchema),
+  result: Type.Optional(Type.Unknown()),
+});
+const ThreadStartSchema = Type.Object({ thread: Type.Object({ id: NonEmptyStringSchema }) });
+const TurnStartSchema = Type.Object({ turn: Type.Object({ id: NonEmptyStringSchema }) });
+
 /**
- * @typedef {{
- *   compactBefore: boolean,
- *   compactedAfterSegment: number,
- *   effort: string | null,
- *   instructionPath: string,
- *   model: string,
- *   summary: string | null,
- * }} EvalConfig
- * @typedef {{ id?: string, type?: string }} RpcItem
- * @typedef {{ id: string, status: string }} RpcTurn
+ * @typedef {import("typebox").Static<typeof EvalConfigSchema>} EvalConfig
+ * @typedef {import("typebox").Static<typeof RpcTurnSchema>} RpcTurn
  * @typedef {{ threadId: string, turn: RpcTurn }} TurnStart
- * @typedef {{
- *   item?: RpcItem,
- *   responseId?: string,
- *   threadId?: string,
- *   turn?: RpcTurn,
- *   turnId?: string,
- *   usage?: unknown,
- * }} RpcParams
- * @typedef {{
- *   error?: unknown,
+ * @typedef {import("typebox").Static<typeof RpcParamsSchema>} RpcParams
+ * @typedef {import("typebox").Static<typeof RpcMessageSchema> & {
  *   hasError: boolean,
  *   hasResult: boolean,
- *   id?: number | string,
- *   method?: string,
- *   params?: RpcParams,
- *   result?: unknown,
  * }} RpcMessage
  * @typedef {{
  *   kind: "compaction" | "ordinary",
@@ -64,31 +83,15 @@ const parseJson = (text) => {
 };
 
 /**
- * @param {unknown} value Value to test.
- * @returns {value is object} Whether the value is a non-null object.
- */
-const isObject = (value) => value !== null && !Array.isArray(value) && value === Object(value);
-
-/**
- * @param {unknown} value Value to test.
- * @returns {value is number} Whether the value is a number.
- */
-const isNumber = (value) => value === Number(value);
-
-/**
- * @param {unknown} value Value to test.
- * @returns {value is string} Whether the value is a string.
- */
-const isString = (value) => value === String(value);
-
-/**
- * @param {unknown} value Value to validate.
+ * @template {import("typebox").TSchema} Schema
+ * @param {Schema} schema Expected structure.
+ * @param {unknown} value Value to validate without coercion or removal of extra fields.
  * @param {string} source Human-readable source.
- * @returns {object} Validated object.
+ * @returns {import("typebox").Static<Schema>} Validated value.
  */
-const objectValue = (value, source) => {
-  if (!isObject(value)) {
-    throw new TypeError(`${source} must be an object`);
+const schemaValue = (schema, value, source) => {
+  if (!Value.Check(schema, value)) {
+    throw new TypeError(`invalid ${source}`);
   }
   return value;
 };
@@ -99,113 +102,46 @@ const objectValue = (value, source) => {
  * @returns {string} Validated string.
  */
 const stringValue = (value, source) => {
-  if (!isString(value) || value.length === 0) {
+  if (!Value.Check(NonEmptyStringSchema, value)) {
     throw new TypeError(`${source} must be a non-empty string`);
   }
   return value;
 };
 
 /**
- * @param {unknown} value Value to validate.
- * @param {string} source Human-readable source.
- * @returns {string | undefined} Validated optional string.
- */
-const optionalString = (value, source) =>
-  value === undefined ? undefined : stringValue(value, source);
-
-/**
  * @param {unknown} value Parsed JSON.
  * @returns {EvalConfig} Validated runner config.
  */
-const evalConfig = (value) => {
-  const config = objectValue(value, "Codex eval config");
-  const compactBefore = "compactBefore" in config ? config.compactBefore : false;
-  const compactedAfterSegment =
-    "compactedAfterSegment" in config ? config.compactedAfterSegment : -1;
-  const effort = "effort" in config ? config.effort : null;
-  const summary = "summary" in config ? config.summary : null;
-  if (compactBefore !== true && compactBefore !== false) {
-    throw new TypeError("compactBefore must be a boolean");
-  }
-  if (!Number.isInteger(compactedAfterSegment) || compactedAfterSegment < -1) {
-    throw new TypeError("compactedAfterSegment must be an integer greater than or equal to -1");
-  }
-  if (effort !== null && !isString(effort)) {
-    throw new TypeError("effort must be a string or null");
-  }
-  if (summary !== null && !isString(summary)) {
-    throw new TypeError("summary must be a string or null");
-  }
-  return {
-    compactBefore,
-    compactedAfterSegment,
-    effort,
-    instructionPath: stringValue(
-      "instructionPath" in config ? config.instructionPath : undefined,
-      "instructionPath",
-    ),
-    model: stringValue("model" in config ? config.model : undefined, "model"),
-    summary,
-  };
+export const evalConfig = (value) => {
+  const config = schemaValue(
+    EvalConfigSchema,
+    {
+      compactBefore: false,
+      compactedAfterSegment: -1,
+      effort: null,
+      summary: null,
+      ...schemaValue(Type.Object({}), value, "Codex eval config"),
+    },
+    "Codex eval config",
+  );
+  const { compactBefore, compactedAfterSegment, effort, instructionPath, model, summary } = config;
+  return { compactBefore, compactedAfterSegment, effort, instructionPath, model, summary };
 };
 
 /**
  * @param {unknown} value Parsed JSON.
  * @returns {RpcMessage} Validated JSON-RPC message.
  */
-const rpcMessage = (value) => {
-  const message = objectValue(value, "JSON-RPC message");
-  const id = "id" in message ? message.id : undefined;
-  if (id !== undefined && !isNumber(id) && !isString(id)) {
-    throw new TypeError("JSON-RPC id must be a number or string");
-  }
-
-  let params;
-  if ("params" in message && message.params !== undefined) {
-    const rawParams = objectValue(message.params, "JSON-RPC params");
-    let item;
-    if ("item" in rawParams && rawParams.item !== undefined) {
-      const rawItem = objectValue(rawParams.item, "JSON-RPC item");
-      item = {
-        ...rawItem,
-        id: optionalString("id" in rawItem ? rawItem.id : undefined, "item.id"),
-        type: optionalString("type" in rawItem ? rawItem.type : undefined, "item.type"),
-      };
-    }
-    let turn;
-    if ("turn" in rawParams && rawParams.turn !== undefined) {
-      const rawTurn = objectValue(rawParams.turn, "JSON-RPC turn");
-      turn = {
-        ...rawTurn,
-        id: stringValue("id" in rawTurn ? rawTurn.id : undefined, "turn.id"),
-        status: stringValue("status" in rawTurn ? rawTurn.status : undefined, "turn.status"),
-      };
-    }
-    params = {
-      ...rawParams,
-      item,
-      responseId: optionalString(
-        "responseId" in rawParams ? rawParams.responseId : undefined,
-        "params.responseId",
-      ),
-      threadId: optionalString(
-        "threadId" in rawParams ? rawParams.threadId : undefined,
-        "params.threadId",
-      ),
-      turn,
-      turnId: optionalString("turnId" in rawParams ? rawParams.turnId : undefined, "params.turnId"),
-      usage: "usage" in rawParams ? rawParams.usage : undefined,
-    };
-  }
-
+export const rpcMessage = (value) => {
+  const message = schemaValue(RpcMessageSchema, value, "JSON-RPC message");
   return {
-    error: "error" in message ? message.error : undefined,
+    error: message.error,
     hasError: "error" in message,
     hasResult: "result" in message,
-    id,
-    method: optionalString("method" in message ? message.method : undefined, "JSON-RPC method"),
-    params,
-    result: "result" in message ? message.result : undefined,
+    id: message.id,
+    method: message.method,
+    params: message.params,
+    result: message.result,
   };
 };
 
@@ -213,27 +149,15 @@ const rpcMessage = (value) => {
  * @param {unknown} result thread/start result.
  * @returns {string} Started thread id.
  */
-const startedThreadId = (result) => {
-  const response = objectValue(result, "thread/start result");
-  const thread = objectValue(
-    "thread" in response ? response.thread : undefined,
-    "thread/start result.thread",
-  );
-  return stringValue("id" in thread ? thread.id : undefined, "thread/start result.thread.id");
-};
+export const startedThreadId = (result) =>
+  schemaValue(ThreadStartSchema, result, "thread/start result").thread.id;
 
 /**
  * @param {unknown} result turn/start result.
  * @returns {string} Started turn id.
  */
-const startedTurnId = (result) => {
-  const response = objectValue(result, "turn/start result");
-  const turn = objectValue(
-    "turn" in response ? response.turn : undefined,
-    "turn/start result.turn",
-  );
-  return stringValue("id" in turn ? turn.id : undefined, "turn/start result.turn.id");
-};
+export const startedTurnId = (result) =>
+  schemaValue(TurnStartSchema, result, "turn/start result").turn.id;
 
 /** @param {(record: UsageRecord) => void} onRecord Persist each completed response immediately. */
 export const createCapture = (onRecord = () => {}) => {

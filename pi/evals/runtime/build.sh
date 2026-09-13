@@ -10,6 +10,7 @@ docker run --rm clanker-pi-evals:node26 sh -c \
   'test "$(node --version | cut -d. -f1)" = v26 \
     && test ! -e /repo \
     && test ! -e /opt/codex-provider/evals \
+    && test "$(readlink -f /usr/local/bin/codex-eval)" = /opt/codex-provider/codex-eval.mjs \
     && codex-eval --self-test \
     && pi-eval-compact --self-test \
     && test "$(command -v pi)" = /opt/codex-provider/node_modules/.bin/pi \

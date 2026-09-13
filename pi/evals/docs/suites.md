@@ -82,6 +82,36 @@ Run the other three generated paths with the profiles listed above and distinct 
 
 The generated verifier's `quality` and `reward` are deterministic normalized exact match. The suite report leaves those raw values intact and presents semantic QA-judge quality in its second table; use QA quality for LongMemEval comparisons.
 
+The optional `--backend openai` judge uses the pinned `openai==2.54.0` SDK and
+requires `OPENAI_API_KEY`. One client is shared across workers and closed after
+they finish. Requests still use `https://api.openai.com/v1/chat/completions`,
+`temperature=0`, `max_tokens=10`, `n=1`, and a 60-second timeout (per HTTP phase,
+not an overall deadline). Only the legacy `OPENAI_ORGANIZATION` variable controls
+the organization; `OPENAI_BASE_URL`, `OPENAI_ORG_ID`, and `OPENAI_PROJECT_ID` are
+ignored. Unset `OPENAI_CUSTOM_HEADERS`: the judge rejects it rather than allowing
+SDK environment headers to override authentication or routing. The default Codex
+backend neither imports nor initializes the SDK and is unaffected by these variables.
+
+This changes the OpenAI transport policy intentionally: five SDK retries allow
+at most six attempts, now including connection failures, timeouts, HTTP 408/409,
+429, and all 5xx responses. The old transport retried only 429/500/502/503/504.
+SDK retries use jittered exponential backoff (starting at 0.5 seconds, capped at
+8 seconds), honor `Retry-After`/`retry-after-ms` delays up to 120 seconds and
+`x-should-retry`, and stop if the requested delay exceeds 120 seconds. Failures
+now raise SDK `APIStatusError` subclasses, `APIConnectionError`, or
+`APITimeoutError`, not urllib exceptions. A retried request can incur additional
+judge cost, particularly when a response is lost after the server completes it.
+
+Cache filenames remain `longmemeval-judge-<backend>-<model>.jsonl`, and valid
+identity-matching judgments are reused by default, including historical urllib
+judgments. Changed inputs still require fresh calls. Use `--rejudge` to explicitly
+replace all current judgments with fresh calls; this may incur judge cost. Save a
+copy first if you need to retain the previous judgments for comparison. Cache rows
+record backend/model and inputs, not transport provenance: reusing a historical row
+does not make it an SDK judgment. The dependency pin and transport policy above
+describe fresh OpenAI calls. Reports require `--judge-cache` when multiple judge
+caches exist in a job directory.
+
 This is a compaction-oriented derivative: official LongMemEval sends history and question in one request. Do not publish these results as unmodified LongMemEval-S scores. Compare full on versus full off for the observed compaction effect; evidence and handoff are diagnostic bounds with different evidence positions.
 
 ## Mem2Act

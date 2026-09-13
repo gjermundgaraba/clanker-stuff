@@ -9,16 +9,13 @@ import os
 import shutil
 import subprocess
 import tempfile
-import time
-import urllib.error
-import urllib.request
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pi_evals.trials import rows
 from longmemeval_cache import (
     condition_tier,
     label,
@@ -26,6 +23,10 @@ from longmemeval_cache import (
     same_identity,
     write_cache,
 )
+from pi_evals.trials import rows
+
+if TYPE_CHECKING:
+    from openai import OpenAI
 
 MODEL = "gpt-5.6-sol"
 
@@ -103,39 +104,36 @@ def prompt_for(
     )
 
 
-def _post(prompt: str, *, api_key: str, model: str) -> str:
-    request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(
-            {
-                "max_tokens": 10,
-                "messages": [{"content": prompt, "role": "user"}],
-                "model": model,
-                "n": 1,
-                "temperature": 0,
-            }
-        ).encode(),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            **(
-                {"OpenAI-Organization": os.environ["OPENAI_ORGANIZATION"]}
-                if os.getenv("OPENAI_ORGANIZATION")
-                else {}
-            ),
-        },
-        method="POST",
+def _openai_client(*, api_key: str) -> OpenAI:
+    from openai import OpenAI
+
+    if os.getenv("OPENAI_CUSTOM_HEADERS"):
+        raise ValueError("unset OPENAI_CUSTOM_HEADERS for the LongMemEval judge")
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.openai.com/v1",
+        max_retries=5,
+        timeout=60,
     )
-    for attempt in range(6):
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                value = json.load(response)
-            return value["choices"][0]["message"]["content"].strip()
-        except urllib.error.HTTPError as error:
-            if error.code not in {429, 500, 502, 503, 504} or attempt == 5:
-                raise
-            time.sleep(2**attempt)
-    raise AssertionError("unreachable")
+    # Constructor None defaults to SDK environment variables; reset public options
+    # before sharing the client so only the legacy organization variable is used.
+    client.organization = os.getenv("OPENAI_ORGANIZATION") or None
+    client.project = None
+    return client
+
+
+def _post(prompt: str, *, client: OpenAI, model: str) -> str:
+    response = client.chat.completions.create(
+        max_tokens=10,
+        messages=[{"content": prompt, "role": "user"}],
+        model=model,
+        n=1,
+        temperature=0,
+    )
+    content = response.choices[0].message.content
+    if content is None:
+        raise ValueError("OpenAI judge produced no answer")
+    return content.strip()
 
 
 def _codex(prompt: str, *, model: str) -> str:
@@ -215,6 +213,11 @@ def main() -> None:
     parser.add_argument("--backend", choices=("openai", "codex"), default="codex")
     parser.add_argument("--model", default=MODEL)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument(
+        "--rejudge",
+        action="store_true",
+        help="replace cached judgments with fresh calls (may incur judge cost)",
+    )
     args = parser.parse_args()
     api_key = os.getenv("OPENAI_API_KEY", "")
     if args.backend == "openai" and not api_key:
@@ -248,11 +251,15 @@ def main() -> None:
             "tier": tier,
         }
         previous = cached.get(item["trial"])
-        if previous is not None and same_identity(previous, identity):
+        if (
+            not args.rejudge
+            and previous is not None
+            and same_identity(previous, identity)
+        ):
             return previous, True
         response = (
-            _post(prompt, api_key=api_key, model=args.model)
-            if args.backend == "openai"
+            _post(prompt, client=client, model=args.model)
+            if client is not None
             else _codex(prompt, model=args.model)
         )
         result = {
@@ -265,7 +272,14 @@ def main() -> None:
             write_cache(output_path, cached.values())
         return result, False
 
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+    with (
+        (
+            _openai_client(api_key=api_key)
+            if args.backend == "openai"
+            else nullcontext()
+        ) as client,
+        ThreadPoolExecutor(max_workers=args.workers) as pool,
+    ):
         results = list(pool.map(judge, _inputs(args.job_dir, evals_dir)))
     if not results:
         raise SystemExit("no generated LongMemEval trials found")

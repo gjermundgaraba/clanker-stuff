@@ -6,7 +6,6 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
-
 SCRIPTS = Path(__file__).parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 SPEC = importlib.util.spec_from_file_location(
@@ -38,6 +37,24 @@ def cache_row(**changes: object) -> dict[str, object]:
 
 
 class LongMemEvalReportTest(TestCase):
+    def test_multiple_judge_caches_require_explicit_selection(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = [
+                root / "longmemeval-judge-openai-gpt-5.6-sol.jsonl",
+                root / "longmemeval-judge-openai-gpt-5.6-sol-backup.jsonl",
+            ]
+            for path in paths:
+                path.write_text(json.dumps(cache_row(judge_backend="openai")) + "\n")
+            values = [{"status": "completed", "trial": "complete"}]
+            with patch.object(longmemeval_report, "trial_rows", return_value=values):
+                with self.assertRaisesRegex(ValueError, "pass --judge-cache"):
+                    longmemeval_report.rows(root)
+                for path in paths:
+                    [row] = longmemeval_report.rows(root, path)
+                    self.assertEqual(row["qa_quality"], 1.0)
+                    self.assertEqual(row["qa_quality_source"], "openai:gpt-5.6-sol")
+
     def test_joins_labels_only_to_completed_generic_rows(self) -> None:
         with TemporaryDirectory() as directory:
             cache = Path(directory) / "judge.jsonl"
