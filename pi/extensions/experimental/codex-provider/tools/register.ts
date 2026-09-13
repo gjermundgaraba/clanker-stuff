@@ -5,8 +5,9 @@ import { createCodexToolsController } from "./controller.js";
 export const registerCodexTools = (
   pi: ExtensionAPI,
   setFooterActive: (active: boolean) => void = () => null,
+  evaluationToolMode?: "direct" | "code_mode_only",
 ): void => {
-  const tools = createCodexToolsController(pi, setFooterActive);
+  const tools = createCodexToolsController(pi, setFooterActive, evaluationToolMode);
 
   for (const definition of tools.definitions) {
     pi.registerTool(definition);

@@ -1,0 +1,49 @@
+job_name: code-mode
+jobs_dir: .harbor/jobs
+n_attempts: 1
+n_concurrent_trials: 1
+quiet: false
+environment:
+  type: docker
+  delete: true
+agents:
+  - import_path: pi_evals.adapters.pi:PiEval
+    model_name: openai-codex/gpt-6-astra
+    kwargs:
+      thinking: high
+      extensions:
+        - /opt/codex-provider/pi-eval-tools.mjs
+      settings:
+        compaction:
+          enabled: false
+        retry:
+          enabled: false
+      pi_evals:
+        experiment: code-mode
+        arm: direct
+        tool_mode: direct
+        pair_id: calibration
+        platform: pi-provider
+        compaction_mode: "off"
+        expected_mechanism: codex-provider
+        expected_protocol: openai-responses-compaction-v2
+  - import_path: pi_evals.adapters.pi:PiEval
+    model_name: openai-codex/gpt-6-astra
+    kwargs:
+      thinking: high
+      extensions:
+        - /opt/codex-provider/pi-eval-tools.mjs
+      settings:
+        compaction:
+          enabled: false
+        retry:
+          enabled: false
+      pi_evals:
+        experiment: code-mode
+        arm: code
+        tool_mode: code_mode_only
+        pair_id: calibration
+        platform: pi-provider
+        compaction_mode: "off"
+        expected_mechanism: codex-provider
+        expected_protocol: openai-responses-compaction-v2

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { pathToFileURL } from "node:url";
+import { appendFileSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
@@ -165,6 +167,7 @@ const rpcMessage = (value) => {
     if ("item" in rawParams && rawParams.item !== undefined) {
       const rawItem = objectValue(rawParams.item, "JSON-RPC item");
       item = {
+        ...rawItem,
         id: optionalString("id" in rawItem ? rawItem.id : undefined, "item.id"),
         type: optionalString("type" in rawItem ? rawItem.type : undefined, "item.type"),
       };
@@ -173,11 +176,13 @@ const rpcMessage = (value) => {
     if ("turn" in rawParams && rawParams.turn !== undefined) {
       const rawTurn = objectValue(rawParams.turn, "JSON-RPC turn");
       turn = {
+        ...rawTurn,
         id: stringValue("id" in rawTurn ? rawTurn.id : undefined, "turn.id"),
         status: stringValue("status" in rawTurn ? rawTurn.status : undefined, "turn.status"),
       };
     }
     params = {
+      ...rawParams,
       item,
       responseId: optionalString(
         "responseId" in rawParams ? rawParams.responseId : undefined,
@@ -230,7 +235,8 @@ const startedTurnId = (result) => {
   return stringValue("id" in turn ? turn.id : undefined, "turn/start result.turn.id");
 };
 
-const createCapture = () => {
+/** @param {(record: UsageRecord) => void} onRecord Persist each completed response immediately. */
+export const createCapture = (onRecord = () => {}) => {
   /** @type {Map<string, { completed: boolean, expected: boolean, itemId?: string, state?: CompactionAttempt["state"], timestamp?: string }>} */
   const compactions = new Map();
   /** @type {UsageRecord[]} */
@@ -339,13 +345,16 @@ const createCapture = () => {
       }
       throw new Error("Codex response omitted exact usage");
     }
-    records.push({
+    /** @type {UsageRecord} */
+    const record = {
       kind,
       responseId,
       threadId,
       turnId,
       usage: params.usage,
-    });
+    };
+    records.push(record);
+    onRecord(record);
   };
 
   const finish = () => {
@@ -442,7 +451,8 @@ class RpcClient {
    * @param {WebSocket} socket Connected socket.
    * @param {Capture} capture Event collector.
    */
-  constructor(socket, capture) {
+  constructor(socket, capture, hooks = {}) {
+    this.hooks = hooks;
     this.socket = socket;
     this.capture = capture;
     socket.addEventListener("message", ({ data }) => {
@@ -563,6 +573,18 @@ class RpcClient {
       }
       return;
     }
+    if (message.id !== undefined && message.method !== undefined && this.hooks.request) {
+      Promise.resolve(this.hooks.request(message.method, message.params)).then(
+        (result) => this.socket.send(JSON.stringify({ id: message.id, result })),
+        (error) => {
+          this.socket.send(
+            JSON.stringify({ id: message.id, error: { code: -32603, message: String(error) } }),
+          );
+          this.#fail(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
+      return;
+    }
     if (message.id !== undefined && message.method !== undefined) {
       this.socket.send(
         JSON.stringify({
@@ -572,6 +594,7 @@ class RpcClient {
       );
       return;
     }
+    this.hooks.notification?.(message);
     this.capture.accept(message);
     if (message.method === "turn/started") {
       const turn = message.params?.turn;
@@ -598,7 +621,7 @@ class RpcClient {
   }
 }
 
-const run = async (configPath) => {
+export const run = async (configPath, hooks = {}) => {
   const config = evalConfig(parseJson(await readFile(configPath, "utf-8")));
   const codexHome = process.env.CODEX_HOME;
   if (codexHome === undefined || codexHome.length === 0) {
@@ -608,8 +631,13 @@ const run = async (configPath) => {
   const eventsPath = `${codexHome}/eval-events.jsonl`;
   const instruction = await readFile(config.instructionPath, "utf-8");
   const socket = await connect();
-  const capture = createCapture();
-  const rpc = new RpcClient(socket, capture);
+  // Persist before turn completion, including when the supervisor kills us.
+  appendFileSync(eventsPath, "", { mode: 0o600 });
+  const capture = createCapture((record) => {
+    appendFileSync(eventsPath, `${JSON.stringify(record)}\n`);
+    process.stdout.write(`${JSON.stringify({ type: "eval_event", ...record })}\n`);
+  });
+  const rpc = new RpcClient(socket, capture, hooks);
 
   await rpc.request("initialize", {
     capabilities: {
@@ -643,7 +671,9 @@ const run = async (configPath) => {
       experimentalRawEvents: true,
       model: config.model,
       sandbox: "danger-full-access",
+      ...hooks.threadParams,
     });
+    await hooks.threadStarted?.(result);
     threadId = startedThreadId(result);
     await writeFile(statePath, `${threadId}\n`);
   }
@@ -663,6 +693,7 @@ const run = async (configPath) => {
     model: config.model,
     summary: config.summary,
     threadId,
+    ...hooks.turnParams,
   });
   const turnId = startedTurnId(turnResult);
   const completed = await rpc.waitForTurn(turnId);
@@ -672,21 +703,21 @@ const run = async (configPath) => {
 
   rpc.assertHealthy();
   const captured = capture.finish();
-  const records = [
-    ...captured.attempts.map((attempt) => ({
-      compactedAfterSegment: config.compactedAfterSegment,
-      kind: "compaction_attempt",
-      state: attempt.state,
-      threadId,
-      timestamp: attempt.timestamp,
-      turnId: attempt.turnId,
-    })),
-    ...captured.records,
-  ];
-  await appendFile(eventsPath, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+  const records = captured.attempts.map((attempt) => ({
+    compactedAfterSegment: config.compactedAfterSegment,
+    kind: "compaction_attempt",
+    state: attempt.state,
+    threadId,
+    timestamp: attempt.timestamp,
+    turnId: attempt.turnId,
+  }));
+  if (records.length > 0) {
+    await appendFile(eventsPath, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+  }
   for (const record of records) {
     process.stdout.write(`${JSON.stringify({ type: "eval_event", ...record })}\n`);
   }
+  await hooks.finished?.();
   socket.close();
 };
 
@@ -797,10 +828,12 @@ const selfTest = () => {
   throw new Error("accepted a completed compaction turn without an item completion");
 };
 
-if (process.argv[2] === "--self-test") {
-  selfTest();
-} else if (process.argv.length === 3) {
-  await run(process.argv[2]);
-} else {
-  throw new Error("usage: codex-eval CONFIG_JSON | codex-eval --self-test");
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  if (process.argv[2] === "--self-test") {
+    selfTest();
+  } else if (process.argv.length === 3) {
+    await run(process.argv[2]);
+  } else {
+    throw new Error("usage: codex-eval CONFIG_JSON | codex-eval --self-test");
+  }
 }

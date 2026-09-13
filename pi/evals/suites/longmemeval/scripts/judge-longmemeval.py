@@ -18,7 +18,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from pi_evals import report
+from pi_evals.trials import rows
 from longmemeval_cache import (
     condition_tier,
     label,
@@ -174,7 +174,7 @@ def _codex(prompt: str, *, model: str) -> str:
 
 def _inputs(job_dir: Path, evals_dir: Path) -> list[dict[str, Any]]:
     completed = {
-        row["trial"] for row in report.rows(job_dir) if row["status"] == "completed"
+        row["trial"] for row in rows(job_dir) if row["status"] == "completed"
     }
     items = []
     for trial in sorted(job_dir.iterdir()):

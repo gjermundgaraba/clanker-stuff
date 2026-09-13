@@ -54,6 +54,24 @@ const selectModel = async (
 };
 
 describe("Codex tools", () => {
+  it.each(["direct", "code_mode_only"] as const)(
+    "pins the evaluation tool surface and prompt to %s",
+    async (mode) => {
+      const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode_only" };
+      const host = createExtensionHost((pi) => registerCodexTools(pi, () => null, mode), { model });
+      await host.emitSessionStart();
+      expect(host.getActiveTools()).toStrictEqual(mode === "direct" ? DIRECT_NAMES : CODE_NAMES);
+      const result = await host.emit("before_agent_start", {
+        type: "before_agent_start",
+        prompt: "task",
+        systemPrompt: "base",
+      });
+      expect(JSON.stringify(result).includes("base")).toBe(mode !== "direct");
+      await host.runCommand("code-mode", "", host.createContext({ model }));
+      expect(host.getActiveTools()).toStrictEqual(mode === "direct" ? DIRECT_NAMES : CODE_NAMES);
+    },
+  );
+
   it("resolves refreshed policy for commands without changing the manual preference", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
     let refreshed = { ...model, codexToolMode: "code_mode_only" };

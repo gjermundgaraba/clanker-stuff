@@ -1,0 +1,27 @@
+# Agent template for Frontier and scaling; each series freezes the latest Codex.
+job_name: native-astra
+jobs_dir: .harbor/jobs
+n_attempts: 1
+n_concurrent_trials: 1
+quiet: false
+retry:
+  max_retries: 0
+environment:
+  type: docker
+  delete: true
+agents:
+  - import_path: pi_evals.adapters.codex:CodexEval
+    model_name: openai/gpt-6-astra
+    kwargs:
+      reasoning_effort: high
+      config:
+        model_auto_compact_token_limit: 1000000000
+        model_auto_compact_token_limit_scope: body_after_prefix
+        web_search: disabled
+        features:
+          multi_agent: false
+      pi_evals:
+        platform: codex-native
+        compaction_mode: "off"
+        expected_mechanism: codex-native
+        expected_protocol: null

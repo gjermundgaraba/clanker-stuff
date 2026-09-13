@@ -25,6 +25,15 @@ _OUTPUT_EVENTS_FILE = "codex-events.jsonl"
 _REMOTE_RUN_CONFIG = "/tmp/codex-eval-run.json"
 
 
+def runner_command(agent_dir: str, output_filename: str) -> str:
+    return (
+        "set -o pipefail; "
+        f"codex-eval {_REMOTE_RUN_CONFIG} "
+        f"2> {agent_dir}/codex-stderr.log | "
+        f"tee {agent_dir}/{output_filename}"
+    )
+
+
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
     if not path.exists():
@@ -156,6 +165,17 @@ def load_codex_compactions(session_dir: Path) -> list[dict[str, Any]]:
                     }
                 )
     return compactions
+
+
+def load_codex_turn_contexts(session_dir: Path) -> list[dict[str, Any]]:
+    """Extract observed model/effort from durable sessions, not requested config."""
+    return [
+        {"model": record.get("payload", {}).get("model"),
+         "effort": record.get("payload", {}).get("effort")}
+        for path in sorted(session_dir.glob("rollout-*.jsonl"))
+        for record in _load_jsonl(path)
+        if record.get("type") == "turn_context"
+    ]
 
 
 class CodexEval(Codex):
@@ -323,6 +343,7 @@ class CodexEval(Codex):
         trajectory.agent.extra = {
             **(trajectory.agent.extra or {}),
             "pi_evals": self._pi_evals,
+            "native_turn_contexts": load_codex_turn_contexts(session_dir),
         }
         return trajectory
 
@@ -410,11 +431,7 @@ class CodexEval(Codex):
         try:
             await self.exec_as_agent(
                 environment,
-                command=(
-                    "set -o pipefail; "
-                    f"codex-eval {_REMOTE_RUN_CONFIG} 2>&1 | "
-                    f"tee {agent_dir}/{self._OUTPUT_FILENAME}"
-                ),
+                command=runner_command(agent_dir, self._OUTPUT_FILENAME),
                 env=env,
             )
         finally:

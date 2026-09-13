@@ -56,3 +56,31 @@ docker run --rm clanker-pi-evals:node26 sh -c \
       }
     " \
     && codex --version'
+
+# Exercise the real wrapper and catalog policy without a model request or credentials.
+for mode in direct code_mode_only; do
+  docker run --rm \
+    -e PI_CODING_AGENT_DIR=/tmp/pi-eval -e PI_EVAL_TOOL_MODE="$mode" \
+    clanker-pi-evals:node26 sh -c '
+      pi --offline --no-session --no-context-files \
+        --no-skills --no-prompt-templates --no-themes --no-extensions --no-approve \
+        --extension /opt/codex-provider/pi-eval-tools.mjs \
+        --model openai-codex/gpt-6-astra --thinking high --print --mode json /code-mode \
+        >/tmp/pi-json &&
+      node -e "for (const line of require(\"fs\").readFileSync(\"/tmp/pi-json\",\"utf8\").split(\"\\n\")) if (line.trim()) JSON.parse(line)" &&
+      cat /logs/agent/eval-events.jsonl' |
+    node --input-type=module -e '
+      import assert from "node:assert/strict";
+      let input = "";
+      for await (const chunk of process.stdin) input += chunk;
+      const events = input.trim().split("\n").map(line => JSON.parse(line));
+      const setup = events.filter(event => event.type === "pi_eval_setup");
+      assert.equal(setup.length, 1);
+      assert.equal(setup[0].model, "openai-codex/gpt-6-astra");
+      assert.equal(setup[0].thinking, "high");
+      assert.equal(setup[0].mode, process.argv[1]);
+      assert.deepEqual(setup[0].activeTools, process.argv[1] === "direct"
+        ? ["apply_patch", "exec_command", "view_image", "write_stdin"] : ["exec", "wait"]);
+      assert.equal(events.some(event => event.type === "pi_eval_tools"), false);
+    ' "$mode"
+done

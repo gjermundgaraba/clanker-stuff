@@ -769,7 +769,7 @@ class PiTrajectoryTest(TestCase):
                 trajectory = adapter._convert_events_to_trajectory(logs_dir)
             self.assertEqual(
                 trajectory.agent.extra,
-                {"harbor": True, "pi_evals": CODEX_NATIVE_OFF},
+                {"harbor": True, "pi_evals": CODEX_NATIVE_OFF, "native_turn_contexts": []},
             )
 
     def test_load_is_strict_and_preserves_unicode_line_separators(self) -> None:

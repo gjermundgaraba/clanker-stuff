@@ -21,6 +21,11 @@ RUN apt-get update \
   && npm install --global --ignore-scripts \
     @openai/codex@0.147.0
 COPY --from=extension /out /opt/codex-provider
+COPY pi/evals/runtime/pi-eval-tools.mjs pi/evals/runtime/eval-journal.mjs pi/evals/runtime/service-tools.mjs /opt/codex-provider/
+# Install the checksum-pinned host in the same private Pi home used by the adapter.
+RUN cd /opt/codex-provider && node --input-type=module -e \
+    'import { installCodeModeHost } from "./code-mode/install-host.ts"; import { HOST_RELEASE } from "./code-mode/host-assets.ts"; await installCodeModeHost({platform: process.platform, arch: process.arch, destination: `/tmp/pi-eval/cache/codex-provider/code-mode/${HOST_RELEASE}/${process.platform}-${process.arch}/codex-code-mode-host`});'
+
 COPY pi/evals/runtime/codex-eval.mjs /usr/local/bin/codex-eval
 COPY pi/evals/runtime/pi-eval-compact.mjs /usr/local/bin/pi-eval-compact
 RUN chmod 755 /usr/local/bin/codex-eval /usr/local/bin/pi-eval-compact

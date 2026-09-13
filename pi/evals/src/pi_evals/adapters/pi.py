@@ -367,6 +367,32 @@ def convert_pi_events(
     if not steps:
         append_step(source="system", message="Pi produced no structured events")
 
+    operations: dict[tuple[str, ...], dict[str, Any]] = {}
+    dropped_operations = False
+    for event in events:
+        if event.get("type") != "tool_execution_end":
+            continue
+        name = event.get("toolName")
+        if name in {"exec_command", "write_stdin", "apply_patch", "view_image"}:
+            operations[("direct", event["toolCallId"])] = {
+                "name": name,
+                "success": not event.get("isError", False),
+            }
+        result = event.get("result")
+        details = result.get("details") if isinstance(result, dict) else None
+        if not isinstance(details, dict):
+            continue
+        dropped_operations |= bool(details.get("droppedTraceCount"))
+        for trace in details.get("traces") or []:
+            cell_id = details.get("cellId")
+            if not isinstance(cell_id, str) or not cell_id:
+                dropped_operations = True
+                continue
+            operations[("nested", cell_id, trace["id"])] = {
+                "name": trace["name"],
+                "success": trace["status"] == "done",
+            }
+
     return Trajectory(
         schema_version="ATIF-v1.7",
         session_id=session_id,
@@ -374,7 +400,22 @@ def convert_pi_events(
             name="pi-eval",
             version=agent_version,
             model_name=model_name,
-            extra={"pi_evals": manifest},
+            extra={
+                "pi_evals": manifest,
+                **(
+                    {
+                        "tool_operations": list(operations.values()),
+                        "tool_mode_evidence": [
+                            event
+                            for event in events
+                            if event.get("type")
+                            in {"pi_eval_tools", "pi_eval_compaction"}
+                        ],
+                    }
+                    if manifest.get("experiment") == "code-mode"
+                    else {}
+                ),
+            },
         ),
         steps=steps,
         final_metrics=FinalMetrics(
@@ -390,6 +431,25 @@ def convert_pi_events(
                 "cost_basis": "api_list_price_estimate",
                 "reasoning_tokens": int(totals["reasoning"]),
                 "tool_calls": tool_calls,
+                "underlying_operations": None
+                if dropped_operations
+                else len(operations),
+                "cost_available": any(
+                    event.get("type") == "message_end"
+                    and isinstance(event.get("message"), dict)
+                    and event["message"].get("role") == "assistant"
+                    for event in events
+                )
+                and all(
+                    isinstance((event["message"].get("usage") or {}).get("cost"), dict)
+                    and isinstance(
+                        event["message"]["usage"]["cost"].get("total"), (int, float)
+                    )
+                    for event in events
+                    if event.get("type") == "message_end"
+                    and isinstance(event.get("message"), dict)
+                    and event["message"].get("role") == "assistant"
+                ),
             },
         ),
     )
@@ -417,6 +477,7 @@ class PiEval(Pi):
 
     SUPPORTS_ATIF = True
     _OUTPUT_FILENAME = _REMOTE_EVENT_LOG.name
+    _TELEMETRY_FILENAME = "eval-events.jsonl"
 
     def __init__(
         self,
@@ -435,6 +496,19 @@ class PiEval(Pi):
         self._extensions = extensions or []
         self._settings = settings or {}
         self._instructions: list[str] = []
+        if self._pi_evals.get("experiment") == "code-mode":
+            if self._extensions != ["/opt/codex-provider/pi-eval-tools.mjs"]:
+                raise ValueError(
+                    "code-mode requires only the evaluation provider wrapper"
+                )
+            compaction = self._settings.get("compaction")
+            if not isinstance(compaction, dict) or compaction.get("enabled") is not False or self.skills_dir:
+                raise ValueError("code-mode requires compaction disabled and no skills")
+            if (
+                self.model_name != "openai-codex/gpt-6-astra"
+                or kwargs.get("thinking") != "high"
+            ):
+                raise ValueError("code-mode requires Astra with high reasoning")
         json.dumps(self._settings, allow_nan=False)
         provider_extension = any(
             "codex-provider" in Path(extension).parts for extension in self._extensions
@@ -595,6 +669,14 @@ class PiEval(Pi):
         access = self.model_connection
         provider = access.provider or provider
         env = {**access.env, "PI_CODING_AGENT_DIR": _REMOTE_PI_HOME.as_posix()}
+        if self._pi_evals.get("experiment") == "code-mode":
+            env.update(
+                {
+                    "PI_EVAL_TOOL_MODE": self._pi_evals["tool_mode"],
+                    "PI_EVAL_MODEL": self.model_name,
+                    "PI_EVAL_THINKING": "high",
+                }
+            )
         if provider == "anthropic" and (
             oauth_token := self._get_env("ANTHROPIC_OAUTH_TOKEN")
         ):
@@ -642,6 +724,8 @@ class PiEval(Pi):
             filename="instruction.md",
         )
         reset = f": > {_REMOTE_EVENT_LOG.as_posix()}; " if not self._resume else ""
+        if not self._resume and self._pi_evals.get("experiment") == "code-mode":
+            reset += f": > /logs/agent/{self._TELEMETRY_FILENAME}; "
         command = (
             "set -o pipefail; "
             f"{reset}: > {_REMOTE_STDERR_LOG.as_posix()}; "
@@ -656,8 +740,9 @@ class PiEval(Pi):
     @override
     def populate_context_post_run(self, context: AgentContext) -> None:
         events = load_pi_events(self.logs_dir / self._OUTPUT_FILENAME)
+        telemetry = load_pi_events(self.logs_dir / self._TELEMETRY_FILENAME)
         trajectory = convert_pi_events(
-            events,
+            [*events, *telemetry],
             self._instructions,
             agent_version=self.version() or "unknown",
             model_name=self.model_name,

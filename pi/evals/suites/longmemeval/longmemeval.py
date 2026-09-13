@@ -392,7 +392,6 @@ def _write_task(
     record: dict[str, Any],
     gold: dict[str, Any],
 ) -> None:
-    shutil.rmtree(task, ignore_errors=True)
     (task / "environment").mkdir(parents=True, exist_ok=True)
     _write(
         task / "task.toml",
@@ -479,7 +478,9 @@ def generate_tasks(
 ) -> int:
     source = {record["question_id"]: record for record in records}
     oracle = {record["question_id"]: record for record in oracle_records}
-    shutil.rmtree(output_dir, ignore_errors=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if any(output_dir.iterdir()):
+        raise ValueError(f"output directory is not empty: {output_dir}")
     count = 0
 
     for ordinal, question_id in enumerate(question_ids):

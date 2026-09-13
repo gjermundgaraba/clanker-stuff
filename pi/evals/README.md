@@ -1,89 +1,123 @@
 # Pi evals
 
-Harbor suites compare the configured Pi and Codex runtimes on `gpt-5.6-terra`. Run commands from `pi/evals`.
+Private Harbor evaluation tooling for **Pi without Code Mode**, **Pi with Code Mode**,
+and **native Codex**. Run commands from `pi/evals`.
+
+The supported harness comparisons are [Frontier Qubit Routing](#frontierswe-v2-qubit-routing-pilot)
+and [ledger volume scaling](docs/suites.md#three-arm-volume-scaling).
+See the [verified Frontier results](results/frontier-qubit-routing.md).
+The pre-existing [memory and compaction suites](docs/suites.md#compaction-continuity)
+remain separate experiments, not Code Mode comparisons.
 
 ## Setup
 
+Requires Node 26+, Python 3.12+, uv, and Docker with Linux AMD64 support.
+
 ```bash
 uv sync
-./runtime/build.sh
 export PI_EVAL_AUTH_JSON_PATH="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/auth.json"
 export CODEX_AUTH_JSON_PATH="$HOME/.codex/auth.json"
 ```
 
-The Node 26 image builds the extension inside Linux, contains one frozen Pi dependency tree, and excludes the repository, reference solutions, and hidden tests. Verify packaging and graders without model calls:
+Authenticate Pi and Codex before paid runs. Frontier preparation builds its own images,
+resolves the latest published Codex, and freezes versions across preflight and measurement.
+Scaling also builds its own runtime and freezes the latest Codex.
+Use `./runtime/build.sh` for the memory/compaction suites' baseline image;
+it is not a latest-Codex comparison series.
+
+## Validation
 
 ```bash
-uv run harbor job start --config suites/smoke/job.yaml --yes
+uv run python -m unittest discover -s tests
+# From the repository root:
+vp check pi/evals
 ```
 
-## Compaction continuity
+Preflight below exercises real containers without model calls. A work deadline is
+a valid fixed-budget outcome; a runtime, telemetry or capture failure is not.
+Keep failed attempts and unknown usage visible, rather than selecting successful retries.
 
-`paired.yaml` runs matched compaction-off/on arms for every configured platform. Automatic compaction is disabled; hidden task markers invoke each runtime's manual compaction path only in on arms.
+A failed no-model preflight can be rerun with the same command and frozen inputs.
+Each attempt keeps its logs, input identity and status under `preflight/attempt-NNNN/`.
+A successful matching preflight is reused. Neither path repeats model trials or
+refreezes a series.
+
+## FrontierSWE v2 Qubit Routing pilot
+
+`pi_evals.frontier` runs one released Python algorithm-optimization task with
+Pi without Code Mode, Pi with Code Mode, and native Codex. The prompt and upstream
+0–1 scoring are unchanged. The default agent budget is 30 minutes rather than the
+published 20 hours, so this is a capped harness comparison, not a leaderboard run.
 
 ```bash
-# Calibrate once, then use the profile's three attempts for a reportable run.
-uv run harbor job start --config profiles/paired.yaml \
-  --path suites/compaction/tasks --n-attempts 1 \
-  --job-name compaction-calibration --yes
-uv run harbor job start --config profiles/paired.yaml \
-  --path suites/compaction/tasks --job-name compaction-paired --yes
-uv run python -m pi_evals.report .harbor/jobs/compaction-paired
+mkdir -p .cache/checkouts
+git clone --filter=blob:none https://github.com/Proximal-Labs/frontier-swe-v2.git .cache/checkouts/frontier-swe-v2
+git -C .cache/checkouts/frontier-swe-v2 checkout 9e3f71cac38ef3d7e14a41b361c7b2b54c59899b
+uv run python -m pi_evals.frontier prepare --output .harbor/frontier-qubit \
+  --upstream .cache/checkouts/frontier-swe-v2
+uv run python -m pi_evals.frontier preflight --output .harbor/frontier-qubit
+uv run python -m pi_evals.frontier run --output .harbor/frontier-qubit
+uv run python -m pi_evals.frontier report --output .harbor/frontier-qubit
 ```
 
-Task quality is independent of protocol validity. A terminal failed or aborted compaction is recorded and the marked instruction still runs, so it makes `valid_experiment` zero without hiding `quality`; an ambiguous runtime failure still stops the trial. The canonical report filters quality to valid completed trials and separately reports request and compaction counts, completion yield, usage, ordinary/compaction cost, agent execution time, end-to-end wall time, and matched on-minus-off deltas. Harbor's raw reward aggregate is not the experimental comparison surface.
+Preparation resolves the latest published Codex and freezes its version, matched
+agent image, separate grader image, task/config snapshots and execution sources.
+Driver, trial-state/usage policy, adapter, protocol, runtime and verifier changes block
+continuation. Frontier's reporter is separate: presentation and aggregation changes
+are recorded as provenance, not enforced as execution inputs. Spending and recovery
+decisions read trial evidence directly, never report output.
+All arms use Astra/high, 4 CPUs, 16 GiB and AMD64, with compaction off.
+Pi uses its built-in transient-error recovery: at most three consecutive retries
+with 2/4/8-second backoff and no provider-level retries. Native Codex retains its
+frozen released recovery behavior. All recovery counts against the original
+30-minute work budget. Whole-trial retries remain disabled.
+The agent runs non-root with the public simulator and training circuits; hidden
+circuits, scoring anchors and the greedy reference are removed from its image.
+Harbor only exports Python source and validates runtime evidence. The original
+verifier grades that source in a fresh, network-disabled container. Agent network
+policy follows the existing coding harness rather than enforcing upstream's offline
+sandbox. Proximus continuation and submit-tool behavior are not reproduced.
 
-Costs are API list-price estimates, not account invoices or subscription charges. Native Codex reporting includes the standalone compaction response captured from app-server events.
+The free preflight provisions agent-owned runtime/log directories and checks actual
+non-root Pi startup in both modes without network access, Harbor export, empty/wrong submissions, the upstream
+greedy baseline over the full test pool, its exact agent-image export roundtrip,
+simulator tampering and scoring anchors. There is no executable optimal oracle.
+Retain upstream `reward`, circuits solved and category scores separately: a valid
+complete circuit may still score zero if it does not improve on the greedy anchor.
+The upstream thread timeout waits for executor shutdown, so a pathological router
+can block until the whole driver timeout; affected results need explicit review.
 
-Affected earlier debugging-continuity runs used a stale `route.test.js` digest, which capped attainable quality at 0.8. They are not comparable with corrected runs and must be rerun.
+One attempt per arm is descriptive. Reports omit known-bad legacy underlying-operation
+counts; newly converted traces use cell-scoped identities and deduplicate repeated waits.
+Pi telemetry uses a queued `eval-events.jsonl` sidecar, separate from its JSON stdout.
+Unknown pricing stays null without discarding tokens or independently captured scores.
+Runtime-invalid evidence stops spending after capture and grading. `run --resume`
+continues unstarted slots or grades captured trials; it never retries a started model trial.
+Grading retries retain numbered attempt directories, logs and status under `grading/`,
+require unchanged grading inputs, and reuse an already successful result. Even a failed
+Harbor attempt can be graded diagnostically; that does not make it comparison-eligible
+or permit further model spending. Historical frozen series are not refrozen or migrated.
+The default $20 observed-cost checkpoint is between trials, not an in-flight cap.
+Upstream content is provided for evaluation purposes, not under a root permissive license.
 
-## LongMemEval
+The runner now journals each completed native model response immediately and uses
+a host-side work deadline with 90 seconds of cleanup grace. At cutoff it kills
+all dedicated agent-user processes, including detached tools, then captures the
+actual Python source independently of trajectory conversion. The free Harbor
+preflight exercises this cutoff with a detached writer and an intentional telemetry
+failure. Budget-exhausted submissions are scored; unrecovered stream-error partial submissions
+are marked diagnostic and never retried. Unknown runtime evidence stops spending
+after preserving and grading the captured source. Reports expose cutoff status,
+capture hashes, and comparison eligibility separately from task scores.
+Historical failed trials and replayed edits remain diagnostic, not repaired
+benchmark results. Fresh comparisons must rerun all three arms with frozen sources.
 
-The pinned generator creates 30 questions in four generated paths across three conditions:
-
-- `full/64k` and `full/115k`: history followed by the question; use `paired.yaml`.
-- `evidence`: official evidence sessions only; use `off-only.yaml`.
-- `handoff/115k`: 115K history, compaction, then verbatim evidence; use `on-only.yaml`.
-
-```bash
-uv run python suites/longmemeval/scripts/prepare-longmemeval.py
-
-uv run harbor job start --config profiles/paired.yaml \
-  --path suites/longmemeval/generated/full/64k \
-  --job-name longmemeval-full-64k --yes
-
-uv run python suites/longmemeval/scripts/judge-longmemeval.py \
-  .harbor/jobs/longmemeval-full-64k \
-  --backend codex --model gpt-5.6-sol --workers 4
-uv run python suites/longmemeval/scripts/report.py \
-  .harbor/jobs/longmemeval-full-64k
-```
-
-Run the other three generated paths with the profiles listed above and distinct job names. Add `--n-attempts 1` for calibration before paid repetitions.
-
-The generated verifier's `quality` and `reward` are deterministic normalized exact match. The suite report leaves those raw values intact and presents semantic QA-judge quality in its second table; use QA quality for LongMemEval comparisons.
-
-This is a compaction-oriented derivative: official LongMemEval sends history and question in one request. Do not publish these results as unmodified LongMemEval-S scores. Compare full on versus full off for the observed compaction effect; evidence and handoff are diagnostic bounds with different evidence positions.
-
-## Mem2Act
-
-Mem2Act provides the target tool, so this suite measures recovery of arguments from conversation memory, not tool selection. The pinned sample contains 40 stratified tasks from the 323 records that resolve to one source session.
-
-```bash
-uv run python suites/mem2act/mem2act.py --selection sample
-uv run harbor job start --config profiles/off-only.yaml \
-  --path suites/mem2act/generated --job-name mem2act-sample --yes
-uv run python -m pi_evals.report .harbor/jobs/mem2act-sample
-```
-
-Use `--selection full` in an empty generated directory for all 323 tasks. The verifier reports exact canonical arguments as quality and typed JSON-pointer parameter F1 as a diagnostic.
-
-## Add a suite
-
-Add `suites/<name>/` with its tasks or generator, provenance pin when applicable, tests, and any suite-specific judge/report wrapper. Normal suites use the existing profiles with Harbor's `--path`; they do not change adapters or generic reporting.
-
-The `pi_evals` manifest has exactly four keys: `platform`, `compaction_mode`, `expected_mechanism`, and `expected_protocol`. `expected_protocol` is required; set it to `null` when no protocol applies.
-
-Every final verifier must emit finite `quality` and `reward` values in `[0, 1]`, binary `valid_experiment`, and `reward == quality`. Compaction graders copy `verifiers/compaction.mjs` beside the isolated grader and test that the copy is byte-identical.
-
-Core adapters and reporting live in `src/pi_evals/`; shared profiles live in `profiles/`; the isolated image lives in `runtime/`. Inspect completed jobs with `uv run harbor view .harbor/jobs`.
+For two additional rounds with rotated arm order, prepare one series with
+`--rounds 2 --order-offset 1`. This schedules Code Mode / native / direct, then
+native / direct / Code Mode, using one latest-Codex resolution and one frozen
+image throughout calibration and all six trials. Each slot has its own logs,
+capture, grade and start marker. Reports retain failed slots and aggregate only
+valid scored outcomes, with sample counts; recorded costs include failed trials.
+Use `run --cost-checkpoint 40` for this six-trial series (between trials, not an
+in-flight spending limit). Prefer a persistent output directory such as
+`pi/evals/.harbor/frontier-repeats` rather than temporary storage.

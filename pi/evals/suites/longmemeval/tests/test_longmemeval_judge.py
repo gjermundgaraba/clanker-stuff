@@ -180,7 +180,7 @@ class LongMemEvalJudgeTest(TestCase):
                 {"status": "completed", "trial": "complete"},
                 {"status": "errored", "trial": "incomplete"},
             ]
-            with patch.object(judge.report, "rows", return_value=rows) as load_rows:
+            with patch.object(judge, "rows", return_value=rows) as load_rows:
                 self.assertEqual(
                     [item["trial"] for item in judge._inputs(root, root)],
                     ["complete"],

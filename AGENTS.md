@@ -20,6 +20,14 @@ When working on pi extensions, sdk, themes or TUI, read the documentation, examp
 3. Use: extensions (`docs/extensions.md`, `examples/extensions/`), themes (`docs/themes.md`), skills (`docs/skills.md`), prompt templates (`docs/prompt-templates.md`), TUI (`docs/tui.md`), keybindings (`docs/keybindings.md`), SDK (`docs/sdk.md`, `examples/sdk/`), providers (`docs/custom-provider.md`), models (`docs/models.md`), packages (`docs/packages.md`), and environment variables (`docs/environment-variables.md`).
 4. Before reimplementing pi functionality, search `<pi>/packages/`, its public exports, and its examples.
 
+## Evaluation comparisons
+
+- Always include all three arms in Pi/Codex comparisons: Pi without Code Mode, Pi with Code Mode, and native Codex. Label them explicitly; never label only one Pi arm as "Pi". Keep historical missing-arm follow-ups clearly separate from interleaved comparisons.
+
+## Native Codex evaluations
+
+- Always resolve the latest published `@openai/codex` release when preparing a new native Codex evaluation series. Record the resolved version and image ID, and freeze them across calibration and measured runs; do not reuse a stale hardcoded CLI version.
+
 ## Commands
 
 Most work targets one extension package. Prefer package-scoped validation first, then broaden only when the change is cross-cutting or before final handoff.

@@ -28,6 +28,7 @@
     "model-catalog.ts",
     "observability.ts",
     "provider.ts",
+    "registration.ts",
     "renderer.ts",
     "replay.ts",
     "runtime.ts",
@@ -65,7 +66,6 @@
     "eval:agents": "jiti ./scripts/evaluate-agents.ts",
     "eval:agents:dry": "jiti ./scripts/evaluate-agents.ts --dry-run",
     "eval:agents:smoke": "jiti ./scripts/evaluate-agents.ts --smoke",
-    "eval:code-mode": "jiti ./evals/code-mode-ab.ts",
     "test:live": "jiti ./scripts/live-multi-compaction.ts",
     "test:live:branch": "jiti ./scripts/live-multi-compaction.ts --branch",
     "test:live:capabilities": "jiti ./scripts/live-multi-compaction.ts --capabilities",
@@ -83,7 +83,7 @@
     "test:live:soak:websocket": "jiti ./scripts/live-multi-compaction.ts --soak --websocket",
     "test:live:threshold": "jiti ./scripts/live-multi-compaction.ts --threshold",
     "test:live:websocket": "jiti ./scripts/live-multi-compaction.ts --branch --websocket",
-    "verify:provider": "vp run -w ready && vp run test:live:marathon && vp run eval:agents --repetitions 3 && vp run eval:agents --task compaction-resume && vp run eval:code-mode --runs 3"
+    "verify:provider": "vp run -w ready && vp run test:live:marathon && vp run eval:agents --repetitions 3 && vp run eval:agents --task compaction-resume"
   },
   "dependencies": {
     "@clanker-stuff/footer-protocol": "workspace:^",

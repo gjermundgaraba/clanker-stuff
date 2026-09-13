@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from pi_evals import report
+from pi_evals.trials import rows as trial_rows
 from longmemeval_cache import load_cache
 
 
@@ -21,7 +22,7 @@ def _judge_cache(job_dir: Path, path: Path | None) -> Path:
 
 
 def rows(job_dir: Path, judge_cache: Path | None = None) -> list[dict[str, Any]]:
-    values = report.rows(job_dir)
+    values = trial_rows(job_dir)
     labels = load_cache(_judge_cache(job_dir, judge_cache))
     trials = {row["trial"] for row in values if row["status"] == "completed"}
     if trials != set(labels):

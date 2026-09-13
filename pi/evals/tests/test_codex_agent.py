@@ -10,6 +10,8 @@ from harbor.models.trajectories import Agent, FinalMetrics, Metrics, Step, Traje
 from pi_evals.adapters.codex import (
     CodexEval,
     load_codex_journal,
+    load_codex_turn_contexts,
+    runner_command,
 )
 
 MANIFEST = {
@@ -76,6 +78,20 @@ def base_trajectory() -> Trajectory:
 
 
 class CodexCompactionTest(TestCase):
+    def test_durable_model_and_effort_evidence(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(load_codex_turn_contexts(root), [])
+            write_journal(root / "rollout-test.jsonl", [
+                {"type": "turn_context", "payload": {"model": "gpt-6-astra", "effort": "high", "cwd": "/app"}},
+                {"type": "event_msg", "payload": {}},
+                {"type": "turn_context", "payload": {"model": "other"}},
+            ])
+            self.assertEqual(load_codex_turn_contexts(root), [
+                {"model": "gpt-6-astra", "effort": "high"},
+                {"model": "other", "effort": None},
+            ])
+
     def test_runtime_capture_covers_all_terminal_states(self) -> None:
         result = subprocess.run(
             ["node", "runtime/codex-eval.mjs", "--self-test"],
@@ -225,6 +241,19 @@ class CodexCompactionTest(TestCase):
             )
             self.assertEqual(compaction.extra["state"], "succeeded")
             self.assertEqual(compaction.metrics.prompt_tokens, 20)
+
+
+class CodexOutputTest(TestCase):
+    def test_warnings_stay_out_of_jsonl_and_failure_is_preserved(self):
+        with TemporaryDirectory() as directory:
+            command = (
+                'function codex-eval() { echo WARNING >&2; echo \'{"type":"eval_event"}\'; return 7; }; '
+                + runner_command(directory, "codex.txt")
+            )
+            result = subprocess.run(["bash", "-c", command], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 7)
+            self.assertEqual(json.loads((Path(directory) / "codex.txt").read_text()), {"type": "eval_event"})
+            self.assertEqual((Path(directory) / "codex-stderr.log").read_text(), "WARNING\n")
 
 
 class CodexInstallTest(IsolatedAsyncioTestCase):

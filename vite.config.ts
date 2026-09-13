@@ -3,7 +3,8 @@ import path from "node:path";
 import { defineConfig } from "vite-plus";
 
 const rootDir = import.meta.dirname;
-const exclude = ["**/node_modules/**", "**/dist/**"];
+// Evaluation caches and raw runs contain third-party source, not workspace tests.
+const exclude = ["**/node_modules/**", "**/dist/**", "**/.cache/**", "**/.harbor/**"];
 const ignorePatterns = [
   ".agent/**",
   ".agents/**",

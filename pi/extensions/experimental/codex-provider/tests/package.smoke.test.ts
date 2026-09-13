@@ -181,6 +181,7 @@ describe("codex-provider package", () => {
         "package/observability.ts",
         "package/package.json",
         "package/provider.ts",
+        "package/registration.ts",
         "package/renderer.ts",
         "package/replay.ts",
         "package/runtime.ts",

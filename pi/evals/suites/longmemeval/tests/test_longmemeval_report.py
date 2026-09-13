@@ -56,7 +56,7 @@ class LongMemEvalReportTest(TestCase):
                     "valid": None,
                 },
             ]
-            with patch.object(longmemeval_report.report, "rows", return_value=values):
+            with patch.object(longmemeval_report, "trial_rows", return_value=values):
                 rows = longmemeval_report.rows(Path(directory), cache)
 
             self.assertEqual(rows[0]["quality"], 0.0)

@@ -23,6 +23,12 @@ The implementation follows the compatibility objective and pinned [Codex and Pi 
 | Redacted checkpoint display                                                             | [`renderer.ts`](../renderer.ts)                                                                     |
 | Read-only provider status                                                               | [`status.ts`](../status.ts)                                                                         |
 
+The default entrypoint composes `registerCodexProvider()` from
+[`registration.ts`](../registration.ts) with the Codex tool
+controller. API-only evaluations use that same provider registration without a tool
+controller, rather than intercepting Pi's registration or activation methods. The
+normal entrypoint retains the same lifecycle registration order.
+
 The provider runtime is not optional. Loading the extension replaces Pi's effective `openai-codex` provider for the process. The extension must resolve last so no later context, header, payload, provider, or compaction registration can invalidate its checks; see [local deployment](local-deployment.md).
 
 One provider session exists per Pi session. A user turn gets fresh turn identity and turn-state routing, while a cached physical WebSocket, validated continuation candidate, sticky SSE fallback, and context-window generation may survive across turns. A continuation candidate is created only after Pi finishes a successful `AssistantMessage`, using the same public Responses converter that reconstructs the next request. It is an ephemeral prefix validator bound to the current open physical socket, not stored provider history. Session shutdown closes transport state.

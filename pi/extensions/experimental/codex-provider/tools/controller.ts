@@ -12,6 +12,7 @@ import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
 export const createCodexToolsController = (
   pi: ExtensionAPI,
   setFooterActive: (active: boolean) => void,
+  evaluationToolMode?: "direct" | "code_mode_only",
 ) => {
   const direct = createCodexDirectTools();
   const codeMode = new CodeModeRuntime();
@@ -43,7 +44,7 @@ export const createCodexToolsController = (
   };
 
   const effectiveMode = (model: ExtensionContext["model"]) =>
-    declaredMode(model) ?? (codeModeEnabled ? "code_mode_only" : "direct");
+    evaluationToolMode ?? declaredMode(model) ?? (codeModeEnabled ? "code_mode_only" : "direct");
 
   const resolveModel = (model: ExtensionContext["model"]) =>
     model === undefined ? undefined : (modelRegistry?.find(model.provider, model.id) ?? model);

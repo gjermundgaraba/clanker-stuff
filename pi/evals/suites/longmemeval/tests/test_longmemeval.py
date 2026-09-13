@@ -52,6 +52,20 @@ def record(question_id: str, question_type: str, abstention: bool = False) -> di
 
 
 class LongMemEvalTest(TestCase):
+    def test_nonempty_destination_survives_invalid_generation(self) -> None:
+        with TemporaryDirectory() as directory:
+            output = Path(directory)
+            prior = output / "existing-task"
+            prior.mkdir()
+            (prior / "instruction.md").write_text("keep me")
+            source = record("question", "single-session-user")
+            gold = copy.deepcopy(source)
+            gold["answer"] = "mismatched"
+            with self.assertRaisesRegex(ValueError, "output directory is not empty"):
+                generate_tasks([source], [gold], [source["question_id"]], output, CharacterEncoder())
+            self.assertEqual((prior / "instruction.md").read_text(), "keep me")
+            self.assertEqual(list(output.iterdir()), [prior])
+
     def test_download_uses_manifest_pin(self) -> None:
         content = b"pinned source"
         checksum = hashlib.sha256(content).hexdigest()
