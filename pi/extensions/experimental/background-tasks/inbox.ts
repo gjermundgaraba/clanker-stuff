@@ -35,7 +35,7 @@ export class Inbox {
   reserve(id: string): void {
     if (this.reservations.size >= this.limits.terminals)
       throw new Error(
-        "Terminal inbox full; deliver or dismiss pending tasks before starting more.",
+        "Terminal inbox full; wait for pending notifications to be delivered before starting more.",
       );
     this.reservations.add(id);
   }

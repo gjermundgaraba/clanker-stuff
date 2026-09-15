@@ -11,7 +11,7 @@ pi -e ./pi/extensions/experimental/background-tasks/index.ts \
 
 No installation is necessary. The skill is optional; explicit `-e` loads the extension, not its package's skills. Package discovery loads both when enabled.
 
-Use Node.js 26+, Pi 0.85.0+, and a POSIX host (macOS/Linux). Windows admission is rejected: this implementation has no Windows process-tree backend. Print/JSON one-shot sessions are rejected because they exit when the initial prompt finishes. RPC can supervise, inspect, stop, and dismiss tasks. RPC supports confirmation dialogs, but client-supplied confirmation does not establish human authorization: only TUI confirmation can grant wake credits.
+Use Node.js 26+, Pi 0.85.0+, and a POSIX host (macOS/Linux). Windows admission is rejected: this implementation has no Windows process-tree backend. Print/JSON one-shot sessions are rejected because they exit when the initial prompt finishes. TUI and RPC sessions both deliver notifications automatically; no confirmation or notification budget is required.
 
 ## Tools and commands
 
@@ -19,7 +19,7 @@ Use Node.js 26+, Pi 0.85.0+, and a POSIX host (macOS/Linux). Windows admission i
 
 Ordinary jobs treat stdout and stderr as logs. Successful exit produces `completed`; a nonzero exit produces `process_error`. Do useful work or finish the turn after starting a task; do not repeatedly poll while waiting.
 
-`task_list({})` shows attention status first and every retained task in compact rows. Display names are shortened to 32 Unicode characters plus an ellipsis; full names remain available through inspection. Omission/eviction counts describe bounded retention, not response truncation.
+`task_list({})` shows the pending notification count and every retained task in compact rows. Display names are shortened to 32 Unicode characters plus an ellipsis; full names remain available through inspection. Omission/eviction counts describe bounded retention, not response truncation.
 
 `task_inspect` requires a task ID and a view:
 
@@ -27,20 +27,17 @@ Ordinary jobs treat stdout and stderr as logs. Successful exit produces `complet
 - `{id, view: "result", offset?}` reads the terminal result payload without logs.
 - `{id, view: "event", eventId, offset?}` reads one retained event, including its payload when present. A terminal lifecycle event need not have a payload.
 
-Payload responses contain `payload: {encoding: "json", text, offset, nextOffset, totalBytes}`. Concatenate `text` from successive pages, passing `nextOffset` back as `offset` until it is `null`, then parse the complete JSON text. Offsets are UTF-8 bytes in that immutable JSON representation, not string indexes or raw stdout offsets. Small payloads fit in one response. Display-control escaping preserves the JSON value. An evicted or dismissed event produces an explicit not-found error, never a page from another event. Terminal results remain readable by task ID under task-history retention.
+Payload responses contain `payload: {encoding: "json", text, offset, nextOffset, totalBytes}`. Concatenate `text` from successive pages, passing `nextOffset` back as `offset` until it is `null`, then parse the complete JSON text. Offsets are UTF-8 bytes in that immutable JSON representation, not string indexes or raw stdout offsets. Small payloads fit in one response. Display-control escaping preserves the JSON value. An evicted event produces an explicit not-found error, never a page from another event. Terminal results remain readable by task ID under task-history retention.
 
-`task_stop({id})` waits for bounded cleanup and reports the actual terminal decision. Cancellation does not overwrite a result already accepted. `task_dismiss({id})` explicitly discards a terminal task's pending notices and releases its reservation after cleanup. It rejects running tasks; stop those first. Dismissal is repeatable while the task remains retained and does not erase its terminal result, replenish credits, or resume delivery.
+`task_stop({id})` lets the agent stop a job that is no longer needed. It waits for bounded cleanup and reports the actual terminal decision. Cancellation does not overwrite a result already accepted. There is no dismissal step: terminal notification capacity is released automatically when Pi observes the notice.
 
 Commands:
 
 - `/tasks`: summaries.
 - `/tasks inspect <id>`: summary status, all retained event IDs, result availability, and bounded log tails. Read payloads through `task_inspect` with `view: "result"` or `view: "event"`.
-- `/tasks stop <id>`: cancel an owned process group.
-- `/tasks pause`: hold future automatic notifications, not processes.
-- `/tasks resume`: confirm in the TUI to authorize eight more automatic batches.
-- `/tasks dismiss <id>`: release a terminal task's pending notification slot.
+  These commands are read-only. There are no user-facing pause, resume, stop, or dismiss controls. Ask the agent to stop a job when needed.
 
-Inspection is read-only: it does not acknowledge or dismiss a pending terminal notice. Use `task_dismiss` for an inspection-only workflow when notifications are held. A notice already handed to Pi may still arrive after dismissal, and its dispatch charge is not refunded. Acknowledgement means Pi observed the notice through its agent loop, not that a model acted on it or that processing succeeded.
+Inspection is read-only and does not consume pending notifications. Notification acknowledgement means Pi observed the notice through its agent loop, not that a model acted on it or that processing succeeded.
 
 ## Agent-authored watchers
 
@@ -63,17 +60,19 @@ A detector has the same local capabilities as a shell command. It inherits Pi's 
 
 See the [authoring skill](../skills/watchers/SKILL.md) for a polling example.
 
-## Attention and trust
+## Automatic notifications and trust
 
 Automatic messages contain only host-assigned task/event IDs and host-authored outcome names. Names, keys, logs, commands, and result payloads are not pushed into the conversation. Pulling them with `task_inspect` exposes **untrusted data**, not instructions. JSON/custom-message roles are not a prompt-injection boundary. Terminal control sequences are sanitized on display; raw bounded log files remain untrusted.
 
-Capture continues while Pi is busy or showing an extension prompt. Delivery waits until settled and idle, then sends a triggered follow-up; a competing extension's run can queue that follow-up. Only one batch is handed off at a time. Unobserved failed deliveries remain held rather than immediately retrying.
+Capture continues while Pi is busy or showing an extension prompt. Delivery waits until settled and idle, then sends a triggered follow-up; a competing extension's run can queue that follow-up. Only one batch is handed off at a time. Ordinary stdout/stderr stays in logs; completion and watcher records trigger notifications.
 
-Notifications start held with zero wake credits. Confirming `/tasks resume` in the TUI authorizes eight automatic batch attempts shared by all tasks. This is the only way to grant credits: ordinary interactive prompts, intercepted/transformed input, extension messages, and RPC prompts never replenish them or release a hold. A declined confirmation changes nothing.
+Pending notifications recheck readiness once per second while Pi is busy, including during manual compaction. These checks do not call the model or resend an outstanding batch.
 
-Attention checkpoints use version 2. Checkpoints from the earlier prompt-matching authorization policy are ignored, so upgrading requires fresh confirmation rather than inheriting possibly misattributed credits. Old inspection calls persisted without a view are prepared as summary views, or event views when they contain an event ID; the public schema requires an explicit view.
+Notifications are always enabled, with no approval, wake credits, or total delivery limit. Aborting an agent turn does not disable future notifications or stop tasks. If a handoff fails or Pi settles without observing its notice, delivery retries after a one-second delay rather than requiring user intervention. Once observed, a notice is not retried merely because the model response failed or was aborted.
 
-An abort holds further notifications, even if Pi already observed the interrupted notice. At zero credits, observations remain in the bounded inbox; they are not injected as `nextTurn` context. Reload preserves attention accounting but not the inbox. Tree navigation cannot roll back the session-wide budget. Persisted checkpoints are not a crash-safe outbox.
+The inbox, event history, and logs remain bounded to limit memory use. They are session-owned, not a durable outbox: reload stops tasks and clears live notification state. Old attention checkpoints have no effect.
+
+Old inspection calls persisted without a view are prepared as summary views, or event views when they contain an event ID; the public schema requires an explicit view.
 
 ## Ownership
 
@@ -93,13 +92,13 @@ Shutdown sends TERM to the owned POSIX process group, waits up to one second, th
 | Watcher output                    | 256 records per one-second window; excess fails the protocol              |
 | Pending progress                  | 64 records / 64 KiB, plus one in-flight batch                             |
 | Terminal reservations             | 32 active or unobserved terminal tasks                                    |
-| Delivery batch                    | 8 records; 8 attempts per human authorization                             |
+| Delivery batch                    | 8 records per batch; no total batch limit                                 |
 | Observed event history            | 64 observed records; summaries list all retained event IDs                |
 | Unprotected finished task history | 32 at admission-time pruning, plus current admitted tasks                 |
 | Log storage                       | Last 128 KiB per stream, in memory and disposable files                   |
 | Log tool reads                    | 6,000 bytes/stream default, 12,000 maximum                                |
 | Tool response                     | 32,000 encoded bytes; complete compact envelopes and payload continuation |
 
-Progress overflow drops the oldest pending progress and increments the omitted count. Terminal reservations are never evicted by progress; new admission fails when all slots are occupied. Observed history can be evicted, with a visible count. Log tails report omitted bytes and storage errors; they are not complete logs. Session lifecycle/checkpoint entries contain metadata, never raw output, and accumulate with session history.
+Progress overflow drops the oldest pending progress and increments the omitted count. Terminal reservations are never evicted by progress; new admission fails when all slots are occupied. Observed history can be evicted, with a visible count. Log tails report omitted bytes and storage errors; they are not complete logs. Session lifecycle entries contain metadata, never raw output, and accumulate with session history.
 
-The supervisor, wire decoder, inbox, and attention controller are separate components. Persistence beyond a session would require a new external owner and authenticated reconnection—not a PID-file escape hatch.
+The supervisor, wire decoder, inbox, and delivery controller are separate components. Persistence beyond a session would require a new external owner and authenticated reconnection—not a PID-file escape hatch.

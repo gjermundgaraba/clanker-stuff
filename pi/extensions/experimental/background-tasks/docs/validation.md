@@ -4,26 +4,23 @@ All scenarios use synthetic jobs and payloads. No service credentials or private
 
 ## Automated
 
-The targeted cleanup revision passed `vp run ready`: **174 test files and 1,610 tests**, including **70 package tests**. All repository static, packaging, README, and test-boundary checks passed. New regressions cover deduplicated pause checkpoints with failed-write retry, provider abortion without an aborted signal, literal relative/absolute working directories, omitted arguments, and failed-cleanup reconciliation. Process tests use real children with narrowly simulated process-group probe/signal failures to verify absent, live, permission-denied, and still-running-child cases, plus a gated log close to verify cleanup completion ordering.
+The automatic-notification revision, including the manual-compaction readiness follow-up, passed all **72 package tests** (unit, integration, and smoke), package-scoped checks, repository-wide `vp check`, README policy, and test-boundary checks. The full repository test suite and manual Herdr exercise were not repeated for this revision.
 
-Before the event-discovery follow-up, the explicit-authorization and retrieval revision passed `vp run ready`: 174 test files and 1,599 tests repository-wide, including 59 tests in this package. Formatting, lint, types, package readiness, README policy, test boundaries, and the bundled-review asset check also passed.
-
-The event-discovery follow-up passed all 61 package tests and scoped formatting, lint, and type checks. Added coverage verifies discovery across all 137 retained events at per-task capacity, metadata fitting within the response budget, and a real session retrieving the oldest of ten held observations without previously knowing its ID. The repository-wide suite and manual Herdr exercise were not repeated for this follow-up.
-
-The package has unit tests for strict framing, inbox reservations/coalescing/eviction, attention accounting, bounded logs, schemas and tool output. Real subprocess tests cover spawn/exit failures, missing results, record floods, cancellation, deadlines, concurrency, inherited-pipe drain, TERM-resistant descendants, and history pruning.
+The package has unit tests for strict framing, inbox reservations/coalescing/eviction, automatic delivery and retry, bounded logs, schemas and tool output. Real subprocess tests cover spawn/exit failures, missing results, record floods, cancellation, deadlines, concurrency, inherited-pipe drain, TERM-resistant descendants, and history pruning.
 
 Real Pi 0.85.0 sessions verify:
 
 - Spawn handoff before completion, idle triggered notices, metadata-only delivery and pull inspection.
-- Busy buffering and a competing extension starting a run between the readiness check and send; the follow-up is queued and still charged.
-- Abort holds further notifications; all prompt sources leave credits unchanged. Only confirmed TUI resume re-arms; declined confirmation and RPC dialogs do not.
-- Queued extension text matching an intercepted interactive prompt grants no authorization.
+- Busy buffering and a competing extension starting a run between the readiness check and send; the follow-up is queued without interrupting that run.
+- Automatic delivery of tasks completed during manual compaction, after success, failure, or cancellation. All three regression cases reproduced the stalled notification before the readiness fix.
+- Both TUI and RPC deliver notifications without confirmation. Aborted responses do not hold later notifications.
+- Task listing and inspection through `/tasks`, and agent-callable cancellation through `task_stop`.
 - Payload continuation survives numeric serialization expansion and UTF-8 boundaries; summary log reads fit after invalid-byte expansion.
-- Inspection leaves held reservations intact; tool dismissal releases them without erasing terminal results or granting wakes.
+- Notification observation automatically releases reservations; retained payloads remain inspectable.
 - Ancestral ownership and no resurrection after tree navigation.
-- Dismissal during terminal cleanup retains its reservation until the terminal record is captured.
+- Agent stop during terminal cleanup waits for completion without overwriting the accepted result.
 - A stale queued notice is removed before provider context on a new branch.
-- Reload cleans processes, rebuilds empty live state and preserves the budget.
+- Reload cleans processes and rebuilds empty live state.
 - Actual SDK runtime clone/fork/new/resume replaces ownership without PID reconnection.
 
 A smoke test discovers the package through Pi's package loader. These tests do not assert model obedience, crash-proof containment or crash-safe delivery.
@@ -36,7 +33,17 @@ vp check pi/extensions/experimental/background-tasks
 vp run ready
 ```
 
-## Targeted cleanup manual Herdr exercise
+## Historical validation (before automatic notifications)
+
+The following runs tested earlier approval/budget behavior, which has been removed. They are historical evidence only, not the current notification contract. The automatic-notification revision has not been manually exercised in Herdr.
+
+The targeted cleanup revision passed `vp run ready`: **174 test files and 1,610 tests**, including **70 package tests**. All repository static, packaging, README, and test-boundary checks passed. New regressions cover deduplicated pause checkpoints with failed-write retry, provider abortion without an aborted signal, literal relative/absolute working directories, omitted arguments, and failed-cleanup reconciliation. Process tests use real children with narrowly simulated process-group probe/signal failures to verify absent, live, permission-denied, and still-running-child cases, plus a gated log close to verify cleanup completion ordering.
+
+Before the event-discovery follow-up, the explicit-authorization and retrieval revision passed `vp run ready`: 174 test files and 1,599 tests repository-wide, including 59 tests in this package. Formatting, lint, types, package readiness, README policy, test boundaries, and the bundled-review asset check also passed.
+
+The event-discovery follow-up passed all 61 package tests and scoped formatting, lint, and type checks. Added coverage verifies discovery across all 137 retained events at per-task capacity, metadata fitting within the response budget, and a real session retrieving the oldest of ten held observations without previously knowing its ID. The repository-wide suite and manual Herdr exercise were not repeated for this follow-up.
+
+### Targeted cleanup manual Herdr exercise
 
 On macOS with Pi **0.85.1**, a fresh isolated Herdr tab loaded the local extension and a disposable faux-provider driver via `pi -e`, without installation or external model/API calls.
 
@@ -46,7 +53,7 @@ On macOS with Pi **0.85.1**, a fresh isolated Herdr tab loaded the local extensi
 
 Herdr again missed some short-turn/dialog lifecycle transitions; terminal UI and native session records supplied the verification. Failed-cleanup OS errors and checkpoint-write failures were tested automatically, not induced manually. Earlier lifecycle and payload manual scenarios below were not repeated for this targeted revision.
 
-## Revision manual Herdr exercise
+### Revision manual Herdr exercise
 
 The revised code was exercised on macOS with Pi **0.85.1**, in a dedicated background Herdr tab, using explicit local `pi -e` paths and no installation. A disposable driver extension used Pi's built-in faux provider to script actual tool calls; there were no external model/API calls.
 
@@ -60,7 +67,7 @@ Verified against terminal UI, the synthetic session's native records, and proces
 
 Herdr did not consistently classify the confirmation dialog or short post-reload turns as working/blocked. Actual dialog rendering, native session entries, and PID checks were used instead of treating `agent_prompt_stalled` as execution failure.
 
-## Original manual Herdr exercise (before explicit-only authorization)
+### Original manual Herdr exercise (before explicit-only authorization)
 
 The original implementation was manually driven on macOS through a dedicated Herdr tab, using Pi **0.85.1** and explicit local `-e` paths, without installation. A disposable second extension registered Pi's built-in faux provider with scripted tool calls and slow streaming. This kept model output deterministic while exercising the real TUI, tool execution, queue, session files, and process lifecycle; no external model/API calls were made.
 

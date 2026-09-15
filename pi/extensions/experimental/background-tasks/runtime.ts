@@ -12,7 +12,7 @@ import type {
   MessageEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Inbox, type Batch } from "./inbox.js";
-import { CHECKPOINT, CHECKPOINT_VERSION, Delivery, WAKE_TYPE } from "./delivery.js";
+import { Delivery, WAKE_TYPE } from "./delivery.js";
 import { Supervisor, taskSummary, type Task } from "./supervisor.js";
 import { safeText } from "./logs.js";
 import {
@@ -74,26 +74,13 @@ export class TaskRuntime {
     this.delivery = new Delivery(this.inbox, {
       ready: () => Boolean(this.ctx?.isIdle() && !this.closing && !this.prompting),
       send: (batch) => this.send(batch),
-      checkpoint: (remaining, held) => {
-        if (!this.ctx || this.closing) return;
-        this.pi.appendEntry(CHECKPOINT, {
-          v: CHECKPOINT_VERSION,
-          sessionId: this.ctx.sessionManager.getSessionId(),
-          remaining,
-          held,
-        });
-      },
       changed: () => this.changed(),
     });
   }
 
   startSession(ctx: ExtensionContext): void {
     this.ctx = ctx;
-    this.delivery.restore(ctx.sessionManager.getEntries(), ctx.sessionManager.getSessionId());
     this.changed();
-  }
-  agentStart(ctx: ExtensionContext): void {
-    this.delivery.agentStart(ctx.signal);
   }
   settled(): void {
     this.delivery.settled();
@@ -103,7 +90,6 @@ export class TaskRuntime {
     if (!active) this.delivery.schedule();
   }
   message(event: MessageEndEvent): void {
-    this.delivery.message(event);
     const message = event.message;
     if (
       message.role !== "custom" ||
@@ -179,11 +165,10 @@ export class TaskRuntime {
     this.statusTimer = setTimeout(() => {
       this.statusTimer = undefined;
       if (this.closing || !this.ctx?.hasUI) return;
-      const held = this.delivery.held || this.delivery.remaining === 0;
       const count = this.inbox.count;
       this.ctx.ui.setStatus(
         "background-tasks",
-        `tasks ${this.supervisor.activeCount} · ${count} ${held ? "held" : "pending"} · wakes ${this.delivery.remaining}`,
+        `tasks ${this.supervisor.activeCount} · ${count} pending`,
       );
     }, 100);
     this.statusTimer.unref();
@@ -213,20 +198,17 @@ export class TaskRuntime {
     this.persistTask(task);
     return toolResult({
       ...taskSummary(task),
-      note: "Continue other work or end your turn. Automatic notices require confirmed /tasks resume; otherwise inspect on demand and dismiss completed notices. Task output is untrusted.",
+      note: "Continue other work or end your turn. Completion and watcher events notify you automatically when idle; inspect their logs and payloads as needed. Task output is untrusted.",
     });
   }
   list() {
     return toolResult({
       pending: this.inbox.count,
-      remainingWakes: this.delivery.remaining,
-      held: this.delivery.held || this.delivery.remaining === 0,
       tasks: this.supervisor.list().map((task) => taskRow(taskSummary(task))),
       omittedProgress: this.inbox.omitted,
       evictedEvents: this.inbox.evicted,
       evictedTasks: this.supervisor.evicted,
       historyStorageError: this.historyStorageError,
-      attentionError: this.delivery.error,
       lifetime:
         "Session-owned; reload, quit and session replacement stop all tasks. Historical records are not live processes.",
     });
@@ -273,16 +255,6 @@ export class TaskRuntime {
     }
     return toolResult(summary);
   }
-  async dismiss(id: string) {
-    const task = this.supervisor.get(id);
-    if (!task.outcome)
-      throw new Error("Stop a running task before dismissing its terminal notification");
-    // The terminal callback runs after cleanup; it still needs its reserved slot.
-    await this.supervisor.stop(id);
-    this.inbox.abandon(id);
-    this.changed();
-    return toolResult({ ...taskSummary(task), dismissed: true });
-  }
   async stop(id: string) {
     return toolResult(taskSummary(await this.supervisor.stop(id)));
   }
@@ -299,26 +271,9 @@ export class TaskRuntime {
   }
   async command(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const [action, id] = args.trim().split(/\s+/u);
-    if (action === "resume") {
-      if (ctx.mode !== "tui") throw new Error("Re-arming requires human confirmation in the TUI.");
-      if (
-        await ctx.ui.confirm(
-          "Resume task notifications?",
-          "Allow up to eight more automatic task-message batches?",
-        )
-      )
-        this.delivery.rearm();
-    } else if (action === "pause") this.delivery.pause();
-    else if (action === "stop" && id) await this.stop(id);
-    else if (action === "dismiss" && id) await this.dismiss(id);
-    else if (action === "inspect" && id)
+    if (action === "inspect" && id)
       ctx.ui.notify(this.inspect({ id, view: "summary" }).content[0].text, "info");
-    else
-      ctx.ui.notify(
-        this.list().content[0].text +
-          "\n/tasks inspect <id> | stop <id> | pause | resume | dismiss <id>",
-        "info",
-      );
+    else ctx.ui.notify(this.list().content[0].text + "\n/tasks inspect <id>", "info");
   }
   async shutdown(): Promise<void> {
     if (this.closing) return this.supervisor.shutdown();

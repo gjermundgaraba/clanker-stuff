@@ -24,7 +24,7 @@ agent → task tools → supervisor
                                                 Pi session
 ```
 
-Jobs and watchers share process ownership, IDs, cancellation, storage, and inspection. A watcher is a supervised program with an explicit event contract, not a second process-management system. Detection belongs in the program: queries, polling, retries, change detection, and predicates. The host owns execution limits and agent attention.
+Jobs and watchers share process ownership, IDs, cancellation, storage, and inspection. A watcher is a supervised program with an explicit event contract, not a second process-management system. Detection belongs in the program: queries, polling, retries, change detection, and predicates. The host owns process supervision and automatic notification delivery.
 
 A watcher observing a server is a separate task; stopping it does not implicitly stop the server. Scripts remain ordinary files authored with existing tools; no mandatory SDK, in-process evaluation, or executable project configuration is required.
 
@@ -42,13 +42,13 @@ Cleanup owns bounded TERM/KILL escalation and pipe drain. Failed cleanup remains
 
 Abnormal host death or descendants escaping their group can leave orphans. This is not crash-proof containment, and persisted PIDs do not establish live ownership.
 
-## Capture is independent of attention
+## Capture is independent of delivery
 
 Subprocess callbacks submit observations to the inbox; they never send Pi messages directly. Host task IDs, event IDs, and sequence numbers are distinct from watcher-supplied keys.
 
 Keyed progress represents replaceable pending state within one task/key. Unkeyed events retain arrival order. Coalescing never alters an already-handed-off batch. Progress overflow evicts only progress and exposes an omitted count.
 
-Bounded storage cannot promise unlimited terminal retention. Each admitted task reserves a terminal slot until observed delivery or explicit dismissal. Exhaustion blocks admission rather than silently deleting results. Inspection is read-only; explicit dismissal separates retrieving data from releasing capacity. Delivered history and logs have separate finite retention.
+Bounded storage cannot promise unlimited terminal retention. Each admitted task reserves a terminal slot until Pi observes its terminal notification. Exhaustion blocks admission rather than silently deleting results. Inspection is read-only; acknowledgement releases capacity automatically. Delivered history and logs have separate finite retention.
 
 Pruning claims and counts selected history victims synchronously before awaiting filesystem removal. No concurrent admission can count the same eviction twice.
 
@@ -60,6 +60,8 @@ Structured JSON and custom-message roles are not security boundaries: Pi convert
 
 Capture continues while busy. Delivery waits for settlement and idle state, including blocking extension prompts. Dispatch uses a triggered follow-up so another extension winning the readiness race queues the batch rather than steering into its run.
 
+While notifications are pending and Pi is not ready, one timer rechecks readiness every second. This also covers manual compaction returning to idle without an `agent_settled` event. Readiness checks never retry a batch while its delivery cycle is outstanding, and shutdown cancels the timer.
+
 ### Handoff is not observation
 
 ```text
@@ -70,19 +72,15 @@ Only one batch may be outstanding. Correlation through extension `message_end` c
 
 Pi's extension-facing `sendMessage()` has no success acknowledgement. The idle, non-triggered append path does not emit extension `message_end`; this dispatcher never uses that path.
 
-Unobserved failed deliveries remain held. A timeout alone does not prove loss and must not cause eager retries. Acknowledgement may precede settlement, so an outstanding delivery cycle is distinct from an outstanding batch.
+A settled cycle with an unobserved batch retries it after one second. A synchronous handoff failure also retries after one second. No retry runs while a delivery cycle is outstanding; elapsed time alone does not prove that Pi lost a queued follow-up. Acknowledgement may precede settlement, so an outstanding delivery cycle is distinct from an outstanding batch.
 
-Abort signals, provider-returned aborted messages, and settlement with an unobserved batch each hold delivery. Successful duplicate pauses do not write duplicate checkpoints; failed persistence must remain retryable.
+An aborted turn does not pause delivery. An observed notice is not replayed because the response failed or was aborted; later pending notifications continue automatically. This is bounded in-memory delivery tracking, not a crash-safe or exactly-once outbox.
 
-This is bounded in-memory delivery tracking, not a crash-safe or exactly-once outbox.
+### Always-on delivery
 
-### Explicit authorization
+TUI and RPC sessions use the same automatic delivery path. There are no approvals, wake credits, attention checkpoints, or total batch limits. The user-facing `/tasks` command only lists or inspects tasks. The agent retains `task_stop` for jobs that are no longer needed; there is no dismissal tool or manual notification lifecycle.
 
-Only confirmed TUI re-arming grants automatic batch credits. Input/message text correlation cannot prove provenance: queued extension text may match later interactive input consumed by another extension. Ordinary prompts, tool calls, and reload never replenish credits or release a hold.
-
-RPC confirmation is intentionally insufficient under the current authorization policy; trusted-host attestation is not implemented. Version-2 attention checkpoints reject credits granted under the earlier heuristic policy.
-
-Charge at handoff, including competing-extension races, without automatic refunds. At exhaustion, retain observations locally rather than submitting `nextTurn` on the assumption the next prompt is human-authored. Session-wide checkpoint restoration prevents tree navigation from rolling attention accounting backward; it restores neither processes nor the inbox.
+Process concurrency, deadlines, record sizes, and retained memory still have finite limits. Those resource bounds do not grant or revoke permission to notify the agent.
 
 ## Ownership and storage boundaries
 
@@ -96,14 +94,14 @@ Follow the repository [extension structure](../../../../../docs/extension-struct
 - `supervisor.ts`: process ownership, lifecycle, admission, cancellation.
 - `protocol.ts`: bounded record framing and validation.
 - `inbox.ts`: coalescing, retention, and delivery batches.
-- `delivery.ts`: attention accounting and observation.
+- `delivery.ts`: idle delivery, observation, and retry.
 - `logs.ts`: bounded storage and reads.
 - `task.ts`: strict schemas, compact formatting, payload continuation.
 - `runtime.ts`: Pi lifecycle and tool coordination.
 
 The supervisor owns no Pi context. Do not introduce generic process, storage, or clock backends without an actual need. Strict tool schemas stay strict; `prepareArguments` belongs only at real persisted-call migrations.
 
-Session custom entries contain lifecycle metadata and attention checkpoints, not raw payloads or a process database. Disposable logs live under an owned temporary directory. File mutation uses Pi's per-file queue. Installed source is never runtime storage.
+Session custom entries contain lifecycle metadata, not raw payloads or a process database. Disposable logs live under an owned temporary directory. File mutation uses Pi's per-file queue. Installed source is never runtime storage.
 
 ## Survival is a different ownership model
 

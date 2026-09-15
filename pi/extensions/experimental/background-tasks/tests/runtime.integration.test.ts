@@ -1,4 +1,4 @@
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -11,7 +11,7 @@ import {
   type AgentSessionHarness,
 } from "../../../../tests/harness/agent-session.js";
 import extension from "../index.js";
-import { CHECKPOINT, WAKE_TYPE } from "../delivery.js";
+import { WAKE_TYPE } from "../delivery.js";
 
 const harnesses: AgentSessionHarness[] = [];
 afterEach(async () => {
@@ -21,7 +21,7 @@ afterEach(async () => {
     h.cleanup();
   }
 });
-async function setup(extra: ExtensionFactory[] = [], race = false) {
+async function setup(extra: ExtensionFactory[] = [], race = false, mode: "tui" | "rpc" = "tui") {
   const h = await createAgentSessionHarness({
     extensionFactories: [
       (pi) => {
@@ -39,14 +39,7 @@ async function setup(extra: ExtensionFactory[] = [], race = false) {
       },
       ...extra,
     ],
-    mode: "tui",
-  });
-  await h.session.bindExtensions({
-    mode: "tui",
-    uiContext: {
-      ...h.session.extensionRunner.createContext().ui,
-      confirm: async () => true,
-    },
+    mode,
   });
   harnesses.push(h);
   return h;
@@ -79,13 +72,6 @@ const tasks = (h: AgentSessionHarness) =>
         ? [e.data]
         : [],
     );
-const budget = (h: AgentSessionHarness) => {
-  const e = h.sessionManager
-    .getEntries()
-    .findLast((e) => e.type === "custom" && e.customType === CHECKPOINT);
-  if (e?.type !== "custom") return undefined;
-  return Value.Parse(Type.Object({ remaining: Type.Number(), held: Type.Boolean() }), e.data);
-};
 const stopped = (pid: number | undefined) => {
   if (!pid) throw new Error("Missing process ID");
   expect(() => process.kill(pid, 0)).toThrow();
@@ -151,67 +137,7 @@ describe("background tasks in a real AgentSession", () => {
       }),
     ).rejects.toThrow(/NUL/);
   });
-  it("requires confirmed TUI authorization, even when an RPC client supports dialogs", async () => {
-    const h = await setup();
-    let confirmed = false;
-    let dialogs = 0;
-    const uiContext = {
-      ...h.session.extensionRunner.createContext().ui,
-      confirm: async () => {
-        dialogs++;
-        return confirmed;
-      },
-    };
-    await h.session.bindExtensions({ mode: "tui", uiContext });
-    await h.prompt("/tasks resume");
-    expect(dialogs).toBe(1);
-    expect(await callTool(h, "task_list", {})).toMatchObject({ remainingWakes: 0, held: true });
-    confirmed = true;
-    await h.session.bindExtensions({ mode: "rpc", uiContext });
-    await h.prompt("/tasks resume");
-    expect(dialogs).toBe(1);
-    expect(await callTool(h, "task_list", {})).toMatchObject({ remainingWakes: 0, held: true });
-    await h.session.bindExtensions({ mode: "tui", uiContext });
-    await h.prompt("/tasks resume");
-    expect(dialogs).toBe(2);
-    expect(await callTool(h, "task_list", {})).toMatchObject({ remainingWakes: 8, held: false });
-  });
-  it("does not authorize a queued extension message matching an intercepted interactive prompt", async () => {
-    const blocked = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    let requests = 0;
-    const h = await setup([
-      (pi) => {
-        pi.on("input", (event) => {
-          if (event.source === "interactive" && event.text === "ping") return { action: "handled" };
-        });
-        pi.on("before_provider_request", async () => {
-          if (++requests === 1) {
-            blocked.resolve();
-            await release.promise;
-          }
-        });
-      },
-    ]);
-    h.setResponses([
-      fauxAssistantMessage("Initial response"),
-      fauxAssistantMessage("Queued response"),
-    ]);
-    const prompt = h.prompt("Start a normal interactive turn");
-    try {
-      await blocked.promise;
-      await h.prompt("ping", { source: "extension", streamingBehavior: "followUp" });
-      await h.prompt("ping");
-    } finally {
-      release.resolve();
-    }
-    await prompt;
-    expect(
-      h.messages().filter((m) => m.role === "user" && JSON.stringify(m.content).includes("ping")),
-    ).toHaveLength(1);
-    expect(await callTool(h, "task_list", {})).toMatchObject({ remainingWakes: 0, held: true });
-  });
-  it("discovers older held observations without knowing their IDs or authorizing delivery", async () => {
+  it("discovers retained observations without knowing their IDs", async () => {
     const h = await setup();
     h.setResponses([
       start(
@@ -220,8 +146,10 @@ describe("background tasks in a real AgentSession", () => {
         "events-v1",
       ),
       fauxAssistantMessage("Captured"),
+      fauxAssistantMessage("First batch"),
+      fauxAssistantMessage("Second batch"),
     ]);
-    await h.prompt("Capture observations for inspection only");
+    await h.prompt("Capture observations");
     await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
     const id = tasks(h)[0].id;
     const summary = Value.Parse(
@@ -247,15 +175,14 @@ describe("background tasks in a real AgentSession", () => {
     );
     expect(JSON.parse(oldest.payload.text)).toBe(1);
     expect(await callTool(h, "task_list", {})).toMatchObject({
-      pending: 11,
-      held: true,
-      remainingWakes: 0,
       omittedProgress: 0,
       evictedEvents: 0,
     });
-    expect(wakes(h)).toHaveLength(0);
+    await expect.poll(() => wakes(h).length).toBe(2);
+    await expect.poll(() => h.session.isStreaming).toBe(false);
+    expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
   });
-  it("reads full payload pages while held and explicitly dismisses without losing the result", async () => {
+  it("reads full payload pages after automatic notification", async () => {
     const h = await setup();
     h.setResponses([
       start(
@@ -265,8 +192,9 @@ describe("background tasks in a real AgentSession", () => {
         "events-v1",
       ),
       fauxAssistantMessage("Started"),
+      fauxAssistantMessage("Result received"),
     ]);
-    await h.prompt("Capture without authorizing automatic notifications");
+    await h.prompt("Capture observations");
     await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
     const id = tasks(h)[0].id;
     const summary = Value.Parse(
@@ -296,82 +224,67 @@ describe("background tasks in a real AgentSession", () => {
       offset = page.payload.nextOffset;
     }
     expect(JSON.parse(text)).toEqual(Array(2500).fill(1e20));
-    expect(await callTool(h, "task_list", {})).toMatchObject({
-      pending: 2,
-      remainingWakes: 0,
-      held: true,
-    });
-    for (let i = 0; i < 2; i++)
-      expect(await callTool(h, "task_dismiss", { id })).toMatchObject({
-        dismissed: true,
-        status: "result",
-        cleanup: "clean",
-      });
-    expect(await callTool(h, "task_list", {})).toMatchObject({
-      pending: 0,
-      remainingWakes: 0,
-      held: true,
-    });
+    await expect.poll(() => wakes(h).length).toBe(1);
+    await expect.poll(() => h.session.isStreaming).toBe(false);
+    expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
     expect(await callTool(h, "task_inspect", { id, view: "result" })).toMatchObject({
       payload: { offset: 0 },
     });
-    await expect(
-      callTool(h, "task_inspect", {
+    expect(
+      await callTool(h, "task_inspect", {
         id,
         view: "event",
         eventId,
         offset: eventPage.payload.nextOffset,
       }),
-    ).rejects.toThrow(/not found or evicted/);
-    expect(wakes(h)).toHaveLength(0);
+    ).toMatchObject({ payload: { offset: eventPage.payload.nextOffset } });
   });
-  it("hands off immediately, wakes idle with metadata only, then allows payload/log inspection", async () => {
-    const h = await setup();
-    await h.prompt("/tasks resume");
-    h.setResponses([
-      start(
-        "setTimeout(()=>{console.error('private diagnostic');console.log(JSON.stringify({v:1,type:'result',data:'untrusted-payload'}))},250)",
-        "events-v1",
-      ),
-      fauxAssistantMessage("Continuing other work"),
-      fauxAssistantMessage("Notification received"),
-    ]);
-    await h.prompt("Start a synthetic watcher");
-    expect(h.getPendingResponseCount()).toBe(1);
-    await expect.poll(() => wakes(h).length).toBe(1);
-    await expect.poll(() => h.session.isStreaming).toBe(false);
-    const notice = JSON.stringify(wakes(h)[0]);
-    expect(notice).not.toContain("untrusted-payload");
-    expect(notice).not.toContain("untrusted-name");
-    expect(notice).not.toContain("private diagnostic");
-    expect(budget(h)).toMatchObject({ remaining: 7, held: false });
-    const task = tasks(h)[0];
-    h.setResponses([
-      fauxAssistantMessage(fauxToolCall("task_inspect", { id: task.id, view: "summary" }), {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("Inspected"),
-    ]);
-    await h.prompt("Inspect it", { source: "extension" });
-    expect(budget(h)?.remaining).toBe(7);
-    const result = h
-      .messages()
-      .findLast((m) => m.role === "toolResult" && m.toolName === "task_inspect");
-    expect(JSON.stringify(result)).toContain("private diagnostic");
-    h.setResponses([
-      fauxAssistantMessage(fauxToolCall("task_inspect", { id: task.id, view: "result" }), {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("Read payload"),
-    ]);
-    await h.prompt("Read result");
-    expect(budget(h)?.remaining).toBe(7);
-    expect(
-      JSON.stringify(
-        h.messages().findLast((m) => m.role === "toolResult" && m.toolName === "task_inspect"),
-      ),
-    ).toContain("untrusted-payload");
-  });
+  it.each(["tui", "rpc"] as const)(
+    "%s automatically wakes idle with metadata only, then allows payload/log inspection",
+    async (mode) => {
+      const h = await setup([], false, mode);
+      h.setResponses([
+        start(
+          "setTimeout(()=>{console.error('private diagnostic');console.log(JSON.stringify({v:1,type:'result',data:'untrusted-payload'}))},250)",
+          "events-v1",
+        ),
+        fauxAssistantMessage("Continuing other work"),
+        fauxAssistantMessage("Notification received"),
+      ]);
+      await h.prompt("Start a synthetic watcher");
+      expect(h.getPendingResponseCount()).toBe(1);
+      await expect.poll(() => wakes(h).length).toBe(1);
+      await expect.poll(() => h.session.isStreaming).toBe(false);
+      const notice = JSON.stringify(wakes(h)[0]);
+      expect(notice).not.toContain("untrusted-payload");
+      expect(notice).not.toContain("untrusted-name");
+      expect(notice).not.toContain("private diagnostic");
+      const task = tasks(h)[0];
+      h.setResponses([
+        fauxAssistantMessage(fauxToolCall("task_inspect", { id: task.id, view: "summary" }), {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage("Inspected"),
+      ]);
+      await h.prompt("Inspect it", { source: "extension" });
+      const result = h
+        .messages()
+        .findLast((m) => m.role === "toolResult" && m.toolName === "task_inspect");
+      expect(JSON.stringify(result)).toContain("private diagnostic");
+      h.setResponses([
+        fauxAssistantMessage(fauxToolCall("task_inspect", { id: task.id, view: "result" }), {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage("Read payload"),
+      ]);
+      await h.prompt("Read result");
+      expect(
+        JSON.stringify(
+          h.messages().findLast((m) => m.role === "toolResult" && m.toolName === "task_inspect"),
+        ),
+      ).toContain("untrusted-payload");
+    },
+  );
   it("buffers during a busy run and wakes only after settled", async () => {
     const blocked = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -386,7 +299,6 @@ describe("background tasks in a real AgentSession", () => {
         });
       },
     ]);
-    await h.prompt("/tasks resume");
     h.setResponses([
       start("setTimeout(()=>console.log('done'),100)"),
       fauxAssistantMessage("Done other work"),
@@ -404,9 +316,88 @@ describe("background tasks in a real AgentSession", () => {
     await prompt;
     await expect.poll(() => wakes(h).length).toBe(1);
     await expect.poll(() => h.session.isStreaming).toBe(false);
-    expect(budget(h)?.remaining).toBe(7);
   });
-  it("queues a charged follow-up when another extension starts a run at handoff", async () => {
+  it.each(["success", "failure", "abort"] as const)(
+    "delivers a task notification after manual compaction ends with %s",
+    async (outcome) => {
+      const blocked = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const h = await createAgentSessionHarness({
+        mode: "tui",
+        settings: {
+          compaction: { enabled: false, keepRecentTokens: 1 },
+          retry: { enabled: false },
+        },
+        extensionFactories: [
+          extension,
+          (pi) => {
+            pi.on("session_before_compact", async ({ preparation }) => {
+              blocked.resolve();
+              await release.promise;
+              if (outcome === "failure") return;
+              return {
+                compaction: {
+                  summary: "Synthetic compaction summary",
+                  firstKeptEntryId: preparation.firstKeptEntryId,
+                  tokensBefore: preparation.tokensBefore,
+                },
+              };
+            });
+          },
+        ],
+      });
+      harnesses.push(h);
+      const finish = join(h.tempDir, "finish-task");
+      h.setResponses([
+        start(
+          `const fs=require('node:fs');const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(finish)})){clearInterval(timer);console.log('done');}},10)`,
+        ),
+        fauxAssistantMessage("Started the task; continue other work"),
+      ]);
+      await h.prompt("Start a task before compacting");
+      h.setResponses([
+        ...(outcome === "failure"
+          ? [
+              fauxAssistantMessage("", {
+                stopReason: "error",
+                errorMessage: "Synthetic compaction failure",
+              }),
+            ]
+          : []),
+        fauxAssistantMessage("Notification received"),
+      ]);
+      const compacting = h.session.compact().then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error }),
+      );
+      try {
+        await blocked.promise;
+        await writeFile(finish, "done");
+        await expect.poll(() => tasks(h).some((t) => t.status === "completed")).toBe(true);
+        // Let the initial notification timer encounter the busy session.
+        await delay(150);
+        expect(h.session.isIdle).toBe(false);
+        expect(wakes(h)).toHaveLength(0);
+        expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 1 });
+        if (outcome === "abort") h.session.abortCompaction();
+      } finally {
+        release.resolve();
+        await compacting;
+      }
+      if (outcome === "success") {
+        expect(await compacting).toMatchObject({
+          result: { summary: "Synthetic compaction summary" },
+        });
+      } else {
+        expect(await compacting).toMatchObject({ error: expect.any(Error) });
+      }
+      expect(h.session.isIdle).toBe(true);
+      await expect.poll(() => wakes(h).length, { timeout: 2000 }).toBe(1);
+      await expect.poll(() => h.session.isStreaming).toBe(false);
+      expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
+    },
+  );
+  it("queues a follow-up when another extension starts a run at handoff", async () => {
     const release = Promise.withResolvers<void>();
     const blocked = Promise.withResolvers<void>();
     let calls = 0;
@@ -423,7 +414,6 @@ describe("background tasks in a real AgentSession", () => {
       ],
       true,
     );
-    await h.prompt("/tasks resume");
     h.setResponses([
       start("setTimeout(()=>console.log('done'),150)"),
       fauxAssistantMessage("Started"),
@@ -434,18 +424,15 @@ describe("background tasks in a real AgentSession", () => {
     try {
       await blocked.promise;
       expect(wakes(h)).toHaveLength(0);
-      expect(budget(h)?.remaining).toBe(7);
     } finally {
       release.resolve();
     }
     await prompt;
     await expect.poll(() => wakes(h).length).toBe(1);
     await expect.poll(() => h.session.isStreaming).toBe(false);
-    expect(budget(h)?.remaining).toBe(7);
   });
-  it("holds on abort until confirmed resume, regardless of prompt source", async () => {
+  it("continues automatic notifications after an aborted response", async () => {
     const h = await setup();
-    await h.prompt("/tasks resume");
     h.setResponses([
       start(
         "setTimeout(()=>console.log(JSON.stringify({v:1,type:'event',data:1})),100);setTimeout(()=>console.log(JSON.stringify({v:1,type:'result',data:2})),600)",
@@ -453,31 +440,51 @@ describe("background tasks in a real AgentSession", () => {
       ),
       fauxAssistantMessage("Started"),
       fauxAssistantMessage("", { stopReason: "aborted" }),
+      fauxAssistantMessage("Result received"),
     ]);
     await h.prompt("Watch synthetic state");
-    await expect.poll(() => budget(h)?.held).toBe(true);
-    await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
-    // Give the delivery debounce a chance to expose an accidental re-wake.
-    await delay(150);
-    expect(wakes(h)).toHaveLength(1);
-    for (const source of ["rpc", "extension", "interactive"] as const) {
-      h.setResponses([fauxAssistantMessage("Nonhuman response")]);
-      await h.prompt("Not an authorization", { source });
-      expect(budget(h)).toMatchObject({ remaining: 7, held: true });
-    }
-    h.setResponses([fauxAssistantMessage("Held result received")]);
-    await h.prompt("/tasks resume");
     await expect.poll(() => wakes(h).length).toBe(2);
     await expect.poll(() => h.session.isStreaming).toBe(false);
-    expect(budget(h)).toMatchObject({ remaining: 7, held: false });
+    expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
+  });
+  it("lists and inspects a running task, then stops it through task_stop", async () => {
+    const h = await setup();
+    const notices: string[] = [];
+    await h.session.bindExtensions({
+      mode: "tui",
+      uiContext: {
+        ...h.session.extensionRunner.createContext().ui,
+        notify: (message) => {
+          notices.push(message);
+        },
+      },
+    });
+    h.setResponses([start("setInterval(()=>{},1000)"), fauxAssistantMessage("Started")]);
+    await h.prompt("Start server");
+    const task = tasks(h)[0];
+    for (const command of ["", `inspect ${task.id}`]) {
+      await h.prompt(`/tasks ${command}`);
+      expect(() => process.kill(task.pid!, 0)).not.toThrow();
+    }
+    expect(notices).toHaveLength(2);
+    for (const notice of notices) {
+      expect(notice).toContain(task.id);
+      expect(notice).toContain("running");
+    }
+    h.setResponses([fauxAssistantMessage("Stopped notification")]);
+    expect(await callTool(h, "task_stop", { id: task.id })).toMatchObject({
+      status: "cancelled",
+      cleanup: "clean",
+    });
+    stopped(task.pid);
+    await expect.poll(() => wakes(h).length).toBe(1);
+    await expect.poll(() => h.session.isStreaming).toBe(false);
   });
   it("retains ancestral tasks, stops abandoned tasks, and does not resurrect them", async () => {
     const h = await setup();
-    await h.prompt("/tasks resume");
     h.setResponses([start("setInterval(()=>{},1000)"), fauxAssistantMessage("A started")]);
     await h.prompt("Start A");
     const a = tasks(h)[0];
-    await expect(callTool(h, "task_dismiss", { id: a.id })).rejects.toThrow(/Stop a running task/);
     const keepLeaf = h.sessionManager.getLeafId()!;
     h.setResponses([start("setInterval(()=>{},1000)"), fauxAssistantMessage("B started")]);
     await h.prompt("Start B");
@@ -489,9 +496,8 @@ describe("background tasks in a real AgentSession", () => {
     await h.session.navigateTree(future);
     stopped(b.pid);
   });
-  it("dismisses a decided result only after its terminal record is captured", async () => {
+  it("agent stop waits for cleanup without overwriting a decided result", async () => {
     const h = await setup();
-    await h.prompt("/tasks resume");
     h.setResponses([
       start(
         "process.on('SIGTERM',()=>{});setTimeout(()=>console.log(JSON.stringify({v:1,type:'result',data:1})),100);setInterval(()=>{},1000)",
@@ -500,7 +506,6 @@ describe("background tasks in a real AgentSession", () => {
       fauxAssistantMessage("Started"),
     ]);
     await h.prompt("Start a TERM-resistant watcher");
-    await h.prompt("/tasks pause");
     const id = tasks(h)[0].id;
     const inspect = async () => {
       return Value.Parse(
@@ -515,19 +520,19 @@ describe("background tasks in a real AgentSession", () => {
       .poll(async () => (await inspect()).task)
       .toMatchObject({ status: "result", cleanup: "pending" });
     h.setResponses([
-      fauxAssistantMessage(fauxToolCall("task_dismiss", { id }), { stopReason: "toolUse" }),
-      fauxAssistantMessage("Dismissed"),
+      fauxAssistantMessage(fauxToolCall("task_stop", { id }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("Stopped"),
+      fauxAssistantMessage("Result received"),
     ]);
-    await h.prompt("Dismiss the inspected notice");
-    await h.prompt("/tasks dismiss " + id);
+    await h.prompt("Stop the watcher");
     await expect.poll(async () => (await inspect()).task.cleanup).toBe("clean");
     expect((await inspect()).diagnostic).toBeUndefined();
     expect(tasks(h).some((t) => t.status === "result")).toBe(true);
-    expect(wakes(h)).toHaveLength(0);
+    await expect.poll(() => wakes(h).length).toBe(1);
+    await expect.poll(() => h.session.isStreaming).toBe(false);
   });
   it("filters an already-queued stale notice before provider context after tree navigation", async () => {
     const h = await setup();
-    await h.prompt("/tasks resume");
     h.setResponses([
       start("setTimeout(()=>console.log('done'),100)"),
       fauxAssistantMessage("Started"),
@@ -557,16 +562,13 @@ describe("background tasks in a real AgentSession", () => {
     expect(JSON.stringify(payload)).not.toContain("STALE NOTICE");
     expect(JSON.stringify(payload)).not.toContain(tasks(h)[0].id);
   });
-  it("reload stops owned processes, rebuilds empty live state, and preserves budget", async () => {
+  it("reload stops owned processes and rebuilds empty live state", async () => {
     const h = await setup();
-    await h.prompt("/tasks resume");
     h.setResponses([start("setInterval(()=>{},1000)"), fauxAssistantMessage("Started")]);
     await h.prompt("Start server");
     const task = tasks(h)[0];
-    const before = budget(h);
     await h.session.reload();
     stopped(task.pid);
-    expect(budget(h)).toEqual(before);
     h.setResponses([
       fauxAssistantMessage(fauxToolCall("task_list", {}), { stopReason: "toolUse" }),
       fauxAssistantMessage("Listed"),
@@ -582,11 +584,10 @@ describe("background tasks in a real AgentSession", () => {
       Value.Parse(
         Type.Object({
           tasks: Type.Array(Type.Unknown()),
-          remainingWakes: Type.Number(),
+          pending: Type.Number(),
         }),
         JSON.parse(text.text),
       ),
-    ).toMatchObject({ tasks: [], remainingWakes: before?.remaining });
-    expect(budget(h)).toEqual(before);
+    ).toMatchObject({ tasks: [], pending: 0 });
   });
 });

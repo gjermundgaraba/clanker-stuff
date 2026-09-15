@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/background-tasks",
   "version": "0.1.0",
   "private": true,
-  "description": "Runs session-owned background jobs and agent-authored watchers with bounded notifications.",
+  "description": "Runs session-owned background jobs and agent-authored watchers with automatic notifications.",
   "keywords": [
     "pi-package"
   ],

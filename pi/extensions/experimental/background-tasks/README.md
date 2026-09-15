@@ -1,6 +1,6 @@
 # background-tasks
 
-Runs session-owned background jobs and agent-authored watchers with bounded notifications.
+Runs session-owned background jobs and agent-authored watchers with automatic notifications.
 
 > [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
 
@@ -10,7 +10,7 @@ Load `pi/extensions/experimental/background-tasks/index.ts` as a local extension
 
 ## Usage
 
-- Ask Pi to start a job with `task_start`; confirm `/tasks resume` to authorize notifications, or inspect and dismiss results on demand.
+- Ask Pi to start a job with `task_start`; completion and watcher events notify Pi automatically. Use `/tasks` to inspect status.
 - Jobs stop on reload, quit, and session replacement—including dev servers.
 
 ## Configuration

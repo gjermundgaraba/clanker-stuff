@@ -102,7 +102,7 @@ describe("task contracts", () => {
       data: "\x1b[31m\u009b\u202e",
     });
   });
-  it("fits the retained inventory and attention status, bounding only display names", () => {
+  it("fits the retained inventory and pending count, bounding only display names", () => {
     const tasks = Array.from({ length: 72 }, (_, i) =>
       taskRow({
         id: "t_" + String(i).padStart(36, "0"),
@@ -119,15 +119,13 @@ describe("task contracts", () => {
     );
     const result = toolResult({
       pending: 32,
-      remainingWakes: 0,
-      held: true,
       tasks,
       omittedProgress: 100,
       evictedEvents: 100,
       evictedTasks: 100,
     });
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed).toMatchObject({ remainingWakes: 0, held: true, tasks });
+    expect(parsed).toMatchObject({ pending: 32, tasks });
     expect(parsed.tasks).toHaveLength(72);
     expect(parsed.tasks.at(-1).id).toBe(tasks.at(-1)?.id);
     expect(Array.from(tasks[0].name)).toHaveLength(33);

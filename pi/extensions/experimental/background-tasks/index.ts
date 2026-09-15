@@ -15,10 +15,9 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
     label: "Start task",
     description:
       "Run an executable without blocking. Session-owned: stops on reload/quit/session replacement. Optional events-v1 watcher emits strict JSONL event/result records on stdout, diagnostics on stderr. Ordinary output is logs, not automatic context. Default deadline 1 hour. Maximum 8 live tasks.",
-    promptSnippet:
-      "Start a session-owned background job or watcher; notifications require /tasks resume",
+    promptSnippet: "Start a session-owned background job or watcher with automatic notifications",
     promptGuidelines: [
-      "Notifications start held; only the user can authorize eight automatic batches with confirmed /tasks resume. Otherwise inspect on demand and task_dismiss completed notices.",
+      "Completion and watcher events notify you automatically when idle. Use task_inspect to read logs and payloads; use task_stop when a job is no longer needed.",
       "After task_start, continue useful work or end the turn; do not block or repeatedly poll task_list while waiting.",
       "Use task_start with protocol events-v1 only for scripts emitting {v:1,type:'event',data:...} or terminal {v:1,type:'result',data:...} JSON records followed by LF. Keep external detection logic in the script.",
     ],
@@ -29,7 +28,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
     name: "task_list",
     label: "List tasks",
     description:
-      "List bounded task status and attention budget; does not fetch logs or wake the model.",
+      "List task status and pending notification count; does not fetch logs or wake the model.",
     parameters: listSchema,
     execute: async () => runtime.list(),
   });
@@ -50,21 +49,12 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
     parameters: idSchema,
     execute: (_id, params) => runtime.stop(params.id),
   });
-  pi.registerTool({
-    name: "task_dismiss",
-    label: "Dismiss task notice",
-    description:
-      "Explicitly discard a terminal task's pending notices after cleanup, releasing inbox capacity without granting wakes. Result remains inspectable under bounded retention. Running tasks must first be stopped. An already queued notice may still arrive.",
-    parameters: idSchema,
-    execute: (_id, params) => runtime.dismiss(params.id),
-  });
   pi.registerCommand("tasks", {
-    description: "Inspect background tasks; pause/resume notifications or stop/dismiss a task",
+    description: "Inspect background task status and logs",
     handler: (args, ctx) => runtime.command(args, ctx),
   });
   pi.registerMessageRenderer("background-tasks:wake", renderWake);
   pi.on("session_start", (_event, ctx) => runtime.startSession(ctx));
-  pi.on("agent_start", (_event, ctx) => runtime.agentStart(ctx));
   pi.on("agent_settled", () => runtime.settled());
   pi.on("message_end", (event) => runtime.message(event));
   pi.on("context", (event, ctx) => runtime.context(event, ctx));
