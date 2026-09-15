@@ -1,6 +1,6 @@
-FROM node:26.7.0-bookworm-slim AS extension
+FROM node:26.8.2-bookworm-slim AS extension
 
-RUN npm install --global pnpm@11.22.0
+RUN npm install --global pnpm@12.4.1
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY pi/extensions/experimental/codex-provider ./pi/extensions/experimental/codex-provider
@@ -13,7 +13,7 @@ RUN pnpm --filter @clanker-stuff/codex-provider deploy \
   && test ! -e /out/scripts \
   && test ! -e /out/tests
 
-FROM node:26.7.0-bookworm-slim
+FROM node:26.8.2-bookworm-slim
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates git ripgrep \
