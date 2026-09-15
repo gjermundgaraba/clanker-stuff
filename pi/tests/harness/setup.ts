@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeAll } from "vite-plus/test";
 
 import { patchEnv } from "../helpers/env.js";
@@ -18,6 +19,9 @@ beforeAll(async () => {
     USERPROFILE: homeDir,
     XDG_CONFIG_HOME: path.join(homeDir, ".config"),
   });
+  // Pi's interactive host always has a theme loaded; extension UI that uses Pi's theme helpers
+  // (markdown themes, syntax highlighting) relies on it. The patched HOME hides user themes.
+  initTheme("dark");
 });
 
 afterAll(async () => {
