@@ -35,12 +35,14 @@ const readJsonObject = async (req: IncomingMessage): Promise<Record<string, Json
 export const startMcpHttpFixture = async ({
   scenario = "normal",
   oauth = false,
-  expireSessionOnce = scenario === "expired",
+  expireSessionOnce = scenario === "expired" || scenario === "expired-ping",
+  expireSessionOn = scenario === "expired-ping" ? "ping" : "tools/call",
   pauseInitialization = false,
 }: {
   scenario?: string;
   oauth?: boolean;
   expireSessionOnce?: boolean;
+  expireSessionOn?: "ping" | "tools/call";
   pauseInitialization?: boolean;
 } = {}) => {
   const state = createFixtureState();
@@ -96,7 +98,7 @@ export const startMcpHttpFixture = async ({
         !sessionExpired &&
         request.headers.has("mcp-session-id") &&
         isJSONRPCRequest(body) &&
-        body.method === "tools/call"
+        body.method === expireSessionOn
       ) {
         sessionExpired = true;
         return new Response(null, { status: 404 });

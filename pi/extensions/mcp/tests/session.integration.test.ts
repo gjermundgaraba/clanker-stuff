@@ -95,6 +95,61 @@ describe("MCP tools in a real AgentSession", () => {
       harness.cleanup();
     }
   });
+  it("exposes automatically recovered tools to subsequent agent runs without replay", async () => {
+    const fixture = await t.startHttpFixture({ scenario: "expired" });
+    await t.writeConfig({
+      mcpServers: { remote: { type: "http", url: fixture.url, heartbeatIntervalMs: 0 } },
+    });
+    const harness = await createAgentSessionHarness({
+      extensionFactories: [
+        (pi) => {
+          pi.on("session_start", () => {
+            pi.appendEntry("mcp-server-loaded", { serverName: "remote" });
+          });
+        },
+        mcp,
+      ],
+    });
+    const name = toGeneratedToolName("remote", "search");
+    try {
+      harness.setResponses([
+        fauxAssistantMessage(fauxToolCall(name, { query: "expired" }), { stopReason: "toolUse" }),
+        fauxAssistantMessage("The call failed; it was not replayed."),
+      ]);
+      await harness.prompt("Search once.");
+      expect(fixture.getToolCallCount()).toBe(1);
+      expect(harness.messages()).toContainEqual(
+        expect.objectContaining({
+          role: "toolResult",
+          toolName: name,
+          isError: true,
+          content: [
+            { type: "text", text: expect.stringContaining("the tool call was not replayed") },
+          ],
+        }),
+      );
+      await expect.poll(() => harness.session.getActiveToolNames()).toContain(name);
+      harness.setResponses([
+        fauxAssistantMessage(fauxToolCall(name, { query: "new-call" }), { stopReason: "toolUse" }),
+        fauxAssistantMessage("done"),
+      ]);
+      await harness.prompt("Make a new search.");
+      expect(harness.messages()).toContainEqual(
+        expect.objectContaining({
+          role: "toolResult",
+          toolName: name,
+          isError: false,
+          content: [{ type: "text", text: "result: new-call" }],
+        }),
+      );
+      expect(fixture.getInitializationCount()).toBe(2);
+      expect(fixture.getToolCallCount()).toBe(2);
+    } finally {
+      await harness.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      harness.cleanup();
+    }
+  });
+
   it.each(["sampling", "sampling-error"])(
     "attributes automatic sampling usage to %s in session history",
     async (scenario) => {

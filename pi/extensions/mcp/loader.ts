@@ -8,6 +8,7 @@ import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import { resolveMcpServer, listMcpServers, loadMcpConfig } from "./config.js";
 import type { McpConfig } from "./config.js";
 import { connectToServer, errorMessage } from "./connection.js";
+import type { McpConnectionFactory } from "./connection.js";
 import { loadedServerNames } from "./loaded-servers.js";
 import {
   configOptions,
@@ -73,24 +74,60 @@ const listAvailableServers = async (ctx: ExtensionContext): Promise<McpManagerLi
 };
 
 export const createMcpLoader = (pi: ExtensionAPI) => {
-  const serverPool = new McpServerPool(pi);
+  let context: ExtensionContext | undefined;
+  const serverPool = new McpServerPool(pi, (message) => context?.ui.notify(message, "warning"));
   let workspace: string | undefined;
   let managerRegistered = false;
   let restoreGeneration = 0;
   let desiredServerNames: readonly string[] = [];
 
+  const resolveServerOptions = async (
+    ctx: ExtensionContext,
+    serverName: string,
+    config?: Promise<McpConfig>,
+  ) => {
+    const cwd = ctx.cwd;
+    const serverConfig = resolveMcpServer(
+      await (config ?? loadMcpConfig(configOptions(ctx))),
+      serverName,
+    );
+    const connectionFactory: McpConnectionFactory = (interactive, signal) =>
+      connectToServer({
+        serverConfig,
+        pi,
+        serverName,
+        signal,
+        cwd,
+        getWorkspace: () => workspace,
+        onAuthorizationUrl: interactive
+          ? (url) => {
+              ctx.ui.notify(
+                `Authorize MCP server ${serverName}:\n${url.href}\nWaiting for OAuth authorization...`,
+                "info",
+              );
+              if (ctx.mode === "tui" && ctx.hasUI) openBrowser(url.href);
+            }
+          : undefined,
+      });
+    return {
+      connectionFactory,
+      heartbeatIntervalMs: serverConfig.heartbeatIntervalMs,
+      heartbeatTimeoutMs: serverConfig.heartbeatTimeoutMs,
+      serverName,
+    };
+  };
+
   const loadNamedServer = async (
     ctx: ExtensionContext,
     serverName: string,
     options: {
-      config?: Promise<McpConfig>;
       reconnect?: boolean;
       interactive: boolean;
       persist: boolean;
       signal?: AbortSignal;
     },
   ) => {
-    const cwd = ctx.cwd;
+    context = ctx;
     let toolCount: number;
     if (serverName === MCP_MANAGER_SERVER_NAME) {
       if (!managerRegistered) {
@@ -107,30 +144,10 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       activateTools(pi, MANAGER_TOOL_NAMES);
       toolCount = MANAGER_TOOL_NAMES.length;
     } else {
-      const config = await (options.config ?? loadMcpConfig(configOptions(ctx)));
-      const serverConfig = resolveMcpServer(config, serverName);
       toolCount = await serverPool.loadServer({
-        connectionFactory: (interactive, signal) =>
-          connectToServer({
-            serverConfig,
-            pi,
-            serverName,
-            signal,
-            cwd,
-            getWorkspace: () => workspace,
-            onAuthorizationUrl: interactive
-              ? (url) => {
-                  ctx.ui.notify(
-                    `Authorize MCP server ${serverName}:\n${url.href}\nWaiting for OAuth authorization...`,
-                    "info",
-                  );
-                  if (ctx.mode === "tui" && ctx.hasUI) openBrowser(url.href);
-                }
-              : undefined,
-          }),
+        ...(await resolveServerOptions(ctx, serverName)),
         interactive: options.interactive,
         reconnect: options.reconnect,
-        serverName,
         signal: options.signal,
       });
     }
@@ -155,6 +172,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
         : undefined;
     },
     dispose: (): Promise<void> => {
+      context = undefined;
       workspace = undefined;
       return serverPool.closeAll();
     },
@@ -201,6 +219,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       }
     },
     restore: async (ctx: ExtensionContext): Promise<void> => {
+      context = ctx;
       workspace = ctx.cwd;
       serverPool.cancelCalls();
       restoreGeneration += 1;
@@ -217,14 +236,17 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
           return;
         }
         try {
-          await loadNamedServer(ctx, serverName, {
-            config:
-              serverName === MCP_MANAGER_SERVER_NAME
-                ? undefined
-                : (config ??= loadMcpConfig(configOptions(ctx))),
-            interactive: false,
-            persist: false,
-          });
+          if (serverName === MCP_MANAGER_SERVER_NAME) {
+            await loadNamedServer(ctx, serverName, { interactive: false, persist: false });
+          } else {
+            await serverPool.restoreServer(
+              await resolveServerOptions(
+                ctx,
+                serverName,
+                (config ??= loadMcpConfig(configOptions(ctx))),
+              ),
+            );
+          }
         } catch (error) {
           ctx.ui.notify(
             `Could not restore MCP server ${serverName}: ${errorMessage(error)}. Use /mcp to reconnect.`,

@@ -20,8 +20,26 @@ const OAuthSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const HeartbeatProperties = {
+  heartbeatIntervalMs: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      maximum: 2_147_483_647,
+      description: "Idle ping interval in milliseconds; default 60000, 0 disables pings.",
+    }),
+  ),
+  heartbeatTimeoutMs: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 2_147_483_647,
+      description: "Ping timeout in milliseconds; default 10000.",
+    }),
+  ),
+};
+
 const HttpServerConfigSchema = Type.Object(
   {
+    ...HeartbeatProperties,
     headers: Type.Optional(Type.Record(Type.String(), Type.String())),
     oauth: Type.Optional(OAuthSchema),
     type: Type.Literal("http"),
@@ -33,6 +51,7 @@ const HttpServerConfigSchema = Type.Object(
 export const ServerConfigSchema = Type.Union([
   Type.Object(
     {
+      ...HeartbeatProperties,
       args: Type.Optional(Type.Array(Type.String())),
       command: Type.String({ minLength: 1 }),
       env: Type.Optional(Type.Record(Type.String(), Type.String())),

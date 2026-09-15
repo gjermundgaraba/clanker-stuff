@@ -27,6 +27,7 @@ const createToolRegistry = (onRegister?: McpToolRegistry["registerTool"]): McpTo
 });
 
 const createEmptyClient = (): McpClient => ({
+  ping: vi.fn<McpClient["ping"]>(async () => ({})),
   callTool: vi.fn<McpClient["callTool"]>(async () => ({ content: [] })),
   listTools: vi.fn<McpClient["listTools"]>(async () => ({ tools: [] })),
 });
@@ -283,6 +284,7 @@ describe("mcp server pool", () => {
       });
       const connectionFactory = vi.fn<McpConnectionFactory>(async () => ({
         client: {
+          ...createEmptyClient(),
           callTool,
           listTools: async () => ({ tools: [{ name: "mutate", inputSchema: { type: "object" } }] }),
         },
@@ -340,7 +342,7 @@ describe("mcp server pool", () => {
     });
   });
 
-  it("deactivates an expired session without replay and allows explicit reconnect", async () => {
+  it("recovers an expired session automatically without replay", async () => {
     const fixture = await t.startHttpFixture({ expireSessionOnce: true });
     await t.writeConfig({
       mcpServers: {
@@ -359,9 +361,8 @@ describe("mcp server pool", () => {
     const name = toGeneratedToolName("remote", "search");
     await expect(host.runTool(name, { query: "expired" })).rejects.toThrow("session expired");
     expect(host.getActiveTools()).not.toContain(name);
-    expect(fixture.getInitializationCount()).toBe(1);
     expect(fixture.getToolCallCount()).toBe(1);
-    await host.runCommand("mcp", "", ctx);
+    await expect.poll(() => host.getActiveTools()).toContain(name);
     const result = await host.runTool(toGeneratedToolName("remote", "search"), {
       query: "after-reconnect",
     });

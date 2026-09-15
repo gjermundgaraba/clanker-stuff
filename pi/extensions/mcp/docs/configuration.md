@@ -45,13 +45,26 @@ HTTP entries accept optional `headers`, a string-to-string map. Set `oauth: {}` 
 
 Run `/mcp` and choose a server. Choosing an already connected server replaces the connection and refreshes its configuration and tool schemas. Removed tools are deactivated. Generated tool names contain a readable prefix and a stable identity hash and fit provider name limits.
 
-Loaded server names are saved in the session branch. Restoring a branch activates its servers without opening a browser; failed restores produce a warning. A closed connection, expired MCP session, or failed authorization deactivates its tools. Use `/mcp` or `mcp_connect` to recover. Changing a file alone does not reload an active connection.
+Loaded server names are saved in the session branch. Restoring a branch activates its servers without opening a browser; failed restores produce a warning. A closed connection or expired MCP session temporarily deactivates its tools while the extension reconnects automatically. Recovery uses the last successfully loaded configuration and existing OAuth credentials, then rediscovers and activates the current tool schemas. Changing a file alone does not reload an active connection.
 
 Connection operations are serialized per server. Ordinary connects reuse a healthy connection; explicit reconnects always replace it. Cancellation prevents queued operations from starting.
 
-The extension does not reconnect and replay tool calls automatically. An explicit MCP session-expiry HTTP 404 requires reconnecting before calling tools again. A failed response does not prove that a mutating operation did not execute.
+Automatic recovery starts immediately, then waits 1, 2, 4, 8, 16, and 32 seconds between attempts, capped at 60 seconds thereafter while the server remains selected. Each attempt, including tool discovery, is bounded to 30 seconds. Backoff is retained across short-lived connections and resets only after a successful ping or tool response on a connection that has stayed open for at least 60 seconds. A continuing outage produces one warning when retries reach the cap; retries continue without manual intervention. Authorization failures stop recovery immediately and warn; use `/mcp` or `mcp_connect` to authorize again. Explicit connects supersede background recovery without waiting for backoff. Branch restoration preserves ongoing recovery for servers that remain selected, without waiting for them before restoring other servers. Deselecting a server or shutting down cancels its background work.
+
+The extension never automatically replays a failed tool call, including after a session-expiry HTTP 404. The original call still reports an error; the repaired connection serves subsequent calls. A failed response does not prove that a mutating operation did not execute. Verify its outcome before retrying it.
 
 Connection establishment is bounded to 30 seconds per attempt. Established tool calls use the SDK's request timeout and caller cancellation, not the setup deadline. Streaming response bodies have no additional extension-imposed deadline.
+
+### Background heartbeats
+
+HTTP and stdio server entries accept two optional settings:
+
+- `heartbeatIntervalMs`: idle ping interval in milliseconds; defaults to `60000`. Set to `0` to disable background pings without disabling automatic recovery from session-expiry responses or connection closure.
+- `heartbeatTimeoutMs`: ping timeout in milliseconds; defaults to `10000` and must be positive.
+
+Pings run only for servers selected in the current branch. They do not overlap, and are skipped while tool calls or their interactions are active. A failed idle ping triggers automatic recovery; a server/protocol that does not support `ping` has heartbeats disabled for that connection instead. Background authorization can refresh existing OAuth tokens but never opens a browser.
+
+Pings detect stale sessions before a real tool call needs them. They may also prevent idle expiry if the server treats them as activity, but MCP does not guarantee session renewal or expose a standard session lifetime. Servers can still terminate sessions between pings. See [MCP ping](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping) and [session management](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management).
 
 ## MCP manager
 

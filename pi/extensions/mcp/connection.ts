@@ -11,7 +11,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import type { McpServerConfig } from "./config.js";
 import { createHttpAuth, isAuthorizationError } from "./oauth.js";
 
-export type McpClient = Pick<Client, "callTool" | "listTools">;
+export type McpClient = Pick<Client, "callTool" | "listTools" | "ping">;
 export interface McpClientConnection {
   client: McpClient;
   close: () => Promise<void>;

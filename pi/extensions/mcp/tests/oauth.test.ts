@@ -226,6 +226,48 @@ describe("mcp oauth", () => {
     }
   });
 
+  it("refreshes OAuth and recovers an expired session during idle heartbeats without prompting", async () => {
+    const fixture = await t.startHttpFixture({ oauth: true, scenario: "expired-ping" });
+    const config = {
+      type: "http" as const,
+      url: fixture.url,
+      oauth: { clientId: "fixture-client-id" },
+      heartbeatIntervalMs: 100,
+      heartbeatTimeoutMs: 1_000,
+    };
+    const provider = new PersistentMcpOAuthProvider(config);
+    await provider.saveTokens({
+      access_token: FIXTURE_ACCESS_TOKEN,
+      refresh_token: "fixture-refresh-token",
+      token_type: "Bearer",
+    });
+    expect(oauthStatePath(config)).toBe(oauthStatePath({ ...config, heartbeatIntervalMs: 0 }));
+    await t.writeConfig({ mcpServers: { remote: config } });
+    const host = t.createExtensionHost(mcp, { hasUI: false });
+    await host.runCommand(
+      "mcp",
+      "",
+      host.createContext({ ui: { select: async () => "○ remote" } }),
+    );
+    const name = toGeneratedToolName("remote", "search");
+    expect(host.getActiveTools()).toContain(name);
+    fixture.expireAccessToken();
+    await expect.poll(fixture.getInitializationCount).toBe(2);
+    await expect.poll(() => host.getActiveTools()).toContain(name);
+    expect(fixture.getRefreshCount()).toBe(1);
+    expect(fixture.getToolCallCount()).toBe(0);
+    expect(
+      host.getNotifications().some(({ message }) => message.includes("Authorize MCP server")),
+    ).toBe(false);
+    expect(
+      host
+        .getAppendedEntries()
+        .filter((entry) => entry.type === "custom" && entry.customType === "mcp-server-loaded"),
+    ).toHaveLength(1);
+    const result = await host.runTool(name, { query: "after-idle-recovery" });
+    expect(result.content).toContainEqual({ type: "text", text: "result: after-idle-recovery" });
+  });
+
   it.each(["expired", "scope", "refreshed"])(
     "deactivates %s authorization and recovers through explicit reconnect",
     async (reason) => {

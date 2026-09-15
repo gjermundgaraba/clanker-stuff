@@ -25,6 +25,7 @@ export const FIXTURE_SCENARIOS = [
   "malformed",
   "drop",
   "expired",
+  "expired-ping",
 ] as const;
 
 export interface FixtureState {

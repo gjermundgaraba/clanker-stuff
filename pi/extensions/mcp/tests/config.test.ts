@@ -31,9 +31,29 @@ describe("MCP config schema validation", () => {
       },
     },
     { type: "stdio", command: "mcp-server", args: ["--port", "8080"], env: { TOKEN: "token" } },
+    {
+      type: "http",
+      url: "https://example.com/mcp",
+      heartbeatIntervalMs: 60_000,
+      heartbeatTimeoutMs: 10_000,
+    },
+    { type: "stdio", command: "mcp-server", heartbeatIntervalMs: 0 },
   ])("accepts $type server configuration", (server) => {
     expect(Value.Check(ServerConfigSchema, server)).toBe(true);
     expect(Value.Check(ServerConfigSchema, { ...server, extra: true })).toBe(false);
+  });
+
+  it.each([
+    { heartbeatIntervalMs: -1 },
+    { heartbeatIntervalMs: 1.5 },
+    { heartbeatIntervalMs: 2_147_483_648 },
+    { heartbeatTimeoutMs: 0 },
+    { heartbeatTimeoutMs: -1 },
+    { heartbeatTimeoutMs: "1000" },
+  ])("rejects invalid heartbeat settings: %j", (settings) => {
+    expect(
+      Value.Check(ServerConfigSchema, { type: "http", url: "https://example.com", ...settings }),
+    ).toBe(false);
   });
 });
 

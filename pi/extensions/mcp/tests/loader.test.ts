@@ -335,6 +335,56 @@ describe("mcp loader", () => {
     expect(host.getActiveTools()).toContain(toGeneratedToolName("beta", "search"));
   });
 
+  it("keeps retrying a still-selected server while restoring another branch's servers", async () => {
+    const fixture = await t.startHttpFixture();
+    await t.writeConfig({
+      mcpServers: {
+        alpha: { type: "http", url: fixture.url, heartbeatIntervalMs: 0 },
+        beta: { type: "http", url: fixture.url, heartbeatIntervalMs: 0 },
+      },
+    });
+    const connect = connections.connectToServer;
+    let first: connections.McpClientConnection | undefined;
+    let offline = false;
+    const spy = vi.spyOn(connections, "connectToServer").mockImplementation(async (options) => {
+      if (options.serverName === "alpha" && offline) throw new Error("offline");
+      const connection = await connect(options);
+      if (options.serverName === "alpha") first ??= connection;
+      return connection;
+    });
+    const host = t.createExtensionHost(mcp, {
+      ...createBranchSession({ chained: true }),
+      leafId: "alpha-load",
+    });
+    const alpha = toGeneratedToolName("alpha", "search");
+    try {
+      await host.emitSessionStart();
+      if (!first) throw new Error("Missing initial connection");
+      offline = true;
+      await first.close();
+      await expect
+        .poll(() => spy.mock.calls.filter(([options]) => options.serverName === "alpha").length)
+        .toBe(2);
+      expect(host.getActiveTools()).not.toContain(alpha);
+
+      host.setLeafId("beta-load");
+      await host.emitSessionTree();
+      expect(host.getActiveTools()).toContain(toGeneratedToolName("beta", "search"));
+      expect(spy.mock.calls.filter(([options]) => options.serverName === "alpha")).toHaveLength(2);
+      expect(host.getNotifications()).toEqual([]);
+
+      offline = false;
+      await expect.poll(() => host.getActiveTools(), { timeout: 3_000 }).toContain(alpha);
+      expect(fixture.getToolCallCount()).toBe(0);
+      expect(spy.mock.calls.every(([options]) => options.onAuthorizationUrl === undefined)).toBe(
+        true,
+      );
+    } finally {
+      await host.emitSessionShutdown();
+      spy.mockRestore();
+    }
+  });
+
   it("does not reactivate tools from an obsolete concurrent restore", async () => {
     const alphaFixture = await t.startHttpFixture({ pauseInitialization: true });
     const betaFixture = await t.startHttpFixture();
