@@ -151,7 +151,10 @@ export class CodeModeHostClient {
       }
       this.rejectOperation(id, error);
       if (cellId !== undefined && cellId.length > 0) {
-        void this.terminate(cellId, context).catch(() => null);
+        // Internal cleanup is not another UI operation on the already-cancelled exec card.
+        void this.terminate(cellId, { extensionContext: context.extensionContext }).catch(
+          () => null,
+        );
       }
     };
     signal?.addEventListener("abort", abort, { once: true });
@@ -170,6 +173,7 @@ export class CodeModeHostClient {
       this.initial.delete(id);
       throw error;
     } finally {
+      this.delegateRuntime.unobserve(id);
       signal?.removeEventListener("abort", abort);
     }
   }
@@ -183,9 +187,10 @@ export class CodeModeHostClient {
     throwIfAborted(signal);
     await this.start(signal);
     throwIfAborted(signal);
-    this.delegateRuntime.updateCellContext(cellId, context);
     const id = ++this.requestId;
     return await this.abortableOperation(id, signal, async () => {
+      this.delegateRuntime.observe(id, cellId, context.onUpdate);
+      throwIfAborted(signal);
       const value = await this.requestWithId(
         id,
         {
@@ -211,9 +216,10 @@ export class CodeModeHostClient {
     throwIfAborted(signal);
     await this.start(signal);
     throwIfAborted(signal);
-    this.delegateRuntime.updateCellContext(cellId, context);
     const id = ++this.requestId;
     return await this.abortableOperation(id, signal, async () => {
+      this.delegateRuntime.observe(id, cellId, context.onUpdate);
+      throwIfAborted(signal);
       const value = await this.requestWithId(
         id,
         {
@@ -319,6 +325,7 @@ export class CodeModeHostClient {
     try {
       return await operation();
     } finally {
+      this.delegateRuntime.unobserve(id);
       signal?.removeEventListener("abort", abort);
     }
   }
@@ -443,7 +450,8 @@ export class CodeModeHostClient {
       const { value } = message.result;
       const cellId = executionCellId(value);
       if (cellId !== undefined && cellId.length > 0 && pending.context !== undefined) {
-        this.delegateRuntime.bindCell(cellId, pending.context, pending.tools);
+        this.delegateRuntime.bindCell(cellId, pending.context.extensionContext, pending.tools);
+        this.delegateRuntime.observe(message.id, cellId, pending.context.onUpdate);
       }
       pending.resolve(value);
       return;

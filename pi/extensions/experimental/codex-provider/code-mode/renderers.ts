@@ -52,6 +52,7 @@ interface TraceRendererState {
 }
 
 type Kind = "exec" | "wait";
+type Action = "Exec" | "Wait" | "Terminate";
 
 interface CodeModeRenderState {
   hasResult?: boolean;
@@ -180,14 +181,20 @@ const formatExecCall = (args: unknown, theme: Theme): string => {
     : [header, ...formatCodeBlock(source, "javascript").map((line) => `  ${line}`)].join("\n");
 };
 
-const actionLabel = (kind: Kind, args: unknown): string =>
+const actionLabel = (kind: Kind, args: unknown): Action =>
   kind === "exec"
     ? "Exec"
     : Value.Check(WaitArgsSchema, args) && args.terminate === true
       ? "Terminate"
       : "Wait";
 
-const callContent = (kind: Kind, args: unknown, theme: Theme, expanded: boolean): Component => {
+const callContent = (
+  kind: Kind,
+  args: unknown,
+  theme: Theme,
+  expanded: boolean,
+  elapsedMs?: number,
+): Component => {
   if (kind === "exec") {
     return codeBlockComponent(
       formatExecCall(args, theme),
@@ -197,13 +204,12 @@ const callContent = (kind: Kind, args: unknown, theme: Theme, expanded: boolean)
     );
   }
   const valid = Value.Check(WaitArgsSchema, args);
+  const elapsed = elapsedMs === undefined ? "" : ` · ${Math.floor(elapsedMs / 1000)}s elapsed`;
   const title = theme.fg("toolTitle", theme.bold(actionLabel(kind, args)));
   const cell = valid ? args.cell_id : undefined;
   const text = !valid
     ? `${title} ${theme.fg("error", "[invalid arg]")}`
-    : cell === undefined
-      ? title
-      : `${title} ${theme.fg("muted", inlineText(cell))}`;
+    : title + theme.fg("muted", `${cell === undefined ? "" : ` #${inlineText(cell)}`}${elapsed}`);
   return new TruncatedText(text);
 };
 
@@ -325,29 +331,75 @@ const selectTraces = (
   return traces.filter((trace) => chosen.has(trace.id));
 };
 
+interface OutcomeCounts {
+  done: number;
+  running: number;
+  error: number;
+}
+
+const countOutcomes = (outcomes: Iterable<Outcome>): OutcomeCounts => {
+  const counts = { done: 0, running: 0, error: 0 };
+  for (const outcome of outcomes) counts[outcome]++;
+  return counts;
+};
+
+interface ResultStatus {
+  label: string;
+  color: "error" | "warning" | "success";
+}
+
 const resultStatus = (
+  action: Action,
   status: string | undefined,
   scriptError: boolean,
-  traces: RuntimeToolTrace[],
-  theme: Theme,
-  outcomes: Map<string, Outcome>,
-): string => {
-  const failed = traces.filter((trace) => displayedOutcome(trace, outcomes) === "error").length;
-  const running = traces.filter((trace) => displayedOutcome(trace, outcomes) === "running").length;
-  if (scriptError) return theme.fg("error", "✗ error");
-  if (status === "terminated") return theme.fg("warning", "■ terminated");
-  if (failed > 0) {
-    const active = status === "running" || status === "yielded" || running > 0;
-    return theme.fg("error", `${failed} failed${active ? " · running" : ""}`);
+  counts: OutcomeCounts,
+  noNewOutput: boolean,
+): ResultStatus => {
+  if (scriptError) return { color: "error", label: "✗ error" };
+  if (status === "terminated") return { color: "warning", label: "■ terminated" };
+  const color = counts.error > 0 ? "error" : "warning";
+  if (action !== "Exec" && status === "running") {
+    return {
+      color,
+      label: action === "Terminate" ? "● Stopping script" : "● Waiting for output",
+    };
   }
-  if (status === "running" || running > 0) return theme.fg("warning", "● running");
-  if (status === "yielded") return theme.fg("warning", "◌ running");
-  return theme.fg("success", "✓ completed");
+  if (action !== "Exec" && status === "yielded") {
+    return {
+      color,
+      label: `◌ Script still running${noNewOutput ? " · no new output this wait" : ""}`,
+    };
+  }
+  if (counts.error > 0) {
+    const active = status === "running" || status === "yielded" || counts.running > 0;
+    return {
+      color,
+      label:
+        action === "Exec"
+          ? `${counts.error} failed${active ? " · running" : ""}`
+          : status === "result"
+            ? "✗ Finished with tool errors"
+            : "✗ Tool errors",
+    };
+  }
+  if (status === "running" || counts.running > 0) return { color, label: "● running" };
+  if (status === "yielded") return { color, label: "◌ running" };
+  return { color: "success", label: "✓ completed" };
 };
 
 const countLabel = (traces: RuntimeToolTrace[]): string => {
   const noun = traces.every((trace) => trace.name === "exec_command") ? "command" : "call";
   return `${traces.length} ${noun}${traces.length === 1 ? "" : "s"}`;
+};
+
+const waitCounts = (counts: OutcomeCounts): string => {
+  return [
+    counts.done > 0 ? `${counts.done} finished` : "",
+    counts.running > 0 ? `${counts.running} running` : "",
+    counts.error > 0 ? `${counts.error} failed` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 };
 
 const renderCodeModeResult = (
@@ -374,39 +426,59 @@ const renderCodeModeResult = (
     "scriptError" in details && typeof details.scriptError === "string" ? details.scriptError : "";
   const status =
     "status" in details && typeof details.status === "string" ? details.status : undefined;
+  const elapsedMs =
+    "elapsedMs" in details &&
+    typeof details.elapsedMs === "number" &&
+    Number.isFinite(details.elapsedMs) &&
+    details.elapsedMs >= 0
+      ? details.elapsedMs
+      : undefined;
   const dropped =
     "droppedTraceCount" in details && typeof details.droppedTraceCount === "number"
       ? details.droppedTraceCount
       : 0;
   const outcomes = traceOutcomes(traces);
-  const failed = traces.some((trace) => displayedOutcome(trace, outcomes) === "error");
+  const counts = countOutcomes(outcomes.values());
   context.state.hasResult = true;
   const tone = options.isPartial
     ? "toolPendingBg"
-    : context.isError || scriptError.length > 0 || failed
+    : context.isError || scriptError.length > 0 || counts.error > 0
       ? "toolErrorBg"
       : "toolSuccessBg";
-  const summary = resultStatus(
+  const action = actionLabel(kind, context.args);
+  const displayStatus = resultStatus(
+    action,
     status,
     context.isError || scriptError.length > 0,
-    traces,
-    theme,
-    outcomes,
+    counts,
+    // With no retained or dropped tool traces, an empty returned envelope is unambiguous.
+    traces.length === 0 && dropped === 0 && result.content.length === 1,
   );
+  const summary = theme.fg(displayStatus.color, displayStatus.label);
+  const countSummary = kind === "wait" ? waitCounts(counts) : "";
   const heading =
-    traces.length === 0
-      ? summary
-      : `${theme.fg("toolTitle", theme.bold(options.expanded ? "Results" : actionLabel(kind, context.args)))} ${theme.fg("muted", `· ${countLabel(traces)} ·`)} ${summary}`;
+    kind === "wait"
+      ? summary + (countSummary ? theme.fg("muted", ` · ${countSummary}`) : "")
+      : traces.length === 0
+        ? summary
+        : `${theme.fg("toolTitle", theme.bold(options.expanded ? "Results" : action))} ${theme.fg("muted", `· ${countLabel(traces)} ·`)} ${summary}`;
   const errors = context.isError
     ? sanitizeDisplayText(textContent(result))
     : sanitizeDisplayText(scriptError);
   const outputs = context.isError
     ? []
-    : codeModeOutput(result.content.slice(1), traces, theme, options.expanded);
+    : codeModeOutput(
+        "notification" in details && details.notification === true
+          ? result.content
+          : result.content.slice(1),
+        traces,
+        theme,
+        options.expanded,
+      );
 
   const box = new Box(1, 1, (text) => theme.bg(tone, text));
-  if (options.expanded || traces.length === 0) {
-    box.addChild(callContent(kind, context.args, theme, options.expanded));
+  if (kind === "wait" || options.expanded || traces.length === 0) {
+    box.addChild(callContent(kind, context.args, theme, options.expanded, elapsedMs));
   }
 
   if (options.expanded) {
@@ -484,7 +556,10 @@ const renderCodeModeResult = (
           .filter((item) => item.traceId === undefined || !inlineOutputIds.has(item.traceId))
           .map((item) => item.text)
           .join("\n");
-        const outputBudget = Math.min(OUTPUT_PREVIEW_ROWS, COLLAPSED_RESULT_ROWS - rows.length - 2);
+        const outputBudget = Math.min(
+          OUTPUT_PREVIEW_ROWS,
+          COLLAPSED_RESULT_ROWS - rows.length - 2 - (kind === "wait" ? 1 : 0),
+        );
         let outputHidden = false;
         if (output.length > 0 && outputBudget > 0) {
           const preview = truncateToVisualLines(output, outputBudget, width);

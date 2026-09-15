@@ -1,35 +1,45 @@
 import { boundRuntimeToolResult, cloneTrace, sanitizeTraceInput } from "./trace-values.js";
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
-import type {
-  RuntimeResponse,
-  RuntimeToolResult,
-  RuntimeToolTrace,
-  ToolExecutionContext,
-} from "./types.js";
+import type { RuntimeResponse, RuntimeToolResult, RuntimeToolTrace } from "./types.js";
 
 const MAX_TRACE_COUNT = 50;
 const MAX_TRACE_INPUT_CHARS = 16_384;
 const MAX_TRACE_IMAGE_CHARS = 16 * 1024 * 1024;
 
+interface CellTraces {
+  traces: RuntimeToolTrace[];
+  droppedCount: number;
+  startedAt: number;
+  elapsedMs?: number;
+}
+
 export class CodeModeTraceStore {
-  private readonly traces = new Map<string, RuntimeToolTrace[]>();
-  private readonly droppedCounts = new Map<string, number>();
+  private readonly cells = new Map<string, CellTraces>();
+
+  startCell(cellId: string): void {
+    this.cells.set(cellId, { traces: [], droppedCount: 0, startedAt: performance.now() });
+  }
+
+  finishCell(cellId: string): void {
+    const cell = this.cells.get(cellId);
+    if (cell) cell.elapsedMs ??= Math.max(0, performance.now() - cell.startedAt);
+  }
 
   clear(): void {
-    this.traces.clear();
-    this.droppedCounts.clear();
+    this.cells.clear();
   }
 
   delete(cellId: string): void {
-    this.traces.delete(cellId);
-    this.droppedCounts.delete(cellId);
+    this.cells.delete(cellId);
   }
 
   start(cellId: string, id: string, name: string, input: unknown): RuntimeToolTrace {
-    const traces = this.traces.get(cellId) ?? [];
+    const cell = this.cells.get(cellId);
+    if (!cell) throw new Error(`Code-mode cell trace is unavailable: ${cellId}`);
+    const { traces } = cell;
     if (traces.length >= MAX_TRACE_COUNT) {
       traces.shift();
-      this.droppedCounts.set(cellId, (this.droppedCounts.get(cellId) ?? 0) + 1);
+      cell.droppedCount++;
     }
     const trace: RuntimeToolTrace = {
       id,
@@ -38,7 +48,6 @@ export class CodeModeTraceStore {
       status: "running",
     };
     traces.push(trace);
-    this.traces.set(cellId, traces);
     return trace;
   }
 
@@ -47,7 +56,7 @@ export class CodeModeTraceStore {
     current: RuntimeToolTrace,
     result: RuntimeToolResult,
   ): RuntimeToolResult {
-    const usedImageChars = (this.traces.get(cellId) ?? [])
+    const usedImageChars = (this.cells.get(cellId)?.traces ?? [])
       .filter((trace) => trace !== current)
       .flatMap((trace) => trace.result?.content ?? [])
       .reduce(
@@ -57,37 +66,29 @@ export class CodeModeTraceStore {
     return boundRuntimeToolResult(result, Math.max(0, MAX_TRACE_IMAGE_CHARS - usedImageChars));
   }
 
-  emitUpdate(cellId: string, context: ToolExecutionContext): void {
-    const droppedTraceCount = this.droppedCounts.get(cellId) ?? 0;
-    try {
-      context.onUpdate?.({
-        content: [],
-        details: {
-          cellId,
-          status: "running",
-          traces: (this.traces.get(cellId) ?? []).map(cloneTrace),
-          droppedTraceCount: droppedTraceCount > 0 ? droppedTraceCount : undefined,
-        },
-      });
-    } catch {
-      // Rendering updates must not change nested tool execution.
-    }
+  snapshot(cellId: string) {
+    const cell = this.cells.get(cellId);
+    return {
+      cellId,
+      elapsedMs:
+        cell === undefined
+          ? undefined
+          : (cell.elapsedMs ?? Math.max(0, performance.now() - cell.startedAt)),
+      traces: (cell?.traces ?? []).map(cloneTrace),
+      droppedTraceCount: cell?.droppedCount || undefined,
+    };
   }
 
   attach(response: RuntimeResponse): RuntimeResponse {
-    const traces = this.traces.get(response.cellId)?.map(cloneTrace);
-    const droppedTraceCount = this.droppedCounts.get(response.cellId) ?? 0;
+    const { elapsedMs, traces, droppedTraceCount } = this.snapshot(response.cellId);
     if (response.kind !== "yielded") {
       this.delete(response.cellId);
     }
-    if ((traces === undefined || traces.length === 0) && droppedTraceCount === 0) {
-      return response;
-    }
-    const enriched = { ...response };
-    if (traces !== undefined && traces.length > 0) {
+    const enriched = { ...response, elapsedMs };
+    if (traces.length > 0) {
       enriched.traces = traces;
     }
-    if (droppedTraceCount > 0) {
+    if (droppedTraceCount !== undefined) {
       enriched.droppedTraceCount = droppedTraceCount;
     }
     return enriched;

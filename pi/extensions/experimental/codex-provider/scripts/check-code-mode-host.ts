@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 import { ensureCodeModeHostBinary } from "../code-mode/binary.js";
 import { HOST_RELEASE } from "../code-mode/host-assets.js";
 import { CodeModeHostClient } from "../code-mode/host-client.js";
 import { toNestedTool } from "../code-mode/tools.js";
+import type { ToolExecutionContext } from "../code-mode/types.js";
 import { createRealCodexSession } from "../tests/agent-session.js";
 import { createCodexDirectTools } from "../tools/direct.js";
 
@@ -65,8 +68,115 @@ try {
   const terminated = await client.terminate(running.cellId, ctx, AbortSignal.timeout(15_000));
   assert.equal(terminated.kind, "terminated");
 
+  // Internal termination after exec cancellation must not subscribe the cancelled card again.
+  const admitted = Promise.withResolvers<void>();
+  const abortExec = new AbortController();
+  const abortDeadline = AbortSignal.timeout(15_000);
+  abortDeadline.addEventListener("abort", () => admitted.reject(abortDeadline.reason), {
+    once: true,
+  });
+  let execUpdates = 0;
+  const cancelledExec = client.execute(
+    "await new Promise(() => {});",
+    {
+      ...ctx,
+      onUpdate: () => {
+        execUpdates++;
+        admitted.resolve();
+      },
+    },
+    AbortSignal.any([abortExec.signal, abortDeadline]),
+    tools,
+  );
+  void cancelledExec.catch(() => {});
+  await admitted.promise;
+  abortExec.abort();
+  await assert.rejects(cancelledExec, { name: "AbortError" });
+  await execute('text("AFTER_EXEC_CANCEL")');
+  assert.equal(execUpdates, 1);
+
+  // Keep a nested call open so updates can be emitted after the host rejects/cancels a wait.
+  for (const cancelWait of [false, true]) {
+    const release = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<NonNullable<ToolExecutionContext["onUpdate"]>>();
+    const signal = AbortSignal.timeout(15_000);
+    signal.addEventListener("abort", () => started.reject(signal.reason), { once: true });
+    const counts = { exec: 0, a: 0, b: 0 };
+    const watching = (name: keyof typeof counts): ToolExecutionContext => ({
+      ...ctx,
+      onUpdate: () => {
+        counts[name]++;
+      },
+    });
+    const probe = toNestedTool({
+      definition: {
+        name: "observer_probe",
+        label: "Observer probe",
+        description: "Hold a call for host checks",
+        parameters: Type.Object({}),
+        execute: async (_id, _args, _signal, onUpdate) => {
+          assert(onUpdate);
+          started.resolve(onUpdate);
+          await release.promise;
+          return { content: [], details: undefined };
+        },
+      },
+    });
+    try {
+      const cell = await client.execute(
+        '// @exec: {"yield_time_ms":0}\nawait tools.observer_probe({}); text("PROBE_DONE");',
+        watching("exec"),
+        signal,
+        [...tools, probe],
+      );
+      assert.equal(cell.kind, "yielded");
+      const emit = await started.promise;
+      const controller = new AbortController();
+      const first = client.wait(
+        cell.cellId,
+        10_000,
+        watching("a"),
+        AbortSignal.any([signal, controller.signal]),
+      );
+      void first.catch(() => {});
+      // There is no wait-accepted event; allow the host to install its first observer.
+      await delay(50, undefined, { signal });
+      await assert.rejects(
+        client.wait(cell.cellId, 10_000, watching("b"), signal),
+        /already has an active observer/u,
+      );
+      const before = { ...counts };
+      const progress = {
+        content: [{ type: "text" as const, text: "progress" }],
+        details: undefined,
+      };
+      emit(progress);
+      assert.deepEqual(counts, { ...before, a: before.a + 1 });
+      if (cancelWait) {
+        controller.abort();
+        await assert.rejects(first, { name: "AbortError" });
+        const cancelled = { ...counts };
+        emit(progress);
+        assert.deepEqual(counts, cancelled);
+        // Cancellation releases the native observer asynchronously.
+        await delay(50, undefined, { signal });
+      }
+      release.resolve();
+      const completed = cancelWait
+        ? await client.wait(cell.cellId, 1000, ctx, signal)
+        : await first;
+      assert.equal(completed.kind, "result");
+      assert(completed.contentItems.some((item) => item.text === "PROBE_DONE"));
+      const settled = { ...counts };
+      emit(progress);
+      assert.deepEqual(counts, settled);
+    } finally {
+      release.resolve();
+    }
+  }
+
   console.log(
-    `PASS ${HOST_RELEASE} (${process.platform}-${process.arch}): execution, nested tools, errors, wait, termination\n${binary}`,
+    `PASS ${HOST_RELEASE} (${process.platform}-${process.arch}): execution, nested tools, errors, wait, termination, observer rejection/cancellation\n${binary}`,
   );
 } finally {
   await client.shutdown();

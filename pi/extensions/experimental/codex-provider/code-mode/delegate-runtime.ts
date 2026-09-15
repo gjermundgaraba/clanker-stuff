@@ -1,4 +1,6 @@
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+
 import { nestedToolKey } from "./protocol.js";
 import type { DelegateRequestMessage, DelegateResponse } from "./protocol.js";
 import { CodeModeTraceStore } from "./trace-store.js";
@@ -10,7 +12,14 @@ const MAX_NOTIFICATION_CHARS = 16_384;
 const MAX_NOTIFICATIONS_PER_CELL = 100;
 
 export class CodeModeDelegateRuntime {
-  private readonly cellContexts = new Map<string, ToolExecutionContext>();
+  private readonly cellContexts = new Map<string, ExtensionContext>();
+  private readonly observers = new Map<
+    number,
+    {
+      cellId: string;
+      onUpdate: NonNullable<ToolExecutionContext["onUpdate"]>;
+    }
+  >();
   private readonly cellTools = new Map<string, Map<string, NestedTool>>();
   private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly controllers = new Map<number, AbortController>();
@@ -22,18 +31,26 @@ export class CodeModeDelegateRuntime {
     this.send = send;
   }
 
-  bindCell(cellId: string, context: ToolExecutionContext, tools?: Map<string, NestedTool>): void {
+  bindCell(cellId: string, context: ExtensionContext, tools?: Map<string, NestedTool>): void {
+    this.traces.startCell(cellId);
     this.cellContexts.set(cellId, context);
     if (tools) {
       this.cellTools.set(cellId, tools);
     }
   }
 
-  updateCellContext(cellId: string, context: ToolExecutionContext): void {
-    this.cellContexts.set(cellId, context);
+  observe(id: number, cellId: string, onUpdate: ToolExecutionContext["onUpdate"]): void {
+    if (!onUpdate) return;
+    this.observers.set(id, { cellId, onUpdate });
+    this.emitUpdate(cellId, onUpdate);
+  }
+
+  unobserve(id: number): void {
+    this.observers.delete(id);
   }
 
   closeCell(cellId: string): void {
+    this.traces.finishCell(cellId);
     this.cellContexts.delete(cellId);
     this.cellTools.delete(cellId);
     const previous = this.cleanupTimers.get(cellId);
@@ -56,6 +73,7 @@ export class CodeModeDelegateRuntime {
     }
     this.controllers.clear();
     this.cellContexts.clear();
+    this.observers.clear();
     this.cellTools.clear();
     this.traces.clear();
     this.notifications.clear();
@@ -94,6 +112,10 @@ export class CodeModeDelegateRuntime {
   }
 
   attach(response: RuntimeResponse): RuntimeResponse {
+    if (response.kind !== "yielded") {
+      this.cellContexts.delete(response.cellId);
+      this.cellTools.delete(response.cellId);
+    }
     const cleanupTimer = this.cleanupTimers.get(response.cellId);
     if (cleanupTimer) {
       clearTimeout(cleanupTimer);
@@ -115,6 +137,33 @@ export class CodeModeDelegateRuntime {
         ...response.contentItems,
       ],
     };
+  }
+
+  private emitCellUpdate(cellId: string, notification?: string): void {
+    // The host decides which overlapping operation it accepts. Until each settles, all
+    // outstanding operations may display events; a rejected wait never steals another's updates.
+    for (const observer of this.observers.values()) {
+      if (observer.cellId === cellId) this.emitUpdate(cellId, observer.onUpdate, notification);
+    }
+  }
+
+  private emitUpdate(
+    cellId: string,
+    onUpdate: NonNullable<ToolExecutionContext["onUpdate"]>,
+    notification?: string,
+  ): void {
+    try {
+      onUpdate({
+        content: notification === undefined ? [] : [{ type: "text", text: notification }],
+        details: {
+          ...this.traces.snapshot(cellId),
+          status: "running",
+          notification: notification !== undefined,
+        },
+      });
+    } catch {
+      // UI failures must not affect execution, notification delivery, or other observers.
+    }
   }
 
   private async invoke(
@@ -150,23 +199,23 @@ export class CodeModeDelegateRuntime {
       input,
     );
     const invocationContext: ToolExecutionContext = {
-      ...context,
+      extensionContext: context,
       captureResult: (result) => {
         trace.result = this.traces.captureResult(cellId, trace, result);
-        this.traces.emitUpdate(cellId, context);
+        this.emitCellUpdate(cellId);
       },
       onUpdate: (update) => {
         trace.result = this.traces.captureResult(cellId, trace, update);
-        this.traces.emitUpdate(cellId, context);
+        this.emitCellUpdate(cellId);
       },
       toolCallId: trace.id,
     };
-    this.traces.emitUpdate(cellId, context);
+    this.emitCellUpdate(cellId);
     try {
       const result = await tool.invoke(input, invocationContext, controller.signal);
       trace.result ??= this.traces.captureResult(cellId, trace, toolResultFromValue(result));
       trace.status = "done";
-      this.traces.emitUpdate(cellId, context);
+      this.emitCellUpdate(cellId);
       this.respond(message.id, {
         status: "ok",
         value: { result, type: "tool/result" },
@@ -177,7 +226,7 @@ export class CodeModeDelegateRuntime {
         error instanceof Error ? error.message : String(error),
         MAX_TRACE_ERROR_CHARS,
       );
-      this.traces.emitUpdate(cellId, context);
+      this.emitCellUpdate(cellId);
       this.respond(message.id, {
         message: error instanceof Error ? error.message : String(error),
         status: "error",
@@ -208,10 +257,7 @@ export class CodeModeDelegateRuntime {
       notifications.splice(0, notifications.length - MAX_NOTIFICATIONS_PER_CELL);
     }
     this.notifications.set(cellId, notifications);
-    context.onUpdate?.({
-      content: [{ text, type: "text" }],
-      details: { cellId, notification: true },
-    });
+    this.emitCellUpdate(cellId, text);
     this.respond(id, {
       status: "ok",
       value: { type: "notification/delivered" },

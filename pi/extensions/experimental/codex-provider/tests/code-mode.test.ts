@@ -56,6 +56,41 @@ const createHostClientStub = () => {
 };
 
 describe("Codex code mode", () => {
+  it("keeps wait timing in UI details without changing the model-facing contract", async () => {
+    const stub = createHostClientStub();
+    vi.spyOn(stub.client, "wait").mockResolvedValue({
+      cellId: "557",
+      kind: "yielded",
+      contentItems: [],
+      elapsedMs: 23_000,
+    });
+    const runtime = new CodeModeRuntime({ createClient: async () => stub.client });
+    const wait = runtime.createTools().find((tool) => tool.name === "wait");
+    if (!wait) throw new Error("wait tool is missing");
+    expect(wait.parameters).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        cell_id: { type: "string" },
+        max_tokens: { type: "integer" },
+        terminate: { type: "boolean" },
+        yield_time_ms: { type: "integer" },
+      },
+    });
+    expect(Value.Check(wait.parameters, { cell_id: "557", elapsedMs: 23_000 })).toBe(false);
+    const result = await wait.execute(
+      "wait-1",
+      { cell_id: "557" },
+      undefined,
+      undefined,
+      TEST_EXTENSION_CONTEXT,
+    );
+    expect(result.content).toEqual([
+      { type: "text", text: 'Still running. Call wait({ cell_id: "557" })' },
+    ]);
+    expect(result.details).toMatchObject({ cellId: "557", elapsedMs: 23_000, status: "yielded" });
+    await runtime.shutdown();
+  });
+
   it("preserves nested wire identity", () => {
     const nested = toNestedTool({
       definition: {

@@ -364,6 +364,7 @@ const toCodeModeToolResult = (response: RuntimeResponse, maxTokens?: number) => 
     details: {
       cellId: response.cellId,
       codeMode: true,
+      elapsedMs: response.elapsedMs,
       status: response.kind,
       traces: response.traces,
       droppedTraceCount:

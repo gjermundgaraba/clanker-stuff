@@ -385,14 +385,88 @@ describe("Code Mode display", () => {
       "Wait [invalid arg]",
     );
     expect(
-      rows(wait.renderCall({ cell_id: "cell\u001b[2J-1", terminate: true }, theme, context())).join(
-        "\n",
-      ),
-    ).toBe("Terminate cell-1");
+      rows(
+        wait.renderCall({ cell_id: "cell\u001b[2J-1", terminate: true }, theme, context(true)),
+      ).join("\n"),
+    ).toBe("Terminate #cell-1");
     // The header is one screen row, so an embedded newline would break Pi's row accounting.
-    expect(rows(wait.renderCall({ cell_id: "first\nsecond" }, theme, context()))).toEqual([
-      "Wait first second",
+    expect(rows(wait.renderCall({ cell_id: "first\nsecond" }, theme, context(true)))).toEqual([
+      "Wait #first second",
     ]);
+  });
+
+  it("keeps cell identity terminal-safe and single-line in both views", () => {
+    const tool = codeModeTool("wait");
+    for (const expanded of [false, true]) {
+      for (const terminate of [false, true]) {
+        const component = tool.renderCall(
+          {
+            cell_id: "557\u001b[2J\nsecond",
+            terminate,
+          },
+          theme,
+          context(expanded),
+        );
+        expect(rows(component, 80)).toEqual([`${terminate ? "Terminate" : "Wait"} #557 second`]);
+        for (const width of [16, 30, 80]) {
+          expect(rows(component, width)).toHaveLength(1);
+          expect(component.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+          expect(component.render(width).join("\n")).not.toContain("\u001b[2J");
+        }
+      }
+    }
+  });
+
+  it.each([
+    ["exec", "running", "1 failed · running"],
+    ["exec", "yielded", "1 failed · running"],
+    ["exec", "result", "1 failed · running"],
+    ["exec", "terminated", "■ terminated"],
+    ["exec", undefined, "1 failed · running"],
+    ["wait", "running", "● Waiting for output · 1 running · 1 failed"],
+    ["wait", "yielded", "◌ Script still running · 1 running · 1 failed"],
+    ["wait", "result", "✗ Finished with tool errors · 1 running · 1 failed"],
+    ["wait", "terminated", "■ terminated · 1 running · 1 failed"],
+    ["wait", undefined, "✗ Tool errors · 1 running · 1 failed"],
+  ])("selects one status for %s / %s with mixed outcomes", (kind, status, expected) => {
+    const tool = codeModeTool(kind);
+    const data = result([
+      processTrace("failed", "false", "failed", 1),
+      { id: "running", name: "exec_command", input: { cmd: "sleep 10" }, status: "running" },
+    ]);
+    const render = (scriptError?: string) =>
+      rows(
+        tool.renderResult(
+          {
+            ...data,
+            details: { ...data.details, status, scriptError },
+          },
+          { expanded: false, isPartial: status === "running" },
+          theme,
+          context(),
+        ),
+        120,
+      );
+    expect(render()[kind === "wait" ? 1 : 0]).toContain(expected);
+    // Script errors outrank even termination and independently failed nested tools.
+    expect(render("boom")[kind === "wait" ? 1 : 0]).toContain("✗ error");
+    expect(render("boom")[kind === "wait" ? 1 : 0]).not.toContain("terminated");
+  });
+
+  it("distinguishes a pending termination from an ordinary wait", () => {
+    const tool = codeModeTool("wait");
+    const output = rows(
+      tool.renderResult(
+        result([], [], "running"),
+        {
+          expanded: false,
+          isPartial: true,
+        },
+        theme,
+        { ...context(), args: { cell_id: "557", terminate: true } },
+      ),
+    );
+    expect(output).toEqual(["Terminate #557", "● Stopping script"]);
   });
 
   it("lets an observed exit outrank a concurrent poll that still saw the process running", () => {
@@ -439,7 +513,7 @@ describe("Code Mode display", () => {
     const args = { cell_id: "cell-9", terminate: true };
     const ctx = { ...context(), args };
     const call = tool.renderCall(args, theme, ctx);
-    expect(rows(call)).toEqual(["Terminate cell-9"]);
+    expect(rows(call)).toEqual(["Terminate #cell-9"]);
     const output = tool.renderResult(
       result([processTrace("a", "echo hello", "hello")], [], "terminated"),
       { expanded: false, isPartial: false },
@@ -447,7 +521,109 @@ describe("Code Mode display", () => {
       ctx,
     );
     expect(rows(call)).toEqual([]);
-    expect(rows(output)[0]).toBe("Terminate · 1 command · ■ terminated");
-    expect(rows(tool.renderCall({ cell_id: "cell-9" }, theme, context()))).toEqual(["Wait cell-9"]);
+    expect(rows(output).slice(0, 2)).toEqual(["Terminate #cell-9", "■ terminated · 1 finished"]);
+    expect(rows(tool.renderCall({ cell_id: "cell-9" }, theme, context()))).toEqual([
+      "Wait #cell-9",
+    ]);
+  });
+
+  it("shows wait activity and frozen elapsed time through Pi's real shell", () => {
+    vi.useFakeTimers();
+    try {
+      const { definition } = codeModeTool("wait");
+      const row = new ToolExecutionComponent(
+        "wait",
+        "wait-1",
+        { cell_id: "557" },
+        { showImages: false },
+        definition,
+        createMockTui(),
+        "/tmp/demo",
+      );
+      const data = result(
+        [
+          processTrace("done", "echo ready", "ready"),
+          { id: "active", name: "exec_command", input: { cmd: "vp test" }, status: "running" },
+        ],
+        [],
+        "running",
+      );
+      row.updateResult(
+        { ...data, details: { ...data.details, elapsedMs: 23_400 }, isError: false },
+        true,
+      );
+      const text = stripAnsi(row.render(120).join("\n"));
+      expect(text).toContain("Wait #557 · 23s elapsed");
+      expect(text).toContain("Waiting for output · 1 finished · 1 running");
+      expect(text).toContain("$ vp test");
+      expect(text).toContain("#557");
+      for (const width of [30, 40, 80, 120]) {
+        expect(row.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+      }
+      row.setExpanded(true);
+      expect(stripAnsi(row.render(120).join("\n"))).toContain("#557");
+      row.setExpanded(false);
+      vi.advanceTimersByTime(60_000);
+      row.invalidate();
+      expect(stripAnsi(row.render(120).join("\n"))).toBe(text);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("explains empty waits without guessing activity or output in historical records", () => {
+    const tool = codeModeTool("wait");
+    const render = (data: Parameters<typeof tool.renderResult>[0]) =>
+      rows(
+        tool.renderResult(data, { expanded: false, isPartial: false }, theme, {
+          ...context(),
+          args: { cell_id: "557" },
+        }),
+        120,
+      ).join("\n");
+    const empty = result([], [], "yielded");
+    expect(render({ ...empty, details: { ...empty.details, elapsedMs: 23_000 } })).toBe(
+      "Wait #557 · 23s elapsed\n◌ Script still running · no new output this wait",
+    );
+    expect(render(empty)).toBe("Wait #557\n◌ Script still running · no new output this wait");
+    expect(render(result([], ["new output"], "yielded"))).not.toContain("no new output");
+    expect(render({ ...empty, details: { ...empty.details, droppedTraceCount: 1 } })).not.toContain(
+      "no new output",
+    );
+    expect(render({ content: [], details: { status: "yielded" } })).not.toContain("no new output");
+    expect(render(result([], [], "result"))).toBe("Wait #557\n✓ completed");
+    expect(render(result([], [], "terminated"))).toBe("Wait #557\n■ terminated");
+    expect(render({ ...empty, details: { ...empty.details, scriptError: "boom" } })).toContain(
+      "✗ error\nboom",
+    );
+    for (const elapsedMs of [NaN, Infinity, -1]) {
+      expect(render({ ...empty, details: { ...empty.details, elapsedMs } })).not.toContain(
+        "elapsed",
+      );
+    }
+  });
+
+  it("preserves notifications alongside wait timing and traces", () => {
+    const tool = codeModeTool("wait");
+    const output = rows(
+      tool.renderResult(
+        {
+          content: [{ type: "text", text: "Checking results" }],
+          details: {
+            status: "running",
+            notification: true,
+            elapsedMs: 3000,
+            traces: [processTrace("a", "echo ready", "ready")],
+          },
+        },
+        { expanded: false, isPartial: true },
+        theme,
+        context(),
+      ),
+    ).join("\n");
+    expect(output).toContain("Wait · 3s elapsed");
+    expect(output).toContain("Checking results");
+    expect(output).toContain("echo ready");
   });
 });

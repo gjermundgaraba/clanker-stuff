@@ -65,6 +65,8 @@ export type RuntimeResponse = (
       errorText?: string;
     }
 ) & {
+  /** UI-only elapsed-time snapshot; never part of the host protocol or model output. */
+  elapsedMs?: number;
   droppedTraceCount?: number;
   maxOutputTokens?: number;
   traces?: RuntimeToolTrace[];
