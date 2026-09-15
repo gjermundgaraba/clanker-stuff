@@ -1,33 +1,18 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 import { StatementSync } from "node:sqlite";
 
-import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
-import { createReverseSearch } from "../controller.js";
-import { loadHistory, openHistoryDatabase } from "../history.js";
-import { nonPromptEntries, userEntry } from "./fixtures.js";
+import extension from "../index.js";
+import { loadHistory, openHistoryDatabase, saveHistoryBatch } from "../storage.js";
+import { createEditor, createWidgetHarness, nonPromptEntries, userEntry } from "./fixtures.js";
 
 const shutdowns: (() => Promise<void>)[] = [];
-
-const extension = (pi: ExtensionAPI) => {
-  const search = createReverseSearch();
-
-  pi.registerShortcut("ctrl+r", {
-    handler: (ctx) => search.open(ctx),
-  });
-  pi.registerCommand("reverse-i-search-import", {
-    handler: (_args, ctx) => search.importHistory(ctx),
-  });
-  pi.on("session_start", (_event, ctx) => search.start(ctx));
-  pi.on("input", (event, ctx) => search.recordInput(event, ctx));
-  pi.on("user_bash", (event, ctx) => search.recordBash(event, ctx));
-  pi.on("session_shutdown", (_event, ctx) => search.dispose(ctx));
-};
 
 const persistentSessionFile = (id: string, text: string, timestamp: number) =>
   [
@@ -52,18 +37,20 @@ const createHarness = async (
   const ctx = host.createContext();
   Object.assign(ctx.sessionManager, {
     getSessionDir: () => sessionDirectory,
+    getHeader: () => undefined,
   });
   await host.emitSessionStart(ctx);
   shutdowns.push(() => host.emitSessionShutdown(ctx));
-  return { ctx, host };
+  const widgets = createWidgetHarness(host, ctx);
+  return { ctx, host: { ...host, terminalInput: widgets.terminalInput } };
 };
 
-describe("reverse-search controller", () => {
+describe("history runtime", () => {
   let agentDir = "";
   let restoreAgentDir: (() => void) | undefined;
 
   beforeEach(async () => {
-    agentDir = await createTempDir("reverse-i-search-");
+    agentDir = await createTempDir("history-");
     restoreAgentDir = patchEnv({ PI_CODING_AGENT_DIR: agentDir });
   });
 
@@ -74,11 +61,67 @@ describe("reverse-search controller", () => {
     await rm(agentDir, { force: true, recursive: true });
   });
 
+  it("registers only the renamed command and eagerly seeds native history", async () => {
+    const first = await createHarness();
+    await first.host.emitInput(
+      { source: "interactive", text: "from yesterday", type: "input" },
+      first.ctx,
+    );
+    await first.host.emitSessionShutdown(first.ctx);
+    const { host, ctx } = await createHarness();
+    expect([...host.getRegisteredCommands().keys()]).toEqual(["history-import"]);
+    const editor = createEditor(host);
+    editor.handleInput("\u001B[A");
+    expect(editor.getText()).toBe("from yesterday");
+    expect(ctx.ui.getEditorText()).toBe("");
+  });
+
+  it("restores the active search draft during shutdown without a global input interceptor", async () => {
+    const { ctx, host } = await createHarness();
+    await host.emitInput({ source: "interactive", text: "saved prompt", type: "input" }, ctx);
+    ctx.ui.setEditorText("unsent draft");
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("saved");
+    expect(ctx.ui.getEditorText()).toBe("saved prompt");
+    expect(ctx.ui.onTerminalInput).not.toHaveBeenCalled();
+    await host.emitSessionShutdown(ctx);
+    expect(ctx.ui.getEditorText()).toBe("unsent draft");
+  });
+
+  it.each(["print", "json", "rpc"] as const)("does nothing in %s mode", async (mode) => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext({ mode });
+    await host.emitSessionStart(ctx);
+    await host.emitInput({ source: "interactive", text: "automated", type: "input" }, ctx);
+    await host.emit(
+      "user_bash",
+      { type: "user_bash", command: "echo automated", cwd: ctx.cwd, excludeFromContext: false },
+      ctx,
+    );
+    await host.runShortcut("ctrl+r", ctx);
+    await host.runCommand("history-import", "", ctx);
+    await host.emitSessionShutdown(ctx);
+    expect(host.getEditorFactory()).toBeUndefined();
+    expect(ctx.ui.onTerminalInput).not.toHaveBeenCalled();
+    expect(host.getNotifications()).toEqual([]);
+    await expect(access(path.join(agentDir, "data"))).rejects.toThrow();
+  });
+
+  it("does not create storage for an ephemeral session", async () => {
+    const { ctx, host } = await createHarness([], "");
+    await host.emitInput({ source: "interactive", text: "private draft", type: "input" }, ctx);
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("private");
+    expect(ctx.ui.getEditorText()).toBe("private draft");
+    await expect(access(path.join(agentDir, "data"))).rejects.toThrow();
+  });
+
   it("adds interactive prompts and bash commands but ignores extension input", async () => {
     const { ctx, host } = await createHarness();
 
     await host.emitInput({ source: "interactive", text: "new local prompt", type: "input" }, ctx);
     await host.emitInput({ source: "extension", text: "extension prompt", type: "input" }, ctx);
+    await host.emitInput({ source: "rpc", text: "rpc prompt", type: "input" }, ctx);
     await host.emit(
       "user_bash",
       {
@@ -175,6 +218,117 @@ describe("reverse-search controller", () => {
     expect(second.ctx.ui.getEditorText()).toBe("external before local");
   });
 
+  it("preserves database recency and tie order across refreshes without pending writes", async () => {
+    const { ctx, host } = await createHarness();
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("\u001B");
+    const writer = openHistoryDatabase();
+    try {
+      saveHistoryBatch(writer, [
+        { text: "alpha older", timestamp: 100 },
+        { text: "alpha first tie", timestamp: 200 },
+        { text: "alpha second tie", timestamp: 200 },
+        { text: "alpha older", timestamp: 50 },
+      ]);
+    } finally {
+      writer.close();
+    }
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("alpha");
+    expect(ctx.ui.getEditorText()).toBe("alpha second tie");
+    host.terminalInput("\u0012");
+    expect(ctx.ui.getEditorText()).toBe("alpha first tie");
+    host.terminalInput("\u0012");
+    expect(ctx.ui.getEditorText()).toBe("alpha older");
+    host.terminalInput("\u0012");
+    expect(ctx.ui.getEditorText()).toBe("alpha older");
+  });
+
+  it.each(["external refresh", "import", "failed import"])(
+    "preserves failed writes across %s",
+    async (operation) => {
+      const { ctx, host } = await createHarness();
+      // Exercise replacement of an already-loaded snapshot as well as lazy loading.
+      await host.runShortcut("ctrl+r", ctx);
+      host.terminalInput("\u001B");
+      const writer = openHistoryDatabase();
+      writer.exec(`CREATE TRIGGER reject_unsaved BEFORE INSERT ON history
+        WHEN NEW.text = 'unsaved prompt'
+        BEGIN SELECT RAISE(FAIL, 'write unavailable'); END;`);
+      await host.emitInput({ source: "interactive", text: "unsaved prompt", type: "input" }, ctx);
+      if (operation === "external refresh") {
+        saveHistoryBatch(writer, [{ text: "external prompt", timestamp: 100 }]);
+      } else {
+        const directory = path.join(agentDir, "sessions", "imported");
+        await mkdir(directory, { recursive: true });
+        await writeFile(
+          path.join(directory, "session.jsonl"),
+          persistentSessionFile(
+            "import",
+            operation === "failed import" ? "unsaved prompt" : "imported prompt",
+            100,
+          ),
+        );
+        await host.runCommand("history-import", "", ctx);
+      }
+      writer.close();
+      await host.runShortcut("ctrl+r", ctx);
+      host.terminalInput("unsaved");
+      expect(ctx.ui.getEditorText()).toBe("unsaved prompt");
+      expect(host.getNotifications().filter(({ type }) => type === "warning")).toHaveLength(1);
+    },
+  );
+
+  it("clears pending memory when the same prompt is successfully saved", async () => {
+    const { ctx, host } = await createHarness();
+    const writer = openHistoryDatabase();
+    writer.exec(`CREATE TRIGGER reject_write BEFORE INSERT ON history
+      BEGIN SELECT RAISE(FAIL, 'write unavailable'); END;`);
+    await host.emitInput({ source: "interactive", text: "recovered prompt", type: "input" }, ctx);
+    writer.exec("DROP TRIGGER reject_write");
+    await host.emitInput({ source: "interactive", text: "recovered prompt", type: "input" }, ctx);
+    expect(loadHistory(writer).map(({ text }) => text)).toEqual(["recovered prompt"]);
+    // A later authoritative deletion must not resurrect a now-saved pending entry.
+    writer.exec("DELETE FROM history");
+    writer.close();
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("recovered");
+    expect(ctx.ui.getEditorText()).toBe("");
+  });
+
+  it.each([false, true])("defers full loading with a populated session: %s", async (populated) => {
+    const writer = openHistoryDatabase();
+    saveHistoryBatch(
+      writer,
+      Array.from({ length: 105 }, (_, index) => ({
+        text: `saved prompt ${index}`,
+        timestamp: index,
+      })),
+    );
+    writer.close();
+    const all = vi.spyOn(StatementSync.prototype, "all");
+    const { host, ctx } = await createHarness(
+      populated ? [userEntry("current", null, "session prompt", 200)] : [],
+    );
+    expect(all.mock.calls).toEqual(populated ? [] : [[100]]);
+    if (!populated) {
+      const editor = createEditor(host);
+      for (let index = 0; index < 105; index++) {
+        editor.handleInput("\u001B[A");
+        editor.render(80);
+      }
+      expect(editor.getText()).toBe("saved prompt 5");
+    }
+    await host.runShortcut("ctrl+r", ctx);
+    host.terminalInput("saved prompt 0");
+    expect(ctx.ui.getEditorText()).toBe("saved prompt 0");
+    expect(all.mock.calls.at(-1)).toEqual([-1]);
+    const loads = all.mock.calls.length;
+    host.terminalInput("\u001B");
+    await host.runShortcut("ctrl+r", ctx);
+    expect(all).toHaveBeenCalledTimes(loads);
+  });
+
   it("imports only prompts and bash commands while skipping malformed lines", async () => {
     const sessionDirectory = path.join(agentDir, "sessions", "project");
     const sessionPath = path.join(sessionDirectory, "legacy.jsonl");
@@ -207,7 +361,7 @@ describe("reverse-search controller", () => {
     await writeFile(sessionPath, original, "utf-8");
 
     const { ctx, host } = await createHarness();
-    await host.runCommand("reverse-i-search-import", "", ctx);
+    await host.runCommand("history-import", "", ctx);
 
     await host.runShortcut("ctrl+r", ctx);
     host.terminalInput("legacy");
@@ -221,7 +375,7 @@ describe("reverse-search controller", () => {
     host.terminalInput("non-prompt");
     expect(ctx.ui.getEditorText()).toBe("");
 
-    await host.runCommand("reverse-i-search-import", "", ctx);
+    await host.runCommand("history-import", "", ctx);
     expect(
       host.getNotifications().filter(({ message }) => message.startsWith("Imported 2 history")),
     ).toHaveLength(2);
@@ -255,11 +409,11 @@ describe("reverse-search controller", () => {
     );
 
     const first = await createHarness([], firstDirectory);
-    await first.host.runCommand("reverse-i-search-import", "", first.ctx);
+    await first.host.runCommand("history-import", "", first.ctx);
     await first.host.emitSessionShutdown(first.ctx);
 
     const second = await createHarness([], secondDirectory);
-    await second.host.runCommand("reverse-i-search-import", "", second.ctx);
+    await second.host.runCommand("history-import", "", second.ctx);
     await second.host.runShortcut("ctrl+r", second.ctx);
     second.host.terminalInput("directory a");
     expect(second.ctx.ui.getEditorText()).toBe("prompt from directory a");
@@ -297,7 +451,7 @@ describe("reverse-search controller", () => {
     `);
     blocker.close();
 
-    await host.runCommand("reverse-i-search-import", "", ctx);
+    await host.runCommand("history-import", "", ctx);
     expect(host.getNotifications()).toContainEqual({
       message: expect.stringContaining("Session history import failed: blocked import write"),
       type: "error",
@@ -306,8 +460,8 @@ describe("reverse-search controller", () => {
 
   it("reconciles files committed before a later import failure", async () => {
     const sessionDirectory = path.join(agentDir, "sessions", "project");
-    const committedPath = path.join(sessionDirectory, "committed.jsonl");
-    const blockedPath = path.join(sessionDirectory, "blocked.jsonl");
+    const committedPath = path.join(sessionDirectory, "a-committed.jsonl");
+    const blockedPath = path.join(sessionDirectory, "z-blocked.jsonl");
     await mkdir(sessionDirectory, { recursive: true });
     await Promise.all([
       writeFile(
@@ -336,7 +490,7 @@ describe("reverse-search controller", () => {
     `);
     blocker.close();
 
-    await host.runCommand("reverse-i-search-import", "", ctx);
+    await host.runCommand("history-import", "", ctx);
     expect(host.getNotifications()).toContainEqual({
       message: expect.stringContaining("Session history import failed: blocked later import write"),
       type: "error",
@@ -352,9 +506,12 @@ describe("reverse-search controller", () => {
     const writer = openHistoryDatabase();
     let injectedWrite = false;
     let allSpy = vi.spyOn(StatementSync.prototype, "all");
-    const allWithConcurrentWrite = function allWithConcurrentWrite(this: StatementSync) {
+    const allWithConcurrentWrite = function allWithConcurrentWrite(
+      this: StatementSync,
+      ...args: Parameters<StatementSync["all"]>
+    ) {
       allSpy.mockRestore();
-      const rows = this.all();
+      const rows = this.all(...args);
       if (!injectedWrite && this.sourceSQL.includes("SELECT text, last_used_at")) {
         injectedWrite = true;
         writer
@@ -366,7 +523,7 @@ describe("reverse-search controller", () => {
     };
     allSpy.mockImplementation(allWithConcurrentWrite);
 
-    await host.runCommand("reverse-i-search-import", "", ctx);
+    await host.runCommand("history-import", "", ctx);
     allSpy.mockRestore();
     writer.close();
 

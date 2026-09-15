@@ -1,12 +1,12 @@
 {
-  "name": "@clanker-stuff/reverse-i-search",
+  "name": "@clanker-stuff/history",
   "version": "0.1.0",
   "private": false,
-  "description": "Adds Codex-style Ctrl+R reverse history search to pi's prompt editor.",
+  "description": "Adds persistent prompt history with native ↑/↓ recall and Ctrl+R search to pi's editor.",
   "keywords": [
     "pi-package"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/reverse-i-search#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/history#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
   },
@@ -14,14 +14,17 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-    "directory": "pi/extensions/reverse-i-search"
+    "directory": "pi/extensions/history"
   },
   "files": [
-    "controller.ts",
     "index.ts",
     "runtime.ts",
     "history.ts",
+    "storage.ts",
+    "import.ts",
+    "editor.ts",
     "search.ts",
+    "docs",
     "README.md",
     "LICENSE"
   ],
@@ -31,7 +34,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^"
   },
   "devDependencies": {

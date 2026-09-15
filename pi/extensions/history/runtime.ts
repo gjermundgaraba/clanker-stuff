@@ -1,28 +1,32 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import type { ExtensionContext, InputEvent, UserBashEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  InputEvent,
+  UserBashEvent,
+  SessionStartEvent,
+} from "@earendil-works/pi-coding-agent";
 
-import type { HistoryItem } from "./history.js";
+import { installHistoryEditor } from "./editor.js";
+import { historyFromEntries, normalizeHistory, type HistoryItem } from "./history.js";
+import { importPersistentHistory } from "./import.js";
 import {
   getDataVersion,
-  historyFromEntries,
-  importPersistentHistory,
   loadHistory,
-  normalizeHistory,
   openHistoryDatabase,
   saveHistoryBatch,
   saveHistoryItem,
-} from "./history.js";
+} from "./storage.js";
 import { createSearch, WIDGET_KEY } from "./search.js";
 
-export const createReverseSearch = () => {
+export const createHistoryRuntime = () => {
   let database: DatabaseSync | undefined;
   let databaseVersion: number | undefined;
   let history: HistoryItem[] = [];
+  const unsaved = new Map<string, HistoryItem>();
   let importAbort: AbortController | undefined;
   let importPromise: Promise<number> | undefined;
   let persistenceWarningShown = false;
-  let unsubscribeInput: (() => void) | undefined;
 
   const search = createSearch(() => history);
 
@@ -38,7 +42,12 @@ export const createReverseSearch = () => {
   const replaceHistoryFromDatabase = (activeDatabase: DatabaseSync) => {
     const nextVersion = getDataVersion(activeDatabase);
     const nextHistory = loadHistory(activeDatabase);
-    history = nextHistory;
+    for (const item of nextHistory) {
+      const pending = unsaved.get(item.text);
+      if (pending && item.timestamp >= pending.timestamp) unsaved.delete(item.text);
+    }
+    history =
+      unsaved.size > 0 ? normalizeHistory([...nextHistory, ...unsaved.values()]) : nextHistory;
     databaseVersion = nextVersion;
   };
 
@@ -71,7 +80,11 @@ export const createReverseSearch = () => {
     if (database) {
       try {
         saveHistoryItem(database, item);
+        const pending = unsaved.get(item.text);
+        if (pending && item.timestamp >= pending.timestamp) unsaved.delete(item.text);
       } catch (error) {
+        const pending = unsaved.get(item.text);
+        if (!pending || item.timestamp >= pending.timestamp) unsaved.set(item.text, item);
         warnPersistence(ui, error);
       }
     }
@@ -81,13 +94,14 @@ export const createReverseSearch = () => {
     if (ctx.mode !== "tui") {
       return;
     }
-    if (!search.isOpen()) {
+    if (!search.isActive()) {
       refreshHistory(ctx.ui);
     }
     search.begin(ctx.ui);
   };
 
   const importHistory = async (ctx: ExtensionContext) => {
+    if (ctx.mode !== "tui") return;
     const activeDatabase = database;
     if (!activeDatabase) {
       ctx.ui.notify("Prompt history persistence is unavailable", "warning");
@@ -134,43 +148,54 @@ export const createReverseSearch = () => {
     }
   };
 
-  const start = (ctx: ExtensionContext) => {
+  const start = (event: SessionStartEvent, ctx: ExtensionContext) => {
     if (ctx.mode !== "tui") {
       return;
     }
 
-    unsubscribeInput = ctx.ui.onTerminalInput(search.handleInput);
     history = normalizeHistory(historyFromEntries(ctx.sessionManager.getBranch()));
 
-    if (ctx.sessionManager.getSessionDir() === "") {
-      return;
-    }
-
-    try {
-      database = openHistoryDatabase();
-      saveHistoryBatch(database, history);
-    } catch (error) {
+    if (ctx.sessionManager.getSessionDir() !== "") {
       try {
-        database?.close();
-      } catch {
-        // Keep current-session history usable even when SQLite cleanup fails.
+        database = openHistoryDatabase();
+        saveHistoryBatch(database, history);
+      } catch (error) {
+        try {
+          database?.close();
+        } catch {
+          // Keep current-session history usable even when SQLite cleanup fails.
+        }
+        database = undefined;
+        warnPersistence(ctx.ui, error);
       }
-      database = undefined;
-      warnPersistence(ctx.ui, error);
     }
+    installHistoryEditor(event, ctx, () => {
+      if (database) {
+        try {
+          // This is only a native-recall seed, not a complete search snapshot.
+          // Leave databaseVersion unset so the first Ctrl+R loads all history.
+          history = loadHistory(database, 100);
+        } catch (error) {
+          warnPersistence(ctx.ui, error);
+        }
+      }
+      return history;
+    });
   };
 
   const recordInput = (event: InputEvent, ctx: ExtensionContext) => {
-    if (event.source === "interactive") {
+    if (ctx.mode === "tui" && event.source === "interactive") {
       addHistory(event.text, ctx.ui);
     }
   };
 
   const recordBash = (event: UserBashEvent, ctx: ExtensionContext) => {
+    if (ctx.mode !== "tui") return;
     addHistory(`${event.excludeFromContext ? "!!" : "!"}${event.command}`, ctx.ui);
   };
 
   const dispose = async (ctx: ExtensionContext) => {
+    if (ctx.mode !== "tui") return;
     importAbort?.abort();
     try {
       await importPromise;
@@ -178,13 +203,14 @@ export const createReverseSearch = () => {
       // The import command handles errors; shutdown only waits for cleanup.
     }
 
-    unsubscribeInput?.();
-    unsubscribeInput = undefined;
-    ctx.ui.setWidget(WIDGET_KEY, undefined);
     ctx.ui.setStatus(WIDGET_KEY, undefined);
     search.reset();
     database?.close();
     database = undefined;
+    databaseVersion = undefined;
+    history = [];
+    unsaved.clear();
+    persistenceWarningShown = false;
   };
 
   return {
