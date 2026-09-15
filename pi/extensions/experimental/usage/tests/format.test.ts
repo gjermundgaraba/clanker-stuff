@@ -73,31 +73,12 @@ describe("detail formatting", () => {
   });
 });
 
-describe("additional quota presentation", () => {
-  it("identifies same-period limits and does not infer ordinary eligibility from credits", () => {
+describe("ordinary usage eligibility", () => {
+  it("does not infer ordinary eligibility from credits", () => {
     const snapshot = codexSnapshot();
     snapshot.ordinaryUsageAllowed = false;
-    snapshot.additionalLimits = [
-      {
-        id: "a",
-        label: "Extra",
-        model: "model-a",
-        allowed: true,
-        windows: [{ id: "5h", label: "5h", remainingPercent: 30 }],
-      },
-      {
-        id: "b",
-        label: "Extra",
-        model: "model-b",
-        allowed: false,
-        windows: [{ id: "5h", label: "5h", remainingPercent: 40 }],
-      },
-    ];
     const text = formatDetail(snapshot, now);
     expect(text).toContain("ordinary usage  unavailable");
-    expect(text).toContain("Extra [a] (model-a) 5h  30% left");
-    expect(text).toContain("Extra [b] (model-b) 5h  40% left");
-    expect(text).toContain("Extra [b] (model-b)  unavailable");
     expect(text).toContain("credits  12.5");
   });
 });

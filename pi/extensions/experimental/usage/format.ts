@@ -1,4 +1,4 @@
-import { providerDisplayName, usageWindows } from "./providers.js";
+import { providerDisplayName } from "./providers.js";
 import type { SupportedProvider, UsageSnapshot, UsageWindow, UsageWindowId } from "./providers.js";
 
 const WINDOW_ORDER = {
@@ -79,14 +79,7 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
   if (snapshot.ordinaryUsageAllowed !== undefined) {
     lines.push(`ordinary usage  ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`);
   }
-  for (const limit of snapshot.additionalLimits ?? []) {
-    if (limit.allowed !== undefined || limit.windows.length === 0) {
-      lines.push(
-        `${sanitizeUsageText(limit.label)} [${sanitizeUsageText(limit.id)}]${limit.model === undefined ? "" : ` (${sanitizeUsageText(limit.model)})`}  ${limit.allowed === undefined ? "eligibility unknown" : limit.allowed ? "allowed" : "unavailable"}`,
-      );
-    }
-  }
-  for (const window of orderWindows(usageWindows(snapshot))) {
+  for (const window of orderWindows(snapshot.windows)) {
     const reset =
       window.resetsAt === undefined || window.resetsAt.length === 0
         ? "resets unknown"

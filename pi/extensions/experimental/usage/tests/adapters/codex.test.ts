@@ -1,4 +1,4 @@
-import { okFetch } from "./helpers.js";
+import { okFetch, tokenAuthClient } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { fetchCodexUsage, mapCodexUsagePayload } from "../../adapters/codex.js";
@@ -233,84 +233,84 @@ describe("codex fetch", () => {
   });
 });
 
-describe("Codex additional limits", () => {
-  it("keeps quota identity and model separate from coincident reset periods", () => {
-    const result = mapCodexUsagePayload(
-      {
-        rate_limit: { allowed: false, primary_window: { used_percent: 100 } },
-        additional_rate_limits: [
-          {
-            limit_name: "Extra",
-            metered_feature: "feature-a",
-            normal_model_slug: "model-a",
-            rate_limit: { allowed: true, primary_window: { used_percent: 30 } },
-          },
-          {
-            limit_name: "Extra",
-            metered_feature: "feature-b",
-            normal_model_slug: "model-b",
-            rate_limit: { allowed: false, primary_window: { used_percent: 70 } },
-          },
-        ],
-      },
-      1000,
-    );
-    expect(result).toMatchObject({
+describe("Codex ordinary limits", () => {
+  it("preserves eligibility-only responses and nullable fields", () => {
+    expect(mapCodexUsagePayload({ rate_limit: { allowed: false } }, 1000)).toStrictEqual({
       ok: true,
       snapshot: {
+        fetchedAt: 1000,
+        provider: "openai-codex",
         ordinaryUsageAllowed: false,
-        windows: [{ id: "5h", remainingPercent: 0 }],
-        additionalLimits: [
-          {
-            id: "feature-a",
-            label: "Extra",
-            model: "model-a",
-            allowed: true,
-            windows: [{ id: "5h", remainingPercent: 70 }],
-          },
-          {
-            id: "feature-b",
-            label: "Extra",
-            model: "model-b",
-            allowed: false,
-            windows: [{ id: "5h", remainingPercent: 30 }],
-          },
-        ],
+        windows: [],
       },
     });
+    expect(mapCodexUsagePayload({ credits: null, rate_limit: null }, 1000).ok).toBe(false);
   });
 
-  it("preserves eligibility-only responses, absent eligibility, and nullable quota fields", () => {
-    expect(mapCodexUsagePayload({ rate_limit: { allowed: false } }, 1000)).toMatchObject({
-      ok: true,
-      snapshot: { ordinaryUsageAllowed: false, windows: [] },
-    });
-    const result = mapCodexUsagePayload(
-      {
-        credits: null,
-        rate_limit: null,
-        additional_rate_limits: [
-          {
-            limit_name: "Extra",
-            metered_feature: "extra",
-            normal_model_slug: null,
-            rate_limit: null,
+  it.each(
+    [
+      [
+        {
+          limit_name: "GPT-5.3-Codex-Spark",
+          metered_feature: "codex_bengalfox",
+          normal_model_slug: "gpt-5.3-codex-spark",
+          rate_limit: {
+            allowed: true,
+            primary_window: { used_percent: 0, reset_after_seconds: 18_000 },
+            secondary_window: { used_percent: 0, reset_after_seconds: 604_800 },
           },
-        ],
-      },
-      1000,
-    );
+        },
+      ],
+      null,
+      { unexpected: "ignored rather than validated" },
+    ].map((additionalRateLimits) => ({ additionalRateLimits })),
+  )("ignores additional model quotas from the API: %j", async ({ additionalRateLimits }) => {
+    const result = await fetchCodexUsage({
+      authClient: tokenAuthClient(makeJwt("acct_abc")),
+      fetchJson: okFetch({
+        additional_rate_limits: additionalRateLimits,
+        rate_limit: {
+          allowed: false,
+          primary_window: { used_percent: 100 },
+          secondary_window: { used_percent: 50 },
+        },
+        credits: { balance: 12.5, has_credits: true },
+      }),
+      now: () => 1000,
+    });
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
         fetchedAt: 1000,
         provider: "openai-codex",
-        windows: [],
-        additionalLimits: [{ id: "extra", label: "Extra", windows: [] }],
+        ordinaryUsageAllowed: false,
+        creditsRemaining: 12.5,
+        windows: [
+          { id: "5h", label: "5h", remainingPercent: 0 },
+          { id: "7d", label: "7d", remainingPercent: 50 },
+        ],
       },
     });
-    expect(mapCodexUsagePayload({ additional_rate_limits: null, rate_limit: null }, 1000).ok).toBe(
-      false,
-    );
+  });
+
+  it("does not treat model-specific quotas alone as supported usage", async () => {
+    const result = await fetchCodexUsage({
+      authClient: tokenAuthClient(makeJwt("acct_abc")),
+      fetchJson: okFetch({
+        rate_limit: null,
+        additional_rate_limits: [
+          {
+            limit_name: "Spark",
+            metered_feature: "codex_bengalfox",
+            rate_limit: { allowed: true, primary_window: { used_percent: 0 } },
+          },
+        ],
+      }),
+      now: () => 1000,
+    });
+    expect(result).toStrictEqual({
+      ok: false,
+      error: { kind: "failure", message: "no usage windows in response" },
+    });
   });
 });

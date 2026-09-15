@@ -73,14 +73,6 @@ describe("usage cache", () => {
       snapshot: snapshot({
         fetchedAt: 1000,
         ordinaryUsageAllowed: false,
-        additionalLimits: [
-          {
-            id: "extra",
-            label: "Extra",
-            model: "model",
-            windows: [{ id: "5h", label: "5h", remainingPercent: 90 }],
-          },
-        ],
       }),
     }));
 
@@ -95,14 +87,6 @@ describe("usage cache", () => {
     expect(last?.fetchedAt).toBe(1000);
     expect(last?.windows[0]?.remainingPercent).toBe(68);
     expect(last?.ordinaryUsageAllowed).toBe(false);
-    expect(last?.additionalLimits).toStrictEqual([
-      {
-        id: "extra",
-        label: "Extra",
-        model: "model",
-        windows: [{ id: "5h", label: "5h", remainingPercent: 90 }],
-      },
-    ]);
   });
 
   it("replaces lastSuccess on force refresh success", async () => {

@@ -1,7 +1,7 @@
 import type { FooterWidgetHealthState, FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 
 import { formatResetDuration } from "./format.js";
-import { providerDisplayName, usageWindows } from "./providers.js";
+import { providerDisplayName } from "./providers.js";
 import type { SupportedProvider, UsageSnapshot, UsageWindow } from "./providers.js";
 
 const ACTIVE_WIDGET_ID = "clanker.usage.active";
@@ -174,9 +174,7 @@ export const detailsSnapshot = (
   const active = snapshot ? selectActiveWindow(snapshot) : undefined;
   // ponytail: eight rich detail windows stay within protocol text bounds; /usage still shows all.
   const windows = snapshot
-    ? usageWindows(snapshot)
-        .filter((window) => window !== active)
-        .slice(0, 8)
+    ? snapshot.windows.filter((window) => window !== active).slice(0, 8)
     : [];
   const full = windows.map((window, index) => ({
     text: `${index === 0 ? "" : " · "}${richText(window.label, 80)} ${Math.round(usedPercent(window))}%${
