@@ -197,15 +197,15 @@ The card is only a Codex TUI history cell. It is not written to the app-server t
 
 ## Selected Pi extension design
 
-The Pi extension retains Codex's turn thresholds, prompt policy, bounded-history shape, request isolation, freshness checks, and rendering while deliberately adapting its trigger, persistence, history fitting, and terminal failure behavior:
+The Pi extension retains Codex's prompt policy, bounded-history shape, request isolation, freshness checks, and rendering while deliberately adapting its trigger, cadence, persistence, input/output budgets, and terminal failure behavior:
 
 - generation is automatic only; the extension does not register `/recap` or another manual trigger;
 - each `agent_settled` event immediately checks eligibility and starts generation when eligible;
-- the first recap requires three completed turns and later recaps require two more completed turns;
+- a recap is eligible after every completed user turn, starting with the first;
 - the result is a durable, display-only inline custom entry; and
 - generation requires an explicitly configured secondary model and never falls back to the active model.
 
-The refreshed Codex snapshot leaves these algorithmic choices aligned. The extension does not mirror `tui.auto_recap`: loading this experimental extension is already an opt-in to automatic recaps, and unlike Codex it has no manual recap command to preserve when automatic generation is disabled. Leaving the extension unloaded is the corresponding opt-out.
+These choices deliberately differ from the Codex reference in cadence as well as trigger and persistence. The extension does not mirror `tui.auto_recap`: loading this experimental extension is already an opt-in to automatic recaps, and unlike Codex it has no manual recap command to preserve when automatic generation is disabled. Leaving the extension unloaded is the corresponding opt-out.
 
 There is no focus requirement or three-minute delay. `agent_settled` guarantees that Pi has no automatic retry, compaction, or queued continuation left, but it does not mean the terminal is unfocused. This is an intentional product difference rather than an emulation of Codex's focus behavior.
 
@@ -224,10 +224,12 @@ At each `agent_settled`, the extension derives progress from the active branch r
 
 - a user turn counts as completed when its final assistant message has stop reason `stop` or `length`;
 - `error`, `aborted`, and an incomplete `toolUse` sequence do not count;
-- the first recap is eligible at three completed turns; and
-- after a recap, another is eligible when the completed-turn count is at least two greater than the count stored in the latest recap entry on the active branch.
+- the first recap is eligible after the first completed user turn; and
+- after a recap, another is eligible as soon as the completed-turn count is greater than the count stored in the latest recap entry on the active branch.
 
-Deriving the counts from the branch makes resume and fork behavior deterministic. The durable recap entry stores the completed-turn count at which it was created, so a process restart does not reset the two-turn threshold. A recap on another branch is not considered.
+Deriving the counts from the branch makes resume and fork behavior deterministic. The durable recap entry stores the completed-turn count at which it was created, so repeated settled events or a process restart do not duplicate a recap for the same completed-turn count. A recap on another branch is not considered.
+
+Queued continuations can complete several user turns before Pi settles; in that case one recap covers the newly completed turns rather than generating a separate card for each.
 
 Generation also requires valid configuration, non-empty eligible history, an idle current session, and no recap already in flight. The `agent_settled` handler starts background work and returns instead of blocking Pi's settled lifecycle on a model request.
 
@@ -236,8 +238,9 @@ The selected Pi pipeline is:
 ```text
 agent_settled
   -> derive completed-turn progress from the active branch
-  -> require 3 completed turns, then 2 since the latest recap
-  -> capture bounded user and assistant text from retained post-compaction history
+  -> require a completed user turn not yet covered by the latest recap
+  -> capture full user and assistant text from up to eight retained post-compaction user turns
+  -> suppress an unchanged unsuccessful snapshot and screen estimated input against the model window
   -> call the configured secondary model in isolation
   -> validate session, conversation, and captured prompt freshness
   -> append a durable display-only Conversation recap entry
@@ -245,15 +248,12 @@ agent_settled
 
 ### Model input and output
 
-Lifetime turn and recap accounting uses the full active branch so compaction does not reset the durable cadence. History construction instead uses `ctx.sessionManager.buildContextEntries()` to respect Pi's retained-message boundary after compaction, while deliberately omitting the compaction summary itself. It follows Codex's bounds:
+Lifetime turn and recap accounting uses the full active branch so compaction does not reset the durable cadence. History construction instead uses `ctx.sessionManager.buildContextEntries()` to respect Pi's retained-message boundary after compaction, while deliberately omitting the compaction summary itself. It retains Codex's message selection and turn window, but not its prompt byte budget:
 
 - walk that compaction-aware context newest-first;
 - keep non-empty user text and assistant text while ignoring tool results, tool calls without text, errors, notices, compaction summaries, and earlier recaps;
-- stop after the eighth most recent user message, then restore chronological order;
-- cap the complete prompt at 900 UTF-8 bytes;
-- reserve half of the available history budget for the latest user message;
-- fill the remainder newest-first, truncating the final included message and stopping once no labeled content fits; and
-- truncate only at UTF-8 character boundaries.
+- stop after the eighth most recent user message, then restore chronological order; and
+- include the full selected text without byte-based truncation.
 
 Messages use `User:` and `Assistant:` labels with a blank line between them. The extension uses Codex's fixed prompt with only the product name changed:
 
@@ -263,13 +263,15 @@ Write a brief catch-up for a user returning to this Pi task. In at most 40 words
 Recent conversation:
 ```
 
-The prompt prefix's actual UTF-8 length is subtracted from the 900-byte limit rather than assuming Codex's 366-byte history budget.
+Unlike the Codex reference, the extension does not cap prompt bytes or reserve a separate budget for the latest user message. The runtime estimates the complete prompt with Pi's exported `estimateTokens()` and skips the snapshot when the estimate reaches or exceeds a positive `model.contextWindow`. An unknown/non-positive window leaves the decision to the provider. This does not reserve the model's entire maximum output allowance or impose a separate input budget. The estimate is a character-based heuristic, not exact tokenization; overhead and output/reasoning requirements can still cause provider overflow below that estimate. Pi's `isContextOverflow()` recognizes supported provider overflow responses, including some silent-overflow cases, before recap output is accepted.
 
 Pi's provider-independent completion API does not expose JSON Schema output, so the extension requests plain text rather than Codex's `{ "recap": string }` envelope. It accepts only a completed `stop` response; `length` is valid for counting a conversation turn but is rejected for recap output because it may be truncated. The extension extracts the response text, removes terminal and bidirectional control characters, trims it, rejects an empty result, and caps it at 320 Unicode characters. The 40-word and two-sentence limits remain prompt instructions.
 
-### Isolation, freshness, and retry
+### Isolation, freshness, and snapshot-local failures
 
-The configured model is resolved with `ctx.modelRegistry.find()` and called through `ctx.modelRegistry.complete()` with a fresh session ID, no system prompt or tools, no active-conversation messages, no cache retention, and an output budget of up to 4,096 tokens capped by the model's limit. The runtime enforces a hard 30-second deadline while also passing the provider an abort signal and timeout. Direct completion already isolates the request from Pi's agent loop, so the extension does not need Codex's hidden app-server thread or sandbox configuration.
+The configured model is resolved with `ctx.modelRegistry.find()` and called through `ctx.modelRegistry.complete()` with a fresh session ID, no system prompt or tools, no active-conversation messages, no cache retention, and no explicit output-token limit (model/provider defaults apply). The runtime enforces a hard 30-second deadline while also passing the provider an abort signal and timeout. Direct completion already isolates the request from Pi's agent loop, so the extension does not need Codex's hidden app-server thread or sandbox configuration.
+
+When optional `thinking` is configured, the request instead uses the registered provider's `streamSimple().result()` with freshly resolved Pi authentication, headers, environment, and base URL. Pi's `clampThinkingLevel()` and the provider's simple adapter handle model capabilities and native thinking options without a recap-specific provider mapping. The same isolation, cancellation, and deadline apply; adapters may add a thinking budget within the model limit. Omitting `thinking` retains the native completion path and its defaults, never the active session's thinking setting.
 
 Each request captures completed-turn progress, the latest user-or-assistant entry ID as its conversation revision, and the exact compaction-aware prompt. The Pi session state and in-flight `AbortController` provide session and request identity. Before appending the result, the extension rebuilds both views and rejects the response if:
 
@@ -279,9 +281,13 @@ Each request captures completed-turn progress, the latest user-or-assistant entr
 - the conversation revision changed; or
 - compaction or another context change altered the captured prompt.
 
-Only user and assistant conversation entries contribute to the revision, so an unrelated display-only custom entry does not make a valid recap stale. `agent_start`, `session_tree`, session replacement, and shutdown abort any in-flight request and retry timer.
+Only user and assistant conversation entries contribute to the revision, so an unrelated display-only custom entry does not make a valid recap stale. `agent_start`, `session_tree`, session replacement, and shutdown abort any in-flight request. The provider receives an abort signal, and the abort race also releases the runtime if a provider ignores cancellation.
 
-Like Codex automatic recap, generation has no loading cell. A failed request is retried once after 30 seconds if the session, conversation revision, and captured prompt are unchanged. A second failure produces one warning and disables recap generation until the session is started or reloaded, avoiding repeated requests to a model that cannot produce a usable recap.
+Like Codex automatic recap, generation has no loading cell. Unlike Codex, the extension makes only one completion attempt per eligible snapshot, without a retry timer or attempt counter. Provider-internal behavior remains subject to the hard 30-second deadline.
+
+An estimated overflow, recognized provider overflow, other provider failure, timeout, or unusable output marks the fresh snapshot unsuccessful and produces one sanitized warning. Only the last unsuccessful snapshot is kept in memory, identified by conversation revision plus the exact prompt. Repeated settled events for that unchanged snapshot do not generate or warn again. A changed revision or prompt can generate again; cancellation and stale results are discarded silently and do not mark a snapshot unsuccessful. Session start/reload resets this transient state.
+
+Generation failures never clear the configured model or disable future snapshots. Invalid startup configuration, an unresolved model, or unavailable startup authentication still prevents initialization. Successful recap entries and their durable deduplication are unchanged; no failure state is persisted.
 
 ### Durable inline entry
 

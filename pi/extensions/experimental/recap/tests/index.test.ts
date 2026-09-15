@@ -34,7 +34,7 @@ describe("recap extension", () => {
       vi.unstubAllEnvs();
     });
 
-    const branch = sessionWithTurns(3).getBranch();
+    const branch = sessionWithTurns(1).getBranch();
     const model = fauxProvider({
       models: [{ id: "small" }],
       provider: "cheap",

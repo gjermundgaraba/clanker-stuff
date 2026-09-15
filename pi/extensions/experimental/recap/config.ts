@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -15,6 +16,9 @@ const RecapConfigSchema = Type.Object(
       },
       STRICT,
     ),
+    thinking: Type.Optional(
+      StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const),
+    ),
   },
   STRICT,
 );
@@ -25,7 +29,9 @@ export const getRecapConfigPath = (): string => getExtensionStoragePaths("recap"
 
 export const parseRecapConfig = (value: unknown): RecapConfig => {
   if (!Value.Check(RecapConfigSchema, value)) {
-    throw new Error("config must contain only model.provider and model.id");
+    throw new Error(
+      "config must contain only model.provider, model.id, and optional thinking (off, minimal, low, medium, high, xhigh, max)",
+    );
   }
 
   const provider = value.model.provider.trim();
@@ -34,7 +40,11 @@ export const parseRecapConfig = (value: unknown): RecapConfig => {
     throw new Error("model.provider and model.id must be non-empty");
   }
 
-  return { model: { id, provider } };
+  const config: RecapConfig = { model: { id, provider } };
+  if (value.thinking !== undefined) {
+    config.thinking = value.thinking;
+  }
+  return config;
 };
 
 export const loadRecapConfig = async (configPath = getRecapConfigPath()): Promise<RecapConfig> => {

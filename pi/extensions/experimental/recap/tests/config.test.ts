@@ -40,16 +40,35 @@ describe("recap config", () => {
     ).toThrow("must contain only");
   });
 
+  it.each(["off", "minimal", "low", "medium", "high", "xhigh", "max"])(
+    "accepts explicit %s thinking",
+    (thinking) => {
+      expect(
+        parseRecapConfig({ model: { id: " small ", provider: " cheap " }, thinking }),
+      ).toStrictEqual({ model: { id: "small", provider: "cheap" }, thinking });
+    },
+  );
+
+  it.each(["", "auto", "HIGH", " low ", null, true, 2, {}])(
+    "rejects invalid thinking %j",
+    (thinking) => {
+      expect(() =>
+        parseRecapConfig({ model: { id: "small", provider: "cheap" }, thinking }),
+      ).toThrow("optional thinking");
+    },
+  );
+
   it("loads the strict JSON file", async () => {
     const configPath = await temporaryConfigPath();
     await writeFile(
       configPath,
-      JSON.stringify({ model: { id: "small", provider: "cheap" } }),
+      JSON.stringify({ model: { id: "small", provider: "cheap" }, thinking: "low" }),
       "utf-8",
     );
 
     await expect(loadRecapConfig(configPath)).resolves.toStrictEqual({
       model: { id: "small", provider: "cheap" },
+      thinking: "low",
     });
   });
 

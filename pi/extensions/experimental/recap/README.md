@@ -10,7 +10,7 @@ Load `pi/extensions/experimental/recap/index.ts` as a local extension; npm insta
 
 ## Usage
 
-Recaps appear automatically after three completed turns and then after every two additional completed turns.
+Recaps appear automatically after every completed user turn, starting with the first, once Pi settles.
 
 ## Configuration
 

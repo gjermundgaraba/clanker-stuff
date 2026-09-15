@@ -9,6 +9,8 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { onTestFinished, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
 
+import type { RecapConfig } from "../config.js";
+
 type CompleteModel = ExtensionContext["modelRegistry"]["complete"];
 type CompletionMock = CompleteModel & Mock<CompleteModel>;
 
@@ -47,7 +49,7 @@ export const sessionWithTurns = (count: number): SessionManager => {
 };
 
 export const createRecapConfigFile = async (
-  modelId = "small",
+  config: RecapConfig = { model: { id: "small", provider: "cheap" } },
 ): Promise<{
   configPath: string;
   directory: string;
@@ -55,11 +57,7 @@ export const createRecapConfigFile = async (
   const directory = await mkdtemp(path.join(os.tmpdir(), "recap-test-"));
   onTestFinished(() => rm(directory, { force: true, recursive: true }));
   const configPath = path.join(directory, "recap.json");
-  await writeFile(
-    configPath,
-    JSON.stringify({ model: { id: modelId, provider: "cheap" } }),
-    "utf-8",
-  );
+  await writeFile(configPath, JSON.stringify(config), "utf-8");
   return { configPath, directory };
 };
 

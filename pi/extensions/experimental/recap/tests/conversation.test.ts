@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
@@ -8,7 +6,6 @@ import {
   buildRecapPrompt,
   conversationProgress,
   normalizeRecap,
-  RECAP_PROMPT_MAX_BYTES,
   RECAP_PROMPT_PREFIX,
   shouldGenerateRecap,
 } from "../conversation.js";
@@ -16,20 +13,41 @@ import { RECAP_ENTRY_TYPE, RECAP_MAX_CHARS } from "../entry.js";
 import { appendTurn, sessionWithTurns, userMessage } from "./fixtures.js";
 
 describe("conversation progress", () => {
-  it("recaps first after three completed turns and then after two more", () => {
-    const session = sessionWithTurns(3);
-    const first = conversationProgress(session.getBranch());
-    expect(first.completedTurns).toBe(3);
-    expect(shouldGenerateRecap(first)).toBe(true);
-
-    session.appendCustomEntry(RECAP_ENTRY_TYPE, {
-      completedTurns: 3,
-      recap: "First recap",
-    });
-    appendTurn(session, 4);
+  it("recaps after every completed turn starting with the first, without duplicates", () => {
+    const session = sessionWithTurns(0);
     expect(shouldGenerateRecap(conversationProgress(session.getBranch()))).toBe(false);
 
-    appendTurn(session, 5);
+    for (let turn = 1; turn <= 4; turn += 1) {
+      appendTurn(session, turn);
+      const progress = conversationProgress(session.getBranch());
+      expect(progress.completedTurns).toBe(turn);
+      expect(shouldGenerateRecap(progress)).toBe(true);
+
+      session.appendCustomEntry(RECAP_ENTRY_TYPE, {
+        completedTurns: turn,
+        recap: `Recap ${turn}`,
+      });
+      expect(shouldGenerateRecap(conversationProgress(session.getBranch()))).toBe(false);
+    }
+  });
+
+  it.each(["error", "aborted", "toolUse"] as const)(
+    "does not unlock a recap for a %s turn, before or after a recap",
+    (stopReason) => {
+      const session = sessionWithTurns(0);
+      appendTurn(session, 1, stopReason);
+      expect(shouldGenerateRecap(conversationProgress(session.getBranch()))).toBe(false);
+
+      appendTurn(session, 2);
+      session.appendCustomEntry(RECAP_ENTRY_TYPE, { completedTurns: 1, recap: "Done" });
+      appendTurn(session, 3, stopReason);
+      expect(shouldGenerateRecap(conversationProgress(session.getBranch()))).toBe(false);
+    },
+  );
+
+  it("allows a recap after a first length-limited turn", () => {
+    const session = sessionWithTurns(0);
+    appendTurn(session, 1, "length");
     expect(shouldGenerateRecap(conversationProgress(session.getBranch()))).toBe(true);
   });
 
@@ -49,7 +67,7 @@ describe("conversation progress", () => {
 });
 
 describe("recap input", () => {
-  it("keeps the latest eight short textual user turns", () => {
+  it("keeps the latest eight textual user turns", () => {
     const session = sessionWithTurns(9);
     const prompt = buildRecapPrompt(session.getBranch());
 
@@ -60,7 +78,7 @@ describe("recap input", () => {
     expect(prompt?.match(/^User:/gmu)).toHaveLength(8);
   });
 
-  it("stops before an unfit message without backfilling or retaining a role prefix", () => {
+  it("keeps complete long messages in chronological order without a byte budget", () => {
     const session = SessionManager.inMemory();
     session.appendMessage(userMessage("old request"));
     session.appendMessage(fauxAssistantMessage("old answer"));
@@ -69,24 +87,29 @@ describe("recap input", () => {
 
     const prompt = buildRecapPrompt(session.getBranch());
 
-    expect(prompt).not.toContain("old request");
-    expect(prompt).not.toContain("old answer");
-    expect(prompt?.slice(RECAP_PROMPT_PREFIX.length).split("\n\n")).toHaveLength(2);
-    expect(prompt).toContain(`User: ${"L".repeat(178)}`);
-    expect(prompt).toContain(`Assistant: ${"A".repeat(159)}`);
+    expect(prompt).toBe(
+      `${RECAP_PROMPT_PREFIX}User: old request\n\nAssistant: old answer\n\nUser: ${"L".repeat(500)}\n\nAssistant: ${"A".repeat(159)}`,
+    );
   });
 
-  it("uses Codex's bounded UTF-8 prompt policy", () => {
+  it("preserves complete Unicode messages", () => {
     const session = SessionManager.inMemory();
     appendTurn(session, 1);
     session.appendMessage(userMessage("🦄".repeat(400)));
     session.appendMessage(fauxAssistantMessage("latest result"));
 
     const prompt = buildRecapPrompt(session.getBranch());
-    expect(prompt?.startsWith(RECAP_PROMPT_PREFIX)).toBe(true);
-    expect(Buffer.byteLength(prompt ?? "")).toBeLessThanOrEqual(RECAP_PROMPT_MAX_BYTES);
-    expect(prompt).not.toContain("�");
-    expect(prompt).toContain("User: 🦄");
+    expect(prompt).toBe(
+      `${RECAP_PROMPT_PREFIX}User: request 1\n\nAssistant: answer 1\n\nUser: ${"🦄".repeat(400)}\n\nAssistant: latest result`,
+    );
+  });
+
+  it("returns no prompt without eligible text", () => {
+    const session = SessionManager.inMemory();
+    expect(buildRecapPrompt(session.getBranch())).toBeUndefined();
+    session.appendMessage(userMessage("   "));
+    session.appendMessage(fauxAssistantMessage("   "));
+    expect(buildRecapPrompt(session.getBranch())).toBeUndefined();
   });
 
   it("ignores failed assistant text and earlier recaps", () => {
@@ -139,33 +162,5 @@ describe(normalizeRecap, () => {
   it("removes terminal and bidi controls before durable normalization", () => {
     expect(normalizeRecap("\u001B[31m \u0007ready\u200E\u202E\u202C \u001B[0m")).toBe("ready");
     expect(normalizeRecap(" one\u0007\n\u202Etwo\u202C ")).toBe("one\ntwo");
-  });
-});
-
-describe("UTF-8 recap prefixes", () => {
-  it.each(["\uD800", "\uDC00"])(
-    "preserves original lone surrogate %j without exceeding the byte budget",
-    (surrogate) => {
-      const session = SessionManager.inMemory();
-      const budget =
-        Math.floor((RECAP_PROMPT_MAX_BYTES - Buffer.byteLength(RECAP_PROMPT_PREFIX)) / 2) -
-        Buffer.byteLength("User: ");
-      const prefix = "a".repeat(budget - 3);
-      session.appendMessage(userMessage(`${prefix}${surrogate}tail`));
-      const prompt = buildRecapPrompt(session.getBranch());
-      expect(prompt).toBe(`${RECAP_PROMPT_PREFIX}User: ${prefix}${surrogate}`);
-      expect(prompt).not.toContain("\uFFFD");
-      expect(Buffer.byteLength(prompt ?? "")).toBeLessThanOrEqual(RECAP_PROMPT_MAX_BYTES);
-    },
-  );
-
-  it("does not include a lone surrogate when fewer than three bytes remain", () => {
-    const session = SessionManager.inMemory();
-    const budget =
-      Math.floor((RECAP_PROMPT_MAX_BYTES - Buffer.byteLength(RECAP_PROMPT_PREFIX)) / 2) -
-      Buffer.byteLength("User: ");
-    const prefix = "a".repeat(budget - 2);
-    session.appendMessage(userMessage(`${prefix}\uD800tail`));
-    expect(buildRecapPrompt(session.getBranch())).toBe(`${RECAP_PROMPT_PREFIX}User: ${prefix}`);
   });
 });

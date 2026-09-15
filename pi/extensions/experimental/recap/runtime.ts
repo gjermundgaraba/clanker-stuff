@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import { contentText } from "@earendil-works/pi-ai";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, contentText, isContextOverflow } from "@earendil-works/pi-ai";
+import type { Api, Context, Model, SimpleStreamOptions, UserMessage } from "@earendil-works/pi-ai";
 import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { getRecapConfigPath, loadRecapConfig } from "./config.js";
+import type { RecapConfig } from "./config.js";
 import {
   buildRecapPrompt,
   conversationProgress,
@@ -17,7 +19,6 @@ import { RECAP_ENTRY_TYPE, sanitizeRecapText } from "./entry.js";
 import type { RecapEntryData } from "./entry.js";
 
 export const RECAP_REQUEST_TIMEOUT_MS = 30_000;
-export const RECAP_RETRY_DELAY_MS = 30_000;
 
 interface RecapSnapshot {
   progress: ConversationProgress;
@@ -27,9 +28,40 @@ interface RecapSnapshot {
 interface RecapSessionState {
   inFlight?: AbortController;
   model?: Model<Api>;
-  retryTimer?: ReturnType<typeof setTimeout>;
+  lastUnsuccessful?: RecapSnapshot;
   sessionId: string;
+  thinking?: RecapConfig["thinking"];
 }
+
+// ModelRegistry.complete takes native API options, not provider-neutral reasoning.
+// Use the registered provider's simple adapter when thinking is explicitly configured.
+const completeWithThinking = async (
+  ctx: ExtensionContext,
+  model: Model<Api>,
+  context: Context,
+  options: SimpleStreamOptions,
+  thinking: NonNullable<RecapConfig["thinking"]>,
+) => {
+  const provider = ctx.modelRegistry.getProvider(model.provider);
+  if (provider === undefined) {
+    throw new Error(`Provider ${model.provider} was not found by Pi`);
+  }
+  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+  if (!auth.ok) {
+    throw new Error(auth.error);
+  }
+  options.signal?.throwIfAborted();
+  const level = clampThinkingLevel(model, thinking);
+  return await provider
+    .streamSimple(auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model, context, {
+      ...options,
+      apiKey: auth.apiKey,
+      env: auth.env,
+      headers: auth.headers,
+      reasoning: level === "off" ? undefined : level,
+    })
+    .result();
+};
 
 const safeNotification = (prefix: string, message: string): string =>
   sanitizeRecapText(`${prefix}: ${message}`).trim();
@@ -65,6 +97,7 @@ class RecapRuntime {
         return;
       }
       state.model = model;
+      state.thinking = config.thinking;
     } catch (error) {
       if (this.#state !== state || ctx.sessionManager.getSessionId() !== sessionId) {
         return;
@@ -79,8 +112,6 @@ class RecapRuntime {
     if (state === undefined) {
       return;
     }
-    clearTimeout(state.retryTimer);
-    state.retryTimer = undefined;
     const inFlight = state.inFlight;
     state.inFlight = undefined;
     inFlight?.abort();
@@ -96,7 +127,6 @@ class RecapRuntime {
     if (
       state?.model === undefined ||
       state.inFlight !== undefined ||
-      state.retryTimer !== undefined ||
       state.sessionId !== ctx.sessionManager.getSessionId() ||
       !ctx.isIdle()
     ) {
@@ -113,7 +143,14 @@ class RecapRuntime {
       return;
     }
 
-    void this.#generate(ctx, { progress, prompt }, 0);
+    if (
+      state.lastUnsuccessful?.progress.sourceRevision === progress.sourceRevision &&
+      state.lastUnsuccessful?.prompt === prompt
+    ) {
+      return;
+    }
+
+    void this.#generate(ctx, { progress, prompt });
   }
 
   #isFresh(ctx: ExtensionContext, snapshot: RecapSnapshot): boolean {
@@ -134,7 +171,7 @@ class RecapRuntime {
     );
   }
 
-  async #generate(ctx: ExtensionContext, snapshot: RecapSnapshot, attempt: 0 | 1): Promise<void> {
+  async #generate(ctx: ExtensionContext, snapshot: RecapSnapshot): Promise<void> {
     const state = this.#state;
     if (state?.model === undefined) {
       return;
@@ -143,33 +180,40 @@ class RecapRuntime {
     const controller = new AbortController();
     state.inFlight = controller;
     const model = state.model;
+    const thinking = state.thinking;
     const timeout = setTimeout(() => {
       controller.abort(new Error("Recap request timed out"));
     }, RECAP_REQUEST_TIMEOUT_MS);
 
     try {
+      const message: UserMessage = {
+        content: [{ text: snapshot.prompt, type: "text" }],
+        role: "user",
+        timestamp: Date.now(),
+      };
+      // A heuristic preflight only; provider overflow can still occur below this estimate.
+      const estimatedTokens = estimateTokens(message);
+      if (model.contextWindow > 0 && estimatedTokens >= model.contextWindow) {
+        throw new Error(
+          `Estimated input (${estimatedTokens} tokens) reaches or exceeds ${model.provider}/${model.id}'s context window (${model.contextWindow} tokens)`,
+        );
+      }
+      const context: Context = { messages: [message] };
+      const options: SimpleStreamOptions = {
+        cacheRetention: "none",
+        sessionId: randomUUID(),
+        signal: controller.signal,
+        timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
+      };
       const response = await raceWithAbortSignal(
-        ctx.modelRegistry.complete(
-          model,
-          {
-            messages: [
-              {
-                content: [{ text: snapshot.prompt, type: "text" }],
-                role: "user",
-                timestamp: Date.now(),
-              },
-            ],
-          },
-          {
-            cacheRetention: "none",
-            maxTokens: Math.min(model.maxTokens, 4096),
-            sessionId: randomUUID(),
-            signal: controller.signal,
-            timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
-          },
-        ),
+        thinking === undefined
+          ? ctx.modelRegistry.complete(model, context, options)
+          : completeWithThinking(ctx, model, context, options, thinking),
         controller.signal,
       );
+      if (isContextOverflow(response, model.contextWindow)) {
+        throw new Error("Recap input exceeds the model's context window");
+      }
       if (response.stopReason !== "stop") {
         throw new Error(response.errorMessage ?? `Recap model stopped with ${response.stopReason}`);
       }
@@ -199,40 +243,14 @@ class RecapRuntime {
         return;
       }
       state.inFlight = undefined;
-      if (attempt === 0 && this.#isFresh(ctx, snapshot)) {
-        this.#scheduleRetry(ctx, snapshot);
-      } else if (attempt === 1 && this.#isFresh(ctx, snapshot)) {
-        state.model = undefined;
+      if (this.#isFresh(ctx, snapshot)) {
+        state.lastUnsuccessful = snapshot;
         const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(
-          safeNotification(
-            `Recap disabled (${this.#configPath}) after repeated generation failures`,
-            message,
-          ),
-          "warning",
-        );
+        ctx.ui.notify(safeNotification("Recap skipped", message), "warning");
       }
     } finally {
       clearTimeout(timeout);
     }
-  }
-
-  #scheduleRetry(ctx: ExtensionContext, snapshot: RecapSnapshot): void {
-    const state = this.#state;
-    if (state === undefined || state.retryTimer !== undefined) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      if (this.#state !== state || state.retryTimer !== timer) {
-        return;
-      }
-      state.retryTimer = undefined;
-      if (this.#isFresh(ctx, snapshot)) {
-        void this.#generate(ctx, snapshot, 1);
-      }
-    }, RECAP_RETRY_DELAY_MS);
-    state.retryTimer = timer;
   }
 }
 

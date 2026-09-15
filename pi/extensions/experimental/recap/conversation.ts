@@ -1,5 +1,4 @@
 import { Value } from "typebox/value";
-import { Buffer } from "node:buffer";
 
 import { contentText } from "@earendil-works/pi-ai";
 import type { StopReason } from "@earendil-works/pi-ai";
@@ -7,10 +6,7 @@ import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-codin
 
 import { RecapEntrySchema, RECAP_ENTRY_TYPE, RECAP_MAX_CHARS, sanitizeRecapText } from "./entry.js";
 
-export const MIN_COMPLETED_TURNS = 3;
-export const MIN_TURNS_BETWEEN_RECAPS = 2;
 export const RECAP_HISTORY_MAX_TURNS = 8;
-export const RECAP_PROMPT_MAX_BYTES = 900;
 export const RECAP_PROMPT_PREFIX =
   "Write a brief catch-up for a user returning to this Pi task. " +
   "In at most 40 words and one or two plain-text sentences, explain the " +
@@ -81,28 +77,7 @@ export const conversationProgress = (entries: readonly SessionEntry[]): Conversa
 export const shouldGenerateRecap = ({
   completedTurns,
   lastRecappedTurns,
-}: ConversationProgress): boolean =>
-  completedTurns >= MIN_COMPLETED_TURNS &&
-  (lastRecappedTurns === undefined ||
-    completedTurns - lastRecappedTurns >= MIN_TURNS_BETWEEN_RECAPS);
-
-const truncateUtf8 = (value: string, maxBytes: number): string => {
-  const { read } = new TextEncoder().encodeInto(value, new Uint8Array(maxBytes));
-  return value.slice(0, read);
-};
-
-const renderMessage = (
-  { role, text }: ConversationMessage,
-  maxBytes: number,
-): string | undefined => {
-  const prefix = `${role}: `;
-  const contentBudget = maxBytes - Buffer.byteLength(prefix);
-  if (contentBudget < 0) {
-    return undefined;
-  }
-  const content = truncateUtf8(text, contentBudget);
-  return content.length === 0 ? undefined : `${prefix}${content}`;
-};
+}: ConversationProgress): boolean => completedTurns > (lastRecappedTurns ?? 0);
 
 const selectMessages = (entries: readonly SessionEntry[]): ConversationMessage[] => {
   const messages: ConversationMessage[] = [];
@@ -138,57 +113,13 @@ const selectMessages = (entries: readonly SessionEntry[]): ConversationMessage[]
   return messages.reverse();
 };
 
-const fitHistory = (messages: readonly ConversationMessage[]): string => {
-  if (messages.length === 0) {
-    return "";
-  }
-
-  const byteBudget = Math.max(0, RECAP_PROMPT_MAX_BYTES - Buffer.byteLength(RECAP_PROMPT_PREFIX));
-  const latestUserIndex = messages.findLastIndex(({ role }) => role === "User");
-  const latestIndex = latestUserIndex === -1 ? messages.length - 1 : latestUserIndex;
-  const latest = messages[latestIndex];
-  if (latest === undefined) {
-    return "";
-  }
-
-  const latestRendered = renderMessage(latest, Math.floor(byteBudget / 2)) ?? "";
-  const selected: { index: number; rendered: string }[] = [
-    { index: latestIndex, rendered: latestRendered },
-  ];
-  let remaining = byteBudget - Buffer.byteLength(latestRendered);
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (index === latestIndex) {
-      continue;
-    }
-    if (remaining <= 2) {
-      break;
-    }
-    const message = messages[index];
-    if (message === undefined) {
-      break;
-    }
-    const rendered = renderMessage(message, remaining - 2);
-    if (rendered === undefined) {
-      break;
-    }
-    remaining -= Buffer.byteLength(rendered) + 2;
-    selected.push({ index, rendered });
-  }
-
-  return selected
-    .toSorted((left, right) => left.index - right.index)
-    .map(({ rendered }) => rendered)
-    .join("\n\n");
-};
-
 export const buildRecapPrompt = (entries: readonly SessionEntry[]): string | undefined => {
   const messages = selectMessages(entries);
-  const history = fitHistory(messages);
+  const history = messages.map(({ role, text }) => `${role}: ${text}`).join("\n\n");
   if (history.length === 0) {
     return undefined;
   }
-  return `${RECAP_PROMPT_PREFIX}${history.trim()}`;
+  return `${RECAP_PROMPT_PREFIX}${history}`;
 };
 
 export const normalizeRecap = (value: string): string | undefined => {
