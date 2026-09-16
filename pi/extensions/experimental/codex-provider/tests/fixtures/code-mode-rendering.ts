@@ -6,7 +6,7 @@ import { CodeModeRuntime } from "../../code-mode/tools.js";
 import type { RuntimeToolTrace } from "../../code-mode/types.js";
 import { createCodexDirectTools } from "../../tools/direct.js";
 import { formatProcessMetadata } from "../../tools/process-metadata.js";
-import { stripAnsi } from "../../tools/renderers.js";
+import { stripVTControlCharacters } from "node:util";
 
 export type Context = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
 export const context = (expanded = false): Context => ({
@@ -27,7 +27,9 @@ export const theme = createIdentityTheme();
 // Content rows only: the shell's blank padding rows and one-column side padding are dropped.
 // Content never starts or ends with a blank row.
 export const rows = (component: Component, width = 80): string[] => {
-  const lines = component.render(width).map((line) => stripAnsi(line).trimEnd().replace(/^ /u, ""));
+  const lines = component
+    .render(width)
+    .map((line) => stripVTControlCharacters(line).trimEnd().replace(/^ /u, ""));
   while (lines[0] === "") lines.shift();
   while (lines.at(-1) === "") lines.pop();
   return lines;

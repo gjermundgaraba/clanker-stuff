@@ -7,18 +7,20 @@ import { createCodexDirectTools } from "../tools/direct.js";
 import { summarizePatchText } from "../tools/patch-summary.js";
 import { formatProcessMetadata } from "../tools/process-metadata.js";
 import {
+  execCommandRenderers,
+  applyPatchRenderers,
   displayedProcessOutput,
   formatJsonText,
   highlightJsonIfPossible,
-  stripAnsi,
 } from "../tools/renderers.js";
+import { stripVTControlCharacters } from "node:util";
 import type { ProcessDisplayDetails } from "../tools/renderers.js";
 
 const theme = createIdentityTheme();
 
 /** Pi's Text pads every line to the viewport width; compare trimmed lines instead. */
 const rendered = (component: Component | undefined): string =>
-  stripAnsi(renderComponent(component, 200) ?? "")
+  stripVTControlCharacters(renderComponent(component, 200) ?? "")
     .split("\n")
     .map((line) => line.trimEnd())
     .join("\n");
@@ -105,6 +107,64 @@ describe("Codex tool renderers", () => {
     initTheme("dark");
   });
 
+  it("refreshes shared preview formatting after theme invalidation", () => {
+    const changing = createIdentityTheme();
+    let color = "\x1b[31m";
+    changing.fg = (_name, value) => color + value + "\x1b[0m";
+    const components = [
+      execCommandRenderers.renderCall(
+        { cmd: "echo done", workdir: "/tmp/project" },
+        changing,
+        renderContext(),
+      ),
+      execCommandRenderers.renderResult(
+        processResult("command output", exited()),
+        { expanded: false, isPartial: false },
+        changing,
+        renderContext(),
+      ),
+      applyPatchRenderers.renderCall(
+        { patch: "*** Begin Patch\n*** Add File: file.txt\n+hello\n*** End Patch" },
+        changing,
+        renderContext(),
+      ),
+    ];
+    for (const component of components)
+      expect(component.render(80).join("\n")).toContain("\x1b[31m");
+    color = "\x1b[32m";
+    for (const component of components) {
+      component.invalidate();
+      expect(component.render(80).join("\n")).toContain("\x1b[32m");
+    }
+  });
+
+  it("refreshes complete process result styling, including warnings, errors and fallbacks", () => {
+    const changing = createIdentityTheme();
+    let color = "\x1b[31m";
+    changing.fg = (_name, value) => color + value + "\x1b[0m";
+    const results = [
+      processResult("output", exited({ fullOutputPath: "/tmp/result" })),
+      processResult("", exited()),
+      { content: [{ type: "text" as const, text: "unstructured" }], details: undefined },
+    ];
+    for (const isError of [false, true])
+      for (const result of results) {
+        color = "\x1b[31m";
+        const component = execCommandRenderers.renderResult(
+          result,
+          { expanded: false, isPartial: false },
+          changing,
+          renderContext({ isError }),
+        );
+        expect(component.render(80).join("\n")).toContain("\x1b[31m");
+        color = "\x1b[32m";
+        component.invalidate();
+        const rows = component.render(80).join("\n");
+        expect(rows).toContain("\x1b[32m");
+        expect(rows).not.toContain("\x1b[31m");
+      }
+  });
+
   it("shows the highlighted command with its working directory", () => {
     const rendered = renderCall("exec_command", { cmd: "ls -la", workdir: "/tmp/project" });
     expect(rendered).toBe("$ ls -la (in /tmp/project)");
@@ -115,10 +175,10 @@ describe("Codex tool renderers", () => {
     const collapsed = renderCall("exec_command", { cmd });
     expect(collapsed.split("\n")).toHaveLength(4);
     expect(collapsed).toContain("$ cat <<'EOF'");
-    expect(collapsed).toContain("… +3 lines");
+    expect(collapsed).toContain("… 3 more lines");
     const expanded = renderCall("exec_command", { cmd }, true);
     expect(expanded.split("\n")).toHaveLength(6);
-    expect(expanded).not.toContain("… +");
+    expect(expanded).not.toContain("to expand");
   });
 
   it("renders placeholders for streaming and invalid arguments", () => {
@@ -245,6 +305,15 @@ describe("Codex tool renderers", () => {
     expect(rendered).toBe("\nspawn failed");
   });
 
+  it("escapes directional marks in stdin while preserving the original value", () => {
+    const chars = "\u061c\u200e\u200f\u202e\u2066value\u2069\t\r\n";
+    const display = renderCall("write_stdin", { chars, session_id: 7 });
+    const encoded = display.slice("stdin session 7 ← ".length);
+    expect(JSON.parse(`"${encoded}"`)).toBe(chars);
+    for (const control of ["\u061c", "\u200e", "\u200f", "\u202e", "\u2066", "\u2069"])
+      expect(display).not.toContain(control);
+  });
+
   it("previews stdin writes and polls", () => {
     expect(renderCall("write_stdin", { chars: "print(1)\n", session_id: 7 })).toBe(
       "stdin session 7 ← print(1)\\n",
@@ -296,12 +365,17 @@ describe("Codex tool renderers", () => {
   it("keeps hyperlink labels and drops raw terminal controls from output", () => {
     const esc = String.fromCharCode(0x1b);
     const linked = `see ${esc}]8;;https://a.example${esc}\\docs${esc}]8;;${esc}\\ and ${esc}]8;;https://b.example${esc}\\more${esc}]8;;${esc}\\ here`;
-    expect(stripAnsi(linked)).toBe("see docs and more here");
+    expect(stripVTControlCharacters(linked)).toBe("see docs and more here");
     const rendered = renderResult(
       "exec_command",
-      processResult(`${linked}\nbell\u0007 back\bspace\fform`, exited()),
+      processResult(
+        `${linked}\nbell\u0007 back\bspace\fform\u061c\u200e\u200f\u202e\u2066`,
+        exited(),
+      ),
     );
     expect(rendered).toContain("see docs and more here\nbell backspaceform");
+    for (const control of ["\u061c", "\u200e", "\u200f", "\u202e", "\u2066"])
+      expect(rendered).not.toContain(control);
   });
 
   it("lists patched files in the call header", () => {
@@ -346,7 +420,7 @@ describe("Codex tool renderers", () => {
     const collapsed = renderResult("apply_patch", result);
     expect(collapsed).toContain("a.ts\n+1 line 1");
     expect(collapsed).not.toContain("+12 line 12");
-    expect(collapsed).toContain("… +10 lines");
+    expect(collapsed).toContain("… 10 more lines");
     const expanded = renderResult("apply_patch", result, { expanded: true });
     expect(expanded).toContain("+20 line 20");
     expect(expanded).toContain("moved.ts (diff omitted)");
@@ -621,15 +695,15 @@ describe("Codex tool renderers", () => {
         "}",
       ].join("\n"),
     );
-    expect(stripAnsi(highlightJsonIfPossible('{"id":9007199254740993}', theme))).toBe(
-      '{\n  "id": 9007199254740993\n}',
-    );
+    expect(
+      stripVTControlCharacters(highlightJsonIfPossible('{"id":9007199254740993}', theme)),
+    ).toBe('{\n  "id": 9007199254740993\n}');
     expect(highlightJsonIfPossible("{not json", theme)).toBe("{not json");
     // Indentation grows with depth, so a deeply nested value keeps its original layout.
     const deep = `${"[".repeat(10_000)}0${"]".repeat(10_000)}`;
     const startedAt = performance.now();
     expect(formatJsonText(deep)).toBe(deep);
-    expect(stripAnsi(highlightJsonIfPossible(deep, theme))).toBe(deep);
+    expect(stripVTControlCharacters(highlightJsonIfPossible(deep, theme))).toBe(deep);
     expect(performance.now() - startedAt).toBeLessThan(1000);
     const wide = `${"[".repeat(30)}1${"]".repeat(30)}`;
     expect(formatJsonText(wide)).toBe(wide);

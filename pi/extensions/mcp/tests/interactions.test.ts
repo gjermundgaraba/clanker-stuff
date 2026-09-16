@@ -8,7 +8,8 @@ describe("MCP interaction UI", () => {
   const t = setupMcpTest();
 
   it("strips terminal controls from form displays without changing field names or answers", async () => {
-    const controls = "\x1b[2J\x1b]52;c;dGVzdA==\x07\x1b[31m\x1b[0m\r\b\u009b";
+    const controls =
+      "\x1b[2J\x1b]52;c;dGVzdA==\x07\x1b[31m\x1b[0m\r\b\u009b\u061c\u200e\u200f\u202e\u2066\u2069";
     const key = `note${controls}`;
     const value = `value${controls}`;
     const host = t.createExtensionHost(() => {}, { hasUI: true });

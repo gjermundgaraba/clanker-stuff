@@ -1,3 +1,4 @@
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { runQuestionPrompt } from "./dialog/controller.js";
 import type { Question } from "./questions.js";
 import { runQueuedPrompt } from "@clanker-stuff/pi-user-input/queue";
@@ -90,7 +91,7 @@ export function createAsyncInput(pi: ExtensionAPI) {
         ? [
             `${pending.size} pending question${pending.size === 1 ? "" : "s"} · /answers to reply or dismiss`,
             ...[...pending.values()].flatMap(({ questions }) =>
-              questions.map(({ question }) => question),
+              questions.map(({ question }) => displayText(question)),
             ),
           ]
         : undefined,
@@ -131,7 +132,7 @@ export function createAsyncInput(pi: ExtensionAPI) {
         let item = candidates[0];
         if (candidates.length > 1) {
           const labels = candidates.map(
-            (candidate, index) => `${index + 1}. ${candidate.questions[0].question}`,
+            (candidate, index) => `${index + 1}. ${displayText(candidate.questions[0].question)}`,
           );
           const selection = await runQueuedPrompt(ctx, item.controller.signal, async (signal) => {
             pi.events.emit("clanker:async-prompt", { active: true });
@@ -209,7 +210,7 @@ export function createAsyncInput(pi: ExtensionAPI) {
       const message = clean(params.message);
       if (!message) throw new Error("message must not be empty");
       pi.appendEntry("async-attention", { message });
-      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      if (ctx.hasUI) ctx.ui.notify(displayText(message), "info");
       return {
         content: [{ type: "text" as const, text: '{"accepted":true}' }],
         details: { accepted: true },
@@ -227,5 +228,5 @@ export const renderAttention: Parameters<ExtensionAPI["registerEntryRenderer"]>[
   entry.data !== null &&
   "message" in entry.data &&
   typeof entry.data.message === "string"
-    ? new Markdown(entry.data.message, 0, 0, getMarkdownTheme())
+    ? new Markdown(displayText(entry.data.message), 0, 0, getMarkdownTheme())
     : new Text(theme.fg("accent", "Message for you"), 0, 0);

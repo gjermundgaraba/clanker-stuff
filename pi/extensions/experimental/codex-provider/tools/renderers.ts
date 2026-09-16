@@ -6,7 +6,8 @@
  * tool definitions, and Code Mode reuses them for nested tool traces.
  */
 import { homedir } from "node:os";
-import { stripVTControlCharacters } from "node:util";
+import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
+import { displayText, inlineText, jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 
 import type {
   AgentToolResult,
@@ -16,7 +17,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { formatSize, highlightCode, renderDiff } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Container, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -25,8 +26,8 @@ import { TRACE_VALUE_TRUNCATED_MARKER } from "../code-mode/trace-values.js";
 
 import type { PatchChange } from "./patch-summary.js";
 import { PatchChangeSchema, PatchDiffSchema, summarizePatchText } from "./patch-summary.js";
+import { lazyComponent } from "./render-components.js";
 import { formatProcessMetadata } from "./process-metadata.js";
-import { codeBlockComponent, lazyComponent, tailPreview } from "./render-components.js";
 
 export const COMMAND_PREVIEW_LINES = 3;
 export const OUTPUT_PREVIEW_LINES = 5;
@@ -35,7 +36,7 @@ export const PATCH_FILE_PREVIEW_ROWS = 8;
 export const STDIN_PREVIEW_LINES = 3;
 
 type RenderContext = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
-type Renderers = Pick<ToolDefinition, "renderCall" | "renderResult">;
+type Renderers = Required<Pick<ToolDefinition, "renderCall" | "renderResult">>;
 type ToolResult = AgentToolResult<unknown>;
 type ResultLike = Pick<ToolResult, "content">;
 
@@ -98,27 +99,6 @@ const parsePatchDetails = (details: unknown): PatchDetails | undefined => {
 
 const BUDGET_TRUNCATION_HEADER =
   /^Warning: truncated output \(original token count: \d+\)\nTotal output lines: \d+\n\n/u;
-
-/** Node's stripper keeps hyperlink labels and other visible text that a greedy OSC match would eat. */
-export const stripAnsi = (text: string): string => stripVTControlCharacters(text);
-
-const replaceTabs = (text: string): string => text.replace(/\t/gu, "   ");
-
-/**
- * Makes captured terminal text safe to draw: strips escape sequences and every control character
- * except newline, carriage return included, and expands tabs. Shared by the direct and Code Mode
- * renderers so both sanitize identically.
- */
-export const sanitizeDisplayText = (text: string): string =>
-  replaceTabs(stripAnsi(text))
-    .replace(/\p{Cc}/gu, (character) => (character === "\n" ? character : ""))
-    .trimEnd();
-
-/**
- * Model arguments and file contents are drawn with trusted styling, so a path or diff line that
- * carries its own escape sequence would otherwise reach the terminal as a live control.
- */
-export const inlineText = (text: string): string => sanitizeDisplayText(text).replace(/\n/gu, " ");
 
 const textOf = (result: ResultLike): string =>
   result.content
@@ -230,7 +210,7 @@ export class PrefixedComponent implements Component {
 
 /** Highlights source and returns its styled lines; collapsing happens per screen row in components. */
 export const formatCodeBlock = (source: string, language: string): string[] =>
-  highlightCode(sanitizeDisplayText(source), language);
+  highlightCode(displayText(source), language);
 
 const invalidArgs = (title: string, theme: Theme): string =>
   `${title} ${theme.fg("error", "[invalid arg]")}`;
@@ -262,13 +242,8 @@ const formatWriteStdinCall = (args: unknown, theme: Theme): string => {
   if (chars.length === 0) {
     return `${title} ${theme.fg("muted", "(poll)")}`;
   }
-  // JSON escapes C0 controls and backslashes; also escape DEL and C1 terminal controls.
-  const escaped = JSON.stringify(chars)
-    .slice(1, -1)
-    .replace(
-      /[\u007f-\u009f]/gu,
-      (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
-    );
+  // Serialize before escaping display controls so the original stdin value is preserved.
+  const escaped = jsonText(chars).slice(1, -1);
   return `${title} ${theme.fg("muted", "←")} ${theme.fg("toolOutput", escaped)}`;
 };
 
@@ -287,7 +262,7 @@ export const displayedProcessOutput = (text: string, details: ProcessDisplayDeta
   if (details.requestedBudgetTruncation !== undefined) {
     output = output.replace(BUDGET_TRUNCATION_HEADER, "");
   }
-  return sanitizeDisplayText(output);
+  return displayText(output);
 };
 
 export const formatProcessStatus = (details: ProcessDisplayDetails, theme: Theme): string => {
@@ -330,8 +305,8 @@ const formatProcessWarnings = (details: ProcessDisplayDetails): string[] => {
 };
 
 const errorComponent = (result: ResultLike, theme: Theme): Component => {
-  const text = sanitizeDisplayText(textOf(result));
-  return new Text(text.length > 0 ? `\n${theme.fg("error", text)}` : "", 0, 0);
+  const text = displayText(textOf(result));
+  return preview(() => new Text(text.length > 0 ? `\n${theme.fg("error", text)}` : "", 0, 0), true);
 };
 
 /** Builds the output block shared by every process-backed result. */
@@ -341,39 +316,41 @@ export const renderProcessResult = (
   theme: Theme,
   context: Pick<RenderContext, "isError">,
   details: ProcessDisplayDetails | undefined,
-): Component => {
-  if (context.isError) {
-    return errorComponent(result, theme);
-  }
-  const container = new Container();
-  if (details === undefined) {
-    const text = sanitizeDisplayText(textOf(result));
-    if (text.length > 0) {
-      container.addChild(new Text(`\n${theme.fg("toolOutput", text)}`, 0, 0));
+): Component =>
+  lazyComponent(() => {
+    if (context.isError) {
+      return errorComponent(result, theme);
     }
+    const container = new Container();
+    if (details === undefined) {
+      const text = displayText(textOf(result));
+      if (text.length > 0) {
+        container.addChild(new Text(`\n${theme.fg("toolOutput", text)}`, 0, 0));
+      }
+      return container;
+    }
+    const output = displayedProcessOutput(textOf(result), details);
+    if (output.length > 0) {
+      // Keep spacing outside the bounded output, and rebuild colors on theme invalidation.
+      container.addChild(new Spacer(1));
+      container.addChild(
+        preview(
+          () => new Text(theme.fg("toolOutput", output), 0, 0),
+          options.expanded,
+          OUTPUT_PREVIEW_LINES,
+          "tail",
+        ),
+      );
+    } else if (details.status !== "running") {
+      container.addChild(new Text(`\n${theme.fg("muted", "(no output)")}`, 0, 0));
+    }
+    const warnings = formatProcessWarnings(details);
+    if (warnings.length > 0) {
+      container.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
+    }
+    container.addChild(new Text(`\n${formatProcessStatus(details, theme)}`, 0, 0));
     return container;
-  }
-  const output = displayedProcessOutput(textOf(result), details);
-  if (output.length > 0) {
-    const styled = output
-      .split("\n")
-      .map((line) => theme.fg("toolOutput", line))
-      .join("\n");
-    if (options.expanded) {
-      container.addChild(new Text(`\n${styled}`, 0, 0));
-    } else {
-      container.addChild(tailPreview(styled, OUTPUT_PREVIEW_LINES, theme));
-    }
-  } else if (details.status !== "running") {
-    container.addChild(new Text(`\n${theme.fg("muted", "(no output)")}`, 0, 0));
-  }
-  const warnings = formatProcessWarnings(details);
-  if (warnings.length > 0) {
-    container.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
-  }
-  container.addChild(new Text(`\n${formatProcessStatus(details, theme)}`, 0, 0));
-  return container;
-};
+  });
 
 interface ProcessCallState {
   interval?: ReturnType<typeof setInterval>;
@@ -428,13 +405,13 @@ const pendingLine = (context: RenderContext, theme: Theme): string => {
 
 /** Builds a call row and records each draw so the pending timer can tell a detached row apart. */
 const processCallComponent = (
-  formatted: string,
+  formatted: () => string,
   previewLines: number,
   theme: Theme,
   context: RenderContext,
 ): Component => {
   const container = new Container();
-  container.addChild(codeBlockComponent(formatted, theme, context.expanded, previewLines));
+  container.addChild(preview(() => new Text(formatted(), 0, 0), context.expanded, previewLines));
   const pending = pendingLine(context, theme);
   if (pending.length > 0) {
     container.addChild(new Text(pending, 0, 0));
@@ -464,7 +441,7 @@ const processResultRenderer: NonNullable<ToolDefinition["renderResult"]> = (
 export const execCommandRenderers: Renderers = {
   renderCall(args, theme, context) {
     return processCallComponent(
-      formatExecCommandCall(args, theme),
+      () => formatExecCommandCall(args, theme),
       COMMAND_PREVIEW_LINES,
       theme,
       context,
@@ -476,7 +453,7 @@ export const execCommandRenderers: Renderers = {
 export const writeStdinRenderers: Renderers = {
   renderCall(args, theme, context) {
     return processCallComponent(
-      formatWriteStdinCall(args, theme),
+      () => formatWriteStdinCall(args, theme),
       STDIN_PREVIEW_LINES,
       theme,
       context,
@@ -580,7 +557,7 @@ const formatApplyPatchResult = (details: PatchDetails, theme: Theme): string => 
     const path = formatPatchPath(change, theme);
     if (diff !== undefined) {
       if (!single) lines.push(path);
-      lines.push(...renderDiff(sanitizeDisplayText(diff)).split("\n"));
+      lines.push(...renderDiff(displayText(diff)).split("\n"));
     } else if (change.changed) {
       lines.push(
         single
@@ -607,13 +584,10 @@ export const applyPatchRenderers: Renderers = {
     // rendered so the completed result can supply the header on the first draw.
     // SAFETY: This renderer pair owns the row-local patch state.
     const state = context.state as PatchCallState;
-    return lazyComponent(() =>
-      codeBlockComponent(
-        formatApplyPatchCall(args, theme, state),
-        theme,
-        context.expanded,
-        PATCH_FILE_PREVIEW_ROWS + 1,
-      ),
+    return preview(
+      () => new Text(formatApplyPatchCall(args, theme, state), 0, 0),
+      context.expanded,
+      PATCH_FILE_PREVIEW_ROWS + 1,
     );
   },
   renderResult(result, options, theme, context) {
@@ -631,10 +605,13 @@ export const applyPatchRenderers: Renderers = {
     if (!options.isPartial && details.complete) {
       state.completed = details.entries.map(({ change }) => change);
     }
-    const body = formatApplyPatchResult(details, theme);
-    if (body.length > 0) {
-      container.addChild(codeBlockComponent(body, theme, options.expanded, DIFF_PREVIEW_LINES));
-    }
+    container.addChild(
+      preview(
+        () => new Text(formatApplyPatchResult(details, theme), 0, 0),
+        options.expanded,
+        DIFF_PREVIEW_LINES,
+      ),
+    );
     return container;
   },
 };
@@ -660,7 +637,7 @@ export const viewImageRenderers: Renderers = {
     if (context.isError) {
       return errorComponent(result, theme);
     }
-    const note = sanitizeDisplayText(textOf(result));
+    const note = displayText(textOf(result));
     if (note.length === 0 || !options.expanded) {
       return new Container();
     }

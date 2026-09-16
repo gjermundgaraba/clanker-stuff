@@ -1,3 +1,4 @@
+import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import { describe, it, expect } from "vite-plus/test";
 import { Value } from "typebox/value";
 import {
@@ -9,7 +10,6 @@ import {
   prepareInspectArguments,
   payloadPage,
   taskRow,
-  jsonText,
   MAX_TOOL_BYTES,
 } from "../task.js";
 

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vite-plus/test";
-import { TaskLogs, LOG_BYTES, safeText } from "../logs.js";
+import { TaskLogs, LOG_BYTES } from "../logs.js";
 
 describe("TaskLogs", () => {
   it("bounds stream tails in memory and on disk and reports omitted bytes", async () => {
@@ -35,8 +35,5 @@ describe("TaskLogs", () => {
     await logs.close();
     expect(logs.read().stdout).toBe("retained");
     expect(logs.error).toMatch(/ENOENT/);
-  });
-  it("strips terminal escape, control and directional overrides", () => {
-    expect(safeText("\x1b[31mred\x1b[0m\x00\x07\r\u202e\n\t")).toBe("red\n\t");
   });
 });

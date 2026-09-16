@@ -1,3 +1,5 @@
+import { preview } from "@clanker-stuff/pi-tool-rendering/preview";
+import { displayText, inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type {
   AgentToolResult,
   Theme,
@@ -20,17 +22,10 @@ import { Value } from "typebox/value";
 import {
   displayedProcessOutput,
   formatCodeBlock,
-  inlineText,
   parseProcessDetails,
   PrefixedComponent,
-  sanitizeDisplayText,
 } from "../tools/renderers.js";
-import {
-  cachedBox,
-  cachedLines,
-  codeBlockComponent,
-  lazyComponent,
-} from "../tools/render-components.js";
+import { cachedBox, cachedLines, lazyComponent } from "../tools/render-components.js";
 
 import { codeModeOutput } from "./output-display.js";
 import type { NestedTool, RuntimeToolTrace } from "./types.js";
@@ -173,9 +168,7 @@ const formatExecCall = (args: unknown, theme: Theme): string => {
   const pragma = PRAGMA_LINE.exec(lines[0] ?? "")?.groups?.options?.trim();
   const source = pragma === undefined ? code : lines.slice(1).join("\n");
   const header =
-    pragma === undefined
-      ? title
-      : `${title} ${theme.fg("muted", `@exec ${sanitizeDisplayText(pragma)}`)}`;
+    pragma === undefined ? title : `${title} ${theme.fg("muted", `@exec ${displayText(pragma)}`)}`;
   return source.trim().length === 0
     ? header
     : [header, ...formatCodeBlock(source, "javascript").map((line) => `  ${line}`)].join("\n");
@@ -196,9 +189,8 @@ const callContent = (
   elapsedMs?: number,
 ): Component => {
   if (kind === "exec") {
-    return codeBlockComponent(
-      formatExecCall(args, theme),
-      theme,
+    return preview(
+      () => new Text(formatExecCall(args, theme), 0, 0),
       expanded,
       SCRIPT_PREVIEW_ROWS + 1,
     );
@@ -273,11 +265,11 @@ const traceRenderers = (
 };
 
 const traceOutput = (trace: RuntimeToolTrace): string => {
-  if (trace.error) return sanitizeDisplayText(trace.error);
+  if (trace.error) return displayText(trace.error);
   if (trace.result === undefined) return "";
   const text = textContent(trace.result);
   const process = parseProcessDetails(trace.result.details);
-  return process === undefined ? sanitizeDisplayText(text) : displayedProcessOutput(text, process);
+  return process === undefined ? displayText(text) : displayedProcessOutput(text, process);
 };
 
 const traceSuffix = (trace: RuntimeToolTrace, outcome: Outcome): string => {
@@ -462,9 +454,7 @@ const renderCodeModeResult = (
       : traces.length === 0
         ? summary
         : `${theme.fg("toolTitle", theme.bold(options.expanded ? "Results" : action))} ${theme.fg("muted", `· ${countLabel(traces)} ·`)} ${summary}`;
-  const errors = context.isError
-    ? sanitizeDisplayText(textContent(result))
-    : sanitizeDisplayText(scriptError);
+  const errors = context.isError ? displayText(textContent(result)) : displayText(scriptError);
   const outputs = context.isError
     ? []
     : codeModeOutput(
@@ -497,7 +487,7 @@ const renderCodeModeResult = (
         if (output) container.addChild(new Text(theme.fg("toolOutput", output), 4, 0));
       }
       if (trace.error && rendered.result !== undefined) {
-        container.addChild(new Text(theme.fg("error", sanitizeDisplayText(trace.error)), 4, 0));
+        container.addChild(new Text(theme.fg("error", displayText(trace.error)), 4, 0));
       }
     }
     if (dropped > 0)

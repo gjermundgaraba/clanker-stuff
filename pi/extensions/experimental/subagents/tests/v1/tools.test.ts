@@ -45,6 +45,10 @@ describe("V1 model contract", () => {
       registerV1Tools(pi, tools, () => {});
     });
     await host.ready;
+    for (const { definition } of host.getRegisteredTools().values()) {
+      expect(definition.renderCall).toBeTypeOf("function");
+      expect(definition.renderResult).toBeTypeOf("function");
+    }
 
     const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
     if (!spawn) {

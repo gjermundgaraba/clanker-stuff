@@ -1,17 +1,7 @@
-import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
-import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createIdentityTheme } from "../../../../../tests/harness/tui.js";
-import {
-  cachedBox,
-  cachedLines,
-  codeBlockComponent,
-  lazyComponent,
-  tailPreview,
-} from "../../tools/render-components.js";
-
-beforeAll(() => initTheme("dark"));
+import { cachedBox, cachedLines, lazyComponent } from "../../tools/render-components.js";
 
 describe("render component lifecycle", () => {
   it("caches a composed box and refreshes on resize or invalidation", () => {
@@ -65,26 +55,5 @@ describe("render component lifecycle", () => {
     component.invalidate();
     expect(component.render(40)[0]?.trim()).toBe("changed");
     expect(create).toHaveBeenCalledTimes(2);
-  });
-
-  it("caches complete head and tail previews, including their hints", () => {
-    const theme = createIdentityTheme();
-    const text = Array.from({ length: 20 }, (_, i) => `line-${i}`).join("\n");
-    for (const component of [
-      codeBlockComponent(text, theme, false, 3),
-      tailPreview(text, 3, theme),
-    ]) {
-      const render = vi.spyOn(Text.prototype, "render");
-      const first = component.render(80);
-      expect(first.join("\n")).toContain("to expand");
-      expect(component.render(80)).toBe(first);
-      expect(render).toHaveBeenCalledTimes(1);
-      component.render(40);
-      expect(render).toHaveBeenCalledTimes(2);
-      component.invalidate();
-      component.render(40);
-      expect(render).toHaveBeenCalledTimes(3);
-      render.mockRestore();
-    }
   });
 });

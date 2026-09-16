@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { questionRenderers } from "./renderers.js";
 
 import {
   AsyncMessageParameters,
@@ -11,6 +12,7 @@ import { AskQuestionParametersSchema, MAX_QUESTIONS, executeAskQuestion } from "
 export default function askQuestion(pi: ExtensionAPI) {
   const asyncInput = createAsyncInput(pi);
   pi.registerTool({
+    ...questionRenderers("ask_question"),
     constrainedSampling: { strict: "prefer", type: "json_schema" },
     description:
       "Ask one or more structured clarification questions and return machine-readable answers.",
@@ -29,6 +31,7 @@ export default function askQuestion(pi: ExtensionAPI) {
     promptSnippet: "Ask structured clarification questions and return machine-readable answers",
   });
   pi.registerTool({
+    ...questionRenderers("request_user_input_async"),
     name: "request_user_input_async",
     label: "Ask asynchronously",
     description:
@@ -39,6 +42,7 @@ export default function askQuestion(pi: ExtensionAPI) {
       asyncInput.request(id, params, signal, ctx),
   });
   pi.registerTool({
+    ...questionRenderers("send_message_to_user_async"),
     name: "send_message_to_user_async",
     label: "Message for you",
     description:

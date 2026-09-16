@@ -1,3 +1,4 @@
+import { displayText, inlineText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Editor } from "@earendil-works/pi-tui";
@@ -120,13 +121,15 @@ const renderOptionRow = (
     color = "text";
   }
   const detailsMarker = option.details !== undefined && option.details !== "" ? " *" : "";
-  add(`${prefix}${theme.fg(color, `${marker} ${index + 1}. ${option.label}${detailsMarker}`)}`);
+  add(
+    `${prefix}${theme.fg(color, `${marker} ${index + 1}. ${inlineText(option.label)}${detailsMarker}`)}`,
+  );
 
   const optionText = state.textByOptionIndex[index];
   if (isOtherOption(option)) {
     if (selected) {
       if (optionText !== undefined && optionText !== "") {
-        const wrappedPreview = wrapWithPrefix("    text: ", optionText, width);
+        const wrappedPreview = wrapWithPrefix("    text: ", displayText(optionText), width);
         pushPreviewLines(
           theme,
           lines,
@@ -148,7 +151,7 @@ const renderOptionRow = (
   }
 
   if (selected && optionText !== undefined && optionText !== "") {
-    addWrapped("    note: ", optionText);
+    addWrapped("    note: ", displayText(optionText));
   }
 };
 
@@ -165,9 +168,9 @@ const renderQuestionPanel = (view: PromptView, questionIndex: number, width: num
     }
   };
 
-  addWrapped("", question.question);
+  addWrapped("", displayText(question.question));
   if (question.placeholder !== undefined && question.placeholder !== "") {
-    addWrapped("Hint: ", theme.fg("muted", question.placeholder));
+    addWrapped("Hint: ", theme.fg("muted", displayText(question.placeholder)));
   }
   lines.push("");
 
@@ -179,7 +182,7 @@ const renderQuestionPanel = (view: PromptView, questionIndex: number, width: num
   if (details !== undefined && details !== "") {
     lines.push("");
     add(theme.bold("Details"));
-    addWrapped("", theme.fg("muted", details));
+    addWrapped("", theme.fg("muted", displayText(details)));
   }
 
   return lines;
@@ -203,9 +206,9 @@ const renderSubmitPanel = (view: PromptView, width: number): string[] => {
   for (const { question, state } of sessions) {
     const answer = buildAnswerEntry(question, state);
     if (answer) {
-      addWrapped(`✓ ${question.header}: `, answerEntryToText(answer));
+      addWrapped(`✓ ${inlineText(question.header)}: `, displayText(answerEntryToText(answer)));
     } else {
-      add(`• ${question.header}: incomplete`);
+      add(`• ${inlineText(question.header)}: incomplete`);
     }
   }
 
@@ -213,7 +216,7 @@ const renderSubmitPanel = (view: PromptView, width: number): string[] => {
   if (allQuestionsComplete(sessions)) {
     add(theme.fg("success", `Press ${helpText.confirm} to submit`));
   } else {
-    addWrapped("Unanswered: ", missingQuestionHeaders(sessions).join(", "));
+    addWrapped("Unanswered: ", missingQuestionHeaders(sessions).map(inlineText).join(", "));
   }
 
   return lines;
@@ -224,7 +227,7 @@ const renderTabBar = (view: PromptView, maxWidth: number, add: (line: string) =>
   const tabs: string[] = [];
   for (const [index, { question, state }] of sessions.entries()) {
     const complete = isQuestionComplete(question, state);
-    const tabLabel = `${complete ? "●" : "○"} ${question.header}`;
+    const tabLabel = `${complete ? "●" : "○"} ${inlineText(question.header)}`;
     if (index === currentTab) {
       tabs.push(theme.bg("selectedBg", theme.fg("text", ` ${tabLabel} `)));
     } else {
@@ -304,8 +307,8 @@ export const renderPrompt = (view: PromptView, width: number): string[] => {
     const { question } = sessions[editMode.questionIndex];
     const option = question.options[editMode.optionIndex];
     const label = isOtherOption(option)
-      ? `Editing Other answer for: ${question.header}`
-      : `Editing note for: ${option.label}`;
+      ? `Editing Other answer for: ${inlineText(question.header)}`
+      : `Editing note for: ${inlineText(option.label)}`;
     add(view.theme.fg("muted", label));
     for (const editorLine of editMode.editor.render(maxWidth)) {
       lines.push(editorLine);
@@ -314,7 +317,7 @@ export const renderPrompt = (view: PromptView, width: number): string[] => {
 
   if (hint !== "") {
     lines.push("");
-    add(theme.fg("warning", hint));
+    add(theme.fg("warning", displayText(hint)));
   }
 
   lines.push("");

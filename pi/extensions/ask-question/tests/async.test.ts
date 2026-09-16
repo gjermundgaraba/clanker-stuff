@@ -19,6 +19,22 @@ function setup(keys: string[] = []) {
 }
 
 describe("asynchronous user input", () => {
+  it("sanitizes widgets and notifications without changing recorded messages or answers", async () => {
+    const controls = "\u061c\u200e\u200f\u202e\u2066\u2069";
+    const { host, ctx } = setup(["\t", "\r"]);
+    await host.runTool(
+      "request_user_input_async",
+      { questions: [{ title: `Question${controls}`, options: [`Answer${controls}`] }] },
+      { ctx },
+    );
+    expect(host.getWidget("async-questions")).toContain("Question");
+    expect(JSON.stringify(host.getWidget("async-questions"))).not.toContain(controls);
+    await host.runCommand("answers", "", ctx);
+    expect(host.getSentUserMessages()[0].content).toContain(`Answer${controls}`);
+    await host.runTool("send_message_to_user_async", { message: `Message${controls}` }, { ctx });
+    expect(host.getAppendedEntries()[0]).toMatchObject({ data: { message: `Message${controls}` } });
+    expect(host.getNotifications()).toContainEqual({ message: "Message", type: "info" });
+  });
   it.each([
     { questions: [] },
     { questions: [{ title: "Choose", options: [] }] },

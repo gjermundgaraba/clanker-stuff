@@ -16,7 +16,6 @@ import type {
 
 import {
   countColumnWidth,
-  displayText,
   fit,
   layoutOverlay,
   overlayHeight,
@@ -26,6 +25,7 @@ import {
   renderScrollbar,
   renderTreeRows,
 } from "./render.js";
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Layout } from "./render.js";
 import { parseMouseInput } from "./mouse.js";
 import type { ContextSnapshot } from "./snapshot.js";

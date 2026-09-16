@@ -5,7 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createIdentityTheme, createKeybindings } from "../../../../tests/harness/tui.js";
 import { createHelpText } from "../../dialog/input.js";
 import { renderPrompt } from "../../dialog/render.js";
-import { createQuestionSessions } from "../../questions.js";
+import { buildAnswerEntry, createQuestionSessions } from "../../questions.js";
 import type { Question } from "../../questions.js";
 import { KEY_SPACE, KEY_TAB, VIM_STYLE_KEYBINDINGS, renderFlowWithKeys } from "./helpers.js";
 
@@ -23,6 +23,47 @@ const singleQuestion: Question[] = [
 ];
 
 describe("question dialog rendering", () => {
+  it("sanitizes display fields and saved notes without changing questions or answers", () => {
+    const controls = "\u061c\u200e\u200f\u202e\u2066\u2069\x1b[2J";
+    const sessions = createQuestionSessions([
+      {
+        header: `Header${controls}`,
+        question: `Question${controls}`,
+        multiSelect: false,
+        placeholder: `Placeholder${controls}`,
+        options: [
+          { kind: "option", label: `Option${controls}`, details: `Details${controls}` },
+          { kind: "other", label: "Other" },
+        ],
+      },
+    ]);
+    sessions[0].state.selectedIndexes.add(0);
+    sessions[0].state.textByOptionIndex[0] = `note${controls}`;
+    const before = structuredClone(sessions);
+    for (const currentTab of [0, 1]) {
+      const lines = renderPrompt(
+        {
+          currentTab,
+          editMode: { kind: "none" },
+          helpText: createHelpText(createKeybindings()),
+          hint: `Hint${controls}`,
+          sessions,
+          theme: createIdentityTheme(),
+        },
+        100,
+      );
+      const text = lines.join("\n");
+      for (const control of ["\u061c", "\u200e", "\u200f", "\u202e", "\u2066", "\u2069", "\x1b[2J"])
+        expect(text).not.toContain(control);
+      expect(text).toContain("Header");
+      expect(text).toContain("Option");
+      expect(text).toContain("note");
+    }
+    expect(sessions).toEqual(before);
+    expect(buildAnswerEntry(sessions[0].question, sessions[0].state)).toEqual([
+      { label: `Option${controls}`, note: `note${controls}` },
+    ]);
+  });
   it("shows an incomplete single-select Other answer", async () => {
     const rendered = await renderFlowWithKeys(
       singleQuestion,

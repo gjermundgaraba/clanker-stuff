@@ -1,4 +1,4 @@
-import { stripVTControlCharacters } from "node:util";
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { runQueuedPrompt } from "@clanker-stuff/pi-user-input/queue";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -7,12 +7,6 @@ import type { ElicitationParams } from "./elicitation-schema.js";
 import { openBrowser } from "./open-browser.js";
 
 type Value = string | number | boolean | string[];
-
-// Keep readable line breaks; server text must not supply terminal commands or styling.
-const displayText = (text: string): string =>
-  stripVTControlCharacters(text).replace(/\p{Cc}/gu, (character) =>
-    character === "\n" ? "\n" : character === "\t" ? "   " : "",
-  );
 
 const choices = (
   field: PrimitiveSchemaDefinition,

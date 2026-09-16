@@ -20,6 +20,17 @@ const segments = usageSegments(
 );
 
 describe("render", () => {
+  it("sanitizes display labels without changing the captured context", () => {
+    const controls = "\x1b[2J\u061c\u200e\u200f\u202e\u2066";
+    const snapshot = fixtureSnapshot({ modelLabel: "provider" + controls });
+    const before = structuredClone(snapshot);
+    const lines = renderOverlay(theme, snapshot, layoutOverlay(100, 20, false), [], "");
+    expect(lines.join("\n")).toContain("provider");
+    for (const control of ["\x1b[2J", "\u061c", "\u200e", "\u200f", "\u202e", "\u2066"])
+      expect(lines.join("\n")).not.toContain(control);
+    expect(snapshot).toEqual(before);
+  });
+
   it.each([0, 1, 2, 10, 66, 100])(
     "bounds the usage bar to %s columns, including overflow",
     (width) => {

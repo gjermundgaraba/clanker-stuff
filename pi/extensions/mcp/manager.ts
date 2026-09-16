@@ -1,3 +1,4 @@
+import { mcpRenderers } from "./renderers.js";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -29,6 +30,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   if (collision) throw new Error(`MCP manager tool name collision: ${collision.name}`);
   pi.registerTool({
     name: "mcp_set",
+    ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_set", true),
     label: "Set MCP server",
     description:
       "Create or replace a complete MCP server entry in global or trusted project configuration. Does not reload an active connection. Prefer environment placeholders over literal secrets.",
@@ -45,6 +47,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   });
   pi.registerTool({
     name: "mcp_remove",
+    ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_remove", true),
     label: "Remove MCP server",
     description:
       "Remove an MCP server from configuration; already absent is success. Does not unload already active tools.",
@@ -59,6 +62,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   });
   pi.registerTool({
     name: "mcp_list",
+    ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_list", true),
     label: "List MCP servers",
     description:
       "List configured MCP servers and validation diagnostics without exposing configuration or secrets.",
@@ -78,6 +82,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   });
   pi.registerTool({
     name: "mcp_connect",
+    ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_connect", true),
     label: "Connect MCP server",
     description:
       "Connect an MCP server and activate its tools. Set reconnect to replace a broken connection, reauthorize, or refresh tools/configuration. Never retry an uncertain mutating tool call automatically.",

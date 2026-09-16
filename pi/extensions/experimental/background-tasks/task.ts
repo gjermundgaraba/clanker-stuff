@@ -1,3 +1,4 @@
+import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
@@ -61,14 +62,6 @@ export function prepareInspectArguments(args: unknown): InspectInput {
   }
   if (!Value.Check(inspectSchema, args)) throw new Error("Invalid task_inspect arguments");
   return args;
-}
-
-export function jsonText(data: unknown): string {
-  // Escape display controls without changing the JSON value being retrieved.
-  return JSON.stringify(data).replace(
-    /[\u007f-\u009f\u2028-\u202e\u2066-\u2069]/gu,
-    (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
-  );
 }
 
 export function toolResult(data: unknown) {

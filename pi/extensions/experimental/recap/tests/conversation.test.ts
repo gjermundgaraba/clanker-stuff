@@ -161,6 +161,6 @@ describe(normalizeRecap, () => {
 
   it("removes terminal and bidi controls before durable normalization", () => {
     expect(normalizeRecap("\u001B[31m \u0007ready\u200E\u202E\u202C \u001B[0m")).toBe("ready");
-    expect(normalizeRecap(" one\u0007\n\u202Etwo\u202C ")).toBe("one\ntwo");
+    expect(normalizeRecap(" one\u0007\n\u061c\u200e\u200f\u202Etwo\u202C\t ")).toBe("one\ntwo");
   });
 });

@@ -40,16 +40,19 @@
     "LICENSE",
     "LICENSE.openai",
     "NOTICE",
-    "UPSTREAM"
+    "UPSTREAM",
+    "renderers.ts"
   ],
   "type": "module",
   "exports": "./index.ts",
   "dependencies": {
-    "@clanker-stuff/pi-extension-paths": "workspace:^"
+    "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "engines": {

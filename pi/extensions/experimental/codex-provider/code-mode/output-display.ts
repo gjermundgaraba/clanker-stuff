@@ -1,3 +1,4 @@
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { isDeepStrictEqual } from "node:util";
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
@@ -5,7 +6,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import { highlightJsonIfPossible, sanitizeDisplayText } from "../tools/renderers.js";
+import { highlightJsonIfPossible } from "../tools/renderers.js";
 
 import type { RuntimeToolResult, RuntimeToolTrace } from "./types.js";
 
@@ -61,7 +62,7 @@ export function codeModeOutput(
               Value.Check(CapturedResultSchema, candidate.result?.details) &&
               isDeepStrictEqual(envelope, candidate.result?.details.codeModeResult),
           );
-    const output = sanitizeDisplayText(
+    const output = displayText(
       !expanded && trace !== undefined && envelope !== undefined ? envelope.output : item.text,
     );
     if (output.length > 0) {

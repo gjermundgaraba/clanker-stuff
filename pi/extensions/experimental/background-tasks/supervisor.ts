@@ -4,7 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { TaskLogs, safeText } from "./logs.js";
+import { TaskLogs } from "./logs.js";
+import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { WatchDecoder } from "./protocol.js";
 
 export interface StartTask {

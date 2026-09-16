@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from "vite-plus/test";
 import { createIdentityTheme } from "../../../../../tests/harness/tui.js";
 import { codeModeOutput } from "../../code-mode/output-display.js";
 import type { RuntimeToolResult, RuntimeToolTrace } from "../../code-mode/types.js";
-import { stripAnsi } from "../../tools/renderers.js";
+import { stripVTControlCharacters } from "node:util";
 
 const theme = createIdentityTheme();
 const exited = {
@@ -36,7 +36,7 @@ const render = (
 ) =>
   codeModeOutput(content, traces, theme, expanded).map(({ plain: _plain, ...block }) => ({
     ...block,
-    text: stripAnsi(block.text),
+    text: stripVTControlCharacters(block.text),
   }));
 
 beforeAll(() => initTheme());
@@ -44,13 +44,13 @@ beforeAll(() => initTheme());
 describe("Code Mode script output display", () => {
   it("unwraps a captured failed process envelope into real output lines", () => {
     expect(render(items(exited), [trace(exited)])).toEqual([
-      { text: "first\nsecond", traceId: "trace-1" },
+      { text: "first\nsecond\n", traceId: "trace-1" },
     ]);
   });
 
   it("unwraps captured running write_stdin results", () => {
     expect(render(items(running), [trace(running, "write_stdin")])).toEqual([
-      { text: "still running", traceId: "trace-1" },
+      { text: "still running\n", traceId: "trace-1" },
     ]);
   });
 
@@ -62,7 +62,7 @@ describe("Code Mode script output display", () => {
       exit_code: 1,
     };
     expect(render(items(reordered), [trace(exited)])).toEqual([
-      { text: "first\nsecond", traceId: "trace-1" },
+      { text: "first\nsecond\n", traceId: "trace-1" },
     ]);
   });
 
@@ -109,7 +109,7 @@ describe("Code Mode script output display", () => {
     const content = items(value);
     const traces = [trace(value)];
     const original = structuredClone({ content, traces });
-    expect(render(content, traces)).toEqual([{ text: "red\n   indented", traceId: "trace-1" }]);
+    expect(render(content, traces)).toEqual([{ text: "red\n   indented\n", traceId: "trace-1" }]);
     expect({ content, traces }).toEqual(original);
   });
 
@@ -122,7 +122,7 @@ describe("Code Mode script output display", () => {
       { data: "image", mimeType: "image/png", type: "image" },
     ];
     expect(render(content, [trace(exited)])).toEqual([
-      { text: "first\nsecond", traceId: "trace-1" },
+      { text: "first\nsecond\n", traceId: "trace-1" },
       { text: "Error: script failed\n  at line 2" },
       { text: "{not JSON}" },
       { text: JSON.stringify(["a", "b"], null, 2) },

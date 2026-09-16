@@ -2,18 +2,23 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AgentToolResult, ToolInfo } from "@earendil-works/pi-coding-agent";
-import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
+import { createSyntheticSourceInfo, initTheme } from "@earendil-works/pi-coding-agent";
 import { SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
+import { renderedRows, toolRenderContext } from "../../../tests/harness/tool-rendering.js";
+import { createIdentityTheme } from "../../../tests/harness/tui.js";
+import { mcpRenderers } from "../renderers.js";
 import { toGeneratedToolName } from "../bridge.js";
 import type { McpClient, McpClientConnection, McpConnectionFactory } from "../connection.js";
 import mcp from "../index.js";
 import { McpServerPool } from "../servers.js";
 import type { McpToolRegistry } from "../servers.js";
 import { fixtureServer, setupMcpTest } from "./helpers.js";
+
+beforeAll(() => initTheme("dark"));
 
 const PersistedMcpToolDetailsSchema = Type.Object({ outputPath: Type.String() });
 
@@ -396,6 +401,7 @@ describe("mcp server pool", () => {
     });
     expect(result.details).toStrictEqual({
       outputPath: expect.stringContaining("/data/mcp/results/"),
+      overflowNoticeIndex: result.content.length - 1,
       serverName: "github",
       toolName: "search",
       truncated: true,
@@ -408,6 +414,26 @@ describe("mcp server pool", () => {
       text: expect.stringContaining(details.outputPath),
     });
     expect(JSON.stringify(result)).not.toContain("mcpResult");
+    const original = structuredClone(result);
+    for (const expanded of [false, true]) {
+      const rows = renderedRows(
+        mcpRenderers("github", "search").renderResult(
+          result,
+          { expanded, isPartial: false },
+          createIdentityTheme(),
+          toolRenderContext({ expanded }),
+        ),
+        200,
+      );
+      const display = rows.join("\n");
+      expect(display.match(/MCP output truncated:/gu)).toHaveLength(1);
+      expect(display.match(/Persisted output:/gu)).toHaveLength(1);
+      expect(rows[0]).toContain("total text]");
+      expect(rows[1]).toContain("[Persisted output:");
+      expect(display.replace(/\s/gu, "")).toContain(details.outputPath.replace(/\s/gu, ""));
+      expect(display.replace(/\s+/gu, " ")).toContain("temporary, may be partial");
+    }
+    expect(result).toEqual(original);
   });
 
   it("preserves success when overflow persistence fails", async () => {
@@ -425,7 +451,27 @@ describe("mcp server pool", () => {
       type: "text",
       text: expect.stringContaining("remote operation has already completed"),
     });
-    expect(result.details).toMatchObject({ truncated: true });
+    expect(result.details).toMatchObject({
+      truncated: true,
+      overflowNoticeIndex: result.content.length - 1,
+    });
+    for (const expanded of [false, true]) {
+      const rows = renderedRows(
+        mcpRenderers("github", "search").renderResult(
+          result,
+          { expanded, isPartial: false },
+          createIdentityTheme(),
+          toolRenderContext({ expanded }),
+        ),
+        200,
+      );
+      const display = rows.join("\n");
+      expect(display.match(/MCP output truncated:/gu)).toHaveLength(1);
+      expect(display.match(/Could not persist overflow/gu)).toHaveLength(1);
+      expect(rows[0]).toContain("total text]");
+      expect(rows[1]).toContain("do not retry solely for this warning");
+      expect(display).not.toContain("Persisted output:");
+    }
   });
 
   it("persists truncated tool errors and includes their path", async () => {
@@ -470,6 +516,10 @@ describe("mcp server pool", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(host.getRegisteredTools().size).toBe(2);
+    for (const { definition } of host.getRegisteredTools().values()) {
+      expect(definition.renderCall).toBeTypeOf("function");
+      expect(definition.renderResult).toBeTypeOf("function");
+    }
     expect(host.getRegisteredTools().has(toGeneratedToolName("github", "foo-bar"))).toBe(true);
     expect(host.getRegisteredTools().has(toGeneratedToolName("github", "foo_bar"))).toBe(true);
   });

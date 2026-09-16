@@ -32,7 +32,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@clanker-stuff/pi-extension-paths": "workspace:^"
+    "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

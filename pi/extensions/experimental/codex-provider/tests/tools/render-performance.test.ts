@@ -2,7 +2,8 @@ import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-age
 import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { createMockTui } from "../../../../../tests/harness/tui.js";
-import { applyPatchRenderers, stripAnsi } from "../../tools/renderers.js";
+import { applyPatchRenderers } from "../../tools/renderers.js";
+import { stripVTControlCharacters } from "node:util";
 import { observeRenderWork } from "../fixtures/render-work.js";
 
 beforeAll(() => initTheme("dark"));
@@ -27,7 +28,9 @@ describe("patch header render work", () => {
     );
     const work = observeRenderWork();
     expect(reads).toBe(0);
-    expect(stripAnsi(row.render(80).join("\n"))).toContain("apply_patch Delete old.txt");
+    expect(stripVTControlCharacters(row.render(80).join("\n"))).toContain(
+      "apply_patch Delete old.txt",
+    );
     const preparedReads = reads;
     expect(preparedReads).toBeGreaterThan(0);
     work.layouts.mockClear();
@@ -47,7 +50,7 @@ describe("patch header render work", () => {
         diffs: [],
       },
     });
-    expect(stripAnsi(row.render(80).join("\n"))).toContain("old.txt (+0 -3)");
+    expect(stripVTControlCharacters(row.render(80).join("\n"))).toContain("old.txt (+0 -3)");
     const completedReads = reads;
     work.layouts.mockClear();
     row.render(80);
@@ -77,7 +80,7 @@ describe("patch header render work", () => {
     });
     for (const expanded of [false, true]) {
       row.setExpanded(expanded);
-      const rendered = stripAnsi(row.render(80).join("\n"));
+      const rendered = stripVTControlCharacters(row.render(80).join("\n"));
       expect(rendered).toContain("complete.txt (+9000 -0)");
       expect(rendered).not.toContain("cut.txt");
     }

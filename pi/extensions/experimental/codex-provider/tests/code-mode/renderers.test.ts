@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { createMockTui } from "../../../../../tests/harness/tui.js";
 import type { RuntimeToolTrace } from "../../code-mode/types.js";
-import { stripAnsi } from "../../tools/renderers.js";
+import { stripVTControlCharacters } from "node:util";
 import {
   codeModeTool,
   context,
@@ -18,7 +18,7 @@ const SUCCESS_BG = "48;2;40;50;40m";
 const ERROR_BG = "48;2;60;40;40m";
 const PENDING_BG = "48;2;40;40;50m";
 const isPaddingRow = (line: string | undefined): boolean =>
-  line !== undefined && line.length > 0 && stripAnsi(line).trim().length === 0;
+  line !== undefined && line.length > 0 && stripVTControlCharacters(line).trim().length === 0;
 
 beforeAll(() => initTheme("dark"));
 
@@ -43,13 +43,13 @@ describe("Code Mode display", () => {
       const rendered = row.render(width);
       expect(rendered.length).toBeLessThanOrEqual(19);
       expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
-      expect(stripAnsi(rendered.join("\n"))).toContain("1 failed");
+      expect(stripVTControlCharacters(rendered.join("\n"))).toContain("1 failed");
       // A completed script with a failed command takes the error box, not the success box.
       expect(rendered.slice(1).every((line) => line.includes(ERROR_BG))).toBe(true);
       expect(rendered.join("\n")).not.toContain(SUCCESS_BG);
     }
     row.setExpanded(true);
-    expect(stripAnsi(row.render(120).join("\n"))).toContain(code);
+    expect(stripVTControlCharacters(row.render(120).join("\n"))).toContain(code);
     row.setExpanded(false);
     const dark = row.render(80).join("\n");
     try {
@@ -57,7 +57,7 @@ describe("Code Mode display", () => {
       row.invalidate();
       const light = row.render(80).join("\n");
       expect(light).not.toBe(dark);
-      expect(stripAnsi(light)).toBe(stripAnsi(dark));
+      expect(stripVTControlCharacters(light)).toBe(stripVTControlCharacters(dark));
     } finally {
       initTheme("dark");
     }
@@ -84,17 +84,19 @@ describe("Code Mode display", () => {
     };
     const pending = row.render(80);
     boxed(pending, PENDING_BG);
-    expect(stripAnsi(pending[2] ?? "")).toMatch(/^ Exec/u);
+    expect(stripVTControlCharacters(pending[2] ?? "")).toMatch(/^ Exec/u);
 
     row.updateResult({ ...result([processTrace("a", "echo hi", "hi")]), isError: false });
     const collapsed = row.render(80);
     boxed(collapsed, SUCCESS_BG);
-    expect(stripAnsi(collapsed[2] ?? "")).toMatch(/^ Exec · 1 command · ✓ completed/u);
+    expect(stripVTControlCharacters(collapsed[2] ?? "")).toMatch(
+      /^ Exec · 1 command · ✓ completed/u,
+    );
 
     row.setExpanded(true);
     const expanded = row
       .render(80)
-      .map((line) => stripAnsi(line).trimEnd())
+      .map((line) => stripVTControlCharacters(line).trimEnd())
       .join("\n");
     boxed(row.render(80), SUCCESS_BG);
     // The script and its results share one box: no seam between the call and the result rows.
@@ -552,7 +554,7 @@ describe("Code Mode display", () => {
         { ...data, details: { ...data.details, elapsedMs: 23_400 }, isError: false },
         true,
       );
-      const text = stripAnsi(row.render(120).join("\n"));
+      const text = stripVTControlCharacters(row.render(120).join("\n"));
       expect(text).toContain("Wait #557 · 23s elapsed");
       expect(text).toContain("Waiting for output · 1 finished · 1 running");
       expect(text).toContain("$ vp test");
@@ -561,11 +563,11 @@ describe("Code Mode display", () => {
         expect(row.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
       }
       row.setExpanded(true);
-      expect(stripAnsi(row.render(120).join("\n"))).toContain("#557");
+      expect(stripVTControlCharacters(row.render(120).join("\n"))).toContain("#557");
       row.setExpanded(false);
       vi.advanceTimersByTime(60_000);
       row.invalidate();
-      expect(stripAnsi(row.render(120).join("\n"))).toBe(text);
+      expect(stripVTControlCharacters(row.render(120).join("\n"))).toBe(text);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();

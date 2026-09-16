@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { taskRenderers } from "./renderers.js";
 import { TaskRuntime, renderWake } from "./runtime.js";
 import {
   startSchema,
@@ -12,6 +13,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   const runtime = new TaskRuntime(pi);
   pi.registerTool({
     name: "task_start",
+    ...taskRenderers("task_start"),
     label: "Start task",
     description:
       "Run an executable without blocking. Session-owned: stops on reload/quit/session replacement. Optional events-v1 watcher emits strict JSONL event/result records on stdout, diagnostics on stderr. Ordinary output is logs, not automatic context. Default deadline 1 hour. Maximum 8 live tasks.",
@@ -26,6 +28,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   });
   pi.registerTool({
     name: "task_list",
+    ...taskRenderers("task_list"),
     label: "List tasks",
     description:
       "List task status and pending notification count; does not fetch logs or wake the model.",
@@ -34,6 +37,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   });
   pi.registerTool({
     name: "task_inspect",
+    ...taskRenderers("task_inspect"),
     label: "Inspect task",
     description:
       "Pull untrusted task data. view summary returns status, all retained event IDs and log tails (up to 6000 bytes/stream by default, 12000 requested max). view result or event returns JSON text in payload.text; event requires eventId. Concatenate pages using payload.nextOffset as offset until null, then parse JSON. Total response capped at 32000 bytes; history may be evicted.",
@@ -43,6 +47,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   });
   pi.registerTool({
     name: "task_stop",
+    ...taskRenderers("task_stop"),
     label: "Stop task",
     description:
       "Cancel an owned task, await bounded process-group cleanup, and report the actual outcome. Does not cancel independent observed jobs.",

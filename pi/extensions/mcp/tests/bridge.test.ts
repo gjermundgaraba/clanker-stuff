@@ -61,4 +61,12 @@ describe("MCP bridge", () => {
       type: "text",
     });
   });
+  it("reports truncation without mixing application notices into remote content", () => {
+    const text = "line\n".repeat(3000);
+    const converted = mcpResultToPiContent({ content: [{ type: "text", text }] });
+    expect(converted.truncated).toBe(true);
+    expect(converted.fullText).toBe(text);
+    expect(converted.content).toHaveLength(1);
+    expect(JSON.stringify(converted.content)).not.toContain("MCP output truncated");
+  });
 });

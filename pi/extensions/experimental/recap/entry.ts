@@ -1,5 +1,6 @@
+import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -7,12 +8,8 @@ import { Value } from "typebox/value";
 export const RECAP_ENTRY_TYPE = "@clanker-stuff/recap";
 export const RECAP_MAX_CHARS = 320;
 
-const UNSAFE_TEXT_PATTERN =
-  // oxlint-disable-next-line eslint/no-control-regex -- Model output must not control the terminal.
-  /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
-
-export const sanitizeRecapText = (value: string): string =>
-  stripTerminalSequences(value).replaceAll(UNSAFE_TEXT_PATTERN, "");
+/** Recaps omit tabs rather than expanding them; the terminal safety policy is shared. */
+export const sanitizeRecapText = (value: string): string => safeText(value).replaceAll("\t", "");
 
 export const RecapEntrySchema = Type.Object(
   {

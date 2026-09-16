@@ -28,12 +28,16 @@
     "docs/usage.md",
     "skills",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "renderers.ts"
   ],
   "type": "module",
   "exports": "./index.ts",
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

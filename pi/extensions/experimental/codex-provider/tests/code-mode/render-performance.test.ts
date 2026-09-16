@@ -13,7 +13,8 @@ import { Type } from "typebox";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { createMockTui } from "../../../../../tests/harness/tui.js";
-import { PrefixedComponent, stripAnsi } from "../../tools/renderers.js";
+import { PrefixedComponent } from "../../tools/renderers.js";
+import { stripVTControlCharacters } from "node:util";
 import { codeModeTool, processTrace, result } from "../fixtures/code-mode-rendering.js";
 import { observeRenderWork } from "../fixtures/render-work.js";
 
@@ -44,7 +45,7 @@ describe("Code Mode render work", () => {
     const prefixes = vi.spyOn(PrefixedComponent.prototype, "render");
     const boxes = vi.spyOn(Box.prototype, "render");
     const first = row.render(120);
-    const text = stripAnsi(first.join("\n"));
+    const text = stripVTControlCharacters(first.join("\n"));
     expect(text).toContain("file-1:0");
     expect(text).toContain("file-1:399");
     expect(text).toContain("file-2:399");
@@ -121,7 +122,7 @@ describe("Code Mode render work", () => {
         const light = row.render(40).join("\n");
         expect(work.highlights).toHaveBeenCalled();
         expect(light).not.toBe(dark);
-        expect(stripAnsi(light)).toBe(stripAnsi(dark));
+        expect(stripVTControlCharacters(light)).toBe(stripVTControlCharacters(dark));
       } finally {
         initTheme("dark");
       }
@@ -137,7 +138,7 @@ describe("Code Mode render work", () => {
     row.updateResult({ ...data, isError: false }, true);
     const partial = row.render(120);
     expect(partial.slice(1).every((line) => line.includes("48;2;40;40;50m"))).toBe(true);
-    expect(stripAnsi(partial.join("\n"))).not.toContain("tools.exec_command");
+    expect(stripVTControlCharacters(partial.join("\n"))).not.toContain("tools.exec_command");
 
     // Clicking the result-owned box must still use Pi's normal expand behavior.
     expect(
@@ -155,7 +156,7 @@ describe("Code Mode render work", () => {
         ctrl: false,
       })?.handled,
     ).toBe(true);
-    const expanded = stripAnsi(row.render(120).join("\n"));
+    const expanded = stripVTControlCharacters(row.render(120).join("\n"));
     expect(expanded).toContain(nextCode);
     expect(expanded.split("\n").filter((line) => line.trim() === "Exec")).toHaveLength(1);
 
@@ -166,13 +167,13 @@ describe("Code Mode render work", () => {
     row.setExpanded(false);
     const dark = row.render(120).join("\n");
     expect(dark).toContain("48;2;60;40;40m");
-    expect(stripAnsi(dark)).toContain("new failure");
+    expect(stripVTControlCharacters(dark)).toContain("new failure");
     try {
       initTheme("light");
       row.invalidate();
       const light = row.render(120).join("\n");
       expect(light).not.toBe(dark);
-      expect(stripAnsi(light)).toBe(stripAnsi(dark));
+      expect(stripVTControlCharacters(light)).toBe(stripVTControlCharacters(dark));
     } finally {
       initTheme("dark");
     }
@@ -209,7 +210,7 @@ describe("Code Mode render work", () => {
       isError: false,
     });
     row.setExpanded(expanded);
-    expect(stripAnsi(row.render(120).join("\n"))).toContain("before");
+    expect(stripVTControlCharacters(row.render(120).join("\n"))).toContain("before");
     row.render(120);
     callInvalidated.mockClear();
     resultInvalidated.mockClear();
@@ -217,7 +218,7 @@ describe("Code Mode render work", () => {
     invalidate();
     expect(callInvalidated).toHaveBeenCalled();
     expect(resultInvalidated).toHaveBeenCalled();
-    const updated = stripAnsi(row.render(120).join("\n"));
+    const updated = stripVTControlCharacters(row.render(120).join("\n"));
     expect(updated).toContain("after");
     expect(updated).not.toContain("before");
   });

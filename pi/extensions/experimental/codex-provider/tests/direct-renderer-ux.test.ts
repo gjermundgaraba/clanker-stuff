@@ -11,9 +11,9 @@ import {
   PATCH_FILE_PREVIEW_ROWS,
   PrefixedComponent,
   STDIN_PREVIEW_LINES,
-  stripAnsi,
   writeStdinRenderers,
 } from "../tools/renderers.js";
+import { stripVTControlCharacters } from "node:util";
 
 const theme = createIdentityTheme();
 type Context = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
@@ -32,7 +32,7 @@ const context = (expanded = false): Context => ({
   toolCallId: "synthetic",
 });
 const rows = (component: Component | undefined, width = 80) =>
-  component?.render(width).map((line) => stripAnsi(line).trimEnd()) ?? [];
+  component?.render(width).map((line) => stripVTControlCharacters(line).trimEnd()) ?? [];
 
 beforeAll(() => initTheme("dark"));
 

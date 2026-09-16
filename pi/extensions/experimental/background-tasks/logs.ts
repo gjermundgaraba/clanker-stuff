@@ -1,17 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { stripVTControlCharacters } from "node:util";
+import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
 export const LOG_BYTES = 128 * 1024;
-export function safeText(text: string): string {
-  return stripVTControlCharacters(text).replace(
-    // Strip terminal control bytes intentionally, in addition to ANSI sequences.
-    // eslint-disable-next-line no-control-regex
-    /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu,
-    "",
-  );
-}
 
 /** Bounded tail in RAM and on disk. At most one snapshot write per stream is pending. */
 export class TaskLogs {

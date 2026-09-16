@@ -32,6 +32,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@clanker-stuff/pi-tool-rendering": "workspace:^"
+  },
   "devDependencies": {
     "vite": "catalog:",
     "vite-plus": "catalog:"

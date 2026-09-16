@@ -1,3 +1,5 @@
+import { mcpRenderers } from "./renderers.js";
+import { formatSize } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { SamplingUsage } from "./sampling.js";
@@ -29,6 +31,7 @@ export type McpToolRegistry = Pick<
   "getActiveTools" | "getAllTools" | "registerTool" | "setActiveTools"
 >;
 export interface McpToolDetails {
+  overflowNoticeIndex?: number;
   outputPath?: string;
   serverName: string;
   toolName: string;
@@ -212,6 +215,7 @@ export class McpServerPool {
           return {
             name,
             label: `${serverName}: ${tool.name}`,
+            ...mcpRenderers(serverName, tool.name),
             description: tool.description ?? `MCP tool ${tool.name} from ${serverName}`,
             parameters: Type.Unsafe<ToolArguments>(tool.inputSchema),
             execute: async (id, args, executeSignal, _update, ctx) => {
@@ -232,18 +236,21 @@ export class McpServerPool {
                 truncated: converted.truncated,
               };
               if (converted.truncated) {
+                const notices = [
+                  `[MCP output truncated: ${formatSize(Buffer.byteLength(converted.fullText))} total text]`,
+                ];
                 try {
                   details.outputPath = await this.persistOutput(converted.fullText);
-                  converted.content.push({
-                    type: "text",
-                    text: `[Persisted output: ${details.outputPath}; temporary, may be partial]`,
-                  });
+                  notices.push(
+                    `[Persisted output: ${details.outputPath}; temporary, may be partial]`,
+                  );
                 } catch {
-                  converted.content.push({
-                    type: "text",
-                    text: "[Could not persist overflow. The remote operation has already completed; do not retry solely for this warning.]",
-                  });
+                  notices.push(
+                    "[Could not persist overflow. The remote operation has already completed; do not retry solely for this warning.]",
+                  );
                 }
+                details.overflowNoticeIndex = converted.content.length;
+                converted.content.push({ type: "text", text: notices.join("\n") });
               }
               if (result.isError) {
                 throw new Error(

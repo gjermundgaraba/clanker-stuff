@@ -1,7 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { keyHint, truncateToVisualLines } from "@earendil-works/pi-coding-agent";
 import type { Box, Component } from "@earendil-works/pi-tui";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 
 /** Cache one layout, not every width visited. Renderer callbacks replace it when data changes. */
 export const cachedLines = (
@@ -48,47 +45,4 @@ export const lazyComponent = (create: () => Component): Component => {
       return child.render(width);
     },
   };
-};
-
-const expandHint = (theme: Theme, label: string): string =>
-  `${theme.fg("muted", `${label} ·`)} ${keyHint("app.tools.expand", "to expand")}`;
-
-/** Keep the last N visual rows, with a leading gap and an expand hint when output was hidden. */
-export const tailPreview = (text: string, maxLines: number, theme: Theme): Component =>
-  cachedLines((width) => {
-    const { visualLines, skippedCount } = truncateToVisualLines(text, maxLines, width);
-    return [
-      "",
-      ...(skippedCount > 0
-        ? [truncateToWidth(expandHint(theme, `… ${skippedCount} earlier lines`), width, "...")]
-        : []),
-      ...visualLines,
-    ];
-  });
-
-/** Highlighting is prepared by the caller; this component only wraps and limits screen rows. */
-export const codeBlockComponent = (
-  styledText: string,
-  theme: Theme,
-  expanded: boolean,
-  previewLines: number,
-): Component => {
-  const text = new Text(styledText, 0, 0);
-  if (expanded) return text;
-  return cachedLines(
-    (width) => {
-      const all = text.render(width);
-      return all.length > previewLines
-        ? [
-            ...all.slice(0, previewLines),
-            truncateToWidth(
-              expandHint(theme, `… +${all.length - previewLines} lines`),
-              width,
-              "...",
-            ),
-          ]
-        : all;
-    },
-    () => text.invalidate(),
-  );
 };

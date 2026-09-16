@@ -26,7 +26,8 @@
     "async.ts",
     "docs",
     "NOTICE",
-    "LICENSE-APACHE"
+    "LICENSE-APACHE",
+    "renderers.ts"
   ],
   "type": "module",
   "exports": "./index.ts",
@@ -34,6 +35,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@clanker-stuff/pi-user-input": "workspace:^"
   },
   "devDependencies": {

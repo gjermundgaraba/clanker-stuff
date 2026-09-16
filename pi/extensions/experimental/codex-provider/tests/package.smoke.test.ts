@@ -6,6 +6,8 @@ import path from "node:path";
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { readJson, readWorkspacePackages } from "../../../../../scripts/workspace-packages.js";
+
 import { SUPPORTED_PI_VERSION } from "../audit-local-order.js";
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import * as packageEntry from "../index.js";
@@ -204,6 +206,24 @@ describe("codex-provider package", () => {
         "package/ultra/index.ts",
       ].toSorted(),
     );
+    // Exercise the packed workspace dependencies, not published versions or source symlinks.
+    const repoRoot = path.resolve(PACKAGE_ROOT, "../../../..");
+    const workspace = readWorkspacePackages(repoRoot);
+    const localDependencies: Record<string, string> = {};
+    for (const [name, version] of Object.entries(
+      readJson(path.join(PACKAGE_ROOT, "package.json")).dependencies ?? {},
+    )) {
+      if (!version.startsWith("workspace:")) continue;
+      const dependency = workspace.find((pkg) => pkg.name === name);
+      if (!dependency) throw new Error(`Missing workspace package: ${name}`);
+      const dependencyTarball = path.join(tempRoot, `${name.replaceAll("/", "-")}.tgz`);
+      execFileSync("pnpm", ["pack", "--out", dependencyTarball], {
+        cwd: path.join(repoRoot, dependency.dir),
+        env: NPM_ENV,
+        stdio: "pipe",
+      });
+      localDependencies[name] = `file:${dependencyTarball}`;
+    }
     const installDir = path.join(tempRoot, "install");
     mkdirSync(installDir);
     writeFileSync(
@@ -212,18 +232,7 @@ describe("codex-provider package", () => {
         {
           dependencies: {
             "@clanker-stuff/codex-provider": `file:${tarball}`,
-            "@clanker-stuff/footer-protocol": `file:${path.resolve(
-              PACKAGE_ROOT,
-              "../../../packages/footer-protocol",
-            )}`,
-            "@clanker-stuff/lazy-singleton": `file:${path.resolve(
-              PACKAGE_ROOT,
-              "../../../packages/lazy-singleton",
-            )}`,
-            "@clanker-stuff/pi-extension-paths": `file:${path.resolve(
-              PACKAGE_ROOT,
-              "../../../packages/extension-paths",
-            )}`,
+            ...localDependencies,
             "@earendil-works/pi-ai": SUPPORTED_PI_VERSION,
             "@earendil-works/pi-coding-agent": SUPPORTED_PI_VERSION,
             "@earendil-works/pi-tui": SUPPORTED_PI_VERSION,
@@ -253,6 +262,7 @@ describe("codex-provider package", () => {
         "@clanker-stuff/footer-protocol": "^0.1.0",
         "@clanker-stuff/lazy-singleton": "^0.1.0",
         "@clanker-stuff/pi-extension-paths": "^0.1.0",
+        "@clanker-stuff/pi-tool-rendering": "^0.1.0",
       },
       name: "@clanker-stuff/codex-provider",
       peerDependencies: {

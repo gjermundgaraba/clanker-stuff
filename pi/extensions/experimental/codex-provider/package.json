@@ -91,6 +91,7 @@
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "eventsource-parser": "4.1.0",
     "js-tiktoken": "1.0.21",
     "uuid": "14.0.2"

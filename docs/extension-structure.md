@@ -137,7 +137,7 @@ Every extension package directory under `pi/extensions/` or `pi/extensions/exper
 
 Stable extension packages set `private` to `false`. Experimental extension packages set it to `true`, carry an explicit instability warning in their README, and keep the eventual stable package name. Promote one by moving it directly under `pi/extensions/`, correcting the relative depth of imports that reach outside the package, removing the warning, making its package metadata publishable, and running `vp run ready`.
 
-Shared runtime libraries belong under `pi/packages/` and must be real workspace dependencies. Add one only when at least two published extensions need the same behavior; do not create generic common or utilities packages.
+Shared runtime libraries belong under `pi/packages/` and must be real workspace dependencies. Add one only when at least two extensions need the same behavior; do not create generic common or utilities packages.
 
 `package.json` `files` must include every runtime source file and asset plus `README.md` and `LICENSE`. Do not publish tests, research, audits, or development scripts unless they are required at runtime.
 

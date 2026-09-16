@@ -1,3 +1,4 @@
+import { agentRenderers } from "../renderers.js";
 // Tool names, schemas, and descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ../NOTICE and ../UPSTREAM.
 import type {
   ExtensionAPI,
@@ -214,6 +215,7 @@ export const registerV1Tools = (
       executionMode: "parallel",
       label: "Spawn Agent",
       name: "spawn_agent",
+      ...agentRenderers("spawn_agent"),
       parameters: spawnParameters,
       promptSnippet: "Spawn a UUID-addressed independent agent",
     }),
@@ -239,6 +241,7 @@ export const registerV1Tools = (
       executionMode: "parallel",
       label: "Send Agent Input",
       name: "send_input",
+      ...agentRenderers("send_input"),
       parameters: Type.Object(
         {
           ...SendCommon,
@@ -270,6 +273,7 @@ export const registerV1Tools = (
       executionMode: "parallel",
       label: "Resume Agent",
       name: "resume_agent",
+      ...agentRenderers("resume_agent"),
       parameters: Type.Object({ id: Type.String({ minLength: 1 }) }, STRICT),
       promptSnippet: "Resume a closed UUID-addressed agent",
     }),
@@ -283,6 +287,7 @@ export const registerV1Tools = (
       executionMode: "parallel",
       label: "Wait for Agent",
       name: "wait_agent",
+      ...agentRenderers("wait_agent"),
       parameters: Type.Object(
         {
           targets: Type.Array(Type.String({ minLength: 1 }), {
@@ -310,6 +315,7 @@ export const registerV1Tools = (
       executionMode: "parallel",
       label: "Close Agent",
       name: "close_agent",
+      ...agentRenderers("close_agent"),
       parameters: Type.Object({ target: Type.String({ minLength: 1 }) }, STRICT),
       promptSnippet: "Close an agent when it is no longer needed",
     }),

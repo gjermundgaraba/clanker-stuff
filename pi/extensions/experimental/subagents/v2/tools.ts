@@ -1,3 +1,4 @@
+import { agentRenderers } from "../renderers.js";
 // Tool names, schemas, and descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ../NOTICE and ../UPSTREAM.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -138,6 +139,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Spawn Agent",
     name: "spawn_agent",
+    ...agentRenderers("spawn_agent"),
     parameters: spawnParameters,
     promptSnippet: "Spawn a child under your hierarchical task path",
   });
@@ -154,6 +156,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Send Message",
     name: "send_message",
+    ...agentRenderers("send_message"),
     parameters: Type.Object(
       {
         message: Type.String({
@@ -182,6 +185,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Follow-up Task",
     name: "followup_task",
+    ...agentRenderers("followup_task"),
     parameters: Type.Object(
       {
         message: Type.String({
@@ -208,6 +212,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Wait for Agent",
     name: "wait_agent",
+    ...agentRenderers("wait_agent"),
     parameters: Type.Object(
       {
         timeout_ms: Type.Optional(
@@ -232,6 +237,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Interrupt Agent",
     name: "interrupt_agent",
+    ...agentRenderers("interrupt_agent"),
     parameters: Type.Object({ target: Type.String({ minLength: 1 }) }, STRICT),
     promptSnippet: "Interrupt another known agent's active turn",
   });
@@ -254,6 +260,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "List Agents",
     name: "list_agents",
+    ...agentRenderers("list_agents"),
     parameters: Type.Object(
       {
         path_prefix: Type.Optional(

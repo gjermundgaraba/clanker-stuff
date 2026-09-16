@@ -59,6 +59,10 @@ describe("V2 model contract", () => {
       registerV2Tools(pi, tools, "/root", () => {});
     });
     await host.ready;
+    for (const { definition } of host.getRegisteredTools().values()) {
+      expect(definition.renderCall).toBeTypeOf("function");
+      expect(definition.renderResult).toBeTypeOf("function");
+    }
 
     const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
     if (!spawn) {

@@ -1,4 +1,4 @@
-import { stripVTControlCharacters } from "node:util";
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ContextUsage, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
@@ -24,9 +24,6 @@ export const OVERLAY_HEIGHT_RATIO = 0.9;
 const SPLIT_MIN_WIDTH = 80;
 const ROW_BAR_WIDTH = 8;
 const ROW_BAR_MIN_TREE_WIDTH = 40;
-
-export const displayText = (text: string): string =>
-  stripVTControlCharacters(text).replaceAll("\r", "");
 
 export const fit = (text: string, width: number): string => {
   const clipped = truncateToWidth(text, width, "…");

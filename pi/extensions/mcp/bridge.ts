@@ -5,7 +5,6 @@ import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-ag
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
-  formatSize,
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import type { CallToolResult } from "@modelcontextprotocol/client";
@@ -76,10 +75,5 @@ export const mcpResultToPiContent = (result: CallToolResult) => {
   if (result.structuredContent !== undefined && !hasStructuredText)
     appendText(JSON.stringify(result.structuredContent, null, 2));
   const fullText = text.join("\n");
-  if (truncated)
-    content.push({
-      type: "text",
-      text: `[MCP output truncated: ${formatSize(Buffer.byteLength(fullText))} total text]`,
-    });
   return { content, fullText, truncated };
 };

@@ -1,3 +1,4 @@
+import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import { Text } from "@earendil-works/pi-tui";
 import type { MessageRenderer } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
@@ -14,10 +15,9 @@ import type {
 import { Inbox, type Batch } from "./inbox.js";
 import { Delivery, WAKE_TYPE } from "./delivery.js";
 import { Supervisor, taskSummary, type Task } from "./supervisor.js";
-import { safeText } from "./logs.js";
+import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import {
   toolResult,
-  jsonText,
   taskRow,
   payloadPage,
   MAX_TOOL_BYTES,
