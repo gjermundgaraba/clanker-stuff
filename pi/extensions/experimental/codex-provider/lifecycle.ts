@@ -2246,7 +2246,10 @@ export const createCodexLifecycle = (
     beforeProviderRequest: async (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => {
       const headers = consumeRequestHeaders(state, ctx);
       try {
-        const payload = rewriteCollaborationTools(event.payload, pi, ctx);
+        // Background Codex calls can load this lifecycle while another provider is active.
+        const payload = isSupportedLifecycleModel(ctx.model)
+          ? rewriteCollaborationTools(event.payload, pi, ctx)
+          : event.payload;
         return await runBeforeProviderRequestHook(
           pi,
           state,
