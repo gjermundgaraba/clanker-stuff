@@ -109,7 +109,6 @@ const excerpt = (label: string, text: string, width: number): string => {
 };
 /** Appended to options that carry a Markdown preview, so `p` is discoverable. */
 export const PREVIEW_MARK = "  ▸ preview (p)";
-export const CONTEXT_MARK = "▸ Context available (c)";
 export function optionLines(
   q: Question,
   a: Draft["answers"][string],
@@ -216,6 +215,7 @@ export function boundedView(options: {
   if (width < 24 || budget < 8)
     return {
       scroll: options.scroll,
+      bodyRows: 0,
       lines: textLines(
         `Terminal too small for the questionnaire · ${options.closeKey} closes and keeps the draft`,
         width,
@@ -246,6 +246,7 @@ export function boundedView(options: {
       : "");
   return {
     scroll,
+    bodyRows: size,
     lines: [
       rule(options.title),
       options.header,

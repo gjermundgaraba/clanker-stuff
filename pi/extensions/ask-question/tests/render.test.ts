@@ -134,7 +134,11 @@ describe("questionnaire presentation", () => {
     };
     const body = Array.from({ length: 30 }, (_, i) => `line ${i}`);
     const first = boundedView({ ...options, body, focusLine: 0 });
+    expect(first.bodyRows).toBe(11);
     const short = boundedView({ ...options, body: ["Short"] });
+    expect(short.bodyRows).toBe(1);
+    expect(boundedView({ ...options, body, rows: 18 }).bodyRows).toBe(3);
+    expect(boundedView({ ...options, body, rows: 8 }).bodyRows).toBe(0);
     expect(short.lines.length).toBeLessThan(first.lines.length);
     expect(short.lines.filter((line) => line === "")).toHaveLength(2);
     expect(short.lines[0]).toContain("─ Title ─");

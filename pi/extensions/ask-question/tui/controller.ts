@@ -7,7 +7,6 @@ import { MAX_NOTE, MAX_TEXT } from "../request.js";
 import type { Question } from "../request.js";
 import { answered } from "../summary.js";
 import {
-  CONTEXT_MARK,
   boundedView,
   detailLines,
   diffText,
@@ -39,6 +38,7 @@ export class QuestionnaireView {
   private question = 0;
   private highlight = 0;
   private scroll = 0;
+  private scrollPage = 1;
   private revealHighlight = false;
   private renderedWidth?: number;
   private renderedRows?: number;
@@ -194,10 +194,12 @@ export class QuestionnaireView {
           return;
         }
         this.editor = undefined;
+        this.revealHighlight = true;
         this.scroll = 0;
         if (field.kind === "custom") await this.afterWritten(field.question!);
       } else if (this.keys.matches(data, "tui.select.cancel")) {
         this.editor = undefined;
+        this.revealHighlight = true;
         this.hint = "";
         this.scroll = 0;
       } else component.handleInput(data);
@@ -213,12 +215,16 @@ export class QuestionnaireView {
     const confirmCancel = this.armedCancel && action === "key:x";
     this.armedCancel = false;
     if (action === "page_up" || action === "page_down") {
-      this.scroll = Math.max(0, this.scroll + (action === "page_up" ? -5 : 5));
+      this.scroll = Math.max(
+        0,
+        this.scroll + (action === "page_up" ? -this.scrollPage : this.scrollPage),
+      );
       return;
     }
     if (this.detail) {
       if (action === "close" || action === "back" || action === "confirm") {
         this.detail = undefined;
+        this.revealHighlight = true;
         this.scroll = 0;
       } else if (action === "up" || action === "down")
         this.scroll = Math.max(0, this.scroll + (action === "up" ? -1 : 1));
@@ -298,22 +304,6 @@ export class QuestionnaireView {
         Math.min(q.options?.length ?? 0, this.highlight + (action === "up" ? -1 : 1)),
       );
       this.revealHighlight = true;
-      return;
-    }
-    if (action === "key:c") {
-      this.detail = {
-        title: `${q.header} · Context`,
-        text: [
-          this.item.draft?.reason ? `**Revision requested:** ${this.item.draft.reason}` : "",
-          this.item.request.context,
-          q.context,
-          q.question,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-        markdown: true,
-      };
-      this.scroll = 0;
       return;
     }
     if (action === "key:p") {
@@ -420,7 +410,7 @@ export class QuestionnaireView {
         : q.multi_select
           ? "Next"
           : "Select + next";
-      footer = `${confirm} ${primary}${q.multi_select ? " · Space Toggle" : ""} · ${close} Close · x Cancel\n↑↓/j/k Move · ←→/h/l Questions · n Note · g Form note${option?.preview ? " · p Preview" : ""}${this.hasContext(q) ? " · c Context" : ""} · i Details${this.item.draft?.base_revision ? " · d Changes" : ""}`;
+      footer = `${confirm} ${primary}${q.multi_select ? " · Space Toggle" : ""} · ${close} Close · x Cancel\n${scrollKeys} Scroll · ↑↓/j/k Move · ←→/h/l Questions · n Note · g Form note${option?.preview ? " · p Preview" : ""} · i Details${this.item.draft?.base_revision ? " · d Changes" : ""}`;
     }
     if (editing) {
       const cursor = body.findIndex((line) => line.includes(CURSOR_MARKER));
@@ -444,12 +434,10 @@ export class QuestionnaireView {
       theme: this.theme,
     });
     this.scroll = view.scroll;
+    this.scrollPage = Math.max(1, Math.min(5, view.bodyRows));
     return view.lines.map((line) => " ".repeat(padding) + line);
   }
-  private hasContext(q: Question): boolean {
-    return !!(this.item.request.context || q.context || this.item.draft?.reason);
-  }
-  /** Question text, an explicit context marker, the option list and the questionnaire note line. */
+  /** Inline context, question text, options and the questionnaire note line. */
   private questionBody(
     q: Question,
     a: Draft["answers"][string],
@@ -457,9 +445,15 @@ export class QuestionnaireView {
     width: number,
     editing?: InlineEditor,
   ) {
-    const lines = textLines(q.question, width);
-    if (this.hasContext(q)) lines.push(this.theme.fg("accent", CONTEXT_MARK));
-    lines.push("");
+    const lines: string[] = [];
+    for (const context of [
+      this.item.draft?.reason ? `**Revision requested:** ${this.item.draft.reason}` : undefined,
+      this.item.request.context,
+      q.context,
+    ]) {
+      if (context) lines.push(...markdownLines(context, width), "");
+    }
+    lines.push(...textLines(q.question, width), "");
     const options = optionLines(
       q,
       a,
