@@ -13,3 +13,7 @@ npm install @clanker-stuff/footer-protocol
 ```ts
 import { FOOTER_PROTOCOL_VERSION, FOOTER_WIDGET_EVENT } from "@clanker-stuff/footer-protocol";
 ```
+
+## Configuration
+
+See [configuration and icon preference events](docs/preferences.md).

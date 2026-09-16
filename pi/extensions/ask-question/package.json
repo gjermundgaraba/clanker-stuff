@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/ask-question",
   "version": "0.1.0",
   "private": false,
-  "description": "Lets pi ask blocking or asynchronous questions and send attention messages.",
+  "description": "Lets pi ask blocking or asynchronous questionnaires with reviewed, revisable answers.",
   "keywords": [
     "pi-package"
   ],
@@ -18,16 +18,20 @@
   },
   "files": [
     "index.ts",
-    "tool.ts",
-    "questions.ts",
-    "dialog",
+    "coordinator.ts",
+    "delivery.ts",
+    "interaction.ts",
+    "journal.ts",
+    "request.ts",
+    "summary.ts",
+    "transcript.ts",
+    "tui",
+    "docs/interactions.md",
     "README.md",
     "LICENSE",
-    "async.ts",
-    "docs",
     "NOTICE",
     "LICENSE-APACHE",
-    "renderers.ts"
+    "status.ts"
   ],
   "type": "module",
   "exports": "./index.ts",
@@ -35,6 +39,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/border-status-protocol": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@clanker-stuff/pi-user-input": "workspace:^"
   },

@@ -1,7 +1,5 @@
-import {
-  FooterWidgetGlyphMapSchema,
-  FooterWidgetMessageSchema,
-} from "@clanker-stuff/footer-protocol";
+import { GlyphMapSchema } from "@clanker-stuff/status-icons";
+import { FooterWidgetMessageSchema } from "@clanker-stuff/footer-protocol";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -60,11 +58,7 @@ describe("protocol validation", () => {
     }
     glyphs.ascii = "B";
     const { icon } = result.value.widget;
-    if (
-      icon === undefined ||
-      icon === false ||
-      !Value.Check(FooterWidgetGlyphMapSchema, icon.glyphs)
-    ) {
+    if (icon === undefined || icon === false || !Value.Check(GlyphMapSchema, icon.glyphs)) {
       throw new Error("expected glyph map");
     }
 

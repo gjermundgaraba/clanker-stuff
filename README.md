@@ -6,7 +6,7 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 
 | Extension                                                                   | Description                                                                                         |
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| [`@clanker-stuff/ask-question`](pi/extensions/ask-question)                 | Lets pi ask blocking or asynchronous questions and send attention messages.                         |
+| [`@clanker-stuff/ask-question`](pi/extensions/ask-question)                 | Lets pi ask blocking or asynchronous questionnaires with reviewed, revisable answers.               |
 | [`@clanker-stuff/dollah-skills`](pi/extensions/dollah-skills)               | Adds Codex-style skill mentions that complete, highlight, and inject loaded skills into the prompt. |
 | [`@clanker-stuff/history`](pi/extensions/history)                           | Adds persistent prompt history with native ↑/↓ recall and Ctrl+R search to pi's editor.             |
 | [`@clanker-stuff/mcp`](pi/extensions/mcp)                                   | Connects selected MCP servers to pi and registers their tools.                                      |
@@ -20,6 +20,7 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | Extension                                                                        | Description                                                                                                                                                               |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@clanker-stuff/background-tasks`](pi/extensions/experimental/background-tasks) | Runs session-owned background jobs and agent-authored watchers with automatic notifications.                                                                              |
+| [`@clanker-stuff/border-status`](pi/extensions/experimental/border-status)       | Shares the editor top border between extension-owned status indicators.                                                                                                   |
 | [`@clanker-stuff/codex-provider`](pi/extensions/experimental/codex-provider)     | Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, transport, compaction, and durable checkpoint replay.                                      |
 | [`@clanker-stuff/context`](pi/extensions/experimental/context)                   | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details.                                                                                |
 | [`@clanker-stuff/footer`](pi/extensions/experimental/footer)                     | Hosts a configurable cooperative footer for built-in, native, and rich extension widgets.                                                                                 |
@@ -29,6 +30,7 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | [`@clanker-stuff/side`](pi/extensions/experimental/side)                         | Adds a concurrent multi-turn /side conversation with an adaptive side panel.                                                                                              |
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)               | Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models. |
 | [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                       | Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.                                                                    |
+| [`@clanker-stuff/user-attention`](pi/extensions/experimental/user-attention)     | Sends attention notifications while pi continues working.                                                                                                                 |
 
 Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.
 

@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { FooterConfig } from "../config.js";
+import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
 import { layoutFooterRows, renderFooterState, sanitizeNativeStatus } from "../layout.js";
 import type { FooterRenderState, FooterTheme, RenderableWidget } from "../layout.js";
 import type { LiveWidget } from "../widgets.js";

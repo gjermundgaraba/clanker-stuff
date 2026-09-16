@@ -20,12 +20,20 @@
   "files": [
     "index.ts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "config.ts",
+    "docs"
   ],
   "type": "module",
-  "exports": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./config": "./config.ts"
+  },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/status-icons": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

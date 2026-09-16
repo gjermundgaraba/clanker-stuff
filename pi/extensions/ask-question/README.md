@@ -1,6 +1,6 @@
 # ask-question
 
-Lets pi ask blocking or asynchronous questions and send attention messages.
+Lets pi ask blocking or asynchronous questionnaires with reviewed, revisable answers.
 
 ## Install
 
@@ -10,7 +10,7 @@ pi install npm:@clanker-stuff/ask-question
 
 ## Usage
 
-Pi can ask blocking or asynchronous questions; use `/answers` to answer or dismiss pending async questions.
+In a persistent TUI session, Pi asks reviewed questionnaires; press Alt+I or use `/answers` to answer, resume or revise them.
 
 ## Configuration
 

@@ -1,0 +1,40 @@
+{
+  "name": "@clanker-stuff/status-icons",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Shares icon families and glyph fallback policy across Pi status renderers.",
+  "keywords": [
+    "pi",
+    "pi-extension"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/packages/status-icons#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/packages/status-icons"
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

@@ -1,3 +1,4 @@
+import { IconFamilySchema, GlyphMapSchema } from "@clanker-stuff/status-icons";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
@@ -32,13 +33,6 @@ export type FooterSpan = Static<typeof FooterSpanSchema>;
 export const FooterContentSchema = Type.Array(FooterSpanSchema, { maxItems: 32 });
 export type FooterContent = Static<typeof FooterContentSchema>;
 
-export const FooterIconFamilySchema = Type.Union([
-  Type.Literal("ascii"),
-  Type.Literal("unicode"),
-  Type.Literal("nerd"),
-]);
-export type FooterIconFamily = Static<typeof FooterIconFamilySchema>;
-
 export const FooterTruncationSchema = Type.Union([
   Type.Literal("start"),
   Type.Literal("middle"),
@@ -70,19 +64,9 @@ export const FooterWidgetHealthSchema = Type.Object(
 );
 export type FooterWidgetHealth = Static<typeof FooterWidgetHealthSchema>;
 
-export const FooterWidgetGlyphMapSchema = Type.Object(
-  {
-    ascii: Type.Optional(Type.String({ maxLength: 16 })),
-    nerd: Type.Optional(Type.String({ maxLength: 16 })),
-    unicode: Type.Optional(Type.String({ maxLength: 16 })),
-  },
-  STRICT,
-);
-export type FooterWidgetGlyphMap = Static<typeof FooterWidgetGlyphMapSchema>;
-
 export const FooterWidgetIconSchema = Type.Object(
   {
-    glyphs: Type.Union([Type.String({ maxLength: 16 }), FooterWidgetGlyphMapSchema]),
+    glyphs: Type.Union([Type.String({ maxLength: 16 }), GlyphMapSchema]),
     tone: Type.Optional(FooterToneSchema),
   },
   STRICT,
@@ -146,3 +130,23 @@ export const FooterWidgetMessageSchema = Type.Union([
   ),
 ]);
 export type FooterWidgetMessage = Static<typeof FooterWidgetMessageSchema>;
+
+/** Committed icon preference, independent of whether the footer itself is enabled. */
+export const FOOTER_ICON_PREFERENCE_EVENT = "clanker-footer:icon-preference";
+export const FOOTER_ICON_PREFERENCE_REQUEST_EVENT = "clanker-footer:icon-preference-request";
+export const FooterIconPreferenceSchema = Type.Object(
+  {
+    protocol: Type.Literal(FOOTER_PROTOCOL_VERSION),
+    type: Type.Literal("icon-preference"),
+    iconFamily: IconFamilySchema,
+  },
+  STRICT,
+);
+
+export const FooterIconPreferenceRequestSchema = Type.Object(
+  {
+    protocol: Type.Literal(FOOTER_PROTOCOL_VERSION),
+    type: Type.Literal("icon-preference-request"),
+  },
+  STRICT,
+);

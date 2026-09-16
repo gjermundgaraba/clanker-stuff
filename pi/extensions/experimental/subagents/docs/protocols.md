@@ -161,7 +161,7 @@ Before every model request, including tool continuations and post-compaction req
 
 The context hook replaces its own previous ephemeral prefix and emits no block for an empty inventory. It never appends session entries or changes the active branch. Restored controllers therefore rebuild inventories from the existing graph without a new persistent store. The prefix remains outside the durable baseline used by provider context alignment and is regenerated after compaction. Unchanged inventories retain a stable prefix for transport continuation; an inventory change safely requires full context. Pi's supported context boundary replaces Codex world-state diff updates; V1 receives no inventory change. `list_agents` still lists resident runtimes and `/agents` still shows durable identities.
 
-Child runtimes exclude the root-only asynchronous `request_user_input_async` and `send_message_to_user_async` tools from inherited active tools. The existing blocking `ask_question` capability is separate.
+Child runtimes exclude the root-only asynchronous `request_user_input_async` and `send_message_to_user_async` tools from inherited active tools. The blocking `request_user_input` questionnaire is separate and retains its interactive-TUI and persistence preconditions. These questionnaire contracts belong to `ask-question`, not the native Codex tool schema.
 
 ## Forking and persistence
 

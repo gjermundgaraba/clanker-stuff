@@ -1,0 +1,497 @@
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, it, vi } from "vite-plus/test";
+import {
+  createIdentityTheme,
+  createKeybindings,
+  createMockTui,
+} from "../../../tests/harness/tui.js";
+import { createInteraction, transition } from "../interaction.js";
+import { QuestionnaireView } from "../tui/controller.js";
+import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
+import type { Questionnaire } from "../request.js";
+import { intent } from "../tui/input.js";
+
+const question = {
+  id: "choice",
+  header: "Choice",
+  question: "Choose a target?",
+  context: "## Context\nUnicode: 日本語 👩🏽‍💻",
+  options: [
+    { id: "first", label: "First", preview: "```ts\nconst value = 1;\n```" },
+    { id: "second", label: "Second" },
+  ],
+  recommendation: { option_ids: ["first"], reason: "Synthetic suggestion" },
+};
+function setup(
+  multi = false,
+  remap = false,
+  beforeMutation?: () => Promise<void>,
+  request: Questionnaire = { questions: [{ ...question, multi_select: multi }] },
+) {
+  initTheme("dark");
+  let item = createInteraction("q_ui", request, "call", "async");
+  const abort = new AbortController();
+  const done = vi.fn();
+  const report = vi.fn();
+  const notify = vi.fn();
+  const send = vi.fn(async () => {});
+  const tui = createMockTui({ rows: 30 });
+  const keys = createKeybindings({
+    "tui.select.up": ["\u001b[A"],
+    "tui.select.down": ["\u001b[B"],
+    "tui.select.confirm": [remap ? "\u001by" : "\r"],
+    "tui.select.cancel": ["\u001b"],
+    "tui.input.submit": [remap ? "\u001bd" : "\r"],
+    "tui.input.newLine": [remap ? "\u001bj" : "\n"],
+  });
+  const view = new QuestionnaireView(
+    tui,
+    createIdentityTheme(),
+    keys,
+    item,
+    {
+      current: () => structuredClone(item),
+      mutate: async (version, action) => {
+        await beforeMutation?.();
+        return (item = transition(item, version, action));
+      },
+      subscribe: () => () => {},
+      setFlush: () => {},
+      blocking: false,
+      notify,
+      report,
+      send,
+    },
+    done,
+    abort.signal,
+  );
+  view.focused = true;
+  const press = async (...keys: string[]) => {
+    for (const key of keys) {
+      view.handleInput(key);
+      await view.settled();
+    }
+  };
+  return {
+    view,
+    done,
+    send,
+    notify,
+    report,
+    abort,
+    tui,
+    press,
+    get item() {
+      return item;
+    },
+    pause: () => {
+      item = transition(item, item.version, { type: "pause" });
+    },
+  };
+}
+describe("bounded questionnaire TUI", () => {
+  it("advertises context and previews, keeps the footer contextual, and navigates with h/l", async () => {
+    const e = setup(false, false, undefined, {
+      questions: [
+        { ...question, multi_select: false },
+        {
+          ...question,
+          id: "plain",
+          header: "Plain",
+          context: undefined,
+          options: [{ id: "a", label: "A" }],
+          recommendation: undefined,
+        },
+      ],
+    });
+    try {
+      let screen = displayText(e.view.render(100).join("\n"));
+      expect(screen).toContain("▸ Context available (c)");
+      expect(screen).toContain("1. First\u00a0★  ▸ preview (p)");
+      expect(screen).toContain("▸ Markdown preview available · p");
+      expect(screen).toContain("★ Recommended: Synthetic suggestion");
+      expect(screen).toContain("x Cancel");
+      expect(screen).toContain("h/l Questions");
+      expect(screen).not.toContain("Help");
+      expect(screen).not.toContain("const value");
+      await e.press("p");
+      expect(displayText(e.view.render(100).join("\n"))).toContain("const value");
+      await e.press("\u001b", "l");
+      screen = displayText(e.view.render(100).join("\n"));
+      expect(screen).toContain("> ( ) 1. A");
+      expect(screen).not.toContain("Context available");
+      expect(screen).not.toContain("preview (p)");
+      await e.press("h");
+      expect(displayText(e.view.render(100).join("\n"))).toContain("Context available");
+      await e.press("1", "1");
+      screen = e.view.render(100).join("\n");
+      expect(screen).toContain("Send answers");
+      expect(screen).toContain("Save without sending");
+      expect(screen).toContain("Send starts/steers a turn");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("keeps the frame height stable between questions and views", async () => {
+    const e = setup(false, false, undefined, {
+      questions: [
+        { ...question, multi_select: false },
+        {
+          ...question,
+          id: "plain",
+          header: "Plain",
+          context: undefined,
+          options: [{ id: "a", label: "A" }],
+          recommendation: undefined,
+        },
+      ],
+    });
+    try {
+      Object.defineProperty(e.tui.terminal, "rows", { value: 60, configurable: true });
+      const first = e.view.render(100).length;
+      await e.press("l");
+      expect(`l:${e.view.render(100).length}`).toBe(`l:${first}`);
+      await e.press("1");
+      expect(`review:${e.view.render(100).length}`).toBe(`review:${first}`);
+      await e.press("i");
+      expect(`detail:${e.view.render(100).length}`).toBe(`detail:${first}`);
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("reveals number-key selections and retains focus across a narrow resize", async () => {
+    const e = setup(true, false, undefined, {
+      questions: [
+        {
+          ...question,
+          multi_select: true,
+          options: Array.from({ length: 5 }, (_, i) => ({
+            id: `o${i}`,
+            label: `Choice ${i}`,
+            description: "日本語 details ".repeat(12),
+          })),
+          recommendation: { option_ids: ["o0"], reason: "Synthetic" },
+        },
+      ],
+    });
+    try {
+      Object.defineProperty(e.tui.terminal, "rows", { value: 40, configurable: true });
+      e.view.render(80);
+      await e.press("5");
+      let screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain("> [x] 5. Choice 4");
+      expect(screen).toContain("日本語 details");
+      Object.defineProperty(e.tui.terminal, "rows", { value: 20, configurable: true });
+      const lines = e.view.render(40);
+      screen = displayText(lines.join("\n"));
+      expect(screen).toContain("> [x] 5. Choice 4");
+      expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
+      expect(lines.length).toBeLessThanOrEqual(12);
+      expect(e.item.draft?.answers.choice.selected).toEqual(["o4"]);
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("uses j/k to highlight without selecting, but keeps editor text and Review k intact", async () => {
+    const e = setup();
+    try {
+      await e.press("j");
+      expect(e.view.render(80).join("\n")).toContain("> ( ) 2. Second");
+      await e.press("k");
+      expect(e.view.render(80).join("\n")).toContain("> ( ) 1. First");
+      expect(e.item.version).toBe(1);
+      await e.press("g", "jk", "\r", "j", "\r", "k");
+      expect(e.item.submissions[0].answers.choice.selections[0].option_id).toBe("second");
+      expect(e.item.submissions[0].note).toBe("jk");
+      expect(e.send).not.toHaveBeenCalled();
+      expect(intent(createKeybindings({ "tui.select.confirm": ["k"] }), "k", true)).toBe("confirm");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("keeps input ordered while a note checkpoint is still in flight", async () => {
+    const started = Promise.withResolvers<void>();
+    const checkpoint = Promise.withResolvers<void>();
+    const e = setup(false, false, async () => {
+      started.resolve();
+      await checkpoint.promise;
+    });
+    try {
+      await e.press("n");
+      e.view.handleInput("Checkpointed note");
+      e.view.handleInput("\r");
+      await started.promise;
+      e.view.handleInput("2");
+      expect(e.item.draft?.answers.choice.selected).toEqual([]);
+      checkpoint.resolve();
+      await e.view.flush();
+      expect(e.item.draft?.answers.choice.notes.first).toBe("Checkpointed note");
+      expect(e.item.draft?.answers.choice.selected).toEqual(["second"]);
+      expect(e.done).not.toHaveBeenCalled();
+    } finally {
+      checkpoint.resolve();
+      e.view.dispose();
+    }
+  });
+  it("routes rapid keys after saving a note to the form, not the outgoing editor", async () => {
+    const e = setup();
+    try {
+      await e.press("n");
+      for (const key of ["Synthetic note", "\r", "2", "r"]) e.view.handleInput(key);
+      await e.view.flush();
+      expect(e.item.draft?.answers.choice.notes.first).toBe("Synthetic note");
+      expect(e.item.draft?.answers.choice.selected).toEqual(["second"]);
+      expect(e.view.render(80).join("\n")).toContain("Send answers");
+      expect(e.done).not.toHaveBeenCalled();
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("routes a rapid editor-open, paste, newline and completion burst in order", async () => {
+    const e = setup(false, true);
+    try {
+      for (const key of [
+        "g",
+        "\u001b[200~123rs\u001b[201~",
+        "\u001bj",
+        "next line",
+        "\u001bd",
+        "2",
+      ])
+        e.view.handleInput(key);
+      await e.view.flush();
+      expect(e.item.draft?.note).toBe("123rs\nnext line");
+      expect(e.item.draft?.answers.choice.selected).toEqual(["second"]);
+      expect(e.done).not.toHaveBeenCalled();
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("keeps highlight/context/preview view-only and requires Review then explicit submission", async () => {
+    const e = setup();
+    try {
+      await e.press("p");
+      expect(e.item.version).toBe(1);
+      expect(displayText(e.view.render(80).join("\n"))).toContain("const value");
+      await e.press("\u001b", "\u001b[B", "p"); // No preview on this option: nothing opens.
+      expect(displayText(e.view.render(80).join("\n"))).toContain("> ( ) 2. Second");
+      await e.press("c", "\u001b", "1");
+      expect(e.done).not.toHaveBeenCalled();
+      expect(e.view.render(80).join("\n")).toContain("Review");
+      await e.press("\r", "\r");
+      expect(e.item.submissions).toHaveLength(1);
+      expect(e.send).toHaveBeenCalledOnce();
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("preserves distinct option notes across deselection and adds an overall note", async () => {
+    const e = setup(true);
+    try {
+      await e.press(
+        "n",
+        "first note",
+        "\r",
+        "1",
+        "2",
+        "n",
+        "second note",
+        "\r",
+        "1",
+        "1",
+        "g",
+        "whole form",
+        "\r",
+        "r",
+        "k",
+      );
+      expect(e.item.submissions[0].answers.choice.selections).toEqual([
+        { option_id: "second", label: "Second", note: "second note" },
+        { option_id: "first", label: "First", note: "first note" },
+      ]);
+      expect(e.item.submissions[0].note).toBe("whole form");
+      expect(e.send).not.toHaveBeenCalled();
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("uses remapped multiline completion, treats digits/paste as editor text, and never submits from an editor", async () => {
+    const e = setup(false, true);
+    try {
+      await e.press(
+        "\u001b[B",
+        "\u001b[B",
+        "\u001by",
+        "123",
+        "\u001bj",
+        "\u001b[200~r1s\u001b[201~",
+        "\u001bd",
+      );
+      expect(e.item.draft?.answers.choice.custom).toBe("123\nr1s");
+      expect(e.done).not.toHaveBeenCalled();
+      await e.press("r", "k");
+      expect(e.item.submissions[0].answers.choice.custom?.text).toBe("123\nr1s");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("reselects a saved custom answer without requiring a text change", async () => {
+    const e = setup();
+    try {
+      await e.press(
+        "\u001b[B",
+        "\u001b[B",
+        "\r",
+        "Saved alternative",
+        "\r",
+        "1",
+        "\u001b[D",
+        "\u001b[B",
+        "\u001b[B",
+        "\r",
+        "\r",
+        "r",
+        "k",
+      );
+      expect(e.item.submissions[0].answers.choice).toMatchObject({
+        selections: [],
+        custom: { text: "Saved alternative" },
+      });
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("flushes uncheckpointed typing on Stop, rebasing only unchanged drafts", async () => {
+    const e = setup();
+    try {
+      await e.press("g");
+      e.view.handleInput("last keystrokes");
+      e.pause();
+      e.abort.abort();
+      await expect.poll(() => e.done.mock.calls.length).toBe(1);
+      expect(e.item.draft?.note).toBe("last keystrokes");
+      expect(e.item.paused).toBe(true);
+      expect(e.report).not.toHaveBeenCalled();
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("retains over-limit text and bounds Unicode/Markdown across resize", async () => {
+    const e = setup();
+    try {
+      await e.press("p");
+      for (const [width, rows] of [
+        [80, 30],
+        [24, 14],
+        [12, 8],
+        [100, 60],
+      ]) {
+        Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
+        const lines = e.view.render(width);
+        expect(lines.length).toBeLessThanOrEqual(Math.max(3, Math.floor(rows * 0.6)));
+        expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+      }
+      await e.press("\u001b", "g");
+      e.view.handleInput("日".repeat(1001));
+      await expect(e.view.flush()).rejects.toThrow("limit");
+      expect(e.item.draft?.note).toBe("");
+      Object.defineProperty(e.tui.terminal, "rows", { value: 40, configurable: true });
+      expect(e.view.render(80).join("\n")).toContain("1001/1000");
+      await e.press("\r"); // Over-limit text cannot be saved, so the editor stays open.
+      expect(e.view.render(80).join("\n")).toContain("1001/1000");
+      expect(e.view.render(80).join("\n")).toContain("limit");
+      await e.press("\u001b"); // Discarding is always possible.
+      expect(e.view.render(80).join("\n")).not.toContain("1001/1000");
+      expect(e.item.draft?.note).toBe("");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("saves a written answer with Enter and advances, discards it with Escape", async () => {
+    const e = setup();
+    try {
+      await e.press("\u001b[B", "\u001b[B", "\r", "typed then dropped", "\u001b");
+      expect(e.item.draft?.answers.choice.custom).toBe("");
+      expect(e.item.draft?.answers.choice.custom_selected).toBe(false);
+      expect(e.view.render(80).join("\n")).toContain("Write answer");
+      await e.press("\r", "kept", "\r");
+      expect(e.item.draft?.answers.choice).toMatchObject({ custom: "kept", custom_selected: true });
+      expect(e.view.render(80).join("\n")).toContain("Send answers");
+      await e.press("1");
+      expect(e.view.render(80).join("\n")).toContain("> (•) Write another answer");
+      expect(e.view.render(80).join("\n")).toContain("Edit answer · → Next");
+      await e.press("\r", "\u001b");
+      expect(e.item.draft?.answers.choice.custom).toBe("kept");
+      expect(e.view.render(80).join("\n")).not.toContain("Send answers");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("edits notes and written answers inline, keeping the option list visible", async () => {
+    const e = setup();
+    try {
+      await e.press("j", "n", "inline note");
+      const lines = displayText(e.view.render(80).join("\n")).split("\n");
+      const option = lines.findIndex((line) => line.includes("> ( ) 2. Second"));
+      expect(option).toBeGreaterThan(0);
+      expect(lines.slice(option + 1, option + 4).join("\n")).toContain("inline note");
+      expect(lines.join("\n")).toContain("( ) 1. First");
+      expect(lines.join("\n")).toContain("11/1000");
+      expect(lines.join("\n")).toContain("Save");
+      await e.press("\r");
+      expect(e.item.draft?.answers.choice.notes.second).toBe("inline note");
+      expect(displayText(e.view.render(80).join("\n"))).toContain("Note: inline note");
+      await e.press("g", "overall");
+      expect(displayText(e.view.render(80).join("\n"))).toContain("Questionnaire note");
+      await e.press("\r");
+      expect(displayText(e.view.render(80).join("\n"))).toContain("Questionnaire note: overall");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("cancels only on a repeated x and notifies when answers are kept unsent", async () => {
+    const e = setup();
+    try {
+      await e.press("x");
+      expect(e.view.render(80).join("\n")).toContain("Press x again");
+      await e.press("1");
+      expect(e.item.cancelled).toBe(false);
+      expect(e.view.render(80).join("\n")).not.toContain("Press x again");
+      await e.press("k");
+      expect(e.notify).toHaveBeenCalledWith(expect.stringContaining("not sent"));
+      expect(e.send).not.toHaveBeenCalled();
+      expect(e.done).toHaveBeenCalledWith("submitted");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("opens on the first unanswered question with the current answer highlighted", async () => {
+    const e = setup(false, false, undefined, {
+      questions: [
+        { ...question, id: "first_q", multi_select: false },
+        { ...question, id: "second_q", header: "Second question" },
+      ],
+    });
+    try {
+      await e.press("2", "\u001b[D");
+      expect(e.view.render(80).join("\n")).toContain("> (•) 2. Second");
+      await e.press("x", "x");
+      expect(e.item.cancelled).toBe(true);
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("closes after failed delivery while retaining the submitted revision in the inbox", async () => {
+    const e = setup();
+    try {
+      e.send.mockRejectedValue(new Error("handoff failed"));
+      await e.press("1", "\r");
+      expect(e.item.submissions).toHaveLength(1);
+      expect(e.done).toHaveBeenCalledWith("submitted");
+      expect(e.report).toHaveBeenCalled();
+    } finally {
+      e.view.dispose();
+    }
+  });
+});

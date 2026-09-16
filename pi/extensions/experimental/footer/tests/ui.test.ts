@@ -9,8 +9,8 @@ import {
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createCustomUiDriver, createIdentityTheme } from "../../../../tests/harness/tui.js";
-import { cloneFooterConfig, DEFAULT_CONFIG } from "../config.js";
-import type { FooterConfig } from "../config.js";
+import { cloneFooterConfig, DEFAULT_CONFIG } from "@clanker-stuff/footer-protocol/config";
+import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
 import { FooterEditor, showFooterEditor } from "../ui.js";
 
 describe("footer editor", () => {

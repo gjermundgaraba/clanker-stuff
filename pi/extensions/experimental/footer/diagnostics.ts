@@ -2,8 +2,8 @@ import { FOOTER_PROTOCOL_VERSION } from "@clanker-stuff/footer-protocol";
 import type { FooterContent } from "@clanker-stuff/footer-protocol";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { hasTerminalControl } from "./config.js";
-import type { FooterConfig } from "./config.js";
+import { hasTerminalControl } from "@clanker-stuff/footer-protocol/config";
+import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
 import type { HostRuntime } from "./host.js";
 import { sanitizeNativeStatus } from "./layout.js";
 import { summary } from "./summary.js";

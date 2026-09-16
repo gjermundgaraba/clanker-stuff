@@ -81,10 +81,10 @@ describe("child runtime", () => {
     let active: string[] = [];
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
-      tools: ["ask_question", "request_user_input_async", "send_message_to_user_async"],
+      tools: ["request_user_input", "request_user_input_async", "send_message_to_user_async"],
       bridge: (pi) => {
         for (const name of [
-          "ask_question",
+          "request_user_input",
           "request_user_input_async",
           "send_message_to_user_async",
         ]) {
@@ -104,7 +104,7 @@ describe("child runtime", () => {
     runtime.commit();
     try {
       await runtime.startTurn({ text: "work" }).settled;
-      expect(active).toContain("ask_question");
+      expect(active).toContain("request_user_input");
       expect(active).not.toContain("request_user_input_async");
       expect(active).not.toContain("send_message_to_user_async");
     } finally {

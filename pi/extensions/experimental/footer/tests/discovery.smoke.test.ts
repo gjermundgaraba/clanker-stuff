@@ -58,6 +58,7 @@ describe("cooperative footer discovery", () => {
       "pnpm-lock.yaml",
       "pi/extensions/experimental/footer",
       "pi/packages/footer-protocol",
+      "pi/packages/status-icons",
       "pi/packages/extension-paths",
     ]) {
       cpSync(path.join(workspaceRoot, entry), path.join(stagingRoot, entry), {
@@ -105,6 +106,7 @@ describe("cooperative footer discovery", () => {
     }
     for (const dependency of [
       "@clanker-stuff/footer-protocol",
+      "@clanker-stuff/status-icons",
       "@clanker-stuff/pi-extension-paths",
       "@earendil-works/pi-coding-agent",
       "@earendil-works/pi-tui",

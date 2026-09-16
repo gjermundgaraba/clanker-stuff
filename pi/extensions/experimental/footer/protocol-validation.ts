@@ -9,7 +9,7 @@ import type {
 } from "@clanker-stuff/footer-protocol";
 import { Value } from "typebox/value";
 
-import { hasTerminalControl } from "./config.js";
+import { hasTerminalControl } from "@clanker-stuff/footer-protocol/config";
 
 export type ValidationResult<T> =
   | { ok: true; value: T }

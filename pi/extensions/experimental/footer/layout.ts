@@ -1,6 +1,7 @@
+import { selectGlyph } from "@clanker-stuff/status-icons";
+import type { IconFamily } from "@clanker-stuff/status-icons";
 import type {
   FooterContent,
-  FooterIconFamily,
   FooterSpan,
   FooterTone,
   FooterTruncation,
@@ -9,8 +10,8 @@ import type {
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import { hasTerminalControl } from "./config.js";
-import type { FooterConfig } from "./config.js";
+import { hasTerminalControl } from "@clanker-stuff/footer-protocol/config";
+import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
 import type { LiveWidget } from "./widgets.js";
 
 export interface RenderableWidget {
@@ -157,30 +158,14 @@ const renderSpan = (span: FooterSpan, theme: FooterTheme): string => {
 const renderContent = (content: FooterContent, theme: FooterTheme): string =>
   content.map((span) => renderSpan(span, theme)).join("");
 
-const iconGlyph = (icon: FooterWidgetIcon, family: FooterIconFamily): string => {
+const iconGlyph = (icon: FooterWidgetIcon, family: IconFamily): string => {
   if (typeof icon.glyphs === "string") {
     return icon.glyphs;
   }
-  const order: FooterIconFamily[] =
-    family === "nerd"
-      ? ["nerd", "unicode", "ascii"]
-      : family === "unicode"
-        ? ["unicode", "ascii"]
-        : ["ascii"];
-  for (const candidate of order) {
-    const glyph = icon.glyphs[candidate];
-    if (glyph !== undefined) {
-      return glyph;
-    }
-  }
-  return "";
+  return selectGlyph(icon.glyphs, family);
 };
 
-const renderLiveWidget = (
-  widget: LiveWidget,
-  family: FooterIconFamily,
-  theme: FooterTheme,
-): string => {
+const renderLiveWidget = (widget: LiveWidget, family: IconFamily, theme: FooterTheme): string => {
   if (widget.source === "native") {
     return widget.snapshot.content.map((span) => span.text).join("");
   }

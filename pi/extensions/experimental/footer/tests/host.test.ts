@@ -1,5 +1,7 @@
 import { Value } from "typebox/value";
 import {
+  FOOTER_ICON_PREFERENCE_EVENT,
+  FOOTER_ICON_PREFERENCE_REQUEST_EVENT,
   FOOTER_PROTOCOL_VERSION,
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
@@ -13,8 +15,9 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
-import { cloneFooterConfig, createFooterConfigStore, DEFAULT_CONFIG } from "../config.js";
-import type { FooterConfig } from "../config.js";
+import { cloneFooterConfig, DEFAULT_CONFIG } from "@clanker-stuff/footer-protocol/config";
+import { createFooterConfigStore } from "../config.js";
+import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
 import { readGitStatus } from "../git.js";
 import extension from "../index.js";
 
@@ -38,6 +41,50 @@ const model = (id: string, name: string): Model<"openai-responses"> => ({
 });
 
 describe("footer host", () => {
+  it("announces committed icon preferences even when disabled and answers late requests", async () => {
+    const config = cloneFooterConfig(DEFAULT_CONFIG);
+    config.enabled = false;
+    config.iconFamily = "nerd";
+    vi.mocked(createFooterConfigStore).mockReturnValue({
+      load: async () => ({ config }),
+      path: "/tmp/footer.json",
+      save: async () => {},
+    });
+    const host = createExtensionHost(extension);
+    const preference = vi.fn();
+    host.events.on(FOOTER_ICON_PREFERENCE_EVENT, preference);
+    const ctx = host.createContext();
+    await host.emitSessionStart(ctx);
+    expect(preference).toHaveBeenLastCalledWith({
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "icon-preference",
+      iconFamily: "nerd",
+    });
+    host.events.emit(FOOTER_ICON_PREFERENCE_REQUEST_EVENT, {
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "icon-preference-request",
+    });
+    expect(preference).toHaveBeenCalledTimes(2);
+    host.events.emit(FOOTER_ICON_PREFERENCE_REQUEST_EVENT, { version: 1 });
+    host.events.emit(FOOTER_ICON_PREFERENCE_REQUEST_EVENT, {
+      protocol: 99,
+      type: "icon-preference-request",
+    });
+    host.events.emit(FOOTER_ICON_PREFERENCE_REQUEST_EVENT, {
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "icon-preference-request",
+      extra: true,
+    });
+    expect(preference).toHaveBeenCalledTimes(2);
+
+    await host.emitSessionShutdown(ctx);
+    host.events.emit(FOOTER_ICON_PREFERENCE_REQUEST_EVENT, {
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "icon-preference-request",
+    });
+    expect(preference).toHaveBeenCalledTimes(2);
+  });
+
   it("answers late ready requests for the active runtime", async () => {
     vi.mocked(createFooterConfigStore).mockReturnValue({
       load: async () => ({ config: cloneFooterConfig(DEFAULT_CONFIG) }),

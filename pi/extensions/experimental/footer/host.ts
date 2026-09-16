@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  FooterIconPreferenceRequestSchema,
+  FOOTER_ICON_PREFERENCE_EVENT,
+  FOOTER_ICON_PREFERENCE_REQUEST_EVENT,
   FOOTER_PROTOCOL_VERSION,
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
@@ -15,8 +18,10 @@ import type {
   ReadonlyFooterDataProvider,
 } from "@earendil-works/pi-coding-agent";
 
-import { cloneFooterConfig, createFooterConfigStore } from "./config.js";
-import type { FooterConfig, LoadedFooterConfig } from "./config.js";
+import { cloneFooterConfig } from "@clanker-stuff/footer-protocol/config";
+import { createFooterConfigStore } from "./config.js";
+import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
+import type { LoadedFooterConfig } from "./config.js";
 import type { GitStatus } from "./git.js";
 import { readGitStatus, sameGitStatus } from "./git.js";
 import { renderFooterState } from "./layout.js";
@@ -78,6 +83,15 @@ const gitCanRender = (config: FooterConfig): boolean =>
 export const createFooterHost = (pi: ExtensionAPI) => {
   const configStore = createFooterConfigStore();
   let runtime: HostRuntime | undefined;
+  let preferenceUnsubscribe: (() => void) | undefined;
+  const emitIconPreference = () => {
+    if (runtime)
+      pi.events.emit(FOOTER_ICON_PREFERENCE_EVENT, {
+        protocol: FOOTER_PROTOCOL_VERSION,
+        type: "icon-preference",
+        iconFamily: runtime.configLoaded.config.iconFamily,
+      });
+  };
   let branchUnsubscribe: (() => void) | undefined;
   let protocolUnsubscribe: (() => void) | undefined;
   let readyRequestUnsubscribe: (() => void) | undefined;
@@ -350,6 +364,9 @@ export const createFooterHost = (pi: ExtensionAPI) => {
   };
 
   const listenForProtocolMessages = (): void => {
+    preferenceUnsubscribe ??= pi.events.on(FOOTER_ICON_PREFERENCE_REQUEST_EVENT, (value) => {
+      if (Value.Check(FooterIconPreferenceRequestSchema, value)) emitIconPreference();
+    });
     protocolUnsubscribe ??= pi.events.on(FOOTER_WIDGET_EVENT, handleWidgetMessage);
     readyRequestUnsubscribe ??= pi.events.on(FOOTER_READY_REQUEST_EVENT, (value) => {
       if (runtime !== undefined && Value.Check(FooterReadyRequestMessageSchema, value)) {
@@ -419,6 +436,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         onSave: async (config) => {
           await configStore.save(config);
           active.configLoaded = { config };
+          emitIconPreference();
           applyConfig(active, config);
         },
         renderPreview: (config, width) => {
@@ -433,6 +451,8 @@ export const createFooterHost = (pi: ExtensionAPI) => {
     },
     shutdown: (): void => {
       startGeneration += 1;
+      preferenceUnsubscribe?.();
+      preferenceUnsubscribe = undefined;
       stopRuntime();
       protocolUnsubscribe?.();
       protocolUnsubscribe = undefined;
@@ -490,6 +510,7 @@ export const createFooterHost = (pi: ExtensionAPI) => {
         active.lifecycle = "disabled";
       }
       emitReady(active);
+      emitIconPreference();
       refreshGit(active);
       syncTimer(active);
     },

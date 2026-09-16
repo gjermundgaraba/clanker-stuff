@@ -32,7 +32,7 @@ Local [`mcp/servers.ts`](../../../mcp/servers.ts) delegates to the MCP SDK's `cl
 
 Native asynchronous questions already existed at the old baseline. New work adds free-form asynchronous messages ([`d6350e24be`](https://github.com/openai/codex/commit/d6350e24be)) and TUI answer selection/inline Other behavior ([`218e8df926`](https://github.com/openai/codex/commit/218e8df926), [`07f18d5ff7`](https://github.com/openai/codex/commit/07f18d5ff7), [`c126b0d8ef`](https://github.com/openai/codex/commit/c126b0d8ef)).
 
-Local [`ask-question`](../../../ask-question/tool.ts) awaits a prompt, already supplies Other, and aborts on cancellation. The audit proposed asynchronous siblings with separate pending-question state, answer delivery, and lifecycle ownership. **Implementation follow-up 2026-09-13:** distinct asynchronous question and attention-message tools now return immediately, retain originating session/branch ownership, and deliver replies as user input. Keep the existing strict persisted tool schema; this is not a rename or compatibility-field addition.
+At the time of this audit, local `ask_question` awaited a prompt, supplied Other, and aborted on cancellation. The audit proposed asynchronous siblings with separate pending-question state, answer delivery, and lifecycle ownership. **Implementation follow-up 2026-09-13:** distinct asynchronous question and attention-message tools now return immediately, retain originating session/branch ownership, and deliver replies as user input. Keep the existing strict persisted tool schema; this is not a rename or compatibility-field addition.
 
 ### 5. Consider richer usage display without advertising Reserve support
 
@@ -67,3 +67,5 @@ No relevant timer/clock delta or Plannotator manifest migration was identified. 
 ## Validation
 
 Validation passed on 2026-09-13: fixture regeneration and `--check`; all 683 subagents/provider unit tests; all 68 provider integration tests; the real Code Mode host check; package-scoped formatting/lint/type checks; repository package-readiness and README policy checks; and review-document local link resolution. The documentation test now distinguishes the historical behavior baseline from current extracted evidence. These original checks validated the refreshed evidence and pre-follow-up implementation, and no inference canary was run by that audit. Later implementation evidence is kept beside the relevant notes above and in the package tests/design; the original test totals are historical, not totals for the expanded implementation.
+
+The subsequent [questionnaire redesign](../../../ask-question/docs/interactions.md) replaces that historical implementation and schema. Its durable engine and external-tool catalog boundary supersede the async follow-up above.

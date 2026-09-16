@@ -69,7 +69,7 @@ Each source module owns one primary concept. Supporting types, constants, and pr
 
 Names are relative to their package and containing directory. Use the shortest name that is unambiguous there:
 
-- `ask-question/dialog/input.ts` is clear;
+- `ask-question/tui/input.ts` is clear;
 - `ask-question/input.ts` is ambiguous; and
 - `ask-question/question-dialog-input.ts` repeats context already expressed by its directories.
 

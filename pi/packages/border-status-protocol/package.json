@@ -1,0 +1,45 @@
+{
+  "name": "@clanker-stuff/border-status-protocol",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Shares the editor-border status contract and producer client across Pi extensions.",
+  "keywords": [
+    "pi",
+    "pi-extension"
+  ],
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/packages/border-status-protocol#readme",
+  "bugs": {
+    "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+    "directory": "pi/packages/border-status-protocol"
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "type": "module",
+  "exports": "./index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@clanker-stuff/status-icons": "workspace:^"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=26"
+  }
+}

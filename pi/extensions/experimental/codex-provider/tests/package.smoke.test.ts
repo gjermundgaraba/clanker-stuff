@@ -210,19 +210,24 @@ describe("codex-provider package", () => {
     const repoRoot = path.resolve(PACKAGE_ROOT, "../../../..");
     const workspace = readWorkspacePackages(repoRoot);
     const localDependencies: Record<string, string> = {};
-    for (const [name, version] of Object.entries(
-      readJson(path.join(PACKAGE_ROOT, "package.json")).dependencies ?? {},
-    )) {
-      if (!version.startsWith("workspace:")) continue;
-      const dependency = workspace.find((pkg) => pkg.name === name);
-      if (!dependency) throw new Error(`Missing workspace package: ${name}`);
-      const dependencyTarball = path.join(tempRoot, `${name.replaceAll("/", "-")}.tgz`);
-      execFileSync("pnpm", ["pack", "--out", dependencyTarball], {
-        cwd: path.join(repoRoot, dependency.dir),
-        env: NPM_ENV,
-        stdio: "pipe",
-      });
-      localDependencies[name] = `file:${dependencyTarball}`;
+    const pending = [PACKAGE_ROOT];
+    while (pending.length) {
+      const current = pending.pop()!;
+      for (const [name, version] of Object.entries(
+        readJson(path.join(current, "package.json")).dependencies ?? {},
+      )) {
+        if (!version.startsWith("workspace:") || name in localDependencies) continue;
+        const dependency = workspace.find((pkg) => pkg.name === name);
+        if (!dependency) throw new Error(`Missing workspace package: ${name}`);
+        const dependencyTarball = path.join(tempRoot, `${name.replaceAll("/", "-")}.tgz`);
+        execFileSync("pnpm", ["pack", "--out", dependencyTarball], {
+          cwd: path.join(repoRoot, dependency.dir),
+          env: NPM_ENV,
+          stdio: "pipe",
+        });
+        localDependencies[name] = `file:${dependencyTarball}`;
+        pending.push(path.join(repoRoot, dependency.dir));
+      }
     }
     const installDir = path.join(tempRoot, "install");
     mkdirSync(installDir);

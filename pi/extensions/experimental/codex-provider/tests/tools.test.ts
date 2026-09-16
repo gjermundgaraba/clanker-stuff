@@ -5,6 +5,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
+import attentionExtension from "../../user-attention/index.js";
+import questionExtension from "../../../ask-question/index.js";
 import toolPickerExtension from "../../../tool-picker/index.js";
 import { COLLABORATION_CONTRACT_REQUEST } from "../collaboration.js";
 import { registerCodexTools } from "../tools/register.js";
@@ -54,7 +56,7 @@ const selectModel = async (
 };
 
 describe("Codex tools", () => {
-  it("keeps supported async tools direct in Code Mode and restores them across model changes", async () => {
+  it("keeps external questionnaires direct independently of native catalog markers and gates attention", async () => {
     const asyncNames = ["request_user_input_async", "send_message_to_user_async"];
     const model = {
       ...createToolsModel("gpt-6-astra", true),
@@ -81,7 +83,8 @@ describe("Codex tools", () => {
     expect(host.getActiveTools()).toEqual(expect.arrayContaining(asyncNames));
     const unsupported = createToolsModel("gpt-5.6-sol", true);
     await selectModel(host, supported, unsupported);
-    expect(host.getActiveTools()).not.toEqual(expect.arrayContaining(asyncNames));
+    expect(host.getActiveTools()).toContain("request_user_input_async");
+    expect(host.getActiveTools()).not.toContain("send_message_to_user_async");
     const other = createToolsModel("deepseek-v4-pro");
     await selectModel(host, unsupported, other);
     expect(host.getActiveTools()).toEqual(expect.arrayContaining([...PI_NAMES, ...asyncNames]));
@@ -191,22 +194,30 @@ describe("Codex tools", () => {
   it("preserves external tools while applying declared hybrid and direct modes", async () => {
     const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode" };
     const host = createExtensionHost(registerCodexTools, {
-      activeTools: [...PI_NAMES, "ask_question"],
-      allTools: [...PI_NAMES, "ask_question"],
-      externalTools: ["ask_question"],
+      activeTools: [...PI_NAMES, "request_user_input"],
+      allTools: [...PI_NAMES, "request_user_input"],
+      externalTools: ["request_user_input"],
       model,
     });
     await host.emitSessionStart();
-    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES, ...CODE_NAMES]);
+    expect(host.getActiveTools()).toStrictEqual([
+      "request_user_input",
+      ...DIRECT_NAMES,
+      ...CODE_NAMES,
+    ]);
     // Picker changes are allowed, but a model event reapplies the declared set.
     host.setActiveTools(
       host.getActiveTools().filter((name) => name !== "apply_patch" && name !== "wait"),
     );
     const direct = { ...model, codexToolMode: "direct" };
     await selectModel(host, model, direct);
-    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
+    expect(host.getActiveTools()).toStrictEqual(["request_user_input", ...DIRECT_NAMES]);
     await selectModel(host, direct, model);
-    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES, ...CODE_NAMES]);
+    expect(host.getActiveTools()).toStrictEqual([
+      "request_user_input",
+      ...DIRECT_NAMES,
+      ...CODE_NAMES,
+    ]);
   });
 
   it("keeps unknown selectors manually toggleable", async () => {
@@ -259,15 +270,15 @@ describe("Codex tools", () => {
   it("preserves unrelated extension tools across model changes", async () => {
     const codex = createToolsModel("gpt-5.6-sol", true);
     const host = createExtensionHost(registerCodexTools, {
-      activeTools: ["read", "ask_question"],
-      allTools: [...PI_NAMES, "ask_question"],
-      externalTools: ["ask_question"],
+      activeTools: ["read", "request_user_input"],
+      allTools: [...PI_NAMES, "request_user_input"],
+      externalTools: ["request_user_input"],
       model: codex,
     });
     await host.emitSessionStart();
-    expect(host.getActiveTools()).toStrictEqual(["ask_question", ...DIRECT_NAMES]);
+    expect(host.getActiveTools()).toStrictEqual(["request_user_input", ...DIRECT_NAMES]);
     await selectModel(host, codex, createToolsModel("deepseek-v4-pro"));
-    expect(host.getActiveTools()).toStrictEqual(["read", "ask_question"]);
+    expect(host.getActiveTools()).toStrictEqual(["read", "request_user_input"]);
   });
 
   it("normalizes Pi's initial all-extension-tool activation", async () => {
@@ -437,6 +448,53 @@ describe("Codex tools", () => {
         : "";
       expect(systemPrompt.includes("pi_subagents__spawn_agent")).toBe(nested);
       expect(host.getActiveTools()).toStrictEqual(["spawn_agent", ...CODE_NAMES]);
+    },
+  );
+});
+
+describe("combined questionnaire/provider availability", () => {
+  it.each(["tui", "rpc", "print", "json"] as const)(
+    "keeps %s availability through both real registrations and reload",
+    async (mode) => {
+      for (const questionFirst of [true, false]) {
+        const model = createToolsModel("gpt-5.6-sol", true);
+        const host = createExtensionHost(
+          (pi) => {
+            for (const register of questionFirst
+              ? [questionExtension, attentionExtension, registerCodexTools]
+              : [registerCodexTools, attentionExtension, questionExtension])
+              register(pi);
+          },
+          { model },
+        );
+        const ctx = host.createContext({ mode, hasUI: true, model });
+        const check = () => {
+          for (const name of ["request_user_input", "request_user_input_async"])
+            expect(host.getActiveTools().includes(name)).toBe(mode === "tui");
+          expect(host.getActiveTools()).not.toContain("send_message_to_user_async");
+        };
+        await host.emitSessionStart(ctx);
+        check();
+        await host.runCommand("code-mode", "", ctx);
+        check();
+        await host.emit("input", { type: "input", text: "test", source: "interactive" }, ctx);
+        check();
+        await host.emit(
+          "model_select",
+          { type: "model_select", model, previousModel: model, source: "set" },
+          ctx,
+        );
+        check();
+        await host.emit(
+          "session_tree",
+          { type: "session_tree", newLeafId: null, oldLeafId: null },
+          ctx,
+        );
+        check();
+        await host.emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+        for (const name of ["request_user_input", "request_user_input_async"])
+          expect(host.getActiveTools().includes(name)).toBe(mode === "tui");
+      }
     },
   );
 });

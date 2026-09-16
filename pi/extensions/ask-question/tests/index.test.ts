@@ -1,22 +1,66 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+import {
+  resolveJsonSchemaStrictSampling,
+  makeStrictJsonSchema,
+} from "@earendil-works/pi-ai/api/constrained-sampling";
+import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import extension from "../index.js";
+import { Coordinator } from "../coordinator.js";
+import { RequestSchema, prepareAsyncArguments, validateRequest } from "../request.js";
 
-import { createAskQuestionHost } from "./helpers.js";
-
-describe("ask-question registration", () => {
-  it("registers as a sequential tool with preferred strict sampling", async () => {
-    const host = createAskQuestionHost();
-    await host.ready;
-    const tool = host.getRegisteredTools().get("ask_question");
-
-    for (const name of ["ask_question", "request_user_input_async", "send_message_to_user_async"]) {
-      const definition = host.getRegisteredTools().get(name)?.definition;
-      expect(definition?.renderCall).toBeTypeOf("function");
-      expect(definition?.renderResult).toBeTypeOf("function");
+describe("questionnaire contract", () => {
+  it("opens the same inbox from Alt+I and /answers", async () => {
+    const answer = vi.spyOn(Coordinator.prototype, "answer").mockResolvedValue(undefined);
+    try {
+      const host = createExtensionHost(extension);
+      await host.ready;
+      await host.runShortcut("alt+i");
+      await host.runCommand("answers");
+      expect(answer).toHaveBeenCalledTimes(2);
+      expect(answer.mock.contexts[0]).toBe(answer.mock.contexts[1]);
+    } finally {
+      answer.mockRestore();
     }
-    expect(tool?.definition.executionMode).toBe("sequential");
-    expect(tool?.definition.constrainedSampling).toStrictEqual({
-      strict: "prefer",
-      type: "json_schema",
+  });
+  it("registers only the new shared tools, with honest preferred sampling", async () => {
+    const host = createExtensionHost(extension);
+    await host.ready;
+    expect([...host.getRegisteredTools().keys()]).toEqual([
+      "request_user_input",
+      "request_user_input_async",
+    ]);
+    for (const name of ["request_user_input", "request_user_input_async"]) {
+      const tool = host.getRegisteredTools().get(name)!.definition;
+      expect(tool.renderCall).toBeTypeOf("function");
+      expect(tool.renderResult).toBeTypeOf("function");
+      expect(tool.parameters).toBe(RequestSchema);
+      expect(tool.executionMode).toBe("sequential");
+      expect(tool.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
+      expect(resolveJsonSchemaStrictSampling(tool, true)).toBeUndefined();
+      expect(() => makeStrictJsonSchema(tool.parameters)).toThrow();
+      expect(() =>
+        resolveJsonSchemaStrictSampling(
+          { ...tool, constrainedSampling: { type: "json_schema", strict: "require" } },
+          true,
+        ),
+      ).toThrow();
+    }
+  });
+  it("prepares surviving persisted async calls without admitting them into the public schema", () => {
+    const old = { questions: [{ title: "Choose?", options: ["Yes", "No"] }] };
+    expect(() => validateRequest(old)).toThrow();
+    expect(validateRequest(prepareAsyncArguments(old))).toMatchObject({
+      questions: [
+        {
+          id: "q1",
+          options: [
+            { id: "o1", label: "Yes" },
+            { id: "o2", label: "No" },
+          ],
+        },
+      ],
     });
+    const invalid = { ...old, extra: true };
+    expect(() => prepareAsyncArguments(invalid)).toThrow();
   });
 });

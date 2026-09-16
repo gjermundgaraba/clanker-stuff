@@ -1,62 +1,67 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { questionRenderers } from "./renderers.js";
-
-import {
-  AsyncMessageParameters,
-  AsyncQuestionParameters,
-  createAsyncInput,
-  renderAttention,
-} from "./async.js";
-import { AskQuestionParametersSchema, MAX_QUESTIONS, executeAskQuestion } from "./tool.js";
+import { Coordinator } from "./coordinator.js";
+import { RequestSchema, prepareAsyncArguments } from "./request.js";
+import { createAnswerMarkdownTransformer, renderCall, renderResult } from "./transcript.js";
 
 export default function askQuestion(pi: ExtensionAPI) {
-  const asyncInput = createAsyncInput(pi);
+  const coordinator = new Coordinator(pi);
+  pi.registerMarkdownTransformer(createAnswerMarkdownTransformer(() => coordinator.list()));
   pi.registerTool({
-    ...questionRenderers("ask_question"),
-    constrainedSampling: { strict: "prefer", type: "json_schema" },
+    name: "request_user_input",
+    label: "Questionnaire · blocking",
     description:
-      "Ask one or more structured clarification questions and return machine-readable answers.",
-    execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
-      executeAskQuestion(pi, params, signal, ctx),
+      "Ask 1–5 structured questions and wait for explicit reviewed answers. Supports Markdown context/previews, stable question/option IDs, recommendations, notes and revisions. To reopen unchanged questions use revise with interaction_id, latest base_revision and reason instead of questions. Requires a persistent interactive TUI session.",
+    parameters: RequestSchema,
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
     executionMode: "sequential",
-    label: "Ask Question",
-    name: "ask_question",
-    parameters: AskQuestionParametersSchema,
+    promptSnippet: "Ask a questionnaire and wait for explicit user answers",
     promptGuidelines: [
-      "When using ask_question, mark likely defaults with '(Suggested)' and explain why in option.details.",
-      "For ask_question, do not include an 'Other' option; the UI always provides a free-text Other field.",
-      "For ask_question, set multiSelect only when several answers are valid at once.",
-      `For ask_question, ask at most ${MAX_QUESTIONS} questions per call; use multiple ask_question calls if needed.`,
+      "Use request_user_input for concrete clarification instead of prose-only questionnaires. Supply unique IDs, concise labels/descriptions and recommendation metadata, never an Other option or preselected answer.",
+      "request_user_input revisions reopen the same authored questions. For different questions author a new request with linked_interaction_id. Reconsider affected work after an answer revision; it does not undo prior actions.",
     ],
-    promptSnippet: "Ask structured clarification questions and return machine-readable answers",
+    execute: (id, params, signal, _update, ctx) =>
+      coordinator.request(id, params, signal, ctx, "blocking"),
+    renderCall: (args, theme, context) =>
+      renderCall(args, theme, context, "blocking", (id) => coordinator.peek(id)?.request.title),
+    renderResult,
   });
   pi.registerTool({
-    ...questionRenderers("request_user_input_async"),
     name: "request_user_input_async",
-    label: "Ask asynchronously",
+    label: "Questionnaire · async",
     description:
-      "Ask the user one or more questions during ongoing work. Use this tool only to request missing information, preferences, constraints, clarification, or approval. The tool returns immediately without ending the turn or waiting for a reply; any reply arrives asynchronously as a new user message. Keep questions concise, self-contained, and easy to understand. A preselected option is not submitted automatically.",
-    parameters: AsyncQuestionParameters,
+      "Request a durable questionnaire without waiting for its answer, using the same questions or revise contract as request_user_input. Returns only pending acceptance; later submissions arrive as user messages. Acceptance is NOT an answer or permission. Continue only independent work. Requires a persistent interactive TUI session.",
+    parameters: RequestSchema,
+    prepareArguments: prepareAsyncArguments,
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
     executionMode: "sequential",
-    execute: async (id, params, signal, _onUpdate, ctx) =>
-      asyncInput.request(id, params, signal, ctx),
-  });
-  pi.registerTool({
-    ...questionRenderers("send_message_to_user_async"),
-    name: "send_message_to_user_async",
-    label: "Message for you",
-    description:
-      "Send a concise message that needs the user's attention during ongoing work. The tool returns immediately without ending the turn or waiting for a reply; any reply arrives asynchronously as a new user message. Use this tool to report a critical blocker or a finding that may change the task's direction, or to answer a user question or status request received while work is still in progress. Use commentary for routine progress and intermediate context.",
-    parameters: AsyncMessageParameters,
-    executionMode: "sequential",
-    execute: async (_id, params, _signal, _onUpdate, ctx) => asyncInput.message(params, ctx),
+    promptSnippet: "Request a durable questionnaire while continuing independent work",
+    promptGuidelines: [
+      "Use request_user_input_async only when independent work can continue. Pending acceptance is not answered or approved; stop work dependent on the missing answers until a submission arrives.",
+    ],
+    execute: (id, params, signal, _update, ctx) =>
+      coordinator.request(id, params, signal, ctx, "async"),
+    renderCall: (args, theme, context) =>
+      renderCall(args, theme, context, "async", (id) => coordinator.peek(id)?.request.title),
+    renderResult,
   });
   pi.registerCommand("answers", {
-    description: "Answer or dismiss pending asynchronous questions",
-    handler: (_args, ctx) => asyncInput.answer(ctx),
+    description: "Review, answer, resume or revise questionnaires on this branch",
+    handler: (_args, ctx) => coordinator.answer(ctx),
   });
-  pi.registerEntryRenderer("async-attention", renderAttention);
-  pi.on("session_start", () => asyncInput.dispose());
-  pi.on("session_tree", () => asyncInput.dispose());
-  pi.on("session_shutdown", () => asyncInput.dispose());
+  pi.registerShortcut("alt+i", {
+    description: "Open question inbox",
+    handler: (ctx) => coordinator.answer(ctx),
+  });
+  pi.on("session_start", (_event, ctx) => coordinator.attach(ctx));
+  pi.on("session_before_tree", (_event, ctx) => coordinator.beforeNavigation(ctx));
+  pi.on("session_before_switch", (_event, ctx) => coordinator.beforeNavigation(ctx));
+  pi.on("session_before_fork", (_event, ctx) => coordinator.beforeNavigation(ctx));
+  pi.on("session_tree", (event, ctx) => coordinator.attach(ctx, event.newLeafId));
+  pi.on("session_shutdown", () => coordinator.shutdown());
+  pi.on("input", (_event, ctx) => coordinator.availability(ctx));
+  pi.on("model_select", (_event, ctx) => coordinator.availability(ctx));
+  pi.on("agent_start", (_event, ctx) => coordinator.observeRun(ctx));
+  pi.on("turn_start", (_event, ctx) => coordinator.observeRun(ctx));
+  pi.on("tool_call", (_event, ctx) => coordinator.observeRun(ctx));
+  pi.on("agent_settled", (_event, ctx) => coordinator.settled(ctx));
 }

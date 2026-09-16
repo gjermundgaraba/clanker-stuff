@@ -13,8 +13,9 @@ import {
 } from "@earendil-works/pi-tui";
 import type { SelectItem } from "@earendil-works/pi-tui";
 
-import { cloneFooterConfig, DEFAULT_CONFIG } from "./config.js";
-import type { FooterConfig, LoadedFooterConfig } from "./config.js";
+import { cloneFooterConfig, DEFAULT_CONFIG } from "@clanker-stuff/footer-protocol/config";
+import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
+import type { LoadedFooterConfig } from "./config.js";
 import type { FooterSource } from "./widgets.js";
 
 const GROUPS = ["left", "center", "right"] as const;

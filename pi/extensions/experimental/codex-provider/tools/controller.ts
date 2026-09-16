@@ -26,6 +26,9 @@ export const createCodexToolsController = (
   let modelRegistry: ExtensionContext["modelRegistry"] | undefined;
   let suppressedPiNames: string[] = [];
   let suppressedAsyncNames: string[] = [];
+  let tuiAvailable = false;
+  const isQuestionnaire = (name: string) =>
+    name === "request_user_input" || name === "request_user_input_async";
   const builtinToolNames = () =>
     new Set(
       pi
@@ -55,6 +58,7 @@ export const createCodexToolsController = (
 
   const apply = (ctx: ExtensionContext, refreshModel = true): void => {
     const previousModel = currentModel;
+    tuiAvailable = ctx.mode === "tui" && ctx.hasUI;
     modelRegistry = ctx.modelRegistry;
     if (refreshModel) {
       // Catalog refresh replaces registry models without replacing the session's selected object.
@@ -73,8 +77,17 @@ export const createCodexToolsController = (
     const active = codeModeActive();
     ctx.ui.setStatus(CODE_MODE_STATUS_KEY, active ? "</>" : undefined);
     setFooterActive(active);
-    const activeNames = [...new Set([...pi.getActiveTools(), ...suppressedAsyncNames])];
+    const candidates = [...new Set([...pi.getActiveTools(), ...suppressedAsyncNames])];
     suppressedAsyncNames = [];
+    // Questionnaires are external Pi tools, not native catalog capabilities.
+    // This final normalizer must not restore them in unsupported answering modes.
+    const activeNames = candidates.filter((name) => {
+      if (isQuestionnaire(name) && !tuiAvailable) {
+        suppressedAsyncNames.push(name);
+        return false;
+      }
+      return true;
+    });
     if (currentModel === undefined || !isCodexToolsModel(currentModel)) {
       const remainingNames = activeNames.filter((name) => !codexToolNameSet.has(name));
       pi.setActiveTools([...new Set([...suppressedPiNames, ...remainingNames])]);
@@ -93,10 +106,7 @@ export const createCodexToolsController = (
         Array.isArray(currentModel.codexSupportedTools)
           ? currentModel.codexSupportedTools
           : [];
-      const available =
-        name === "request_user_input_async"
-          ? supported.includes(name) || supported.includes("send_user_message_async")
-          : name !== "send_message_to_user_async" || supported.includes(name);
+      const available = name !== "send_message_to_user_async" || supported.includes(name);
       if (!available) suppressedAsyncNames.push(name);
       return available;
     });
@@ -125,7 +135,11 @@ export const createCodexToolsController = (
     async shutdown(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (reason === "reload") {
         pi.setActiveTools([
-          ...new Set([...suppressedPiNames, ...suppressedAsyncNames, ...pi.getActiveTools()]),
+          ...new Set(
+            [...suppressedPiNames, ...suppressedAsyncNames, ...pi.getActiveTools()].filter(
+              (name) => !isQuestionnaire(name) || tuiAvailable,
+            ),
+          ),
         ]);
       }
       await codeMode.shutdown();
