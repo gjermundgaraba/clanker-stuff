@@ -10,6 +10,12 @@ The scope is deliberately limited to content selected, generated, or changed by 
 
 Quoted prose is verbatim except that Rust source indentation and leading blank lines are normalized. Dynamic substitutions are written as `{name}`.
 
+### Selected spawn-catalog review (2026-09-16)
+
+At [`af1fc2dbff641e78298c272c4b45c9fec5c33898`](https://github.com/openai/codex/tree/af1fc2dbff641e78298c272c4b45c9fec5c33898), `spawn_agent_models_description` emits up to five picker-visible, backend-eligible models in catalog order, with model descriptions, supported reasoning efforts (default marked), and service tiers. V2 eligibility excludes only an explicit disabled declaration, so V1 models remain candidates. Explicit model lookup is not constrained by the display cap or picker visibility. Unknown-model errors provide the same bounded suggestion list; unsupported-effort errors list supported efforts. Sources: [tool description](https://github.com/openai/codex/blob/af1fc2dbff641e78298c272c4b45c9fec5c33898/codex-rs/core/src/tools/handlers/multi_agents_spec.rs) and [validation](https://github.com/openai/codex/blob/af1fc2dbff641e78298c272c4b45c9fec5c33898/codex-rs/core/src/agent/child_config.rs).
+
+This selected review supplements, rather than repins, the historical reference below. Pi's metadata vocabulary and refresh boundaries are documented in [protocols](protocols.md#spawn-model-selection) and CAT-05/CAT-06 of the [parity ledger](codex-parity.md).
+
 ## 1. Contract overview
 
 Codex has two distinct model-facing protocols ([version selection](https://github.com/openai/codex/blob/389dd5645944891b65e4ca584125bbb0c852d352/codex-rs/core/src/session/mod.rs), [tool registration](https://github.com/openai/codex/blob/389dd5645944891b65e4ca584125bbb0c852d352/codex-rs/core/src/tools/spec_plan.rs)):

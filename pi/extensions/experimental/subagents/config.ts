@@ -2,10 +2,12 @@ import { readFile } from "node:fs/promises";
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
+
+import { supportsSpawn, unknownSpawnModel, validateSpawnReasoning } from "./model-catalog.js";
+import type { SpawnModelRegistry } from "./model-catalog.js";
 
 const STRICT = { additionalProperties: false } as const;
 const ProtocolModeSchema = StringEnum(["auto", "off", "v1", "v2"] as const);
@@ -128,23 +130,28 @@ export interface ChildSettings {
   model: Model<Api> | undefined;
   thinking: AgentThinkingLevel | undefined;
 }
-type ModelLookup = Pick<ModelRegistry, "find">;
 
 export const isThinkingLevel = (value: string): value is AgentThinkingLevel =>
   THINKING_LEVELS.some((level) => level === value);
 
-const findModel = (provider: string, modelId: string, registry: ModelLookup): Model<Api> => {
+const findModel = (
+  provider: string,
+  modelId: string,
+  registry: SpawnModelRegistry,
+  protocol: "v1" | "v2",
+): Model<Api> => {
   const model = registry.find(provider, modelId);
-  if (!model) {
-    throw new Error(`Unknown model: ${provider}/${modelId}`);
+  if (!model || !supportsSpawn(model, protocol)) {
+    throw unknownSpawnModel(modelId, registry, provider, protocol);
   }
   return model;
 };
 
 export const parseModelOverride = (
   requested: string | undefined,
-  registry: ModelLookup,
+  registry: SpawnModelRegistry,
   fallback?: Model<Api>,
+  protocol: "v1" | "v2" = "v1",
 ): Model<Api> | undefined => {
   if (requested === undefined || requested === "") {
     return fallback;
@@ -152,7 +159,7 @@ export const parseModelOverride = (
   if (fallback === undefined) {
     throw new Error("Cannot resolve a model override without an inherited parent model");
   }
-  return findModel(fallback.provider, requested, registry);
+  return findModel(fallback.provider, requested, registry, protocol);
 };
 
 export const resolveChildSettings = (
@@ -160,9 +167,10 @@ export const resolveChildSettings = (
   roleName: string | undefined,
   requestedModel: string | undefined,
   requestedThinking: AgentThinkingLevel | undefined,
-  registry: ModelLookup,
+  registry: SpawnModelRegistry,
   parentModel: Model<Api> | undefined,
   parentThinking?: AgentThinkingLevel,
+  protocol: "v1" | "v2" = "v1",
 ): ChildSettings => {
   const role =
     roleName !== undefined && Object.hasOwn(config.roles, roleName)
@@ -171,14 +179,18 @@ export const resolveChildSettings = (
   if (roleName !== undefined && role === undefined) {
     throw new Error(`Unknown agent_type: ${roleName}`);
   }
-  let model = parseModelOverride(requestedModel, registry, parentModel);
+  let model = parseModelOverride(requestedModel, registry, parentModel, protocol);
   if (role?.model !== undefined) {
-    model = parseModelOverride(role.model, registry, parentModel);
+    model = parseModelOverride(role.model, registry, parentModel, protocol);
   }
   const settings: ChildSettings = {
     model,
     thinking: role?.thinking ?? requestedThinking ?? parentThinking,
   };
+  const explicitThinking = role?.thinking ?? requestedThinking;
+  if (model !== undefined && explicitThinking !== undefined) {
+    validateSpawnReasoning(model, explicitThinking);
+  }
   if (role?.instructions !== undefined) {
     settings.instructions = role.instructions;
   }

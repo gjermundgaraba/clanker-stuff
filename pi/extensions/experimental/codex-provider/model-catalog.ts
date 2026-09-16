@@ -30,6 +30,13 @@ type SupportedModel = Model<"openai-codex-responses"> & {
   readonly codexToolMode?: CodexToolMode;
   readonly codexSupportedTools?: readonly string[];
   readonly codexVisibility?: string;
+  // Structural protocol consumed by subagents, carried with the effective model.
+  readonly spawnAgentMetadata?: {
+    readonly description?: string;
+    readonly defaultReasoningEffort?: ModelThinkingLevel;
+    readonly serviceTiers: readonly string[];
+    readonly showInPicker: boolean;
+  };
   readonly multiAgentVersion?: "disabled" | "v1" | "v2";
 };
 type CachedSupportedModel = SupportedModel & {
@@ -66,6 +73,7 @@ const CODEX_PI_REASONING_LEVELS: ReadonlyMap<string, ModelThinkingLevel> = new M
 const ModelsPayloadSchema = Type.Object({ models: Type.Array(Type.Unknown()) });
 // Keep the entry boundary permissive for native fields not interpreted by this provider.
 const ModelEntrySchema = Type.Object({
+  description: Type.Optional(Type.String()),
   display_name: Type.Optional(Type.String()),
   slug: Type.Optional(Type.String()),
   visibility: Type.Optional(Type.String()),
@@ -181,6 +189,7 @@ const ASTRA_METADATA: CodexModelMetadata = {
   default_reasoning_level: "low",
   default_reasoning_summary: "none",
   default_verbosity: "low",
+  description: "Our most capable model for complex, demanding work.",
   display_name: "GPT-6-Astra",
   effective_context_window_percent: 95,
   input_modalities: ["text", "image"],
@@ -227,7 +236,37 @@ const ASTRA_MODEL: SupportedModel = {
   reasoning: true,
 };
 
-const FALLBACK_FAST_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]);
+// Codex af1fc2dbff, models-manager/models.json. Remote metadata always wins.
+const FALLBACK_SPAWN_METADATA = new Map<string, NonNullable<SupportedModel["spawnAgentMetadata"]>>([
+  [
+    "gpt-5.6-sol",
+    {
+      description: "Latest frontier agentic coding model.",
+      defaultReasoningEffort: "low",
+      serviceTiers: ["priority"],
+      showInPicker: true,
+    },
+  ],
+  [
+    "gpt-5.6-terra",
+    {
+      description: "Balanced agentic coding model for everyday work.",
+      defaultReasoningEffort: "medium",
+      serviceTiers: ["priority"],
+      showInPicker: true,
+    },
+  ],
+  [
+    "gpt-5.6-luna",
+    {
+      description: "Fast and affordable agentic coding model.",
+      defaultReasoningEffort: "medium",
+      serviceTiers: ["priority"],
+      showInPicker: true,
+    },
+  ],
+]);
+
 const FALLBACK_MODEL_PRIORITY = new Map([
   ["gpt-6-astra", 0],
   ["gpt-5.6-sol", 1],
@@ -273,6 +312,7 @@ const seedFallbackModel = (model: SupportedModel): SupportedModel => {
   const seeded: SupportedModel = {
     ...model,
     codexOutputTokenLimit: DEFAULT_OUTPUT_TOKEN_LIMIT,
+    spawnAgentMetadata: model.spawnAgentMetadata ?? FALLBACK_SPAWN_METADATA.get(model.id),
   };
   return version === undefined ? seeded : { ...seeded, multiAgentVersion: version };
 };
@@ -591,6 +631,18 @@ const projectModel = (
     codexToolMode: metadata.tool_mode,
     codexSupportedTools: metadata.experimental_supported_tools,
     codexVisibility: metadata.visibility,
+    spawnAgentMetadata: {
+      description: metadata.description,
+      defaultReasoningEffort:
+        metadata.default_reasoning_level === undefined
+          ? undefined
+          : piReasoningLevel(metadata.default_reasoning_level),
+      serviceTiers: (metadata.service_tiers ?? []).flatMap((tier) =>
+        // Pi currently implements only the priority service tier.
+        tier?.id === "priority" ? [tier.id] : [],
+      ),
+      showInPicker: metadata.visibility === "list",
+    },
     compat: existing?.compat,
     contextWindow,
     cost: existing?.cost ?? {
@@ -861,7 +913,8 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
       }
       const metadata = modelMetadata(model.id);
       return metadata === undefined
-        ? catalog.kind === "fallback" && FALLBACK_FAST_MODELS.has(model.id)
+        ? catalog.kind === "fallback" &&
+            (FALLBACK_SPAWN_METADATA.get(model.id)?.serviceTiers.includes("priority") ?? false)
         : modelSupportsServiceTier(metadata, "priority");
     },
   };

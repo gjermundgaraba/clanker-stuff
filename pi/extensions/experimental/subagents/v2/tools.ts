@@ -72,6 +72,7 @@ export const registerV2Tools = (
   caller: string,
   beforeExecute: (ctx: ExtensionContext) => void,
   config: SubagentsConfig = DEFAULT_CONFIG,
+  catalogDescription?: string,
 ): void => {
   const roleParameter =
     Object.keys(config.roles).length === 0
@@ -118,7 +119,12 @@ export const registerV2Tools = (
   });
   const spawnParameters = Type.Unsafe<SpawnArguments>(Type.Object(spawnProperties, STRICT));
   pi.registerTool({
-    description: v2SpawnDescription(),
+    description: [
+      config.expose_spawn_agent_model_overrides ? catalogDescription : undefined,
+      v2SpawnDescription(),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     execute: async (_id, params, signal, _update, ctx) => {
       beforeExecute(ctx);
       const spawned = await controller.spawn(

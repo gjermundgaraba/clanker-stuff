@@ -1,2 +1,7 @@
 https://github.com/openai/codex
 389dd5645944891b65e4ca584125bbb0c852d352
+
+Selected catalog guidance, suggestion limits and model/reasoning errors:
+af1fc2dbff641e78298c272c4b45c9fec5c33898
+codex-rs/core/src/tools/handlers/multi_agents_spec.rs
+codex-rs/core/src/agent/child_config.rs

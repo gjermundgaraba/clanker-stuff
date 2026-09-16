@@ -15,6 +15,7 @@ import type { TreeCoordinator } from "../coordinator.js";
 import { forkHistory } from "../history.js";
 import type { ForkTurns } from "../history.js";
 import { KeyedSerialQueue } from "../keyed-queue.js";
+import { spawnModelsDescription } from "../model-catalog.js";
 import {
   formatV2ErrorCompletion,
   modelDeclaresV2,
@@ -227,7 +228,7 @@ export class V2Controller {
     }
     slot.api = api;
     const owns = () => this.#slots.get(pathname)?.token === token && slot.api === api;
-    let collaborationEnabled = false;
+    let collaborationEnabled: boolean | undefined;
     const unsubscribeContract = registerContractResponder(
       api,
       (ctx) => ({
@@ -246,23 +247,33 @@ export class V2Controller {
         }
       },
     );
-    registerV2Tools(
-      api,
-      this,
-      pathname,
-      () => {
-        if (!owns()) {
-          throw new Error(`Stale child endpoint: ${pathname}`);
-        }
-      },
-      this.#config,
-    );
+    let catalogDescription: string | undefined;
     const applyEligibility = (
       selected: CallerContext["model"],
       registry: CallerContext["modelRegistry"],
     ) => {
+      const description = this.#config.expose_spawn_agent_model_overrides
+        ? spawnModelsDescription(registry, selected?.provider, "v2")
+        : "";
+      if (description !== catalogDescription) {
+        catalogDescription = description;
+        registerV2Tools(
+          api,
+          this,
+          pathname,
+          () => {
+            if (!owns()) {
+              throw new Error(`Stale child endpoint: ${pathname}`);
+            }
+          },
+          this.#config,
+          catalogDescription,
+        );
+      }
       const resolved = findSelectedModel(selected, registry);
-      collaborationEnabled = modelDeclaresV2(resolved);
+      const enabled = modelDeclaresV2(resolved);
+      if (enabled === collaborationEnabled) return;
+      collaborationEnabled = enabled;
       const base = api.getActiveTools().filter((name) => !V2_TOOL_SET.has(name));
       api.setActiveTools(collaborationEnabled ? [...base, ...V2_TOOL_NAMES] : base);
     };
@@ -273,7 +284,7 @@ export class V2Controller {
         response = {
           systemPrompt: `${event.systemPrompt}\n\n${v2ChildCapabilityPrompt(
             this.#config,
-            collaborationEnabled,
+            collaborationEnabled === true,
             !this.#ultraAgents.has(pathname),
           )}`,
         };
@@ -443,6 +454,7 @@ export class V2Controller {
           ctx.modelRegistry,
           ctx.model,
           ctx.thinkingLevel,
+          "v2",
         );
         const inheritUltra =
           this.#ultraAgents.has(caller) &&

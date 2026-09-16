@@ -175,6 +175,7 @@ export const registerV1Tools = (
   controller: V1ToolController,
   beforeExecute: (ctx: ExtensionContext) => void,
   config: SubagentsConfig = DEFAULT_CONFIG,
+  catalogDescription?: string,
 ): NestedToolContract[] => {
   const spawnProperties: TProperties = {};
   Object.assign(spawnProperties, spawnCommon(config), {
@@ -194,7 +195,12 @@ export const registerV1Tools = (
   const spawnParameters = Type.Unsafe<SpawnArguments>(Type.Object(spawnProperties, STRICT));
   const definitions: ToolDefinition[] = [
     defineTool({
-      description: v1SpawnDescription(config),
+      description: [
+        config.expose_spawn_agent_model_overrides ? catalogDescription : undefined,
+        v1SpawnDescription(config),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
         return result(

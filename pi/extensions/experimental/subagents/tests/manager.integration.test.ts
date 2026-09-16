@@ -160,6 +160,56 @@ const rootFinalBarrier = () => {
 const lastProviderPayloadText = (harness: AgentSessionHarness) =>
   JSON.stringify(harness.lastProviderPayload(Type.Object({}, { additionalProperties: true })));
 
+describe("live spawn catalog", () => {
+  it.each(["v1", "v2"] as const)(
+    "keeps %s guidance stable through tool turns and refreshes the next prompt",
+    async (protocol) => {
+      const { cleanup, harness } = await configuredHarness(protocol, [
+        (pi) => {
+          pi.registerTool({
+            name: "refresh_catalog",
+            label: "Refresh",
+            description: "Refresh catalog",
+            parameters: Type.Object({}),
+            execute: async () => {
+              enrich("Refreshed affordable synthetic worker.");
+              return { content: [{ type: "text", text: "refreshed" }], details: {} };
+            },
+          });
+        },
+      ]);
+      const enrich = (description: string) => {
+        const ctx = harness.session.extensionRunner.createContext();
+        for (const model of ctx.modelRegistry.getAvailable()) {
+          if (model.provider === ctx.model?.provider) {
+            Object.assign(model, {
+              spawnAgentMetadata: { description, serviceTiers: [], showInPicker: true },
+            });
+          }
+        }
+      };
+      try {
+        harness.setResponses([
+          fauxAssistantMessage(fauxToolCall("refresh_catalog", {}), { stopReason: "toolUse" }),
+          fauxAssistantMessage(fauxToolCall("refresh_catalog", {}), { stopReason: "toolUse" }),
+          fauxAssistantMessage("first"),
+          fauxAssistantMessage("second"),
+        ]);
+        enrich("Initial affordable synthetic worker.");
+        await harness.prompt("First task");
+        expect(lastProviderPayloadText(harness)).toContain("Initial affordable synthetic worker.");
+        await harness.prompt("Next task");
+        expect(lastProviderPayloadText(harness)).toContain(
+          "Refreshed affordable synthetic worker.",
+        );
+        expect(lastProviderPayloadText(harness)).not.toContain("Initial affordable");
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+});
+
 describe("root subagent delivery", () => {
   it("defers a V2 completion after a final answer without starting another response", async () => {
     const rootAgentEnd = rootAgentEndBarrier();

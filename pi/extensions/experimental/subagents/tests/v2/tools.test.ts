@@ -30,6 +30,23 @@ const properties = <T>(schema: T) => {
 };
 
 describe("V2 model contract", () => {
+  it.each([true, false])("gates catalog guidance with overrides: %s", async (enabled) => {
+    const config = { ...DEFAULT_CONFIG, expose_spawn_agent_model_overrides: enabled };
+    const host = createExtensionHost((pi) => {
+      registerV2Tools(
+        pi,
+        controller(),
+        "/root",
+        () => {},
+        config,
+        "Available model overrides: synthetic",
+      );
+    });
+    await host.ready;
+    const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
+    expect(spawn?.description.includes("Available model overrides: synthetic")).toBe(enabled);
+  });
+
   it("matches Codex argument names, result shapes, and live-list semantics", async () => {
     const spawnCall = vi.fn<V2ToolController["spawn"]>((..._args) =>
       Promise.resolve({

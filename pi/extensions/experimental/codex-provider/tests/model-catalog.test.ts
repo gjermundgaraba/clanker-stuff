@@ -100,6 +100,45 @@ describe("Codex model catalog", () => {
     vi.unstubAllGlobals();
   });
 
+  it("carries spawn guidance through refresh and account-cache restoration", async () => {
+    const stored = await fetchStoredCatalog([
+      {
+        ...remoteModel,
+        description: "Fast and affordable synthetic worker.",
+        default_reasoning_level: "medium",
+        supported_reasoning_levels: ["low", "medium", "ultra"],
+        service_tiers: [{ id: "priority" }, { id: "unsupported" }],
+        multi_agent_version: "v1",
+        visibility: "hide",
+      },
+    ]);
+    const expected = {
+      spawnAgentMetadata: {
+        description: "Fast and affordable synthetic worker.",
+        defaultReasoningEffort: "medium",
+        serviceTiers: ["priority"],
+        showInPicker: false,
+      },
+      multiAgentVersion: "v1",
+      thinkingLevelMap: { low: "low", medium: "medium", high: null, max: null },
+    };
+    expect(stored.models[0]).toMatchObject(expected);
+    const catalog = createCodexModelCatalog();
+    await catalog.refreshModels(
+      refreshContext(async (publication) => {
+        publication.update?.();
+        return true;
+      }, stored),
+    );
+    expect(catalog.getModels()[0]).toMatchObject(expected);
+    const fallback = createCodexModelCatalog();
+    for (const model of fallback.getModels()) {
+      expect(fallback.supportsFastMode(model)).toBe(
+        model.spawnAgentMetadata?.serviceTiers.includes("priority") ?? false,
+      );
+    }
+  });
+
   it("admits exact Astra without admitting other GPT-6 models", () => {
     expect(isSupportedCodexModelId("gpt-6-astra")).toBeTruthy();
     expect(isSupportedCodexModelId("gpt-6-astra-preview")).toBeFalsy();

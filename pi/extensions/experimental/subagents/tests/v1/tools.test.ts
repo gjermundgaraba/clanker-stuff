@@ -29,6 +29,16 @@ const properties = <T>(schema: T) => {
 };
 
 describe("V1 model contract", () => {
+  it.each([true, false])("gates catalog guidance with overrides: %s", async (enabled) => {
+    const config = { ...DEFAULT_CONFIG, expose_spawn_agent_model_overrides: enabled };
+    const host = createExtensionHost((pi) => {
+      registerV1Tools(pi, controller(), () => {}, config, "Available model overrides: synthetic");
+    });
+    await host.ready;
+    const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
+    expect(spawn?.description.includes("Available model overrides: synthetic")).toBe(enabled);
+  });
+
   it("exposes Codex-compatible schemas and JSON results", async () => {
     const tools = controller({
       close: () => Promise.resolve({ previous_status: { completed: "done" } }),

@@ -21,6 +21,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { SubagentsConfig } from "./config.js";
+import { spawnModelsDescription } from "./model-catalog.js";
 import { registerContractResponder } from "./contract.js";
 import type { NestedToolContract } from "./contract.js";
 import { TreeCoordinator } from "./coordinator.js";
@@ -107,6 +108,7 @@ export class SubagentManager {
   readonly #dataDir: string;
   readonly #nicknames: NicknamePool;
   readonly #pi: ExtensionAPI;
+  #catalogDescription: string | undefined;
   #promptOptions: BeforeAgentStartEvent["systemPromptOptions"] | undefined;
   #rootAttempt: RootAttempt | undefined;
   #rootCursor: TranscriptCursor | undefined;
@@ -169,7 +171,7 @@ export class SubagentManager {
             };
       },
       (ctx, ultra, rootServiceTier) => {
-        this.#refreshProtocol(ctx);
+        if (!this.#rootRunning) this.#refreshProtocol(ctx);
         if (rootServiceTier !== undefined) {
           this.#v1.setRootServiceTier(rootServiceTier);
           this.#v2.setRootServiceTier(rootServiceTier);
@@ -241,6 +243,7 @@ export class SubagentManager {
       await Promise.all([this.#v1.reset(), this.#v2.reset()]);
       this.#ensureRootCursor();
       await this.#coordinator.install(store, state, restore || inherited !== undefined);
+      this.#catalogDescription = this.#describeCatalog(ctx);
       this.#applyTools();
       this.#syncRoot();
     } catch (error) {
@@ -403,6 +406,7 @@ export class SubagentManager {
       this.#config.protocols,
     );
     if (this.#isProtocolLocked()) {
+      this.#refreshProtocol({ model: event.model, modelRegistry: ctx.modelRegistry });
       if (selected !== this.#sessionPhase.protocol) {
         ctx.ui.notify(
           `Subagent protocol is locked to ${this.#sessionPhase.protocol.toUpperCase()} for this tree; model selection did not change its tools.`,
@@ -412,6 +416,7 @@ export class SubagentManager {
       return;
     }
     if (selected === this.#sessionPhase.protocol) {
+      this.#refreshProtocol({ model: event.model, modelRegistry: ctx.modelRegistry });
       return;
     }
     const binding = rootBinding(
@@ -425,6 +430,10 @@ export class SubagentManager {
         this.#selectProtocol(selected);
       },
     );
+    this.#catalogDescription = this.#describeCatalog({
+      model: event.model,
+      modelRegistry: ctx.modelRegistry,
+    });
     this.#applyTools();
   }
 
@@ -503,22 +512,29 @@ export class SubagentManager {
       : this.#coordinator.error;
   }
 
-  #latch(protocol: "v1" | "v2", ctx: ExtensionContext): void {
-    this.#refreshProtocol(ctx);
+  #latch(protocol: "v1" | "v2"): void {
     if (this.#sessionPhase.protocol !== protocol) {
       throw new Error(`${protocol.toUpperCase()} tools are not active`);
     }
     this.#assertHealthy();
   }
 
+  #describeCatalog(ctx: Pick<ExtensionContext, "model" | "modelRegistry">): string | undefined {
+    return this.#config.expose_spawn_agent_model_overrides && this.#sessionPhase.protocol !== "off"
+      ? spawnModelsDescription(ctx.modelRegistry, ctx.model?.provider, this.#sessionPhase.protocol)
+      : undefined;
+  }
+
   #refreshProtocol(ctx: Pick<ExtensionContext, "model" | "modelRegistry">): void {
-    if (this.#isProtocolLocked()) {
-      return;
-    }
-    const selected = resolveProtocol(currentModel(ctx), this.#config.protocols);
-    if (selected !== this.#sessionPhase.protocol) {
-      this.#selectProtocol(selected);
-      this.#applyTools();
+    const selected = this.#isProtocolLocked()
+      ? this.#sessionPhase.protocol
+      : resolveProtocol(currentModel(ctx), this.#config.protocols);
+    const changed = selected !== this.#sessionPhase.protocol;
+    this.#selectProtocol(selected);
+    const description = this.#describeCatalog(ctx);
+    if (changed || description !== this.#catalogDescription) {
+      this.#catalogDescription = description;
+      this.#applyTools(changed);
     }
   }
 
@@ -530,27 +546,26 @@ export class SubagentManager {
     this.#sessionPhase = { ...this.#sessionPhase, protocol };
   }
 
-  #applyTools(): void {
+  #applyTools(updateActive = true): void {
     if (this.#sessionPhase.protocol === "v1") {
       this.#v1Definitions = registerV1Tools(
         this.#pi,
         this.#v1,
-        (ctx) => {
-          this.#latch("v1", ctx);
-        },
+        () => this.#latch("v1"),
         this.#config,
+        this.#catalogDescription,
       );
     } else if (this.#sessionPhase.protocol === "v2") {
       registerV2Tools(
         this.#pi,
         this.#v2,
         ROOT_AGENT_PATH,
-        (ctx) => {
-          this.#latch("v2", ctx);
-        },
+        () => this.#latch("v2"),
         this.#config,
+        this.#catalogDescription,
       );
     }
+    if (!updateActive) return;
     const base = this.#pi.getActiveTools().filter((name) => !ALL_TOOL_NAMES.has(name));
     let selected: readonly string[] = [];
     if (this.#sessionPhase.protocol === "v1") {

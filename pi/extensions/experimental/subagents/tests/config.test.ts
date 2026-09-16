@@ -71,6 +71,7 @@ describe(parseConfig, () => {
       model("parent", "nested/model"),
     ];
     const registry = {
+      getAvailable: () => [],
       find: (provider: string, id: string) =>
         models.find((model) => model.provider === provider && model.id === id),
     };
@@ -78,10 +79,10 @@ describe(parseConfig, () => {
     expect(parseModelOverride("shared", registry, models[0])?.provider).toBe("parent");
     expect(parseModelOverride("nested/model", registry, models[0])).toBe(models[3]);
     expect(() => parseModelOverride("unique", registry, models[0])).toThrow(
-      "Unknown model: parent/unique",
+      "Unknown model `unique` for spawn_agent. Available models:",
     );
     expect(() => parseModelOverride("other/unique", registry, models[0])).toThrow(
-      "Unknown model: parent/other/unique",
+      "Unknown model `other/unique` for spawn_agent. Available models:",
     );
     expect(() => parseModelOverride("shared", registry)).toThrow("inherited parent model");
   });
@@ -109,6 +110,7 @@ describe(parseConfig, () => {
     const requestedProviderRoleModel = model("requested", "role-model");
     const requested = model("requested", "request-model");
     const registry = {
+      getAvailable: () => [],
       find: (provider: string, id: string) =>
         [parentRoleModel, requestedProviderRoleModel, requested].find(
           (model) => model.provider === provider && model.id === id,

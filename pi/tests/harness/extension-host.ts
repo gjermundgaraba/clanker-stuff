@@ -320,6 +320,7 @@ export const createExtensionHost = (
 
     const modelRegistry = incomplete<ExtensionContext["modelRegistry"]>({
       find: vi.fn<ExtensionContext["modelRegistry"]["find"]>(() => undefined),
+      getAvailable: vi.fn<ExtensionContext["modelRegistry"]["getAvailable"]>(() => []),
       getProviderAuth: vi.fn<ExtensionContext["modelRegistry"]["getProviderAuth"]>(
         async () => undefined,
       ),

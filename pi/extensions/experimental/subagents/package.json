@@ -26,6 +26,7 @@
     "keyed-queue.ts",
     "manager.ts",
     "model-contract.ts",
+    "model-catalog.ts",
     "nicknames.ts",
     "permanent-error.ts",
     "runtime.ts",

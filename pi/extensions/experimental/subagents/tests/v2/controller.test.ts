@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { fauxProvider } from "@earendil-works/pi-ai";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
@@ -1325,6 +1327,49 @@ describe("V2 controller", () => {
 });
 
 describe("V2 child context boundaries", () => {
+  it("preserves deactivated tools across context and prompt catalog refreshes", async () => {
+    const { controller, ctx, childHosts } = await setup(3, {}, false, true);
+    await controller.spawn(
+      "/root",
+      { forkTurns: "none", message: "work", taskName: "worker" },
+      ctx,
+    );
+    const host = childHosts[0]!;
+    const model = {
+      ...fauxProvider().getModel(),
+      multiAgentVersion: "v2",
+      name: "Original worker",
+    };
+    const child = host.createContext({
+      model,
+      modelRegistry: { find: () => model, getAvailable: () => [model] },
+    });
+    const prompt = {
+      type: "before_agent_start" as const,
+      systemPrompt: "system",
+      systemPromptOptions: {},
+    };
+    await host.emit("before_agent_start", prompt, child);
+    expect(host.getActiveTools()).toContain("spawn_agent");
+    host.setActiveTools(host.getActiveTools().filter((name) => name !== "spawn_agent"));
+    const active = host.getActiveTools();
+    const first = host.getRegisteredTools().get("spawn_agent")?.definition;
+    model.name = "Updated worker";
+    await host.emit("context", { type: "context", messages: [] }, child);
+    expect(host.getRegisteredTools().get("spawn_agent")?.definition).toBe(first);
+    expect(host.getActiveTools()).toEqual(active);
+    await host.emit("before_agent_start", prompt, child);
+    expect(host.getRegisteredTools().get("spawn_agent")?.definition.description).toContain(
+      model.name,
+    );
+    expect(host.getActiveTools()).toEqual(active);
+    const refreshed = host.getRegisteredTools().get("spawn_agent")?.definition;
+    await host.emit("before_agent_start", prompt, child);
+    expect(host.getRegisteredTools().get("spawn_agent")?.definition).toBe(refreshed);
+    expect(host.getActiveTools()).toEqual(active);
+    await controller.shutdown();
+  });
+
   it("refreshes root and nested inventories from graph state through unloading and cold restoration", async () => {
     const { controller, coordinator, ctx, childHosts, runtimes } = await setup(3, {}, false, true);
     const event = { type: "context" as const, messages: [] };
