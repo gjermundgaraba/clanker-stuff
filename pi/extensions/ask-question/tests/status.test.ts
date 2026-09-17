@@ -34,7 +34,7 @@ it("keeps the widget alongside the mail count, clears zero, and isolates branch 
       status: {
         icon: { nerd: "\uF0E0", unicode: "✉", ascii: "mail" },
         text: "3",
-        tone: "accent",
+        tone: "warning",
         priority: 100,
       },
     }),

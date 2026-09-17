@@ -1,3 +1,4 @@
+import { ToneSchema } from "@clanker-stuff/pi-tones";
 import { IconFamilySchema, GlyphMapSchema } from "@clanker-stuff/status-icons";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -9,22 +10,11 @@ export const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
 
 const STRICT = { additionalProperties: false } as const;
 
-export const FooterToneSchema = Type.Union([
-  Type.Literal("text"),
-  Type.Literal("dim"),
-  Type.Literal("muted"),
-  Type.Literal("accent"),
-  Type.Literal("success"),
-  Type.Literal("warning"),
-  Type.Literal("error"),
-]);
-export type FooterTone = Static<typeof FooterToneSchema>;
-
 export const FooterSpanSchema = Type.Object(
   {
     bold: Type.Optional(Type.Boolean()),
     text: Type.String({ maxLength: 1024 }),
-    tone: Type.Optional(FooterToneSchema),
+    tone: Type.Optional(ToneSchema),
   },
   STRICT,
 );
@@ -67,7 +57,7 @@ export type FooterWidgetHealth = Static<typeof FooterWidgetHealthSchema>;
 export const FooterWidgetIconSchema = Type.Object(
   {
     glyphs: Type.Union([Type.String({ maxLength: 16 }), GlyphMapSchema]),
-    tone: Type.Optional(FooterToneSchema),
+    tone: Type.Optional(ToneSchema),
   },
   STRICT,
 );

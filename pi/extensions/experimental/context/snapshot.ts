@@ -3,13 +3,13 @@ import { buildSessionContext, convertToLlm, estimateTokens } from "@earendil-wor
 import type { ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 export type BodyFormat = "markdown" | "json" | "text";
-export type Tone = "text" | "accent" | "muted" | "error" | "code";
+export type NodeTone = "text" | "accent" | "muted" | "error" | "code";
 
 export interface ContextPart {
   readonly label: string;
   readonly body: string;
   readonly format: BodyFormat;
-  readonly tone: Tone;
+  readonly tone: NodeTone;
   readonly estimatedTokens: number;
 }
 
@@ -48,7 +48,7 @@ const messageBody = (message: Message): string => {
     .join("\n\n");
 };
 
-const messageTone = (message: Message): Tone => {
+const messageTone = (message: Message): NodeTone => {
   if (message.role === "toolResult") return message.isError ? "error" : "muted";
   return message.role === "user" ? "accent" : "text";
 };

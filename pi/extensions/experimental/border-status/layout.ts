@@ -44,7 +44,7 @@ export function renderBorder(
     selected.push(theme.fg(status.tone ?? "text", text));
   }
   if (!selected.length) return original;
-  const block = selected.join(theme.fg("muted", " · "));
+  const block = selected.join(theme.fg("dim", " · "));
   const prefix = sliceByColumn(original, 0, width - used - 3, true);
   return `${prefix}\u001b[0m${borderColor(" ")}${block}${borderColor(" ─")}`;
 }

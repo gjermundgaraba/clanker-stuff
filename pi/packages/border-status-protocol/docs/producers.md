@@ -32,7 +32,7 @@ The client caches desired snapshots and republishes when a matching host becomes
 
 ## Payload and validation
 
-Text is limited to 256 characters, glyph variants to 16, owner/key to 128, priorities to integers between -1000 and 1000. Raw terminal controls, line separators, and formatting controls are rejected, except that display text and glyphs may contain ZWJ (U+200D) and ZWNJ (U+200C) for emoji and text shaping. Identifiers still reject all formatting controls. Use theme tones (`text`, `muted`, `dim`, `accent`, `success`, `warning`, `error`) instead of ANSI escapes. Invalid/stale wire messages are ignored; invalid client input throws.
+Text is limited to 256 characters, glyph variants to 16, owner/key to 128, priorities to integers between -1000 and 1000. Raw terminal controls, line separators, and formatting controls are rejected, except that display text and glyphs may contain ZWJ (U+200D) and ZWNJ (U+200C) for emoji and text shaping. Identifiers still reject all formatting controls. Use theme tones (`text`, `muted`, `dim`, `accent`, `success`, `warning`, `error`) instead of ANSI escapes, choosing each by the meanings in the [color conventions](https://github.com/gjermundgaraba/clanker-stuff/blob/main/docs/color.md). Invalid/stale wire messages are ignored; invalid client input throws.
 
 Missing icon variants fall back through the selected family’s supported alternatives. An explicit empty string stops fallback and intentionally omits the icon.
 

@@ -1,8 +1,9 @@
+import { percentTone } from "@clanker-stuff/pi-tones";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ContextUsage, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { ContextSnapshot, Tone } from "./snapshot.js";
+import type { ContextSnapshot, NodeTone } from "./snapshot.js";
 import type { FlatRow } from "./tree.js";
 
 type ThemeColor = Parameters<Theme["fg"]>[0];
@@ -135,12 +136,11 @@ export const renderUsageLine = (theme: Theme, usage: ContextUsage | undefined): 
     return theme.fg("muted", "Pi context usage: unknown");
   }
   const percent = (usage.tokens / usage.contextWindow) * 100;
-  const tone: ThemeColor = percent >= 90 ? "error" : percent >= 70 ? "warning" : "accent";
   return [
     theme.bold(count(usage.tokens)),
     theme.fg("muted", ` / ${count(usage.contextWindow)} tokens`),
     theme.fg("dim", " · "),
-    theme.fg(tone, `${percent.toFixed(1)}% used`),
+    theme.fg(percentTone(percent), `${percent.toFixed(1)}% used`),
     theme.fg("dim", " · "),
     theme.fg("muted", `${count(Math.max(0, usage.contextWindow - usage.tokens))} free`),
   ].join("");
@@ -171,7 +171,7 @@ export const renderLegend = (
   return items.join("   ");
 };
 
-const toneColor = (tone: Tone): ThemeColor => (tone === "code" ? "mdCode" : tone);
+const toneColor = (tone: NodeTone): ThemeColor => (tone === "code" ? "mdCode" : tone);
 
 const renderRowBar = (theme: Theme, share: number): string => {
   const filled = Math.max(share > 0 ? 1 : 0, Math.round(share * ROW_BAR_WIDTH));

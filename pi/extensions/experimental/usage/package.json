@@ -38,7 +38,8 @@
   },
   "dependencies": {
     "@clanker-stuff/footer-protocol": "workspace:^",
-    "@clanker-stuff/lazy-singleton": "workspace:^"
+    "@clanker-stuff/lazy-singleton": "workspace:^",
+    "@clanker-stuff/pi-tones": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

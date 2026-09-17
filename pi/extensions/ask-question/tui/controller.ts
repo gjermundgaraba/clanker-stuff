@@ -121,7 +121,7 @@ export class QuestionnaireView {
   }
   private edit(field: Field, value: string): void {
     const component = new Editor(this.tui, {
-      borderColor: (t) => this.theme.fg("accent", t),
+      borderColor: (t) => this.theme.fg("borderAccent", t),
       selectList: {
         description: (t) => t,
         noMatch: (t) => t,

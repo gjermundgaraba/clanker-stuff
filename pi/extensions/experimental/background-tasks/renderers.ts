@@ -18,17 +18,17 @@ const number = (value: unknown) =>
 
 const status = (value: unknown, theme: Theme) => {
   const name = inline(value) || "unknown";
-  if (name === "running") return theme.fg("warning", "● running");
+  if (name === "running") return theme.fg("accent", "● running");
   if (name === "completed" || name === "result")
     return theme.fg("success", `✓ ${name === "result" ? "result received" : name}`);
-  if (name === "cancelled") return theme.fg("warning", "■ cancelled");
+  if (name === "cancelled") return theme.fg("muted", "■ cancelled");
   return theme.fg("error", `✗ ${name.replaceAll("_", " ")}`);
 };
 const taskLine = (task: Data, theme: Theme) => {
   const exitCode = number(task.exitCode);
   return [
     status(task.status, theme),
-    theme.fg("accent", inline(task.name) || inline(task.id)),
+    theme.fg("text", inline(task.name) || inline(task.id)),
     task.name ? theme.fg("muted", inline(task.id)) : "",
     exitCode !== undefined ? theme.fg("muted", `exit ${exitCode}`) : "",
     task.cleanup === "failed" ? theme.fg("error", "cleanup failed") : "",
@@ -65,7 +65,7 @@ export const taskRenderers = (name: string): Renderers => ({
           }
         }
         if (context.isPartial)
-          lines.push(theme.fg("warning", context.executionStarted ? "● working" : "…"));
+          lines.push(theme.fg("accent", context.executionStarted ? "● working" : "…"));
         return new Text(lines.join("\n"), 0, 0);
       },
       context.expanded,
@@ -83,7 +83,7 @@ export const taskRenderers = (name: string): Renderers => ({
         preview(() => new Text(draw(), 0, 0), options.expanded, limit, tail ? "tail" : "head"),
       );
     if (context.isError || options.isPartial) {
-      add(() => theme.fg(context.isError ? "error" : "warning", clean(text) || "● working"));
+      add(() => theme.fg(context.isError ? "error" : "accent", clean(text) || "● working"));
       return output;
     }
     let data: Data;

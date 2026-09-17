@@ -251,10 +251,10 @@ export class SidePanel implements Focusable {
       }
       case "tool": {
         let marker = "✓";
-        let color: "error" | "success" | "warning" = "success";
+        let color: "accent" | "error" | "success" = "success";
         if (item.status === "running") {
           marker = "●";
-          color = "warning";
+          color = "accent";
         } else if (item.status === "error") {
           marker = "✗";
           color = "error";

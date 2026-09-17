@@ -31,10 +31,10 @@ type ControllerLifecycle =
   | { kind: "stopped" };
 
 const updateStatus = (side: ActiveSide): void => {
-  let color: "accent" | "dim" | "success" | "warning" = "accent";
+  let color: "accent" | "dim" | "muted" | "success" = "muted";
   let label = "active";
   if (isSideActivityActive(side.conversation.state.activity)) {
-    color = "warning";
+    color = "accent";
     label = "working";
   } else if (side.unread) {
     color = "success";
@@ -198,7 +198,7 @@ export const createSideController = (pi: ExtensionAPI) => {
 
     const opening = { context: ctx, kind: "opening" } as const;
     lifecycle = opening;
-    ctx.ui.setStatus(SIDE_STATUS_KEY, ctx.ui.theme.fg("warning", "SIDE ● opening"));
+    ctx.ui.setStatus(SIDE_STATUS_KEY, ctx.ui.theme.fg("accent", "SIDE ● opening"));
 
     let conversation: SideConversation;
     try {

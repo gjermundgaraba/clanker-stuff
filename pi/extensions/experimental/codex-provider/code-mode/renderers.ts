@@ -154,7 +154,7 @@ const displayedOutcome = (trace: RuntimeToolTrace, outcomes: Map<string, Outcome
 };
 
 const outcomeColor = (outcome: Outcome) =>
-  outcome === "error" ? "error" : outcome === "running" ? "warning" : "success";
+  outcome === "error" ? "error" : outcome === "running" ? "accent" : "success";
 
 const outcomeGlyph = (outcome: Outcome): string =>
   outcome === "error" ? "✗" : outcome === "running" ? "●" : "✓";
@@ -337,7 +337,7 @@ const countOutcomes = (outcomes: Iterable<Outcome>): OutcomeCounts => {
 
 interface ResultStatus {
   label: string;
-  color: "error" | "warning" | "success";
+  color: "accent" | "error" | "muted" | "success";
 }
 
 const resultStatus = (
@@ -348,8 +348,8 @@ const resultStatus = (
   noNewOutput: boolean,
 ): ResultStatus => {
   if (scriptError) return { color: "error", label: "✗ error" };
-  if (status === "terminated") return { color: "warning", label: "■ terminated" };
-  const color = counts.error > 0 ? "error" : "warning";
+  if (status === "terminated") return { color: "muted", label: "■ terminated" };
+  const color = counts.error > 0 ? "error" : "accent";
   if (action !== "Exec" && status === "running") {
     return {
       color,

@@ -1,3 +1,4 @@
+import { ToneSchema } from "@clanker-stuff/pi-tones";
 import { GlyphMapSchema } from "@clanker-stuff/status-icons";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -26,17 +27,7 @@ export const BorderStatusSchema = Type.Object(
     icon: Type.Optional(
       Type.Intersect([GlyphMapSchema, Type.Record(Type.String(), displayText(16))]),
     ),
-    tone: Type.Optional(
-      Type.Union([
-        Type.Literal("text"),
-        Type.Literal("muted"),
-        Type.Literal("dim"),
-        Type.Literal("accent"),
-        Type.Literal("success"),
-        Type.Literal("warning"),
-        Type.Literal("error"),
-      ]),
-    ),
+    tone: Type.Optional(ToneSchema),
     priority: Type.Optional(Type.Integer({ minimum: -1000, maximum: 1000 })),
   },
   strict,

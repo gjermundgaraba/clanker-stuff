@@ -84,7 +84,7 @@ export const mcpRenderers = (server: string, tool: string, manager = false): Ren
           }
         }
         if (context.isPartial)
-          lines.push(theme.fg("warning", context.executionStarted ? "● working" : "…"));
+          lines.push(theme.fg("accent", context.executionStarted ? "● working" : "…"));
         return new Text(lines.join("\n"), 0, 0);
       },
       context.expanded,
@@ -110,7 +110,7 @@ export const mcpRenderers = (server: string, tool: string, manager = false): Ren
     const addText = (draw: () => string) =>
       output.addChild(preview(() => new Text(draw(), 0, 0), options.expanded));
     if (context.isError || options.isPartial) {
-      addText(() => theme.fg(context.isError ? "error" : "warning", text || "● working"));
+      addText(() => theme.fg(context.isError ? "error" : "accent", text || "● working"));
       return output;
     }
     if (notice?.type === "text")

@@ -3,7 +3,6 @@ import type { IconFamily } from "@clanker-stuff/status-icons";
 import type {
   FooterContent,
   FooterSpan,
-  FooterTone,
   FooterTruncation,
   FooterWidgetIcon,
 } from "@clanker-stuff/footer-protocol";
@@ -150,8 +149,7 @@ export const sanitizeNativeStatus = (value: string): string => {
 };
 
 const renderSpan = (span: FooterSpan, theme: FooterTheme): string => {
-  const tone: FooterTone = span.tone ?? "text";
-  const text = theme.fg(tone, sanitizePlainText(span.text));
+  const text = theme.fg(span.tone ?? "text", sanitizePlainText(span.text));
   return span.bold === true ? theme.bold(text) : text;
 };
 

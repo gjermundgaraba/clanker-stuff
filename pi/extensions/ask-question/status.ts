@@ -35,7 +35,7 @@ export function createInboxStatus(pi: ExtensionAPI) {
         client.set("inbox", {
           icon: { nerd: "\uF0E0", unicode: "✉", ascii: "mail" },
           text: String(count),
-          tone: "accent",
+          tone: "warning",
           priority: 100,
         });
       else client.clear("inbox");

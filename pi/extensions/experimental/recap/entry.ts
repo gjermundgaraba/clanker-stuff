@@ -39,7 +39,7 @@ export const registerRecapEntry = (pi: ExtensionAPI): void => {
         const indent = width > 2 ? "  " : "";
         const recap = sanitizeRecapText(data.recap);
         return [
-          theme.fg("accent", heading),
+          theme.fg("borderAccent", heading),
           "",
           ...wrapTextWithAnsi(recap, Math.max(1, width - indent.length)).map(
             (line) => `${indent}${line}`,

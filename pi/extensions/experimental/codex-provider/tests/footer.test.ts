@@ -36,7 +36,7 @@ describe("Codex footer widgets", () => {
         type: "upsert",
         widget: {
           consumesStatusKeys: ["codex-fast"],
-          content: [{ text: "fast", tone: "warning" }],
+          content: [{ text: "fast", tone: "accent" }],
           icon: { glyphs: { ascii: ">>", nerd: "󱐋", unicode: "⚡" } },
           id: "clanker.codex.fast",
         },

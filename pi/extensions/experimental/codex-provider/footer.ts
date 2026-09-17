@@ -27,11 +27,11 @@ const WIDGETS = {
   },
   fastMode: {
     consumesStatusKeys: [FAST_MODE_STATUS_KEY],
-    content: [{ text: "fast", tone: "warning" }],
+    content: [{ text: "fast", tone: "accent" }],
     defaults: { enabled: true },
     icon: {
       glyphs: { ascii: ">>", nerd: "󱐋", unicode: "⚡" },
-      tone: "warning",
+      tone: "accent",
     },
     id: "clanker.codex.fast",
     label: "Codex fast mode",

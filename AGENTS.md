@@ -6,6 +6,7 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 
 - When creating or editing any `README.md`, read and follow `docs/readme-style.md` first.
 - When creating or restructuring an extension package, follow the layout in `docs/extension-structure.md`.
+- When choosing or changing any terminal color, follow `docs/color.md` and take tones from `@clanker-stuff/pi-tones`.
 - Keep tests in the smallest layer that proves the behavior: unit by default, integration only for real `AgentSession` behavior, smoke only for discovery, runtime wiring and high-level verification when needed.
 - For session-persisted tool schemas such as `ask_question`, keep `parameters` strict. When the schema evolves, add `prepareArguments(args)` to migrate old persisted calls instead of adding deprecated compatibility fields to the public schema.
 - For any custom tool that mutates files, use `withFileMutationQueue()` around the full read/modify/write critical section, keyed by the resolved absolute target path, so it participates in pi's per-file mutation queue.

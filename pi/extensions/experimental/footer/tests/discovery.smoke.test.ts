@@ -59,6 +59,7 @@ describe("cooperative footer discovery", () => {
       "pi/extensions/experimental/footer",
       "pi/packages/footer-protocol",
       "pi/packages/status-icons",
+      "pi/packages/tones",
       "pi/packages/extension-paths",
     ]) {
       cpSync(path.join(workspaceRoot, entry), path.join(stagingRoot, entry), {

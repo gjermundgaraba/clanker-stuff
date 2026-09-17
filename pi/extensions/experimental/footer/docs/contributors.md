@@ -90,7 +90,7 @@ Keep a native `build` status when the value should remain visible without this h
 ## Snapshot rules
 
 - IDs must be lowercase dot-separated namespaces such as `example.build`, at most 128 ASCII characters; `footer.` and `status:` are reserved.
-- `content` is an array of `{ text, tone?, bold? }`; supported tones are `text`, `dim`, `muted`, `accent`, `success`, `warning`, and `error`.
+- `content` is an array of `{ text, tone?, bold? }`; supported tones are `text`, `dim`, `muted`, `accent`, `success`, `warning`, and `error`. Choose each by the meanings in the repository's `docs/color.md`.
 - Rich text is single-line and ANSI-free: controls, escape sequences, and line breaks are rejected.
 - Optional `truncate` is `start`, `middle`, or `end`. Without it, left, center, and right groups truncate at the end, middle, and start respectively.
 - Optional metadata includes `icon`, `defaults.enabled`, `health`, and up to 16 `consumesStatusKeys`.

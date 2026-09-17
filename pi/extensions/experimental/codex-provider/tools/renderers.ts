@@ -270,7 +270,7 @@ export const formatProcessStatus = (details: ProcessDisplayDetails, theme: Theme
   if (details.status === "running") {
     const session =
       details.sessionId === undefined ? "" : theme.fg("muted", ` · session ${details.sessionId}`);
-    return `${theme.fg("warning", "● running")}${session}${duration}`;
+    return `${theme.fg("accent", "● running")}${session}${duration}`;
   }
   if (details.status === "killed") {
     return `${theme.fg("error", "■ killed")}${duration}`;
@@ -399,7 +399,7 @@ const trackPendingProcess = (context: RenderContext): string => {
 const pendingLine = (context: RenderContext, theme: Theme): string => {
   const elapsed = trackPendingProcess(context);
   return elapsed.length > 0
-    ? `\n${theme.fg("warning", "● running")}${theme.fg("muted", ` · ${elapsed}`)}`
+    ? `\n${theme.fg("accent", "● running")}${theme.fg("muted", ` · ${elapsed}`)}`
     : "";
 };
 

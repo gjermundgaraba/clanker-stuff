@@ -100,11 +100,11 @@ Messages for another instance are ignored. Contributors retain their latest stat
 ### Snapshot
 
 ```ts
-type FooterTone = "text" | "dim" | "muted" | "accent" | "success" | "warning" | "error";
+import type { Tone } from "@clanker-stuff/pi-tones";
 
 interface FooterSpan {
   text: string;
-  tone?: FooterTone;
+  tone?: Tone;
   bold?: boolean;
 }
 
@@ -116,7 +116,7 @@ interface FooterWidgetSnapshot {
     | false
     | {
         glyphs: string | Partial<Record<"ascii" | "unicode" | "nerd", string>>;
-        tone?: FooterTone;
+        tone?: Tone;
       };
   defaults?: { enabled?: boolean };
   health?: {

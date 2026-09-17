@@ -15,7 +15,7 @@ const inline = (value: unknown) => (typeof value === "string" ? inlineText(value
 const status = (value: unknown, theme: Theme): string => {
   if (typeof value === "string") {
     const label = inline(value).replaceAll("_", " ");
-    if (value === "running" || value === "pending_init") return theme.fg("warning", `● ${label}`);
+    if (value === "running" || value === "pending_init") return theme.fg("accent", `● ${label}`);
     if (value === "not_found") return theme.fg("error", `✗ ${label}`);
     return theme.fg("muted", `■ ${label}`);
   }
@@ -67,7 +67,7 @@ export const agentRenderers = (name: string): Renderers => ({
         const message = inputText(data);
         if (message) lines.push(theme.fg("toolOutput", message));
         if (context.isPartial)
-          lines.push(theme.fg("warning", context.executionStarted ? "● working" : "…"));
+          lines.push(theme.fg("accent", context.executionStarted ? "● working" : "…"));
         return new Text(lines.join("\n"), 0, 0);
       },
       context.expanded,
@@ -83,7 +83,7 @@ export const agentRenderers = (name: string): Renderers => ({
     const add = (draw: () => string, limit = 5) =>
       output.addChild(preview(() => new Text(draw(), 0, 0), options.expanded, limit));
     if (context.isError || options.isPartial) {
-      add(() => theme.fg(context.isError ? "error" : "warning", clean(text) || "● working"));
+      add(() => theme.fg(context.isError ? "error" : "accent", clean(text) || "● working"));
       return output;
     }
     if (!text && (name === "send_message" || name === "followup_task")) {

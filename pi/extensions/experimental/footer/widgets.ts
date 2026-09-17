@@ -4,9 +4,10 @@ import path from "node:path";
 import type {
   FooterContent,
   FooterSpan,
-  FooterTone,
   FooterWidgetSnapshot,
 } from "@clanker-stuff/footer-protocol";
+import { percentTone } from "@clanker-stuff/pi-tones";
+import type { Tone } from "@clanker-stuff/pi-tones";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import type { GitStatus } from "./git.js";
@@ -51,7 +52,7 @@ type SessionTotalsContext = {
   };
 };
 
-const span = (text: string, tone: FooterTone = "text", bold = false): FooterContent => [
+const span = (text: string, tone: Tone = "text", bold = false): FooterContent => [
   { bold, text, tone },
 ];
 
@@ -62,9 +63,6 @@ const builtin = (snapshot: FooterWidgetSnapshot): LiveWidget => ({
 
 const clampPercent = (value: number): number =>
   Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
-
-const percentTone = (percent: number): FooterTone =>
-  percent >= 90 ? "error" : percent >= 70 ? "warning" : "text";
 
 export const formatTokenCount = (tokens: number): string => {
   const safe = Number.isFinite(tokens) ? Math.max(0, tokens) : 0;
@@ -99,10 +97,10 @@ const abbreviateHome = (cwd: string): string => {
 
 const cwdWidget = (cwd: string): LiveWidget =>
   builtin({
-    content: span(abbreviateHome(cwd), "accent"),
+    content: span(abbreviateHome(cwd), "muted"),
     icon: {
       glyphs: { ascii: "cwd", nerd: "", unicode: "▸" },
-      tone: "accent",
+      tone: "dim",
     },
     id: "footer.cwd",
     label: "Working directory",
@@ -145,7 +143,7 @@ const modelWidget = (ctx: ExtensionContext): LiveWidget => {
     content: span(full, "muted"),
     icon: {
       glyphs: { ascii: "model", nerd: "󰧑", unicode: "◆" },
-      tone: "muted",
+      tone: "dim",
     },
     id: "footer.model",
     label: "Model",
@@ -154,10 +152,10 @@ const modelWidget = (ctx: ExtensionContext): LiveWidget => {
 
 const thinkingWidget = (thinkingLevel: string): LiveWidget =>
   builtin({
-    content: span(thinkingLevel === "off" ? "" : thinkingLevel, "accent"),
+    content: span(thinkingLevel === "off" ? "" : thinkingLevel, "muted"),
     icon: {
       glyphs: { ascii: "think", nerd: "󰔏", unicode: "◇" },
-      tone: "accent",
+      tone: "dim",
     },
     id: "footer.thinking",
     label: "Thinking",
@@ -210,16 +208,17 @@ const gitWidgets = (git: GitStatus | null): LiveWidget[] => {
           .join(" ");
   return [
     builtin({
-      content: span(branch, details ? "warning" : "success"),
+      content: span(branch, "text"),
       icon: {
         glyphs: { ascii: "git", nerd: "", unicode: "⑂" },
-        tone: details ? "warning" : "success",
+        tone: "dim",
       },
       id: "footer.git",
       label: "Git branch",
     }),
     builtin({
-      content: span(details, "warning"),
+      // A dirty tree is routine; the counts are the marker.
+      content: span(details, "muted"),
       id: "footer.git.details",
       label: "Git details",
     }),

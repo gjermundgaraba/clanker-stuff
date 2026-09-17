@@ -33,6 +33,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/pi-tones": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {

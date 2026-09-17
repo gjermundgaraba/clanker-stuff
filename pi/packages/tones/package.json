@@ -1,13 +1,13 @@
 {
-  "name": "@clanker-stuff/footer-protocol",
+  "name": "@clanker-stuff/pi-tones",
   "version": "0.1.0",
   "private": false,
-  "description": "Shares the cooperative footer event contract across Pi extensions.",
+  "description": "Shares semantic color tones and status ramps across Pi extensions.",
   "keywords": [
     "pi",
     "pi-extension"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/packages/footer-protocol#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/packages/tones#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
   },
@@ -15,26 +15,17 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-    "directory": "pi/packages/footer-protocol"
+    "directory": "pi/packages/tones"
   },
   "files": [
     "index.ts",
     "README.md",
-    "LICENSE",
-    "config.ts",
-    "docs"
+    "LICENSE"
   ],
   "type": "module",
-  "exports": {
-    ".": "./index.ts",
-    "./config": "./config.ts"
-  },
+  "exports": "./index.ts",
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {
-    "@clanker-stuff/pi-tones": "workspace:^",
-    "@clanker-stuff/status-icons": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

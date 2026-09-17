@@ -69,7 +69,7 @@ const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
   box.addChild(new Text(header, 0, 0));
   for (const skill of skills) {
     box.addChild(
-      new Text(`${theme.fg("accent", `$${skill.name}`)}\n${theme.fg("dim", skill.path)}`, 0, 0),
+      new Text(`${theme.fg("accent", `$${skill.name}`)}\n${theme.fg("muted", skill.path)}`, 0, 0),
     );
     box.addChild(new Markdown(skill.body, 0, 0, getMarkdownTheme()));
   }

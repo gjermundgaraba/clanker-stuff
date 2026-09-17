@@ -1,4 +1,5 @@
 import type { FooterWidgetHealthState, FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
+import { percentTone } from "@clanker-stuff/pi-tones";
 
 import { formatResetDuration } from "./format.js";
 import { providerDisplayName } from "./providers.js";
@@ -32,13 +33,6 @@ const richText = (value: string, maximum: number): string => {
 
 const usedPercent = (window: UsageWindow): number =>
   Math.min(100, Math.max(0, 100 - window.remainingPercent));
-
-const toneFor = (percent: number): "error" | "text" | "warning" => {
-  if (percent >= 90) {
-    return "error";
-  }
-  return percent >= 70 ? "warning" : "text";
-};
 
 const selectActiveWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => {
   let selected: UsageWindow | undefined;
@@ -131,11 +125,11 @@ export const activeSnapshot = (
       ? [
           {
             text: `${providerLabel(snapshot)} ${richText(window.label, 80)} `,
-            tone: "accent" as const,
+            tone: "muted" as const,
           },
-          { text: "━".repeat(filled), tone: toneFor(percent) },
+          { text: "━".repeat(filled), tone: percentTone(percent) },
           { text: "─".repeat(10 - filled), tone: "dim" as const },
-          { text: ` ${rounded}${reset}`, tone: toneFor(percent) },
+          { text: ` ${rounded}${reset}`, tone: percentTone(percent) },
         ]
       : snapshot?.ordinaryUsageAllowed !== undefined
         ? [
@@ -182,7 +176,7 @@ export const detailsSnapshot = (
         ? ` ${formatResetDuration(window.resetsAt, now)}`
         : ""
     }`,
-    tone: toneFor(usedPercent(window)),
+    tone: percentTone(usedPercent(window)),
   }));
   return {
     consumesStatusKeys: [STATUS_KEY],

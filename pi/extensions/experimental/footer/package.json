@@ -39,6 +39,7 @@
   "dependencies": {
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-tones": "workspace:^",
     "@clanker-stuff/status-icons": "workspace:^"
   },
   "devDependencies": {
