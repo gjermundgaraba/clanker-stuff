@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import { createKeybindings, createMockTui } from "../../../tests/harness/tui.js";
-import { acquireEditorHost } from "../index.js";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+  createIdentityTheme,
+  createKeybindings,
+  createMockTui,
+} from "../../../tests/harness/tui.js";
+import { acquireEditorHost, EditorHost } from "../index.js";
+import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
 
 function setup() {
   const fixture = createExtensionHost(() => {});
@@ -166,6 +170,39 @@ it("restores a document checkpoint after native payload IDs are reused", () => {
   expect(editor.getText()).toBe(payload + "C".repeat(1100));
   editor.restoreView(checkpoint);
   expect(editor.getText()).toBe(payload);
+});
+
+it("keeps a focused editor's cursor marker whole and out of decoration offsets", () => {
+  const identity = (text: string) => text;
+  const host = new EditorHost(() =>
+    Object.assign(createIdentityTheme(), {
+      fg: (_color: string, text: string) => `<${text}>`,
+    }),
+  );
+  const editor = host.create(
+    createMockTui(),
+    {
+      borderColor: identity,
+      selectList: {
+        selectedPrefix: identity,
+        selectedText: identity,
+        description: identity,
+        scrollInfo: identity,
+        noMatch: identity,
+      },
+    },
+    createKeybindings(),
+  );
+  editor.render(40);
+  editor.setText("this is a test");
+  editor.handleInput("\x1b[D"); // cursor on the final "t"
+  host.contribute("foreground", () => [{ start: 10, end: 14, foreground: "accent" }]);
+  editor.focused = true;
+  const row = editor.render(40)[1]!;
+  expect(row).toContain(CURSOR_MARKER);
+  // Exactly the four spanned characters are decorated, including the one under the cursor.
+  expect(row.match(/<[^>]*>/gu)).toHaveLength(4);
+  expect(row.replaceAll(CURSOR_MARKER, "")).toMatch(/^this is a <t><e><s>.*<t>/u);
 });
 
 it.each([

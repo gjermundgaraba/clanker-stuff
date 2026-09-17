@@ -9,9 +9,10 @@ export interface Decoration {
   selected?: boolean;
 }
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-// Terminal CSI styles and Pi's zero-width hardware cursor marker.
+// Zero-width terminal sequences: CSI styles, and APC/OSC strings ended by BEL or ST. A focused
+// editor emits Pi's cursor marker, the BEL-terminated APC "\x1b_pi:c\x07", on the cursor's row.
 // oxlint-disable-next-line no-control-regex
-const escapes = /(\x1b\[[0-?]*[ -/]*[@-~]|\x1b_[^\x1b]*\x1b\\)/g;
+const escapes = /(\x1b\[[0-?]*[ -/]*[@-~]|\x1b[_\]][^\x07\x1b]*(?:\x07|\x1b\\))/g;
 
 export function decorateRows(
   rows: string[],
