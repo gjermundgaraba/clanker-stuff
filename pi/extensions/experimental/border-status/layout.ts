@@ -10,11 +10,6 @@ export interface StatusEntry {
   status: BorderStatus;
 }
 
-export interface BorderRender {
-  line: string;
-  state: "rendered" | "compatible" | "insufficient-space" | "incompatible";
-}
-
 /** Replace only trailing rule cells. Never alter the editor's wrapping width or labels. */
 export function renderBorder(
   original: string,
@@ -23,17 +18,17 @@ export function renderBorder(
   family: IconFamily,
   theme: Pick<Theme, "fg">,
   borderColor: (text: string) => string,
-): BorderRender {
+): string {
   const plain = stripTerminalSequences(original);
-  // Tiny Pi borders may contain only a spinner. Defer structural judgment there.
-  if (width < 5) return { line: original, state: "insufficient-space" };
+  // Tiny Pi borders may contain only a spinner; leave them untouched.
+  if (width < 5) return original;
   if (!plain.startsWith("─") || !plain.endsWith("─") || visibleWidth(original) !== width)
-    return { line: original, state: "incompatible" };
-  if (!entries.length) return { line: original, state: "compatible" };
+    return original;
+  if (!entries.length) return original;
   const tail = /─+$/.exec(plain)?.[0].length ?? 0;
   // Keep two rule cells before the right block and one after it, plus spaces.
   const budget = tail - 5;
-  if (budget <= 0) return { line: original, state: "insufficient-space" };
+  if (budget <= 0) return original;
   const sorted = [...entries].sort(
     (a, b) =>
       (b.status.priority ?? 0) - (a.status.priority ?? 0) ||
@@ -48,11 +43,8 @@ export function renderBorder(
     used += size + (selected.length ? 3 : 0);
     selected.push(theme.fg(status.tone ?? "text", text));
   }
-  if (!selected.length) return { line: original, state: "insufficient-space" };
+  if (!selected.length) return original;
   const block = selected.join(theme.fg("muted", " · "));
   const prefix = sliceByColumn(original, 0, width - used - 3, true);
-  return {
-    line: `${prefix}\u001b[0m${borderColor(" ")}${block}${borderColor(" ─")}`,
-    state: "rendered",
-  };
+  return `${prefix}\u001b[0m${borderColor(" ")}${block}${borderColor(" ─")}`;
 }

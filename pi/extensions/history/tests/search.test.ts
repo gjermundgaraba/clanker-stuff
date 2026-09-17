@@ -23,10 +23,14 @@ const item = (text: string, timestamp: number): HistoryItem => ({
   timestamp,
 });
 
-const createHarness = (history: HistoryItem[], mode: "regular" | "fullscreen" = "regular") => {
+const createHarness = (
+  history: HistoryItem[],
+  mode: "regular" | "fullscreen" = "regular",
+  foreign = false,
+) => {
   const host = createExtensionHost(() => Promise.resolve());
   const ctx = host.createContext();
-  const widgets = createWidgetHarness(host, ctx, mode);
+  const widgets = createWidgetHarness(host, ctx, mode, foreign);
   const { tui } = widgets;
   const previousFocus = new Input();
   tui.addChild(previousFocus);
@@ -65,6 +69,27 @@ describe("reverse search", () => {
     expect(ctx.ui.getEditorText()).toBe("Check deploy status");
     expect(widget()).toBeUndefined();
     expect(host.terminalInput("\r").consumed).toBeFalsy();
+  });
+
+  it("previews, cancels and yields to newer text under another extension's editor", () => {
+    const { begin, ctx, host, widget } = createHarness(
+      [item("deploy production", 100)],
+      "regular",
+      true,
+    );
+    ctx.ui.setEditorText("unfinished draft");
+    begin();
+    host.terminalInput("deploy");
+    expect(ctx.ui.getEditorText()).toBe("deploy production");
+    host.terminalInput("\u001B");
+    expect(ctx.ui.getEditorText()).toBe("unfinished draft");
+
+    begin();
+    host.terminalInput("deploy");
+    ctx.ui.setEditorText("edited elsewhere");
+    host.terminalInput("\u001B");
+    expect(ctx.ui.getEditorText()).toBe("edited elsewhere");
+    expect(widget()).toBeUndefined();
   });
 
   it("keeps no-match search open and restores the original draft", () => {
@@ -339,50 +364,27 @@ describe("reverse search", () => {
     expect(dialog.focused).toBe(true);
   });
 
-  it.each(["regular", "fullscreen"] as const)(
-    "restores an outer editor wrapper in %s mode",
-    (mode) => {
-      const { host, ctx, tui, begin } = createHarness([], mode);
-      Object.assign(ctx.sessionManager, {
-        getSessionDir: () => "",
-        getHeader: () => undefined,
-      });
-      installHistoryEditor({ type: "session_start", reason: "startup" }, ctx, () => []);
-      const historyFactory = ctx.ui.getEditorComponent();
-      if (!historyFactory) throw new Error("Expected history factory");
-      const wrapperInput = vi.fn<(data: string) => void>();
-      ctx.ui.setEditorComponent((activeTui, theme, bindings) => {
-        const inner = historyFactory(activeTui, theme, bindings);
-        return {
-          get focused() {
-            return isFocusable(inner) && inner.focused;
-          },
-          set focused(value: boolean) {
-            if (isFocusable(inner)) inner.focused = value;
-          },
-          getText: () => inner.getText(),
-          setText: (text) => inner.setText(text),
-          handleInput: (data) => {
-            wrapperInput(data);
-            inner.handleInput?.(data);
-          },
-          render: (width) => inner.render(width),
-          invalidate: () => inner.invalidate(),
-        };
-      });
-      const wrapper = ctx.ui.getEditorComponent()?.(tui, editorTheme, createKeybindings());
-      if (!wrapper) throw new Error("Expected wrapper");
-      tui.addChild(wrapper);
-      tui.setFocus(wrapper);
-      begin();
-      host.terminalInput("\u001B");
-      expect(tui.getFocusedComponent()).toBe(wrapper);
-      expect(isFocusable(wrapper) && wrapper.focused).toBe(true);
-      host.terminalInput("x");
-      expect(wrapperInput).toHaveBeenCalledExactlyOnceWith("x");
-      expect(wrapper.getText()).toBe("x");
-    },
-  );
+  it.each(["regular", "fullscreen"] as const)("restores the shared editor in %s mode", (mode) => {
+    const { host, ctx, tui, begin } = createHarness([], mode);
+    Object.assign(ctx.sessionManager, {
+      getSessionDir: () => "",
+      getHeader: () => undefined,
+    });
+    installHistoryEditor({ type: "session_start", reason: "startup" }, ctx, () => []);
+    const historyFactory = ctx.ui.getEditorComponent();
+    if (!historyFactory) throw new Error("Expected history factory");
+    const wrapper = historyFactory(tui, editorTheme, createKeybindings());
+    const wrapperInput = vi.spyOn(wrapper, "handleInput");
+    tui.addChild(wrapper);
+    tui.setFocus(wrapper);
+    begin();
+    host.terminalInput("\u001B");
+    expect(tui.getFocusedComponent()).toBe(wrapper);
+    expect(isFocusable(wrapper) && wrapper.focused).toBe(true);
+    host.terminalInput("x");
+    expect(wrapperInput).toHaveBeenCalledExactlyOnceWith("x");
+    expect(wrapper.getText()).toBe("x");
+  });
 
   it.each(["regular", "fullscreen"] as const)(
     "lets a focused overlay receive keys in %s mode and resumes afterward",

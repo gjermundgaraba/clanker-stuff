@@ -1,3 +1,4 @@
+import { acquireEditorHost } from "@clanker-stuff/editor";
 import {
   type EditorTheme,
   type Terminal,
@@ -9,6 +10,7 @@ import { vi, onTestFinished } from "vite-plus/test";
 import type { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createMockTui, createKeybindings } from "../../../tests/harness/tui.js";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type { SessionEntry, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const userEntry = (
@@ -85,6 +87,7 @@ export const createWidgetHarness = (
   host: ReturnType<typeof createExtensionHost>,
   ctx: ExtensionContext,
   mode: "regular" | "fullscreen" = "regular",
+  foreign = false,
 ) => {
   let input: (data: string) => void = () => {};
   const terminal: Terminal = {
@@ -108,6 +111,14 @@ export const createWidgetHarness = (
   };
   const tui = mode === "regular" ? new TuiMainScreen(terminal) : new TuiAltScreen(terminal);
   vi.spyOn(tui, "requestRender").mockImplementation(() => {});
+  const plain = new CustomEditor(tui, editorTheme, createKeybindings());
+  if (foreign) ctx.ui.setEditorComponent(() => plain);
+  const editor = foreign
+    ? plain
+    : acquireEditorHost(ctx)!.create(tui, editorTheme, createKeybindings());
+  editor.setText(ctx.ui.getEditorText());
+  vi.spyOn(ctx.ui, "getEditorText").mockImplementation(() => editor.getExpandedText());
+  vi.spyOn(ctx.ui, "setEditorText").mockImplementation((text) => editor.setText(text));
   let widget: (Component & { dispose?(): void }) | undefined;
   vi.spyOn(ctx.ui, "setWidget").mockImplementation((_key, content) => {
     if (widget) {

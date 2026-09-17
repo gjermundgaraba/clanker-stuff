@@ -1,4 +1,4 @@
-import { CustomEditor } from "@earendil-works/pi-coding-agent";
+import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { ExtensionContext, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 
 import { historyFromEntries, normalizeHistory, type HistoryItem } from "./history.js";
@@ -40,15 +40,5 @@ export const installHistoryEditor = (
   getPersistentHistory: () => readonly HistoryItem[],
 ): void => {
   const seed = initialHistory(event, ctx, getPersistentHistory).slice(0, 100).toReversed();
-  const previous = ctx.ui.getEditorComponent();
-  ctx.ui.setEditorComponent((tui, theme, keybindings) => {
-    const editor =
-      previous?.(tui, theme, keybindings) ??
-      new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
-
-    for (const { text } of seed) {
-      editor.addToHistory?.(text);
-    }
-    return editor;
-  });
+  acquireEditorHost(ctx)?.seedHistory(seed.map(({ text }) => text));
 };

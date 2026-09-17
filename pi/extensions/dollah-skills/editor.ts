@@ -1,26 +1,17 @@
-import { CustomEditor } from "@earendil-works/pi-coding-agent";
+import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const installSkillMentionEditor = (
-  ctx: ExtensionContext,
-  getSkillNames: () => string[],
-): void => {
-  const pattern = /\$[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/gu;
-  const previous = ctx.ui.getEditorComponent();
-  ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => {
-    const editor =
-      previous?.(tui, editorTheme, keybindings) ??
-      new CustomEditor(tui, editorTheme, keybindings, { embedWorkingStatus: true });
-    const render = editor.render.bind(editor);
-
-    editor.render = (width) => {
-      const skillNames = new Set(getSkillNames());
-      return render(width).map((line) =>
-        line.replace(pattern, (match) =>
-          skillNames.has(match.slice(1)) ? ctx.ui.theme.fg("accent", match) : match,
-        ),
-      );
-    };
-    return editor;
+export function installSkillMentionEditor(ctx: ExtensionContext, getSkillNames: () => string[]) {
+  const host = acquireEditorHost(ctx);
+  if (!host) return;
+  host.contribute("foreground", (text) => {
+    const names = new Set(getSkillNames());
+    return [...text.matchAll(/\$[A-Za-z0-9_:-]+/gu)]
+      .filter((match) => names.has(match[0].slice(1)))
+      .map((match) => ({
+        start: match.index,
+        end: match.index + match[0].length,
+        foreground: "accent" as const,
+      }));
   });
-};
+}

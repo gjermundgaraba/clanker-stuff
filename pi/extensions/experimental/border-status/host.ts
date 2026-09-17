@@ -34,14 +34,14 @@ export function createBorderHost(pi: ExtensionAPI) {
   let ready: BorderReady | undefined;
   let config = { ...defaultConfig };
   let family: IconFamily = "unicode";
-  let supported = false;
+  let mounted = false;
   let generation = 0;
   let requestRender = () => {};
   let detachEditor: (() => void) | undefined;
   let unsubscribe: (() => void)[] = [];
   const entries = new Map<string, StatusEntry>();
   const emitReady = () => {
-    if (ready && supported) pi.events.emit(BORDER_READY_EVENT, ready);
+    if (ready && mounted) pi.events.emit(BORDER_READY_EVENT, ready);
   };
   const reset = () => {
     if (ready) pi.events.emit(BORDER_UNAVAILABLE_EVENT, ready);
@@ -64,7 +64,7 @@ export function createBorderHost(pi: ExtensionAPI) {
     for (const stop of unsubscribe) stop();
     unsubscribe = [];
     ctx = undefined;
-    supported = false;
+    mounted = false;
     requestRender = () => {};
   };
   return {
@@ -114,18 +114,10 @@ export function createBorderHost(pi: ExtensionAPI) {
         type: "icon-preference-request",
       });
       detachEditor = installBorderEditor(next, {
-        bindRender: (render) => {
+        mounted: (render) => {
           requestRender = render;
-        },
-        availability: (value) => {
-          if (!value && ready) {
-            pi.events.emit(BORDER_UNAVAILABLE_EVENT, ready);
-            entries.clear();
-            // A later compatible editor must not revive cleared or delayed snapshots.
-            ready = { ...ready, instanceId: randomUUID() };
-          }
-          supported = value;
-          if (supported) emitReady();
+          mounted = true;
+          emitReady();
         },
         render: (line, width, color) =>
           ctx && ready
@@ -137,7 +129,7 @@ export function createBorderHost(pi: ExtensionAPI) {
                 ctx.ui.theme,
                 color,
               )
-            : { line, state: "incompatible" },
+            : line,
       });
     },
     async command(args: string, context: ExtensionContext) {

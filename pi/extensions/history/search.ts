@@ -1,3 +1,4 @@
+import { acquireEditorHost, type Preview } from "@clanker-stuff/editor";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   Input,
@@ -39,9 +40,30 @@ const clearQuery = (input: Input) => {
   }
 };
 
+/** Without the shared editor a preview owns only the text: no cursor, undo or modal restore. */
+const textPreview = (ui: ExtensionContext["ui"]): Preview => {
+  const draft = ui.getEditorText();
+  let shown = draft;
+  let active = true;
+  // Another component's edit relinquishes ownership, as with the shared editor's revisions.
+  const owned = () => (active &&= ui.getEditorText() === shown);
+  return {
+    show: (text) => {
+      if (!owned()) return;
+      ui.setEditorText(text);
+      // Compare with what the editor actually stored: Pi normalizes tabs and line endings.
+      shown = ui.getEditorText();
+    },
+    close: (cancel) => {
+      if (owned() && cancel) ui.setEditorText(draft);
+      active = false;
+    },
+  };
+};
+
 interface SearchSession {
   draft: string;
-  preview: string;
+  transaction: Preview;
   filteredQuery: string;
   matches: HistoryItem[];
   input: Input;
@@ -100,14 +122,7 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
 
   const showPreview = () => {
     if (!session) return;
-    const current = session.ui.getEditorText();
-    // A suspended search may resume after another component edits the draft.
-    // Preserve that text before taking ownership with another preview.
-    if (current !== session.preview) session.draft = current;
-    session.ui.setEditorText(session.matches[session.selected]?.text ?? session.draft);
-    // Compare with what the editor actually stored: Pi normalizes tabs and
-    // line endings, and composing editors may also transform inserted text.
-    session.preview = session.ui.getEditorText();
+    session.transaction.show(session.matches[session.selected]?.text ?? session.draft);
     session.requestRender?.();
   };
 
@@ -144,9 +159,7 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
     if (!session) {
       return;
     }
-    if (restoreDraft && session.ui.getEditorText() === session.preview) {
-      session.ui.setEditorText(session.draft);
-    }
+    session.transaction.close(restoreDraft);
     session.ui.setWidget(WIDGET_KEY, undefined);
     session = undefined;
   };
@@ -163,7 +176,7 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
     const draft = ui.getEditorText();
     session = {
       draft,
-      preview: draft,
+      transaction: acquireEditorHost({ ui })?.preview() ?? textPreview(ui),
       filteredQuery: "",
       matches: [],
       input: new Input({ prompt: "history: " }),

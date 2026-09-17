@@ -11,7 +11,7 @@ const entry: StatusEntry = {
   status: { text: "3", icon: { unicode: "✉", ascii: "mail", nerd: "\uF0E0" }, priority: 100 },
 };
 const render = (line: string, entries: StatusEntry[] = [entry]) =>
-  renderBorder(line, visibleWidth(line), entries, "unicode", theme, color).line;
+  renderBorder(line, visibleWidth(line), entries, "unicode", theme, color);
 
 describe("border layout", () => {
   it("preserves working and scroll labels and uses only the trailing rule", () => {
@@ -38,18 +38,6 @@ describe("border layout", () => {
     const wide = render("─".repeat(16), [{ owner: "x", key: "x", status: { text: "界界" } }]);
     expect(visibleWidth(wide)).toBe(16);
   });
-});
-
-it("separates structural incompatibility from lack of space even with no statuses", () => {
-  const classify = (line: string, width: number, entries: StatusEntry[] = []) =>
-    renderBorder(line, width, entries, "unicode", theme, color).state;
-  expect(classify("─".repeat(40), 40)).toBe("compatible");
-  expect(classify("─".repeat(40), 40, [entry])).toBe("rendered");
-  expect(classify("─".repeat(5), 5, [entry])).toBe("insufficient-space");
-  expect(classify("foreign".padEnd(40), 40)).toBe("incompatible");
-  expect(classify("─ header without trailing rule".padEnd(40), 40)).toBe("incompatible");
-  expect(classify("─".repeat(39), 40)).toBe("incompatible");
-  expect(classify("◉", 1)).toBe("insufficient-space");
 });
 
 it.each(["👩‍💻", "می\u200Cروم"])("preserves joined display content and border width: %s", (text) => {

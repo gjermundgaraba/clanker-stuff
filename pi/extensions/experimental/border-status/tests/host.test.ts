@@ -1,4 +1,3 @@
-import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { createInboxStatus } from "../../../ask-question/status.js";
 import {
   createBorderStatusClient,
@@ -38,7 +37,6 @@ it.each([true, false])(
     await host.emitSessionStart(ctx);
     const editor = createEditor(host);
     editor.render(80);
-    await Promise.resolve();
     if (!first) publish();
     const border = () => stripTerminalSequences(editor.render(80)[0]!);
     expect(border()).toContain("A · B");
@@ -67,7 +65,6 @@ describe("host lifecycle and fonts", () => {
     await host.emitSessionStart(ctx);
     const editor = createEditor(host);
     editor.render(80);
-    await Promise.resolve();
     const old = ready!;
     const client = createBorderStatusClient(host, { owner: "test" });
     client.attach(ctx);
@@ -128,56 +125,7 @@ describe("host lifecycle and fonts", () => {
   });
 });
 
-it("does not revive cleared statuses when an editor factory temporarily becomes unsupported", async () => {
-  const host = createExtensionHost(extension);
-  await host.ready;
-  const ctx = host.createContext();
-  // Seed a real default editor factory from a first host start.
-  await host.emitSessionStart(ctx);
-  const compatible = createEditor(host);
-  await host.emitSessionShutdown(ctx);
-  let supported = true;
-  ctx.ui.setEditorComponent(() =>
-    supported
-      ? compatible
-      : {
-          render: () => ["foreign"],
-          invalidate() {},
-          handleInput() {},
-          getText: () => "",
-          setText() {},
-        },
-  );
-  await host.emitSessionStart(ctx);
-  const client = createBorderStatusClient(host, { owner: "test" });
-  client.attach(ctx);
-  let editor = createEditor(host);
-  editor.render(80);
-  await Promise.resolve();
-  client.set("x", { text: "old-status" });
-  expect(stripTerminalSequences(editor.render(80)[0]!)).toContain("old-status");
-  supported = false;
-  createEditor(host);
-  await Promise.resolve();
-  expect(client.available).toBe(false);
-  client.clear("x");
-  supported = true;
-  editor = createEditor(host);
-  editor.render(80);
-  await Promise.resolve();
-  expect(client.available).toBe(true);
-  expect(stripTerminalSequences(editor.render(80)[0]!)).not.toContain("old-status");
-  client.dispose();
-  await host.emitSessionShutdown(ctx);
-});
-
-it("keeps the inbox widget through border compatibility changes, overflow and editor replacement", async () => {
-  class AlternateEditor extends CustomEditor {
-    unusual = true;
-    protected override renderTopBorder(width: number, hidden: number): string {
-      return this.unusual ? "custom".padEnd(width, " ") : super.renderTopBorder(width, hidden);
-    }
-  }
+it("keeps the inbox widget when border entries overflow", async () => {
   let inbox: ReturnType<typeof createInboxStatus> | undefined;
   const host = createExtensionHost((pi) => {
     extension(pi);
@@ -185,27 +133,14 @@ it("keeps the inbox widget through border compatibility changes, overflow and ed
   });
   await host.ready;
   const ctx = host.createContext();
-  let current: AlternateEditor | undefined;
-  ctx.ui.setEditorComponent((tui, theme, keys) => {
-    current = new AlternateEditor(tui, theme, keys);
-    return current;
-  });
   await host.emitSessionStart(ctx);
   inbox!.attach(ctx);
   inbox!.update(2, 0);
   const editor = createEditor(host);
   const line = () => stripTerminalSequences(editor.render(80)[0]!);
   expect(host.getWidget("questionnaires")).toContain("2 questionnaires");
-  line();
-  await Promise.resolve();
-  expect(host.getWidget("questionnaires")).toContain("2 questionnaires");
-  current!.unusual = false;
-  line();
-  await Promise.resolve();
-  expect(host.getWidget("questionnaires")).toContain("2 questionnaires");
   expect(line()).toContain("✉ 2");
   editor.render(5);
-  await Promise.resolve();
   expect(host.getWidget("questionnaires")).toContain("2 questionnaires");
   const competitor = createBorderStatusClient(host, { owner: "competitor" });
   competitor.attach(ctx);
@@ -213,24 +148,12 @@ it("keeps the inbox widget through border compatibility changes, overflow and ed
   const crowded = stripTerminalSequences(editor.render(16)[0]!);
   expect(crowded).toContain("competing");
   expect(crowded).not.toContain("✉");
-  await Promise.resolve();
   expect(host.getWidget("questionnaires")).toContain("2 questionnaires");
   competitor.dispose();
-  current!.unusual = true;
   line();
-  await Promise.resolve();
   expect(host.getWidget("questionnaires")).toContain("2 questionnaires");
   inbox!.update(1, 0);
-  current!.unusual = false;
-  line();
-  await Promise.resolve();
   expect(line()).toContain("✉ 1");
-  expect(host.getWidget("questionnaires")).toContain("1 questionnaire");
-  // Replacement bypasses the border factory entirely.
-  ctx.ui.setEditorComponent((tui, theme, keys) => new CustomEditor(tui, theme, keys));
-  const replacement = createEditor(host);
-  expect(stripTerminalSequences(replacement.render(80)[0]!)).not.toContain("✉");
-  await Promise.resolve();
   expect(host.getWidget("questionnaires")).toContain("1 questionnaire");
   inbox!.dispose();
   expect(host.getWidget("questionnaires")).toBeUndefined();
@@ -241,11 +164,6 @@ it("preserves availability, generation and entries when reusing the active edito
   const host = createExtensionHost(extension);
   await host.ready;
   const ctx = host.createContext();
-  let cached: CustomEditor | undefined;
-  ctx.ui.setEditorComponent((tui, theme, keys) => {
-    cached ??= new CustomEditor(tui, theme, keys);
-    return cached;
-  });
   const announcements: BorderReady[] = [];
   const unavailable: unknown[] = [];
   host.events.on(BORDER_READY_EVENT, (value) => {
@@ -254,8 +172,7 @@ it("preserves availability, generation and entries when reusing the active edito
   host.events.on(BORDER_UNAVAILABLE_EVENT, (value) => unavailable.push(value));
   await host.emitSessionStart(ctx);
   const editor = createEditor(host);
-  editor.render(80);
-  await Promise.resolve();
+  expect(announcements).toHaveLength(1);
   const generation = announcements.at(-1)!.instanceId;
   // Publish directly: a client replay must not mask a cleared host registry.
   host.events.emit(BORDER_STATUS_EVENT, {
@@ -265,8 +182,9 @@ it("preserves availability, generation and entries when reusing the active edito
     type: "set",
     status: { text: "retained" },
   });
+  editor.render(1);
+  editor.render(80);
   expect(createEditor(host)).toBe(editor);
-  await Promise.resolve();
   expect(unavailable).toEqual([]);
   expect(announcements).toHaveLength(1);
   host.events.emit(BORDER_READY_REQUEST_EVENT, { version: 1 });
@@ -283,7 +201,6 @@ it("admits late high-priority entries beyond 128 statuses and reveals retained e
   await host.emitSessionStart(ctx);
   const editor = createEditor(host);
   editor.render(80);
-  await Promise.resolve();
   const client = createBorderStatusClient(host, { owner: "many" });
   client.attach(ctx);
   for (let i = 0; i < 128; i++) client.set(String(i), { text: "background", priority: -1 });

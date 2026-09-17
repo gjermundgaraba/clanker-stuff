@@ -24,16 +24,19 @@ it.each([true, false])(
     let factory: EditorFactory | undefined;
     let editor: ReturnType<EditorFactory> | undefined;
     const widget = vi.fn();
+    const tui = createMockTui();
     // SAFETY: This real-session test supplies every UI member used by these two extensions.
     const ui = Object.assign({} as ExtensionUIContext, {
       getEditorComponent: () => factory,
+      getEditorText: () => editor?.getText() ?? "",
       setEditorComponent: (next: EditorFactory | undefined) => {
         factory = next;
-        editor = next?.(createMockTui(), editorTheme, createKeybindings());
+        editor = next?.(tui, editorTheme, createKeybindings());
         editor?.render(80);
       },
       setWidget: widget,
       notify: vi.fn(),
+      setStatus: vi.fn(),
       theme: createIdentityTheme(),
     });
     const appender = (pi: ExtensionAPI) => {

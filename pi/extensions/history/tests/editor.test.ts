@@ -168,32 +168,12 @@ describe("history editor", () => {
     expect(recall(createEditor(host), up)).toBe("");
   });
 
-  it("composes with an earlier editor factory and can be composed by a later one", () => {
-    const { host, ctx } = setup();
+  it("skips recall attachment without replacing a competing editor", () => {
+    const { ctx } = setup();
     const previous = new CustomEditor(createMockTui(), editorTheme, createKeybindings());
-    const handleInput = vi.spyOn(previous, "handleInput");
-    ctx.ui.setEditorComponent(() => previous);
+    const factory = () => previous;
+    ctx.ui.setEditorComponent(factory);
     installHistoryEditor(start("startup"), ctx, () => persisted);
-    const historyFactory = ctx.ui.getEditorComponent();
-    if (!historyFactory) throw new Error("Expected factory");
-    ctx.ui.setEditorComponent((tui, theme, keys) => historyFactory(tui, theme, keys));
-    const editor = createEditor(host);
-    expect(editor).toBe(previous);
-    expect(recall(editor, up)).toBe("latest global");
-    expect(handleInput).toHaveBeenCalledWith(up);
-  });
-
-  it("keeps an editor without optional history support usable", () => {
-    const { host, ctx } = setup();
-    const previous = {
-      getText: () => "draft",
-      handleInput: vi.fn<(data: string) => void>(),
-      invalidate() {},
-      render: () => ["draft"],
-      setText: vi.fn<(text: string) => void>(),
-    };
-    ctx.ui.setEditorComponent(() => previous);
-    installHistoryEditor(start("startup"), ctx, () => persisted);
-    expect(createEditor(host)).toBe(previous);
+    expect(ctx.ui.getEditorComponent()).toBe(factory);
   });
 });

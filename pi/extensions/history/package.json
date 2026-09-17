@@ -34,6 +34,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/editor": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^"
   },
   "devDependencies": {

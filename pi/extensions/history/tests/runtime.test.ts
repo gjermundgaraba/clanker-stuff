@@ -9,6 +9,7 @@ import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
 import extension from "../index.js";
+import { WIDGET_KEY } from "../search.js";
 import { loadHistory, openHistoryDatabase, saveHistoryBatch } from "../storage.js";
 import { createEditor, createWidgetHarness, nonPromptEntries, userEntry } from "./fixtures.js";
 
@@ -73,7 +74,7 @@ describe("history runtime", () => {
     const editor = createEditor(host);
     editor.handleInput("\u001B[A");
     expect(editor.getText()).toBe("from yesterday");
-    expect(ctx.ui.getEditorText()).toBe("");
+    expect(ctx.ui.getEditorText()).toBe("from yesterday");
   });
 
   it("restores the active search draft during shutdown without a global input interceptor", async () => {
@@ -86,6 +87,38 @@ describe("history runtime", () => {
     expect(ctx.ui.onTerminalInput).not.toHaveBeenCalled();
     await host.emitSessionShutdown(ctx);
     expect(ctx.ui.getEditorText()).toBe("unsent draft");
+  });
+
+  it("records prompts with another editor installed and leaves its draft alone on search", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext();
+    Object.assign(ctx.sessionManager, {
+      getSessionDir: () => path.join(agentDir, "sessions"),
+      getHeader: () => undefined,
+    });
+    const foreign = () => ({
+      getText: () => "foreign draft",
+      setText() {},
+      handleInput() {},
+      render: () => ["foreign draft"],
+      invalidate() {},
+    });
+    ctx.ui.setEditorComponent(foreign);
+    await host.emitSessionStart(ctx);
+    shutdowns.push(() => host.emitSessionShutdown(ctx));
+    await host.emitInput(
+      { source: "interactive", text: "saved with foreign editor", type: "input" },
+      ctx,
+    );
+    await host.runShortcut("ctrl+r", ctx);
+    expect(ctx.ui.getEditorComponent()).toBe(foreign);
+    expect(host.getWidget(WIDGET_KEY)).toBeUndefined();
+    const database = openHistoryDatabase();
+    try {
+      expect(loadHistory(database).map((item) => item.text)).toContain("saved with foreign editor");
+    } finally {
+      database.close();
+    }
   });
 
   it.each(["print", "json", "rpc"] as const)("does nothing in %s mode", async (mode) => {

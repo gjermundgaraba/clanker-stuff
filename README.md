@@ -31,6 +31,7 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)               | Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models. |
 | [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                       | Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.                                                                    |
 | [`@clanker-stuff/user-attention`](pi/extensions/experimental/user-attention)     | Sends attention notifications while pi continues working.                                                                                                                 |
+| [`@clanker-stuff/vim`](pi/extensions/experimental/vim)                           | Adds composable Vim editing with transactional undo and visual selections to pi.                                                                                          |
 
 Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.
 
