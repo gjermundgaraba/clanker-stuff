@@ -1,3 +1,4 @@
+import { createBorderStatusClient } from "@clanker-stuff/border-status-protocol";
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
 import { Text } from "@earendil-works/pi-tui";
 import type { MessageRenderer } from "@earendil-works/pi-coding-agent";
@@ -55,8 +56,10 @@ export class TaskRuntime {
   private prompting = false;
   private historyStorageError?: string;
   private statusTimer?: ReturnType<typeof setTimeout>;
+  private readonly statuses: ReturnType<typeof createBorderStatusClient>;
 
   constructor(private pi: ExtensionAPI) {
+    this.statuses = createBorderStatusClient(pi, { owner: "background-tasks" });
     this.supervisor = new Supervisor({
       reserve: (id) => this.inbox.reserve(id),
       protected: (id) => this.inbox.protected(id),
@@ -80,6 +83,7 @@ export class TaskRuntime {
 
   startSession(ctx: ExtensionContext): void {
     this.ctx = ctx;
+    this.statuses.attach(ctx);
     this.changed();
   }
   settled(): void {
@@ -164,12 +168,25 @@ export class TaskRuntime {
     if (this.statusTimer) return;
     this.statusTimer = setTimeout(() => {
       this.statusTimer = undefined;
-      if (this.closing || !this.ctx?.hasUI) return;
-      const count = this.inbox.count;
-      this.ctx.ui.setStatus(
-        "background-tasks",
-        `tasks ${this.supervisor.activeCount} · ${count} pending`,
-      );
+      if (this.closing || this.ctx?.mode !== "tui") return;
+      const active = this.supervisor.activeCount;
+      const pending = this.inbox.count;
+      if (active > 0)
+        this.statuses.set("active", {
+          icon: { nerd: "\uF085", unicode: "⚙", ascii: "tasks" }, // nf-fa-gears
+          text: String(active),
+          tone: "accent",
+          priority: 50,
+        });
+      else this.statuses.clear("active");
+      if (pending > 0)
+        this.statuses.set("pending", {
+          icon: { nerd: "\uF0F3", unicode: "🔔", ascii: "pending" }, // nf-fa-bell
+          text: String(pending),
+          tone: "warning",
+          priority: 60,
+        });
+      else this.statuses.clear("pending");
     }, 100);
     this.statusTimer.unref();
   }
@@ -258,7 +275,9 @@ export class TaskRuntime {
   async stop(id: string) {
     return toolResult(taskSummary(await this.supervisor.stop(id)));
   }
-  async tree(ctx: ExtensionContext): Promise<void> {
+  async tree(ctx: ExtensionContext, navigationId: string | null): Promise<void> {
+    this.ctx = ctx;
+    this.statuses.attach(ctx, navigationId);
     const ancestors = new Set(ctx.sessionManager.getBranch().map((e) => e.id));
     const abandoned = this.supervisor.list().filter((task) => !ancestors.has(task.spec.origin));
     // Revoke every stale owner before awaiting any process cleanup.
@@ -280,8 +299,8 @@ export class TaskRuntime {
     this.closing = true;
     this.delivery.close();
     clearTimeout(this.statusTimer);
+    this.statuses.dispose();
     await this.supervisor.shutdown();
-    this.ctx?.ui.setStatus("background-tasks", undefined);
     for (const task of this.supervisor.list()) {
       if (task.cleanup === "failed")
         this.ctx?.ui.notify(

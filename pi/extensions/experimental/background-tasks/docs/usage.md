@@ -39,6 +39,15 @@ Commands:
 
 Inspection is read-only and does not consume pending notifications. Notification acknowledgement means Pi observed the notice through its agent loop, not that a model acted on it or that processing succeeded.
 
+## Border indicators
+
+Load the optional [border-status extension](../../border-status/README.md) to see compact counts on the editor border. There is no footer status or fallback when the border host is absent.
+
+- Active tasks: Nerd Font gears (`nf-fa-gears`, U+F085), including tasks still awaiting cleanup.
+- Pending notifications: Nerd Font bell (`nf-fa-bell`, U+F0F3). This counts events, including in-flight notices until acknowledged, not tasks.
+
+Each indicator is hidden independently when its count is zero. Icons follow the border host's preference; use `/border-status icons nerd` for Nerd Font glyphs. Unicode uses ⚙ / 🔔; ASCII uses `tasks` / `pending`. Task inspection and automatic delivery still work without the border host and in RPC mode.
+
 ## Agent-authored watchers
 
 Write an ordinary script with Pi's existing file tools. Launch it with `protocol: "events-v1"`. Reserve stdout for UTF-8 JSON records, each followed by LF:

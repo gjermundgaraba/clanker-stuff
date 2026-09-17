@@ -37,6 +37,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/border-status-protocol": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {

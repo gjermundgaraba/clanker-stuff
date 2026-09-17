@@ -65,6 +65,6 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   pi.on("context", (event, ctx) => runtime.context(event, ctx));
   pi.on("ui_prompt_start", () => runtime.prompt(true));
   pi.on("ui_prompt_end", () => runtime.prompt(false));
-  pi.on("session_tree", (_event, ctx) => runtime.tree(ctx));
+  pi.on("session_tree", (event, ctx) => runtime.tree(ctx, event.newLeafId));
   pi.on("session_shutdown", () => runtime.shutdown());
 }
