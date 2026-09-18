@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { Value } from "typebox/value";
+import { convertResponsesTools } from "@earendil-works/pi-ai/api/openai-responses-shared";
 import {
   resolveJsonSchemaStrictSampling,
   makeStrictJsonSchema,
@@ -62,5 +64,50 @@ describe("questionnaire contract", () => {
     });
     const invalid = { ...old, extra: true };
     expect(() => prepareAsyncArguments(invalid)).toThrow();
+  });
+  it("exposes both branches at the provider schema root without relaxing validation", async () => {
+    const host = createExtensionHost(extension);
+    await host.ready;
+    const tools = [...host.getRegisteredTools().values()].map((tool) => tool.definition);
+    const questionnaire = {
+      questions: [{ id: "q1", header: "Tests", question: "Which test?" }],
+    };
+    const revision = {
+      revise: { interaction_id: "i1", base_revision: 1, reason: "Update" },
+    };
+    for (const tool of convertResponsesTools(tools, { supportsStrictMode: false })) {
+      expect(tool.type).toBe("function");
+      if (tool.type !== "function") throw new Error("Expected a function tool");
+      const schema = tool.parameters!;
+      expect(schema.properties).toEqual(
+        Object.assign({}, ...RequestSchema.anyOf.map((branch) => branch.properties)),
+      );
+      if (typeof schema.properties !== "object" || schema.properties === null) {
+        throw new Error("Expected root-level tool properties");
+      }
+      expect(Object.keys(schema.properties)).toEqual([
+        "title",
+        "context",
+        "linked_interaction_id",
+        "questions",
+        "revise",
+      ]);
+      expect(schema.anyOf).toEqual(RequestSchema.anyOf);
+      for (const valid of [questionnaire, revision]) {
+        expect(Value.Check(schema, valid)).toBe(true);
+      }
+      for (const invalid of [
+        {},
+        { title: "Missing questions" },
+        { questions: [] },
+        { revise: {} },
+        { ...questionnaire, ...revision },
+        { ...questionnaire, unknown: true },
+        { ...revision, unknown: true },
+        { questions: [{ title: "Retired shape" }] },
+      ]) {
+        expect(Value.Check(schema, invalid)).toBe(false);
+      }
+    }
   });
 });

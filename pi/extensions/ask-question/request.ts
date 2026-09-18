@@ -51,25 +51,26 @@ export const QuestionnaireSchema = Type.Object(
   },
   { additionalProperties: false },
 );
-export const RequestSchema = Type.Union(
-  [
-    QuestionnaireSchema,
-    Type.Object(
+const RevisionSchema = Type.Object(
+  {
+    revise: Type.Object(
       {
-        revise: Type.Object(
-          {
-            interaction_id: Id,
-            base_revision: Type.Integer({ minimum: 1 }),
-            reason: text(2000),
-          },
-          { additionalProperties: false },
-        ),
+        interaction_id: Id,
+        base_revision: Type.Integer({ minimum: 1 }),
+        reason: text(2000),
       },
       { additionalProperties: false },
     ),
-  ],
-  { type: "object" },
+  },
+  { additionalProperties: false },
 );
+export const RequestSchema = Type.Union([QuestionnaireSchema, RevisionSchema], {
+  type: "object",
+  // Some providers discover tool arguments only through root properties.
+  // Without these, Grok via Copilot repeats empty calls. Keep the union to
+  // enforce required fields, mutually exclusive branches and unknown-key rejection.
+  properties: { ...QuestionnaireSchema.properties, ...RevisionSchema.properties },
+});
 export type Questionnaire = Static<typeof QuestionnaireSchema>;
 export type Question = Static<typeof QuestionSchema>;
 export type Request = Static<typeof RequestSchema>;
