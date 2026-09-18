@@ -6,8 +6,11 @@ import { Value } from "typebox/value";
 import type { NestedTool, RuntimeContentItem, RuntimeResponse } from "./types.js";
 
 export const MAX_CODE_MODE_OUTPUT_TOKENS = 100_000;
+
 export const DEFAULT_CODE_MODE_OUTPUT_TOKENS = 10_000;
+
 export const DEFAULT_CODE_MODE_EXEC_YIELD_MS = 10_000;
+
 const strict = { additionalProperties: false };
 
 export const nestedToolKey = (toolName: { name: string; namespace?: null | string }): string =>
@@ -40,52 +43,46 @@ export const parseExecSource = (source: string): ExecPragma => {
   if (!source.trim()) {
     throw new Error("exec requires non-empty JavaScript source");
   }
+
   const [first, ...rest] = source.split("\n");
   const trimmed = first?.trimStart() ?? "";
+
   if (!trimmed.startsWith("// @exec:")) {
     return { code: source, maxOutputTokens: null, yieldTimeMs: null };
   }
+
   if (rest.join("\n").trim() === "") {
     throw new Error("exec pragma must be followed by JavaScript source");
   }
+
   const options: unknown = JSON.parse(trimmed.slice("// @exec:".length).trim());
+
   if (!Value.Check(ExecOptionsRecordSchema, options)) {
     throw new Error("exec pragma must contain a JSON object");
   }
+
   for (const key of Object.keys(options)) {
     if (key !== "yield_time_ms" && key !== "max_output_tokens") {
       throw new Error(`Unsupported exec pragma field: ${key}`);
     }
   }
+
   return {
     code: rest.join("\n"),
     maxOutputTokens: parseInteger(
-      requireNumber(options.max_output_tokens, "max_output_tokens"),
+      options.max_output_tokens,
       "max_output_tokens",
       1,
       MAX_CODE_MODE_OUTPUT_TOKENS,
     ),
-    yieldTimeMs: parseInteger(
-      requireNumber(options.yield_time_ms, "yield_time_ms"),
-      "yield_time_ms",
-    ),
+    yieldTimeMs: parseInteger(options.yield_time_ms, "yield_time_ms"),
   };
 };
 
 type ExecOptionWire = number | string | boolean | null;
 
-const requireNumber = (field: ExecOptionWire | undefined, name: string): number | undefined => {
-  if (field === undefined) {
-    return undefined;
-  }
-  if (typeof field !== "number" || !Number.isFinite(field)) {
-    throw new Error(`${name} must be a safe integer from 0 to ${Number.MAX_SAFE_INTEGER}`);
-  }
-  return field;
-};
-
 const parseInteger = (
-  value: number | undefined,
+  value: ExecOptionWire | undefined,
   name: string,
   minimum = 0,
   maximum = Number.MAX_SAFE_INTEGER,
@@ -93,9 +90,16 @@ const parseInteger = (
   if (value === undefined) {
     return null;
   }
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pragma decoder: reject non-numbers before range validation; no coercion of strings or null.
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${name} must be a safe integer from 0 to ${Number.MAX_SAFE_INTEGER}`);
+  }
+
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error(`${name} must be a safe integer from ${minimum} to ${maximum}`);
   }
+
   return value;
 };
 
@@ -108,11 +112,13 @@ const ImageDetailSchema = Type.Union([
 ]);
 
 const TextItemSchema = Type.Object({ text: Type.String(), type: Type.Literal("input_text") });
+
 const ImageItemSchema = Type.Object({
   detail: Type.Optional(ImageDetailSchema),
   image_url: Type.String(),
   type: Type.Literal("input_image"),
 });
+
 const AudioItemSchema = Type.Object({ type: Type.Literal("input_audio") });
 
 const RuntimeBodyWireSchema = Type.Object({
@@ -148,39 +154,47 @@ const parseContentItems = (items: readonly unknown[]): RuntimeContentItem[] =>
     if (Value.Check(AudioItemSchema, item)) {
       throw new Error("Code-mode audio output is not supported by Pi");
     }
+
     if (Value.Check(TextItemSchema, item)) {
       return item;
     }
+
     if (Value.Check(ImageItemSchema, item)) {
       return item.detail === undefined
         ? { image_url: item.image_url, type: "input_image" }
         : { detail: item.detail, image_url: item.image_url, type: "input_image" };
     }
+
     throw new Error("Code-mode host returned an invalid content item");
   });
 
 export const parseRuntimeResponse = (wire: RuntimeResponseWire): RuntimeResponse => {
   if ("Yielded" in wire) {
     const body = wire.Yielded;
+
     return {
       cellId: body.cell_id,
       contentItems: parseContentItems(body.content_items ?? []),
       kind: "yielded",
     };
   }
+
   if ("Terminated" in wire) {
     const body = wire.Terminated;
+
     return {
       cellId: body.cell_id,
       contentItems: parseContentItems(body.content_items ?? []),
       kind: "terminated",
     };
   }
+
   const body = wire.Result;
+
   return {
     cellId: body.cell_id,
     contentItems: parseContentItems(body.content_items ?? []),
-    errorText: body.error_text ?? undefined,
+    ...(body.error_text != null ? { errorText: body.error_text } : {}),
     kind: "result",
   };
 };
@@ -302,67 +316,88 @@ const classifyHostResult = (result: Static<typeof HostResultSchema>): HostResult
   if (result.status === "error") {
     return result;
   }
+
   const raw = result.value;
+
   if (Value.Check(RuntimeResponseWireSchema, raw)) {
     return {
       status: "ok",
       value: { kind: "response", wire: raw },
     };
   }
+
   if (Value.Check(RuntimeOutcomeWireSchema, raw)) {
     return {
       status: "ok",
       value: { kind: "outcome", wire: raw },
     };
   }
+
   return { status: "ok", value: { kind: "event", wire: raw } };
 };
 
 export const parseHostMessage = (text: string): HostMessage => {
   const raw: unknown = JSON.parse(text);
+
   if (!Value.Check(MessageTypeSchema, raw)) {
     throw new Error("Code-mode host returned an invalid message");
   }
+
   const { type } = raw;
+
   if (type === "connection/ready") {
     if (!Value.Check(ConnectionReadySchema, raw)) {
       throw new Error("Code-mode host negotiated an invalid protocol");
     }
+
     return raw;
   }
+
   if (type === "connection/rejected") {
     if (!Value.Check(ConnectionRejectedSchema, raw)) {
       throw new Error("Code-mode host returned an invalid rejection");
     }
+
     return raw;
   }
+
   if (type === "operation/response" || type === "execute/initialResponse") {
     const schema =
       type === "operation/response" ? OperationResponseSchema : ExecuteInitialResponseSchema;
+
     if (!Value.Check(schema, raw)) {
       throw new Error("Code-mode host returned an invalid operation result");
     }
+
     const result = classifyHostResult(raw.result);
+
     return { id: raw.id, result, type };
   }
+
   if (type === "delegate/cancel") {
     if (!Value.Check(DelegateCancelSchema, raw)) {
       throw new Error("Code-mode host returned an invalid cancellation");
     }
+
     return raw;
   }
+
   if (type === "cell/closed") {
     if (!Value.Check(CellClosedSchema, raw)) {
       throw new TypeError("Code-mode host returned an invalid cell closure");
     }
+
     return raw;
   }
+
   if (type === "delegate/request") {
     if (!Value.Check(DelegateRequestSchema, raw)) {
       throw new Error("Code-mode host returned an invalid delegate request");
     }
+
     return raw;
   }
+
   throw new Error(`Code-mode host returned an unsupported message: ${type}`);
 };
 
@@ -380,5 +415,6 @@ export const runtimeResponseFromValue = (value: HostResultValue): RuntimeRespons
   if (value.kind !== "response") {
     throw new Error("Code-mode host returned an invalid runtime response");
   }
+
   return parseRuntimeResponse(value.wire);
 };

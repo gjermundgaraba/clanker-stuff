@@ -63,6 +63,7 @@ const checkpoint = (
       type: "compaction",
     },
   ];
+
   return {
     identity: {
       api: "openai-codex-responses",
@@ -103,11 +104,13 @@ describe("Codex provider status", () => {
   it("reports current state and deduplicates checkpoint carriers", () => {
     const first = checkpoint("response-1", "manual", "standalone", 1000);
     const second = checkpoint("response-2", "threshold", "pre-sampling", 2000);
+
     const inline = sessionEntry("1", {
       customType: CHECKPOINT_CUSTOM_TYPE,
       data: first,
       type: "custom",
     });
+
     const duplicateLifecycle = sessionEntry(
       "2",
       {
@@ -119,6 +122,7 @@ describe("Codex provider status", () => {
       },
       "1",
     );
+
     const active = sessionEntry(
       "3",
       {
@@ -128,6 +132,7 @@ describe("Codex provider status", () => {
       },
       "2",
     );
+
     const report = formatCodexProviderStatus({
       branch: [inline, duplicateLifecycle, active],
       current: {
@@ -175,6 +180,7 @@ describe("Codex provider status", () => {
       data: { secret: "CHECKPOINT_SECRET" },
       type: "custom",
     });
+
     const report = formatCodexProviderStatus({
       branch: [invalid],
       entries: [invalid],
@@ -190,6 +196,7 @@ describe("Codex provider status", () => {
     ]) {
       expect(report).toContain(value);
     }
+
     expect(report).not.toContain("CHECKPOINT_SECRET");
   });
 
@@ -243,10 +250,12 @@ describe("Codex provider status", () => {
   it("separates the active branch from abandoned session history", () => {
     const active = checkpoint("response-1", "manual", "standalone", 1000);
     const abandoned = checkpoint("response-2", "threshold", "pre-sampling", 2000);
+
     const root = sessionEntry("1", {
       message: { content: "root", role: "user", timestamp: 1 },
       type: "message",
     });
+
     const branchCheckpoint = sessionEntry(
       "2",
       {
@@ -256,6 +265,7 @@ describe("Codex provider status", () => {
       },
       "1",
     );
+
     const abandonedCheckpoint = sessionEntry(
       "3",
       {
@@ -291,12 +301,14 @@ describe("Codex provider status", () => {
         type: "custom",
       }),
     );
+
     const report = formatCodexProviderStatus({
       branch,
       entries: branch,
       ...EMPTY_OBSERVABILITY,
       sessionId: "session-recent",
     });
+
     const recent = report.split("\n").find((line) => line.includes("Recent (current branch"));
 
     expect(recent).not.toContain("12:00:01.000Z");
@@ -317,6 +329,7 @@ describe("Codex provider status", () => {
       tokensBefore: 1000,
       type: "compaction",
     });
+
     const report = formatCodexProviderStatus({
       branch: [malformed],
       entries: [malformed],

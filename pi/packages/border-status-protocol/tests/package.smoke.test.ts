@@ -6,6 +6,7 @@ import { expect, it } from "vite-plus/test";
 
 it("ships the producer guide linked from the published README", () => {
   const root = mkdtempSync(path.join(tmpdir(), "border-protocol-pack-"));
+
   try {
     const tarball = path.join(root, "package.tgz");
     execFileSync("pnpm", ["pack", "--out", tarball], {

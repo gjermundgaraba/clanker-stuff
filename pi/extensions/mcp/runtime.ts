@@ -14,6 +14,7 @@ export const createMcpRuntime = (pi: ExtensionAPI) => {
   const loader = createLazySingleton<McpLoader>(async (signal) => {
     const { createMcpLoader } = await import("./loader.js");
     signal.throwIfAborted();
+
     return createMcpLoader(pi);
   });
 
@@ -25,6 +26,7 @@ export const createMcpRuntime = (pi: ExtensionAPI) => {
     ) {
       return;
     }
+
     const activeLoader = await loader.load();
     await activeLoader?.restore(ctx);
   };
@@ -35,7 +37,7 @@ export const createMcpRuntime = (pi: ExtensionAPI) => {
       await activeLoader?.pickAndLoad(ctx);
     },
     restore,
-    toolResult: (id: string, details: unknown) => loader.get()?.toolResult(id, details),
+    takeSamplingUsage: (id: string) => loader.get()?.takeSamplingUsage(id),
     shutdown: async (): Promise<void> => {
       await loader.stop((activeLoader) => activeLoader.dispose());
     },

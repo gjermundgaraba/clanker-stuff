@@ -12,6 +12,7 @@ import type { McpServerConfig } from "./config.js";
 import { createHttpAuth, isAuthorizationError } from "./oauth.js";
 
 export type McpClient = Pick<Client, "callTool" | "listTools" | "ping">;
+
 export interface McpClientConnection {
   client: McpClient;
   close: () => Promise<void>;
@@ -19,20 +20,24 @@ export interface McpClientConnection {
   closed?: AbortSignal;
   withContext?: <T>(context: McpCallContext, run: () => Promise<T>) => Promise<T>;
 }
+
 export type McpConnectionFactory = (
   interactive: boolean,
   signal?: AbortSignal,
 ) => Promise<McpClientConnection>;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- MCP connection failures can be SDK errors, strings, or other thrown values; this boundary formats their diagnostics.
 export const errorMessage = (cause: unknown): string => {
   if (!(cause instanceof Error) || !cause.message) {
     return String(cause);
   }
+
   if (
     cause.message.includes("Incompatible auth server: does not support dynamic client registration")
   ) {
     return `${cause.message}. Configure oauth.clientId for this MCP server.`;
   }
+
   return cause.message;
 };
 
@@ -42,11 +47,14 @@ const connectTransport = async (
   signal: AbortSignal,
 ): Promise<void> => {
   signal.throwIfAborted();
+
   // The SDK's discovery probe ignores connect()'s signal until negotiation finishes.
   const onAbort = () => {
     void transport.close().catch(() => {});
   };
+
   signal.addEventListener("abort", onAbort, { once: true });
+
   try {
     await client.connect(transport, { signal });
   } catch (error) {
@@ -78,33 +86,39 @@ export const connectToServer = async ({
 }: ConnectOptions): Promise<McpClientConnection> => {
   const httpAuth =
     serverConfig.type === "http" && serverConfig.oauth ? createHttpAuth(serverConfig) : undefined;
+
   const lifetime = new AbortController();
+
   const attempt = async (): Promise<McpClientConnection> => {
     const connectSignal = AbortSignal.any([
       ...(signal ? [signal] : []),
       AbortSignal.timeout(30_000),
     ]);
+
     connectSignal.throwIfAborted();
     httpAuth?.setSignal(connectSignal);
     const client = new ContextClient(pi, serverName, getWorkspace);
+
     const transport: Transport =
       serverConfig.type === "stdio"
         ? new StdioClientTransport({
             command: serverConfig.command,
-            args: serverConfig.args,
-            env: serverConfig.env,
+            ...(serverConfig.args !== undefined ? { args: serverConfig.args } : {}),
+            ...(serverConfig.env !== undefined ? { env: serverConfig.env } : {}),
             cwd,
             stderr: "ignore",
           })
         : new StreamableHTTPClientTransport(new URL(serverConfig.url), {
-            authProvider: httpAuth?.authProvider,
+            ...(httpAuth ? { authProvider: httpAuth.authProvider } : {}),
             requestInit: { headers: serverConfig.headers ?? {} },
           });
+
     try {
       await connectTransport(client, transport, connectSignal);
       connectSignal.throwIfAborted();
       httpAuth?.setSignal(lifetime.signal);
       client.onclose = () => lifetime.abort();
+
       return {
         client,
         withContext: (context, run) => client.withContext(context, run),
@@ -112,6 +126,7 @@ export const connectToServer = async ({
         closed: lifetime.signal,
         close: async () => {
           lifetime.abort();
+
           try {
             await client.close();
           } finally {
@@ -125,12 +140,15 @@ export const connectToServer = async ({
       throw error;
     }
   };
+
   try {
     return await attempt();
   } catch (error) {
     const scopeError = error instanceof InsufficientScopeError ? error : undefined;
+
     if (!httpAuth || !onAuthorizationUrl || !isAuthorizationError(error)) throw error;
     await httpAuth.authorize(onAuthorizationUrl, signal, scopeError);
+
     return await attempt();
   }
 };

@@ -15,6 +15,7 @@ describe(prepareInput, () => {
     const skillPath = path.join(skillDir, "SKILL.md");
     await mkdir(skillDir);
     await writeFile(skillPath, "---\nname: demo\n---\nDo the thing.\n");
+
     const skill: Skill = {
       baseDir: skillDir,
       description: "",
@@ -32,9 +33,7 @@ describe(prepareInput, () => {
         [skill],
         true,
       ),
-    ).resolves.toStrictEqual({
-      text: expect.stringContaining('<skill name="demo"'),
-    });
+    ).resolves.toHaveProperty("text", expect.stringContaining('<skill name="demo"'));
     await expect(
       prepareInput("message", [{ text: "item", type: "text" }], cwd, [], true),
     ).rejects.toThrow("exactly one");

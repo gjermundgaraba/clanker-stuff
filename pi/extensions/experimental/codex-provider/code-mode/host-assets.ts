@@ -41,9 +41,11 @@ export const resolveCodeModeHostAsset = (
   arch: string,
 ): readonly [string, string] => {
   const asset = HOST_ASSETS[`${platform}-${arch}`];
+
   if (!asset) {
     throw new Error(`Unsupported code-mode platform: ${platform}-${arch}`);
   }
+
   return asset;
 };
 

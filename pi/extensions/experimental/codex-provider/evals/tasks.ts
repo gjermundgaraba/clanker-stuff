@@ -283,6 +283,7 @@ test("validates channel and rollout", () => {
 `;
 
 const continuityFiller = "audit datum\n".repeat(20_000);
+
 const continuityPrompts = [
   ...[
     "Normalize channel with trim().toLowerCase() and accept only stable, beta, or canary.",

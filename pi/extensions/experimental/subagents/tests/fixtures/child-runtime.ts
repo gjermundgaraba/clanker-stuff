@@ -16,12 +16,15 @@ export class FakeChildRuntime implements ChildRuntime {
   readonly commit = vi.fn<ChildRuntime["commit"]>();
   readonly dispose = vi.fn<ChildRuntime["dispose"]>(async () => {
     const failure = new PermanentChildError("Child runtime was disposed");
+
     for (const turn of this.turns) {
       turn.accepted.reject(failure);
     }
+
     for (const acceptance of this.messageAcceptances) {
       acceptance.reject(failure);
     }
+
     await this.abort();
   });
   readonly rollback = vi.fn<ChildRuntime["rollback"]>(async () => {
@@ -52,17 +55,21 @@ export class FakeChildRuntime implements ChildRuntime {
   sendMessage(message: RuntimeMessage, onEnqueued?: () => void, triggerTurn = false) {
     this.calls.push(message);
     this.beforeSendMessage?.();
+
     if (triggerTurn && !this.streaming) {
       return this.startTurn({ text: message.content });
     }
+
     const accepted = Promise.withResolvers<void>();
     this.messageAcceptances.push(accepted);
+
     if (this.failPersistence) {
       accepted.reject(new PermanentChildError("append failed"));
     } else if (this.acceptMessages) {
       onEnqueued?.();
       accepted.resolve();
     }
+
     return { accepted: accepted.promise };
   }
 
@@ -72,13 +79,16 @@ export class FakeChildRuntime implements ChildRuntime {
       input,
       settled: Promise.withResolvers(),
     };
+
     this.turns.push(turn);
     this.streaming = true;
+
     if (this.failPersistence) {
       turn.accepted.reject(new PermanentChildError("append failed"));
     } else if (this.acceptTurns) {
       turn.accepted.resolve();
     }
+
     void (async () => {
       try {
         await turn.settled.promise;
@@ -88,6 +98,7 @@ export class FakeChildRuntime implements ChildRuntime {
         this.streaming = false;
       }
     })();
+
     return {
       accepted: turn.accepted.promise,
       settled: turn.settled.promise,

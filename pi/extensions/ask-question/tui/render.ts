@@ -15,9 +15,11 @@ export function progressLine(
   theme: Theme,
 ): string {
   const questions = item.request.questions;
+
   const labels = [
     ...questions.map((q) => {
       const complete = !!item.draft && answered(item.draft.answers[q.id]);
+
       return { text: `${complete ? "✓" : "○"} ${oneLine(q.header)}`, complete };
     }),
     {
@@ -25,24 +27,35 @@ export function progressLine(
       complete: !!item.draft && Object.values(item.draft.answers).every(answered),
     },
   ];
-  const chip = (i: number) =>
+
+  const chip = (label: (typeof labels)[number], i: number) =>
     i === current
-      ? theme.bg("selectedBg", theme.bold(` ${labels[i].text} `))
-      : theme.fg(labels[i].complete ? "success" : "muted", ` ${labels[i].text} `);
-  const all = labels.map((_, i) => chip(i)).join(" ");
+      ? theme.bg("selectedBg", theme.bold(` ${label.text} `))
+      : theme.fg(label.complete ? "success" : "muted", ` ${label.text} `);
+
+  const all = labels.map(chip).join(" ");
+
   if (visibleWidth(all) <= width) return all;
   const prefix = current < questions.length ? `${current + 1}/${questions.length} · ` : "";
-  return truncateToWidth(`${prefix}${chip(current)}`, width);
+
+  const active = labels[current];
+
+  if (!active) throw new RangeError("Questionnaire progress index is out of range");
+
+  return truncateToWidth(`${prefix}${chip(active, current)}`, width);
 }
 
 export function inboxLabel(item: Interaction, index: number): string {
   const latest = item.submissions.at(-1);
+
   const status = item.draft
     ? `${Object.values(item.draft.answers).filter(answered).length}/${item.request.questions.length} answered · Draft${item.paused ? " · Paused" : ""}`
     : latest
       ? `Revision ${latest.revision} · ${deliveryLabel(item.deliveries.at(-1)?.status)}`
       : "Cancelled";
-  return `${index + 1}. ${oneLine(item.request.title ?? item.request.questions[0].header)} · ${status}`;
+
+  // The request decoder requires at least one question, including during journal replay.
+  return `${index + 1}. ${oneLine(item.request.title ?? item.request.questions[0]!.header)} · ${status}`;
 }
 
 export function deliveryLabel(
@@ -66,11 +79,14 @@ export function reviewText(item: Interaction, submission?: Submission): string {
 
 export function diffText(item: Interaction): string {
   const previous = item.submissions.at(-1);
+
   if (!previous || !item.draft) return "No earlier submission";
   const lines: string[] = [];
+
   for (const q of item.request.questions) {
     const before = plainText(answerRows(previous.answers[q.id]));
     const after = plainText(answerRows(draftAnswer(item, q)));
+
     if (before !== after)
       lines.push(
         q.header,
@@ -81,18 +97,21 @@ export function diffText(item: Interaction): string {
         "",
       );
   }
+
   if (previous.note !== item.draft.note)
     lines.push(
       "Questionnaire note",
       `Before: ${previous.note || "(none)"}`,
       `After: ${item.draft.note || "(none)"}`,
     );
+
   return lines.join("\n").trimEnd() || "No answer changes";
 }
 
 export function markdownLines(text: string, width: number): string[] {
   return new Markdown(displayText(text), 0, 0, getMarkdownTheme()).render(Math.max(1, width));
 }
+
 /** Wrapped, unpadded lines. */
 export function textLines(text: string, width: number): string[] {
   return wrapTextWithAnsi(displayText(text), Math.max(1, width));
@@ -103,12 +122,16 @@ export interface InlineEditor {
   choice: number;
   lines: string[];
 }
+
 const excerpt = (label: string, text: string, width: number): string => {
   const [first, ...rest] = displayText(text).split("\n");
+
   return truncateToWidth(`${label}${first}${rest.length ? " …" : ""}`, width, "…");
 };
+
 /** Appended to options that carry a Markdown preview, so `p` is discoverable. */
 export const PREVIEW_MARK = "  ▸ preview (p)";
+
 export function optionLines(
   q: Question,
   a: Draft["answers"][string],
@@ -120,6 +143,7 @@ export function optionLines(
   const lines: string[] = [];
   let focusLine = 0;
   let focusEnd = 0;
+
   const choices = [
     ...(q.options ?? []).map((o, index) => ({
       label: `${index + 1}. ${o.label}${q.recommendation?.option_ids.includes(o.id) ? " ★" : ""}`,
@@ -136,12 +160,16 @@ export function optionLines(
       preview: false,
     },
   ];
+
   const inner = Math.max(1, width - 4);
+
   for (const [index, o] of choices.entries()) {
     const focused = index === highlight;
+
     if (focused) focusLine = lines.length;
     const marker = q.multi_select ? (o.selected ? "[x]" : "[ ]") : o.selected ? "(•)" : "( )";
     const rows = textLines(`${focused ? ">" : " "} ${marker} ${o.label}`, width);
+
     for (const [i, row] of rows.entries()) {
       const suffix = o.preview && i === rows.length - 1 ? PREVIEW_MARK : "";
       const styled = theme.fg(o.selected ? "success" : "text", row) + theme.fg("accent", suffix);
@@ -150,13 +178,17 @@ export function optionLines(
         focused ? theme.bg("selectedBg", styled + " ".repeat(Math.max(0, width - used))) : styled,
       );
     }
+
     if (inline?.choice === index) lines.push(...inline.lines.map((line) => `    ${line}`));
     else {
       if (o.text) lines.push(theme.fg("muted", `    ${excerpt("", o.text, inner)}`));
+
       if (o.note) lines.push(theme.fg("muted", `    ${excerpt("Note: ", o.note, inner)}`));
     }
+
     if (focused) focusEnd = lines.length - 1;
   }
+
   return { lines, focusLine, focusEnd };
 }
 
@@ -169,6 +201,7 @@ export function detailLines(
   theme: Theme,
 ): string[] {
   const option = q.options?.[highlight];
+
   const parts = option
     ? [
         option.description,
@@ -177,8 +210,11 @@ export function detailLines(
           : undefined,
       ]
     : [a.custom || "Enter your own response"];
+
   const text = parts.filter(Boolean).join("\n");
+
   if (!text && !option?.preview) return [];
+
   return [
     "",
     theme.bold("Details"),
@@ -207,11 +243,15 @@ export function boundedView(options: {
   theme: Theme;
 }) {
   const { width, theme } = options;
+
   const rule = (label = "") => {
     const text = label ? truncateToWidth(`─ ${oneLine(label)} `, width, "… ") : "";
+
     return theme.fg("borderAccent", text + "─".repeat(Math.max(0, width - visibleWidth(text))));
   };
+
   const budget = Math.max(3, Math.min(Math.floor(options.rows * 0.6), options.rows - 2));
+
   if (width < 24 || budget < 8)
     return {
       scroll: options.scroll,
@@ -221,29 +261,37 @@ export function boundedView(options: {
         width,
       ).slice(0, budget),
     };
+
   // Always two truncated footer lines, so the frame height never depends on the view.
   const footer = [...options.footer.split("\n"), ""]
     .slice(0, 2)
     .map((line) => truncateToWidth(displayText(line), width, "…"));
+
   const size = Math.max(
     1,
     Math.min(budget - footer.length - 5, Math.max(options.body.length, options.minBody ?? 0)),
   );
+
   let scroll = options.scroll;
+
   if (options.focusLine !== undefined) {
     if (options.focusLine < scroll) scroll = options.focusLine;
     else {
       const end = Math.min(options.focusEnd ?? options.focusLine, options.focusLine + size - 1);
+
       if (end >= scroll + size) scroll = end - size + 1;
     }
   }
+
   scroll = Math.max(0, Math.min(scroll, Math.max(0, options.body.length - size)));
   const body = options.body.slice(scroll, scroll + size);
+
   const hint =
     options.hint ||
     (options.body.length > size
       ? `${scroll + 1}–${Math.min(scroll + size, options.body.length)} / ${options.body.length} · scroll`
       : "");
+
   return {
     scroll,
     bodyRows: size,

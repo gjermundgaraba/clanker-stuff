@@ -3,9 +3,13 @@ import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import { parentAgentPath } from "./protocol.js";
 
 export const CHILD_CONTEXT_TYPE = "clanker-subagents-v2-context";
+
 const MAX_CHILDREN = 8;
+
 const MAX_BYTES = 1024;
+
 const OPEN = "  <subagents>\n";
+
 const CLOSE = "  </subagents>\n";
 
 /** The budget includes the native subagents wrapper and indentation. */
@@ -24,19 +28,24 @@ export const childContextSummary = (
             : 0
         : Number(right.resident) - Number(left.resident),
     );
+
   const lines: string[] = [];
   let bytes = Buffer.byteLength(OPEN + CLOSE, "utf8");
+
   for (const child of children) {
     if (lines.length === MAX_CHILDREN) {
       break;
     }
+
     const line = `    <agent name="${child.path}" />\n`;
     const size = Buffer.byteLength(line, "utf8");
+
     if (bytes + size <= MAX_BYTES) {
       bytes += size;
       lines.push(line);
     }
   }
+
   return lines.length === 0 ? "" : `${OPEN}${lines.join("")}${CLOSE}`;
 };
 

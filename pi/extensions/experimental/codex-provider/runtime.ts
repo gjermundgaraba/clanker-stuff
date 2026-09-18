@@ -25,6 +25,7 @@ import type { createCodexLifecycle } from "./lifecycle.js";
 import { createCodexModelCatalog } from "./model-catalog.js";
 
 type CodexLifecycle = ReturnType<typeof createCodexLifecycle>;
+
 type ModelSelectEvent = Extract<ExtensionEvent, { type: "model_select" }>;
 
 const isCodexModel = (model: Model<string> | undefined): boolean =>
@@ -36,35 +37,43 @@ export const createCodexRuntime = (
   executionSettings?: ToolExecutionSettings,
 ) => {
   const storage = getExtensionStoragePaths("codex-provider");
+
   const catalog = createCodexModelCatalog(() => {
     pi.events.emit("clanker-codex:account-changed", null);
   });
+
   const fastMode = createFastModeState(
     pi,
     createFastModeConfigStore(storage.configFile),
     setFastFooterActive,
   );
+
   let agentRunActive = false;
   let samplingGeneration = 0;
   let fastContext: ExtensionContext | undefined;
   let pendingModelSelection: { ctx: ExtensionContext; event: ModelSelectEvent } | undefined;
   let pendingStart: ExtensionContext | undefined;
+
   const applyInheritedFastMode = (ctx: ExtensionContext, publish = false): void => {
     fastContext = ctx;
+
     const contract = requestCollaborationContract(
       pi,
       ctx,
       undefined,
       publish ? fastMode.localServiceTier() : undefined,
     );
+
     if (contract?.inheritedServiceTier !== undefined) {
       fastMode.setInheritedServiceTier(contract.inheritedServiceTier);
     }
   };
+
   const isFastModeEnabled = (): boolean => {
     if (fastContext !== undefined) {
       applyInheritedFastMode(fastContext);
     }
+
     return fastMode.isEnabled();
   };
 
@@ -74,7 +83,9 @@ export const createCodexRuntime = (
         import("./lifecycle.js"),
         import("./observability.js"),
       ]);
+
       signal.throwIfAborted();
+
       return createCodexLifecycle(
         pi,
         new CodexObservability(path.join(storage.dataDir, "codex-provider.sqlite")),
@@ -89,6 +100,7 @@ export const createCodexRuntime = (
         pendingStart = undefined;
         loaded.start(ctx);
       }
+
       if (pendingModelSelection !== undefined) {
         const selection = pendingModelSelection;
         pendingModelSelection = undefined;
@@ -96,40 +108,49 @@ export const createCodexRuntime = (
       }
     },
   );
+
   const requireCodex = async (): Promise<CodexLifecycle> => {
     const loaded = await codex.load();
+
     if (loaded === undefined) {
       throw new Error("Codex provider is unavailable after shutdown");
     }
+
     return loaded;
   };
+
   const maybeLoad = async (required: () => boolean): Promise<CodexLifecycle | undefined> =>
     codex.get() ?? (codex.isLoading() || required() ? await codex.load() : undefined);
+
   const refreshFastStatus = (ctx: ExtensionContext): void => {
     fastMode.refresh(ctx, catalog.supportsFastMode);
   };
 
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi’s event bus erases event payload types; this adapter handles the shared MCP sampling protocol.
   const samplingListener = (payload: unknown) => {
     if (
+      /* oxlint-disable anti-slop/no-runtime-typeof -- Event-bus adapter must establish that the supplied resolver is callable before invoking the foreign payload. */
       typeof payload !== "object" ||
       payload === null ||
       !("resolve" in payload) ||
       typeof payload.resolve !== "function" ||
+      /* oxlint-enable anti-slop/no-runtime-typeof */
       !("model" in payload) ||
       !("maxTokens" in payload)
     )
       return;
-    // SAFETY: MCP sends this extension-owned event using the shared sampling protocol;
-    // model and budget are validated before any inference by createSamplingScope.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: MCP is the sole producer of the shared sampling request; the bus erases its callback type. createSamplingScope validates model and budget before inference.
     const request = payload as SamplingScopeRequest;
     const generation = samplingGeneration;
     request.resolve(
       requireCodex().then((loaded) => {
         if (generation !== samplingGeneration) throw new Error("Sampling origin session changed");
+
         return loaded.createSamplingScope(request.model, request.maxTokens);
       }),
     );
   };
+
   const unsubscribeSampling = pi.events.on(
     "clanker-codex:sampling-scope-request" satisfies keyof SamplingEvents,
     samplingListener,
@@ -153,9 +174,11 @@ export const createCodexRuntime = (
     },
     beforeCompact: async (event: SessionBeforeCompactEvent, ctx: ExtensionContext) => {
       applyInheritedFastMode(ctx, true);
+
       const loaded = await maybeLoad(
         () => isCodexModel(ctx.model) || branchNeedsCodex(event.branchEntries),
       );
+
       return await loaded?.beforeCompact(event, ctx, agentRunActive);
     },
     beforeProviderHeaders: async (
@@ -167,6 +190,7 @@ export const createCodexRuntime = (
     },
     beforeProviderRequest: async (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => {
       const loaded = await maybeLoad(() => isCodexModel(ctx.model));
+
       return await loaded?.beforeProviderRequest(event, ctx);
     },
     catalog,
@@ -178,17 +202,20 @@ export const createCodexRuntime = (
       const loaded = await maybeLoad(
         () => isCodexModel(ctx.model) || branchNeedsCodex(ctx.sessionManager.getBranch()),
       );
+
       return loaded?.context(event, ctx);
     },
     fast: async (ctx: ExtensionCommandContext): Promise<void> => {
       await fastMode.toggle(ctx);
       applyInheritedFastMode(ctx, true);
+
       if (!codex.isStopped()) {
         refreshFastStatus(ctx);
       }
     },
     loadProvider: async () => {
       const loaded = await requireCodex();
+
       return loaded.provider;
     },
     messageEnd: (event: MessageEndEvent, ctx: ExtensionContext): void => {
@@ -197,11 +224,13 @@ export const createCodexRuntime = (
     modelSelect: (event: ModelSelectEvent, ctx: ExtensionContext): void => {
       applyInheritedFastMode(ctx);
       const loaded = codex.get();
+
       if (loaded === undefined) {
         pendingModelSelection = { ctx, event };
       } else {
         loaded.modelSelect(event, ctx);
       }
+
       refreshFastStatus(ctx);
     },
     sessionCompact: (event: SessionCompactEvent, ctx: ExtensionContext): void => {
@@ -215,14 +244,17 @@ export const createCodexRuntime = (
       samplingGeneration += 1;
       await codex.get()?.disposeSamplingScopes();
       const loaded = codex.get();
+
       if (loaded === undefined) {
         pendingStart = ctx;
         pendingModelSelection = undefined;
       } else {
         loaded.start(ctx);
       }
+
       await fastMode.start(ctx, startup);
       applyInheritedFastMode(ctx, true);
+
       if (!codex.isStopped()) {
         refreshFastStatus(ctx);
       }

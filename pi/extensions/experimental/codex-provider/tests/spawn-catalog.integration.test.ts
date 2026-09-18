@@ -47,6 +47,7 @@ describe("spawn catalog provider payload", () => {
       const errors: string[] = [];
       vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
         const request = input instanceof Request ? input : new Request(input, init);
+
         if (request.url.includes("/codex/models")) {
           const base = {
             supported_in_api: true,
@@ -57,6 +58,7 @@ describe("spawn catalog provider payload", () => {
             supported_reasoning_levels: ["low", "medium"],
             tool_mode: mode,
           };
+
           return Response.json({
             models: [
               {
@@ -78,13 +80,18 @@ describe("spawn catalog provider payload", () => {
             ],
           });
         }
+
         const bytes = new Uint8Array(await request.arrayBuffer());
+
         const decoded =
           request.headers.get("content-encoding") === "zstd" ? zstdDecompressSync(bytes) : bytes;
+
         requests.push(wireRecord(JSON.parse(new TextDecoder().decode(decoded))));
+
         return sse(responseEvents(`response-${requests.length}`, "Finished synthetic task."));
       });
       let session: AgentSession | undefined;
+
       try {
         session = await createRealCodexSession({
           extensionFactories: [subagents, (pi) => codexProvider(pi, mode)],
@@ -98,6 +105,7 @@ describe("spawn catalog provider payload", () => {
         expect(context.modelRegistry.getError()).toBeUndefined();
         await session.prompt("Describe your tools.");
         expect(JSON.stringify(requests.at(-1))).toContain(description);
+
         if (protocol === "v1" && mode === "code_mode_only") {
           expect(JSON.stringify(requests.at(-1)?.instructions)).toContain(
             "pi_subagents__spawn_agent",
@@ -106,10 +114,12 @@ describe("spawn catalog provider payload", () => {
           const namespace = wireRecords(requests.at(-1)?.tools ?? []).find(
             (tool) => tool.name === "pi_subagents",
           );
+
           expect(
             wireRecords(namespace?.tools).find((tool) => tool.name === "spawn_agent")?.description,
           ).toContain(description);
         }
+
         description = "Updated affordable synthetic worker.";
         await context.modelRegistry.refresh({ force: true, allowNetwork: true });
         await session.prompt("Describe your current tools.");
@@ -117,7 +127,9 @@ describe("spawn catalog provider payload", () => {
         expect(refreshed).toContain(description);
         expect(refreshed).not.toContain("Fast and affordable synthetic worker.");
         const spawn = session.getToolDefinition("spawn_agent");
+
         if (spawn === undefined) throw new Error("Missing spawn definition");
+
         const args =
           protocol === "v2"
             ? {
@@ -128,6 +140,7 @@ describe("spawn catalog provider payload", () => {
                 message: "Return a short result.",
               }
             : { model: workerId, reasoning_effort: "medium", message: "Return a short result." };
+
         await expect(
           spawn.execute("invalid", { ...args, model: "invented" }, undefined, undefined, context),
         ).rejects.toThrow(`Available models: ${parent.id}, ${workerId}`);
@@ -144,6 +157,7 @@ describe("spawn catalog provider payload", () => {
         if (session?.hasExtensionHandlers("session_shutdown")) {
           await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
         }
+
         session?.dispose();
         vi.unstubAllEnvs();
         vi.unstubAllGlobals();

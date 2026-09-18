@@ -8,11 +8,31 @@ import {
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 import { Coordinator } from "../coordinator.js";
-import { RequestSchema, prepareAsyncArguments, validateRequest } from "../request.js";
+import {
+  QuestionnaireSchema,
+  RequestSchema,
+  RevisionSchema,
+  prepareAsyncArguments,
+  validateRequest,
+} from "../request.js";
 
 describe("questionnaire contract", () => {
+  it.each(["request_user_input", "request_user_input_async"])(
+    "%s rejects invalid requests at the tool boundary",
+    async (name) => {
+      const host = createExtensionHost(extension);
+      await host.ready;
+      const question = { id: "q", header: "Question", question: "Proceed?" };
+
+      await expect(host.runTool(name, { questions: [question, question] })).rejects.toThrow(
+        "Duplicate question ID",
+      );
+      await expect(host.runTool(name, { questions: [] })).rejects.toThrow();
+    },
+  );
   it("opens the same inbox from Alt+I and /answers", async () => {
     const answer = vi.spyOn(Coordinator.prototype, "answer").mockResolvedValue(undefined);
+
     try {
       const host = createExtensionHost(extension);
       await host.ready;
@@ -31,6 +51,7 @@ describe("questionnaire contract", () => {
       "request_user_input",
       "request_user_input_async",
     ]);
+
     for (const name of ["request_user_input", "request_user_input_async"]) {
       const tool = host.getRegisteredTools().get(name)!.definition;
       expect(tool.renderCall).toBeTypeOf("function");
@@ -69,23 +90,29 @@ describe("questionnaire contract", () => {
     const host = createExtensionHost(extension);
     await host.ready;
     const tools = [...host.getRegisteredTools().values()].map((tool) => tool.definition);
+
     const questionnaire = {
       questions: [{ id: "q1", header: "Tests", question: "Which test?" }],
     };
+
     const revision = {
       revise: { interaction_id: "i1", base_revision: 1, reason: "Update" },
     };
+
     for (const tool of convertResponsesTools(tools, { supportsStrictMode: false })) {
       expect(tool.type).toBe("function");
+
       if (tool.type !== "function") throw new Error("Expected a function tool");
+
       const schema = tool.parameters!;
-      expect(schema.properties).toEqual(
-        Object.assign({}, ...RequestSchema.anyOf.map((branch) => branch.properties)),
-      );
-      if (typeof schema.properties !== "object" || schema.properties === null) {
-        throw new Error("Expected root-level tool properties");
-      }
-      expect(Object.keys(schema.properties)).toEqual([
+
+      const expectedProperties = {
+        ...QuestionnaireSchema.properties,
+        ...RevisionSchema.properties,
+      };
+
+      expect(schema.properties).toEqual(expectedProperties);
+      expect(Object.keys(expectedProperties)).toEqual([
         "title",
         "context",
         "linked_interaction_id",
@@ -93,9 +120,11 @@ describe("questionnaire contract", () => {
         "revise",
       ]);
       expect(schema.anyOf).toEqual(RequestSchema.anyOf);
+
       for (const valid of [questionnaire, revision]) {
         expect(Value.Check(schema, valid)).toBe(true);
       }
+
       for (const invalid of [
         {},
         { title: "Missing questions" },

@@ -80,12 +80,14 @@ export const setupMcpTest = () => {
   const createExtensionHost = (...args: Parameters<typeof createExtensionHostBase>) => {
     const host = createExtensionHostBase(...args);
     state.hosts.push(host);
+
     return host;
   };
 
   const startHttpFixture = async (options?: Parameters<typeof startMcpHttpFixture>[0]) => {
     const fixture = await startMcpHttpFixture(options);
     state.httpFixtures.push(fixture);
+
     return fixture;
   };
 
@@ -99,6 +101,7 @@ export const setupMcpTest = () => {
 
   const loadManager = async (options: { cwd?: string; projectTrusted?: boolean } = {}) => {
     const host = createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       cwd: options.cwd ?? process.cwd(),
       isProjectTrusted: vi.fn<() => boolean>(() => options.projectTrusted ?? true),
@@ -106,8 +109,10 @@ export const setupMcpTest = () => {
         select: vi.fn<() => Promise<string>>(async () => `○ ${MCP_MANAGER_SERVER_NAME}`),
       },
     });
+
     expect(host.getRegisteredTools().size).toBe(0);
     await host.runCommand("mcp", "", ctx);
+
     return host;
   };
 

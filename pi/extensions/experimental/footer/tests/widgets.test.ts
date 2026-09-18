@@ -27,6 +27,7 @@ describe(collectSessionTotals, () => {
       parentId: null,
       timestamp: "2025-01-01T00:00:00.000Z",
     });
+
     const entries: SessionEntry[] = [
       {
         ...base("assistant"),
@@ -71,6 +72,7 @@ describe(collectSessionTotals, () => {
         usage: usage(4),
       },
     ];
+
     const context = {
       sessionManager: {
         getEntries: () => entries,
@@ -80,6 +82,7 @@ describe(collectSessionTotals, () => {
         getSessionName: () => "demo",
       },
     };
+
     expect(collectSessionTotals(context)).toStrictEqual({
       cacheRead: 10,
       cacheWrite: 10,
@@ -106,11 +109,14 @@ describe(buildBuiltinWidgets, () => {
         thinkingLevel: "high",
       },
     );
+
   const tones = (percent: number, id: string) => {
     const snapshot = widgets(percent).get(id)?.snapshot;
     const icon = snapshot?.icon === false ? undefined : snapshot?.icon?.tone;
+
     return new Set([icon, ...(snapshot?.content.map((span) => span.tone) ?? [])]);
   };
+
   const LOUD = ["accent", "success", "warning", "error"] as const;
 
   it("spends no hue at rest, including on a dirty working tree", () => {

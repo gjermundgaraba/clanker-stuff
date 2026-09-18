@@ -1,4 +1,5 @@
 type EnvPatch = Record<string, string | undefined>;
+
 interface RestoreEntry {
   key: string;
   hadValue: boolean;
@@ -6,8 +7,7 @@ interface RestoreEntry {
 }
 
 const restorePatch = (entries: RestoreEntry[]) => {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
+  for (const entry of entries.toReversed()) {
     if (entry.hadValue) {
       process.env[entry.key] = entry.value;
     } else {
@@ -22,6 +22,7 @@ export const patchEnv = (patch: EnvPatch) => {
     key,
     value: process.env[key],
   }));
+
   let restored = false;
 
   for (const [key, value] of Object.entries(patch)) {

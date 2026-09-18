@@ -13,16 +13,19 @@ import type { LiveWidget } from "./widgets.js";
 const duplicatePlacements = (config: FooterConfig): string[] => {
   const seen = new Set<string>();
   const duplicates = new Set<string>();
+
   for (const row of config.rows) {
     for (const group of ["left", "center", "right"] as const) {
       for (const id of row[group]) {
         if (seen.has(id)) {
           duplicates.add(id);
         }
+
         seen.add(id);
       }
     }
   }
+
   return [...duplicates];
 };
 
@@ -31,11 +34,14 @@ export const editorWidgets = (runtime: HostRuntime): FooterEditorWidget[] => {
     ...runtime.builtins.values(),
     ...runtime.rich.values(),
   ].map((widget) => ({
-    defaultEnabled: widget.snapshot.defaults?.enabled,
+    ...(widget.snapshot.defaults?.enabled !== undefined
+      ? { defaultEnabled: widget.snapshot.defaults.enabled }
+      : {}),
     id: widget.snapshot.id,
     label: widget.snapshot.label,
     source: widget.source,
   }));
+
   for (const [key, value] of runtime.footerData?.getExtensionStatuses() ?? []) {
     if (!hasTerminalControl(key) && visibleWidth(sanitizeNativeStatus(value)) > 0) {
       widgets.push({
@@ -45,6 +51,7 @@ export const editorWidgets = (runtime: HostRuntime): FooterEditorWidget[] => {
       });
     }
   }
+
   widgets.push(
     {
       id: "footer.widgets",
@@ -57,6 +64,7 @@ export const editorWidgets = (runtime: HostRuntime): FooterEditorWidget[] => {
       source: "builtin",
     },
   );
+
   return widgets.toSorted((left, right) => left.id.localeCompare(right.id));
 };
 
@@ -64,11 +72,13 @@ const placementFor = (runtime: HostRuntime, id: string): string => {
   for (const [rowIndex, row] of runtime.config.rows.entries()) {
     for (const group of ["left", "center", "right"] as const) {
       const index = row[group].indexOf(id);
+
       if (index !== -1) {
         return `row ${rowIndex + 1} ${group} #${index + 1}`;
       }
     }
   }
+
   return "aggregate or unavailable";
 };
 
@@ -93,8 +103,10 @@ export const inspectLines = (runtime: HostRuntime, timestamp: number): string[] 
       `${decision.outcome}: ${decision.reason}`,
     ]),
   );
+
   const lines =
     runtime.lastLayout?.duplicates.map((id) => `duplicate placement: ${summary(id)}`) ?? [];
+
   for (const widget of [...runtime.builtins.values(), ...runtime.rich.values()].toSorted(
     (left, right) => left.snapshot.id.localeCompare(right.snapshot.id),
   )) {
@@ -109,17 +121,22 @@ export const inspectLines = (runtime: HostRuntime, timestamp: number): string[] 
       `  layout: ${byDecision.get(widget.snapshot.id) ?? "not rendered"}`,
     );
   }
+
   for (const [key, value] of runtime.footerData?.getExtensionStatuses() ?? []) {
     const id = `status:${key}`;
+
     const consumers = [...runtime.rich.values()]
-      .filter((widget) => widget.snapshot.consumesStatusKeys?.includes(key) === true)
-      .map((widget) => widget.snapshot.id)
+      .flatMap((widget) =>
+        widget.snapshot.consumesStatusKeys?.includes(key) === true ? [widget.snapshot.id] : [],
+      )
       .toSorted();
+
     const layout =
       byDecision.get(id) ??
       (runtime.lastLayout?.consumedStatusIds.includes(id) === true
         ? `consumed by ${consumers.join(", ") || "rich widget"}`
         : "not rendered");
+
     lines.push(
       `${summary(id)} [native]`,
       `  content: ${sanitizeNativeStatus(value)}`,
@@ -128,11 +145,13 @@ export const inspectLines = (runtime: HostRuntime, timestamp: number): string[] 
       `  layout: ${summary(layout)}`,
     );
   }
+
   return lines.length === 0 ? ["No live widgets."] : lines;
 };
 
 export const doctorLines = (runtime: HostRuntime, configPath: string): string[] => {
   const duplicates = duplicatePlacements(runtime.config);
+
   const lines = [
     `ownership: ${runtime.lifecycle}`,
     `protocol: v${FOOTER_PROTOCOL_VERSION}`,
@@ -141,9 +160,11 @@ export const doctorLines = (runtime: HostRuntime, configPath: string): string[] 
     `rich widgets: ${[...runtime.rich.keys()].toSorted().map(summary).join(", ") || "none"}`,
     `duplicate placements: ${duplicates.map(summary).join(", ") || "none"}`,
   ];
+
   if (runtime.configLoaded.error !== undefined && runtime.configLoaded.error.length > 0) {
     lines.push(`config error: ${summary(runtime.configLoaded.error)}`);
   }
+
   lines.push(
     ...(runtime.collectorErrors.length === 0
       ? ["collector errors: none"]
@@ -154,5 +175,6 @@ export const doctorLines = (runtime: HostRuntime, configPath: string): string[] 
           (error) => `${new Date(error.timestamp).toISOString()} ${error.class}: ${error.message}`,
         )),
   );
+
   return lines;
 };

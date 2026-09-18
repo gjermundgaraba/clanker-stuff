@@ -27,6 +27,7 @@ const parseWindow = (
   if (raw === undefined) {
     return undefined;
   }
+
   return makeUsageWindow(id, 100 - raw.utilization, parseIso(raw.resets_at));
 };
 
@@ -49,6 +50,7 @@ export const mapClaudeUsagePayload = (
 export const fetchClaudeUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveOAuthAccess(deps.authClient, "anthropic");
+
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }

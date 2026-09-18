@@ -3,24 +3,34 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { validateCompaction } from "./compaction.mjs";
 
+/** @type {typeof import("../solution/release.js").normalizeRelease} */
 let normalizeRelease = () => {
   throw new Error("release module did not load");
 };
+
 try {
+  // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
   ({ normalizeRelease } = await import("/app/src/release.js"));
 } catch {}
 
 const tests = spawnSync("node", ["--test", "/app/test/release.test.js"], {
   encoding: "utf-8",
 });
+
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
+
 const trajectoryPath = "/logs/agent/trajectory.json";
+
+/** @type {unknown} */
 let trajectory = {};
+
 try {
   trajectory = JSON.parse(readFileSync(trajectoryPath, "utf-8"));
 } catch {}
+
 const validation = validateCompaction(trajectory, { expectedSegments: [7] });
 
+/** @param {()=>boolean} fn */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -28,6 +38,7 @@ const probe = (fn) => {
     return 0;
   }
 };
+
 const facts = {
   artifacts: probe(
     () =>
@@ -45,12 +56,15 @@ const facts = {
       channel: " BETA ",
       regions: [],
     }).channel;
+
     let rejected = false;
+
     try {
       normalizeRelease({ artifacts: [], channel: "edge", regions: [] });
     } catch (error) {
       rejected = error instanceof TypeError;
     }
+
     return normalized === "beta" && rejected;
   }),
   regions: probe(
@@ -68,6 +82,7 @@ const facts = {
     const defaults = normalizeRelease(base).rolloutPercent === 100;
     const coerces = normalizeRelease({ ...base, rolloutPercent: "25" }).rolloutPercent === 25;
     let rejects = true;
+
     for (const value of [-1, 101, 1.5, "nope"]) {
       try {
         normalizeRelease({ ...base, rolloutPercent: value });
@@ -76,6 +91,7 @@ const facts = {
         rejects &&= error instanceof TypeError;
       }
     }
+
     return defaults && coerces && rejects;
   }),
   output_contract: probe(
@@ -92,7 +108,9 @@ const facts = {
       ) === JSON.stringify(["artifacts", "channel", "regions", "rolloutPercent"].sort()),
   ),
 };
+
 let combined;
+
 try {
   combined = normalizeRelease({
     artifacts: [" App.zip ", "app.ZIP", "symbols.tgz", ""],
@@ -102,6 +120,7 @@ try {
     rolloutPercent: "25",
   });
 } catch {}
+
 if (combined) {
   facts.artifacts &&= Number(isDeepStrictEqual(combined.artifacts, ["App.zip", "symbols.tgz"]));
   facts.channel &&= Number(combined.channel === "beta");
@@ -118,7 +137,9 @@ if (combined) {
 } else if (Object.values(facts).every(Boolean)) {
   facts.rollout = 0;
 }
+
 const quality = Object.values(facts).reduce((sum, value) => sum + value, 0) / 5;
+
 writeFileSync(
   "/logs/verifier/reward.json",
   JSON.stringify({

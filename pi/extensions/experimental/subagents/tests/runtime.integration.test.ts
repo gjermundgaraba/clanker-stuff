@@ -52,14 +52,17 @@ const runtimeRequest = (
 const blockNextTranscriptVerification = () => {
   const started = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
+
   const spy = vi
     .spyOn(TranscriptCursor.prototype, "verify")
     .mockImplementation(async function (this: TranscriptCursor, expectedId) {
       spy.mockRestore();
       started.resolve(undefined);
       await release.promise;
+
       return this.verify(expectedId);
     });
+
   return { release, spy, started };
 };
 
@@ -79,6 +82,7 @@ describe("child runtime", () => {
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     harness.setResponses([fauxAssistantMessage("done")]);
     let active: string[] = [];
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       tools: ["request_user_input", "request_user_input_async", "send_message_to_user_async"],
@@ -96,12 +100,15 @@ describe("child runtime", () => {
             execute: async () => ({ content: [], details: {} }),
           });
         }
+
         pi.on("before_agent_start", () => {
           active = pi.getActiveTools();
         });
       },
     });
+
     runtime.commit();
+
     try {
       await runtime.startTurn({ text: "work" }).settled;
       expect(active).toContain("request_user_input");
@@ -117,6 +124,7 @@ describe("child runtime", () => {
     const harness = await createAgentSessionHarness();
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     const runtime = await createChildRuntime(runtimeRequest(harness));
+
     try {
       expect(existsSync(runtime.sessionFile)).toBeTruthy();
       await expect(readFile(runtime.sessionFile, "utf-8")).resolves.toContain(
@@ -135,6 +143,7 @@ describe("child runtime", () => {
     harness.setResponses([fauxAssistantMessage("child answer")]);
     const runtime = await createChildRuntime(runtimeRequest(harness));
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "task" });
       await expect(turn.accepted).resolves.toBeUndefined();
@@ -166,6 +175,7 @@ describe("child runtime", () => {
     ]);
     const runtime = await createChildRuntime(runtimeRequest(harness));
     runtime.commit();
+
     try {
       const first = runtime.startTurn({ text: "first task" });
       await expect(first.accepted).resolves.toBeUndefined();
@@ -199,9 +209,11 @@ describe("child runtime", () => {
     harness.setResponses([
       async () => {
         providerStarted = true;
+
         return fauxAssistantMessage("detached answer");
       },
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -210,6 +222,7 @@ describe("child runtime", () => {
           await releasePreflight.promise;
           preflightFinished.resolve(undefined);
         };
+
         if (preflightEvent === "input") {
           pi.on("input", suspend);
         } else {
@@ -218,12 +231,15 @@ describe("child runtime", () => {
       },
       trusted: true,
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await preflightStarted.promise;
 
       let stop: Promise<void>;
+
       if (operation === "abort") {
         stop = runtime.abort();
         await stop;
@@ -237,6 +253,7 @@ describe("child runtime", () => {
         });
         expect(stopped).toBeFalsy();
       }
+
       releasePreflight.resolve(undefined);
       await preflightFinished.promise;
       await stop;
@@ -279,6 +296,7 @@ describe("child runtime", () => {
       const releasePreflight = Promise.withResolvers<undefined>();
       let preflightFinished = false;
       let shutdownCount = 0;
+
       const runtime = await createChildRuntime({
         ...runtimeRequest(harness),
         bridge: async (pi) => {
@@ -288,11 +306,13 @@ describe("child runtime", () => {
             await releasePreflight.promise;
             preflightFinished = true;
           };
+
           if (preflightEvent === "input") {
             pi.on("input", suspend);
           } else {
             pi.on("before_agent_start", suspend);
           }
+
           pi.on("session_shutdown", () => {
             shutdownCount += 1;
             cleanup.resolve(undefined);
@@ -301,8 +321,10 @@ describe("child runtime", () => {
         },
         trusted: true,
       });
+
       runtime.commit();
       let disposal: Promise<void> | undefined;
+
       try {
         const turn = runtime.startTurn({ text: "initial task" });
         await preflightStarted.promise;
@@ -313,9 +335,11 @@ describe("child runtime", () => {
         });
         await shutdownStarted.promise;
         let concurrentDisposed = false;
+
         const concurrentDisposal = runtime.dispose().then(() => {
           concurrentDisposed = true;
         });
+
         await new Promise<void>((resolve) => {
           setImmediate(resolve);
         });
@@ -345,6 +369,7 @@ describe("child runtime", () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
     });
+
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     await writeFile(
       path.join(harness.agentDir, "settings.json"),
@@ -357,6 +382,7 @@ describe("child runtime", () => {
     let compactionStarted = false;
     const model = harness.faux.getModel();
     const now = Date.now();
+
     const previousAssistant: AssistantMessage = {
       ...fauxAssistantMessage("previous response", {
         stopReason: "length",
@@ -367,6 +393,7 @@ describe("child runtime", () => {
       provider: model.provider,
       usage: usage(100),
     };
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
@@ -376,6 +403,7 @@ describe("child runtime", () => {
         });
         pi.on("session_before_compact", async (event) => {
           compactionStarted = true;
+
           return {
             compaction: {
               details: {},
@@ -396,16 +424,20 @@ describe("child runtime", () => {
       ],
       trusted: true,
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "cancelled task" });
       await inputStarted.promise;
 
       await runtime.abort();
       let disposed = false;
+
       const disposal = runtime.dispose().then(() => {
         disposed = true;
       });
+
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
@@ -421,6 +453,7 @@ describe("child runtime", () => {
         path.dirname(runtime.sessionFile),
         path.dirname(harness.agentDir),
       ).getBranch();
+
       expect(compactionStarted).toBeFalsy();
       expect(branch.filter((entry) => entry.type === "compaction")).toHaveLength(0);
       expect(
@@ -443,6 +476,7 @@ describe("child runtime", () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
     });
+
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     await writeFile(
       path.join(harness.agentDir, "settings.json"),
@@ -453,23 +487,31 @@ describe("child runtime", () => {
     const authStarted = Promise.withResolvers<undefined>();
     const releaseAuth = Promise.withResolvers<undefined>();
     const model = harness.faux.getModel();
+
     const provider = harness.session.extensionRunner
       .getModelRegistry()
       .getRegisteredNativeProvider(model.provider);
+
     const apiKeyAuth = provider?.auth.apiKey;
+
     if (apiKeyAuth === undefined) {
       throw new Error("Faux API key auth is unavailable");
     }
+
     const resolveAuth = apiKeyAuth.resolve.bind(apiKeyAuth);
     let blockAuth = false;
+
     const authSpy = vi.spyOn(apiKeyAuth, "resolve").mockImplementation(async (input) => {
       if (blockAuth) {
         authStarted.resolve(undefined);
         await releaseAuth.promise;
       }
+
       return resolveAuth(input);
     });
+
     const now = Date.now();
+
     const previousAssistant: AssistantMessage = {
       ...fauxAssistantMessage("previous response", {
         stopReason: "length",
@@ -480,12 +522,15 @@ describe("child runtime", () => {
       provider: model.provider,
       usage: usage(100),
     };
+
     let projectCompactionStarted = false;
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
         pi.on("session_before_compact", (event) => {
           projectCompactionStarted = true;
+
           return {
             compaction: {
               details: {},
@@ -506,8 +551,10 @@ describe("child runtime", () => {
       ],
       trusted: true,
     });
+
     runtime.commit();
     blockAuth = true;
+
     try {
       const turn = runtime.startTurn({ text: "cancelled task" });
       await authStarted.promise;
@@ -519,11 +566,13 @@ describe("child runtime", () => {
       await expect(turn.settled).rejects.toThrow("Child turn was aborted");
 
       expect(projectCompactionStarted).toBeFalsy();
+
       const branch = SessionManager.open(
         runtime.sessionFile,
         path.dirname(runtime.sessionFile),
         path.dirname(harness.agentDir),
       ).getBranch();
+
       expect(branch.filter((entry) => entry.type === "compaction")).toHaveLength(0);
       expect(
         branch.some(
@@ -545,6 +594,7 @@ describe("child runtime", () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
     });
+
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     await writeFile(
       path.join(harness.agentDir, "settings.json"),
@@ -556,6 +606,7 @@ describe("child runtime", () => {
     const compactionAborted = Promise.withResolvers<undefined>();
     const model = harness.faux.getModel();
     const now = Date.now();
+
     const previousAssistant: AssistantMessage = {
       ...fauxAssistantMessage("previous response", {
         stopReason: "length",
@@ -566,17 +617,21 @@ describe("child runtime", () => {
       provider: model.provider,
       usage: usage(100),
     };
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
         pi.on("session_before_compact", async (event) => {
           compactionStarted.resolve(undefined);
+
           if (!event.signal.aborted) {
             await new Promise<void>((resolve) => {
               event.signal.addEventListener("abort", () => resolve(), { once: true });
             });
           }
+
           compactionAborted.resolve(undefined);
+
           return { cancel: true };
         });
       },
@@ -590,7 +645,9 @@ describe("child runtime", () => {
       ],
       trusted: true,
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "cancelled task" });
       await compactionStarted.promise;
@@ -606,6 +663,7 @@ describe("child runtime", () => {
         path.dirname(runtime.sessionFile),
         path.dirname(harness.agentDir),
       ).getBranch();
+
       expect(branch.filter((entry) => entry.type === "compaction")).toHaveLength(0);
       expect(
         branch.some(
@@ -626,6 +684,7 @@ describe("child runtime", () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
     });
+
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     await writeFile(
       path.join(harness.agentDir, "settings.json"),
@@ -636,25 +695,33 @@ describe("child runtime", () => {
     const authStarted = Promise.withResolvers<undefined>();
     const releaseAuth = Promise.withResolvers<undefined>();
     const model = harness.faux.getModel();
+
     const provider = harness.session.extensionRunner
       .getModelRegistry()
       .getRegisteredNativeProvider(model.provider);
+
     const apiKeyAuth = provider?.auth.apiKey;
+
     if (apiKeyAuth === undefined) {
       throw new Error("Faux API key auth is unavailable");
     }
+
     const resolveAuth = apiKeyAuth.resolve.bind(apiKeyAuth);
     let blockAuth = false;
+
     const authSpy = vi.spyOn(apiKeyAuth, "resolve").mockImplementation(async (input) => {
       if (blockAuth) {
         authStarted.resolve(undefined);
         await releaseAuth.promise;
       }
+
       return resolveAuth(input);
     });
+
     harness.setResponses([
       async () => {
         blockAuth = true;
+
         return {
           ...fauxAssistantMessage("child answer"),
           api: model.api,
@@ -666,6 +733,7 @@ describe("child runtime", () => {
       fauxAssistantMessage("unexpected summary"),
     ]);
     let projectCompactionStarted = false;
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
@@ -675,8 +743,10 @@ describe("child runtime", () => {
       },
       trusted: true,
     });
+
     runtime.commit();
     let abort: Promise<void> | undefined;
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
@@ -726,6 +796,7 @@ describe("child runtime", () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 1000, id: "faux-1", maxTokens: 100 }],
     });
+
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     await writeFile(
       path.join(harness.agentDir, "settings.json"),
@@ -747,6 +818,7 @@ describe("child runtime", () => {
       fauxAssistantMessage("unexpected retry"),
     ]);
     let willRetry = false;
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
@@ -766,7 +838,9 @@ describe("child runtime", () => {
       },
       trusted: true,
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "x".repeat(5000) });
       await turn.accepted;
@@ -783,9 +857,11 @@ describe("child runtime", () => {
       ).toHaveLength(1);
 
       let stopped = false;
+
       const abort = runtime.abort().then(() => {
         stopped = true;
       });
+
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
@@ -809,6 +885,7 @@ describe("child runtime", () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 1000, id: "faux-1", maxTokens: 100 }],
     });
+
     const streamSpy = vi.spyOn(ModelRuntime.prototype, "streamSimple");
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
     await writeFile(
@@ -831,6 +908,7 @@ describe("child runtime", () => {
       },
       fauxAssistantMessage("unexpected retry"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: (pi) => {
@@ -839,6 +917,7 @@ describe("child runtime", () => {
             retryContextStarted.resolve(undefined);
             await releaseRetryContext.promise;
           }
+
           return { messages: event.messages };
         });
         pi.on("session_before_compact", (event) => ({
@@ -856,8 +935,10 @@ describe("child runtime", () => {
       },
       trusted: true,
     });
+
     runtime.commit();
     let abort: Promise<void> | undefined;
+
     try {
       const turn = runtime.startTurn({ text: "x".repeat(5000) });
       await turn.accepted;
@@ -898,6 +979,7 @@ describe("child runtime", () => {
       fauxAssistantMessage("first answer"),
       fauxAssistantMessage("answer after steering"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -907,7 +989,9 @@ describe("child runtime", () => {
         });
       },
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
@@ -919,6 +1003,7 @@ describe("child runtime", () => {
         customType: "subagent-message",
         details: { communicationId: "message-1" },
       });
+
       releaseAgentEnd.resolve(undefined);
 
       await delivery.accepted;
@@ -926,20 +1011,24 @@ describe("child runtime", () => {
         text: "first answer",
       });
       expect(harness.getPendingResponseCount()).toBe(1);
+
       const persisted = SessionManager.open(
         runtime.sessionFile,
         path.dirname(runtime.sessionFile),
         path.dirname(harness.agentDir),
       ).getBranch();
+
       const assistantIndex = persisted.findIndex(
         (entry) => entry.type === "message" && entry.message.role === "assistant",
       );
+
       const customIndex = persisted.findIndex(
         (entry) =>
           entry.type === "custom_message" &&
           Value.Check(CommunicationDetailsSchema, entry.details) &&
           entry.details.communicationId === "message-1",
       );
+
       expect(assistantIndex).toBeGreaterThanOrEqual(0);
       expect(customIndex).toBeGreaterThan(assistantIndex);
 
@@ -967,6 +1056,7 @@ describe("child runtime", () => {
       }),
       fauxAssistantMessage("answer with mail"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -975,6 +1065,7 @@ describe("child runtime", () => {
           async execute() {
             toolStarted.resolve(undefined);
             await releaseTool.promise;
+
             return {
               content: [{ text: "continued", type: "text" }],
               details: {},
@@ -987,16 +1078,20 @@ describe("child runtime", () => {
       },
       tools: ["continue"],
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await toolStarted.promise;
+
       const delivery = runtime.sendMessage({
         content: "mail visible to continuation",
         customType: "subagent-message",
         details: { communicationId: "message-tool" },
       });
+
       releaseTool.resolve(undefined);
 
       await delivery.accepted;
@@ -1020,6 +1115,7 @@ describe("child runtime", () => {
       }),
       fauxAssistantMessage("detached continuation"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -1027,12 +1123,15 @@ describe("child runtime", () => {
           description: "Wait until aborted",
           async execute(_toolCallId, _params, signal) {
             toolStarted.resolve(undefined);
+
             if (signal === undefined) {
               throw new Error("Tool signal is unavailable");
             }
+
             await new Promise<void>((resolve) => {
               signal.addEventListener("abort", () => resolve(), { once: true });
             });
+
             return {
               content: [{ text: "aborted", type: "text" }],
               details: {},
@@ -1045,11 +1144,14 @@ describe("child runtime", () => {
       },
       tools: ["wait"],
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await toolStarted.promise;
+
       const delivery = runtime.sendMessage(
         {
           content: "Message Type: NEW_TASK\nPayload: detached work",
@@ -1068,6 +1170,7 @@ describe("child runtime", () => {
         harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
       ).toHaveLength(1);
       expect(harness.getPendingResponseCount()).toBe(1);
+
       const deliveries = SessionManager.open(
         runtime.sessionFile,
         path.dirname(runtime.sessionFile),
@@ -1080,6 +1183,7 @@ describe("child runtime", () => {
             Value.Check(CommunicationDetailsSchema, entry.details) &&
             entry.details.communicationId === "active-new-task",
         );
+
       expect(deliveries).toHaveLength(0);
     } finally {
       await runtime.dispose();
@@ -1099,6 +1203,7 @@ describe("child runtime", () => {
           stopReason: "toolUse",
         }),
       ]);
+
       const runtime = await createChildRuntime({
         ...runtimeRequest(harness),
         bridge: async (pi) => {
@@ -1106,12 +1211,15 @@ describe("child runtime", () => {
             description: "Wait until aborted",
             async execute(_toolCallId, _params, signal) {
               toolStarted.resolve(undefined);
+
               if (signal === undefined) {
                 throw new Error("Tool signal is unavailable");
               }
+
               await new Promise<void>((resolve) => {
                 signal.addEventListener("abort", () => resolve(), { once: true });
               });
+
               return {
                 content: [{ text: "aborted", type: "text" }],
                 details: {},
@@ -1127,17 +1235,21 @@ describe("child runtime", () => {
         },
         tools: ["wait"],
       });
+
       runtime.commit();
+
       try {
         const turn = runtime.startTurn({ text: "initial task" });
         await turn.accepted;
         await toolStarted.promise;
         const deliveryId = `passive-${operation}`;
+
         const delivery = runtime.sendMessage({
           content: `mail persisted during ${operation}`,
           customType: "subagent-message",
           details: { communicationId: deliveryId },
         });
+
         void delivery.accepted.then(() => {
           order.push("accepted");
         });
@@ -1147,6 +1259,7 @@ describe("child runtime", () => {
         } else {
           await runtime.dispose();
         }
+
         order.push("stopped");
 
         await expect(delivery.accepted).resolves.toBeUndefined();
@@ -1154,6 +1267,7 @@ describe("child runtime", () => {
         expect(order).toStrictEqual(
           operation === "abort" ? ["accepted", "stopped"] : ["accepted", "shutdown", "stopped"],
         );
+
         const deliveries = SessionManager.open(
           runtime.sessionFile,
           path.dirname(runtime.sessionFile),
@@ -1166,6 +1280,7 @@ describe("child runtime", () => {
               Value.Check(CommunicationDetailsSchema, entry.details) &&
               entry.details.communicationId === deliveryId,
           );
+
         expect(deliveries).toHaveLength(1);
       } finally {
         await runtime.dispose();
@@ -1182,6 +1297,7 @@ describe("child runtime", () => {
     const agentSettled = Promise.withResolvers<undefined>();
     const releaseAgentSettled = Promise.withResolvers<undefined>();
     harness.setResponses([fauxAssistantMessage("finished")]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -1195,18 +1311,22 @@ describe("child runtime", () => {
         });
       },
     });
+
     runtime.commit();
     let verification: ReturnType<typeof blockNextTranscriptVerification> | undefined;
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await agentEnd.promise;
       const deliveryId = "passive-settlement-verification";
+
       const delivery = runtime.sendMessage({
         content: "mail flushed at settlement",
         customType: "subagent-message",
         details: { communicationId: deliveryId },
       });
+
       releaseAgentEnd.resolve(undefined);
       await agentSettled.promise;
       verification = blockNextTranscriptVerification();
@@ -1214,9 +1334,11 @@ describe("child runtime", () => {
       await verification.started.promise;
 
       let stopped = false;
+
       const abort = runtime.abort().then(() => {
         stopped = true;
       });
+
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
@@ -1256,19 +1378,24 @@ describe("child runtime", () => {
     const runtime = await createChildRuntime(runtimeRequest(harness));
     runtime.commit();
     const verification = blockNextTranscriptVerification();
+
     try {
       const deliveryId = "direct-append-verification";
+
       const delivery = runtime.sendMessage({
         content: "mail appended while idle",
         customType: "subagent-message",
         details: { communicationId: deliveryId },
       });
+
       await verification.started.promise;
 
       let stopped = false;
+
       const abort = runtime.abort().then(() => {
         stopped = true;
       });
+
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
@@ -1309,10 +1436,12 @@ describe("child runtime", () => {
     harness.setResponses([
       async () => {
         await releaseFirstResponse.promise;
+
         return fauxAssistantMessage("first answer");
       },
       fauxAssistantMessage("answer after steering"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -1320,18 +1449,22 @@ describe("child runtime", () => {
           if (heldTurnEnd) {
             return;
           }
+
           heldTurnEnd = true;
           firstTurnEnd.resolve(undefined);
           await releaseFirstTurnEnd.promise;
         });
       },
     });
+
     runtime.commit();
     let verification: ReturnType<typeof blockNextTranscriptVerification> | undefined;
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       const deliveryId = "consumed-steering-verification";
+
       const delivery = runtime.sendMessage(
         {
           content: "steering consumed before interrupt",
@@ -1341,6 +1474,7 @@ describe("child runtime", () => {
         undefined,
         true,
       );
+
       releaseFirstResponse.resolve(undefined);
       await firstTurnEnd.promise;
       await new Promise<void>((resolve) => {
@@ -1351,9 +1485,11 @@ describe("child runtime", () => {
       await verification.started.promise;
 
       let stopped = false;
+
       const abort = runtime.abort().then(() => {
         stopped = true;
       });
+
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
@@ -1399,6 +1535,7 @@ describe("child runtime", () => {
       }),
       fauxAssistantMessage("next explicit answer"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -1410,12 +1547,15 @@ describe("child runtime", () => {
           description: "Wait until aborted",
           async execute(_toolCallId, _params, signal) {
             toolStarted.resolve(undefined);
+
             if (signal === undefined) {
               throw new Error("Tool signal is unavailable");
             }
+
             await new Promise<void>((resolve) => {
               signal.addEventListener("abort", () => resolve(), { once: true });
             });
+
             return {
               content: [{ text: "aborted", type: "text" }],
               details: {},
@@ -1428,17 +1568,21 @@ describe("child runtime", () => {
       },
       tools: ["wait"],
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await toolStarted.promise;
       let delivered = false;
+
       const delivery = runtime.sendMessage({
         content: "mail held through abort",
         customType: "subagent-message",
         details: { communicationId: "message-abort" },
       });
+
       void delivery.accepted.then(() => {
         delivered = true;
       });
@@ -1502,6 +1646,7 @@ describe("child runtime", () => {
       async () => {
         errorStarted.resolve(undefined);
         await releaseError.promise;
+
         return fauxAssistantMessage("", {
           errorMessage: "server overloaded",
           stopReason: "error",
@@ -1511,15 +1656,18 @@ describe("child runtime", () => {
     ]);
     const runtime = await createChildRuntime(runtimeRequest(harness));
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await errorStarted.promise;
+
       const delivery = runtime.sendMessage({
         content: "mail held across retry",
         customType: "subagent-message",
         details: { communicationId: "message-retry" },
       });
+
       releaseError.resolve(undefined);
 
       await expect(turn.settled).resolves.toMatchObject({
@@ -1533,6 +1681,7 @@ describe("child runtime", () => {
           { additionalProperties: true },
         ),
       );
+
       expect(payloads).toHaveLength(2);
       expect(JSON.stringify(payloads[1]?.messages)).not.toContain("server overloaded");
       expect(JSON.stringify(payloads[1]?.messages)).not.toContain("mail held across retry");
@@ -1542,18 +1691,21 @@ describe("child runtime", () => {
         path.dirname(runtime.sessionFile),
         path.dirname(harness.agentDir),
       ).getBranch();
+
       const successfulAssistantIndex = persisted.findLastIndex(
         (entry) =>
           entry.type === "message" &&
           entry.message.role === "assistant" &&
           entry.message.stopReason !== "error",
       );
+
       const customIndex = persisted.findIndex(
         (entry) =>
           entry.type === "custom_message" &&
           Value.Check(CommunicationDetailsSchema, entry.details) &&
           entry.details.communicationId === "message-retry",
       );
+
       expect(successfulAssistantIndex).toBeGreaterThanOrEqual(0);
       expect(customIndex).toBeGreaterThan(successfulAssistantIndex);
     } finally {
@@ -1577,14 +1729,17 @@ describe("child runtime", () => {
       fauxAssistantMessage("answer to existing steering"),
       fauxAssistantMessage("next explicit answer"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
         steerExisting = () => {
           pi.sendUserMessage("existing user steering", { deliverAs: "steer" });
         };
+
         pi.on("input", () => {
           inputSeen.resolve(undefined);
+
           return { action: "continue" };
         });
         pi.registerTool({
@@ -1592,6 +1747,7 @@ describe("child runtime", () => {
           async execute() {
             toolStarted.resolve(undefined);
             await releaseTool.promise;
+
             return {
               content: [{ text: "continued", type: "text" }],
               details: {},
@@ -1604,16 +1760,20 @@ describe("child runtime", () => {
       },
       tools: ["continue"],
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await toolStarted.promise;
+
       const delivery = runtime.sendMessage({
         content: "mail held behind existing steering",
         customType: "subagent-message",
         details: { communicationId: "message-existing-steer" },
       });
+
       steerExisting?.();
       await inputSeen.promise;
       await new Promise<void>((resolve) => {
@@ -1626,12 +1786,14 @@ describe("child runtime", () => {
       });
       await delivery.accepted;
       expect(harness.getPendingResponseCount()).toBe(1);
+
       const payloads = harness.providerPayloads(
         Type.Object(
           { messages: Type.Optional(Type.Array(Type.Unknown())) },
           { additionalProperties: true },
         ),
       );
+
       expect(payloads).toHaveLength(2);
       expect(JSON.stringify(payloads[1]?.messages)).toContain("existing user steering");
       expect(JSON.stringify(payloads[1]?.messages)).not.toContain(
@@ -1660,6 +1822,7 @@ describe("child runtime", () => {
       }),
       fauxAssistantMessage("next explicit turn"),
     ]);
+
     const runtime = await createChildRuntime({
       ...runtimeRequest(harness),
       bridge: async (pi) => {
@@ -1668,6 +1831,7 @@ describe("child runtime", () => {
           async execute() {
             toolStarted.resolve(undefined);
             await releaseTool.promise;
+
             return {
               content: [{ text: "terminated", type: "text" }],
               details: {},
@@ -1681,16 +1845,20 @@ describe("child runtime", () => {
       },
       tools: ["terminate"],
     });
+
     runtime.commit();
+
     try {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await toolStarted.promise;
+
       const delivery = runtime.sendMessage({
         content: "mail after terminating tool",
         customType: "subagent-message",
         details: { communicationId: "message-terminal-tool" },
       });
+
       releaseTool.resolve(undefined);
 
       await delivery.accepted;
@@ -1714,6 +1882,7 @@ describe("child runtime", () => {
     harness.setResponses([
       async () => {
         await firstResponse.promise;
+
         return fauxAssistantMessage("first answer");
       },
       fauxAssistantMessage("active follow-up"),
@@ -1721,9 +1890,11 @@ describe("child runtime", () => {
     ]);
     const runtime = await createChildRuntime(runtimeRequest(harness));
     runtime.commit();
+
     try {
       const active = runtime.startTurn({ text: "initial task" });
       await active.accepted;
+
       const steered = runtime.sendMessage(
         {
           content: "active task",
@@ -1733,6 +1904,7 @@ describe("child runtime", () => {
         undefined,
         true,
       );
+
       firstResponse.resolve(null);
       await steered.accepted;
       await expect(active.settled).resolves.toMatchObject({ text: "active follow-up" });
@@ -1746,6 +1918,7 @@ describe("child runtime", () => {
         undefined,
         true,
       );
+
       await idle.accepted;
       await expect(idle.settled).resolves.toMatchObject({ text: "idle follow-up" });
       expect(harness.getPendingResponseCount()).toBe(0);
@@ -1762,6 +1935,7 @@ describe("child runtime", () => {
     runtime.commit();
     const { sessionFile } = runtime;
     await runtime.dispose();
+
     try {
       await expect(
         createChildRuntime({
@@ -1779,6 +1953,7 @@ describe("child runtime", () => {
     const target = await mkdtemp(path.join(os.tmpdir(), "subagents-sessions-"));
     const dataDir = path.join(harness.agentDir, "data", "subagents");
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+
     try {
       await mkdir(dataDir, { recursive: true });
       await symlink(target, path.join(dataDir, "sessions"));

@@ -3,39 +3,51 @@
 import { appendFileSync, readFileSync } from "node:fs";
 
 const schemaPath = process.env.MEM2ACT_SCHEMA_PATH ?? "/app/.mem2act-schema.json";
+
 const callsPath = process.env.MEM2ACT_CALLS_PATH ?? "/app/.mem2act-calls.jsonl";
 
 /** @param {string} text @returns {unknown} */
 const parseJson = (text) => /** @type {unknown} */ (JSON.parse(text));
 
-/** @param {unknown} value */
-const isObject = (value) => value !== null && !Array.isArray(value) && value === Object(value);
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- The CLI accepts JSON object arguments and a schema object, not arrays or primitive JSON values.
+const isObject = (value) => value !== null && !Array.isArray(value) && typeof value === "object";
 
-const fail = (message) => {
+/** @param {string} message @returns {never} */
+function fail(message) {
   console.error(message);
   console.error("usage: mem2act describe | mem2act call --arguments JSON");
   process.exit(2);
-};
+}
 
 const [command, ...args] = process.argv.slice(2);
+
 if (command === "describe" && args.length === 0) {
   console.log(JSON.stringify(parseJson(readFileSync(schemaPath, "utf-8"))));
 } else if (command === "call" && args.length === 2 && args[0] === "--arguments") {
   const argumentsJson = args[1];
+
+  if (argumentsJson === undefined) fail("missing arguments JSON");
   let parameters = null;
+
   try {
     parameters = parseJson(argumentsJson);
   } catch {
     fail("--arguments must be valid JSON");
   }
+
   if (!isObject(parameters)) {
     fail("--arguments must be a JSON object");
   }
+
   const schema = parseJson(readFileSync(schemaPath, "utf-8"));
   const tool = isObject(schema) && "name" in schema ? schema.name : null;
-  if (tool !== String(tool) || tool.length === 0) {
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- A callable schema must supply a nonempty tool name, independent of arbitrary argument payloads.
+  if (typeof tool !== "string" || tool.length === 0) {
     fail("tool schema must have a name");
   }
+
   const call = { arguments: parameters, tool };
   appendFileSync(callsPath, `${JSON.stringify(call)}\n`, "utf-8");
   console.log(JSON.stringify(call));

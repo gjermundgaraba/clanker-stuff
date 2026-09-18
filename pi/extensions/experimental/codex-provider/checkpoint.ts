@@ -10,24 +10,37 @@ import { CHECKPOINT_CUSTOM_TYPE } from "./checkpoint-marker.js";
 export { CHECKPOINT_CUSTOM_TYPE } from "./checkpoint-marker.js";
 
 export const CHECKPOINT_PROTOCOL = "openai-responses-compaction-v2";
+
 export const CHECKPOINT_SCHEMA = "clanker.codex-provider/checkpoint";
+
 export const nativeCheckpointSummary = (windowId: string) =>
   `History is stored in OpenAI Codex checkpoint ${windowId}. Continue with a compatible Codex provider.`;
+
 export const RETAINED_USER_TOKEN_BUDGET = 64_000;
+
 export const RETAINED_USER_IMAGE_PLACEHOLDER = "image content omitted from compacted history";
+
 export const REMOTE_USER_IMAGE_PLACEHOLDER =
   "image content omitted because remote image URLs are not supported";
 
 type Immutable<T> = { readonly [Key in keyof T]: Immutable<T[Key]> };
 
 export type InputTextItem = Immutable<Static<typeof InputTextItemSchema>>;
+
 export type InputImageItem = Immutable<Static<typeof InputImageItemSchema>>;
+
 export type RealUserContentItem = InputImageItem | InputTextItem;
+
 export type RealUserInputItem = Immutable<Static<typeof RealUserInputItemSchema>>;
+
 export type CheckpointUserInputItem = Immutable<Static<typeof CheckpointUserInputItemSchema>>;
+
 export type CheckpointAgentMessageItem = Immutable<Static<typeof CheckpointAgentMessageItemSchema>>;
+
 export type CanonicalCompactionItem = Immutable<Static<typeof CanonicalCompactionItemSchema>>;
+
 export type CheckpointReplacementItem = Checkpoint["replacement"][number];
+
 export type Checkpoint = Immutable<Static<typeof CheckpointSchema>>;
 
 type MutableCompactionItem = Static<typeof CanonicalCompactionItemSchema>;
@@ -82,21 +95,27 @@ export type ActiveCheckpointBoundary =
 const strict = { additionalProperties: false };
 
 const UnknownRecordSchema = Type.Record(Type.String(), Type.Unknown());
+
 type UnknownRecord = Static<typeof UnknownRecordSchema>;
+
 const IdentifierSchema = Type.String({
   maxLength: 1024,
   minLength: 1,
   pattern: "^(?!\\s)(?![\\s\\S]*\\s$)(?![\\s\\S]*[\\x00-\\x1F\\x7F])[\\s\\S]+$",
 });
+
 const NonnegativeSafeIntegerSchema = Type.Integer({
   maximum: Number.MAX_SAFE_INTEGER,
   minimum: 0,
 });
+
 const MetadataSchema = Type.Object({ turn_id: Type.Optional(IdentifierSchema) }, strict);
+
 const InputTextItemSchema = Type.Object(
   { text: Type.String(), type: Type.Literal("input_text") },
   strict,
 );
+
 const InputImageItemSchema = Type.Object(
   {
     image_url: Type.String({ pattern: "^[dD][aA][tT][aA]:[iI][mM][aA][gG][eE]/" }),
@@ -104,6 +123,7 @@ const InputImageItemSchema = Type.Object(
   },
   strict,
 );
+
 const RealUserInputItemSchema = Type.Object(
   {
     content: Type.Array(Type.Union([InputTextItemSchema, InputImageItemSchema]), { minItems: 1 }),
@@ -112,6 +132,7 @@ const RealUserInputItemSchema = Type.Object(
   },
   strict,
 );
+
 const CheckpointUserInputItemSchema = Type.Object(
   {
     content: Type.Array(InputTextItemSchema, { minItems: 1 }),
@@ -120,6 +141,7 @@ const CheckpointUserInputItemSchema = Type.Object(
   },
   strict,
 );
+
 const EncryptedContentSchema = Type.Object(
   {
     encrypted_content: Type.String({ minLength: 1 }),
@@ -127,6 +149,7 @@ const EncryptedContentSchema = Type.Object(
   },
   strict,
 );
+
 const CheckpointAgentMessageItemSchema = Type.Object(
   {
     author: IdentifierSchema,
@@ -140,6 +163,7 @@ const CheckpointAgentMessageItemSchema = Type.Object(
   },
   strict,
 );
+
 const CanonicalCompactionItemSchema = Type.Object(
   {
     encrypted_content: Type.String({ minLength: 1 }),
@@ -149,6 +173,7 @@ const CanonicalCompactionItemSchema = Type.Object(
   },
   strict,
 );
+
 const CompactionWireSchema = Type.Object(
   {
     encrypted_content: Type.String({ minLength: 1 }),
@@ -159,6 +184,7 @@ const CompactionWireSchema = Type.Object(
   },
   strict,
 );
+
 const CheckpointReplacementSchema = Type.Array(
   Type.Union([
     CheckpointUserInputItemSchema,
@@ -167,6 +193,7 @@ const CheckpointReplacementSchema = Type.Array(
   ]),
   { minItems: 1 },
 );
+
 const CheckpointSchema = Type.Object(
   {
     identity: Type.Object(
@@ -225,11 +252,14 @@ const CheckpointSchema = Type.Object(
   },
   strict,
 );
+
 const LifecycleMarkerSchema = Type.Object({ type: Type.Literal(CHECKPOINT_CUSTOM_TYPE) });
+
 const LifecycleDetailsSchema = Type.Object(
   { checkpoint: Type.Unknown(), type: Type.Literal(CHECKPOINT_CUSTOM_TYPE) },
   strict,
 );
+
 const validationError = (message: string): never => {
   throw new Error(message);
 };
@@ -239,7 +269,9 @@ const isPlainRecord = (value: unknown): value is UnknownRecord => {
     if (!Value.Check(UnknownRecordSchema, value)) {
       return false;
     }
-    const prototype = Object.getPrototypeOf(value);
+
+    const prototype: unknown = Object.getPrototypeOf(value);
+
     return prototype === Object.prototype || prototype === null;
   } catch {
     return false;
@@ -250,16 +282,19 @@ export const normalizeBaseUrl = (value: string | null | undefined) => {
   if (value === null || value === undefined) {
     return null;
   }
+
   if (value.length === 0 || value !== value.trim()) {
     validationError("baseUrl must be a non-empty absolute URL");
   }
 
   let url: URL;
+
   try {
     url = new URL(value);
   } catch {
     throw new Error("baseUrl must be a valid absolute URL");
   }
+
   if (
     (url.protocol !== "https:" && url.protocol !== "http:") ||
     url.username ||
@@ -269,11 +304,14 @@ export const normalizeBaseUrl = (value: string | null | undefined) => {
   ) {
     validationError("baseUrl must be an HTTP(S) URL without credentials or query");
   }
+
   const path = url.pathname.replace(/\/+$/u, "");
+
   return `${url.origin}${path}`;
 };
 
 export const parseCompactionItem = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The remote compaction response is untrusted and must pass the canonical wire schema.
   value: unknown,
   options: {
     readonly allowAlias?: boolean;
@@ -283,102 +321,136 @@ export const parseCompactionItem = (
   if (!Value.Check(CompactionWireSchema, value)) {
     throw new Error("compaction is invalid");
   }
+
   const item = Value.Clone(value);
+
   if (item.type === "compaction_summary" && options.allowAlias !== true) {
     validationError("compaction.type is not canonical");
   }
+
   if ("metadata" in item && options.allowResponseMetadata !== true) {
     validationError("compaction.metadata is not recognized");
   }
+
   const parsed: MutableCompactionItem = {
     encrypted_content: item.encrypted_content,
     type: "compaction",
   };
+
   if (item.id !== undefined) {
     parsed.id = item.id;
   }
+
   if (item.internal_chat_message_metadata_passthrough !== undefined) {
     parsed.internal_chat_message_metadata_passthrough =
       item.internal_chat_message_metadata_passthrough;
   }
+
   return parsed;
 };
 
 export const parseRealUserInputItem = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the decoder for user items loaded from persisted checkpoints or finalized provider payloads.
   value: unknown,
   path = "replacement item",
 ): RealUserInputItem => {
   if (!Value.Check(RealUserInputItemSchema, value)) {
     throw new Error(`${path} must be a canonical user message`);
   }
+
   return Value.Clone(value);
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the schema decoder for collaboration messages in persisted or externally rewritten provider input.
 export const parseAgentMessageItem = (value: unknown, path: string): CheckpointAgentMessageItem => {
   if (!Value.Check(CheckpointAgentMessageItemSchema, value)) {
     throw new Error(`${path} must be a canonical agent message`);
   }
+
   return Value.Clone(value);
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Canonical serialization must reject arbitrary non-JSON values, cycles, and non-finite numbers, including nested values.
 const canonicalize = (value: unknown, ancestors: WeakSet<object>): string => {
   if (value === null) {
     return "null";
   }
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Canonical serializer must reject non-JSON values and non-finite numbers, not pretend its input was already decoded.
   if (typeof value === "string" || typeof value === "boolean") {
     return JSON.stringify(value) ?? validationError("canonical JSON contains a non-JSON value");
   }
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Canonical serializer must reject non-JSON values and non-finite numbers, not pretend its input was already decoded.
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       validationError("canonical JSON cannot contain non-finite numbers");
     }
+
     return JSON.stringify(value);
   }
+
   if (Array.isArray(value)) {
     if (ancestors.has(value)) {
       return validationError("canonical JSON cannot contain cycles");
     }
+
     ancestors.add(value);
     const serialized = `[${value.map((item) => canonicalize(item, ancestors)).join(",")}]`;
     ancestors.delete(value);
+
     return serialized;
   }
+
   if (isPlainRecord(value)) {
     if (ancestors.has(value)) {
       return validationError("canonical JSON cannot contain cycles");
     }
+
     ancestors.add(value);
+
     const serialized = `{${Object.keys(value)
       .toSorted()
       .map((key) => `${JSON.stringify(key)}:${canonicalize(value[key], ancestors)}`)
       .join(",")}}`;
+
     ancestors.delete(value);
+
     return serialized;
   }
+
   return validationError("canonical JSON contains a non-JSON value");
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Canonical serialization validates arbitrary caller values rather than assuming they are already valid JSON.
 export const canonicalJson = (value: unknown) => canonicalize(value, new WeakSet());
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Hashing uses the canonical serializer as its validation boundary; adding a separate decode would duplicate that traversal.
 export const sha256Canonical = (value: unknown) => hash("sha256", canonicalJson(value));
 
 const parseCheckpointValue = (value: Static<typeof CheckpointSchema>): Checkpoint => {
   const checkpoint = Value.Clone(value);
+
   const compactionIndexes = checkpoint.replacement.flatMap((item, index) =>
     item.type === "compaction" ? [index] : [],
   );
+
   if (compactionIndexes.length !== 1) {
     validationError("checkpoint replacement requires exactly one compaction");
   }
+
   if (compactionIndexes[0] !== checkpoint.replacement.length - 1) {
     validationError("checkpoint compaction item must be final");
   }
+
   if (normalizeBaseUrl(checkpoint.identity.baseUrl) !== checkpoint.identity.baseUrl) {
     validationError("checkpoint.identity.baseUrl must be canonical");
   }
+
   if (sha256Canonical(checkpoint.replacement) !== checkpoint.replacementSha256) {
     validationError("checkpoint replacement integrity does not match");
   }
+
   return checkpoint;
 };
 
@@ -387,16 +459,20 @@ const deepFreeze = <T>(value: T): T => {
     for (const child of value) {
       deepFreeze(child);
     }
+
     Object.freeze(value);
   } else if (!Object.isFrozen(value) && Value.Check(UnknownRecordSchema, value)) {
     for (const child of Object.values(value)) {
       deepFreeze(child);
     }
+
     Object.freeze(value);
   }
+
   return value;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Persisted checkpoint data is untrusted; this parser validates schema, compatibility fields, and replacement integrity.
 export const parseCheckpoint = (value: unknown): CheckpointParseResult => {
   if (!Value.Check(CheckpointSchema, value)) {
     return {
@@ -404,6 +480,7 @@ export const parseCheckpoint = (value: unknown): CheckpointParseResult => {
       ok: false,
     };
   }
+
   try {
     return { checkpoint: deepFreeze(parseCheckpointValue(value)), ok: true };
   } catch (error) {
@@ -421,9 +498,11 @@ export const decideCheckpointCompatibility = (
   if (checkpoint.identity.provider !== current.provider) {
     return { compatible: false, field: "provider" };
   }
+
   if (checkpoint.identity.api !== current.api) {
     return { compatible: false, field: "api" };
   }
+
   if (
     checkpoint.runtime.compHash !== null &&
     current.compHash !== null &&
@@ -432,21 +511,26 @@ export const decideCheckpointCompatibility = (
   ) {
     return { compatible: false, field: "compHash" };
   }
+
   let currentBaseUrl: string | null;
+
   try {
     currentBaseUrl = normalizeBaseUrl(current.baseUrl);
   } catch {
     return { compatible: false, field: "baseUrl" };
   }
+
   if (checkpoint.identity.baseUrl !== currentBaseUrl) {
     return { compatible: false, field: "baseUrl" };
   }
+
   return { compatible: true };
 };
 
 export const resolveCheckpointCarrier = (entry: SessionEntry) => {
   if (entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE) {
     const parsed = parseCheckpoint(entry.data);
+
     return parsed.ok
       ? ({
           carrier: "inline",
@@ -455,16 +539,21 @@ export const resolveCheckpointCarrier = (entry: SessionEntry) => {
         } as const)
       : ({ carrier: "inline", kind: "invalid-checkpoint" } as const);
   }
+
   if (entry.type !== "compaction") {
     return { kind: "none" } as const;
   }
+
   if (!Value.Check(LifecycleMarkerSchema, entry.details)) {
     return { kind: "pi-compaction" } as const;
   }
+
   if (!Value.Check(LifecycleDetailsSchema, entry.details)) {
     return { carrier: "lifecycle", kind: "invalid-checkpoint" } as const;
   }
+
   const parsed = parseCheckpoint(entry.details.checkpoint);
+
   return parsed.ok
     ? ({
         carrier: "lifecycle",
@@ -478,31 +567,37 @@ export const canUseInlineLocalFallback = (
   branch: readonly SessionEntry[],
   inlineBoundaryIndex: number,
 ) => {
-  const nearestCompactionIndex = branch
+  const nearestCompaction = branch
     .slice(0, inlineBoundaryIndex)
-    .findLastIndex((entry) => entry.type === "compaction");
-  if (nearestCompactionIndex === -1) {
+    .findLast((entry) => entry.type === "compaction");
+
+  if (nearestCompaction === undefined) {
     return true;
   }
-  const carrier = resolveCheckpointCarrier(branch[nearestCompactionIndex]);
+
+  const carrier = resolveCheckpointCarrier(nearestCompaction);
+
   return carrier.kind === "pi-compaction";
 };
 
 export const resolveActiveCheckpointBoundary = (
   branch: readonly SessionEntry[],
 ): ActiveCheckpointBoundary => {
-  for (let index = branch.length - 1; index >= 0; index -= 1) {
-    const entry = branch[index];
+  for (const [index, entry] of [...branch.entries()].reverse()) {
     const carrier = resolveCheckpointCarrier(entry);
+
     if (carrier.kind === "none") {
       continue;
     }
+
     if (carrier.kind === "pi-compaction") {
       return carrier;
     }
+
     if (carrier.kind === "invalid-checkpoint") {
       return carrier.carrier === "inline" ? { ...carrier, boundaryIndex: index } : carrier;
     }
+
     return {
       ...carrier,
       boundaryEntryId: entry.id,
@@ -510,5 +605,6 @@ export const resolveActiveCheckpointBoundary = (
       tail: branch.slice(index + 1),
     };
   }
+
   return { kind: "none" };
 };

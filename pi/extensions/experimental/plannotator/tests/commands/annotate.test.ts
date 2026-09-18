@@ -1,8 +1,7 @@
+import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { exited, setup, waitForMessages } from "../helpers.js";
-
-vi.mock(import("../../command-runtime.js"), { spy: true });
 
 describe("plannotator-annotate", () => {
   it("normalizes annotate flags, supports flags before the target, and wraps feedback", async () => {
@@ -13,7 +12,9 @@ describe("plannotator-annotate", () => {
       options: { cwd: "/work/project" },
     });
 
-    pending[0].resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Fix this." })));
+    const [child] = pending;
+    assert.ok(child);
+    child.resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Fix this." })));
     await waitForMessages(host, 1);
     expect(host.getSentUserMessages()[0]?.content).toBe(
       "# Markdown Annotations\n\nFile: docs/my file.md\n\nFix this.\n\nPlease address the annotation feedback above.",
@@ -52,7 +53,9 @@ describe("plannotator-annotate", () => {
   ])("does not send annotation feedback for $decision", async (outcome) => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-annotate", "file.md", ctx);
-    pending[0].resolve(exited(JSON.stringify(outcome)));
+    const [child] = pending;
+    assert.ok(child);
+    child.resolve(exited(JSON.stringify(outcome)));
     await vi.waitFor(() => {
       expect(host.getNotifications()).toHaveLength(2);
     });
@@ -73,7 +76,9 @@ describe("plannotator-annotate", () => {
   ])("reports $label as an error notification", async ({ completion, message }) => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-annotate", "file.md", ctx);
-    pending[0].resolve(completion);
+    const [child] = pending;
+    assert.ok(child);
+    child.resolve(completion);
     await vi.waitFor(() => {
       expect(host.getNotifications().at(-1)).toStrictEqual({
         message,

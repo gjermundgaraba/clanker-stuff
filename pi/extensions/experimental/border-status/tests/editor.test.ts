@@ -10,10 +10,13 @@ import { createEditor } from "./fixtures.js";
 
 it.each([true, false])("composes with history and skill mentions, border first=%s", (first) => {
   const host = createExtensionHost(() => {});
+
   const ctx = host.createContext({
     sessionManager: { getHeader: () => null, getSessionDir: () => "/sessions" },
   });
+
   const mounted = vi.fn();
+
   const install = () =>
     installBorderEditor(ctx, {
       mounted,
@@ -27,11 +30,13 @@ it.each([true, false])("composes with history and skill mentions, border first=%
           color,
         ),
     });
+
   let stop = first ? install() : undefined;
   installHistoryEditor({ type: "session_start", reason: "new" }, ctx, () => [
     { text: "old prompt", timestamp: 1 },
   ]);
   installSkillMentionEditor(ctx, () => ["plan"]);
+
   if (!first) stop = install();
   const editor = createEditor(host);
   expect(editor).toBeInstanceOf(CustomEditor);
@@ -51,9 +56,11 @@ it.each([true, false])("composes with history and skill mentions, border first=%
 describe("unsupported editors", () => {
   it("leaves foreign editors unchanged and never announces availability", () => {
     const host = createExtensionHost(() => {});
+
     const ctx = host.createContext({
       sessionManager: { getHeader: () => null, getSessionDir: () => "/sessions" },
     });
+
     const render = vi.fn(() => ["foreign editor"]);
     ctx.ui.setEditorComponent(() => ({
       render,

@@ -1,15 +1,9 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import assert from "node:assert/strict";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { describe, expect, it } from "vite-plus/test";
 
-import {
-  assistantEntry,
-  exited,
-  expectString,
-  setup,
-  userEntry,
-  waitForMessages,
-} from "../helpers.js";
-
-vi.mock(import("../../command-runtime.js"), { spy: true });
+import { assistantEntry, exited, setup, userEntry, waitForMessages } from "../helpers.js";
 
 describe("plannotator-last", () => {
   it("passes the last assistant message through controlled stdin flags", async () => {
@@ -40,9 +34,11 @@ describe("plannotator-last", () => {
     await host.runCommand("plannotator-last", "", ctx);
     host.setLeafId(user.id);
 
-    pending[0].resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Clarify it." })));
+    const [child] = pending;
+    assert.ok(child);
+    child.resolve(exited(JSON.stringify({ decision: "annotated", feedback: "Clarify it." })));
     await waitForMessages(host, 1);
-    const content = expectString(host.getSentUserMessages()[0]?.content);
+    const content = Value.Parse(Type.String(), host.getSentUserMessages()[0]?.content);
     expect(content).toContain("> Original answer");
     expect(content).toContain("User feedback:\nClarify it.");
   });

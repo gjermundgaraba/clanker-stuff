@@ -104,6 +104,7 @@ const positiveInteger = (
   const raw = environment[name];
   const value = raw === undefined ? fallback : Number(raw);
   assertOption(Number.isSafeInteger(value) && value > 0, `${name} must be a positive safe integer`);
+
   return value;
 };
 
@@ -112,6 +113,7 @@ export const parseTransport = (value: string): TransportMode => {
     value === "fallback" || value === "sse" || value === "websocket",
     `Unknown transport mode: ${value}`,
   );
+
   return value;
 };
 
@@ -123,6 +125,7 @@ const parseParentTransport = (
     transports.length <= 1,
     "Choose only one transport: --sse, --websocket, or --fallback",
   );
+
   return transports[0] ?? "sse";
 };
 
@@ -150,13 +153,16 @@ export const parseLiveInvocation = (
     strict: true,
     tokens: true,
   });
+
   const seen = new Set<string>();
+
   for (const token of tokens) {
     if (token.kind === "option") {
       assertOption(!seen.has(token.name), `Option --${token.name} may only be specified once`);
       seen.add(token.name);
     }
   }
+
   const transport = parseParentTransport(values);
   const parentKinds = selected(values, PARENT_FLAGS);
   const childKinds = selected(values, CHILD_FLAGS);
@@ -174,6 +180,7 @@ export const parseLiveInvocation = (
   );
 
   const [childKind] = childKinds;
+
   if (childKind !== undefined) {
     const transportName = childTransportEnvironmentName(childKind);
     const childTransport = environment[transportName];
@@ -181,6 +188,7 @@ export const parseLiveInvocation = (
       childTransport !== undefined && childTransport.length > 0,
       `${transportName} is required`,
     );
+
     return {
       kind: childKind,
       process: "child",
@@ -190,10 +198,13 @@ export const parseLiveInvocation = (
 
   const kind = parentKinds[0] ?? "standard";
   assertTransportAllowed(kind, transport);
+
   const rounds = values.help
     ? DEFAULT_ROUNDS[kind]
     : positiveInteger(environment, "CODEX_COMPACTION_LIVE_ROUNDS", DEFAULT_ROUNDS[kind]);
+
   assertOption(allowsOneRound(kind) || rounds >= 2, "Live canary requires at least 2 compactions");
+
   return {
     kind,
     process: "parent",

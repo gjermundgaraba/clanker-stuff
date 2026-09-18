@@ -7,6 +7,7 @@ import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-codin
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
+
 const NPM_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
 );
@@ -23,6 +24,7 @@ describe("dollah-skills package", () => {
 
   it("does not statically expose orchestration through an omitted skill filter", async () => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), "dollah-skills-filter-"));
+
     const loader = new DefaultResourceLoader({
       agentDir: path.join(tempRoot, "agent"),
       cwd: path.join(tempRoot, "project"),

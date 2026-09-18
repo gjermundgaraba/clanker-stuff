@@ -30,12 +30,15 @@ const message: AssistantMessage = {
 describe("lazy Codex provider", () => {
   it("keeps the built-in OAuth contract and catalog paths eager-only", async () => {
     const baseCatalog = createCodexModelCatalog();
+
     const refreshModels = vi.fn<(context: RefreshModelsContext) => Promise<void>>(
       async () => await Promise.resolve(),
     );
+
     const catalog: CodexModelCatalog = { ...baseCatalog, refreshModels };
     const load = vi.fn<() => Promise<CodexProvider>>();
     const provider = createLazyCodexProvider(catalog, load);
+
     const context: RefreshModelsContext = {
       allowNetwork: true,
       publish: vi.fn<RefreshModelsContext["publish"]>(),
@@ -61,11 +64,14 @@ describe("lazy Codex provider", () => {
 
   it("loads once and delegates the first stream", async () => {
     const catalog = createCodexModelCatalog();
+
     const stream = vi.fn<CodexProvider["stream"]>(() => {
       const events = createAssistantMessageEventStream();
       events.push({ message, reason: "stop", type: "done" });
+
       return events;
     });
+
     const loaded = { ...catalog.base, stream } satisfies CodexProvider;
     const load = vi.fn<() => Promise<CodexProvider>>(async () => loaded);
     const provider = createLazyCodexProvider(catalog, load);

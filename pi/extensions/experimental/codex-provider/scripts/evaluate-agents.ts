@@ -18,18 +18,20 @@ import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { Value } from "typebox/value";
 
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.ts";
 import { evaluationTasks } from "../evals/tasks.ts";
 import type { EvaluationTask } from "../evals/tasks.ts";
 import { runNodeTests } from "./run-node-tests.ts";
-import { isWireRecord as isRecord, NumberValueSchema, StringValueSchema } from "./wire.ts";
+import { isWireRecord as isRecord } from "./wire.ts";
 import type { WireRecord as JsonRecord } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
+
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
+
 const RUNNERS = ["pi-extension", "pi-builtin", "codex-cli"] as const;
+
 type Runner = (typeof RUNNERS)[number];
 
 interface Metrics {
@@ -73,6 +75,7 @@ interface EvaluationResult {
   turns: number;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Runner, filesystem, and subprocess failures can throw arbitrary JavaScript values.
 const errorMessage = (cause: unknown) =>
   cause instanceof Error ? cause.message : "Unknown evaluation error";
 
@@ -94,40 +97,53 @@ const emptyMetrics = (compactions: number | null = 0): Metrics => ({
   usage: emptyUsage(),
 });
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Partial runner metric fields are untrusted; accept finite numbers and preserve the documented zero default for malformed fields.
 const number = (value: unknown) =>
-  Value.Check(NumberValueSchema, value) && Number.isFinite(value) ? value : 0;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Evaluation decoder accepts partial metrics from different runners; malformed fields retain their documented defaults.
+  typeof value === "number" && Number.isFinite(value) ? value : 0;
 
-const addUsage = (metrics: Metrics, value: unknown, native = false) => {
-  if (!isRecord(value)) {
-    return;
-  }
+const addUsage = (metrics: Metrics, usage: Usage) => {
+  metrics.usage.input += usage.input;
+  metrics.usage.output += usage.output;
+  metrics.usage.cacheRead += usage.cacheRead;
+  metrics.usage.cacheWrite += usage.cacheWrite;
+  metrics.usage.reasoning += usage.reasoning;
+  metrics.usage.total += usage.total;
+};
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Runner event usage is external and partial; decode each finite metric independently without discarding the other valid counters.
+const sanitizeUsage = (value: unknown, native: boolean): Usage => {
+  if (!isRecord(value)) return emptyUsage();
+
   if (native) {
     const input = number(value.input_tokens);
     const cacheRead = number(value.cached_input_tokens);
     const cacheWrite = number(value.cache_write_input_tokens);
     const output = number(value.output_tokens);
-    metrics.usage.input += Math.max(0, input - cacheRead - cacheWrite);
-    metrics.usage.cacheRead += cacheRead;
-    metrics.usage.cacheWrite += cacheWrite;
-    metrics.usage.output += output;
-    metrics.usage.reasoning += number(value.reasoning_output_tokens);
-    metrics.usage.total += input + output;
-    return;
-  }
-  metrics.usage.input += number(value.input);
-  metrics.usage.output += number(value.output);
-  metrics.usage.cacheRead += number(value.cacheRead);
-  metrics.usage.cacheWrite += number(value.cacheWrite);
-  metrics.usage.reasoning += number(value.reasoning);
-  metrics.usage.total +=
-    number(value.totalTokens) ||
-    number(value.input) + number(value.output) + number(value.cacheRead) + number(value.cacheWrite);
-};
 
-const sanitizeUsage = (value: unknown, native: boolean): Usage => {
-  const metrics = emptyMetrics();
-  addUsage(metrics, value, native);
-  return metrics.usage;
+    return {
+      input: Math.max(0, input - cacheRead - cacheWrite),
+      cacheRead,
+      cacheWrite,
+      output,
+      reasoning: number(value.reasoning_output_tokens),
+      total: input + output,
+    };
+  }
+
+  const input = number(value.input);
+  const output = number(value.output);
+  const cacheRead = number(value.cacheRead);
+  const cacheWrite = number(value.cacheWrite);
+
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    reasoning: number(value.reasoning),
+    total: number(value.totalTokens) || input + output + cacheRead + cacheWrite,
+  };
 };
 
 const sanitizeEvent = (
@@ -137,15 +153,20 @@ const sanitizeEvent = (
   metrics: Metrics,
   startedAt: number,
 ): JsonRecord | undefined => {
-  const type = Value.Check(StringValueSchema, event.type) ? event.type : "unknown";
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Evaluation decoder accepts partial metrics from different runners; malformed fields retain their documented defaults.
+  const type = typeof event.type === "string" ? event.type : "unknown";
+
   if (metrics.firstResponseMs === null && (type === "message_update" || type === "item.started")) {
     metrics.firstResponseMs = Date.now() - startedAt;
   }
+
   if (runner === "codex-cli") {
     const item = isRecord(event.item) ? event.item : undefined;
+
     if (type === "turn.completed") {
-      addUsage(metrics, event.usage, true);
+      addUsage(metrics, sanitizeUsage(event.usage, true));
     }
+
     if (
       type === "item.completed" &&
       item &&
@@ -155,9 +176,11 @@ const sanitizeEvent = (
     ) {
       metrics.toolCalls += 1;
     }
+
     if (type === "item.completed" && item?.type === "agent_message") {
       metrics.assistantTurns += 1;
     }
+
     if (
       ![
         "thread.started",
@@ -171,6 +194,7 @@ const sanitizeEvent = (
     ) {
       return undefined;
     }
+
     return {
       itemType: item?.type,
       runner,
@@ -183,26 +207,34 @@ const sanitizeEvent = (
   const entry = isRecord(event.entry) ? event.entry : undefined;
   const result = isRecord(event.result) ? event.result : undefined;
   const details = isRecord(result?.details) ? result.details : undefined;
+
   const checkpointAppended =
     type === "entry_appended" &&
     entry?.type === "custom" &&
     entry.customType === CHECKPOINT_CUSTOM_TYPE;
+
   const extensionCheckpoint =
     checkpointAppended || (type === "compaction_end" && details?.type === CHECKPOINT_CUSTOM_TYPE);
+
   if (checkpointAppended || (type === "compaction_end" && result)) {
     metrics.compactions = (metrics.compactions ?? 0) + 1;
   }
+
   if (type === "compaction_end") {
-    addUsage(metrics, result?.usage);
+    addUsage(metrics, sanitizeUsage(result?.usage, false));
   }
+
   if (type === "tool_execution_end") {
     metrics.toolCalls += 1;
   }
+
   const message = isRecord(event.message) ? event.message : undefined;
+
   if (type === "message_end" && message?.role === "assistant") {
     metrics.assistantTurns += 1;
-    addUsage(metrics, message.usage);
+    addUsage(metrics, sanitizeUsage(message.usage, false));
   }
+
   if (
     !checkpointAppended &&
     ![
@@ -222,6 +254,7 @@ const sanitizeEvent = (
   ) {
     return undefined;
   }
+
   return {
     aborted: event.aborted,
     customType: extensionCheckpoint ? CHECKPOINT_CUSTOM_TYPE : undefined,
@@ -251,10 +284,12 @@ export const runJsonProcess = async (
     env,
     stdio: ["pipe", "pipe", "pipe"],
   });
+
   let timedOut = false;
   createInterface({ input: child.stdout }).on("line", (line) => {
     try {
       const event: unknown = JSON.parse(line);
+
       if (isRecord(event)) {
         onEvent(event);
       }
@@ -270,6 +305,7 @@ export const runJsonProcess = async (
   });
   child.stdin.end(input);
   let forceKill: NodeJS.Timeout | undefined;
+
   const timer = setTimeout(() => {
     timedOut = true;
     child.kill("SIGTERM");
@@ -277,9 +313,11 @@ export const runJsonProcess = async (
       child.kill("SIGKILL");
     }, 5000);
   }, timeoutMs);
+
   try {
-    // SAFETY: ChildProcess "close" emits its exit code and terminating signal.
-    const [exitCode] = (await once(child, "close")) as [number | null, NodeJS.Signals | null];
+    await once(child, "close");
+    const exitCode = child.exitCode;
+
     return { exitCode, timedOut };
   } finally {
     clearTimeout(timer);
@@ -319,6 +357,7 @@ export const codexArguments = (
     "--config",
     'sandbox_mode="workspace-write"',
   ];
+
   return turnIndex === 0
     ? ["exec", ...base, "--color", "never", "--cd", cwd, "-"]
     : ["exec", "resume", "--last", ...base, "-"];
@@ -326,6 +365,7 @@ export const codexArguments = (
 
 const requireCommand = (executable: string, args: readonly string[], cwd: string) => {
   const result = command(executable, args, cwd);
+
   if (result.status !== 0) {
     throw new Error(`${executable} exited ${result.status}`);
   }
@@ -368,16 +408,20 @@ const grade = (cwd: string, task: EvaluationTask): Grade => {
       existsSync(path.join(cwd, relativePath)) &&
       readFileSync(path.join(cwd, relativePath), "utf-8") === task.files[relativePath],
   );
+
   const hiddenPath = path.join(cwd, "test/evaluation-hidden.test.js");
   mkdirSync(path.dirname(hiddenPath), { recursive: true });
   writeFileSync(hiddenPath, task.hiddenTest);
   let result: ReturnType<typeof runNodeTests>;
+
   try {
     result = runNodeTests(cwd);
   } finally {
     rmSync(hiddenPath, { force: true });
   }
+
   const tests = result.summary?.counts.tests ?? 0;
+
   return {
     passed: result.status === 0 && result.summary?.success === true && protectedFilesIntact,
     protectedFilesIntact,
@@ -388,26 +432,33 @@ const grade = (cwd: string, task: EvaluationTask): Grade => {
 const diffMetrics = (cwd: string) => {
   requireCommand("git", ["add", "-N", "."], cwd);
   const numstatResult = command("git", ["diff", "--numstat", "HEAD"], cwd);
+
   if (numstatResult.status !== 0) {
     throw new Error("git diff --numstat failed");
   }
+
   const numstat = numstatResult.stdout;
   let added = 0;
   let deleted = 0;
   let files = 0;
+
   for (const line of numstat.trim().split("\n")) {
     if (!line) {
       continue;
     }
+
     const [add, remove] = line.split("\t");
     added += Number(add) || 0;
     deleted += Number(remove) || 0;
     files += 1;
   }
+
   const diffResult = command("git", ["diff", "HEAD"], cwd);
+
   if (diffResult.status !== 0) {
     throw new Error("git diff failed");
   }
+
   return {
     added,
     bytes: Buffer.byteLength(diffResult.stdout),
@@ -434,12 +485,15 @@ export const applyExecutionOutcome = (
     ...base,
     passed: base.passed && succeeded && (!compactionRequired || compactionObserved),
   };
+
   if (compactionRequired) {
     grade.compactionObserved = compactionObserved;
   }
+
   return grade;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This file boundary serializes heterogeneous evaluation reports without interpreting their contents.
 export const writeJsonReport = (target: string, report: unknown) => {
   const contents = `${JSON.stringify(report, null, 2)}\n`;
   const temporary = `${target}.tmp`;
@@ -449,16 +503,20 @@ export const writeJsonReport = (target: string, report: unknown) => {
 
 const copyAuth = (source: string, prefix: string, extra?: string) => {
   const auth = path.join(source, "auth.json");
+
   if (!existsSync(auth)) {
     throw new Error("Authentication file not found");
   }
+
   const target = mkdtempSync(path.join(tmpdir(), prefix));
   chmodSync(target, 0o700);
   copyFileSync(auth, path.join(target, "auth.json"));
   chmodSync(path.join(target, "auth.json"), 0o600);
+
   if (extra !== undefined && extra.length > 0 && existsSync(path.join(source, extra))) {
     copyFileSync(path.join(source, extra), path.join(target, extra));
   }
+
   return target;
 };
 
@@ -504,9 +562,11 @@ const runEvaluation = async (
           )
         : copyAuth(getAgentDir(), "codex-provider-eval-pi-");
       const executable = isCodexCli ? "codex" : "pi";
+
       const childEnv = isCodexCli
         ? { ...process.env, CODEX_HOME: privateConfig }
         : { ...process.env, PI_CODING_AGENT_DIR: privateConfig };
+
       const base = [
         "--mode",
         "json",
@@ -526,11 +586,14 @@ const runEvaluation = async (
         "--no-approve",
         ...(runner === "pi-extension" ? ["--extension", EXTENSION_PATH] : []),
       ];
+
       for (const [turnIndex, prompt] of prompts.entries()) {
         const remaining = Math.max(1, timeoutMs - (Date.now() - startedAt));
+
         const args = isCodexCli
           ? codexArguments(model, reasoning, cwd, turnIndex)
           : [...base, ...(turnIndex === 0 ? [] : ["--continue"])];
+
         const outcome = await runJsonProcess(
           executable,
           args,
@@ -540,13 +603,16 @@ const runEvaluation = async (
           remaining,
           (event) => {
             const sanitized = sanitizeEvent(runner, turnIndex + 1, event, metrics, startedAt);
+
             if (sanitized) {
               sanitizedEvents.push(sanitized);
             }
           },
         );
+
         exitCodes.push(outcome.exitCode);
         timedOut ||= outcome.timedOut;
+
         if (outcome.exitCode !== 0 || timedOut) {
           break;
         }
@@ -561,6 +627,7 @@ const runEvaluation = async (
   }
 
   metrics.elapsedMs = dryRun ? 0 : Date.now() - startedAt;
+
   if (
     error === undefined &&
     !dryRun &&
@@ -568,8 +635,10 @@ const runEvaluation = async (
   ) {
     error = timedOut ? `Timed out after ${timeoutMs} ms` : "Runner process failed";
   }
+
   const eventFile = path.join(runDirectory, "events.jsonl");
   const events = path.relative(path.resolve(runDirectory, "../../.."), eventFile);
+
   try {
     mkdirSync(runDirectory, { recursive: true });
     writeFileSync(
@@ -580,7 +649,9 @@ const runEvaluation = async (
   } catch (caughtError) {
     error ??= `Event report failed: ${errorMessage(caughtError)}`;
   }
+
   let baseGrade = failedGrade();
+
   if (fixtureReady) {
     try {
       baseGrade = grade(cwd, task);
@@ -588,25 +659,32 @@ const runEvaluation = async (
       error ??= `Grading failed: ${errorMessage(caughtError)}`;
     }
   }
+
   const compactionRequired =
     !dryRun && runner === "pi-extension" && task.requiresExtensionCompaction === true;
+
   const compactionObserved = sanitizedEvents.some(
     (event) => event.customType === CHECKPOINT_CUSTOM_TYPE,
   );
+
   const executionSucceeded =
     error === undefined &&
     !timedOut &&
     (dryRun || (exitCodes.length === prompts.length && exitCodes.every((code) => code === 0)));
+
   const evaluationGrade = applyExecutionOutcome(
     baseGrade,
     executionSucceeded,
     compactionRequired,
     compactionObserved,
   );
+
   if (compactionRequired && !compactionObserved && error === undefined) {
     error = "Required OpenAI checkpoint was not observed";
   }
+
   let diff = emptyDiff();
+
   if (fixtureReady) {
     try {
       diff = diffMetrics(cwd);
@@ -614,13 +692,15 @@ const runEvaluation = async (
       error ??= `Diff collection failed: ${errorMessage(caughtError)}`;
     }
   }
+
   if (error !== undefined) {
     evaluationGrade.passed = false;
   }
+
   return {
     diff,
     dryRun,
-    error,
+    ...(error !== undefined ? { error } : {}),
     events,
     exitCodes,
     grade: evaluationGrade,
@@ -636,6 +716,7 @@ const runEvaluation = async (
 
 const runnerOrder = (repetition: number): Runner[] => {
   const offset = (repetition - 1) % RUNNERS.length;
+
   return [...RUNNERS.slice(offset), ...RUNNERS.slice(0, offset)];
 };
 
@@ -646,6 +727,7 @@ const summarize = (results: readonly EvaluationResult[]) =>
   Object.fromEntries(
     RUNNERS.map((runner) => {
       const selected = results.filter((result) => result.runner === runner);
+
       return [
         runner,
         {
@@ -664,11 +746,14 @@ const summarize = (results: readonly EvaluationResult[]) =>
 const smoke = () => {
   for (const executable of ["git", "pi", "codex"]) {
     const result = command(executable, ["--version"], PACKAGE_ROOT);
+
     if (result.status !== 0) {
       throw new Error(`${executable} is unavailable`);
     }
   }
+
   const checkpointMetrics = emptyMetrics();
+
   const checkpointEvent = sanitizeEvent(
     "pi-extension",
     1,
@@ -679,6 +764,7 @@ const smoke = () => {
     checkpointMetrics,
     Date.now(),
   );
+
   const compactionEvent = sanitizeEvent(
     "pi-extension",
     1,
@@ -689,6 +775,7 @@ const smoke = () => {
     checkpointMetrics,
     Date.now(),
   );
+
   sanitizeEvent(
     "pi-extension",
     1,
@@ -696,6 +783,7 @@ const smoke = () => {
     checkpointMetrics,
     Date.now(),
   );
+
   if (
     checkpointMetrics.compactions !== 2 ||
     checkpointEvent?.customType !== CHECKPOINT_CUSTOM_TYPE ||
@@ -703,15 +791,20 @@ const smoke = () => {
   ) {
     throw new Error("Checkpoint event detection failed");
   }
+
   const directory = mkdtempSync(path.join(tmpdir(), "codex-provider-eval-smoke-"));
+
   try {
     for (const task of evaluationTasks) {
       const fixture = path.join(directory, task.id);
       createFixture(fixture, task);
+
       if (grade(fixture, task).passed) {
         throw new Error(`${task.id}: broken fixture unexpectedly passed`);
       }
+
       writeFiles(fixture, task.solution);
+
       if (!grade(fixture, task).passed) {
         throw new Error(`${task.id}: reference solution failed`);
       }
@@ -719,6 +812,7 @@ const smoke = () => {
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
+
   console.log(`Smoke passed: ${evaluationTasks.length} graders and 3 runner CLIs`);
 };
 
@@ -745,6 +839,7 @@ const unexpectedFailure = (
   dryRun: boolean,
   repetition: number,
   order: number,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Subprocess and evaluation failures are arbitrary JavaScript rejection values.
   error: unknown,
 ): EvaluationResult => ({
   diff: emptyDiff(),
@@ -781,59 +876,81 @@ const main = async () => {
     },
     strict: true,
   });
+
   if (values.help === true) {
     help();
+
     return;
   }
+
   if (values.list === true) {
     for (const task of evaluationTasks) {
       console.log(`${task.id}${task.long === true ? " (long)" : ""}`);
     }
+
     return;
   }
+
   if (values.smoke === true) {
     smoke();
+
     return;
   }
+
   if (!/^(?<level>minimal|low|medium|high|xhigh|max)$/u.test(values.reasoning)) {
     throw new Error("--reasoning must be minimal, low, medium, high, xhigh, or max");
   }
+
   const repetitions = Number(values.repetitions);
+
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 10) {
     throw new Error("--repetitions must be an integer from 1 to 10");
   }
+
   const timeoutMinutes = Number(values["timeout-minutes"]);
+
   if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
     throw new Error("--timeout-minutes must be positive");
   }
+
   const requested = new Set(values.task);
   const unknown = [...requested].filter((id) => !evaluationTasks.some((task) => task.id === id));
+
   if (unknown.length > 0) {
     throw new Error(`Unknown task: ${unknown.join(", ")}`);
   }
+
   const tasks = evaluationTasks.filter((task) =>
     requested.size === 0 ? task.long !== true : requested.has(task.id),
   );
+
   if (tasks.length === 0) {
     throw new Error("No tasks selected");
   }
+
   const timestamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
+
   const requestedOutput = path.resolve(
     values.output ?? path.join(tmpdir(), `codex-provider-eval-${timestamp}`),
   );
+
   if (existsSync(requestedOutput)) {
     throw new Error(`Output already exists: ${requestedOutput}`);
   }
+
   mkdirSync(requestedOutput, { recursive: true });
   const output = realpathSync(requestedOutput);
   const results: EvaluationResult[] = [];
+
   const executionOrder: {
     order: readonly Runner[];
     repetition: number;
     task: string;
   }[] = [];
+
   const resultPath = path.join(output, "results.json");
   let reportWriteFailures = 0;
+
   const report = () => ({
     dryRun: values["dry-run"] === true,
     executionOrder,
@@ -846,31 +963,38 @@ const main = async () => {
     tasks: tasks.map((task) => task.id),
     timeoutMinutes,
   });
+
   const persist = (required: boolean) => {
     try {
       writeJsonReport(resultPath, report());
     } catch (caughtError) {
       reportWriteFailures += 1;
+
       if (required) {
         throw caughtError;
       }
+
       console.error(`Results update failed: ${errorMessage(caughtError)}`);
     }
   };
+
   persist(true);
 
   for (let repetition = 1; repetition <= repetitions; repetition += 1) {
     for (const task of tasks) {
       const order = runnerOrder(repetition);
       executionOrder.push({ order, repetition, task: task.id });
+
       for (const [orderIndex, runner] of order.entries()) {
         console.log(`[${task.id} ${repetition}/${repetitions}] ${runner}`);
+
         const runDirectory = path.join(
           output,
           `repeat-${String(repetition).padStart(2, "0")}`,
           task.id,
           runner,
         );
+
         try {
           results.push(
             await runEvaluation(
@@ -898,6 +1022,7 @@ const main = async () => {
             ),
           );
         }
+
         persist(false);
       }
     }

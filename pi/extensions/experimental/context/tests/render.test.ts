@@ -12,6 +12,7 @@ import {
 import { fixturePart, fixtureSnapshot } from "./fixtures/snapshot.js";
 
 const theme = createIdentityTheme();
+
 const segments = usageSegments(
   fixtureSnapshot({
     prompt: "x".repeat(40),
@@ -26,6 +27,7 @@ describe("render", () => {
     const before = structuredClone(snapshot);
     const lines = renderOverlay(theme, snapshot, layoutOverlay(100, 20, false), [], "");
     expect(lines.join("\n")).toContain("provider");
+
     for (const control of ["\x1b[2J", "\u061c", "\u200e", "\u200f", "\u202e", "\u2066"])
       expect(lines.join("\n")).not.toContain(control);
     expect(snapshot).toEqual(before);
@@ -41,6 +43,7 @@ describe("render", () => {
           ),
         ).toBe(width);
       }
+
       expect(
         renderUsageBar(theme, { tokens: null, contextWindow: 64, percent: null }, segments, width),
       ).toBe("░".repeat(width));
@@ -50,6 +53,7 @@ describe("render", () => {
   it("fills every accepted size exactly and clips sizes below the minimum", () => {
     const body = ["BODY".repeat(100)];
     const footer = "HELP".repeat(100);
+
     for (let width = 5; width <= 30; width += 1) {
       for (const height of [10, 13, 14, 19, 20, 24]) {
         const lines = renderOverlay(
@@ -59,6 +63,7 @@ describe("render", () => {
           body,
           footer,
         );
+
         expect(lines, `${width}x${height}`).toHaveLength(height);
         expect(
           lines.every((line) => visibleWidth(line) === width),
@@ -66,11 +71,12 @@ describe("render", () => {
         ).toBe(true);
       }
     }
+
     for (const [width, height] of [
       [4, 24],
       [120, 9],
       [1, 1],
-    ]) {
+    ] as const) {
       const lines = renderOverlay(
         theme,
         fixtureSnapshot(),
@@ -78,8 +84,10 @@ describe("render", () => {
         body,
         footer,
       );
+
       expect(lines).toHaveLength(1);
-      expect(visibleWidth(lines[0])).toBeLessThanOrEqual(width);
+
+      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
   });
   it("draws a titled frame with a stacked usage bar, legend and joined pane divider", () => {
@@ -88,11 +96,13 @@ describe("render", () => {
       tools: [],
       usage: { tokens: 400, contextWindow: 1000, percent: 40 },
     });
+
     const withParts = {
       ...snapshot,
       tools: [fixturePart("read", "{}", 200)],
       messages: [fixturePart("1. user", "hi", 100)],
     };
+
     const layout = layoutOverlay(120, 24, false);
     const lines = renderOverlay(theme, withParts, layout, ["System prompt"], "help");
     expect(lines[0]).toMatch(/^╭─ \/context · test\/model ─+╮$/);
@@ -173,6 +183,7 @@ describe("render", () => {
       [],
       "",
     ).join("\n");
+
     expect(lines).toContain("Pi context usage: unknown");
   });
 });

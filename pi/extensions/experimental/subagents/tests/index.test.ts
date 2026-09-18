@@ -16,6 +16,7 @@ import { V1Controller, V1_NOTIFICATION_TYPE } from "../v1/controller.js";
 import { V2Controller } from "../v2/controller.js";
 
 const V1 = ["close_agent", "resume_agent", "send_input", "spawn_agent", "wait_agent"];
+
 const V2 = [
   "followup_task",
   "interrupt_agent",
@@ -24,6 +25,7 @@ const V2 = [
   "spawn_agent",
   "wait_agent",
 ];
+
 const model = (version?: "disabled" | "v1" | "v2") =>
   Object.assign(
     fauxProvider({
@@ -40,6 +42,7 @@ const extension =
       config,
       dataDir,
     });
+
     pi.on("session_start", manager.start.bind(manager));
     pi.on("before_agent_start", manager.beforeAgentStart.bind(manager));
     pi.on("context", manager.context.bind(manager));
@@ -49,6 +52,7 @@ const extension =
       description: "Show the durable subagent tree",
       handler: (_args, ctx) => {
         ctx.ui.notify(manager.describe(), "info");
+
         return Promise.resolve();
       },
     });
@@ -57,9 +61,11 @@ const extension =
 describe("subagents extension selection", () => {
   it("does not change V1 model context", async () => {
     const contextHook = vi.spyOn(V2Controller.prototype, "context");
+
     const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
       model: model("v1"),
     });
+
     await host.ready;
     await host.emitSessionStart();
     const messages = [{ role: "user" as const, content: "work", timestamp: 1 }];
@@ -72,6 +78,7 @@ describe("subagents extension selection", () => {
     const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
       model: model(),
     });
+
     await host.ready;
     await host.emitSessionStart();
     expect(
@@ -86,6 +93,7 @@ describe("subagents extension selection", () => {
     const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
       model: model("v2"),
     });
+
     await host.ready;
     await host.emitSessionStart();
     expect(
@@ -100,6 +108,7 @@ describe("subagents extension selection", () => {
     const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
       model: model("disabled"),
     });
+
     await host.ready;
     const ctx = host.createContext();
     await host.emitSessionStart(ctx);
@@ -120,9 +129,11 @@ describe("subagents extension selection", () => {
   it("updates the unlocked tree before the first turn when the protocol changes", async () => {
     const v1 = model("v1");
     const v2 = model("v2");
+
     const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
       model: v1,
     });
+
     await host.ready;
     const v1Context = host.createContext({ model: v1 });
     await host.emitSessionStart(v1Context);
@@ -140,10 +151,14 @@ describe("subagents extension selection", () => {
     );
     await host.runCommand("agents", "", v2Context);
 
-    expect(host.getNotifications()).toContainEqual({
-      message: expect.stringMatching(/^unlocked V2\n\/root {2}completed/u),
-      type: "info",
-    });
+    expect(
+      host
+        .getNotifications()
+        .some(
+          (notice) =>
+            notice.type === "info" && /^unlocked V2\n\/root {2}completed/u.test(notice.message),
+        ),
+    ).toBe(true);
     expect(
       host
         .getActiveTools()
@@ -162,10 +177,14 @@ describe("subagents extension selection", () => {
     );
     await host.runCommand("agents", "", v2Context);
 
-    expect(host.getNotifications()).toContainEqual({
-      message: expect.stringMatching(/^locked V2\n\/root {2}completed/u),
-      type: "info",
-    });
+    expect(
+      host
+        .getNotifications()
+        .some(
+          (notice) =>
+            notice.type === "info" && /^locked V2\n\/root {2}completed/u.test(notice.message),
+        ),
+    ).toBe(true);
   });
 
   it.each(["v2", "disabled"] as const)(
@@ -173,6 +192,7 @@ describe("subagents extension selection", () => {
     async (initial) => {
       const previous = model(initial);
       const next = model();
+
       const host = createExtensionHost(
         (pi) => {
           // An earlier extension can request the new contract before our model hook.
@@ -183,16 +203,19 @@ describe("subagents extension selection", () => {
               provide: () => {},
             });
           });
+
           const manager = new SubagentManager(pi, {
             config: structuredClone(DEFAULT_CONFIG),
             dataDir: "/tmp/subagents-model-switch-test",
           });
+
           pi.on("session_start", manager.start.bind(manager));
           pi.on("model_select", manager.modelSelect.bind(manager));
           pi.on("input", manager.input.bind(manager));
         },
         { model: previous },
       );
+
       await host.ready;
       await host.emitSessionStart(host.createContext({ model: previous }));
       const ctx = host.createContext({ model: next });
@@ -226,12 +249,15 @@ describe("subagents extension selection", () => {
 
     try {
       const selectedModel = model("v2");
+
       const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG), dataDir), {
         model: selectedModel,
         sessionId,
       });
+
       await host.ready;
       const base = host.createContext({ model: selectedModel });
+
       const ctx = host.createContext({
         model: selectedModel,
         sessionManager: {
@@ -239,7 +265,9 @@ describe("subagents extension selection", () => {
           getSessionFile: () => sessionFile,
         },
       });
+
       await host.emitSessionStart(ctx);
+
       const event = {
         systemPrompt: "system",
         systemPromptOptions: {},
@@ -259,11 +287,13 @@ describe("subagents extension selection", () => {
   it("waits for an in-flight root acknowledgement during shutdown", async () => {
     const acknowledgement = Promise.withResolvers<null>();
     let deliveryAvailable = true;
+
     const rootDeliveries = vi
       .spyOn(V1Controller.prototype, "rootDeliveries")
       .mockImplementation(() =>
         deliveryAvailable ? [{ agentId: "agent-1", content: "done", id: "notification-1" }] : [],
       );
+
     const acknowledgeRoot = vi
       .spyOn(V1Controller.prototype, "acknowledgeRoot")
       .mockImplementation(async () => {
@@ -273,12 +303,14 @@ describe("subagents extension selection", () => {
 
     try {
       const entryId = "root-notification-entry";
+
       const host = createExtensionHost(
         (pi) => {
           const manager = new SubagentManager(pi, {
             config: structuredClone(DEFAULT_CONFIG),
             dataDir: "/tmp/subagents-shutdown-test",
           });
+
           pi.on("session_start", manager.start.bind(manager));
           pi.on("agent_start", manager.agentStart.bind(manager));
           pi.on("session_shutdown", manager.shutdown.bind(manager));
@@ -299,15 +331,18 @@ describe("subagents extension selection", () => {
           leafId: entryId,
         },
       );
+
       await host.ready;
       await host.emitSessionStart();
       await host.emit("agent_start", { type: "agent_start" });
       await vi.waitFor(() => expect(acknowledgeRoot).toHaveBeenCalledOnce());
 
       let stopped = false;
+
       const shutdown = host.emitSessionShutdown().then(() => {
         stopped = true;
       });
+
       await Promise.resolve();
       expect(stopped).toBeFalsy();
 

@@ -61,6 +61,7 @@ describe("child runtime results", () => {
   it("recognizes the host extension through a symlinked install path", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "subagents-link-"));
     const linked = path.join(directory, "subagents.ts");
+
     try {
       await symlink(path.resolve(import.meta.dirname, "../index.ts"), linked);
       expect(isSubagentHostExtensionPath(linked)).toBeTruthy();
@@ -84,6 +85,7 @@ describe("child model runtime", () => {
   it("keeps usable credentials when another provider lookup fails", async () => {
     const agentDir = await mkdtemp(path.join(os.tmpdir(), "subagents-runtime-"));
     process.env.PI_CODING_AGENT_DIR = agentDir;
+
     const source = {
       getAll: () =>
         ["broken", "openai"].map((provider) =>
@@ -115,6 +117,7 @@ describe("child model runtime", () => {
   it("fails when the selected provider credential cannot be copied", async () => {
     const agentDir = await mkdtemp(path.join(os.tmpdir(), "subagents-runtime-"));
     process.env.PI_CODING_AGENT_DIR = agentDir;
+
     const source = {
       getAll: () => [fauxProvider({ models: [{ id: "model" }], provider: "broken" }).getModel()],
       getApiKeyForProvider: () => Promise.reject(new Error("broken auth")),

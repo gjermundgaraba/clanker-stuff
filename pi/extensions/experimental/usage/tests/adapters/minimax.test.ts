@@ -49,6 +49,7 @@ describe("minimax usage", () => {
       "minimax",
       NOW,
     );
+
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "invalid token" },
       ok: false,
@@ -58,10 +59,12 @@ describe("minimax usage", () => {
   it("uses the China endpoint for minimax-cn", async () => {
     const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
     const fetchJson = vi.spyOn(client, "fetchJson");
+
     const result = await fetchMinimaxUsage(
       { authClient: tokenAuthClient("mm-token"), fetchJson: client.fetchJson, now: () => NOW },
       "minimax-cn",
     );
+
     expect(fetchJson.mock.calls[0]?.[0]).toContain("minimaxi.com");
     expect(result.ok && result.snapshot.provider).toBe("minimax-cn");
   });

@@ -57,6 +57,7 @@ describe("prompt history", () => {
         ],
       },
     };
+
     const lines = [
       null,
       "",
@@ -67,8 +68,13 @@ describe("prompt history", () => {
       },
       userEntry("blank", null, "  ", 100),
     ];
-    expect(lines.map(historyItemFromEntry).filter((item) => item !== undefined)).toEqual([
-      { text: "first\nsecond", timestamp: 200 },
-    ]);
+
+    expect(
+      lines.flatMap((entry) => {
+        const item = historyItemFromEntry(entry);
+
+        return item === undefined ? [] : [item];
+      }),
+    ).toEqual([{ text: "first\nsecond", timestamp: 200 }]);
   });
 });

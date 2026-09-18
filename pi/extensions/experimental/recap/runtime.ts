@@ -26,7 +26,7 @@ interface RecapSnapshot {
 }
 
 interface RecapSessionState {
-  inFlight?: AbortController;
+  inFlight: AbortController | undefined;
   model?: Model<Api>;
   lastUnsuccessful?: RecapSnapshot;
   sessionId: string;
@@ -43,22 +43,27 @@ const completeWithThinking = async (
   thinking: NonNullable<RecapConfig["thinking"]>,
 ) => {
   const provider = ctx.modelRegistry.getProvider(model.provider);
+
   if (provider === undefined) {
     throw new Error(`Provider ${model.provider} was not found by Pi`);
   }
+
   const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+
   if (!auth.ok) {
     throw new Error(auth.error);
   }
+
   options.signal?.throwIfAborted();
   const level = clampThinkingLevel(model, thinking);
+
   return await provider
     .streamSimple(auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model, context, {
       ...options,
-      apiKey: auth.apiKey,
-      env: auth.env,
-      headers: auth.headers,
-      reasoning: level === "off" ? undefined : level,
+      ...(auth.apiKey !== undefined ? { apiKey: auth.apiKey } : {}),
+      ...(auth.env !== undefined ? { env: auth.env } : {}),
+      ...(auth.headers !== undefined ? { headers: auth.headers } : {}),
+      ...(level !== "off" ? { reasoning: level } : {}),
     })
     .result();
 };
@@ -80,28 +85,34 @@ class RecapRuntime {
     this.dispose();
 
     const sessionId = ctx.sessionManager.getSessionId();
-    const state: RecapSessionState = { sessionId };
+    const state: RecapSessionState = { sessionId, inFlight: undefined };
     this.#state = state;
 
     try {
       const config = await loadRecapConfig(this.#configPath);
       const model = ctx.modelRegistry.find(config.model.provider, config.model.id);
+
       if (model === undefined) {
         throw new Error(`Model ${config.model.provider}/${config.model.id} was not found by Pi`);
       }
+
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+
       if (!auth.ok) {
         throw new Error(auth.error);
       }
+
       if (this.#state !== state || ctx.sessionManager.getSessionId() !== sessionId) {
         return;
       }
+
       state.model = model;
       state.thinking = config.thinking;
     } catch (error) {
       if (this.#state !== state || ctx.sessionManager.getSessionId() !== sessionId) {
         return;
       }
+
       const message = error instanceof Error ? error.message : String(error);
       ctx.ui.notify(safeNotification(`Recap disabled (${this.#configPath})`, message), "error");
     }
@@ -109,9 +120,11 @@ class RecapRuntime {
 
   cancel(): void {
     const state = this.#state;
+
     if (state === undefined) {
       return;
     }
+
     const inFlight = state.inFlight;
     state.inFlight = undefined;
     inFlight?.abort();
@@ -124,6 +137,7 @@ class RecapRuntime {
 
   settled(ctx: ExtensionContext): void {
     const state = this.#state;
+
     if (
       state?.model === undefined ||
       state.inFlight !== undefined ||
@@ -135,10 +149,13 @@ class RecapRuntime {
 
     const branch = ctx.sessionManager.getBranch();
     const progress = conversationProgress(branch);
+
     if (!shouldGenerateRecap(progress)) {
       return;
     }
+
     const prompt = buildRecapPrompt(ctx.sessionManager.buildContextEntries());
+
     if (prompt === undefined) {
       return;
     }
@@ -155,6 +172,7 @@ class RecapRuntime {
 
   #isFresh(ctx: ExtensionContext, snapshot: RecapSnapshot): boolean {
     const state = this.#state;
+
     if (
       state === undefined ||
       ctx.sessionManager.getSessionId() !== state.sessionId ||
@@ -165,6 +183,7 @@ class RecapRuntime {
 
     const branch = ctx.sessionManager.getBranch();
     const progress = conversationProgress(branch);
+
     return (
       progress.sourceRevision === snapshot.progress.sourceRevision &&
       buildRecapPrompt(ctx.sessionManager.buildContextEntries()) === snapshot.prompt
@@ -173,6 +192,7 @@ class RecapRuntime {
 
   async #generate(ctx: ExtensionContext, snapshot: RecapSnapshot): Promise<void> {
     const state = this.#state;
+
     if (state?.model === undefined) {
       return;
     }
@@ -181,6 +201,7 @@ class RecapRuntime {
     state.inFlight = controller;
     const model = state.model;
     const thinking = state.thinking;
+
     const timeout = setTimeout(() => {
       controller.abort(new Error("Recap request timed out"));
     }, RECAP_REQUEST_TIMEOUT_MS);
@@ -191,43 +212,55 @@ class RecapRuntime {
         role: "user",
         timestamp: Date.now(),
       };
+
       // A heuristic preflight only; provider overflow can still occur below this estimate.
       const estimatedTokens = estimateTokens(message);
+
       if (model.contextWindow > 0 && estimatedTokens >= model.contextWindow) {
         throw new Error(
           `Estimated input (${estimatedTokens} tokens) reaches or exceeds ${model.provider}/${model.id}'s context window (${model.contextWindow} tokens)`,
         );
       }
+
       const context: Context = { messages: [message] };
+
       const options: SimpleStreamOptions = {
         cacheRetention: "none",
         sessionId: randomUUID(),
         signal: controller.signal,
         timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
       };
+
       const response = await raceWithAbortSignal(
         thinking === undefined
           ? ctx.modelRegistry.complete(model, context, options)
           : completeWithThinking(ctx, model, context, options, thinking),
         controller.signal,
       );
+
       if (isContextOverflow(response, model.contextWindow)) {
         throw new Error("Recap input exceeds the model's context window");
       }
+
       if (response.stopReason !== "stop") {
         throw new Error(response.errorMessage ?? `Recap model stopped with ${response.stopReason}`);
       }
+
       const recap = normalizeRecap(contentText(response.content));
+
       if (recap === undefined) {
         throw new Error("Recap model returned no text");
       }
 
       const state = this.#state;
+
       if (state?.inFlight !== controller) {
         return;
       }
+
       if (!this.#isFresh(ctx, snapshot)) {
         state.inFlight = undefined;
+
         return;
       }
 
@@ -235,14 +268,18 @@ class RecapRuntime {
         completedTurns: snapshot.progress.completedTurns,
         recap,
       };
+
       this.#pi.appendEntry(RECAP_ENTRY_TYPE, entry);
       state.inFlight = undefined;
     } catch (error) {
       const state = this.#state;
+
       if (state?.inFlight !== controller) {
         return;
       }
+
       state.inFlight = undefined;
+
       if (this.#isFresh(ctx, snapshot)) {
         state.lastUnsuccessful = snapshot;
         const message = error instanceof Error ? error.message : String(error);

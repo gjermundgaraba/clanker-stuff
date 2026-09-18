@@ -32,21 +32,27 @@ import {
   fetchRequestUrl,
   isWireRecord as isRecord,
   parseCompactionRequestBody,
-  StringValueSchema,
 } from "./wire.ts";
 import type { WireRecord } from "./wire.ts";
 
 const PRIMARY_MODEL = "gpt-5.6-sol";
+
 const OUTPUT_CHUNKS = 32;
+
 const MAX_PROVIDER_CASE_TOKENS = 325_000;
+
 const EMPTY_CONTEXT: Context = { messages: [], tools: [] };
+
 const TRAMPOLINE_STOP = "compaction feasibility trampoline complete";
+
 const WebSocketProbeSchema = Type.Object({
   send: Type.Function([Type.Unknown()], Type.Unknown()),
 });
 
 type CompactionInput = NonNullable<CodexCompactionRequest["authoritativeInput"]>;
+
 type CompactionInputItem = CompactionInput[number];
+
 type SupportedModel = Model<"openai-codex-responses">;
 
 interface ActiveRequest {
@@ -76,25 +82,28 @@ const assertCompactionHeaders = (headers: Headers, caseId: FeasibilityCase["id"]
     headers.get("x-openai-internal-codex-responses-lite") === "true",
     `${caseId}: request did not use Responses Lite`,
   );
+
   const features = (headers.get("x-codex-beta-features") ?? "")
     .split(",")
     .map((feature) => feature.trim().toLowerCase());
+
   assert(
     features.includes(REMOTE_COMPACTION_FEATURE.toLowerCase()),
     `${caseId}: request did not advertise ${REMOTE_COMPACTION_FEATURE}`,
   );
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The interception boundary receives native WebSocket constructor options and validates the headers needed for the canary.
 const websocketHeaders = (value: unknown, caseId: FeasibilityCase["id"]) => {
   assert(isRecord(value) && isRecord(value.headers), `${caseId}: WebSocket headers are missing`);
   const headers = new Headers();
+
   for (const [name, headerValue] of Object.entries(value.headers)) {
-    assert(
-      Value.Check(StringValueSchema, headerValue),
-      `${caseId}: WebSocket header ${name} is malformed`,
-    );
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
+    assert(typeof headerValue === "string", `${caseId}: WebSocket header ${name} is malformed`);
     headers.set(name, headerValue);
   }
+
   return headers;
 };
 
@@ -112,6 +121,7 @@ export const installFeasibilityRequestBudget = () => {
   let requestCount = 0;
   let active: ActiveRequest | undefined;
 
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Fetch and socket failures can reject with any JavaScript value; abort the owned request while retaining its diagnostic.
   const abortRequest = (request: ActiveRequest, error: unknown) => {
     request.abort.abort(error instanceof Error ? error : new Error(String(error)));
   };
@@ -123,16 +133,19 @@ export const installFeasibilityRequestBudget = () => {
       current.transport === transport,
       `${current.caseId}: expected ${current.transport}, observed ${transport}`,
     );
+
     if (current.claimed) {
       const error = new Error(`${current.caseId}: a retry was blocked`);
       abortRequest(current, error);
       throw error;
     }
+
     if (requestCount >= MAX_COMPACTION_REQUESTS) {
       const error = new Error(`Compaction request budget exceeded ${MAX_COMPACTION_REQUESTS}`);
       abortRequest(current, error);
       throw error;
     }
+
     assert(
       request.model === current.model,
       `${current.caseId}: request model did not match refreshed metadata`,
@@ -140,16 +153,19 @@ export const installFeasibilityRequestBudget = () => {
     const cacheKey = request.prompt_cache_key;
     const metadata = request.client_metadata;
     assert(
-      Value.Check(StringValueSchema, cacheKey) && cacheKey.length > 0,
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
+      typeof cacheKey === "string" && cacheKey.length > 0,
       `${current.caseId}: prompt cache key is missing`,
     );
     assert(isRecord(metadata), `${current.caseId}: session metadata is missing`);
     const sessionId = metadata.session_id;
     const turnId = metadata.turn_id;
     assert(
-      Value.Check(StringValueSchema, sessionId) &&
+      /* oxlint-disable anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test. */
+      typeof sessionId === "string" &&
         sessionId.length > 0 &&
-        Value.Check(StringValueSchema, turnId) &&
+        typeof turnId === "string" &&
+        /* oxlint-enable anti-slop/no-runtime-typeof */
         turnId.length > 0,
       `${current.caseId}: session metadata is missing`,
     );
@@ -168,8 +184,10 @@ export const installFeasibilityRequestBudget = () => {
     const current = active;
     const url = fetchRequestUrl(input);
     let request: WireRecord | undefined;
+
     try {
       request = parseCompactionRequestBody(await fetchRequestBody(input, init));
+
       if (request === undefined) {
         if (new URL(url).pathname.endsWith("/responses")) {
           throw new Error(`${current?.caseId ?? "unknown"}: non-compaction SSE request blocked`);
@@ -177,9 +195,11 @@ export const installFeasibilityRequestBudget = () => {
       } else {
         assert(current !== undefined, "Unexpected compaction request");
         assertResponsesEndpoint(url, "sse", current.caseId);
+
         const headers = new Headers(
           init?.headers ?? (input instanceof Request ? input.headers : undefined),
         );
+
         assertCompactionHeaders(headers, current.caseId);
         claim(request, "sse");
       }
@@ -187,8 +207,10 @@ export const installFeasibilityRequestBudget = () => {
       if (current !== undefined) {
         abortRequest(current, error);
       }
+
       throw error;
     }
+
     return await nativeFetch(input, init);
   };
 
@@ -198,16 +220,16 @@ export const installFeasibilityRequestBudget = () => {
       construct(target, argumentsList) {
         const owner = active;
         assert(owner !== undefined, "Unexpected WebSocket construction");
+
         try {
           const url: unknown = argumentsList[0];
           const options: unknown = argumentsList[1];
-          assert(
-            Value.Check(StringValueSchema, url),
-            `${owner.caseId}: WebSocket URL is malformed`,
-          );
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
+          assert(typeof url === "string", `${owner.caseId}: WebSocket URL is malformed`);
           assertResponsesEndpoint(url, "websocket", owner.caseId);
           assertCompactionHeaders(websocketHeaders(options, owner.caseId), owner.caseId);
           owner.socketConstructions += 1;
+
           if (owner.socketConstructions > 1) {
             throw new Error(`${owner.caseId}: a WebSocket retry was blocked`);
           }
@@ -215,18 +237,22 @@ export const installFeasibilityRequestBudget = () => {
           abortRequest(owner, error);
           throw error;
         }
+
         const socket = Value.Parse(
           WebSocketProbeSchema,
           Reflect.construct(target, argumentsList, target),
         );
+
         const nativeSend = socket.send;
         Object.defineProperty(socket, "send", {
           configurable: true,
+          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A passive socket send interceptor must preserve foreign string and byte payloads rather than narrow the native transport contract.
           value(data: unknown) {
             try {
               assert(active === owner, `${owner.caseId}: WebSocket request outlived its case`);
               assert(
-                Value.Check(StringValueSchema, data),
+                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
+                typeof data === "string",
                 `${owner.caseId}: WebSocket request frame is malformed`,
               );
               const request = parseCompactionRequestBody(data);
@@ -245,10 +271,12 @@ export const installFeasibilityRequestBudget = () => {
               abortRequest(owner, error);
               throw error;
             }
+
             return nativeSend.call(socket, data);
           },
           writable: true,
         });
+
         return socket;
       },
     }),
@@ -276,6 +304,7 @@ export const installFeasibilityRequestBudget = () => {
     },
     restore() {
       globalThis.fetch = nativeFetch;
+
       if (websocketDescriptor === undefined) {
         Reflect.deleteProperty(globalThis, "WebSocket");
       } else {
@@ -290,6 +319,7 @@ export const createFeasibilityInput = (
   label = randomUUID(),
 ): CompactionInput => {
   const callIds = Array.from({ length: OUTPUT_CHUNKS }, (_, index) => `${label}-${index}`);
+
   const calls: CompactionInputItem[] = callIds.map((callId) => ({
     arguments: "{}",
     call_id: callId,
@@ -297,18 +327,22 @@ export const createFeasibilityInput = (
     name: "feasibility_payload",
     type: "function_call",
   }));
+
   const emptyOutputs: CompactionInputItem[] = callIds.map((callId) => ({
     call_id: callId,
     id: `out-${callId}`,
     output: "",
     type: "function_call_output",
   }));
+
   const baseline = estimateModelVisibleTokens("", [...calls, ...emptyOutputs]);
   assert(targetTokens > baseline, "Candidate token target is too small");
   const payloadTokens = targetTokens - baseline;
+
   const outputs: CompactionInputItem[] = callIds.map((callId, index) => {
     const tokens =
       Math.floor(payloadTokens / OUTPUT_CHUNKS) + (index < payloadTokens % OUTPUT_CHUNKS ? 1 : 0);
+
     return {
       call_id: callId,
       id: `out-${callId}`,
@@ -316,11 +350,13 @@ export const createFeasibilityInput = (
       type: "function_call_output",
     };
   });
+
   const input = [...calls, ...outputs];
   assert(
     estimateModelVisibleTokens("", input) === targetTokens,
     "Synthetic input did not match the fixed local estimate",
   );
+
   return input;
 };
 
@@ -337,12 +373,14 @@ export const assertFeasibilityUsage = (
     promptTokens <= MAX_PROVIDER_CASE_TOKENS,
     `${canaryCase.id}: provider prompt ${promptTokens} exceeded the per-case stop limit ${MAX_PROVIDER_CASE_TOKENS}`,
   );
+
   if (canaryCase.candidate) {
     assert(
       promptTokens > OBSERVED_PROVIDER_TOKENS,
       `${canaryCase.id}: provider prompt ${promptTokens} did not exceed the observed ${OBSERVED_PROVIDER_TOKENS}; stop without resizing`,
     );
   }
+
   return promptTokens;
 };
 
@@ -359,10 +397,12 @@ export const requireCompactionResult = (
       `${caseId}: ${outer.errorMessage ?? `compaction stopped with ${outer.stopReason}`}`,
     );
   }
+
   assert(
     outer.stopReason === "error" && outer.errorMessage === TRAMPOLINE_STOP,
     `${caseId}: compaction completed but the transport trampoline did not stop as expected`,
   );
+
   return result;
 };
 
@@ -377,10 +417,11 @@ const runCompaction = async (
   signal: AbortSignal,
 ): Promise<CodexCompactionResult> => {
   let result: CodexCompactionResult | undefined;
+
   const outer = await runtime.provider
     .stream(model, EMPTY_CONTEXT, {
       apiKey,
-      env,
+      ...(env !== undefined ? { env } : {}),
       maxRetries: 0,
       onPayload: async () => {
         const headers: Record<string, string | null> = {};
@@ -390,7 +431,7 @@ const runCompaction = async (
           authoritativeInput: input,
           context: EMPTY_CONTEXT,
           effectiveTokenLimit,
-          env,
+          ...(env !== undefined ? { env } : {}),
           headers,
           inputPrefix: [],
           model,
@@ -407,6 +448,7 @@ const runCompaction = async (
       transport: canaryCase.transport,
     })
     .result();
+
   return requireCompactionResult(canaryCase.id, result, outer);
 };
 
@@ -440,6 +482,7 @@ const assertFreshLiteMetadata = (
   );
   const window = runtime.getModelWindow(model);
   assert(window !== undefined, `${model.id}: effective model window is missing`);
+
   return {
     candidateAboveEffectiveWindow: candidateTokens > window.effectiveWindowTokens,
     contextWindow: metadata.context_window,
@@ -477,8 +520,10 @@ export const runFeasibility = async (
   environment: Readonly<Record<string, string | undefined>>,
 ) => {
   const invocation = parseFeasibilityInvocation(args, environment);
+
   if (invocation.showHelp) {
     printHelp();
+
     return;
   }
 
@@ -488,14 +533,18 @@ export const runFeasibility = async (
       import("../observability.ts"),
       import("../provider.ts"),
     ]);
+
   const agentDir = getAgentDir();
+
   const modelRuntime = await ModelRuntime.create({
     authPath: path.join(agentDir, "auth.json"),
     modelsPath: path.join(agentDir, "models.json"),
   });
+
   const authModel = modelRuntime
     .getModels("openai-codex")
     .find((candidate) => candidate.api === "openai-codex-responses");
+
   assert(authModel !== undefined, "No installed OpenAI Codex model exists");
   const auth = await modelRuntime.getAuth(authModel);
   assert(auth?.auth.apiKey !== undefined, "OpenAI Codex auth is unavailable");
@@ -503,23 +552,30 @@ export const runFeasibility = async (
   const catalog = createCodexModelCatalog();
   await catalog.refreshModels({
     allowNetwork: true,
-    credential: { env: auth.env, key: auth.auth.apiKey, type: "api_key" },
+    credential: {
+      ...(auth.env !== undefined ? { env: auth.env } : {}),
+      key: auth.auth.apiKey,
+      type: "api_key",
+    },
     force: true,
     publish: async (publication) => {
       publication.update?.();
+
       return true;
     },
     signal: AbortSignal.timeout(30_000),
-    stored: undefined,
   });
   const remoteModels = catalog.getModels();
+
   const findModel = (id: string): SupportedModel => {
     const found = remoteModels.find((candidate) => candidate.id === id);
     assert(found !== undefined, `Fresh remote metadata omitted ${id}`);
+
     return auth.auth.baseUrl === undefined
       ? { ...found }
       : { ...found, baseUrl: auth.auth.baseUrl };
   };
+
   const primary = findModel(PRIMARY_MODEL);
   const alternate = findModel(invocation.alternateModel);
   assert(primary.id !== alternate.id, "--alternate-model must differ from gpt-5.6-sol");
@@ -538,23 +594,29 @@ export const runFeasibility = async (
     plan.length === MAX_COMPACTION_REQUESTS,
     "Feasibility plan must contain exactly five cases",
   );
+
   const plannedCases = plan.map((canaryCase) => ({
     canaryCase,
     input: createFeasibilityInput(invocation.candidateTokens),
   }));
+
   const [controlPlan] = plannedCases;
   assert(controlPlan !== undefined, "Feasibility control is missing");
+
   const controlInput = shrinkTrailingOutputs(
     controlPlan.input,
     "",
     primaryMetadata.effectiveWindowTokens,
   );
+
   const controlEstimatedTokens = estimateModelVisibleTokens("", controlInput);
   const controlSerializedBytes = serializedInputBytes(controlInput);
+
   for (const { canaryCase, input } of plannedCases) {
     if (!canaryCase.candidate) {
       continue;
     }
+
     assertCandidateWithinControlBounds({
       candidateEstimatedTokens: estimateModelVisibleTokens("", input),
       candidateSerializedBytes: serializedInputBytes(input),
@@ -562,6 +624,7 @@ export const runFeasibility = async (
       controlSerializedBytes,
     });
   }
+
   console.log(
     JSON.stringify({
       alternate: { id: alternate.id, ...alternateMetadata },
@@ -582,17 +645,23 @@ export const runFeasibility = async (
 
   const budget = installFeasibilityRequestBudget();
   let cumulativeProviderTokens = 0;
+
   try {
     for (const { canaryCase, input } of plannedCases) {
       const model = canaryCase.model === "primary" ? primary : alternate;
+
       const effectiveTokenLimit = canaryCase.candidate
         ? invocation.candidateTokens
         : primaryMetadata.effectiveWindowTokens;
+
       const abort = new AbortController();
+
       const timeout = setTimeout(() => {
         abort.abort(new Error(`${canaryCase.id}: ${invocation.timeoutMs}ms timeout`));
       }, invocation.timeoutMs);
+
       budget.begin(canaryCase, model.id, abort);
+
       try {
         const result = await runCompaction(
           runtime,
@@ -604,6 +673,7 @@ export const runFeasibility = async (
           effectiveTokenLimit,
           abort.signal,
         );
+
         budget.end();
         const promptTokens = assertFeasibilityUsage(canaryCase, result.usage);
         cumulativeProviderTokens += promptTokens;
@@ -629,6 +699,7 @@ export const runFeasibility = async (
         clearTimeout(timeout);
       }
     }
+
     assert(
       budget.requestCount === MAX_COMPACTION_REQUESTS,
       "The complete smoke did not observe exactly five compaction requests",

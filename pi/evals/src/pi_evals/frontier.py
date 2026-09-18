@@ -41,7 +41,7 @@ def sources():
                 'pi_evals/adapters/frontier.py', 'pi_evals/adapters/auth.py', 'pi_evals/protocol.py'),
         'runtime': ('Dockerfile', 'pi-eval-tools.mjs', 'eval-journal.mjs', 'codex-eval.mjs', 'pi-eval-compact.mjs'),
         'profiles': ('code-mode.yaml', 'native-astra.yaml'),
-        'verifiers': ('tool-mode.mjs', 'native-astra.mjs'),
+        'verifiers': ('tool-mode-core.mjs', 'native-astra.mjs'),
     }
     return {**{root: {name: hashlib.sha256((EVALS/root/name).read_bytes()).hexdigest() for name in names}
                for root, names in selected.items()}, 'suites/frontier': task_hashes(ASSETS)}
@@ -146,7 +146,7 @@ storage_mb = 10240
 docker_image = "{agent['tag']}"
 ''')
     shutil.copy(ASSETS/'submission.py', tests)
-    for name in ('native-astra.mjs', 'tool-mode.mjs'):
+    for name in ('native-astra.mjs', 'tool-mode-core.mjs'):
         shutil.copy(EVALS/'verifiers'/name, tests)
     shutil.copy(ASSETS/'validity.mjs', tests)
     (tests/'test.sh').write_text('#!/bin/bash\nset -euo pipefail\npython3 /tests/submission.py\n')

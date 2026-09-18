@@ -6,6 +6,7 @@ it("shares cookie state across independent bundled-Pi Jiti loaders and reloads",
     createJiti(import.meta.url, { moduleCache: false, tryNative: false, fsCache: false }).import<
       typeof import("../index.js")
     >(new URL("../index.ts", import.meta.url).pathname);
+
   const first = await load();
   const second = await load();
   expect(first.fetchCodexHttp).not.toBe(second.fetchCodexHttp);
@@ -18,6 +19,7 @@ it("shares cookie state across independent bundled-Pi Jiti loaders and reloads",
         headers: { "set-cookie": "__oailb=shared; Path=/backend-api; Secure" },
       }),
   );
+
   for (const loaded of [second, await load()]) {
     for (const [url, expected] of [
       ["https://loader-test.chatgpt.com/backend-api/wham/usage", "__oailb=shared"],
@@ -26,10 +28,12 @@ it("shares cookie state across independent bundled-Pi Jiti loaders and reloads",
     ]) {
       await loaded.fetchCodexHttp(url!, undefined, async (_input, init) => {
         expect(new Headers(init?.headers).get("cookie")).toBe(expected);
+
         return new Response();
       });
     }
   }
+
   await second.fetchCodexHttp(
     origin,
     undefined,
@@ -40,6 +44,7 @@ it("shares cookie state across independent bundled-Pi Jiti loaders and reloads",
   );
   await first.fetchCodexHttp(origin, undefined, async (_input, init) => {
     expect(new Headers(init?.headers).has("cookie")).toBe(false);
+
     return new Response();
   });
 });

@@ -1,3 +1,4 @@
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionUIContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -5,33 +6,39 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 export const WireRecordSchema = Type.Record(Type.String(), Type.Unknown());
+
 export type WireRecord = Static<typeof WireRecordSchema>;
+
 const WireArraySchema = Type.Array(Type.Unknown());
+
 const StringValueSchema = Type.String();
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireRecord = (value: unknown): WireRecord => Value.Parse(WireRecordSchema, value);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireArray = (value: unknown): unknown[] => Value.Parse(WireArraySchema, value);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireRecords = (value: unknown): WireRecord[] => wireArray(value).map(wireRecord);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireString = (value: unknown): string => Value.Parse(StringValueSchema, value);
 
 type MockUiContext = Pick<ExtensionUIContext, "notify" | "setStatus"> &
   Partial<Pick<ExtensionUIContext, "select">>;
 
-export const mockUiContext = (context: MockUiContext): ExtensionUIContext => {
-  const fixture = {
-    select: async () => await Promise.resolve(undefined),
-    ...context,
-  } satisfies Pick<ExtensionUIContext, "notify" | "select" | "setStatus">;
-  // SAFETY: Codex provider sessions use only notify, select, and setStatus; all three are implemented.
-  return fixture as ExtensionUIContext;
+export const mockUiContext = async (context: MockUiContext): Promise<ExtensionUIContext> => {
+  const host = createExtensionHost(() => {});
+  await host.ready;
+
+  return host.createContext({ ui: context }).ui;
 };
 
 export type SessionEntryPayload<Entry = SessionEntry> = Entry extends SessionEntry
   ? Omit<Entry, "id" | "parentId" | "timestamp">
   : never;
+
 type Mutable<Payload> = { -readonly [Key in keyof Payload]: Payload[Key] };
 
 export const sessionEntry = <const Payload extends SessionEntryPayload>(
@@ -59,6 +66,7 @@ export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
     status: "completed",
     type: "message",
   };
+
   return [
     { response: { id, status: "in_progress" }, type: "response.created" },
     {
@@ -92,6 +100,7 @@ export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
   ];
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The fixture encoder serializes JWT headers and claims into wire bytes without assuming one payload domain.
 const jwtPart = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
 
 export const makeCodexApiKey = (accountId: string): string =>
@@ -127,7 +136,7 @@ export const createToolsModel = (
   overrides: { api?: Api; provider?: string } = {},
 ): Model<Api> => ({
   ...SPIKE_MODEL,
-  compat: grammar ? { supportsOpenAIGrammarTools: true } : undefined,
+  ...(grammar ? { compat: { supportsOpenAIGrammarTools: true } } : {}),
   id,
   name: id,
   ...overrides,

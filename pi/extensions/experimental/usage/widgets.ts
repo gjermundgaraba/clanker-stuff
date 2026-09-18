@@ -6,6 +6,7 @@ import { providerDisplayName } from "./providers.js";
 import type { SupportedProvider, UsageSnapshot, UsageWindow } from "./providers.js";
 
 const ACTIVE_WIDGET_ID = "clanker.usage.active";
+
 const DETAILS_WIDGET_ID = "clanker.usage.details";
 
 export const STATUS_KEY = "usage";
@@ -20,14 +21,17 @@ export type UsagePresentation =
 const richText = (value: string, maximum: number): string => {
   let result = "";
   let length = 0;
+
   for (const char of value) {
     if (length >= maximum) {
       break;
     }
+
     const code = char.codePointAt(0) ?? 0;
     result += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : char;
     length += 1;
   }
+
   return result;
 };
 
@@ -36,11 +40,13 @@ const usedPercent = (window: UsageWindow): number =>
 
 const selectActiveWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => {
   let selected: UsageWindow | undefined;
+
   for (const window of snapshot.windows) {
     if (selected === undefined || usedPercent(window) > usedPercent(selected)) {
       selected = window;
     }
   }
+
   return selected;
 };
 
@@ -55,9 +61,11 @@ const health = (
   message?: string,
 ): FooterWidgetSnapshot["health"] => {
   const health: FooterWidgetSnapshot["health"] = { state, updatedAt: now };
+
   if (message !== undefined && message.length > 0) {
     health.message = richText(message, 512);
   }
+
   return health;
 };
 
@@ -82,6 +90,7 @@ const healthFor = (
   presentation: UsagePresentation,
 ): { message?: string; state: FooterWidgetHealthState } => {
   const state = HEALTH_STATE_BY_PRESENTATION[presentation.kind];
+
   return presentation.kind === "error" || presentation.kind === "stale"
     ? { message: presentation.message, state }
     : { state };
@@ -95,13 +104,16 @@ export const presentationProvider = (
     case "error": {
       return presentation.provider;
     }
+
     case "ready":
     case "stale": {
       return presentation.snapshot.provider;
     }
+
     case "unsupported": {
       return undefined;
     }
+
     default: {
       return unreachablePresentation(presentation);
     }
@@ -114,12 +126,16 @@ export const activeSnapshot = (
 ): FooterWidgetSnapshot => {
   const snapshot = snapshotFor(presentation);
   const { message, state } = healthFor(presentation);
+  const status = health(state, now, message);
   const window = snapshot ? selectActiveWindow(snapshot) : undefined;
   const percent = window ? usedPercent(window) : 0;
   const rounded = `${Math.round(percent)}%`;
+
   const reset =
     window?.resetsAt === undefined ? "" : ` · ${formatResetDuration(window.resetsAt, now)}`;
+
   const filled = Math.round((percent / 100) * 10);
+
   const full =
     snapshot && window
       ? [
@@ -141,6 +157,7 @@ export const activeSnapshot = (
         : state === "loading"
           ? [{ text: "loading usage", tone: "dim" as const }]
           : [];
+
   return {
     consumesStatusKeys: [STATUS_KEY],
     content:
@@ -148,7 +165,7 @@ export const activeSnapshot = (
         ? [...full, { text: " · ordinary usage unavailable", tone: "warning" }]
         : full,
     defaults: { enabled: true },
-    health: health(state, now, message),
+    ...(status !== undefined ? { health: status } : {}),
     icon: {
       glyphs: { ascii: "usage", nerd: "󰓅", unicode: "◴" },
       tone: "dim",
@@ -165,11 +182,14 @@ export const detailsSnapshot = (
 ): FooterWidgetSnapshot => {
   const snapshot = snapshotFor(presentation);
   const { message, state } = healthFor(presentation);
+  const status = health(state, now, message);
   const active = snapshot ? selectActiveWindow(snapshot) : undefined;
+
   // ponytail: eight rich detail windows stay within protocol text bounds; /usage still shows all.
   const windows = snapshot
     ? snapshot.windows.filter((window) => window !== active).slice(0, 8)
     : [];
+
   const full = windows.map((window, index) => ({
     text: `${index === 0 ? "" : " · "}${richText(window.label, 80)} ${Math.round(usedPercent(window))}%${
       window.resetsAt !== undefined && window.resetsAt.length > 0
@@ -178,11 +198,12 @@ export const detailsSnapshot = (
     }`,
     tone: percentTone(usedPercent(window)),
   }));
+
   return {
     consumesStatusKeys: [STATUS_KEY],
     content: full,
     defaults: { enabled: false },
-    health: health(state, now, message),
+    ...(status !== undefined ? { health: status } : {}),
     id: DETAILS_WIDGET_ID,
     label: "Provider usage details",
   };
@@ -191,15 +212,19 @@ export const detailsSnapshot = (
 export const fallbackText = (presentation: UsagePresentation): string => {
   const snapshot = snapshotFor(presentation);
   const window = snapshot ? selectActiveWindow(snapshot) : undefined;
+
   if (snapshot && window) {
     const marker = presentation.kind === "stale" ? " !" : "";
+
     return richText(
       `usage ${providerDisplayName(snapshot.provider)} ${window.label} ${Math.round(usedPercent(window))}%${snapshot.ordinaryUsageAllowed === false ? " ordinary unavailable" : ""}${marker}`,
       240,
     );
   }
+
   if (snapshot?.ordinaryUsageAllowed !== undefined) {
     return `usage ${providerDisplayName(snapshot.provider)} ordinary ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`;
   }
+
   return presentation.kind === "loading" ? "usage loading" : "usage unavailable";
 };

@@ -8,6 +8,8 @@ import { Value } from "typebox/value";
 
 import type { Protocol } from "./selection.js";
 
+export const TerminatingToolResultSchema = Type.Object({ terminate: Type.Literal(true) });
+
 export const COLLABORATION_CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
 
 export interface NestedToolContract {
@@ -59,6 +61,7 @@ const ProtocolResolutionContextSchema = Type.Unsafe<ProtocolResolutionContext>(
     { additionalProperties: true },
   ),
 );
+
 const ContractRequestSchema = Type.Unsafe<ContractRequest>(
   Type.Object(
     {
@@ -85,11 +88,14 @@ export const registerContractResponder = (
     if (!Value.Check(ContractRequestSchema, value)) {
       return;
     }
+
     if (current(value.context)?.sessionId !== value.sessionId) {
       return;
     }
+
     prepare?.(value.context, value.ultra, value.rootServiceTier);
     const prepared = current(value.context);
+
     if (prepared?.sessionId === value.sessionId) {
       value.provide({ ...prepared, version: 1 });
     }

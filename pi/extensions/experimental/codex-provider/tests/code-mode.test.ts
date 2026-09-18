@@ -20,17 +20,20 @@ import {
 import { CodeModeRuntime, toNestedTool, toPiContent } from "../code-mode/tools.js";
 import { sanitizeTraceInput } from "../code-mode/trace-values.js";
 import { registerCodexTools } from "../tools/register.js";
-import { createToolsModel } from "./fixtures.js";
+import { createToolsModel, wireRecord } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
 
 const PromptResultSchema = Type.Object({ systemPrompt: Type.String() });
+
 const TEST_EXTENSION_CONTEXT = createExtensionHost(() => {}).createContext();
 
 const executeCode = (runtime: CodeModeRuntime, signal = new AbortController().signal) => {
   const execute = runtime.createTools().find((tool) => tool.name === "exec");
+
   if (!execute) {
     throw new Error("exec tool is missing");
   }
+
   return execute.execute(
     "call-1",
     { code: 'text("ok")' },
@@ -42,12 +45,15 @@ const executeCode = (runtime: CodeModeRuntime, signal = new AbortController().si
 
 const createHostClientStub = () => {
   const client = new CodeModeHostClient("unused");
+
   const execute = vi.spyOn(client, "execute").mockResolvedValue({
     cellId: "cell-1",
     contentItems: [],
     kind: "result",
   });
+
   const shutdown = vi.spyOn(client, "shutdown").mockResolvedValue();
+
   return {
     client,
     execute,
@@ -66,6 +72,7 @@ describe("Codex code mode", () => {
     });
     const runtime = new CodeModeRuntime({ createClient: async () => stub.client });
     const wait = runtime.createTools().find((tool) => tool.name === "wait");
+
     if (!wait) throw new Error("wait tool is missing");
     expect(wait.parameters).toMatchObject({
       additionalProperties: false,
@@ -77,6 +84,7 @@ describe("Codex code mode", () => {
       },
     });
     expect(Value.Check(wait.parameters, { cell_id: "557", elapsedMs: 23_000 })).toBe(false);
+
     const result = await wait.execute(
       "wait-1",
       { cell_id: "557" },
@@ -84,6 +92,7 @@ describe("Codex code mode", () => {
       undefined,
       TEST_EXTENSION_CONTEXT,
     );
+
     expect(result.content).toEqual([
       { type: "text", text: 'Still running. Call wait({ cell_id: "557" })' },
     ]);
@@ -111,13 +120,14 @@ describe("Codex code mode", () => {
         type: "object",
       },
     });
+
     expect(toWireToolDefinition(nested)).toMatchObject({
       kind: "function",
       name: "pi_subagents__spawn_agent",
-      output_schema: expect.objectContaining({
+      output_schema: {
         additionalProperties: false,
         required: ["agent_id", "nickname"],
-      }),
+      },
       tool_name: {
         name: "spawn_agent",
         namespace: "pi_subagents",
@@ -174,9 +184,11 @@ describe("Codex code mode", () => {
 
   it("closes an in-flight client instead of publishing it after shutdown", async () => {
     const starting = Promise.withResolvers<CodeModeHostClient>();
+
     const factory = vi.fn<(signal: AbortSignal | undefined) => Promise<CodeModeHostClient>>(
       async () => await starting.promise,
     );
+
     const runtime = new CodeModeRuntime({ createClient: factory });
     const execution = executeCode(runtime);
     const stub = createHostClientStub();
@@ -195,12 +207,15 @@ describe("Codex code mode", () => {
   it("coalesces concurrent client startup and shutdown", async () => {
     const shared = createHostClientStub();
     const starting = Promise.withResolvers<CodeModeHostClient>();
+
     const sharedFactory = vi.fn<(signal: AbortSignal | undefined) => Promise<CodeModeHostClient>>(
       async () => await starting.promise,
     );
+
     const sharedRuntime = new CodeModeRuntime({
       createClient: sharedFactory,
     });
+
     const first = executeCode(sharedRuntime);
     const second = executeCode(sharedRuntime);
 
@@ -215,13 +230,17 @@ describe("Codex code mode", () => {
   it("keeps shared client startup alive when one caller aborts", async () => {
     const starting = Promise.withResolvers<CodeModeHostClient>();
     let lifetimeSignal: AbortSignal | undefined;
+
     const factory = vi.fn<(signal: AbortSignal) => Promise<CodeModeHostClient>>(async (signal) => {
       lifetimeSignal = signal;
+
       return await starting.promise;
     });
+
     const runtime = new CodeModeRuntime({ createClient: factory });
     const controller = new AbortController();
     const first = executeCode(runtime, controller.signal);
+
     const firstResult = (async (): Promise<Awaited<typeof first> | Error> => {
       try {
         return await first;
@@ -229,6 +248,7 @@ describe("Codex code mode", () => {
         return error instanceof Error ? error : new Error(String(error));
       }
     })();
+
     const second = executeCode(runtime);
     const stub = createHostClientStub();
 
@@ -277,10 +297,12 @@ describe("Codex code mode", () => {
 
   it("retries client creation after a startup failure", async () => {
     const retry = createHostClientStub();
+
     const retryFactory = vi
       .fn<() => Promise<CodeModeHostClient>>()
       .mockRejectedValueOnce(new Error("start failed"))
       .mockResolvedValueOnce(retry.client);
+
     const retryRuntime = new CodeModeRuntime({ createClient: retryFactory });
     await expect(executeCode(retryRuntime)).rejects.toThrow("start failed");
     await expect(executeCode(retryRuntime)).resolves.toBeDefined();
@@ -291,6 +313,7 @@ describe("Codex code mode", () => {
 
   it("provides native-style runtime and nested tool instructions", () => {
     const runtime = new CodeModeRuntime();
+
     const definition = {
       description: "Runs a test operation.",
       execute: async () => ({ content: [], details: {} }),
@@ -298,6 +321,7 @@ describe("Codex code mode", () => {
       name: "test",
       parameters: Type.Object({ value: Type.String() }, { additionalProperties: false }),
     };
+
     runtime.setNestedTools([{ definition }]);
     const tools = runtime.createTools();
 
@@ -324,6 +348,7 @@ describe("Codex code mode", () => {
     const renderResult = new CodeModeRuntime()
       .createTools()
       .find((tool) => tool.name === "exec")?.renderResult;
+
     if (!renderResult) {
       throw new Error("exec renderer is missing");
     }
@@ -382,6 +407,7 @@ describe("Codex code mode", () => {
       },
       ctx,
     );
+
     expect(prompt).toHaveProperty(
       "systemPrompt",
       expect.stringContaining("Tools available in exec:"),
@@ -390,6 +416,7 @@ describe("Codex code mode", () => {
     expect(augmentedPrompt).toContain(
       "Current working directory: /tmp\n\nTools available in exec:",
     );
+
     const [duplicate] = await host.emit(
       "before_agent_start",
       {
@@ -400,6 +427,7 @@ describe("Codex code mode", () => {
       },
       ctx,
     );
+
     expect(duplicate).toBeUndefined();
   });
 
@@ -416,6 +444,7 @@ describe("Codex code mode", () => {
       content: [{ text: params.value, type: "text" }],
       details: {},
     }));
+
     const nested = toNestedTool({
       definition: {
         description: "test",
@@ -425,6 +454,7 @@ describe("Codex code mode", () => {
         parameters: Type.Object({ value: Type.String() }, { additionalProperties: false }),
       },
     });
+
     const context = {
       cwd: "/tmp",
       extensionContext: TEST_EXTENSION_CONTEXT,
@@ -502,6 +532,7 @@ describe("Codex code mode", () => {
       content: [{ text: params.patch, type: "text" }],
       details: {},
     }));
+
     const nested = toNestedTool({
       definition: {
         constrainedSampling: {
@@ -649,6 +680,26 @@ describe("Codex code mode", () => {
     });
   });
 
+  it.each(["5", true, null, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid exec yield time %j without coercion",
+    (yieldTime) => {
+      const source = `// @exec: ${JSON.stringify({ yield_time_ms: yieldTime })}\ntext("ok")`;
+      expect(() => parseExecSource(source)).toThrow("yield_time_ms must be a safe integer");
+    },
+  );
+
+  it("preserves exec pragma defaults and field-specific bounds", () => {
+    expect(parseExecSource('// @exec: {}\ntext("ok")')).toStrictEqual({
+      code: 'text("ok")',
+      maxOutputTokens: null,
+      yieldTimeMs: null,
+    });
+    expect(() => parseExecSource('// @exec: {"max_output_tokens": 0}\ntext("ok")')).toThrow(
+      "max_output_tokens must be a safe integer from 1 to 100000",
+    );
+    expect(() => parseExecSource('// @exec: {"yield_time_ms": 1e400}\ntext("ok")')).toThrow();
+  });
+
   it("rejects ambiguous runtime replies and unsafe message IDs", () => {
     expect(
       Value.Check(RuntimeResponseWireSchema, {
@@ -687,13 +738,15 @@ describe("Codex code mode", () => {
           type: "execute/initialResponse",
         }),
       );
+
       if (message.type !== "execute/initialResponse" || message.result.status !== "ok") {
         throw new Error("Expected a successful host reply");
       }
+
       expect(runtimeResponseFromValue(message.result.value)).toStrictEqual({
         cellId: "1",
         contentItems: [{ type: "input_text", text: "42" }],
-        errorText: errorText ?? undefined,
+        ...(errorText != null ? { errorText } : {}),
         kind: "result",
       });
     },
@@ -718,11 +771,13 @@ describe("Codex code mode", () => {
         throw new Error("hostile getter");
       },
     };
+
     const hostileArray = new Proxy([1], {
       get: () => {
         throw new Error("hostile array accessor");
       },
     });
+
     const revoked = Proxy.revocable({}, {});
     revoked.revoke();
 
@@ -731,35 +786,213 @@ describe("Codex code mode", () => {
     }
   });
 
-  it.each([NaN, Infinity, -Infinity])("preserves trace rejection of non-finite %s", (value) => {
-    expect(sanitizeTraceInput(value, 100)).toBe("[unavailable object]");
+  it.each([NaN, Infinity, -Infinity])("normalizes non-finite %s to JSON null", (value) => {
+    expect(sanitizeTraceInput(value, 100)).toBeNull();
   });
 
-  it("preserves trace primitives, dates, circular references, and value budgets", () => {
-    const primitives = [null, undefined, true, false, 0, -0, 1.5, "text"];
-    expect(sanitizeTraceInput(primitives, 100)).toStrictEqual(primitives);
-    expect(sanitizeTraceInput([1n, Symbol("test")], 100)).toStrictEqual(["1", "Symbol(test)"]);
+  it("uses detached JSON semantics for diagnostic snapshots", () => {
+    expect(sanitizeTraceInput([null, undefined, true, -0, 1.5], 100)).toStrictEqual([
+      null,
+      null,
+      true,
+      0,
+      1.5,
+    ]);
+    expect(sanitizeTraceInput({ absent: undefined, big: 1n }, 100)).toStrictEqual({});
+    expect(sanitizeTraceInput([1n, Symbol("test")], 100)).toStrictEqual([null, null]);
     expect(sanitizeTraceInput(new Date("2026-01-01"), 100)).toBe("2026-01-01T00:00:00.000Z");
+    expect(sanitizeTraceInput(new Date(NaN), 100)).toBeNull();
+    const input = { path: "file.ts", nested: { count: 1 } };
+    const snapshot = sanitizeTraceInput(input, 1000);
+    input.nested.count = 2;
+    expect(snapshot).toStrictEqual({ path: "file.ts", nested: { count: 1 } });
+    const shared = { count: 1 };
+    expect(sanitizeTraceInput([shared, shared], 100)).toStrictEqual([shared, shared]);
     const circular: unknown[] = [];
     circular.push(circular);
     expect(sanitizeTraceInput(circular, 100)).toStrictEqual(["[circular]"]);
-    expect(sanitizeTraceInput("text", 0)).toBe("[value limit]");
-    expect(sanitizeTraceInput("a".repeat(100), 30)).toBe("aaaaaaaa[value truncated]");
-    expect(sanitizeTraceInput([1, 2], 2)).toStrictEqual([1, "[values omitted]"]);
-    expect(sanitizeTraceInput({ first: 1, second: 2 }, 2)).toStrictEqual({
-      first: "[value limit]",
-      trace_truncated: true,
+  });
+
+  it("preserves complete strings and structures that fit the serialized budget", () => {
+    const command = "x".repeat(9000);
+    expect(sanitizeTraceInput(command, 16384)).toBe(command);
+    expect(sanitizeTraceInput({ cmd: command }, 16384)).toEqual({ cmd: command });
+
+    for (const value of [
+      command,
+      { cmd: command },
+      ["a", "b", "c", "d"],
+      { nested: { 'escaped"key': "\u0000\n".repeat(50) } },
+      { empty: "" },
+    ]) {
+      expect(sanitizeTraceInput(value, JSON.stringify(value).length)).toEqual(value);
+    }
+
+    expect(sanitizeTraceInput({ ignored: undefined, value: "a" }, 13)).toEqual({ value: "a" });
+  });
+
+  it("retains near-budget commands instead of discarding their objects", () => {
+    for (const input of [
+      { cmd: "x".repeat(16376) },
+      { cmd: "x".repeat(16000), n: Array.from({ length: 34 }, () => 1234567890) },
+      { cmd: "x".repeat(100_000) },
+    ]) {
+      const result = sanitizeTraceInput(input, 16384);
+      expect(result).toHaveProperty("cmd", expect.stringMatching(/\[value truncated\]$/));
+      expect(JSON.stringify(result).length).toBeLessThanOrEqual(16384);
+    }
+  });
+
+  it("shortens multiple strings deterministically without retry exhaustion", () => {
+    const input = {
+      first: "a".repeat(100),
+      second: "b".repeat(100),
+      third: "c".repeat(100),
+      kind: "patch",
+    };
+
+    const result = sanitizeTraceInput(input, 110);
+    expect(result).toEqual(sanitizeTraceInput(input, 110));
+    expect(result).toMatchObject({
+      first: "[value truncated]",
+      second: "[value truncated]",
+      kind: "patch",
     });
+    expect(result).toHaveProperty("third", expect.stringMatching(/\[value truncated\]$/));
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(110);
+
+    // The allocation guard clips bodies rather than rejecting the whole value.
+    const many = Object.fromEntries(
+      Array.from({ length: 100 }, (_, index) => [index, "x".repeat(100_000)]),
+    );
+
+    const snapshot = sanitizeTraceInput(many, 16384);
+    expect(snapshot).not.toBe("[value limit]");
+    expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(16384);
+  });
+
+  it("accounts for escaping and never splits surrogate pairs while shortening", () => {
+    for (const text of ["😀".repeat(100), "\u0000".repeat(100), '"\\'.repeat(100)]) {
+      for (const budget of [29, 30, 31, 100]) {
+        const result = sanitizeTraceInput(text, budget);
+        /* oxlint-disable anti-slop/no-runtime-typeof -- Assert the serializer preserved a string before inspecting its truncation marker; accepting another JSON variant would mask a regression. */
+        expect(typeof result).toBe("string");
+
+        if (typeof result !== "string") throw new Error("Expected a string snapshot");
+        /* oxlint-enable anti-slop/no-runtime-typeof */
+
+        expect(result.endsWith("[value truncated]")).toBe(true);
+        expect(result.isWellFormed()).toBe(true);
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(budget);
+      }
+    }
+  });
+
+  it("evaluates arbitrary hooks only once even when a snapshot needs reduction", () => {
+    let projections = 0;
+    let reads = 0;
+
+    const input = {
+      toJSON() {
+        projections += 1;
+
+        return {
+          get cmd() {
+            reads += 1;
+
+            return "x".repeat(100_000);
+          },
+        };
+      },
+    };
+
+    expect(sanitizeTraceInput(input, 100)).toHaveProperty(
+      "cmd",
+      expect.stringMatching(/\[value truncated\]$/),
+    );
+    expect(projections).toBe(1);
+    expect(reads).toBe(1);
+  });
+
+  it("marks cut strings and falls back for exhausted whole-value budgets", () => {
+    expect(sanitizeTraceInput("text", 0)).toBe("[value limit]");
+    expect(sanitizeTraceInput("a".repeat(100), 30)).toBe("a".repeat(11) + "[value truncated]");
+    expect(sanitizeTraceInput([1, 2], 2)).toBe("[value limit]");
+    expect(sanitizeTraceInput({ first: 1, second: 2 }, 2)).toBe("[value limit]");
+    expect(
+      sanitizeTraceInput(
+        Array.from({ length: 4097 }, () => null),
+        100_000,
+      ),
+    ).toBe("[value limit]");
+    expect(sanitizeTraceInput({ ["k".repeat(1000)]: 1 }, 100)).toBe("[value limit]");
+    expect(sanitizeTraceInput("\u0000".repeat(1000), 100)).toBe(
+      "\u0000".repeat(13) + "[value truncated]",
+    );
+    const input = { patch: "*** Begin Patch\n" + "x".repeat(1000) };
+    const result = sanitizeTraceInput(input, 100);
+    expect(Object.keys(wireRecord(result))).toEqual(["patch"]);
+    expect(result).toHaveProperty("patch", expect.stringMatching(/\[value truncated\]$/));
+  });
+
+  it("bounds depth and stops visiting siblings on node exhaustion", () => {
     let deep: unknown[] = [];
-    for (let i = 0; i < 13; i += 1) {
-      deep = [deep];
-    }
-    expect(JSON.stringify(sanitizeTraceInput(deep, 100))).toContain("[depth limit]");
-    const manyNodes = Array.from({ length: 4097 }, () => null);
-    const sanitized = sanitizeTraceInput(manyNodes, 100_000);
-    if (!Array.isArray(sanitized)) {
-      throw new Error("Expected a sanitized array");
-    }
-    expect(sanitized.slice(-2)).toStrictEqual(["[value limit]", "[value limit]"]);
+
+    for (let i = 0; i < 13; i += 1) deep = [deep];
+    expect(JSON.stringify(sanitizeTraceInput(deep, 1000))).toContain("[Array]");
+    let visits = 0;
+
+    const leaf = {
+      get value() {
+        visits += 1;
+
+        return null;
+      },
+    };
+
+    const input = Array.from({ length: 4096 }, () => leaf);
+    expect(sanitizeTraceInput(input, 100_000)).toBe("[value limit]");
+    expect(visits).toBeLessThanOrEqual(2048);
+  });
+
+  it("contains nested failures and explicitly honors toJSON", () => {
+    expect(
+      sanitizeTraceInput(
+        {
+          good: 1,
+          bad: {
+            get value() {
+              throw new Error("hostile");
+            },
+          },
+        },
+        100,
+      ),
+    ).toBe("[unavailable object]");
+    expect(sanitizeTraceInput({ toJSON: () => ({ value: "projected" }) }, 100)).toStrictEqual({
+      value: "projected",
+    });
+    expect(
+      sanitizeTraceInput(
+        {
+          toJSON: () => {
+            throw new Error("hostile");
+          },
+        },
+        100,
+      ),
+    ).toBe("[unavailable object]");
+    let calls = 0;
+
+    const input = {
+      toJSON: () => {
+        calls += 1;
+
+        return null;
+      },
+    };
+
+    expect(sanitizeTraceInput(input, 0)).toBe("[value limit]");
+    expect(calls).toBe(0);
   });
 });

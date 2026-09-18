@@ -64,6 +64,23 @@ class CompactionTest(TestCase):
         )
         return json.loads(result.stdout)
 
+    def test_malformed_containers_do_not_throw_or_hide_independent_metrics(self):
+        for value in [None, [], {"agent": []}, {"agent": {"extra": []}}, {"steps": "invalid"}]:
+            with self.subTest(value=value):
+                result = self._validate(value)
+                self.assertEqual(result["valid_experiment"], 0)
+                self.assertEqual(result["compaction_attempts"], 0)
+
+        value = trajectory({**manifest(), "platform": 42}, [attempt(7)])
+        value["steps"].insert(0, None)
+        value["steps"].insert(1, {"extra": "invalid"})
+        result = self._validate(value)
+        self.assertEqual(result["manifest_valid"], 0)
+        self.assertEqual(result["valid_experiment"], 0)
+        self.assertEqual(result["compaction_attempts"], 1)
+        for metric in ["mechanism_valid", "boundary_valid", "outcome_valid", "agent_continuation"]:
+            self.assertEqual(result[metric], 1, metric)
+
     def _grade(self, task, value, replacements=()):
         grader_path = TASKS_DIR / task / "steps/implement/tests/grade.mjs"
         with TemporaryDirectory() as directory:

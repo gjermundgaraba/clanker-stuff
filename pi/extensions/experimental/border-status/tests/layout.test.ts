@@ -3,13 +3,17 @@ import { describe, expect, it } from "vite-plus/test";
 import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 import { renderBorder } from "../layout.js";
 import type { StatusEntry } from "../layout.js";
+
 const theme = createIdentityTheme();
+
 const color = (s: string) => `\x1b[34m${s}\x1b[0m`;
+
 const entry: StatusEntry = {
   owner: "questions",
   key: "inbox",
   status: { text: "3", icon: { unicode: "✉", ascii: "mail", nerd: "\uF0E0" }, priority: 100 },
 };
+
 const render = (line: string, entries: StatusEntry[] = [entry]) =>
   renderBorder(line, visibleWidth(line), entries, "unicode", theme, color);
 
@@ -32,6 +36,7 @@ describe("border layout", () => {
       const original = "─".repeat(width);
       expect(visibleWidth(render(original))).toBe(width);
     }
+
     const original = "── Working ──";
     expect(render(original)).toBe(original);
     expect(render("unsupported editor border")).toBe("unsupported editor border");
@@ -44,6 +49,7 @@ it.each(["👩‍💻", "می\u200Cروم"])("preserves joined display content a
   const result = render("─".repeat(40), [
     { owner: "joined", key: "display", status: { text, icon: { unicode: "👩‍💻" } } },
   ]);
+
   expect(stripTerminalSequences(result)).toContain(`👩‍💻 ${text}`);
   expect(visibleWidth(result)).toBe(40);
 });

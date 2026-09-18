@@ -18,8 +18,10 @@ describe("usage cache", () => {
     let now = 10_000;
     let fetches = 0;
     const cache = new UsageCache({ now: () => now, ttlMs: 1000 });
+
     const fetcher = async () => {
       fetches += 1;
+
       return {
         ok: true as const,
         snapshot: snapshot({ fetchedAt: now }),
@@ -45,6 +47,7 @@ describe("usage cache", () => {
     const fetcher = async () => {
       starts += 1;
       const snap = await gate;
+
       return { ok: true as const, snapshot: snap };
     };
 
@@ -77,6 +80,7 @@ describe("usage cache", () => {
     }));
 
     now = 2000;
+
     const result = await cache.getOrFetch("openai-codex", true, async () => ({
       error: { kind: "failure" as const, message: "boom" },
       ok: false as const,

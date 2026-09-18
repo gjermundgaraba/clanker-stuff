@@ -8,14 +8,17 @@ describe("Codex routing cookies", () => {
   it("preserves synchronous transport failures", () => {
     const request = createCodexHttp();
     const failure = new Error("dispatch failed");
+
     const fetch = vi.fn<typeof globalThis.fetch>(() => {
       throw failure;
     });
+
     expect(() => request(origin, undefined, fetch)).toThrow(failure);
   });
 
   it("shares only routing cookies across endpoints and auth owners", async () => {
     const request = createCodexHttp();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(
@@ -27,7 +30,9 @@ describe("Codex routing cookies", () => {
         }),
       )
       .mockResolvedValue(new Response());
+
     await request(origin, { headers: { authorization: "Bearer first" } }, fetch);
+
     for (const endpoint of ["codex/models", "wham/usage", "codex/responses"]) {
       await request(
         `https://chatgpt.com/backend-api/${endpoint}`,
@@ -44,6 +49,7 @@ describe("Codex routing cookies", () => {
 
   it("enforces host, path, HTTPS and suffix boundaries", async () => {
     const request = createCodexHttp();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(
@@ -54,7 +60,9 @@ describe("Codex routing cookies", () => {
         }),
       )
       .mockResolvedValue(new Response());
+
     await request(origin, undefined, fetch);
+
     for (const url of [
       "https://chatgpt.com/",
       "https://chatgpt.com/backend-api-evil",
@@ -70,6 +78,7 @@ describe("Codex routing cookies", () => {
 
   it("honors Domain, expiry, deletion, and explicit caller cookies", async () => {
     const request = createCodexHttp();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(
@@ -80,6 +89,7 @@ describe("Codex routing cookies", () => {
         }),
       )
       .mockResolvedValue(new Response());
+
     await request(origin, undefined, fetch);
     await request("https://sub.chatgpt.com/", undefined, fetch);
     expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get("cookie")).toBe("__oailb=route");
@@ -113,12 +123,16 @@ describe("Codex routing cookies", () => {
     "protects automatic redirects while preserving %s policy",
     async (redirect) => {
       const request = createCodexHttp();
+
       const response = new Response(null, {
         status: 302,
         headers: { location: "https://example.org/" },
       });
+
       const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(response);
-      expect(await request(origin, { redirect }, fetch)).toBe(response);
+      expect(await request(origin, redirect === undefined ? {} : { redirect }, fetch)).toBe(
+        response,
+      );
       expect(fetch.mock.calls[0]?.[1]?.redirect).toBe(redirect === "manual" ? "manual" : "error");
     },
   );
@@ -136,17 +150,20 @@ describe("Codex routing cookies", () => {
     );
     await second(origin, undefined, async (_input, init) => {
       expect(new Headers(init?.headers).has("cookie")).toBe(false);
+
       return new Response();
     });
   });
 
   it("ignores invalid domains and cookies from custom endpoints", async () => {
     const request = createCodexHttp();
+
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(null, {
         headers: { "set-cookie": "__oailb=bad; Domain=chatgpt.com; Path=/" },
       }),
     );
+
     await request("https://example.org/", undefined, fetch);
     await request("http://chatgpt.com/", undefined, fetch);
     fetch.mockResolvedValueOnce(

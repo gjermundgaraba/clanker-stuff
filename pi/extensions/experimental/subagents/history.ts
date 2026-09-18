@@ -4,12 +4,14 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 export type ForkTurns = "none" | "all" | number;
 
 type ContextMessage = ReturnType<typeof sessionEntryToContextMessages>[number];
+
 type ForkedMessage = Extract<ContextMessage, { role: "assistant" | "user" }>;
 
 const sanitizeMessage = (message: ContextMessage): ForkedMessage | undefined => {
   if (message.role === "user") {
     return structuredClone(message);
   }
+
   if (message.role === "compactionSummary") {
     return {
       content: `Previous conversation summary:\n${message.summary}`,
@@ -17,6 +19,7 @@ const sanitizeMessage = (message: ContextMessage): ForkedMessage | undefined => 
       timestamp: message.timestamp,
     };
   }
+
   if (
     message.role !== "assistant" ||
     (message.stopReason !== "stop" && message.stopReason !== "length")
@@ -25,9 +28,11 @@ const sanitizeMessage = (message: ContextMessage): ForkedMessage | undefined => 
   }
 
   const content = message.content.filter((item) => item.type === "text");
+
   if (content.length === 0) {
     return undefined;
   }
+
   return {
     api: message.api,
     content: structuredClone(content),
@@ -62,15 +67,19 @@ export const forkHistory = (
   }
 
   let messages = entries.flatMap(sessionEntryToContextMessages);
+
   if (turns !== "all") {
     let remaining = turns;
     let start = messages.length;
+
     while (start > 0 && remaining > 0) {
       start -= 1;
+
       if (messages[start]?.role === "user") {
         remaining -= 1;
       }
     }
+
     messages = messages.slice(start);
   }
 

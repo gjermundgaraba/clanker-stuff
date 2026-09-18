@@ -13,6 +13,7 @@ import type { Static } from "typebox";
 import type { PromptInput } from "../runtime.js";
 
 const STRICT = { additionalProperties: false } as const;
+
 export const V1InputItemSchema = Type.Union([
   Type.Object({ text: Type.String(), type: Type.Literal("text") }, STRICT),
   Type.Object({ image_url: Type.String(), type: Type.Literal("image") }, STRICT),
@@ -26,16 +27,19 @@ export const V1InputItemSchema = Type.Union([
     STRICT,
   ),
 ]);
+
 export type V1InputItem = Static<typeof V1InputItemSchema>;
 
 const DATA_IMAGE =
   /^data:(?<mimeType>image\/(?:gif|jpeg|png|webp));base64,(?<data>[a-z0-9+/=\s]+)$/iu;
+
 const LOCAL_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 
 const localImage = async (cwd: string, file: string): Promise<ImageContent> => {
   const root = await realpath(cwd);
   const target = await realpath(path.resolve(cwd, file));
   const relative = path.relative(root, target);
+
   if (
     relative === "" ||
     relative === ".." ||
@@ -44,11 +48,15 @@ const localImage = async (cwd: string, file: string): Promise<ImageContent> => {
   ) {
     throw new Error("local_image must resolve to a file inside the cwd");
   }
+
   const mimeType = await detectSupportedImageMimeTypeFromFile(target);
+
   if (mimeType === null || !LOCAL_IMAGE_MIME_TYPES.has(mimeType)) {
     throw new Error("local_image must contain a PNG, JPEG, GIF, or WebP image");
   }
+
   const data = await readFile(target);
+
   return {
     data: data.toString("base64"),
     mimeType,
@@ -64,10 +72,13 @@ const skillText = async (
     (candidate) =>
       candidate.name === item.name && path.resolve(candidate.filePath) === path.resolve(item.path),
   );
+
   if (skill === undefined) {
     throw new Error(`Unknown skill: ${item.name}`);
   }
+
   const body = stripFrontmatter(await readFile(skill.filePath, "utf-8")).trim();
+
   return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
 };
 
@@ -81,10 +92,12 @@ export const prepareInput = async (
   if ((message === undefined) === (items === undefined)) {
     throw new Error("Provide exactly one of message or items");
   }
+
   if (message !== undefined) {
     if (message.trim() === "") {
       throw new Error("message must not be blank");
     }
+
     return { text: message };
   }
 
@@ -93,36 +106,48 @@ export const prepareInput = async (
       if (item.type === "text") {
         return item.text;
       }
+
       if (item.type === "skill") {
         return await skillText(item, skills);
       }
+
       if (item.type === "local_image") {
         if (!trusted) {
           throw new Error("local_image requires a trusted project");
         }
+
         return await localImage(cwd, item.path);
       }
+
       const match = DATA_IMAGE.exec(item.image_url);
+
       if (!match?.groups) {
         throw new Error("image_url must be a base64 PNG, JPEG, GIF, or WebP data URL");
       }
+
+      // DATA_IMAGE has mandatory named data and mimeType captures on every successful match.
       return {
-        data: match.groups.data.replaceAll(/\s/gu, ""),
-        mimeType: match.groups.mimeType.toLowerCase(),
+        data: match.groups.data!.replaceAll(/\s/gu, ""),
+        mimeType: match.groups.mimeType!.toLowerCase(),
         type: "image",
       };
     }),
   );
+
   const text = prepared.filter((item): item is string => !(item instanceof Object));
   const images = prepared.filter((item): item is ImageContent => item instanceof Object);
+
   if (text.every((value) => value.trim() === "") && images.length === 0) {
     throw new Error("items must contain text, an image, or a skill");
   }
+
   const input: PromptInput = {
     text: text.join("\n\n") || "Review the attached image input.",
   };
+
   if (images.length > 0) {
     input.images = images;
   }
+
   return input;
 };

@@ -13,15 +13,19 @@ export const observeRenderWork = () => {
   const fg = Theme.prototype.fg;
   vi.spyOn(Text.prototype, "render").mockImplementation(function (this: Text, width) {
     const lines = render.call(this, width);
+
     if (previous.get(this) !== lines) {
       previous.set(this, lines);
       layouts();
     }
+
     return lines;
   });
   vi.spyOn(Theme.prototype, "fg").mockImplementation(function (this: Theme, color, text) {
     if (color.startsWith("syntax")) highlights();
+
     return fg.call(this, color, text);
   });
+
   return { layouts, highlights };
 };

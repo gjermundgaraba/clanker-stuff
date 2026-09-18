@@ -16,6 +16,7 @@ const checkpoint = () => {
       type: "compaction",
     },
   ];
+
   return {
     identity: {
       api: "openai-codex-responses",
@@ -55,6 +56,7 @@ const checkpoint = () => {
 describe("checkpoint entry renderer", () => {
   it("displays human-readable metrics and discloses no checkpoint internals", () => {
     const display = formatCheckpointEntry(checkpoint());
+
     const malformed = formatCheckpointEntry({
       encrypted_content: "SECRET_MALFORMED",
       version: 9,

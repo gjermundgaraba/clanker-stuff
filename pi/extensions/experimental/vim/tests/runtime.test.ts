@@ -150,8 +150,10 @@ it("Ctrl+R reaches extension shortcuts only in Insert", () => {
   editor.onExtensionShortcut = (data) => {
     if (data !== "\x12") return false;
     historyCalls++;
+
     return true;
   };
+
   keys("\x12");
   expect(historyCalls).toBe(1);
   keys("\x1b", "\x12");
@@ -223,6 +225,7 @@ it("native arrow recall and draft restoration establish separate editing boundar
 it("dot compares paste ownership, not marker IDs renumbered by native Backspace", () => {
   const { editor, keys } = setup();
   const payloads = ["A\n", "B\n", "C\n"].map((text) => text.repeat(50));
+
   for (const payload of payloads) keys("\x1b[200~" + payload + "\x1b[201~");
   keys("\x1b", "0", "a", "\x7f", "\x1b");
   expect(editor.getText()).toBe(payloads[1]! + payloads[2]!);
@@ -240,11 +243,13 @@ it("insertion repeat follows edits after cursor movement, not equal-content posi
 it("completion text is repeated as an edit without replaying its callback", async () => {
   const { editor, keys, normal } = setup("aaa bbb");
   normal();
+
   const complete = vi.fn((lines: string[], row: number, col: number) => ({
     lines: [lines[0]!.slice(0, col) + "a" + lines[0]!.slice(col)],
     cursorLine: row,
     cursorCol: col + 1,
   }));
+
   editor.setAutocompleteProvider({
     getSuggestions: async () => ({ prefix: "", items: [{ value: "a", label: "a" }] }),
     applyCompletion: complete,
@@ -274,6 +279,7 @@ it.each(["paste", "programmatic"])(
     const { editor, keys, normal } = setup("aaa bbb");
     normal();
     keys("i", "\x1b[C");
+
     if (source === "paste") keys("\x1b[200~a\x1b[201~");
     else editor.insertTextAtCursor("a");
     keys("\x1b", "w", ".");

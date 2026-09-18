@@ -95,6 +95,7 @@
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "eventsource-parser": "4.1.0",
     "js-tiktoken": "1.0.21",
+    "safe-stable-stringify": "catalog:",
     "uuid": "14.0.2"
   },
   "devDependencies": {

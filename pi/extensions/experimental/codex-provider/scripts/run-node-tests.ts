@@ -29,14 +29,18 @@ export const runNodeTests = (cwd: string, timeout = 60_000) => {
     ],
     { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout },
   );
+
   let summary: Static<typeof SummarySchema> | undefined;
+
   try {
-    const value = JSON.parse(result.stdout ?? "");
+    const value: unknown = JSON.parse(result.stdout ?? "");
+
     if (Value.Check(SummarySchema, value)) {
       summary = value;
     }
   } catch {
     // A timeout or runner startup failure can leave the summary absent or incomplete.
   }
+
   return { output: result.stderr ?? "", status: result.status, summary };
 };

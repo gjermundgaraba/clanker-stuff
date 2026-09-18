@@ -54,6 +54,7 @@ describe("usage HTTP boundaries", () => {
     },
   ])("classifies status $status with body $body", async ({ body, status, result }) => {
     vi.stubGlobal("fetch", async () => new Response(body, { status }));
+
     try {
       await expect(
         defaultFetchJson("https://example.test", schema, { timeoutMs: 1000 }),
@@ -67,6 +68,7 @@ describe("usage HTTP boundaries", () => {
     vi.stubGlobal("fetch", async () => {
       throw new Error("connection reset");
     });
+
     try {
       await expect(
         defaultFetchJson("https://example.test", schema, { timeoutMs: 1000 }),

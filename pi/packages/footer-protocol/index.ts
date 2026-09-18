@@ -4,8 +4,11 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 
 export const FOOTER_PROTOCOL_VERSION = 1 as const;
+
 export const FOOTER_READY_EVENT = "clanker-footer:ready";
+
 export const FOOTER_READY_REQUEST_EVENT = "clanker-footer:ready-request";
+
 export const FOOTER_WIDGET_EVENT = "clanker-footer:widget";
 
 const STRICT = { additionalProperties: false } as const;
@@ -18,9 +21,11 @@ export const FooterSpanSchema = Type.Object(
   },
   STRICT,
 );
+
 export type FooterSpan = Static<typeof FooterSpanSchema>;
 
 export const FooterContentSchema = Type.Array(FooterSpanSchema, { maxItems: 32 });
+
 export type FooterContent = Static<typeof FooterContentSchema>;
 
 export const FooterTruncationSchema = Type.Union([
@@ -28,6 +33,7 @@ export const FooterTruncationSchema = Type.Union([
   Type.Literal("middle"),
   Type.Literal("end"),
 ]);
+
 export type FooterTruncation = Static<typeof FooterTruncationSchema>;
 
 export const FooterWidgetHealthStateSchema = Type.Union([
@@ -36,12 +42,14 @@ export const FooterWidgetHealthStateSchema = Type.Union([
   Type.Literal("stale"),
   Type.Literal("error"),
 ]);
+
 export type FooterWidgetHealthState = Static<typeof FooterWidgetHealthStateSchema>;
 
 export const FooterWidgetDisplayDefaultsSchema = Type.Object(
   { enabled: Type.Optional(Type.Boolean()) },
   STRICT,
 );
+
 export type FooterWidgetDisplayDefaults = Static<typeof FooterWidgetDisplayDefaultsSchema>;
 
 export const FooterWidgetHealthSchema = Type.Object(
@@ -52,6 +60,7 @@ export const FooterWidgetHealthSchema = Type.Object(
   },
   STRICT,
 );
+
 export type FooterWidgetHealth = Static<typeof FooterWidgetHealthSchema>;
 
 export const FooterWidgetIconSchema = Type.Object(
@@ -61,6 +70,7 @@ export const FooterWidgetIconSchema = Type.Object(
   },
   STRICT,
 );
+
 export type FooterWidgetIcon = Static<typeof FooterWidgetIconSchema>;
 
 export const FooterWidgetSnapshotSchema = Type.Object(
@@ -78,6 +88,7 @@ export const FooterWidgetSnapshotSchema = Type.Object(
   },
   STRICT,
 );
+
 export type FooterWidgetSnapshot = Static<typeof FooterWidgetSnapshotSchema>;
 
 export const FooterReadyMessageSchema = Type.Object(
@@ -88,6 +99,7 @@ export const FooterReadyMessageSchema = Type.Object(
   },
   STRICT,
 );
+
 export type FooterReadyMessage = Static<typeof FooterReadyMessageSchema>;
 
 export const FooterReadyRequestMessageSchema = Type.Object(
@@ -97,6 +109,7 @@ export const FooterReadyRequestMessageSchema = Type.Object(
   },
   STRICT,
 );
+
 export type FooterReadyRequestMessage = Static<typeof FooterReadyRequestMessageSchema>;
 
 export const FooterWidgetMessageSchema = Type.Union([
@@ -119,11 +132,14 @@ export const FooterWidgetMessageSchema = Type.Union([
     STRICT,
   ),
 ]);
+
 export type FooterWidgetMessage = Static<typeof FooterWidgetMessageSchema>;
 
 /** Committed icon preference, independent of whether the footer itself is enabled. */
 export const FOOTER_ICON_PREFERENCE_EVENT = "clanker-footer:icon-preference";
+
 export const FOOTER_ICON_PREFERENCE_REQUEST_EVENT = "clanker-footer:icon-preference-request";
+
 export const FooterIconPreferenceSchema = Type.Object(
   {
     protocol: Type.Literal(FOOTER_PROTOCOL_VERSION),

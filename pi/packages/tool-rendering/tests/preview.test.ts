@@ -23,12 +23,15 @@ describe("tool preview", () => {
   });
   it("clips heads and tails with the hint beside the omitted rows", () => {
     const create = () => new Text("one\ntwo\nthree\nfour", 0, 0);
+
     const head = preview(create, false, 2)
       .render(80)
       .map((row) => row.trimEnd());
+
     const tail = preview(create, false, 2, "tail")
       .render(80)
       .map((row) => row.trimEnd());
+
     expect(head.slice(0, 2)).toEqual(["one", "two"]);
     expect(head[2]).toContain("2 more lines");
     expect(head[2]).toContain("to expand");
@@ -43,6 +46,7 @@ describe("tool preview", () => {
   });
   it("bounds visual rows, including long lines and multicolumn text", () => {
     const component = preview(() => new Text("中文 " + "word ".repeat(100), 0, 0), false, 3);
+
     for (const width of [1, 2, 20, 80]) {
       const rows = component.render(width);
       expect(rows).toHaveLength(4);
@@ -53,18 +57,22 @@ describe("tool preview", () => {
     let color = "\x1b[31m";
     let creations = 0;
     let renders = 0;
+
     const component = preview(() => {
       creations++;
       const container = new Container();
       container.addChild(new Text(`${color}hello\x1b[0m`, 0, 0));
+
       return {
         invalidate: () => container.invalidate(),
         render(width) {
           renders++;
+
           return container.render(width);
         },
       };
     }, false);
+
     const first = component.render(80);
     expect(component.render(80)).toBe(first);
     expect(renders).toBe(1);

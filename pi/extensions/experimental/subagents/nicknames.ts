@@ -25,16 +25,22 @@ export class NicknamePool {
   choose(role: string | undefined, reserved: ReadonlySet<string>): string {
     const candidates =
       (role === undefined ? undefined : this.#config.roles[role]?.nicknames) ?? DEFAULT_NICKNAMES;
+
     const available = candidates.filter((candidate) => !reserved.has(candidate));
+
     if (available.length > 0) {
-      return available[this.#pick(available.length)];
+      // pick follows randomInt's exclusive upper bound; this branch has at least one candidate.
+      return available[this.#pick(available.length)]!;
     }
 
-    const base = candidates[this.#pick(candidates.length)];
+    // Configuration requires a nonempty nickname list, as does DEFAULT_NICKNAMES.
+    const base = candidates[this.#pick(candidates.length)]!;
     let ordinal = 2;
+
     while (reserved.has(`${base} ${ordinal}`)) {
       ordinal += 1;
     }
+
     return `${base} ${ordinal}`;
   }
 }

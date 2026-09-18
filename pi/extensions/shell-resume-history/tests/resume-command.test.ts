@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -5,6 +6,8 @@ import path from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
+
+import extension from "../index.js";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { patchEnv } from "../../../tests/helpers/env.js";
@@ -40,12 +43,14 @@ describe("resume command", () => {
       [INBOX_ENV]: inbox,
       PI_CODING_AGENT_DIR: agentDir,
     });
+
     return { agentDir, cwd, inbox };
   };
 
   afterEach(async () => {
     restoreEnv?.();
     restoreEnv = undefined;
+
     if (tempRoot) {
       await rm(tempRoot, { force: true, recursive: true });
       tempRoot = undefined;
@@ -56,17 +61,20 @@ describe("resume command", () => {
     const { cwd, inbox } = await setup();
     const sessionManager = SessionManager.create(cwd, undefined, { id: "full-session-id" });
     sessionManager.appendMessage(fauxAssistantMessage("test"));
-    const host = createExtensionHost(() => {});
+    const host = createExtensionHost(extension);
+
     const ctx = host.createContext({
       cwd,
       sessionManager: resumeSession(sessionManager),
     });
 
-    await recordResumeCommand("quit", ctx);
+    await host.emitSessionShutdown(ctx);
 
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(1);
-    await expect(readFile(path.join(inbox, messages[0]), "utf-8")).resolves.toBe(
+    const [message] = messages;
+    assert(message);
+    await expect(readFile(path.join(inbox, message), "utf-8")).resolves.toBe(
       "pi --session full-session-id\n",
     );
   });
@@ -110,9 +118,11 @@ describe("resume command", () => {
     const sessionManager = SessionManager.create(cwd, sessionDir, { id: "full-session-id" });
     sessionManager.appendMessage(fauxAssistantMessage("test"));
     const sessionFile = sessionManager.getSessionFile();
+
     if (sessionFile === undefined) {
       throw new Error("Expected a persisted test session");
     }
+
     const host = createExtensionHost(() => {});
 
     await recordResumeCommand("reload", host.createContext({ cwd, sessionManager }));
@@ -125,6 +135,7 @@ describe("resume command", () => {
     const { cwd, inbox } = await setup();
     const host = createExtensionHost(() => {});
     const sessionManager = SessionManager.inMemory(cwd, { id: "full-session-id" });
+
     const ctx = host.createContext({
       cwd,
       sessionManager: resumeSession(sessionManager),
@@ -146,9 +157,11 @@ describe("resume command", () => {
     const messages = await readdir(inbox);
     expect(messages).toHaveLength(2);
     expect(messages.every((name) => name.endsWith(".command"))).toBeTruthy();
+
     const contents = await Promise.all(
       messages.map((name) => readFile(path.join(inbox, name), "utf-8")),
     );
+
     expect(contents.toSorted()).toStrictEqual(["pi --session first\n", "pi --session second\n"]);
   });
 
@@ -189,6 +202,7 @@ describe("resume command", () => {
 
       const [shellInbox, historyEntry] = output.trim().split("\n");
       expect(historyEntry).toBe(command);
+      assert(shellInbox);
       await expect(access(shellInbox)).rejects.toMatchObject({
         code: "ENOENT",
       });
@@ -231,6 +245,7 @@ describe("resume command", () => {
 
       const [shellInbox, historyEntry] = output.trim().split("\n");
       expect(historyEntry).toBe(command);
+      assert(shellInbox);
       await expect(access(shellInbox)).rejects.toMatchObject({
         code: "ENOENT",
       });

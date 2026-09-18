@@ -16,6 +16,7 @@ const SOURCE_INFO = createSyntheticSourceInfo("<test>", {
   scope: "project",
   source: "test",
 });
+
 const SKILL = {
   baseDir: "/tmp/example",
   description: "Example & verification",
@@ -31,6 +32,7 @@ const createEvent = (selectedTools: string[], skills: Skill[] = [SKILL]): Before
     selectedTools,
     skills,
   } satisfies BuildSystemPromptOptions;
+
   return {
     prompt: "Do the work",
     systemPrompt: "Base system prompt",
@@ -40,6 +42,7 @@ const createEvent = (selectedTools: string[], skills: Skill[] = [SKILL]): Before
 };
 
 const host = createExtensionHost(() => {});
+
 const createContext = (provider = "openai-codex"): ExtensionContext =>
   host.createContext({ model: { ...createToolsModel("gpt-5.6-sol"), provider } });
 

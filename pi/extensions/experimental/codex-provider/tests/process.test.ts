@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 const spawn = vi.hoisted(() => vi.fn());
 
+// oxlint-disable-next-line anti-slop/no-module-mocking -- Platform kill paths cannot spawn real taskkill or process groups in tests.
 vi.mock(import("node:child_process"), async (importOriginal) => ({
   ...(await importOriginal()),
   spawn,
@@ -16,6 +17,7 @@ const platform = Object.getOwnPropertyDescriptor(process, "platform");
 
 afterEach(() => {
   spawn.mockReset();
+
   if (platform !== undefined) {
     Object.defineProperty(process, "platform", platform);
   }

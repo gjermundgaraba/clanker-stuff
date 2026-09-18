@@ -22,6 +22,7 @@ export interface FooterConfigStore {
   save: (config: FooterConfig) => Promise<void>;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem operations may throw arbitrary values; only their optional diagnostic code is inspected.
 const errorCode = (cause: unknown): string | undefined =>
   cause instanceof Object && "code" in cause ? String(cause.code) : undefined;
 
@@ -29,9 +30,11 @@ export const getFooterConfigPath = (): string => getExtensionStoragePaths("foote
 
 export const createFooterConfigStore = (configPath = getFooterConfigPath()): FooterConfigStore => {
   const targetPath = path.resolve(configPath);
+
   return {
     async load() {
       let text: string;
+
       try {
         text = await readFile(targetPath, "utf-8");
       } catch (error) {
@@ -40,11 +43,13 @@ export const createFooterConfigStore = (configPath = getFooterConfigPath()): Foo
             config: cloneFooterConfig(DEFAULT_CONFIG),
           };
         }
+
         return {
           config: cloneFooterConfig(DEFAULT_CONFIG),
           error: `Failed to read ${targetPath}: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
+
       try {
         return {
           config: parseFooterConfig(JSON.parse(text)),
@@ -62,6 +67,7 @@ export const createFooterConfigStore = (configPath = getFooterConfigPath()): Foo
       await withFileMutationQueue(targetPath, async () => {
         await mkdir(path.dirname(targetPath), { recursive: true });
         const temporary = `${targetPath}.tmp-${process.pid}-${randomUUID()}`;
+
         try {
           await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
             encoding: "utf-8",

@@ -21,7 +21,9 @@ export const AuthorizationMetadataSchema = z.union([
   OAuthMetadataSchema,
   OpenIdProviderDiscoveryMetadataSchema,
 ]);
-const issuer = { issuer: z.string().optional() };
+
+const issuer = { issuer: z.string().exactOptional() };
+
 const StateSchema = z.object({
   clientInformation: z
     .union([
@@ -33,12 +35,13 @@ const StateSchema = z.object({
   discoveryState: z
     .object({
       authorizationServerUrl: z.string(),
-      authorizationServerMetadata: AuthorizationMetadataSchema.optional(),
-      resourceMetadata: OAuthProtectedResourceMetadataSchema.optional(),
-      resourceMetadataUrl: z.string().optional(),
+      authorizationServerMetadata: AuthorizationMetadataSchema.exactOptional(),
+      resourceMetadata: OAuthProtectedResourceMetadataSchema.exactOptional(),
+      resourceMetadataUrl: z.string().exactOptional(),
     })
     .optional(),
 });
+
 export type OAuthState = z.infer<typeof StateSchema>;
 
 export const oauthStatePath = (config: HttpServerConfig): string => {
@@ -53,7 +56,9 @@ export const oauthStatePath = (config: HttpServerConfig): string => {
       callbackPort: config.oauth?.callbackPort,
     },
   ]);
+
   const key = createHash("sha256").update(identity).digest("hex");
+
   return path.resolve(getExtensionStoragePaths("mcp").dataDir, "oauth", `${key}.json`);
 };
 
@@ -68,8 +73,10 @@ export const withOAuthLock = async <T>(
   const waiting = signal ? AbortSignal.any([signal, deadline]) : deadline;
   const compromised = new AbortController();
   let release: (() => Promise<void>) | undefined;
+
   while (!release) {
     waiting.throwIfAborted();
+
     try {
       release = await lockfile.lock(file, {
         realpath: false,
@@ -80,10 +87,12 @@ export const withOAuthLock = async <T>(
       await sleep(50, undefined, { signal: waiting });
     }
   }
+
   try {
     signal?.throwIfAborted();
     const result = await run();
     compromised.signal.throwIfAborted();
+
     return result;
   } finally {
     await release();
@@ -111,6 +120,7 @@ export const updateOAuthState = async (
       const state = await readOAuthState(file);
       update(state);
       const temporary = `${file}.${randomUUID()}.tmp`;
+
       try {
         await writeFile(temporary, `${JSON.stringify(state)}\n`, { mode: 0o600, flag: "wx" });
         await rename(temporary, file);

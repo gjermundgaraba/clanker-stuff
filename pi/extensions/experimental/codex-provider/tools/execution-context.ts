@@ -12,9 +12,11 @@ type CapturedContext = ExtensionContext & { [CAPTURED]?: ExecutionSettings };
 export const captureExecutionSettings = (ctx: CapturedContext): ExecutionSettings => {
   if (ctx[CAPTURED]) return ctx[CAPTURED];
   const selected = ctx.model;
+
   const model = selected
     ? (ctx.modelRegistry.find(selected.provider, selected.id) ?? selected)
     : undefined;
+
   return {
     model: model === undefined ? undefined : structuredClone(model),
     thinkingLevel: ctx.thinkingLevel,
@@ -25,14 +27,22 @@ export const captureExecutionSettings = (ctx: CapturedContext): ExecutionSetting
 export const withExecutionSettings = (
   ctx: CapturedContext,
   settings = captureExecutionSettings(ctx),
-): ExtensionContext =>
-  ctx[CAPTURED] === settings
-    ? ctx
-    : Object.defineProperties(Object.create(ctx), {
-        model: { value: settings.model },
-        thinkingLevel: { value: settings.thinkingLevel },
-        [CAPTURED]: { value: settings },
-      });
+): ExtensionContext => {
+  if (ctx[CAPTURED] === settings) {
+    return ctx;
+  }
+
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Object.create keeps live getters; only model, thinking level, and the captured-settings slot are overwritten on the wrapper.
+  const next = Object.create(ctx) as CapturedContext;
+
+  Object.defineProperties(next, {
+    model: { value: settings.model },
+    thinkingLevel: { value: settings.thinkingLevel },
+    [CAPTURED]: { value: settings },
+  });
+
+  return next;
+};
 
 /** One extension instance's current session; no request bodies or credentials retained. */
 export class ToolExecutionSettings {
@@ -52,8 +62,10 @@ export class ToolExecutionSettings {
   beginResponse(sessionId: string): (ids: string[], settings: ExecutionSettings) => void {
     const calls = this.calls;
     const eligible = this.sessionId === sessionId;
+
     return (ids, settings) => {
       if (!eligible || this.calls !== calls || this.sessionId !== sessionId) return;
+
       for (const id of ids) calls.set(id, settings);
     };
   }
@@ -62,6 +74,7 @@ export class ToolExecutionSettings {
     if (sessionId !== this.sessionId) return undefined;
     const settings = this.calls.get(id);
     this.calls.delete(id);
+
     return settings;
   }
 }

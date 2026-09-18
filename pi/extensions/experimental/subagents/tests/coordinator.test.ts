@@ -15,6 +15,7 @@ describe("tree coordinator", () => {
           if (draft.protocolLatch !== "v2") {
             throw new Error("Expected V2");
           }
+
           draft.state.nodes.push({
             nickname: `worker-${index}`,
             path: `/root/worker_${index}`,
@@ -26,12 +27,11 @@ describe("tree coordinator", () => {
         }),
       ),
     );
-    expect(coordinator.state).toMatchObject({
-      revision: 20,
-      state: {
-        nodes: expect.arrayContaining([expect.objectContaining({ path: "/root/worker_19" })]),
-      },
-    });
+    expect(coordinator.state.revision).toBe(20);
+    expect(coordinator.state).toHaveProperty(
+      "state.nodes",
+      expect.arrayContaining([expect.objectContaining({ path: "/root/worker_19" })]),
+    );
     expect(
       coordinator.state.protocolLatch === "v2" ? coordinator.state.state.nodes : [],
     ).toHaveLength(20);
@@ -63,10 +63,12 @@ describe("tree coordinator", () => {
     const coordinator = new TreeCoordinator();
     const failure = new Error("disk unavailable");
     const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
+
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
       write: () => Promise.reject(failure),
     };
+
     await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), false);
     await expect(coordinator.install(store, freshSnapshot("v2", root), true)).rejects.toBe(failure);
     await expect(coordinator.command(() => "unreachable")).rejects.toBe(failure);
@@ -78,13 +80,16 @@ describe("tree coordinator", () => {
     const coordinator = new TreeCoordinator();
     const uncertainty = new Error("directory sync failed");
     const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
+
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
       write: (_serialized, onCommit) => {
         onCommit();
+
         return Promise.resolve(uncertainty);
       },
     };
+
     await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), false);
 
     await coordinator.install(store, freshSnapshot("v2", root), false);

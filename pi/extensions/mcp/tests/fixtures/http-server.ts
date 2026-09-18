@@ -23,12 +23,15 @@ const sendJson = (res: ServerResponse, value: JsonValue, status = 200): void => 
 
 const readJsonObject = async (req: IncomingMessage): Promise<Record<string, JsonValue>> => {
   const chunks: Uint8Array[] = [];
+
   for await (const chunk of req) {
     if (!(chunk instanceof Uint8Array)) {
       throw new TypeError("Expected an HTTP request body byte chunk");
     }
+
     chunks.push(chunk);
   }
+
   return z.record(z.string(), z.json()).parse(JSON.parse(Buffer.concat(chunks).toString("utf-8")));
 };
 
@@ -47,9 +50,11 @@ export const startMcpHttpFixture = async ({
 } = {}) => {
   const state = createFixtureState();
   const legacy = expireSessionOnce || pauseInitialization;
+
   const mcpHandler = createMcpHandler(() => createFixtureMcpServer(scenario, state), {
     legacy: legacy ? "stateless" : "reject",
   });
+
   const initializationGate = Promise.withResolvers<null>();
   const initializationStarted = Promise.withResolvers<null>();
   let initializationCount = 0;
@@ -58,29 +63,38 @@ export const startMcpHttpFixture = async ({
   let toolCallCount = 0;
   let toolGate: Promise<void> | undefined;
   let releaseToolCalls: (() => void) | undefined;
+
   const pauseToolCalls = () => {
     releaseToolCalls?.();
     const gate = Promise.withResolvers<void>();
     toolGate = gate.promise;
     releaseToolCalls = () => gate.resolve();
+
     return releaseToolCalls;
   };
+
   if (scenario === "stalled") pauseToolCalls();
   let malformed = scenario === "malformed";
   let drop = scenario === "drop";
   const requests: { method: string }[] = [];
+
   const handleMcpRequest = toNodeHandler({
     async fetch(request, options) {
       const body = request.method === "POST" ? await request.clone().json() : undefined;
+
       if (isJSONRPCRequest(body)) requests.push({ method: body.method });
+
       if (isJSONRPCRequest(body) && body.method === "tools/call") {
         if (malformed) {
           malformed = false;
+
           return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: "invalid" } });
         }
+
         toolCallCount += 1;
         await toolGate;
       }
+
       // Session-expiry and initialization-gate tests exercise legacy servers.
       if (legacy && isJSONRPCRequest(body) && body.method === "server/discover") {
         return Response.json({
@@ -89,10 +103,12 @@ export const startMcpHttpFixture = async ({
           error: { code: -32601, message: "Method not found" },
         });
       }
+
       if (pauseInitialization && isInitializeRequest(body)) {
         initializationStarted.resolve(null);
         await initializationGate.promise;
       }
+
       if (
         expireSessionOnce &&
         !sessionExpired &&
@@ -101,20 +117,25 @@ export const startMcpHttpFixture = async ({
         body.method === expireSessionOn
       ) {
         sessionExpired = true;
+
         return new Response(null, { status: 404 });
       }
 
       const response = await mcpHandler.fetch(request, options);
+
       if (isJSONRPCRequest(body) && body.method === "server/discover") {
         discoveryCount += 1;
       }
+
       if (isInitializeRequest(body)) {
         initializationCount += 1;
         response.headers.set("mcp-session-id", randomUUID());
       }
+
       return response;
     },
   });
+
   let issuer = "";
   let token = FIXTURE_ACCESS_TOKEN;
   let refreshCount = 0;
@@ -132,8 +153,10 @@ export const startMcpHttpFixture = async ({
         if (drop && req.method === "POST" && req.headers["mcp-protocol-version"]) {
           drop = false;
           req.destroy();
+
           return;
         }
+
         if (oauth && req.headers.authorization !== `Bearer ${token}`) {
           res
             .writeHead(401, {
@@ -141,24 +164,32 @@ export const startMcpHttpFixture = async ({
               "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
             })
             .end(JSON.stringify({ error: "unauthorized" }));
+
           return;
         }
+
         if (insufficientScope) {
           res
             .writeHead(403, {
               "WWW-Authenticate": `Bearer error="insufficient_scope", scope="tools extra", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
             })
             .end();
+
           return;
         }
+
+        // @ts-expect-error The SDK adapter consumes Node IncomingMessage directly, but declares exact method/url optionals unlike Node. Preserve the live stream and its receiver.
         await handleMcpRequest(req, res);
+
         return;
       }
 
       if (url.pathname === "/records") {
         sendJson(res, { records: state.records, operations: state.operations, requests });
+
         return;
       }
+
       if (url.pathname === "/control" && req.method === "POST") {
         switch (url.searchParams.get("action")) {
           case "pause":
@@ -187,21 +218,28 @@ export const startMcpHttpFixture = async ({
             break;
           default:
             sendJson(res, { error: "unknown_control" }, 400);
+
             return;
         }
+
         sendJson(res, { ok: true });
+
         return;
       }
+
       if (url.pathname === "/interaction") {
         res
           .writeHead(200, { "Content-Type": "text/html" })
           .end(
             "<!doctype html><title>MCP local interaction</title><h1>Interaction complete</h1><p>Return to Pi and select Completed. This is separate from OAuth.</p>",
           );
+
         return;
       }
+
       if (!oauth) {
         res.writeHead(404).end();
+
         return;
       }
 
@@ -211,6 +249,7 @@ export const startMcpHttpFixture = async ({
           resource: issuer,
           scopes_supported: ["tools"],
         });
+
         return;
       }
 
@@ -225,23 +264,30 @@ export const startMcpHttpFixture = async ({
           token_endpoint: `${issuer}/token`,
           token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
         });
+
         return;
       }
 
       if (url.pathname === "/authorize") {
         insufficientScope = false;
         const redirectUri = url.searchParams.get("redirect_uri");
+
         if (redirectUri === null) {
           sendJson(res, { error: "invalid_request" }, 400);
+
           return;
         }
+
         const redirect = new URL(redirectUri);
         redirect.searchParams.set("code", "fixture-auth-code");
         const state = url.searchParams.get("state");
+
         if (state !== null) {
           redirect.searchParams.set("state", state);
         }
+
         res.writeHead(302, { Location: redirect.toString() }).end();
+
         return;
       }
 
@@ -251,23 +297,30 @@ export const startMcpHttpFixture = async ({
           client_id: "fixture-client-id",
           client_secret: "fixture-client-secret",
         });
+
         return;
       }
 
       if (url.pathname === "/token" && req.method === "POST") {
         const chunks: Uint8Array[] = [];
+
         for await (const chunk of req) {
           if (chunk instanceof Uint8Array) chunks.push(chunk);
         }
+
         const params = new URLSearchParams(Buffer.concat(chunks).toString());
+
         if (params.get("grant_type") === "refresh_token") {
           if (rejectRefresh || params.get("refresh_token") !== refreshToken) {
             sendJson(res, { error: "invalid_grant" }, 400);
+
             return;
           }
+
           refreshCount += 1;
           refreshToken = `rotated-${refreshCount}`;
         }
+
         sendJson(res, {
           access_token:
             invalidRefreshedToken && params.get("grant_type") === "refresh_token"
@@ -276,6 +329,7 @@ export const startMcpHttpFixture = async ({
           refresh_token: refreshToken,
           token_type: "Bearer",
         });
+
         return;
       }
 
@@ -294,6 +348,7 @@ export const startMcpHttpFixture = async ({
   issuer = `http://127.0.0.1:${port}`;
 
   state.url = `${issuer}/interaction`;
+
   return {
     state,
     requests,

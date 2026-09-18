@@ -4,8 +4,11 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
+
 const WidgetOverrideSchema = Type.Object({ enabled: Type.Optional(Type.Boolean()) }, STRICT);
+
 const WidgetIdSchema = Type.String({ maxLength: 256, minLength: 1 });
+
 const RowSchema = Type.Object(
   {
     center: Type.Array(WidgetIdSchema),
@@ -14,6 +17,7 @@ const RowSchema = Type.Object(
   },
   STRICT,
 );
+
 const FooterConfigSchema = Type.Object(
   {
     enabled: Type.Boolean(),
@@ -57,9 +61,11 @@ export const hasTerminalControl = (value: string): boolean => /\p{Cc}/u.test(val
 
 const codePointLength = (value: string): number => {
   let length = 0;
+
   for (const _codePoint of value) {
     length += 1;
   }
+
   return length;
 };
 
@@ -69,27 +75,34 @@ const validateId = (id: string): void => {
   }
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for the parsed config file.
 export const parseFooterConfig = (value: unknown): FooterConfig => {
   if (!Value.Check(FooterConfigSchema, value)) {
     throw new Error("config must be a strict object");
   }
+
   if (hasTerminalControl(value.separator)) {
     throw new Error("separator must be at most 8 printable code points");
   }
+
   for (const row of value.rows) {
     for (const id of [...row.left, ...row.center, ...row.right]) {
       validateId(id);
     }
   }
+
   const widgets = Object.fromEntries(
     Object.entries(value.widgets).map(([id, override]) => {
       if (id.length === 0 || codePointLength(id) > 256) {
         throw new Error("widget override ID is invalid");
       }
+
       validateId(id);
+
       return [id, override.enabled === undefined ? {} : { enabled: override.enabled }];
     }),
   );
+
   return {
     enabled: value.enabled,
     iconFamily: value.iconFamily,

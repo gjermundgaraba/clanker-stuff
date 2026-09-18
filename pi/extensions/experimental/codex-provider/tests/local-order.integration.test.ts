@@ -66,6 +66,7 @@ describe("local order audit", () => {
       cwd,
       piVersion: SUPPORTED_PI_VERSION,
     });
+
     expect({
       count: result.count,
       finalPath: result.finalPath,

@@ -11,6 +11,7 @@ describe("bounded command grammar", () => {
   ])("parses %s", (input, key, count, motion) => {
     const parser = new Parser();
     let command;
+
     for (const c of String(input)) command = parser.feed(c);
     expect(command).toMatchObject({ key, count });
     expect(command?.motion).toBe(motion);

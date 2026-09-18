@@ -10,6 +10,7 @@ import type { AdapterDeps } from "./util.js";
 import { isDefined, makeUsageWindow, windowIdFromLimitSeconds } from "./util.js";
 
 const WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+
 const OPENAI_AUTH_CLAIM = "https://api.openai.com/auth";
 
 const ChatGptTokenPayloadSchema = Type.Object({
@@ -20,6 +21,7 @@ const ChatGptTokenPayloadSchema = Type.Object({
 
 const extractChatGptAccountId = (accessToken: string): string | undefined => {
   const [, payload] = accessToken.split(".");
+
   if (payload === undefined) {
     return undefined;
   }
@@ -27,6 +29,7 @@ const extractChatGptAccountId = (accessToken: string): string | undefined => {
   try {
     const json = Buffer.from(payload, "base64url").toString("utf-8");
     const parsed: unknown = JSON.parse(json);
+
     return Value.Check(ChatGptTokenPayloadSchema, parsed)
       ? parsed[OPENAI_AUTH_CLAIM].chatgpt_account_id
       : undefined;
@@ -42,11 +45,13 @@ const CodexRateLimitWindowSchema = Type.Object({
 });
 
 const NullableCodexRateLimitWindowSchema = Type.Union([CodexRateLimitWindowSchema, Type.Null()]);
+
 const CodexRateLimitSchema = Type.Object({
   allowed: Type.Optional(Type.Boolean()),
   primary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
   secondary_window: Type.Optional(NullableCodexRateLimitWindowSchema),
 });
+
 const NullableCodexRateLimitSchema = Type.Union([CodexRateLimitSchema, Type.Null()]);
 
 const CodexUsagePayloadSchema = Type.Object({
@@ -73,16 +78,20 @@ const mapWindow = (
   if (window === null || window === undefined) {
     return undefined;
   }
+
   const remainingPercent = 100 - window.used_percent;
   const limitSeconds = window.limit_window_seconds;
+
   const id =
     limitSeconds === undefined
       ? fallbackId
       : (windowIdFromLimitSeconds(limitSeconds) ?? fallbackId);
+
   const resetsAt =
     window.reset_after_seconds === undefined
       ? undefined
       : new Date(nowMs + window.reset_after_seconds * 1000).toISOString();
+
   return makeUsageWindow(id, remainingPercent, resetsAt);
 };
 
@@ -97,11 +106,11 @@ export const mapCodexUsagePayload = (
 
   const planLabel = payload.plan_type;
   let creditsRemaining: number | undefined = undefined;
+
   if (payload.credits?.has_credits === true) {
     const balance = payload.credits.balance;
-    if (typeof balance === "number" && Number.isFinite(balance)) {
-      creditsRemaining = balance;
-    } else if (typeof balance === "string" && balance.trim() !== "") {
+
+    if (balance !== null && balance !== undefined && String(balance).trim() !== "") {
       const converted = Number(balance);
       creditsRemaining = Number.isFinite(converted) ? converted : undefined;
     }
@@ -112,26 +121,32 @@ export const mapCodexUsagePayload = (
     provider: "openai-codex",
     windows,
   };
+
   if (payload.rate_limit?.allowed !== undefined) {
     snapshot.ordinaryUsageAllowed = payload.rate_limit.allowed;
   }
+
   if (planLabel !== undefined) {
     snapshot.planLabel = planLabel;
   }
+
   if (creditsRemaining !== undefined) {
     snapshot.creditsRemaining = creditsRemaining;
   }
+
   return usageResult(snapshot);
 };
 
 export const fetchCodexUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveOAuthAccess(deps.authClient, "openai-codex");
+
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }
 
   const accountId = extractChatGptAccountId(auth.value.accessToken);
+
   if (accountId === undefined) {
     return usageFailure("missing ChatGPT account id in token");
   }

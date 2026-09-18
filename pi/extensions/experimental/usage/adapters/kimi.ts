@@ -35,6 +35,7 @@ const remainingFromLimit = (limit: number, remaining: number): number | undefine
   if (limit <= 0) {
     return undefined;
   }
+
   return (remaining / limit) * 100;
 };
 
@@ -43,14 +44,17 @@ const parseLimitEntry = (limitEntry: Static<typeof KimiLimitSchema>): UsageWindo
   const limit = detail?.limit ?? 0;
   const remaining = detail?.remaining ?? 0;
   const remainingPercent = remainingFromLimit(limit, remaining);
+
   if (remainingPercent === undefined) {
     return undefined;
   }
 
   const durationMinutes =
     windowInfo?.timeUnit === "TIME_UNIT_MINUTE" ? windowInfo.duration : undefined;
+
   const id =
     durationMinutes === undefined ? "5h" : (windowIdFromLimitSeconds(durationMinutes * 60) ?? "5h");
+
   return makeUsageWindow(id, remainingPercent, parseIso(detail?.resetTime));
 };
 
@@ -62,6 +66,7 @@ export const mapKimiUsagePayload = (
   const weeklyLimit = usage?.limit ?? 0;
   const weeklyRemaining = usage?.remaining ?? 0;
   const weeklyPercent = remainingFromLimit(weeklyLimit, weeklyRemaining);
+
   const windows = [
     ...limits.map(parseLimitEntry),
     weeklyPercent === undefined
@@ -79,6 +84,7 @@ export const mapKimiUsagePayload = (
 export const fetchKimiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, "kimi-coding");
+
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }

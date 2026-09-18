@@ -18,10 +18,12 @@ export const activateTools = (
 
 export const toGeneratedToolName = (serverName: string, toolName: string): string => {
   const readable = `${serverName}_${toolName}`.replaceAll(/[^a-zA-Z0-9_-]/gu, "_").slice(0, 42);
+
   const hash = createHash("sha256")
     .update(JSON.stringify([serverName, toolName]))
     .digest("hex")
     .slice(0, 16);
+
   return `mcp_${readable}_${hash}`;
 };
 
@@ -31,18 +33,23 @@ export const mcpResultToPiContent = (result: CallToolResult) => {
   let remainingBytes = DEFAULT_MAX_BYTES;
   let remainingLines = DEFAULT_MAX_LINES;
   let truncated = false;
+
   const appendText = (value: string) => {
     text.push(value);
+
     if (remainingBytes <= 0 || remainingLines <= 0) {
       truncated ||= value.length > 0;
+
       return;
     }
+
     const part = truncateHead(value, { maxBytes: remainingBytes, maxLines: remainingLines });
     content.push({ type: "text", text: part.content });
     remainingBytes -= part.outputBytes;
     remainingLines -= part.outputLines;
     truncated ||= part.truncated;
   };
+
   for (const item of result.content) {
     switch (item.type) {
       case "text":
@@ -63,6 +70,7 @@ export const mcpResultToPiContent = (result: CallToolResult) => {
         appendText(`[Unsupported MCP content: ${item.type}]`);
     }
   }
+
   const hasStructuredText =
     result.structuredContent !== undefined &&
     text.some((value) => {
@@ -72,8 +80,10 @@ export const mcpResultToPiContent = (result: CallToolResult) => {
         return false;
       }
     });
+
   if (result.structuredContent !== undefined && !hasStructuredText)
     appendText(JSON.stringify(result.structuredContent, null, 2));
   const fullText = text.join("\n");
+
   return { content, fullText, truncated };
 };

@@ -5,27 +5,42 @@ import { displayText as clean, inlineText } from "@clanker-stuff/pi-tool-renderi
 import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
+import type { TUnsafe } from "typebox";
+import type { TaskRuntime } from "./runtime.js";
+import type { InspectInput, StartInput, taskRow } from "./task.js";
+import type { taskSummary } from "./supervisor.js";
 
-type Renderers = Required<Pick<ToolDefinition, "renderCall" | "renderResult">>;
-type Data = Record<string, unknown>;
-// SAFETY: Only non-null, non-array objects pass; all property values remain unknown.
-const record = (value: unknown): Data =>
-  value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Data) : {};
-const str = (value: unknown) => (typeof value === "string" ? clean(value) : "");
-const inline = (value: unknown) => (typeof value === "string" ? inlineText(value) : "");
-const number = (value: unknown) =>
-  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+type CallArgs = Partial<StartInput & InspectInput>;
 
-const status = (value: unknown, theme: Theme) => {
+type Details = Awaited<ReturnType<TaskRuntime["start" | "list" | "inspect" | "stop"]>>["details"];
+
+// Results persisted before tools carried typed details only have their text.
+type Renderers = Required<
+  Pick<ToolDefinition<TUnsafe<CallArgs>, Details | undefined>, "renderCall" | "renderResult">
+>;
+
+type TaskDisplay = ReturnType<typeof taskSummary | typeof taskRow>;
+
+const str = (value: string | null | undefined) => clean(value ?? "");
+
+const inline = (value: string | null | undefined) => inlineText(value ?? "");
+
+const status = (value: string, theme: Theme) => {
   const name = inline(value) || "unknown";
+
   if (name === "running") return theme.fg("accent", "● running");
+
   if (name === "completed" || name === "result")
     return theme.fg("success", `✓ ${name === "result" ? "result received" : name}`);
+
   if (name === "cancelled") return theme.fg("muted", "■ cancelled");
+
   return theme.fg("error", `✗ ${name.replaceAll("_", " ")}`);
 };
-const taskLine = (task: Data, theme: Theme) => {
-  const exitCode = number(task.exitCode);
+
+const taskLine = (task: TaskDisplay, theme: Theme) => {
+  const exitCode = "exitCode" in task ? (task.exitCode ?? undefined) : undefined;
+
   return [
     status(task.status, theme),
     theme.fg("text", inline(task.name) || inline(task.id)),
@@ -42,30 +57,41 @@ const taskLine = (task: Data, theme: Theme) => {
 };
 
 export const taskRenderers = (name: string): Renderers => ({
-  renderCall(args, theme, context) {
-    const data = record(args);
+  renderCall(data, theme, context) {
     return preview(
       () => {
         const target = name === "task_start" ? data.name : data.id;
+
         const lines = [
           `${theme.fg("toolTitle", theme.bold(name))}${target ? ` ${theme.fg("accent", inline(target))}` : ""}${data.view ? theme.fg("muted", ` · ${inline(data.view)}`) : ""}`,
         ];
-        if (name === "task_start" && typeof data.command === "string") {
-          const argv = Array.isArray(data.args)
-            ? data.args.filter((arg): arg is string => typeof arg === "string")
-            : [];
+
+        if (name === "task_start" && data.command !== undefined) {
+          const argv = data.args ?? [];
+
           // This is an executable + argv, not a shell command. Quote arguments to preserve boundaries.
           lines.push(theme.fg("toolOutput", [data.command, ...argv].map(jsonText).join(" ")));
         }
+
         if (context.expanded) {
-          for (const key of ["cwd", "protocol", "timeoutMs", "eventId", "offset", "tailBytes"]) {
+          for (const key of [
+            "cwd",
+            "protocol",
+            "timeoutMs",
+            "eventId",
+            "offset",
+            "tailBytes",
+          ] as const) {
             const value = data[key];
-            if (typeof value === "string" || typeof value === "number")
+
+            if (value !== undefined)
               lines.push(theme.fg("muted", `${key}: ${inline(String(value))}`));
           }
         }
+
         if (context.isPartial)
           lines.push(theme.fg("accent", context.executionStarted ? "● working" : "…"));
+
         return new Text(lines.join("\n"), 0, 0);
       },
       context.expanded,
@@ -77,143 +103,155 @@ export const taskRenderers = (name: string): Renderers => ({
       .filter((item) => item.type === "text")
       .map((item) => item.text)
       .join("\n");
+
     const output = new Container();
+
     const add = (draw: () => string, limit = 5, tail = false) =>
       output.addChild(
         preview(() => new Text(draw(), 0, 0), options.expanded, limit, tail ? "tail" : "head"),
       );
+
     if (context.isError || options.isPartial) {
       add(() => theme.fg(context.isError ? "error" : "accent", clean(text) || "● working"));
+
       return output;
     }
-    let data: Data;
-    try {
-      data = record(JSON.parse(text));
-    } catch {
-      data = {};
+
+    const data = result.details;
+
+    if (data === undefined) {
+      add(() => theme.fg("toolOutput", clean(text)));
+
+      return output;
     }
-    const tasks = Array.isArray(data.tasks) ? data.tasks.map(record) : undefined;
-    const task = typeof data.id === "string" ? data : record(data.task);
-    if (tasks) {
+
+    // The warning itself is never collapsed, even when names or IDs consume the preview.
+    const warn = (warning: string) =>
+      output.addChild(preview(() => new Text(theme.fg("error", warning), 0, 0), true));
+
+    if ("tasks" in data) {
+      const failed = data.tasks.filter((item) => item.cleanup === "failed");
+      const remaining = data.tasks.filter((item) => item.cleanup !== "failed");
+
+      if (failed.length)
+        warn(`Cleanup failed: ${failed.length} task${failed.length === 1 ? "" : "s"}`);
+
       add(() =>
-        theme.fg(
-          "muted",
-          `${tasks.length} tasks · ${number(data.pending) ?? "?"} pending notifications`,
-        ),
+        theme.fg("muted", `${data.tasks.length} tasks · ${data.pending} pending notifications`),
       );
-      if (str(data.historyStorageError))
-        add(() => theme.fg("error", str(data.historyStorageError)));
-      for (const key of ["omittedProgress", "evictedEvents", "evictedTasks"]) {
-        const count = number(data[key]);
+
+      if (data.historyStorageError) add(() => theme.fg("error", str(data.historyStorageError)));
+
+      for (const key of ["omittedProgress", "evictedEvents", "evictedTasks"] as const) {
+        const count = data[key];
+
         if (count) add(() => theme.fg("warning", `${key}: ${count}`));
       }
-      const failed = tasks.filter((item) => item.cleanup === "failed");
-      if (failed.length) {
-        // The warning itself is never collapsed, even when names or IDs consume the preview.
-        output.addChild(
-          preview(
-            () =>
-              new Text(
-                theme.fg(
-                  "error",
-                  `Cleanup failed: ${failed.length} task${failed.length === 1 ? "" : "s"}`,
-                ),
-                0,
-                0,
-              ),
-            true,
-          ),
-        );
-        add(() => failed.map((item) => taskLine(item, theme)).join("\n"));
-      }
-      const remaining = tasks.filter((item) => item.cleanup !== "failed");
+
+      if (failed.length) add(() => failed.map((item) => taskLine(item, theme)).join("\n"));
+
       if (remaining.length) add(() => remaining.map((item) => taskLine(item, theme)).join("\n"), 8);
-    } else if (typeof task.id === "string" && typeof task.status === "string") {
-      if (task.cleanup === "failed")
-        output.addChild(preview(() => new Text(theme.fg("error", "Cleanup failed"), 0, 0), true));
-      add(() => taskLine(task, theme));
-      if (name === "task_start" && options.expanded && str(data.note))
-        add(() => theme.fg("muted", str(data.note)));
-      if (str(data.diagnostic)) add(() => theme.fg("error", str(data.diagnostic)));
-      if (options.expanded) {
-        const pid = number(task.pid);
-        const startedAt = number(task.startedAt);
-        const endedAt = number(task.endedAt);
-        add(() =>
-          [
-            pid !== undefined ? `PID ${pid}` : "",
-            endedAt !== undefined && startedAt !== undefined
-              ? `${((endedAt - startedAt) / 1000).toFixed(1)}s`
-              : "",
-            task.signal ? `signal ${inline(task.signal)}` : "",
-          ]
-            .filter(Boolean)
-            .map((line) => theme.fg("muted", line))
-            .join(" · "),
-        );
-      }
-      if (Array.isArray(data.events)) {
-        const events = data.events.map(record);
-        add(() =>
-          theme.fg(
-            "muted",
-            `${events.length} retained events · ${data.resultAvailable === true ? "result available" : "no result payload"}`,
-          ),
-        );
-        if (options.expanded && events.length)
-          add(() =>
-            events.map((event) => `${inline(event.id)} · ${inline(event.reason)}`).join("\n"),
-          );
-      }
-      const logs = record(data.logs);
-      if (Object.keys(logs).length) {
-        add(() => theme.fg("muted", "Logs · untrusted output"));
-        if (str(logs.storageError)) add(() => theme.fg("error", str(logs.storageError)));
-        for (const stream of ["stdout", "stderr"]) {
-          const omitted = number(logs[`${stream}OmittedBytes`]);
-          if (str(logs[stream]) || omitted) {
-            add(() =>
-              theme.fg("muted", `${stream}${omitted ? ` · ${omitted} earlier bytes omitted` : ""}`),
-            );
-            if (str(logs[stream])) add(() => theme.fg("toolOutput", str(logs[stream])), 5, true);
-          }
-        }
-        if (str(logs.directory)) add(() => theme.fg("muted", `Logs: ${inline(logs.directory)}`));
-      }
-    } else if (
-      typeof data.taskId === "string" &&
-      (data.view === "event" || data.view === "result")
-    ) {
-      const payload = record(data.payload);
+    } else if ("taskId" in data) {
+      const payload = data.payload;
       add(() =>
         theme.fg(
           "muted",
-          `${inline(data.view)} · ${inline(data.taskId)}${data.eventId ? ` · ${inline(data.eventId)}` : ""} · untrusted output`,
+          `${data.view} · ${inline(data.taskId)}${"eventId" in data ? ` · ${inline(data.eventId)}` : ""} · untrusted output`,
         ),
       );
-      if (str(data.reason)) add(() => theme.fg("muted", inline(data.reason)));
-      if (typeof payload.text === "string") {
+
+      if ("reason" in data) add(() => theme.fg("muted", inline(data.reason)));
+
+      if (payload !== undefined) {
         add(() => {
           const content = str(payload.text);
+
           try {
             // Pages may split JSON tokens; only highlight a self-contained value, never reserialize it.
             JSON.parse(content);
+
             return highlightCode(content, "json").join("\n");
           } catch {
             return theme.fg("toolOutput", content);
           }
         });
         add(() =>
+          theme.fg("muted", `Byte offset ${payload.offset} · ${payload.totalBytes} bytes total`),
+        );
+
+        if (payload.nextOffset !== null)
+          add(() =>
+            theme.fg("warning", `More payload available · next offset ${payload.nextOffset}`),
+          );
+      } else add(() => theme.fg("muted", "No payload"));
+    } else {
+      const task = "task" in data ? data.task : data;
+
+      if (task.cleanup === "failed") warn("Cleanup failed");
+
+      add(() => taskLine(task, theme));
+
+      if ("note" in data && options.expanded) add(() => theme.fg("muted", str(data.note)));
+
+      if (options.expanded && "pid" in task) {
+        add(() =>
           theme.fg(
             "muted",
-            `Byte offset ${number(payload.offset) ?? "?"} · ${number(payload.totalBytes) ?? "?"} bytes total`,
+            [
+              task.pid !== undefined ? `PID ${task.pid}` : "",
+              task.endedAt !== undefined
+                ? `${((task.endedAt - task.startedAt) / 1000).toFixed(1)}s`
+                : "",
+              task.signal ? `signal ${inline(task.signal)}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · "),
           ),
         );
-        const nextOffset = number(payload.nextOffset);
-        if (nextOffset !== undefined)
-          add(() => theme.fg("warning", `More payload available · next offset ${nextOffset}`));
-      } else add(() => theme.fg("muted", "No payload"));
-    } else add(() => theme.fg("toolOutput", clean(text)));
+      }
+
+      if ("task" in data) {
+        const { diagnostic, events, logs } = data;
+
+        if (diagnostic) add(() => theme.fg("error", str(diagnostic)));
+
+        add(() =>
+          theme.fg(
+            "muted",
+            `${events.length} retained events · ${data.resultAvailable ? "result available" : "no result payload"}`,
+          ),
+        );
+
+        if (options.expanded && events.length)
+          add(() =>
+            events.map((event) => `${inline(event.id)} · ${inline(event.reason)}`).join("\n"),
+          );
+
+        if (logs) {
+          add(() => theme.fg("muted", "Logs · untrusted output"));
+
+          if (logs.storageError) add(() => theme.fg("error", str(logs.storageError)));
+
+          for (const stream of ["stdout", "stderr"] as const) {
+            const omitted = logs[`${stream}OmittedBytes`];
+
+            if (logs[stream] || omitted) {
+              add(() =>
+                theme.fg(
+                  "muted",
+                  `${stream}${omitted ? ` · ${omitted} earlier bytes omitted` : ""}`,
+                ),
+              );
+
+              if (logs[stream]) add(() => theme.fg("toolOutput", str(logs[stream])), 5, true);
+            }
+          }
+
+          if (logs.directory) add(() => theme.fg("muted", `Logs: ${inline(logs.directory)}`));
+        }
+      }
+    }
+
     return output;
   },
 });

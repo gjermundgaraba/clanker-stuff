@@ -9,6 +9,7 @@ import type { ToolStates } from "./selection.js";
 
 export const createToolPicker = (pi: ExtensionAPI) => {
   const selection = createToolSelection(pi);
+
   const apply = (states: ToolStates): void => {
     const active = new Set(pi.getActiveTools());
     pi.setActiveTools(
@@ -23,8 +24,10 @@ export const createToolPicker = (pi: ExtensionAPI) => {
     async open(ctx: ExtensionCommandContext): Promise<void> {
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/tools requires TUI mode", "error");
+
         return;
       }
+
       const { showToolsPicker } = await import("./picker.js");
       await showToolsPicker(
         ctx,
@@ -32,11 +35,13 @@ export const createToolPicker = (pi: ExtensionAPI) => {
         new Set(pi.getActiveTools()),
         (name, enabled) => {
           const active = new Set(pi.getActiveTools());
+
           if (enabled) {
             active.add(name);
           } else {
             active.delete(name);
           }
+
           pi.setActiveTools([...active]);
           selection.save(ctx);
         },

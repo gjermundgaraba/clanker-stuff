@@ -12,17 +12,26 @@ import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Questionnaire } from "../request.js";
 import { intent } from "../tui/input.js";
 
-const question = {
+const plainQuestion = {
   id: "choice",
   header: "Choice",
   question: "Choose a target?",
-  context: "## Context\nUnicode: 日本語 👩🏽‍💻",
   options: [
     { id: "first", label: "First", preview: "```ts\nconst value = 1;\n```" },
     { id: "second", label: "Second" },
   ],
+};
+
+const questionWithoutContext = {
+  ...plainQuestion,
   recommendation: { option_ids: ["first"], reason: "Synthetic suggestion" },
 };
+
+const question = {
+  ...questionWithoutContext,
+  context: "## Context\nUnicode: 日本語 👩🏽‍💻",
+};
+
 function setup(
   multi = false,
   remap = false,
@@ -32,6 +41,7 @@ function setup(
 ) {
   initTheme("dark");
   let item = createInteraction("q_ui", request, "call", "async");
+
   if (prepare) item = prepare(item);
   const abort = new AbortController();
   const done = vi.fn();
@@ -39,16 +49,18 @@ function setup(
   const notify = vi.fn();
   const send = vi.fn(async () => {});
   const tui = createMockTui({ rows: 30 });
+
   const keys = createKeybindings({
-    "tui.select.up": ["\u001b[A"],
-    "tui.select.down": ["\u001b[B"],
+    "tui.select.up": ["up"],
+    "tui.select.down": ["down"],
     "tui.select.pageUp": [remap ? "alt+u" : "pageUp"],
     "tui.select.pageDown": [remap ? "alt+d" : "pageDown"],
-    "tui.select.confirm": [remap ? "\u001by" : "\r"],
-    "tui.select.cancel": ["\u001b"],
-    "tui.input.submit": [remap ? "\u001bd" : "\r"],
-    "tui.input.newLine": [remap ? "\u001bj" : "\n"],
+    "tui.select.confirm": [remap ? "alt+y" : "enter"],
+    "tui.select.cancel": ["escape"],
+    "tui.input.submit": [remap ? "alt+d" : "enter"],
+    "tui.input.newLine": [remap ? "alt+j" : "ctrl+j"],
   });
+
   const view = new QuestionnaireView(
     tui,
     createIdentityTheme(),
@@ -58,6 +70,7 @@ function setup(
       current: () => structuredClone(item),
       mutate: async (version, action) => {
         await beforeMutation?.();
+
         return (item = transition(item, version, action));
       },
       subscribe: () => () => {},
@@ -70,13 +83,16 @@ function setup(
     done,
     abort.signal,
   );
+
   view.focused = true;
+
   const press = async (...keys: string[]) => {
     for (const key of keys) {
       view.handleInput(key);
       await view.settled();
     }
   };
+
   return {
     view,
     done,
@@ -94,21 +110,21 @@ function setup(
     },
   };
 }
+
 describe("bounded questionnaire TUI", () => {
   it("shows context inline and advertises previews while navigating with h/l", async () => {
     const e = setup(false, false, undefined, {
       questions: [
         { ...question, multi_select: false },
         {
-          ...question,
+          ...plainQuestion,
           id: "plain",
           header: "Plain",
-          context: undefined,
           options: [{ id: "a", label: "A" }],
-          recommendation: undefined,
         },
       ],
     });
+
     try {
       Object.defineProperty(e.tui.terminal, "rows", { value: 60, configurable: true });
       let screen = displayText(e.view.render(100).join("\n"));
@@ -150,7 +166,7 @@ describe("bounded questionnaire TUI", () => {
         context: "**Shared constraints**",
         questions: [
           { ...question, context: "```ts\nconst local = 1;\n```" },
-          { ...question, id: "plain", context: undefined },
+          { ...questionWithoutContext, id: "plain" },
         ],
       },
       (item) => {
@@ -161,6 +177,7 @@ describe("bounded questionnaire TUI", () => {
             option: "first",
           });
         item = transition(item, item.version, { type: "submit" });
+
         return transition(item, item.version, {
           type: "reopen",
           base: 1,
@@ -170,10 +187,12 @@ describe("bounded questionnaire TUI", () => {
         });
       },
     );
+
     try {
       Object.defineProperty(e.tui.terminal, "rows", { value: 80, configurable: true });
       await e.press("1");
       const screen = displayText(e.view.render(120).join("\n"));
+
       const positions = [
         "Revision requested:",
         "New constraint",
@@ -181,6 +200,7 @@ describe("bounded questionnaire TUI", () => {
         "const local = 1;",
         question.question,
       ].map((text) => screen.indexOf(text));
+
       expect(positions.every((position) => position >= 0)).toBe(true);
       expect(positions).toEqual([...positions].sort((a, b) => a - b));
       expect(screen).not.toContain("**Shared constraints**");
@@ -199,6 +219,7 @@ describe("bounded questionnaire TUI", () => {
       context: Array.from({ length: 40 }, (_, i) => `Context line ${i} 日本語 👩🏽‍💻`).join("\n\n"),
       questions: [{ ...question, multi_select: true }],
     });
+
     try {
       const initial = displayText(e.view.render(80).join("\n"));
       expect(initial).toContain("Context line 0");
@@ -209,18 +230,21 @@ describe("bounded questionnaire TUI", () => {
       expect(displayText(e.view.render(80).join("\n"))).toContain("Context line 0");
       await e.press("j");
       expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 2. Second");
+
       for (const [width, rows] of [
         [40, 20],
         [24, 14],
         [12, 8],
         [100, 60],
-      ]) {
+      ] as const) {
         Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
         const lines = e.view.render(width);
         expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
         expect(lines.length).toBeLessThanOrEqual(Math.max(3, Math.floor(rows * 0.6)));
+
         if (width >= 40) expect(displayText(lines.join("\n"))).toContain("> [ ] 2. Second");
       }
+
       expect(e.item.version).toBe(1);
       await e.press("n", "Visible note");
       expect(displayText(e.view.render(100).join("\n"))).toContain("Visible note");
@@ -235,24 +259,31 @@ describe("bounded questionnaire TUI", () => {
     "pages through every context line in both directions at %i terminal rows",
     async (rows) => {
       const expected = Array.from({ length: 15 }, (_, i) => i);
+
       const e = setup(false, false, undefined, {
         context: expected.map((i) => `Context entry ${i}`).join("\n\n"),
         questions: [question],
       });
+
       try {
         Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
+
         for (const key of ["pageDown", "pageUp"]) {
           const seen = new Set<number>();
           let screen = displayText(e.view.render(80).join("\n"));
+
           for (let page = 0; page < 100; page++) {
             for (const match of screen.matchAll(/Context entry (\d+)/g)) seen.add(Number(match[1]));
             await e.press(key);
             const next = displayText(e.view.render(80).join("\n"));
+
             if (next === screen) break;
             screen = next;
           }
+
           expect([...seen].sort((a, b) => a - b)).toEqual(expected);
         }
+
         expect(e.item.version).toBe(1);
       } finally {
         e.view.dispose();
@@ -261,10 +292,12 @@ describe("bounded questionnaire TUI", () => {
   );
   it("uses the resized body height when paging back through context", async () => {
     const expected = Array.from({ length: 15 }, (_, i) => i);
+
     const e = setup(false, false, undefined, {
       context: expected.map((i) => `Context entry ${i}`).join("\n\n"),
       questions: [question],
     });
+
     try {
       e.view.render(80);
       await e.press("j");
@@ -273,13 +306,16 @@ describe("bounded questionnaire TUI", () => {
       let screen = displayText(e.view.render(80).join("\n"));
       expect(screen).toContain("> ( ) 2. Second");
       const seen = new Set<number>();
+
       for (let page = 0; page < 100; page++) {
         for (const match of screen.matchAll(/Context entry (\d+)/g)) seen.add(Number(match[1]));
         await e.press("pageUp");
         const next = displayText(e.view.render(80).join("\n"));
+
         if (next === screen) break;
         screen = next;
       }
+
       expect([...seen].sort((a, b) => a - b)).toEqual(expected);
       expect(e.item.version).toBe(1);
     } finally {
@@ -291,13 +327,16 @@ describe("bounded questionnaire TUI", () => {
       context: "Long context\n\n".repeat(40),
       questions: [question],
     });
+
     try {
       const up = remap ? "alt+u" : "pageUp";
       const down = remap ? "alt+d" : "pageDown";
+
       for (const width of [40, 80, 120]) {
         const screen = displayText(e.view.render(width).join("\n"));
         expect(screen).toContain(`${up}/${down} Scroll`);
       }
+
       await e.press(up);
       const top = e.view.render(80);
       await e.press(down);
@@ -316,6 +355,7 @@ describe("bounded questionnaire TUI", () => {
         context: "Long context\n\n".repeat(40),
         questions: [{ ...question, multi_select: true }],
       });
+
       try {
         e.view.render(80);
         await e.press("k");
@@ -336,6 +376,7 @@ describe("bounded questionnaire TUI", () => {
       context: "Long context\n\n".repeat(40),
       questions: [{ ...question, multi_select: true }],
     });
+
     try {
       e.view.render(80);
       await e.press("j");
@@ -344,8 +385,8 @@ describe("bounded questionnaire TUI", () => {
       expect(displayText(e.view.render(80).join("\n"))).toContain("Answer note");
       await e.press(close);
       expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 2. Second");
-      expect(e.item.draft?.answers.choice.notes.second).toBe(close === "\r" ? "Answer note" : "");
-      expect(e.item.draft?.answers.choice.selected).toEqual([]);
+      expect(e.item.draft?.answers.choice?.notes.second).toBe(close === "\r" ? "Answer note" : "");
+      expect(e.item.draft?.answers.choice?.selected).toEqual([]);
       expect(e.done).not.toHaveBeenCalled();
     } finally {
       e.view.dispose();
@@ -356,15 +397,14 @@ describe("bounded questionnaire TUI", () => {
       questions: [
         { ...question, multi_select: false },
         {
-          ...question,
+          ...plainQuestion,
           id: "plain",
           header: "Plain",
-          context: undefined,
           options: [{ id: "a", label: "A" }],
-          recommendation: undefined,
         },
       ],
     });
+
     try {
       Object.defineProperty(e.tui.terminal, "rows", { value: 60, configurable: true });
       const first = e.view.render(100).length;
@@ -393,6 +433,7 @@ describe("bounded questionnaire TUI", () => {
         },
       ],
     });
+
     try {
       Object.defineProperty(e.tui.terminal, "rows", { value: 40, configurable: true });
       e.view.render(80);
@@ -406,13 +447,14 @@ describe("bounded questionnaire TUI", () => {
       expect(screen).toContain("> [x] 5. Choice 4");
       expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
       expect(lines.length).toBeLessThanOrEqual(12);
-      expect(e.item.draft?.answers.choice.selected).toEqual(["o4"]);
+      expect(e.item.draft?.answers.choice?.selected).toEqual(["o4"]);
     } finally {
       e.view.dispose();
     }
   });
   it("uses j/k to highlight without selecting, but keeps editor text and Review k intact", async () => {
     const e = setup();
+
     try {
       await e.press("j");
       expect(e.view.render(80).join("\n")).toContain("> ( ) 2. Second");
@@ -420,8 +462,8 @@ describe("bounded questionnaire TUI", () => {
       expect(e.view.render(80).join("\n")).toContain("> ( ) 1. First");
       expect(e.item.version).toBe(1);
       await e.press("g", "jk", "\r", "j", "\r", "k");
-      expect(e.item.submissions[0].answers.choice.selections[0].option_id).toBe("second");
-      expect(e.item.submissions[0].note).toBe("jk");
+      expect(e.item.submissions[0]?.answers.choice?.selections[0]?.option_id).toBe("second");
+      expect(e.item.submissions[0]?.note).toBe("jk");
       expect(e.send).not.toHaveBeenCalled();
       expect(intent(createKeybindings({ "tui.select.confirm": ["k"] }), "k", true)).toBe("confirm");
     } finally {
@@ -431,21 +473,23 @@ describe("bounded questionnaire TUI", () => {
   it("keeps input ordered while a note checkpoint is still in flight", async () => {
     const started = Promise.withResolvers<void>();
     const checkpoint = Promise.withResolvers<void>();
+
     const e = setup(false, false, async () => {
       started.resolve();
       await checkpoint.promise;
     });
+
     try {
       await e.press("n");
       e.view.handleInput("Checkpointed note");
       e.view.handleInput("\r");
       await started.promise;
       e.view.handleInput("2");
-      expect(e.item.draft?.answers.choice.selected).toEqual([]);
+      expect(e.item.draft?.answers.choice?.selected).toEqual([]);
       checkpoint.resolve();
       await e.view.flush();
-      expect(e.item.draft?.answers.choice.notes.first).toBe("Checkpointed note");
-      expect(e.item.draft?.answers.choice.selected).toEqual(["second"]);
+      expect(e.item.draft?.answers.choice?.notes.first).toBe("Checkpointed note");
+      expect(e.item.draft?.answers.choice?.selected).toEqual(["second"]);
       expect(e.done).not.toHaveBeenCalled();
     } finally {
       checkpoint.resolve();
@@ -454,12 +498,14 @@ describe("bounded questionnaire TUI", () => {
   });
   it("routes rapid keys after saving a note to the form, not the outgoing editor", async () => {
     const e = setup();
+
     try {
       await e.press("n");
+
       for (const key of ["Synthetic note", "\r", "2", "r"]) e.view.handleInput(key);
       await e.view.flush();
-      expect(e.item.draft?.answers.choice.notes.first).toBe("Synthetic note");
-      expect(e.item.draft?.answers.choice.selected).toEqual(["second"]);
+      expect(e.item.draft?.answers.choice?.notes.first).toBe("Synthetic note");
+      expect(e.item.draft?.answers.choice?.selected).toEqual(["second"]);
       expect(e.view.render(80).join("\n")).toContain("Send answers");
       expect(e.done).not.toHaveBeenCalled();
     } finally {
@@ -468,6 +514,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("routes a rapid editor-open, paste, newline and completion burst in order", async () => {
     const e = setup(false, true);
+
     try {
       for (const key of [
         "g",
@@ -480,7 +527,7 @@ describe("bounded questionnaire TUI", () => {
         e.view.handleInput(key);
       await e.view.flush();
       expect(e.item.draft?.note).toBe("123rs\nnext line");
-      expect(e.item.draft?.answers.choice.selected).toEqual(["second"]);
+      expect(e.item.draft?.answers.choice?.selected).toEqual(["second"]);
       expect(e.done).not.toHaveBeenCalled();
     } finally {
       e.view.dispose();
@@ -488,6 +535,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("keeps highlight/context/preview view-only and requires Review then explicit submission", async () => {
     const e = setup();
+
     try {
       await e.press("p");
       expect(e.item.version).toBe(1);
@@ -510,6 +558,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("preserves distinct option notes across deselection and adds an overall note", async () => {
     const e = setup(true);
+
     try {
       await e.press(
         "n",
@@ -528,11 +577,11 @@ describe("bounded questionnaire TUI", () => {
         "r",
         "k",
       );
-      expect(e.item.submissions[0].answers.choice.selections).toEqual([
+      expect(e.item.submissions[0]?.answers.choice?.selections).toEqual([
         { option_id: "second", label: "Second", note: "second note" },
         { option_id: "first", label: "First", note: "first note" },
       ]);
-      expect(e.item.submissions[0].note).toBe("whole form");
+      expect(e.item.submissions[0]?.note).toBe("whole form");
       expect(e.send).not.toHaveBeenCalled();
     } finally {
       e.view.dispose();
@@ -540,6 +589,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("uses remapped multiline completion, treats digits/paste as editor text, and never submits from an editor", async () => {
     const e = setup(false, true);
+
     try {
       await e.press(
         "\u001b[B",
@@ -550,16 +600,17 @@ describe("bounded questionnaire TUI", () => {
         "\u001b[200~r1s\u001b[201~",
         "\u001bd",
       );
-      expect(e.item.draft?.answers.choice.custom).toBe("123\nr1s");
+      expect(e.item.draft?.answers.choice?.custom).toBe("123\nr1s");
       expect(e.done).not.toHaveBeenCalled();
       await e.press("r", "k");
-      expect(e.item.submissions[0].answers.choice.custom?.text).toBe("123\nr1s");
+      expect(e.item.submissions[0]?.answers.choice?.custom?.text).toBe("123\nr1s");
     } finally {
       e.view.dispose();
     }
   });
   it("reselects a saved custom answer without requiring a text change", async () => {
     const e = setup();
+
     try {
       await e.press(
         "\u001b[B",
@@ -576,7 +627,7 @@ describe("bounded questionnaire TUI", () => {
         "r",
         "k",
       );
-      expect(e.item.submissions[0].answers.choice).toMatchObject({
+      expect(e.item.submissions[0]?.answers.choice).toMatchObject({
         selections: [],
         custom: { text: "Saved alternative" },
       });
@@ -586,6 +637,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("flushes uncheckpointed typing on Stop, rebasing only unchanged drafts", async () => {
     const e = setup();
+
     try {
       await e.press("g");
       e.view.handleInput("last keystrokes");
@@ -601,19 +653,22 @@ describe("bounded questionnaire TUI", () => {
   });
   it("retains over-limit text and bounds Unicode/Markdown across resize", async () => {
     const e = setup();
+
     try {
       await e.press("p");
+
       for (const [width, rows] of [
         [80, 30],
         [24, 14],
         [12, 8],
         [100, 60],
-      ]) {
+      ] as const) {
         Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
         const lines = e.view.render(width);
         expect(lines.length).toBeLessThanOrEqual(Math.max(3, Math.floor(rows * 0.6)));
         expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
       }
+
       await e.press("\u001b", "g");
       e.view.handleInput("日".repeat(1001));
       await expect(e.view.flush()).rejects.toThrow("limit");
@@ -632,10 +687,11 @@ describe("bounded questionnaire TUI", () => {
   });
   it("saves a written answer with Enter and advances, discards it with Escape", async () => {
     const e = setup();
+
     try {
       await e.press("\u001b[B", "\u001b[B", "\r", "typed then dropped", "\u001b");
-      expect(e.item.draft?.answers.choice.custom).toBe("");
-      expect(e.item.draft?.answers.choice.custom_selected).toBe(false);
+      expect(e.item.draft?.answers.choice?.custom).toBe("");
+      expect(e.item.draft?.answers.choice?.custom_selected).toBe(false);
       expect(e.view.render(80).join("\n")).toContain("Write answer");
       await e.press("\r", "kept", "\r");
       expect(e.item.draft?.answers.choice).toMatchObject({ custom: "kept", custom_selected: true });
@@ -644,7 +700,7 @@ describe("bounded questionnaire TUI", () => {
       expect(e.view.render(80).join("\n")).toContain("> (•) Write another answer");
       expect(e.view.render(80).join("\n")).toContain("Edit answer · → Next");
       await e.press("\r", "\u001b");
-      expect(e.item.draft?.answers.choice.custom).toBe("kept");
+      expect(e.item.draft?.answers.choice?.custom).toBe("kept");
       expect(e.view.render(80).join("\n")).not.toContain("Send answers");
     } finally {
       e.view.dispose();
@@ -652,6 +708,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("edits notes and written answers inline, keeping the option list visible", async () => {
     const e = setup();
+
     try {
       await e.press("j", "n", "inline note");
       const lines = displayText(e.view.render(80).join("\n")).split("\n");
@@ -662,7 +719,7 @@ describe("bounded questionnaire TUI", () => {
       expect(lines.join("\n")).toContain("11/1000");
       expect(lines.join("\n")).toContain("Save");
       await e.press("\r");
-      expect(e.item.draft?.answers.choice.notes.second).toBe("inline note");
+      expect(e.item.draft?.answers.choice?.notes.second).toBe("inline note");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Note: inline note");
       await e.press("g", "overall");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Questionnaire note");
@@ -675,6 +732,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("cancels only on a repeated x and notifies when answers are kept unsent", async () => {
     const e = setup();
+
     try {
       await e.press("x");
       expect(e.view.render(80).join("\n")).toContain("Press x again");
@@ -696,6 +754,7 @@ describe("bounded questionnaire TUI", () => {
         { ...question, id: "second_q", header: "Second question" },
       ],
     });
+
     try {
       await e.press("2", "\u001b[D");
       expect(e.view.render(80).join("\n")).toContain("> (•) 2. Second");
@@ -707,6 +766,7 @@ describe("bounded questionnaire TUI", () => {
   });
   it("closes after failed delivery while retaining the submitted revision in the inbox", async () => {
     const e = setup();
+
     try {
       e.send.mockRejectedValue(new Error("handoff failed"));
       await e.press("1", "\r");

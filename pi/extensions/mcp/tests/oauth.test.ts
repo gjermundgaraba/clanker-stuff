@@ -28,6 +28,7 @@ const availablePort = async (): Promise<number> => {
   const port = listeningPort(server);
   server.close();
   await once(server, "close");
+
   return port;
 };
 
@@ -58,47 +59,64 @@ describe("mcp oauth", () => {
           },
         },
       });
+
       const select = vi.fn<() => Promise<string>>(async () =>
         viaManager ? "○ mcp-manager" : "○ remote",
       );
+
       const authorization = Promise.withResolvers<Response>();
+
       const spawn = vi.spyOn(childProcess, "spawn").mockImplementation((_command, args) => {
         const child = new ChildProcess();
+
         if (browserFails) {
           queueMicrotask(() => child.emit("error", new Error("Browser launcher unavailable")));
         } else {
           const url = z.array(z.string()).parse(args).at(-1);
+
           if (url === undefined) throw new Error("Missing browser URL");
           // Following the redirect immediately also proves the callback listener is ready.
           void fetch(url).then(authorization.resolve, authorization.reject);
         }
+
         return child;
       });
+
       syncBuiltinESMExports();
+
       const notify = vi.fn<(message: string) => void>((message) => {
         if (!message.startsWith("Authorize MCP server remote:")) {
           return;
         }
+
         const [, url] = message.split("\n");
+
         if (url === undefined) {
           authorization.reject(new Error("OAuth authorization URL was not shown"));
+
           return;
         }
+
         expect(new URL(url).searchParams.get("scope")).toBe("tools custom");
+
         if (mode !== "tui" || browserFails) {
           void fetch(url).then(authorization.resolve, authorization.reject);
         }
       });
+
       const host = t.createExtensionHost(mcp, { hasUI: mode === "tui" || mode === "rpc" });
+
       const ctx = host.createContext({
         mode,
         ui: { custom: createCustomUiDriver().custom, notify, select },
       });
 
       if (viaManager) await host.runCommand("mcp", "", ctx);
+
       const loading = viaManager
         ? host.runTool("mcp_connect", { name: "remote" }, { ctx })
         : host.runCommand("mcp", "", ctx);
+
       await expect(authorization.promise).resolves.toMatchObject({ ok: true });
       await loading;
 
@@ -113,6 +131,7 @@ describe("mcp oauth", () => {
       const result = await host.runTool(toGeneratedToolName("remote", "search"), {
         query: "oauth-needle",
       });
+
       expect(result.content).toContainEqual({
         text: "result: oauth-needle",
         type: "text",
@@ -142,6 +161,7 @@ describe("mcp oauth", () => {
     });
     const spawn = vi.spyOn(childProcess, "spawn").mockReturnValue(new ChildProcess());
     syncBuiltinESMExports();
+
     const host = t.createExtensionHost(mcp, {
       hasUI: true,
       entries: [
@@ -167,12 +187,14 @@ describe("mcp oauth", () => {
   it("uses an OS-assigned callback port by default", async () => {
     const fixture = await t.startHttpFixture({ oauth: true });
     let browser: Promise<Response> | undefined;
+
     const connection = await connectToServer({
       serverConfig: { type: "http", url: fixture.url, oauth: {} },
       onAuthorizationUrl: (url) => {
         browser = fetch(url);
       },
     });
+
     try {
       expect((await browser)?.ok).toBe(true);
     } finally {
@@ -187,6 +209,7 @@ describe("mcp oauth", () => {
     await provider.saveTokens({ access_token: FIXTURE_ACCESS_TOKEN, token_type: "Bearer" });
     const notify = vi.fn();
     const connection = await connectToServer({ serverConfig: config, onAuthorizationUrl: notify });
+
     try {
       expect(notify).not.toHaveBeenCalled();
       expect((await connection.client.listTools()).tools).toHaveLength(1);
@@ -197,27 +220,33 @@ describe("mcp oauth", () => {
 
   it("serializes rotating refresh tokens across connections", async () => {
     const fixture = await t.startHttpFixture({ oauth: true });
+
     const config = {
       type: "http" as const,
       url: fixture.url,
       oauth: { clientId: "fixture-client-id" },
     };
+
     const provider = new PersistentMcpOAuthProvider(config);
     await provider.saveTokens({
       access_token: FIXTURE_ACCESS_TOKEN,
       refresh_token: "fixture-refresh-token",
       token_type: "Bearer",
     });
+
     const connections = await Promise.all(
       Array.from({ length: 2 }, () => connectToServer({ serverConfig: config })),
     );
+
     try {
       fixture.expireAccessToken();
+
       const results = await Promise.all(
         connections.map((connection) =>
           connection.client.callTool({ name: "search", arguments: { query: "refresh" } }),
         ),
       );
+
       expect(results).toHaveLength(2);
       expect(fixture.getRefreshCount()).toBe(1);
       expect(await provider.tokens()).toMatchObject({ refresh_token: "rotated-1" });
@@ -228,6 +257,7 @@ describe("mcp oauth", () => {
 
   it("refreshes OAuth and recovers an expired session during idle heartbeats without prompting", async () => {
     const fixture = await t.startHttpFixture({ oauth: true, scenario: "expired-ping" });
+
     const config = {
       type: "http" as const,
       url: fixture.url,
@@ -235,6 +265,7 @@ describe("mcp oauth", () => {
       heartbeatIntervalMs: 100,
       heartbeatTimeoutMs: 1_000,
     };
+
     const provider = new PersistentMcpOAuthProvider(config);
     await provider.saveTokens({
       access_token: FIXTURE_ACCESS_TOKEN,
@@ -272,11 +303,13 @@ describe("mcp oauth", () => {
     "deactivates %s authorization and recovers through explicit reconnect",
     async (reason) => {
       const fixture = await t.startHttpFixture({ oauth: true });
+
       const config = {
         type: "http" as const,
         url: fixture.url,
         oauth: { clientId: "fixture-client-id", scopes: "tools custom" },
       };
+
       await new PersistentMcpOAuthProvider(config).saveTokens({
         access_token: FIXTURE_ACCESS_TOKEN,
         refresh_token: "fixture-refresh-token",
@@ -284,9 +317,11 @@ describe("mcp oauth", () => {
       });
       await t.writeConfig({ mcpServers: { remote: config } });
       const host = t.createExtensionHost(mcp, { hasUI: true });
+
       const notify = vi.fn((message: string) => {
         if (message.startsWith("Authorize MCP server remote:")) {
           const url = message.split("\n")[1];
+
           if (!url) throw new Error("Missing authorization URL");
           expect(new URL(url).searchParams.get("scope")).toBe(
             reason === "scope" ? "tools custom extra" : "tools custom",
@@ -294,12 +329,15 @@ describe("mcp oauth", () => {
           void fetch(url);
         }
       });
+
       const ctx = host.createContext({
         mode: "rpc",
         ui: { notify, select: async () => "○ remote" },
       });
+
       await host.runCommand("mcp", "", ctx);
       const name = toGeneratedToolName("remote", "search");
+
       if (reason === "expired") {
         fixture.expireAccessToken();
         fixture.rejectRefresh();
@@ -344,6 +382,7 @@ describe("mcp oauth", () => {
       url: "https://a.example/mcp",
       oauth: { clientId: "a" },
     };
+
     const first = new PersistentMcpOAuthProvider(config);
     const same = new PersistentMcpOAuthProvider(config);
     await first.saveTokens({
@@ -357,6 +396,7 @@ describe("mcp oauth", () => {
       access_token: "secret",
       issuer: "https://issuer.example",
     });
+
     for (const other of [
       { ...config, url: "https://b.example/mcp" },
       { ...config, oauth: { clientId: "b" } },
@@ -371,6 +411,7 @@ describe("mcp oauth", () => {
     ]) {
       expect(await new PersistentMcpOAuthProvider(other).tokens()).toBeUndefined();
     }
+
     expect(
       await new PersistentMcpOAuthProvider({
         ...config,
@@ -379,6 +420,7 @@ describe("mcp oauth", () => {
     ).toEqual(await first.tokens());
     const raw = await readFile(first.statePath, "utf-8");
     expect(raw).not.toContain("private-verifier");
+
     if (process.platform !== "win32")
       expect((await stat(first.statePath)).mode & 0o777).toBe(0o600);
     await first.invalidateCredentials("all");
@@ -400,6 +442,7 @@ describe("mcp oauth", () => {
       new URL("http://localhost:0/callback"),
       "expected",
     );
+
     try {
       expect(
         (await fetch(`${callback.redirectUrl.href}?state=wrong&error=access_denied`)).status,
@@ -412,6 +455,7 @@ describe("mcp oauth", () => {
     } finally {
       await callback.close();
     }
+
     await expect(fetch(callback.redirectUrl)).rejects.toThrow();
   });
 
@@ -420,6 +464,7 @@ describe("mcp oauth", () => {
       new URL("http://localhost:0/callback"),
       "expected",
     );
+
     try {
       const controller = new AbortController();
       const waiting = callback.waitForCode(controller.signal);
@@ -437,13 +482,16 @@ describe("mcp oauth", () => {
         new URL("http://localhost:0/callback"),
         "expected",
       );
+
       try {
         const controller = new AbortController();
         const reason = new Error("Caller stopped waiting");
         const other = new AbortController();
         const remaining = callback.waitForCode(other.signal);
+
         if (when === "before") controller.abort(reason);
         const cancelled = callback.waitForCode(controller.signal);
+
         if (when === "during") controller.abort(reason);
 
         await expect(cancelled).rejects.toBe(reason);
@@ -465,6 +513,7 @@ describe("mcp oauth", () => {
     await once(server, "listening");
     const controller = new AbortController();
     const requested = once(server, "request");
+
     const connection = connectToServer({
       serverConfig: {
         type: "http",
@@ -474,7 +523,9 @@ describe("mcp oauth", () => {
       signal: controller.signal,
       onAuthorizationUrl: () => {},
     });
+
     const rejected = expect(connection).rejects.toMatchObject({ name: "AbortError" });
+
     try {
       await requested;
       controller.abort();

@@ -26,14 +26,17 @@ describe("session replacement through the real SDK runtime", () => {
     const directory = await mkdtemp(join(tmpdir(), "background-lifecycle-"));
     const faux = fauxProvider();
     const bind = (session: AgentSession) => session.bindExtensions({ mode: "tui" });
+
     const runtime = await createAgentSessionRuntime(
       async (options) => {
         const modelRuntime = await ModelRuntime.create({
           credentials: new InMemoryCredentialStore(),
           modelsPath: null,
         });
+
         modelRuntime.registerNativeProvider(faux.provider);
         await modelRuntime.setRuntimeApiKey(faux.provider.id, "synthetic");
+
         const services = await createAgentSessionServices({
           cwd: options.cwd,
           agentDir: options.agentDir,
@@ -47,12 +50,14 @@ describe("session replacement through the real SDK runtime", () => {
             extensionFactories: [extension],
           },
         });
+
         const result = await createAgentSessionFromServices({
           services,
           sessionManager: options.sessionManager,
-          sessionStartEvent: options.sessionStartEvent,
+          ...(options.sessionStartEvent ? { sessionStartEvent: options.sessionStartEvent } : {}),
           model: faux.getModel(),
         });
+
         return { ...result, services, diagnostics: services.diagnostics };
       },
       {
@@ -61,10 +66,13 @@ describe("session replacement through the real SDK runtime", () => {
         sessionManager: SessionManager.create(directory, join(directory, "sessions")),
       },
     );
+
     runtime.setRebindSession(bind);
+
     try {
       await bind(runtime.session);
       const schema = Type.Object({ id: Type.String(), pid: Type.Number() });
+
       const start = async () => {
         faux.setResponses([
           fauxAssistantMessage(
@@ -78,23 +86,30 @@ describe("session replacement through the real SDK runtime", () => {
           fauxAssistantMessage("Started"),
         ]);
         await runtime.session.prompt("Start a synthetic server");
+
         const entry = runtime.session.sessionManager
           .getEntries()
           .findLast((e) => e.type === "custom" && e.customType === "background-tasks:lifecycle");
+
         if (entry?.type !== "custom") throw new Error("Missing lifecycle");
+
         return Value.Parse(schema, entry.data);
       };
+
       const assertEmpty = async () => {
         faux.setResponses([
           fauxAssistantMessage(fauxToolCall("task_list", {}), { stopReason: "toolUse" }),
           fauxAssistantMessage("Listed"),
         ]);
         await runtime.session.prompt("Inspect live ownership", { source: "extension" });
+
         const result = runtime.session.messages.findLast(
           (m) => m.role === "toolResult" && m.toolName === "task_list",
         );
+
         expect(JSON.stringify(result)).toContain('\\"tasks\\":[]');
       };
+
       const first = await start();
       const originalFile = runtime.session.sessionManager.getSessionFile()!;
       // /clone forks at the current leaf, including it.
@@ -103,9 +118,11 @@ describe("session replacement through the real SDK runtime", () => {
       await assertEmpty();
 
       const second = await start();
+
       const forkEntry = runtime.session.sessionManager
         .getEntries()
         .findLast((e) => e.type === "message" && e.message.role === "user")!;
+
       await runtime.fork(forkEntry.id);
       expect(() => process.kill(second.pid, 0)).toThrow();
       await assertEmpty();

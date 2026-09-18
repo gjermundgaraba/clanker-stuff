@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import {
   createAssistantMessageEventStream,
+  InMemoryCredentialStore,
   fauxAssistantMessage,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
@@ -13,12 +14,36 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Value } from "typebox/value";
 
-const settings = JSON.parse(process.argv[2]);
-const modelRuntime = await ModelRuntime.create({ agentDir: "/tmp/recovery-probe" });
+const settingsJson = process.argv[2];
+
+assert.ok(settingsJson, "recovery probe requires its frozen settings JSON");
+
+const settings = Value.Parse(
+  Type.Object({
+    compaction: Type.Object({ enabled: Type.Boolean() }),
+    retry: Type.Object({
+      enabled: Type.Boolean(),
+      maxRetries: Type.Integer({ minimum: 0 }),
+      baseDelayMs: Type.Integer({ minimum: 0 }),
+      provider: Type.Object({ maxRetries: Type.Integer({ minimum: 0 }) }),
+    }),
+  }),
+  JSON.parse(settingsJson),
+);
+
+const modelRuntime = await ModelRuntime.create({
+  credentials: new InMemoryCredentialStore(),
+  modelsPath: null,
+});
+
 await modelRuntime.setRuntimeApiKey("openai", "offline-probe");
+
 const model = modelRuntime.getModel("openai", "gpt-4o");
+
 assert.ok(model);
+
 const resourceLoader = new DefaultResourceLoader({
   cwd: "/tmp",
   agentDir: "/tmp/recovery-probe",
@@ -28,10 +53,12 @@ const resourceLoader = new DefaultResourceLoader({
   noThemes: true,
   agentsFilesOverride: () => ({ agentsFiles: [] }),
 });
+
 await resourceLoader.reload();
 
 for (const recover of [true, false]) {
   let toolRuns = 0;
+
   const { session } = await createAgentSession({
     cwd: "/tmp",
     model,
@@ -48,21 +75,26 @@ for (const recover of [true, false]) {
         parameters: Type.Object({}),
         execute: async () => {
           toolRuns++;
+
           return { content: [{ type: "text", text: "done" }], details: {} };
         },
       },
     ],
   });
+
   const failure = () =>
     fauxAssistantMessage("", {
       stopReason: "error",
       errorMessage: "WebSocket error: stream failed",
     });
+
   const responses = [
     fauxAssistantMessage([fauxToolCall("probe", {})], { stopReason: "toolUse" }),
     failure(),
     ...(recover ? [fauxAssistantMessage("recovered")] : [failure(), failure(), failure()]),
   ];
+
+  /** @type {import("@earendil-works/pi-coding-agent").AgentSessionEvent[]} */
   const events = [];
   session.subscribe((event) => events.push(event));
   let calls = 0;
@@ -71,21 +103,29 @@ for (const recover of [true, false]) {
     assert.ok(response, "unexpected extra request");
     const stream = createAssistantMessageEventStream();
     stream.push({ type: "start", partial: response });
+
     if (response.stopReason === "error") {
       stream.push({ type: "error", reason: "error", error: response });
     } else {
+      assert.ok(response.stopReason === "stop" || response.stopReason === "toolUse");
       stream.push({ type: "done", reason: response.stopReason, message: response });
     }
+
     stream.end();
+
     return stream;
   };
+
   await session.prompt("Run the probe, then answer.");
   assert.equal(toolRuns, 1, "completed tools must not be replayed");
   assert.equal(calls, recover ? 3 : 5);
   assert.equal(events.filter((e) => e.type === "auto_retry_start").length, recover ? 1 : 3);
   assert.equal(events.find((e) => e.type === "auto_retry_end")?.success, recover);
   assert.equal(events.at(-1)?.type, "agent_settled");
-  assert.equal(session.messages.at(-1)?.stopReason, recover ? "stop" : "error");
+  const last = session.messages.at(-1);
+  assert.ok(last?.role === "assistant");
+  assert.equal(last.stopReason, recover ? "stop" : "error");
   session.dispose();
 }
+
 console.log("Pi retry recovery, no tool replay, and retry exhaustion passed (no model calls).");

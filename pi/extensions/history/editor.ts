@@ -9,6 +9,7 @@ const initialHistory = (
   getPersistentHistory: () => readonly HistoryItem[],
 ): readonly HistoryItem[] => {
   const session = ctx.sessionManager;
+
   const fresh =
     event.reason !== "resume" &&
     event.reason !== "fork" &&

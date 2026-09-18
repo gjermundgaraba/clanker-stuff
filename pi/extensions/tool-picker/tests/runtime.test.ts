@@ -39,6 +39,7 @@ describe("tool selection", () => {
       allTools: ["read", "bash", "extra-tool"],
       externalTools: ["extra-tool"],
     });
+
     await host.emitSessionStart();
 
     expect(host.getActiveTools()).toStrictEqual(["read", "extra-tool"]);
@@ -63,16 +64,19 @@ describe("tool selection", () => {
       customType: "tool-picker-config",
       data: { read: false, bash: true, edit: true, write: true },
     });
+
     if (!saved) throw new Error("Missing selection entry");
     expect(host.getAppendedEntries()[0]).toMatchObject({
       customType: "tool-picker-baseline",
       data: { read: true, bash: true, edit: true, write: true },
     });
+
     const reloaded = createExtensionHost(extension, {
       activeTools: host.getActiveTools(),
       entries: [...entries, ...host.getAppendedEntries()],
       leafId: saved.id,
     });
+
     await reloaded.emitSessionStart();
     expect(reloaded.getActiveTools()).toStrictEqual(["bash", "edit", "write"]);
 
@@ -112,6 +116,7 @@ describe("tool selection", () => {
       },
       { activeTools: [], allTools: [] },
     );
+
     await host.emitSessionStart();
     await host.runCommand("add-tool");
     initTheme("dark");
@@ -137,12 +142,15 @@ describe("tool selection", () => {
         ],
         leafId: restoreOn === "session start" ? "selected" : "root",
       });
+
       await host.emitSessionStart();
+
       if (restoreOn === "branch navigation") {
         expect(host.getAppendedEntries()).toStrictEqual([]);
         host.setLeafId("selected");
         await host.emitSessionTree();
       }
+
       expect(host.getActiveTools()).toStrictEqual(["bash"]);
       expect(host.getAppendedEntries()).toMatchObject([
         { customType: "tool-picker-baseline", data: { read: true, bash: true } },
@@ -155,14 +163,17 @@ describe("tool selection", () => {
       activeTools: ["read", "bash"],
       allTools: ["read", "bash"],
     });
+
     await host.emitSessionStart();
     initTheme("dark");
+
     const ui = createCustomUiDriver({
       onComponent: () => {
         host.setActiveTools(["read"]);
       },
       keys: [" ", "\u001B"],
     });
+
     await host.runCommand("tools", "", host.createContext({ ui: { custom: ui.custom } }));
 
     expect(host.getActiveTools()).toStrictEqual([]);
@@ -244,6 +255,7 @@ describe("tool selection", () => {
       ],
       leafId: "picker",
     });
+
     await host.emitSessionStart();
     expect(host.getActiveTools()).toContain("read");
     expect(host.getActiveTools()).not.toContain("missing");
@@ -255,12 +267,14 @@ describe("tool selection", () => {
       toolsEntry("branch-a", "root", { read: true, external: false }),
       toolsEntry("branch-b", "root", { read: true, external: true }),
     ];
+
     const host = createExtensionHost(extension, {
       allTools: ["read"],
       activeTools: ["read"],
       entries,
       leafId: "branch-a",
     });
+
     await host.emitSessionStart();
     initTheme("dark");
 
@@ -277,7 +291,9 @@ describe("tool selection", () => {
         customType: "tool-picker-config",
         data: { read: false, external: enabled },
       });
+
       if (!saved) throw new Error("Missing selection entry");
+
       const resumed = createExtensionHost(extension, {
         allTools: ["read", "external"],
         activeTools: ["read", "external"],
@@ -285,6 +301,7 @@ describe("tool selection", () => {
         entries: [...entries, ...host.getAppendedEntries()],
         leafId: saved.id,
       });
+
       await resumed.emitSessionStart();
       expect(resumed.getActiveTools().includes("external")).toBe(enabled);
     }
@@ -300,6 +317,7 @@ describe("tool selection", () => {
         messageEntry("branch-b", "baseline"),
         toolsEntry("branch-c", "baseline", { read: false }),
       ];
+
       const host = createExtensionHost(extension, {
         allTools: ["read", "external"],
         activeTools: enabled ? ["external"] : [],
@@ -307,6 +325,7 @@ describe("tool selection", () => {
         entries,
         leafId: "branch-a",
       });
+
       await host.emitSessionStart();
       expect(host.getActiveTools().includes("read")).toBe(true);
       initTheme("dark");
@@ -318,7 +337,9 @@ describe("tool selection", () => {
         data: { read: true, external: enabled },
       });
       const saved = host.getAppendedEntries().at(-1);
+
       if (!saved) throw new Error("Missing selection entry");
+
       const reloaded = createExtensionHost(extension, {
         allTools: ["read", "external"],
         activeTools: host.getActiveTools(),
@@ -326,6 +347,7 @@ describe("tool selection", () => {
         entries: [...entries, ...host.getAppendedEntries()],
         leafId: saved.id,
       });
+
       await reloaded.emitSessionStart();
       expect(reloaded.getActiveTools().includes("external")).toBe(!enabled);
       reloaded.setLeafId("branch-b");
@@ -359,6 +381,7 @@ describe("tool selection", () => {
         ],
         leafId: "invalid",
       });
+
       await host.emitSessionStart();
       expect(host.getActiveTools()).toStrictEqual(["read"]);
     },

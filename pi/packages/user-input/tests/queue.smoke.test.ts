@@ -13,6 +13,7 @@ it("coordinates prompt queues across Pi's independently loaded extensions", asyn
   const queuePath = fileURLToPath(new URL("../queue.ts", import.meta.url));
   const paths = ["first", "second"].map((name) => join(cwd, `${name}.ts`));
   const hold = Promise.withResolvers<string>();
+
   try {
     await Promise.all(
       paths.map((path, index) =>
@@ -29,6 +30,7 @@ export default function (pi) {
         ),
       ),
     );
+
     const loader = new DefaultResourceLoader({
       cwd,
       agentDir: cwd,
@@ -40,16 +42,19 @@ export default function (pi) {
       noThemes: true,
       settingsManager: SettingsManager.inMemory(),
     });
+
     await loader.reload();
     const { extensions, errors } = loader.getExtensions();
     expect(errors).toEqual([]);
     expect(extensions).toHaveLength(2);
     const first = extensions[0]!.commands.get("prompt-0")!;
     const second = extensions[1]!.commands.get("prompt-1")!;
+
     const select = vi
       .fn<ExtensionContext["ui"]["select"]>()
       .mockImplementationOnce(() => hold.promise)
       .mockResolvedValue("Accept");
+
     const ctx = createExtensionHost(() => {}).createContext({ ui: { select } });
     const firstPrompt = first.handler("", ctx);
     await expect.poll(() => select.mock.calls.length).toBe(1);

@@ -14,6 +14,7 @@ const { copyToClipboard } = vi.hoisted(() => ({
   copyToClipboard: vi.fn<(text: string) => Promise<void>>(),
 }));
 
+// oxlint-disable-next-line anti-slop/no-module-mocking -- Pi exposes no seam for its clipboard; the real one touches the OS.
 vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => ({
   ...(await importOriginal()),
   copyToClipboard,
@@ -38,6 +39,7 @@ describe("stash", () => {
   const useAgentDir = async () => {
     const directory = await createTempDir("stash-agent-");
     envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: directory }));
+
     return directory;
   };
 
@@ -49,10 +51,12 @@ describe("stash", () => {
 
   const createHarness = async (options: { cwd?: string; mode?: "json" | "rpc" | "tui" } = {}) => {
     const host = createExtensionHost(extension);
+
     const ctx = host.createContext({
       cwd: options.cwd ?? process.cwd(),
       mode: options.mode ?? "tui",
     });
+
     await host.emitSessionStart(ctx);
 
     return {
@@ -99,6 +103,7 @@ describe("stash", () => {
     for (const restore of envRestorers.splice(0).toReversed()) {
       restore();
     }
+
     vi.restoreAllMocks();
     copyToClipboard.mockReset();
   });
@@ -146,6 +151,7 @@ describe("stash", () => {
     );
 
     const restored = await createHarness({ cwd });
+
     for (let index = 12; index >= 3; index -= 1) {
       await restored.popStash();
       expect(restored.editorText()).toBe(`draft ${index}`);
@@ -188,6 +194,7 @@ describe("stash", () => {
     const invalidAgentDir = path.join(await createTempDir("stash-agent-parent-"), "file");
     await writeFile(invalidAgentDir, "not a directory", "utf-8");
     envRestorers.push(patchEnv({ PI_CODING_AGENT_DIR: invalidAgentDir }));
+
     const harness = await createHarness({
       cwd: await createTempDir("stash-cwd-"),
     });

@@ -17,7 +17,9 @@ import { createExtensionSmokeHarness } from "../../../../tests/harness/extension
 import type { ExtensionSmokeHarness } from "../../../../tests/harness/extension-smoke.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
+
 const FOOTER_ROOT = path.join(REPO_ROOT, "footer");
+
 const USAGE_ROOT = path.join(REPO_ROOT, "usage");
 
 describe("cooperative footer discovery", () => {
@@ -27,6 +29,7 @@ describe("cooperative footer discovery", () => {
   afterEach(() => {
     harness?.cleanup();
     harness = undefined;
+
     if (tempRoot !== undefined) rmSync(tempRoot, { recursive: true, force: true });
     tempRoot = undefined;
   });
@@ -37,12 +40,15 @@ describe("cooperative footer discovery", () => {
     });
 
     expect(harness.extensionsResult.errors).toStrictEqual([]);
+
     const footer = harness.extensionsResult.extensions.find(({ resolvedPath }) =>
       resolvedPath.endsWith(path.join("footer", "index.ts")),
     );
+
     const usage = harness.extensionsResult.extensions.find(({ resolvedPath }) =>
       resolvedPath.endsWith(path.join("usage", "index.ts")),
     );
+
     expect(footer?.commands.has("footer")).toBeTruthy();
     expect(usage?.commands.has("usage")).toBeTruthy();
   });
@@ -51,6 +57,7 @@ describe("cooperative footer discovery", () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), "footer-package-smoke-"));
     const workspaceRoot = path.resolve(FOOTER_ROOT, "../../../..");
     const stagingRoot = path.join(tempRoot, "workspace");
+
     // Legacy deploy can prune its source workspace; give it disposable sources and no links.
     for (const entry of [
       "package.json",
@@ -67,6 +74,7 @@ describe("cooperative footer discovery", () => {
         filter: (source) => path.basename(source) !== "node_modules",
       });
     }
+
     const deployed = path.join(tempRoot, "deployed");
     execFileSync(
       "pnpm",
@@ -96,6 +104,7 @@ describe("cooperative footer discovery", () => {
     renameSync(path.join(deployed, "node_modules"), modulesRoot);
     rmSync(deployed, { recursive: true, force: true });
     rmSync(stagingRoot, { recursive: true, force: true });
+
     for (const entry of readdirSync(modulesRoot, { recursive: true, withFileTypes: true })) {
       if (entry.isSymbolicLink()) {
         expect(
@@ -105,6 +114,7 @@ describe("cooperative footer discovery", () => {
         ).toBe(true);
       }
     }
+
     for (const dependency of [
       "@clanker-stuff/footer-protocol",
       "@clanker-stuff/status-icons",
@@ -117,6 +127,7 @@ describe("cooperative footer discovery", () => {
         realpathSync(path.join(modulesRoot, dependency)).startsWith(`${modulesRoot}${path.sep}`),
       ).toBe(true);
     }
+
     harness = await createExtensionSmokeHarness({ packages: [packageRoot] });
     expect(harness.extensionsResult.errors).toStrictEqual([]);
     expect(harness.extensionsResult.extensions[0]?.commands.has("footer")).toBe(true);

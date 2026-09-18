@@ -22,6 +22,7 @@ import {
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 
 type CompleteModel = ExtensionContext["modelRegistry"]["complete"];
+
 interface SetupOptions {
   config?: RecapConfig;
   model?: Partial<Model<Api>>;
@@ -32,30 +33,38 @@ const setup = async (complete: CompleteModel, options: SetupOptions = {}) => {
   const { configPath } = await createRecapConfigFile(options.config);
   const session = sessionWithTurns(3);
   const branch = session.getBranch();
+
   const model = fauxProvider({
     models: [{ id: "small" }],
     provider: "cheap",
   }).getModel();
+
   Object.assign(model, options.model);
+
   const activeModel = fauxProvider({
     models: [{ id: "expensive" }],
     provider: "active",
   }).getModel();
+
   let runtime: ReturnType<typeof createRecapRuntime> | undefined;
+
   const host = createExtensionHost(
     (pi) => {
       runtime = createRecapRuntime(pi, configPath);
     },
     {
       entries: branch,
-      leafId: branch.at(-1)?.id,
+      leafId: branch.at(-1)?.id ?? null,
       model: activeModel,
     },
   );
+
   await host.ready;
+
   if (runtime === undefined) {
     throw new Error("Recap runtime was not created");
   }
+
   const ctx = host.createContext({
     modelRegistry: {
       complete,
@@ -64,7 +73,9 @@ const setup = async (complete: CompleteModel, options: SetupOptions = {}) => {
       ...options.registry,
     },
   });
+
   await runtime.start(ctx);
+
   return { configPath, ctx, host, model, runtime };
 };
 
@@ -95,6 +106,7 @@ describe("recap runtime", () => {
       const { provider, setResponses } = fauxProvider({ provider: "cheap" });
       setResponses([fauxAssistantMessage("Recap")]);
       const stream = vi.spyOn(provider, "streamSimple");
+
       const getAuth = vi
         .fn<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>()
         .mockResolvedValueOnce({ ok: true, apiKey: "startup-key" })
@@ -105,6 +117,7 @@ describe("recap runtime", () => {
           env: { RECAP_AUTH: "ambient" },
           headers: { "x-recap": "test" },
         });
+
       const { ctx, host, model, runtime } = await setup(completion, {
         config: { model: { id: "small", provider: "cheap" }, thinking },
         model: { reasoning: true, thinkingLevelMap: { max: "max", xhigh: "xhigh" } },
@@ -129,11 +142,16 @@ describe("recap runtime", () => {
         cacheRetention: "none",
         env: { RECAP_AUTH: "ambient" },
         headers: { "x-recap": "test" },
-        reasoning: thinking === "off" ? undefined : thinking,
-        sessionId: expect.any(String),
-        signal: expect.any(AbortSignal),
         timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
       });
+      expect(stream.mock.calls[0]?.[2]).toHaveProperty("sessionId", expect.any(String));
+      expect(stream.mock.calls[0]?.[2]).toHaveProperty("signal", expect.any(AbortSignal));
+
+      if (thinking === "off") {
+        expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("reasoning");
+      } else {
+        expect(stream.mock.calls[0]?.[2]).toHaveProperty("reasoning", thinking);
+      }
     },
   );
 
@@ -147,11 +165,13 @@ describe("recap runtime", () => {
       const { provider, setResponses } = fauxProvider({ provider: "cheap" });
       setResponses([fauxAssistantMessage("Recap")]);
       const stream = vi.spyOn(provider, "streamSimple");
+
       const { ctx, host, runtime } = await setup(completion, {
         config: { model: { id: "small", provider: "cheap" }, thinking },
         model: { reasoning },
         registry: { getProvider: () => provider },
       });
+
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
       expect(stream.mock.calls[0]?.[2]?.reasoning).toBe(expected);
@@ -161,9 +181,11 @@ describe("recap runtime", () => {
   it("restores native defaults when thinking is removed on reload", async () => {
     const completion = completionMock(async () => fauxAssistantMessage("Recap"));
     const model = { id: "small", provider: "cheap" };
+
     const { configPath, ctx, host, runtime } = await setup(completion, {
       config: { model, thinking: "high" },
     });
+
     await writeFile(configPath, JSON.stringify({ model }));
     await runtime.start(ctx);
     runtime.settled(ctx);
@@ -179,14 +201,17 @@ describe("recap runtime", () => {
       const completion = completionMock(async () => fauxAssistantMessage("unused"));
       const { provider } = fauxProvider({ provider: "cheap" });
       const stream = vi.spyOn(provider, "streamSimple");
+
       const auth =
         Promise.withResolvers<
           Awaited<ReturnType<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>>
         >();
+
       const getAuth = vi
         .fn<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>()
         .mockResolvedValueOnce({ ok: true })
         .mockImplementation(() => auth.promise);
+
       const { ctx, host, runtime } = await setup(completion, {
         config: { model: { id: "small", provider: "cheap" }, thinking: "low" },
         registry: { getApiKeyAndHeaders: getAuth, getProvider: () => provider },
@@ -194,11 +219,13 @@ describe("recap runtime", () => {
 
       runtime.settled(ctx);
       expect(getAuth).toHaveBeenCalledTimes(2);
+
       if (action === "cancel") {
         runtime.cancel();
       } else {
         await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
       }
+
       auth.resolve({ ok: true });
       await flushPromises();
 
@@ -216,6 +243,7 @@ describe("recap runtime", () => {
         "  \u001B[31mFinished the parser.\u001B[0m\u0007 Next: test it.\u202E  ",
       ),
     );
+
     const { ctx, host, model, runtime } = await setup(completion);
 
     runtime.settled(ctx);
@@ -227,12 +255,10 @@ describe("recap runtime", () => {
     expect(completion.mock.calls[0]?.[0]).toBe(model);
     expect(completion.mock.calls[0]?.[1]).not.toHaveProperty("systemPrompt");
     expect(completion.mock.calls[0]?.[1]).not.toHaveProperty("tools");
-    expect(completion.mock.calls[0]?.[1].messages[0]?.content).toEqual([
-      expect.objectContaining({
-        text: expect.stringContaining("Write a brief catch-up"),
-        type: "text",
-      }),
-    ]);
+    const content = completion.mock.calls[0]?.[1].messages[0]?.content;
+    expect(content).toHaveLength(1);
+    expect(content).toHaveProperty("0.type", "text");
+    expect(content).toHaveProperty("0.text", expect.stringContaining("Write a brief catch-up"));
     expect(completion.mock.calls[0]?.[2]).toMatchObject({
       cacheRetention: "none",
       timeoutMs: 30_000,
@@ -241,14 +267,17 @@ describe("recap runtime", () => {
     expect(completion.mock.calls[0]?.[2]?.sessionId).not.toBe("");
     expect(completion.mock.calls[0]?.[2]?.sessionId).not.toBe(ctx.sessionManager.getSessionId());
     const signal = completion.mock.calls[0]?.[2]?.signal;
+
     if (signal === undefined) throw new Error("Missing recap abort signal");
     expect(getEventListeners(signal, "abort")).toHaveLength(0);
 
     const [entry] = host.getAppendedEntries();
     expect(entry?.type).toBe("custom");
+
     if (entry?.type !== "custom") {
       throw new Error("Expected a custom recap entry");
     }
+
     expect(entry.customType).toBe(RECAP_ENTRY_TYPE);
     expect(Value.Check(RecapEntrySchema, entry.data)).toBe(true);
     expect(entry.data).toStrictEqual({
@@ -271,6 +300,7 @@ describe("recap runtime", () => {
 
   it("disables itself instead of falling back to the active model", async () => {
     const completion = completionMock(async () => fauxAssistantMessage("unused"));
+
     const { configPath, ctx, host, runtime } = await setup(completion, {
       config: { model: { id: "small\u001B[31m\u0007\u202E", provider: "cheap" } },
       registry: { find: () => undefined },
@@ -305,13 +335,17 @@ describe("recap runtime", () => {
     async (recovery) => {
       vi.useFakeTimers();
       let calls = 0;
+
       const completion = completionMock(async () => {
         calls += 1;
+
         if (calls === 1) {
           throw new Error("\u001B[31mprovider\u001B[0m\u0007 unavailable\u202E");
         }
+
         return fauxAssistantMessage("Fresh recap");
       });
+
       const { ctx, host, runtime } = await setup(completion);
 
       runtime.settled(ctx);
@@ -336,6 +370,7 @@ describe("recap runtime", () => {
       } else {
         await runtime.start(ctx);
       }
+
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
       expect(completion).toHaveBeenCalledTimes(2);
@@ -350,9 +385,11 @@ describe("recap runtime", () => {
     "skips estimated input at or above the model window (offset %i)",
     async (offset) => {
       const prompt = buildRecapPrompt(sessionWithTurns(3).getBranch());
+
       if (prompt === undefined) throw new Error("Expected recap prompt");
       const estimated = estimateTokens(userMessage(prompt));
       const completion = completionMock(async () => fauxAssistantMessage("Fits now"));
+
       const { ctx, host, runtime } = await setup(completion, {
         model: { contextWindow: estimated + offset },
       });
@@ -379,8 +416,10 @@ describe("recap runtime", () => {
 
   it("sends the full prompt below the window without reserving the model's maximum output", async () => {
     const prompt = buildRecapPrompt(sessionWithTurns(3).getBranch());
+
     if (prompt === undefined) throw new Error("Expected recap prompt");
     const completion = completionMock(async () => fauxAssistantMessage("Recap"));
+
     const { ctx, host, runtime } = await setup(completion, {
       model: { contextWindow: estimateTokens(userMessage(prompt)) + 1, maxTokens: 4096 },
     });
@@ -407,15 +446,20 @@ describe("recap runtime", () => {
     async (kind) => {
       const response = fauxAssistantMessage("Overflow", {
         stopReason: kind === "silent" ? "stop" : kind,
-        errorMessage:
-          kind === "error" ? "Your input exceeds the context window of this model" : undefined,
+        ...(kind === "error"
+          ? { errorMessage: "Your input exceeds the context window of this model" }
+          : {}),
       });
+
       response.usage = { ...response.usage, input: 1001, output: 0, cacheRead: 0 };
       let calls = 0;
+
       const completion = completionMock(async () => {
         calls += 1;
+
         return calls === 1 ? response : fauxAssistantMessage("Fresh recap");
       });
+
       const { ctx, host, runtime } = await setup(completion, { model: { contextWindow: 1000 } });
 
       runtime.settled(ctx);
@@ -444,10 +488,13 @@ describe("recap runtime", () => {
   it("discards stale failures without warning or suppressing the changed context", async () => {
     const request = Promise.withResolvers<AssistantMessage>();
     let calls = 0;
+
     const completion = completionMock(() => {
       calls += 1;
+
       return calls === 1 ? request.promise : Promise.resolve(fauxAssistantMessage("Fresh recap"));
     });
+
     const { ctx, host, runtime } = await setup(completion);
     const fullContext = ctx.sessionManager.buildContextEntries();
     let contextEntries = fullContext;
@@ -468,10 +515,13 @@ describe("recap runtime", () => {
     vi.useFakeTimers();
     const request = Promise.withResolvers<AssistantMessage>();
     let calls = 0;
+
     const completion = completionMock(() => {
       calls += 1;
+
       return calls === 1 ? request.promise : Promise.resolve(fauxAssistantMessage("Fresh recap"));
     });
+
     const { ctx, host, runtime } = await setup(completion);
 
     runtime.settled(ctx);
@@ -504,11 +554,14 @@ describe("recap runtime", () => {
 
   it("preserves a replacement when the prior completion settles during cancellation", async () => {
     const requests: PromiseWithResolvers<AssistantMessage>[] = [];
+
     const completion = completionMock(() => {
       const request = Promise.withResolvers<AssistantMessage>();
       requests.push(request);
+
       return request.promise;
     });
+
     const { ctx, host, runtime } = await setup(completion);
 
     runtime.settled(ctx);
@@ -549,9 +602,11 @@ describe("recap runtime", () => {
     "rejects a textual %s response",
     async (stopReason) => {
       vi.useFakeTimers();
+
       const completion = completionMock(async () =>
         fauxAssistantMessage("Not a final recap", { stopReason }),
       );
+
       const { ctx, host, runtime } = await setup(completion);
 
       runtime.settled(ctx);
@@ -580,16 +635,9 @@ describe("recap runtime", () => {
       expect(host.getAppendedEntries()).toHaveLength(1);
     });
     const prompt = completion.mock.calls[0]?.[1].messages[0]?.content;
-    expect(prompt).toEqual([
-      expect.objectContaining({
-        text: expect.not.stringContaining("request 1"),
-      }),
-    ]);
-    expect(prompt).toEqual([
-      expect.objectContaining({
-        text: expect.stringContaining("request 3"),
-      }),
-    ]);
+    expect(prompt).toHaveLength(1);
+    expect(prompt).toHaveProperty("0.text", expect.not.stringContaining("request 1"));
+    expect(prompt).toHaveProperty("0.text", expect.stringContaining("request 3"));
     expect(host.getAppendedEntries()[0]).toMatchObject({
       data: { completedTurns: 3 },
     });
@@ -616,12 +664,14 @@ describe("recap runtime", () => {
 
   it("discards a recap when the active conversation changes before completion", async () => {
     let finish: ((message: AssistantMessage) => void) | undefined;
+
     const completion = completionMock(
       async () =>
         await new Promise<AssistantMessage>((resolve) => {
           finish = resolve;
         }),
     );
+
     const { ctx, host, runtime } = await setup(completion);
 
     runtime.settled(ctx);
@@ -630,9 +680,11 @@ describe("recap runtime", () => {
     Object.assign(ctx.sessionManager, {
       getBranch: () => changedBranch,
     });
+
     if (finish === undefined) {
       throw new Error("Recap completion did not start");
     }
+
     finish(fauxAssistantMessage("This result is stale"));
     await flushPromises();
 

@@ -10,21 +10,25 @@ import {
 } from "@clanker-stuff/footer-protocol";
 import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
 import type { Model } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createIdentityTheme, createMockTui } from "../../../../tests/harness/tui.js";
 import { cloneFooterConfig, DEFAULT_CONFIG } from "@clanker-stuff/footer-protocol/config";
-import { createFooterConfigStore } from "../config.js";
+import type { createFooterConfigStore } from "../config.js";
 import type { FooterConfig } from "@clanker-stuff/footer-protocol/config";
-import { readGitStatus } from "../git.js";
-import extension from "../index.js";
+import type { readGitStatus } from "../git.js";
+import footerExtension from "../index.js";
 
-vi.mock(import("../config.js"), { spy: true });
-vi.mock(import("../git.js"), { spy: true });
+const createStore = vi.fn<typeof createFooterConfigStore>();
+
+const readGit = vi.fn<typeof readGitStatus>(async () => null);
+
+const extension: ExtensionFactory = (pi) => footerExtension(pi, createStore(), readGit);
 
 type FooterFactory = Exclude<Parameters<ExtensionContext["ui"]["setFooter"]>[0], undefined>;
+
 type FooterComponent = ReturnType<FooterFactory>;
 
 const model = (id: string, name: string): Model<"openai-responses"> => ({
@@ -45,7 +49,7 @@ describe("footer host", () => {
     const config = cloneFooterConfig(DEFAULT_CONFIG);
     config.enabled = false;
     config.iconFamily = "nerd";
-    vi.mocked(createFooterConfigStore).mockReturnValue({
+    createStore.mockReturnValue({
       load: async () => ({ config }),
       path: "/tmp/footer.json",
       save: async () => {},
@@ -86,12 +90,12 @@ describe("footer host", () => {
   });
 
   it("answers late ready requests for the active runtime", async () => {
-    vi.mocked(createFooterConfigStore).mockReturnValue({
+    createStore.mockReturnValue({
       load: async () => ({ config: cloneFooterConfig(DEFAULT_CONFIG) }),
       path: "/tmp/footer.json",
       save: async () => {},
     });
-    vi.mocked(readGitStatus).mockResolvedValue(null);
+    readGit.mockResolvedValue(null);
     const host = createExtensionHost(extension);
     const ready: string[] = [];
     host.events.on(FOOTER_READY_EVENT, (value) => {
@@ -115,7 +119,7 @@ describe("footer host", () => {
   it("does not finish an in-flight start after shutdown", async () => {
     const pending = Promise.withResolvers<{ config: FooterConfig }>();
     const load = vi.fn<() => Promise<{ config: FooterConfig }>>(() => pending.promise);
-    vi.mocked(createFooterConfigStore).mockReturnValue({
+    createStore.mockReturnValue({
       load,
       path: "/tmp/footer.json",
       save: async () => {},
@@ -138,7 +142,8 @@ describe("footer host", () => {
     const load = vi.fn<() => Promise<{ config: FooterConfig }>>(async () => ({
       config: cloneFooterConfig(DEFAULT_CONFIG),
     }));
-    vi.mocked(createFooterConfigStore).mockReturnValue({
+
+    createStore.mockReturnValue({
       load,
       path: "/tmp/footer.json",
       save: async () => {
@@ -152,35 +157,37 @@ describe("footer host", () => {
 
     expect(load).not.toHaveBeenCalled();
     expect(context.ui.setFooter).not.toHaveBeenCalled();
-    expect(readGitStatus).not.toHaveBeenCalled();
+    expect(readGit).not.toHaveBeenCalled();
   });
 
   it("does not collect Git status when both Git widgets are hidden", async () => {
     const config = cloneFooterConfig(DEFAULT_CONFIG);
+
     for (const row of config.rows) {
       row.left = row.left.filter((id) => id !== "footer.git");
     }
+
     config.widgets["footer.git"] = { enabled: false };
     config.widgets["footer.git.details"] = { enabled: false };
-    vi.mocked(createFooterConfigStore).mockReturnValue({
+    createStore.mockReturnValue({
       load: async () => ({ config }),
       path: "/tmp/footer.json",
       save: async () => {},
     });
-    vi.mocked(readGitStatus).mockClear();
+    readGit.mockClear();
     const host = createExtensionHost(extension);
     const context = host.createContext();
 
     await host.emitSessionStart(context);
     await host.emitTurnEnd(undefined, context);
 
-    expect(readGitStatus).not.toHaveBeenCalled();
+    expect(readGit).not.toHaveBeenCalled();
   });
 
   it("renders live native/rich state and refreshes totals post-persistence", async () => {
     const config = cloneFooterConfig(DEFAULT_CONFIG);
     config.rows[1]?.right.push("footer.session");
-    vi.mocked(createFooterConfigStore).mockReturnValue({
+    createStore.mockReturnValue({
       load: async () => ({
         config,
       }),
@@ -189,7 +196,7 @@ describe("footer host", () => {
         await Promise.resolve();
       },
     });
-    vi.mocked(readGitStatus).mockResolvedValue(null);
+    readGit.mockResolvedValue(null);
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2025-01-01T00:05:00.000Z"));
     const statuses = new Map<string, string>();
     const getEntries = vi.fn<() => []>(() => []);
@@ -199,25 +206,31 @@ describe("footer host", () => {
       if (failTopLevelRender && text === "·") {
         throw new Error("layout failed");
       }
+
       return text;
     };
+
     const footerData = {
       getAvailableProviderCount: () => 1,
       getExtensionStatuses: () => statuses,
       getGitBranch: () => null,
       onBranchChange: () => vi.fn<() => void>(),
     };
+
     let component: FooterComponent | undefined;
+
     const setFooter: ExtensionContext["ui"]["setFooter"] = (factory) => {
       component?.dispose?.();
       component = factory === undefined ? undefined : factory(createMockTui(), theme, footerData);
     };
+
     const host = createExtensionHost(extension);
     const sessionManager = host.createContext().sessionManager;
     let ready: { instanceId: string } | undefined;
     host.events.on(FOOTER_READY_EVENT, (value) => {
       ready = Value.Check(FooterReadyMessageSchema, value) ? value : undefined;
     });
+
     const context = host.createContext({
       cwd: "/tmp/project",
       getContextUsage: () => ({
@@ -245,6 +258,7 @@ describe("footer host", () => {
       id: "example.widget",
       label: "Example",
     };
+
     host.events.emit(FOOTER_WIDGET_EVENT, {
       instanceId: ready?.instanceId,
       protocol: 1,

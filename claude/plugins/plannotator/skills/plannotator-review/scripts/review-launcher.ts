@@ -10,7 +10,9 @@ import type { CliCompletion, CliProcess, CliStarter, CliStartOptions } from "./c
 import { processFailure, startCli } from "./cli.ts";
 
 const READY_TIMEOUT_MS = 30_000;
+
 const NOOP_BROWSERS = new Set(["true", "false", "none", ":", "0", "1"]);
+
 const HELP = `Usage:
   plannotator-review [--base <git-ref>] [plannotator review options]
 
@@ -23,12 +25,6 @@ All other options are forwarded to \`plannotator review\`.
 interface ReadyMetadata {
   isRemote: boolean;
   url: string;
-}
-
-type JsonValue = JsonValue[] | JsonObject | boolean | null | number | string;
-
-interface JsonObject {
-  [key: string]: JsonValue;
 }
 
 interface BrowserChoice {
@@ -58,41 +54,50 @@ const parseReview = (args: string[]): ParsedReview => {
   let base: string | undefined;
   let browser: string | undefined;
 
-  for (let index = 1; index < args.length; index += 1) {
-    const token = args[index];
+  const tokens = args.slice(1).values();
+
+  for (const token of tokens) {
     if (token === "--base") {
-      const value = args[index + 1];
+      const value = tokens.next().value;
+
       if (!value || value.startsWith("--")) {
         throw new Error("--base requires a Git ref");
       }
+
       if (base !== undefined) {
         throw new Error("--base may only be specified once");
       }
+
       base = value;
-      index += 1;
       continue;
     }
+
     if (token.startsWith("--base=")) {
       const value = token.slice("--base=".length);
+
       if (!value) {
         throw new Error("--base requires a Git ref");
       }
+
       if (base !== undefined) {
         throw new Error("--base may only be specified once");
       }
+
       base = value;
       continue;
     }
 
     forwarded.push(token);
+
     if (token === "--browser") {
-      const value = args[index + 1];
+      const value = tokens.next().value;
+
       if (!value) {
         throw new Error("--browser requires a value");
       }
+
       browser = value;
       forwarded.push(value);
-      index += 1;
     } else if (token.startsWith("--browser=")) {
       browser = token.slice("--browser=".length);
     } else if (!token.startsWith("-")) {
@@ -103,55 +108,58 @@ const parseReview = (args: string[]): ParsedReview => {
   if (base === undefined) {
     return { args };
   }
+
   if (positional.length > 0) {
     throw new Error("--base cannot be combined with a pull request URL");
   }
+
   if (forwarded.includes("--gitbutler")) {
     throw new Error("--base is only supported for Git reviews");
   }
+
   if (!forwarded.includes("--git")) {
     forwarded.unshift("--git");
   }
 
-  return { args: ["review", ...forwarded], base, browser };
+  return { args: ["review", ...forwarded], base, ...(browser !== undefined ? { browser } : {}) };
 };
 
 const completionBeforeReady = async (completion: Promise<CliCompletion>): Promise<never> => {
   const result = await completion;
+
   if (result.kind === "exited" && result.code !== 0) {
     throw processFailure(result);
   }
+
   if (result.kind === "signaled") {
     throw new Error(`Plannotator terminated by ${result.signal}`);
   }
+
   throw new Error("Plannotator exited before opening the review server");
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem failures are arbitrary thrown values; this distinguishes an absent launch file from other failures.
 const isMissingFileError = (cause: unknown): boolean =>
   cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 
-const isJsonObject = (value: JsonValue): value is JsonObject =>
-  value !== null && !Array.isArray(value) && Object(value) === value;
-
-const isJsonString = (value: JsonValue | undefined): value is string =>
-  value !== null && value !== undefined && value.constructor === String;
-
-const isJsonBoolean = (value: JsonValue | undefined): value is boolean =>
-  value !== null && value !== undefined && value.constructor === Boolean;
-
-const parseJson = (text: string): JsonValue => JSON.parse(text);
-
 const parseReadyMetadata = (line: string): ReadyMetadata | undefined => {
   try {
-    const value = parseJson(line);
+    const value: unknown = JSON.parse(line);
+
+    /* oxlint-disable anti-slop/no-runtime-typeof -- Decode the standalone launcher's readiness-file contract here, including its boolean and URL invariants. */
     if (
-      !isJsonObject(value) ||
-      !isJsonString(value.url) ||
-      !isJsonBoolean(value.isRemote) ||
+      typeof value !== "object" ||
+      value === null ||
+      !("url" in value) ||
+      typeof value.url !== "string" ||
+      !("isRemote" in value) ||
+      typeof value.isRemote !== "boolean" ||
       !URL.canParse(value.url)
     ) {
+      /* oxlint-enable anti-slop/no-runtime-typeof */
       return undefined;
     }
+
     return { isRemote: value.isRemote, url: value.url };
   } catch {
     return undefined;
@@ -160,8 +168,16 @@ const parseReadyMetadata = (line: string): ReadyMetadata | undefined => {
 
 const parseApiError = (text: string): string | undefined => {
   try {
-    const value = parseJson(text);
-    return isJsonObject(value) && isJsonString(value.error) ? value.error : undefined;
+    const value: unknown = JSON.parse(text);
+
+    /* oxlint-disable anti-slop/no-runtime-typeof -- Decode the remote API error envelope; unrelated response bodies have no diagnostic string. */
+    return typeof value === "object" &&
+      value !== null &&
+      "error" in value &&
+      typeof value.error === "string"
+      ? value.error
+      : undefined;
+    /* oxlint-enable anti-slop/no-runtime-typeof */
   } catch {
     return undefined;
   }
@@ -169,16 +185,19 @@ const parseApiError = (text: string): string | undefined => {
 
 const readReadyMetadata = (filePath: string): ReadyMetadata | undefined => {
   let text: string;
+
   try {
     text = readFileSync(filePath, "utf-8");
   } catch (error) {
     if (isMissingFileError(error)) {
       return undefined;
     }
+
     throw error;
   }
 
   const line = text.trim().split(/\r?\n/u).at(-1);
+
   if (line === undefined || line.length === 0) {
     return undefined;
   }
@@ -192,17 +211,23 @@ const waitForReady = async (
   timeoutMs: number,
 ): Promise<ReadyMetadata> => {
   const deadline = Date.now() + timeoutMs;
+
   const poll = async (): Promise<ReadyMetadata> => {
     const metadata = readReadyMetadata(readyFile);
+
     if (metadata) {
       return metadata;
     }
+
     if (Date.now() >= deadline) {
       throw new Error("Timed out waiting for Plannotator to open the review server");
     }
+
     await delay(25, undefined, { signal });
+
     return await poll();
   };
+
   return await poll();
 };
 
@@ -222,8 +247,10 @@ const switchBase = async (
     method: "POST",
     signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
   });
+
   const text = await response.text();
   const apiError = parseApiError(text);
+
   if (!response.ok || apiError !== undefined) {
     const detail = apiError ?? (text.length > 0 ? text : `HTTP ${response.status}`);
     throw new Error(`Could not target base ${JSON.stringify(base)}: ${detail}`);
@@ -235,6 +262,7 @@ const browserChoice = (
   env: NodeJS.ProcessEnv,
 ): BrowserChoice | undefined => {
   const plannotatorBrowser = browserArgument ?? env.PLANNOTATOR_BROWSER;
+
   if (
     plannotatorBrowser !== undefined &&
     plannotatorBrowser.length > 0 &&
@@ -242,7 +270,9 @@ const browserChoice = (
   ) {
     return { plannotatorStyle: true, value: plannotatorBrowser };
   }
+
   const browser = env.BROWSER;
+
   return browser !== undefined &&
     browser.length > 0 &&
     !NOOP_BROWSERS.has(browser.trim().toLowerCase())
@@ -252,21 +282,25 @@ const browserChoice = (
 
 const spawnDetached = (command: string, args: string[]): Promise<null> => {
   const { promise, reject, resolve } = Promise.withResolvers<null>();
+
   const child = spawn(command, args, {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
   });
+
   child.once("error", reject);
   child.once("spawn", () => {
     child.unref();
     resolve(null);
   });
+
   return promise;
 };
 
 const openBrowser = async (url: string, choice: BrowserChoice | undefined): Promise<void> => {
   const isWindows = process.platform === "win32";
+
   const isWsl =
     process.platform === "linux" &&
     (Boolean(process.env.WSL_DISTRO_NAME) || release().toLowerCase().includes("microsoft"));
@@ -277,25 +311,35 @@ const openBrowser = async (url: string, choice: BrowserChoice | undefined): Prom
         choice.value.includes("/") && !choice.value.endsWith(".app")
           ? [choice.value, [url]]
           : ["open", ["-a", choice.value, url]];
+
       await spawnDetached(command, args);
+
       return;
     }
+
     if ((isWindows || isWsl) && choice.plannotatorStyle) {
       await spawnDetached("cmd.exe", ["/c", "start", "", choice.value, url]);
+
       return;
     }
+
     await spawnDetached(choice.value, [url]);
+
     return;
   }
 
   if (isWindows || isWsl) {
     await spawnDetached("cmd.exe", ["/c", "start", "", url]);
+
     return;
   }
+
   if (process.platform === "darwin") {
     await spawnDetached("open", [url]);
+
     return;
   }
+
   await spawnDetached("xdg-open", [url]);
 };
 
@@ -308,6 +352,7 @@ export const createTargetedReviewStarter =
   (args: string[], options: CliStartOptions): CliProcess => {
     const review = parseReview(args);
     const { base } = review;
+
     if (base === undefined) {
       return start(args, options);
     }
@@ -342,13 +387,16 @@ export const createTargetedReviewStarter =
           ),
           completionBeforeReady(child.completion),
         ]);
+
         await switchBase(metadata.url, base, controller.signal, dependencies.fetch ?? fetch);
 
         if (metadata.isRemote) {
           announceUrl(metadata.url);
         }
+
         try {
           const browser = browserChoice(review.browser, env);
+
           if (!metadata.isRemote || browser) {
             await (dependencies.openUrl
               ? dependencies.openUrl(metadata.url)
@@ -363,14 +411,17 @@ export const createTargetedReviewStarter =
         if (!controller.signal.aborted) {
           child.cancel();
         }
+
         try {
           await child.completion;
         } catch {
           // Preserve the setup error below.
         }
+
         if (controller.signal.aborted) {
           return { kind: "cancelled" };
         }
+
         throw error;
       } finally {
         rmSync(temporaryDirectory, { force: true, recursive: true });
@@ -400,21 +451,27 @@ const startInstalledPlannotator: CliStarter = (args, options) =>
 
 const runCli = async (): Promise<void> => {
   const args = process.argv.slice(2);
+
   if (args.includes("--help") || args.includes("-h")) {
     process.stdout.write(HELP);
+
     return;
   }
+
   const review = createTargetedReviewStarter(startInstalledPlannotator)(["review", ...args], {
     cwd: process.cwd(),
   });
+
   const cancel = (): void => {
     review.cancel();
   };
+
   process.once("SIGINT", cancel);
   process.once("SIGTERM", cancel);
 
   try {
     const result = await review.completion;
+
     if (result.kind === "exited") {
       process.stdout.write(result.stdout);
       process.exitCode = result.code;

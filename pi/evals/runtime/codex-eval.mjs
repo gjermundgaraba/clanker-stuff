@@ -9,9 +9,11 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 const SERVER_URL = "ws://127.0.0.1:41973";
+
 const SERVER_WAIT_MS = 10_000;
 
 const NonEmptyStringSchema = Type.String({ minLength: 1 });
+
 const EvalConfigSchema = Type.Object({
   compactBefore: Type.Boolean(),
   compactedAfterSegment: Type.Integer({ minimum: -1 }),
@@ -20,14 +22,17 @@ const EvalConfigSchema = Type.Object({
   model: NonEmptyStringSchema,
   summary: Type.Union([Type.String(), Type.Null()]),
 });
+
 const RpcItemSchema = Type.Object({
   id: Type.Optional(NonEmptyStringSchema),
   type: Type.Optional(NonEmptyStringSchema),
 });
+
 const RpcTurnSchema = Type.Object({
   id: NonEmptyStringSchema,
   status: NonEmptyStringSchema,
 });
+
 // Unknown fields are deliberately allowed: native service hooks consume additional params,
 // item and turn fields, and result/usage payloads are validated by their own consumers.
 const RpcParamsSchema = Type.Object({
@@ -38,6 +43,7 @@ const RpcParamsSchema = Type.Object({
   turnId: Type.Optional(NonEmptyStringSchema),
   usage: Type.Optional(Type.Unknown()),
 });
+
 const RpcMessageSchema = Type.Object({
   error: Type.Optional(Type.Unknown()),
   id: Type.Optional(Type.Union([Type.String(), Type.Integer()])),
@@ -45,7 +51,9 @@ const RpcMessageSchema = Type.Object({
   params: Type.Optional(RpcParamsSchema),
   result: Type.Optional(Type.Unknown()),
 });
+
 const ThreadStartSchema = Type.Object({ thread: Type.Object({ id: NonEmptyStringSchema }) });
+
 const TurnStartSchema = Type.Object({ turn: Type.Object({ id: NonEmptyStringSchema }) });
 
 /**
@@ -93,6 +101,8 @@ const schemaValue = (schema, value, source) => {
   if (!Value.Check(schema, value)) {
     throw new TypeError(`invalid ${source}`);
   }
+
+  // oxlint-disable-next-line typescript/no-unsafe-return -- TypeBox's generic Static projection is unresolved here; Value.Check above proves exactly the caller-supplied schema without coercion.
   return value;
 };
 
@@ -105,6 +115,7 @@ const stringValue = (value, source) => {
   if (!Value.Check(NonEmptyStringSchema, value)) {
     throw new TypeError(`${source} must be a non-empty string`);
   }
+
   return value;
 };
 
@@ -124,7 +135,9 @@ export const evalConfig = (value) => {
     },
     "Codex eval config",
   );
+
   const { compactBefore, compactedAfterSegment, effort, instructionPath, model, summary } = config;
+
   return { compactBefore, compactedAfterSegment, effort, instructionPath, model, summary };
 };
 
@@ -134,14 +147,15 @@ export const evalConfig = (value) => {
  */
 export const rpcMessage = (value) => {
   const message = schemaValue(RpcMessageSchema, value, "JSON-RPC message");
+
   return {
-    error: message.error,
+    ...(message.id !== undefined ? { id: message.id } : {}),
+    ...(message.method !== undefined ? { method: message.method } : {}),
+    ...(message.params !== undefined ? { params: message.params } : {}),
+    ...("error" in message ? { error: message.error } : {}),
+    ...("result" in message ? { result: message.result } : {}),
     hasError: "error" in message,
     hasResult: "result" in message,
-    id: message.id,
-    method: message.method,
-    params: message.params,
-    result: message.result,
   };
 };
 
@@ -175,15 +189,19 @@ export const createCapture = (onRecord = () => {}) => {
    */
   const settle = (turnId, turn) => {
     const compaction = compactions.get(turnId);
+
     if (compaction === undefined) {
       return;
     }
+
     if (compaction.state !== undefined) {
       throw new Error(`duplicate terminal state for Codex compaction turn ${turnId}`);
     }
+
     if (!["completed", "failed", "interrupted"].includes(turn.status)) {
       throw new Error(`unknown Codex compaction status: ${turn.status}`);
     }
+
     if (compaction.completed) {
       compaction.state = "succeeded";
     } else if (turn.status === "failed") {
@@ -193,19 +211,23 @@ export const createCapture = (onRecord = () => {}) => {
     } else {
       throw new Error(`completed Codex compaction turn ${turnId} omitted item/completed`);
     }
+
     compaction.timestamp = new Date().toISOString();
   };
 
   /** @param {string} turnId Explicit compaction turn id. */
   const beginCompaction = (turnId) => {
     const existing = compactions.get(turnId);
+
     if (existing?.expected) {
       throw new Error(`duplicate Codex compaction turn ${turnId}`);
     }
+
     const compaction = existing ?? { completed: false, expected: true };
     compaction.expected = true;
     compactions.set(turnId, compaction);
     const terminal = terminals.get(turnId);
+
     if (terminal !== undefined && compaction.state === undefined) {
       settle(turnId, terminal);
     }
@@ -214,20 +236,26 @@ export const createCapture = (onRecord = () => {}) => {
   /** @param {RpcMessage} message JSON-RPC message. */
   const accept = (message) => {
     const { method, params } = message;
+
     if (method === "item/started" && params?.item?.type === "contextCompaction") {
       const turnId = stringValue(params.turnId, "compaction turn id");
       const compaction = compactions.get(turnId) ?? { completed: false, expected: false };
+
       if (compaction.itemId !== undefined || compaction.state !== undefined) {
         throw new Error(`multiple Codex compaction items for turn ${turnId}`);
       }
+
       compaction.itemId = stringValue(params.item.id, "compaction item id");
       compactions.set(turnId, compaction);
+
       return;
     }
+
     if (method === "item/completed" && params?.item?.type === "contextCompaction") {
       const turnId = stringValue(params.turnId, "compaction turn id");
       const compaction = compactions.get(turnId);
       const itemId = stringValue(params.item.id, "compaction item id");
+
       if (
         compaction === undefined ||
         compaction.itemId !== itemId ||
@@ -236,39 +264,53 @@ export const createCapture = (onRecord = () => {}) => {
       ) {
         throw new Error(`unmatched Codex compaction completion for turn ${turnId}`);
       }
+
       compaction.completed = true;
+
       return;
     }
+
     if (method === "turn/completed") {
       const turn = params?.turn;
+
       if (turn === undefined) {
         throw new Error("turn/completed omitted its turn");
       }
+
       if (terminals.has(turn.id)) {
         throw new Error(`duplicate terminal Codex turn ${turn.id}`);
       }
+
       terminals.set(turn.id, turn);
       settle(turn.id, turn);
+
       return;
     }
+
     if (method !== "rawResponse/completed") {
       return;
     }
+
     const responseId = stringValue(params?.responseId, "response id");
     const threadId = stringValue(params?.threadId, "response thread id");
     const turnId = stringValue(params?.turnId, "response turn id");
     const compaction = compactions.get(turnId);
     const kind = compaction !== undefined && !compaction.completed ? "compaction" : "ordinary";
+
     if (responseIds.has(responseId)) {
       throw new Error(`duplicate Codex response id: ${responseId}`);
     }
+
     responseIds.add(responseId);
+
     if (params?.usage === undefined || params.usage === null) {
       if (kind === "compaction") {
         return;
       }
+
       throw new Error("Codex response omitted exact usage");
     }
+
     /** @type {UsageRecord} */
     const record = {
       kind,
@@ -277,6 +319,7 @@ export const createCapture = (onRecord = () => {}) => {
       turnId,
       usage: params.usage,
     };
+
     records.push(record);
     onRecord(record);
   };
@@ -285,9 +328,11 @@ export const createCapture = (onRecord = () => {}) => {
     if ([...compactions.values()].some((compaction) => compaction.state === undefined)) {
       throw new Error("Codex turn ended without a terminal compaction state");
     }
+
     if (!records.some((record) => record.kind === "ordinary")) {
       throw new Error("Codex turn completed without an ordinary model response");
     }
+
     return {
       attempts: [...compactions.entries()].map(([turnId, compaction]) => ({
         state: compaction.state,
@@ -307,10 +352,12 @@ const openSocket = () => {
   /** @type {PromiseWithResolvers<WebSocket>} */
   const connection = Promise.withResolvers();
   const socket = new WebSocket(SERVER_URL);
+
   const timeout = setTimeout(() => {
     socket.close();
     connection.reject(new Error("timed out connecting to Codex app-server"));
   }, 1000);
+
   socket.addEventListener("open", () => {
     clearTimeout(timeout);
     connection.resolve(socket);
@@ -319,6 +366,7 @@ const openSocket = () => {
     clearTimeout(timeout);
     connection.reject(new Error("Codex app-server is unavailable"));
   });
+
   return connection.promise;
 };
 
@@ -330,7 +378,9 @@ const waitForSocket = async (deadline) => {
   if (Date.now() >= deadline) {
     return undefined;
   }
+
   await delay(100);
+
   try {
     return await openSocket();
   } catch {
@@ -347,15 +397,28 @@ const connect = async () => {
       env: process.env,
       stdio: "ignore",
     });
+
     server.unref();
     const socket = await waitForSocket(Date.now() + SERVER_WAIT_MS);
+
     if (socket !== undefined) {
       return socket;
     }
+
     throw error;
   }
 };
 
+/**
+ * @typedef {{
+ *   request?: (method: string, params: unknown) => Promise<unknown>,
+ *   notification?: (message: RpcMessage) => void,
+ *   threadParams?: object,
+ *   turnParams?: object,
+ *   threadStarted?: (response: unknown) => Promise<void>,
+ *   finished?: () => Promise<void>,
+ * }} RunnerHooks Hooks consume heterogeneous server payloads and own their decoders.
+ */
 class RpcClient {
   /** @type {Error | undefined} */
   failure;
@@ -374,6 +437,7 @@ class RpcClient {
   /**
    * @param {WebSocket} socket Connected socket.
    * @param {Capture} capture Event collector.
+   * @param {RunnerHooks} hooks Native service integration.
    */
   constructor(socket, capture, hooks = {}) {
     this.hooks = hooks;
@@ -403,12 +467,14 @@ class RpcClient {
     if (this.failure !== undefined) {
       return Promise.reject(this.failure);
     }
+
     const id = this.nextId;
     this.nextId += 1;
     /** @type {PromiseWithResolvers<unknown>} */
     const response = Promise.withResolvers();
     this.pending.set(id, response);
     this.socket.send(JSON.stringify({ id, method, params }));
+
     return response.promise;
   }
 
@@ -434,13 +500,17 @@ class RpcClient {
     if (this.failure !== undefined) {
       return Promise.reject(this.failure);
     }
+
     const completed = this.completedTurns.get(turnId);
+
     if (completed !== undefined) {
       return Promise.resolve(completed);
     }
+
     /** @type {PromiseWithResolvers<RpcTurn>} */
     const waiter = Promise.withResolvers();
     this.turnWaiters.set(turnId, waiter);
+
     return waiter.promise;
   }
 
@@ -452,13 +522,20 @@ class RpcClient {
     if (this.failure !== undefined) {
       return Promise.reject(this.failure);
     }
-    const index = this.turnStarts.findIndex((started) => started.threadId === threadId);
-    if (index >= 0) {
-      return Promise.resolve(this.turnStarts.splice(index, 1)[0].turn);
+
+    const index = this.turnStarts.findIndex((entry) => entry.threadId === threadId);
+    const started = this.turnStarts[index];
+
+    if (started) {
+      this.turnStarts.splice(index, 1);
+
+      return Promise.resolve(started.turn);
     }
+
     /** @type {PromiseWithResolvers<RpcTurn>} */
     const waiter = Promise.withResolvers();
     this.turnStartWaiters.push({ threadId, waiter });
+
     return waiter.promise;
   }
 
@@ -467,16 +544,21 @@ class RpcClient {
     if (this.failure !== undefined) {
       return;
     }
+
     this.failure = error;
+
     for (const pending of this.pending.values()) {
       pending.reject(error);
     }
+
     for (const { waiter } of this.turnStartWaiters) {
       waiter.reject(error);
     }
+
     for (const waiter of this.turnWaiters.values()) {
       waiter.reject(error);
     }
+
     this.pending.clear();
     this.turnStartWaiters.length = 0;
     this.turnWaiters.clear();
@@ -486,17 +568,22 @@ class RpcClient {
   #accept(message) {
     if (message.id !== undefined && (message.hasResult || message.hasError)) {
       const pending = this.pending.get(message.id);
+
       if (pending === undefined) {
         return;
       }
+
       this.pending.delete(message.id);
+
       if (message.hasError) {
         pending.reject(new Error(JSON.stringify(message.error)));
       } else {
         pending.resolve(message.result);
       }
+
       return;
     }
+
     if (message.id !== undefined && message.method !== undefined && this.hooks.request) {
       Promise.resolve(this.hooks.request(message.method, message.params)).then(
         (result) => this.socket.send(JSON.stringify({ id: message.id, result })),
@@ -507,8 +594,10 @@ class RpcClient {
           this.#fail(error instanceof Error ? error : new Error(String(error)));
         },
       );
+
       return;
     }
+
     if (message.id !== undefined && message.method !== undefined) {
       this.socket.send(
         JSON.stringify({
@@ -516,28 +605,39 @@ class RpcClient {
           id: message.id,
         }),
       );
+
       return;
     }
+
     this.hooks.notification?.(message);
     this.capture.accept(message);
+
     if (message.method === "turn/started") {
       const turn = message.params?.turn;
+
       if (turn === undefined) {
         throw new Error("turn/started omitted its turn");
       }
+
       const threadId = stringValue(message.params?.threadId, "started turn thread id");
       const index = this.turnStartWaiters.findIndex((entry) => entry.threadId === threadId);
-      if (index < 0) {
+      const waiting = this.turnStartWaiters[index];
+
+      if (!waiting) {
         this.turnStarts.push({ threadId, turn });
       } else {
-        this.turnStartWaiters.splice(index, 1)[0].waiter.resolve(turn);
+        this.turnStartWaiters.splice(index, 1);
+        waiting.waiter.resolve(turn);
       }
     }
+
     if (message.method === "turn/completed") {
       const turn = message.params?.turn;
+
       if (turn === undefined) {
         throw new Error("turn/completed omitted its turn");
       }
+
       this.completedTurns.set(turn.id, turn);
       this.turnWaiters.get(turn.id)?.resolve(turn);
       this.turnWaiters.delete(turn.id);
@@ -545,22 +645,27 @@ class RpcClient {
   }
 }
 
+/** @param {string} configPath @param {RunnerHooks} hooks */
 export const run = async (configPath, hooks = {}) => {
   const config = evalConfig(parseJson(await readFile(configPath, "utf-8")));
   const codexHome = process.env.CODEX_HOME;
+
   if (codexHome === undefined || codexHome.length === 0) {
     throw new Error("CODEX_HOME is required");
   }
+
   const statePath = `${codexHome}/eval-thread-id`;
   const eventsPath = `${codexHome}/eval-events.jsonl`;
   const instruction = await readFile(config.instructionPath, "utf-8");
   const socket = await connect();
   // Persist before turn completion, including when the supervisor kills us.
   appendFileSync(eventsPath, "", { mode: 0o600 });
+
   const capture = createCapture((record) => {
     appendFileSync(eventsPath, `${JSON.stringify(record)}\n`);
     process.stdout.write(`${JSON.stringify({ type: "eval_event", ...record })}\n`);
   });
+
   const rpc = new RpcClient(socket, capture, hooks);
 
   await rpc.request("initialize", {
@@ -581,6 +686,7 @@ export const run = async (configPath, hooks = {}) => {
   rpc.notify("initialized");
 
   let threadId;
+
   try {
     const savedThreadId = await readFile(statePath, "utf-8");
     threadId = savedThreadId.trim();
@@ -589,6 +695,7 @@ export const run = async (configPath, hooks = {}) => {
     if (threadId !== undefined && threadId.length > 0) {
       throw error;
     }
+
     const result = await rpc.request("thread/start", {
       approvalPolicy: "never",
       cwd: "/app",
@@ -597,6 +704,7 @@ export const run = async (configPath, hooks = {}) => {
       sandbox: "danger-full-access",
       ...hooks.threadParams,
     });
+
     await hooks.threadStarted?.(result);
     threadId = startedThreadId(result);
     await writeFile(statePath, `${threadId}\n`);
@@ -619,14 +727,17 @@ export const run = async (configPath, hooks = {}) => {
     threadId,
     ...hooks.turnParams,
   });
+
   const turnId = startedTurnId(turnResult);
   const completed = await rpc.waitForTurn(turnId);
+
   if (completed.status !== "completed") {
     throw new Error(`Codex turn ended with status ${completed.status}`);
   }
 
   rpc.assertHealthy();
   const captured = capture.finish();
+
   const records = captured.attempts.map((attempt) => ({
     compactedAfterSegment: config.compactedAfterSegment,
     kind: "compaction_attempt",
@@ -635,24 +746,29 @@ export const run = async (configPath, hooks = {}) => {
     timestamp: attempt.timestamp,
     turnId: attempt.turnId,
   }));
+
   if (records.length > 0) {
     await appendFile(eventsPath, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
   }
+
   for (const record of records) {
     process.stdout.write(`${JSON.stringify({ type: "eval_event", ...record })}\n`);
   }
+
   await hooks.finished?.();
   socket.close();
 };
 
 const selfTest = () => {
   const capture = createCapture();
+
   /**
    * @param {string} method
    * @param {RpcParams} params
    */
   const accept = (method, params) =>
     capture.accept({ hasError: false, hasResult: false, method, params });
+
   accept("rawResponse/completed", {
     responseId: "a",
     threadId: "t",
@@ -729,16 +845,20 @@ const selfTest = () => {
   });
   const captured = capture.finish();
   const kinds = captured.records.map(({ kind }) => kind).join(",");
+
   if (kinds !== "ordinary,compaction,ordinary,compaction") {
     throw new Error(`bad capture: ${kinds}`);
   }
+
   const states = captured.attempts.map(({ state }) => state).join(",");
+
   if (states !== "succeeded,failed,aborted,aborted,succeeded") {
     throw new Error(`bad compaction states: ${states}`);
   }
 
   const malformed = createCapture();
   malformed.beginCompaction("malformed");
+
   try {
     malformed.accept({
       hasError: false,
@@ -749,13 +869,14 @@ const selfTest = () => {
   } catch {
     return;
   }
+
   throw new Error("accepted a completed compaction turn without an item completion");
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   if (process.argv[2] === "--self-test") {
     selfTest();
-  } else if (process.argv.length === 3) {
+  } else if (process.argv.length === 3 && process.argv[2] !== undefined) {
     await run(process.argv[2]);
   } else {
     throw new Error("usage: codex-eval CONFIG_JSON | codex-eval --self-test");

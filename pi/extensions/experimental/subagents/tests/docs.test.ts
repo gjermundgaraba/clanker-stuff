@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -14,6 +15,7 @@ describe("Codex parity documentation", () => {
     const ids = rows.map((row) => row.split("|")[1]?.trim());
     expect(rows.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
+
     for (const row of rows) {
       const cells = row.split("|").map((cell) => cell.trim());
       expect(["match", "partial", "different", "unsupported", "unknown"]).toContain(cells[5]);
@@ -29,6 +31,7 @@ describe("Codex parity documentation", () => {
       "codex-reference.md",
       "protocols.md",
     ] as const;
+
     const documents = Object.fromEntries(
       await Promise.all(
         names.map(
@@ -36,16 +39,19 @@ describe("Codex parity documentation", () => {
         ),
       ),
     );
+
     const providerBaseline = await readFile(
       path.resolve(docsDir, "../../codex-provider/docs/codex-baseline.md"),
       "utf-8",
     );
+
     const { catalog, commit } = codexContractFixture;
     const behaviorCommit = "389dd5645944891b65e4ca584125bbb0c852d352";
     const catalogPath = "codex-rs/models-manager/models.json";
     expect(documents["codex-parity.md"]).toContain(
       `https://github.com/openai/codex/blob/${catalog.commit}/${catalogPath}`,
     );
+
     for (const link of [
       "codex-model-facing-contract.md",
       "codex-parity.md",
@@ -53,6 +59,7 @@ describe("Codex parity documentation", () => {
     ]) {
       expect(documents["protocols.md"]).toContain(`(${link})`);
     }
+
     for (const link of ["codex-parity.md", "protocols.md"]) {
       expect(documents["codex-model-facing-contract.md"]).toContain(`(${link})`);
     }
@@ -62,16 +69,22 @@ describe("Codex parity documentation", () => {
       "codex-parity.md",
       "codex-reference.md",
     ] as const) {
-      const introduction = documents[name].split("\n## ")[0];
+      const document = documents[name];
+      assert.ok(document);
+      // String.split always yields a first segment, including documents without headings.
+      const introduction = document.split("\n## ")[0]!;
+
       const baselineDeclaration = introduction
         .split("\n\n")
         .find((part) => part.startsWith("This "));
+
       expect(baselineDeclaration, name).toContain(
         `https://github.com/openai/codex/tree/${behaviorCommit}`,
       );
       expect(introduction, name).toContain(commit);
       expect(introduction, name).toContain("(../../codex-provider/docs/upstream-review.md)");
     }
+
     expect(providerBaseline).toContain(`https://github.com/openai/codex/tree/${behaviorCommit}`);
     expect(providerBaseline).toContain(commit);
   });

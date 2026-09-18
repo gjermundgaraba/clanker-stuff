@@ -146,6 +146,7 @@ describe("zai usage", () => {
       },
       NOW,
     );
+
     expect(result.ok && result.snapshot.windows[0]?.remainingPercent).toBe(70);
   });
 
@@ -171,6 +172,7 @@ describe("zai usage", () => {
       },
       NOW,
     );
+
     expect(result.ok && result.snapshot.windows).toStrictEqual([
       {
         id: "5h",
@@ -183,11 +185,13 @@ describe("zai usage", () => {
   it("rejects invalid payloads at request ingress", async () => {
     const invalidCode = { code: "200" };
     expect(Value.Check(ZaiQuotaPayloadSchema, invalidCode)).toBe(false);
+
     const result = await fetchZaiUsage({
       authClient: tokenAuthClient("token"),
       fetchJson: okFetch(invalidCode),
       now: () => NOW,
     });
+
     expect(result).toStrictEqual({
       error: { kind: "failure", message: "invalid usage payload" },
       ok: false,
@@ -205,11 +209,13 @@ describe("zai usage", () => {
   it("fetches the quota endpoint with bearer auth", async () => {
     const client = { fetchJson: okFetch(creditPayload) } satisfies { fetchJson: FetchJson };
     const fetchJson = vi.spyOn(client, "fetchJson");
+
     const result = await fetchZaiUsage({
       authClient: tokenAuthClient("k"),
       fetchJson: client.fetchJson,
       now: () => NOW,
     });
+
     expect(fetchJson.mock.calls[0]?.[0]).toBe("https://api.z.ai/api/monitor/usage/quota/limit");
     expect(fetchJson.mock.calls[0]?.[2]?.headers).toMatchObject({
       Authorization: "Bearer k",

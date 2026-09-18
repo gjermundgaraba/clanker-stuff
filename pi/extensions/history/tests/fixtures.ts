@@ -76,9 +76,11 @@ export const editorTheme: EditorTheme = {
 
 export const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   const factory = host.getEditorFactory();
+
   if (!factory) throw new Error("Expected a history editor factory");
   const editor = factory(createMockTui(), editorTheme, createKeybindings());
   editor.render(80);
+
   return editor;
 };
 
@@ -90,6 +92,7 @@ export const createWidgetHarness = (
   foreign = false,
 ) => {
   let input: (data: string) => void = () => {};
+
   const terminal: Terminal = {
     start: (onInput) => {
       input = onInput;
@@ -109,13 +112,17 @@ export const createWidgetHarness = (
     setTitle() {},
     setProgress() {},
   };
+
   const tui = mode === "regular" ? new TuiMainScreen(terminal) : new TuiAltScreen(terminal);
   vi.spyOn(tui, "requestRender").mockImplementation(() => {});
   const plain = new CustomEditor(tui, editorTheme, createKeybindings());
+
   if (foreign) ctx.ui.setEditorComponent(() => plain);
+
   const editor = foreign
     ? plain
     : acquireEditorHost(ctx)!.create(tui, editorTheme, createKeybindings());
+
   editor.setText(ctx.ui.getEditorText());
   vi.spyOn(ctx.ui, "getEditorText").mockImplementation(() => editor.getExpandedText());
   vi.spyOn(ctx.ui, "setEditorText").mockImplementation((text) => editor.setText(text));
@@ -125,11 +132,14 @@ export const createWidgetHarness = (
       widget.dispose?.();
       tui.removeChild(widget);
     }
+
     widget = content?.(tui, ctx.ui.theme);
+
     if (widget) tui.addChild(widget);
   });
   tui.addInputListener((data) => {
     const result = host.terminalInput(data);
+
     return result.consumed ? { consume: true } : undefined;
   });
   tui.start();
@@ -137,12 +147,14 @@ export const createWidgetHarness = (
     widget?.dispose?.();
     tui.stop();
   });
+
   return {
     tui,
     widget: (width = 80) => widget?.render(width)[0],
     terminalInput: (data: string) => {
       const consumed = widget !== undefined && tui.getFocusedComponent() === widget;
       input(data);
+
       return { consumed, results: [] };
     },
   };

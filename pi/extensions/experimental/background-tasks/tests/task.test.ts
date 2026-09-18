@@ -18,6 +18,7 @@ describe("task contracts", () => {
     const start = { name: "test", command: "node" };
     expect(Value.Check(startSchema, start)).toBe(true);
     expect(Value.Check(startSchema, { ...start, args: [] })).toBe(true);
+
     for (const extra of [
       { args: null },
       { args: Array(129).fill("") },
@@ -39,6 +40,7 @@ describe("task contracts", () => {
       view: "event",
       eventId: "e",
     });
+
     for (const invalid of [
       null,
       [],
@@ -61,8 +63,16 @@ describe("task contracts", () => {
     expect(Buffer.byteLength(result.content[0].text)).toBeLessThan(MAX_TOOL_BYTES);
   });
   it.each([
-    { wire: "[" + Array(2500).fill("1e20").join(",") + "]" },
     {
+      wire: "[" + Array(2500).fill("1e20").join(",") + "]",
+      data: Array.from({ length: 2500 }, () => 1e20),
+    },
+    {
+      data: [
+        ...Array.from({ length: 400 }, () => 1e20),
+        "😀".repeat(2000),
+        ...Array.from({ length: 1000 }, () => 1e20),
+      ],
       wire:
         "[" +
         Array(400).fill("1e20").join(",") +
@@ -72,13 +82,14 @@ describe("task contracts", () => {
         Array(1000).fill("1e20").join(",") +
         "]",
     },
-    { wire: JSON.stringify("\u202e".repeat(4500) + "😀") },
-  ])("reassembles bounded JSON text pages without changing payload values", ({ wire }) => {
+    { wire: JSON.stringify("\u202e".repeat(4500) + "😀"), data: "\u202e".repeat(4500) + "😀" },
+  ])("reassembles bounded JSON text pages without changing payload values", ({ wire, data }) => {
     expect(Buffer.byteLength(wire)).toBeLessThan(16000);
-    const data = JSON.parse(wire);
+    expect(JSON.parse(wire)).toEqual(data);
     let offset: number | null = 0;
     let text = "";
     let pages = 0;
+
     while (offset !== null) {
       const payload = payloadPage(data, offset);
       const result = toolResult({ taskId: "t_test", view: "result", untrusted: true, payload });
@@ -88,9 +99,11 @@ describe("task contracts", () => {
       expect(payload.text).not.toContain("\u202e");
       text += payload.text;
       offset = payload.nextOffset;
+
       if (offset !== null) expect(offset).toBeGreaterThan(payload.offset);
       pages++;
     }
+
     expect(pages).toBeGreaterThan(1);
     expect(JSON.parse(text)).toEqual(data);
   });
@@ -117,6 +130,7 @@ describe("task contracts", () => {
         abandoned: false,
       }),
     );
+
     const result = toolResult({
       pending: 32,
       tasks,
@@ -124,10 +138,12 @@ describe("task contracts", () => {
       evictedEvents: 100,
       evictedTasks: 100,
     });
-    const parsed = JSON.parse(result.content[0].text);
+
+    const parsed: unknown = JSON.parse(result.content[0].text);
     expect(parsed).toMatchObject({ pending: 32, tasks });
-    expect(parsed.tasks).toHaveLength(72);
-    expect(parsed.tasks.at(-1).id).toBe(tasks.at(-1)?.id);
-    expect(Array.from(tasks[0].name)).toHaveLength(33);
+    expect(parsed).toHaveProperty("tasks.length", 72);
+    expect(parsed).toHaveProperty("tasks.71.id", tasks.at(-1)?.id);
+
+    for (const task of tasks) expect(Array.from(task.name)).toHaveLength(33);
   });
 });

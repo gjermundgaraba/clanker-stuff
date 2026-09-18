@@ -16,6 +16,8 @@ const { copyToClipboard, highlightCode } = vi.hoisted(() => ({
   copyToClipboard: vi.fn<(text: string) => Promise<void>>(),
   highlightCode: vi.fn<(code: string, lang?: string) => string[]>(),
 }));
+
+// oxlint-disable-next-line anti-slop/no-module-mocking -- Pi exposes no seam for its clipboard and highlighter; the real ones touch the OS.
 vi.mock(import("@earendil-works/pi-coding-agent"), async (importOriginal) => ({
   ...(await importOriginal()),
   copyToClipboard,
@@ -29,6 +31,7 @@ const setup = (
   const tui = createMockTui({ rows: 24 });
   const done = vi.fn();
   const notify = vi.fn();
+
   const overlay = new ContextOverlay(
     tui,
     createIdentityTheme(),
@@ -37,14 +40,17 @@ const setup = (
     { notify },
     done,
   );
+
   overlay.focused = true;
   const render = (width = 120) => overlay.render(width).join("\n");
+
   const press = (...keys: string[]) => {
     for (const key of keys) {
       overlay.handleInput(key);
       render();
     }
   };
+
   return { overlay, tui, done, notify, render, press };
 };
 
@@ -54,6 +60,7 @@ beforeEach(() => {
   let generation = 0;
   highlightCode.mockImplementation((code) => {
     generation += 1;
+
     return code.split("\n").map((line) => `HL${generation}:${line}`);
   });
 });
@@ -68,6 +75,7 @@ describe("overlay", () => {
         fixturePart("3. user", "unrelated", 3),
       ],
     };
+
     const t = setup(snapshot);
     t.press("/", ..."needle".split(""));
     expect(t.render()).toContain(CURSOR_MARKER);
@@ -117,6 +125,7 @@ describe("overlay", () => {
       { ...fixtureSnapshot(), tools: fixtureJsonTools(30) },
       new KeybindingsManager(TUI_KEYBINDINGS, { "tui.select.pageDown": "j" }),
     );
+
     t.render();
     t.press("j");
     // Page size is the body height (10 rows here), so one press lands on tool-8, not tool-0.
@@ -140,6 +149,7 @@ describe("overlay", () => {
         "tui.select.cancel": "q",
       }),
     );
+
     t.press("n", "o");
     expect(t.render()).toContain("Expand this group");
     t.press("q", "p", "o");
@@ -154,20 +164,25 @@ describe("overlay", () => {
       const t = setup(
         fixtureSnapshot({ prompt: Array.from({ length: 60 }, (_, i) => `LINE-${i}`).join("\n") }),
       );
+
       t.overlay.render(width);
       t.overlay.handleInput("\r");
       expect(t.render(width)).toContain("LINE-0");
       expect(t.render(width)).toContain("LINE-1");
+
       for (let i = 0; i < 10; i++) {
         t.overlay.handleInput("\u001B[6~");
         t.overlay.render(width);
       }
+
       expect(t.render(width)).toContain("LINE-59");
       expect(t.render(width)).not.toContain("LINE-0");
+
       for (let i = 0; i < 10; i++) {
         t.overlay.handleInput("\u001B[5~");
         t.overlay.render(width);
       }
+
       expect(t.render(width)).toContain("LINE-0");
     },
   );
@@ -177,10 +192,13 @@ describe("overlay", () => {
       ...fixtureSnapshot(),
       tools: Array.from({ length: 50 }, (_, i) => fixturePart(`tool-${i}`, `definition ${i}`, 10)),
     });
+
     t.press("j", "l");
+
     for (let i = 0; i < 50; i++) t.press("j");
     expect(t.render(80)).toContain("tool-49");
     Object.assign(t.tui.terminal, { rows: 12 });
+
     for (const width of [80, 120, 30]) {
       const lines = t.overlay.render(width);
       expect(lines.length).toBeLessThanOrEqual(10);
@@ -215,6 +233,7 @@ describe("overlay", () => {
   it("highlights only the final parent when collapsing from deep inside a group", () => {
     const t = setup({ ...fixtureSnapshot(), tools: fixtureJsonTools(100) });
     t.render();
+
     for (let i = 0; i < 101; i++) t.overlay.handleInput("j");
     expect(t.render()).toContain("HL");
     highlightCode.mockClear();

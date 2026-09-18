@@ -12,6 +12,7 @@ function setup() {
   const fixture = createExtensionHost(() => {});
   const ctx = fixture.createContext();
   const host = acquireEditorHost(ctx)!;
+
   const theme = {
     borderColor: (s: string) => s,
     selectList: {
@@ -22,8 +23,10 @@ function setup() {
       noMatch: (s: string) => s,
     },
   };
+
   const editor = host.create(createMockTui(), theme, createKeybindings());
   editor.render(80);
+
   return { ctx, host, editor };
 }
 
@@ -58,6 +61,7 @@ describe("shared editor ownership and snapshots", () => {
     const { host, editor } = setup();
     const input = vi.fn(() => true);
     const changed = vi.fn();
+
     const release = host.contribute("editing", {
       input,
       changed,
@@ -65,6 +69,7 @@ describe("shared editor ownership and snapshots", () => {
       suspend: () => () => {},
       selection: () => [],
     });
+
     editor.handleInput("\x1b[200~hello\nworld\x1b[201~");
     expect(editor.getExpandedText()).toBe("hello\nworld");
     expect(input).not.toHaveBeenCalled();
@@ -144,6 +149,7 @@ it("submits the same single-pass payload content that retrieval exposes", () => 
   const { editor } = setup();
   const first = "literal [paste #2] " + "A".repeat(1100);
   const second = "B".repeat(1100);
+
   for (const text of [first, second]) editor.handleInput("\x1b[200~" + text + "\x1b[201~");
   const draft = editor.document.capture();
   editor.setText("other");
@@ -174,11 +180,13 @@ it("restores a document checkpoint after native payload IDs are reused", () => {
 
 it("keeps a focused editor's cursor marker whole and out of decoration offsets", () => {
   const identity = (text: string) => text;
+
   const host = new EditorHost(() =>
     Object.assign(createIdentityTheme(), {
       fg: (_color: string, text: string) => `<${text}>`,
     }),
   );
+
   const editor = host.create(
     createMockTui(),
     {
@@ -193,6 +201,7 @@ it("keeps a focused editor's cursor marker whole and out of decoration offsets",
     },
     createKeybindings(),
   );
+
   editor.render(40);
   editor.setText("this is a test");
   editor.handleInput("\x1b[D"); // cursor on the final "t"

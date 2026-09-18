@@ -54,12 +54,15 @@ describe("detail formatting", () => {
     const snapshot = codexSnapshot();
     snapshot.planLabel = "plus\nforged\tlabel\u001B]52;c;secret\u0007";
     const [firstWindow] = snapshot.windows;
+
     if (!firstWindow) {
       throw new Error("expected usage window");
     }
+
     firstWindow.label = "5h\nforged\twindow\u009B";
 
     const detail = formatDetail(snapshot, now);
+
     const error = formatProviderError(
       "openai-codex",
       "bad\nforged\terror\u001B]8;;https://secret\u0007link",

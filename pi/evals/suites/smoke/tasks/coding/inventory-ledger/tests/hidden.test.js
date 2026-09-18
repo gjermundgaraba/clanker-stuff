@@ -21,6 +21,7 @@ void test("rejects invalid events and negative stock", () => {
   ]) {
     assert.throws(() => parseEvents(source), { message: /^line 1:/ });
   }
+
   assert.throws(() => applyEvents([{ type: "ship", sku: "X", quantity: 1, line: 9 }]), {
     name: "RangeError",
     message: /X.*9|9.*X/,

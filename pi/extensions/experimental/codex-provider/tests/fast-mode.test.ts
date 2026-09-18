@@ -17,7 +17,10 @@ describe("Codex fast mode", () => {
   let tempRoot: string;
 
   const createHost = (flags?: Record<string, boolean | string>) =>
-    createExtensionHost(extension, { flags, model: FAST_MODEL });
+    createExtensionHost(extension, {
+      ...(flags !== undefined ? { flags } : {}),
+      model: FAST_MODEL,
+    });
 
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(os.tmpdir(), "codex-fast-"));
@@ -46,10 +49,10 @@ describe("Codex fast mode", () => {
 
     await first.emitSessionStart(firstContext);
     await first.runCommand("fast", "", firstContext);
-    expect({
-      config: JSON.parse(readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")),
-      status: first.getStatus("codex-fast"),
-    }).toStrictEqual({ config: { fast: true }, status: "⚡" });
+    expect(
+      JSON.parse(readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")),
+    ).toStrictEqual({ fast: true });
+    expect(first.getStatus("codex-fast")).toBe("⚡");
 
     await first.emit(
       "model_select",
@@ -69,13 +72,10 @@ describe("Codex fast mode", () => {
     expect(second.getStatus("codex-fast")).toBe("⚡");
 
     await second.runCommand("fast", "", secondContext);
-    expect({
-      config: JSON.parse(readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")),
-      status: second.getStatus("codex-fast"),
-    }).toStrictEqual({
-      config: { fast: false },
-      status: undefined,
-    });
+    expect(
+      JSON.parse(readFileSync(path.join(agentDir, "codex-provider.json"), "utf-8")),
+    ).toStrictEqual({ fast: false });
+    expect(second.getStatus("codex-fast")).toBeUndefined();
   });
 
   it("uses --fast only for the initial session", async () => {
@@ -111,18 +111,23 @@ describe("Codex fast mode", () => {
     const loading = Promise.withResolvers<boolean>();
     const save = vi.fn<(enabled: boolean) => Promise<void>>(async () => await Promise.resolve());
     let api: ExtensionAPI | undefined;
+
     const host = createExtensionHost((pi) => {
       api = pi;
     });
+
     await host.ready;
+
     if (api === undefined) {
       throw new Error("Extension API was not initialized");
     }
+
     const state = createFastModeState(api, {
       load: () => loading.promise,
       path: path.join(tempRoot, "serialize-fast.json"),
       save,
     });
+
     const ctx = host.createContext();
 
     const start = state.start(ctx, false);
@@ -138,21 +143,26 @@ describe("Codex fast mode", () => {
       saves: save.mock.calls,
     }).toStrictEqual({
       enabled: false,
-      notifications: [{ message: "Codex fast mode disabled", type: undefined }],
+      notifications: [{ message: "Codex fast mode disabled" }],
       saves: [[false]],
     });
   });
 
   it("applies live inherited tier changes without rewriting the local preference", async () => {
     let api: ExtensionAPI | undefined;
+
     const host = createExtensionHost((pi) => {
       api = pi;
     });
+
     await host.ready;
+
     if (api === undefined) {
       throw new Error("Extension API was not initialized");
     }
+
     const saves: boolean[] = [];
+
     const config = {
       load: async () => false,
       path: path.join(tempRoot, "inherited-fast.json"),
@@ -160,6 +170,7 @@ describe("Codex fast mode", () => {
         saves.push(next);
       },
     };
+
     const state = createFastModeState(api, config);
     const ctx = host.createContext();
 
@@ -180,22 +191,29 @@ describe("Codex fast mode", () => {
     const loading = Promise.withResolvers<boolean>();
     const saving = Promise.withResolvers<null>();
     const load = vi.fn<() => Promise<boolean>>(() => loading.promise);
+
     const save = vi.fn<(enabled: boolean) => Promise<void>>(async () => {
       await saving.promise;
     });
+
     let api: ExtensionAPI | undefined;
+
     const host = createExtensionHost((pi) => {
       api = pi;
     });
+
     await host.ready;
+
     if (api === undefined) {
       throw new Error("Extension API was not initialized");
     }
+
     const state = createFastModeState(api, {
       load,
       path: path.join(tempRoot, "shutdown-load-fast.json"),
       save,
     });
+
     const ctx = host.createContext();
 
     const start = state.start(ctx, false);
@@ -219,22 +237,29 @@ describe("Codex fast mode", () => {
 
   it("does not commit an in-flight toggle after shutdown", async () => {
     const saving = Promise.withResolvers<null>();
+
     const save = vi.fn<(enabled: boolean) => Promise<void>>(async () => {
       await saving.promise;
     });
+
     let api: ExtensionAPI | undefined;
+
     const host = createExtensionHost((pi) => {
       api = pi;
     });
+
     await host.ready;
+
     if (api === undefined) {
       throw new Error("Extension API was not initialized");
     }
+
     const state = createFastModeState(api, {
       load: async () => false,
       path: path.join(tempRoot, "shutdown-toggle-fast.json"),
       save,
     });
+
     const ctx = host.createContext();
 
     const toggle = state.toggle(ctx);

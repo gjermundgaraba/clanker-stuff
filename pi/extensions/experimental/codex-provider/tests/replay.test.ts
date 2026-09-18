@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import type {
+  CanonicalCompactionItem,
+  RealUserContentItem,
+  RealUserInputItem,
+  CheckpointAgentMessageItem,
+} from "../checkpoint.js";
 import { RETAINED_USER_IMAGE_PLACEHOLDER, nativeCheckpointSummary } from "../checkpoint.js";
 import {
   CONTEXT_WINDOW_TRUNCATED_OUTPUT_MESSAGE,
@@ -22,25 +28,19 @@ import {
   truncateMiddleToTokenBudget,
 } from "../replay.js";
 
-const compaction = (encryptedContent = "enc_new") => ({
+const compaction = (encryptedContent = "enc_new"): CanonicalCompactionItem => ({
   encrypted_content: encryptedContent,
   type: "compaction",
 });
 
-const image = (imageUrl = "data:image/png;base64,AA") => ({
+const image = (
+  imageUrl = "data:image/png;base64,AA",
+): Extract<RealUserContentItem, { type: "input_image" }> => ({
   image_url: imageUrl,
   type: "input_image",
 });
 
-const user = (
-  content: readonly (
-    | ReturnType<typeof image>
-    | {
-        text: string;
-        type: string;
-      }
-  )[],
-) => ({
+const user = (content: readonly RealUserContentItem[]): RealUserInputItem => ({
   content,
   role: "user",
   type: "message",
@@ -53,7 +53,7 @@ const agentMessage = (
   author = "assistant",
   recipient = "user",
   trailingContent: readonly { text: string; type: "input_text" }[] = [],
-) => ({
+): CheckpointAgentMessageItem => ({
   author,
   content: [{ text, type: "input_text" }, ...trailingContent],
   recipient,
@@ -69,15 +69,18 @@ const canOmitAssistantError = (message: { role: string; stopReason?: string }) =
 describe("request framing and finalized replay", () => {
   it("frames one baseline while preserving fresh prefix/suffix and removes the lifecycle marker", () => {
     const prefix = { content: "fresh prefix", role: "user" };
+
     const marker = {
       content: nativeCheckpointSummary("window-replay"),
       role: "compactionSummary",
     };
+
     const oldBaseline = { content: "old baseline", role: "user" };
     const liveTail = { content: "live tail", role: "user" };
     const suffix = { content: "fresh suffix", role: "user" };
     const start = { content: "START", role: "user" };
     const end = { content: "END", role: "user" };
+
     const framed = frameContiguousBaseline(
       [prefix, marker, oldBaseline, liveTail, suffix],
       [marker, oldBaseline, liveTail],
@@ -85,11 +88,13 @@ describe("request framing and finalized replay", () => {
       start,
       end,
     );
+
     if (framed.kind !== "ok") {
       throw new Error("Fixture did not frame");
     }
 
     const nonce = "0198abcd-0000-7000-8000-000000000000";
+
     const extracted = extractFinalizedFrame(
       [
         textUser("fresh prefix"),
@@ -100,9 +105,11 @@ describe("request framing and finalized replay", () => {
       ],
       nonce,
     );
+
     if (extracted.kind !== "ok") {
       throw new Error("Fixture markers did not extract");
     }
+
     const rewritten = rewriteFramedInput(extracted, [
       { encrypted_content: "opaque", type: "compaction" },
     ]);
@@ -142,10 +149,12 @@ describe("request framing and finalized replay", () => {
     const malformed = textUser("[codex-provider:frame:start:not-a-uuid!]");
     const staleStart = serializedMarker("start", stale);
     const staleEnd = serializedMarker("end", stale);
+
     const unrelated = extractFinalizedFrame(
       [malformed, staleStart, start, textUser("body"), end, staleEnd],
       nonce,
     );
+
     expect(unrelated).toStrictEqual({
       framed: [textUser("body")],
       kind: "ok",
@@ -162,6 +171,7 @@ describe("request framing and finalized replay", () => {
         timestamp: 1,
       },
     ];
+
     const reordered: typeof baseline = [
       {
         timestamp: 1,
@@ -169,11 +179,13 @@ describe("request framing and finalized replay", () => {
         content: [{ type: "text", text: "same" }],
       },
     ];
+
     const start = {
       content: [{ text: "START", type: "text" }],
       role: "user",
       timestamp: 2,
     };
+
     const end = {
       content: [{ text: "END", type: "text" }],
       role: "user",
@@ -208,9 +220,11 @@ describe("request framing and finalized replay", () => {
     const framed = frameContiguousBaseline([live], [persisted], [persisted], start, end);
 
     expect(framed.kind).toBe("ok");
+
     if (framed.kind !== "ok") {
       throw new Error("Fixture did not frame");
     }
+
     expect(framed.framed[0]).toBe(live);
     expect(framed.messages).toStrictEqual([start, live, end]);
   });
@@ -222,6 +236,7 @@ describe("request framing and finalized replay", () => {
       role: "custom",
       timestamp: 1,
     };
+
     const changed = { ...persisted, content: "changed", timestamp: 2 };
     const duplicate = { ...persisted, timestamp: 3 };
     const marker = { content: "marker", role: "user", timestamp: 4 };
@@ -237,33 +252,39 @@ describe("request framing and finalized replay", () => {
 
   it("aligns persisted retry errors without reintroducing them into the live segment", () => {
     const history = { content: "history", role: "user" };
+
     const firstError = {
       content: [{ text: "partial one", type: "thinking" }],
       role: "assistant",
       stopReason: "error",
       timestamp: 1,
     };
+
     const secondError = {
       content: [{ text: "partial two", type: "thinking" }],
       role: "assistant",
       stopReason: "error",
       timestamp: 2,
     };
+
     const retried = {
       content: [{ text: "retry", type: "toolCall" }],
       role: "assistant",
       stopReason: "toolUse",
       timestamp: 3,
     };
+
     const result = {
       content: [{ text: "result", type: "text" }],
       role: "toolResult",
       timestamp: 4,
     };
+
     const start = { content: "START", role: "user" };
     const end = { content: "END", role: "user" };
     const baseline = [history, firstError, secondError, retried, result];
     const segment = [firstError, secondError, retried, result];
+
     const aligned = frameContiguousBaseline(
       [history, retried, result],
       baseline,
@@ -272,6 +293,7 @@ describe("request framing and finalized replay", () => {
       end,
       canOmitAssistantError,
     );
+
     const retained = frameContiguousBaseline(
       baseline,
       baseline,
@@ -344,7 +366,10 @@ describe("replacement and token policy", () => {
       result
         .filter((item) => item.type === "agent_message")
         .map((item) =>
-          item.content.flatMap((part) => (part.type === "input_text" ? [part.text] : [])).join("|"),
+          item.content
+            .filter((part) => part.type === "input_text")
+            .map((part) => part.text)
+            .join("|"),
         ),
     ).toStrictEqual([
       "Message Type: MESSAGE\nparent task",
@@ -356,10 +381,12 @@ describe("replacement and token policy", () => {
 
   it("retains newest users at the exact 64K policy and replaces old opaque state", () => {
     const exactBudget = textUser("x".repeat(64_000 * 4));
+
     const first = buildCheckpointReplacement(
       [textUser("old"), exactBudget],
       compaction("enc_first"),
     );
+
     const repeated = buildCheckpointReplacement(
       first.filter((item) => item.type === "message"),
       compaction("enc_second"),
@@ -390,27 +417,33 @@ describe("replacement and token policy", () => {
       compaction(),
       3,
     );
+
     const imageOnly = user([image()]);
+
     const imageResult = buildCheckpointReplacement(
       [textUser("old"), imageOnly, textUser("new")],
       compaction(),
       100,
     );
+
     const transientImageResult = buildTransientCheckpointReplacement(
       [textUser("old"), imageOnly, textUser("new")],
       compaction(),
       2,
     );
+
     const budgetedImageResult = buildTransientCheckpointReplacement(
       [imageOnly],
       compaction(),
       Math.ceil(FIXED_IMAGE_BYTE_ESTIMATE / 4),
     );
+
     const hugeImageResult = buildCheckpointReplacement(
       [user([image(`data:image/png;base64,${"A".repeat(2_000_000)}`)])],
       compaction(),
       100,
     );
+
     expect(JSON.stringify(hugeImageResult).length).toBeLessThan(1000);
     const unicode = truncateMiddleToTokenBudget("😀😀😀😀😀😀😀😀😀😀\nsecond line with text\n", 8);
     const zeroBudget = truncateMiddleToTokenBudget("abcdef", 0);
@@ -473,6 +506,7 @@ describe("replacement and token policy", () => {
         image("data:image/png;base64,SECRET_THREE"),
       ]),
     ];
+
     const supported = omitUnsupportedUserImages(input, true);
     const unsupported = omitUnsupportedUserImages(input, false);
 
@@ -527,6 +561,7 @@ describe("tool history normalization", () => {
       output: "first",
       type: "function_call_output",
     };
+
     const input = [
       { call_id: "orphan", output: "remove", type: "function_call_output" },
       {
@@ -653,7 +688,9 @@ describe("trailing output shrinking", () => {
       output: "old output must survive",
       type: "function_call_output",
     };
+
     const marker = textUser("stop at this non-output");
+
     const suffix = [
       {
         call_id: "function",
@@ -678,9 +715,10 @@ describe("trailing output shrinking", () => {
         type: "tool_search_output",
       },
     ];
+
     const input = [oldOutput, marker, ...suffix];
     const shrunk = shrinkTrailingOutputs(input, "instructions", 0);
-    const newestOnlyInput = [oldOutput, marker, suffix[0], suffix[1], { ...suffix[2], tools: [] }];
+    const newestOnlyInput = [oldOutput, marker, ...suffix.slice(0, 2), { ...suffix[2], tools: [] }];
     const newestOnlyLimit = estimateModelVisibleTokens("instructions", newestOnlyInput);
     const newestOnly = shrinkTrailingOutputs(input, "instructions", newestOnlyLimit);
 

@@ -16,6 +16,7 @@ const setup = () => {
   const host = createExtensionHost(() => {});
   const ctx = host.createContext();
   const timer = createTimer();
+
   return { ctx, host, timer };
 };
 
@@ -42,6 +43,7 @@ describe("timer", () => {
 
   it("does no status work outside TUI mode", () => {
     const { ctx, timer } = setup();
+
     const printContext = {
       ...ctx,
       mode: "json" as const,
@@ -95,11 +97,11 @@ describe("timer", () => {
   it("keeps counting work while an async answer dialog is open", () => {
     const { host, ctx, timer } = setup();
     timer.start(ctx);
-    timer.setAsyncPrompt({ active: true });
+    timer.setAsyncPrompt(true);
     timer.pause(ctx);
     vi.advanceTimersByTime(1000);
     timer.resume(ctx);
-    timer.setAsyncPrompt({ active: false });
+    timer.setAsyncPrompt(false);
     timer.stop(ctx);
     expect(host.getStatus("timer")).toBe(`● 1.0s · ${clockAt(1000)}`);
   });

@@ -81,6 +81,7 @@ describe("claude usage", () => {
   it("does not treat an Anthropic API key as subscription OAuth", async () => {
     const client = { fetchJson: okFetch(undefined) } satisfies { fetchJson: FetchJson };
     const fetchJson = vi.spyOn(client, "fetchJson");
+
     const result = await fetchClaudeUsage({
       authClient: {
         getProviderAuth: async () => ({
@@ -95,10 +96,10 @@ describe("claude usage", () => {
     expect(result).toMatchObject({
       error: {
         kind: "unavailable",
-        message: expect.stringContaining("requires OAuth login"),
       },
       ok: false,
     });
+    expect(result).toHaveProperty("error.message", expect.stringContaining("requires OAuth login"));
     expect(fetchJson).not.toHaveBeenCalled();
   });
 });

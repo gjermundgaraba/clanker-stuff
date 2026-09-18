@@ -9,6 +9,7 @@ import { loadRecapConfig, parseRecapConfig } from "../config.js";
 const temporaryConfigPath = async (): Promise<string> => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "recap-config-"));
   onTestFinished(() => rm(directory, { force: true, recursive: true }));
+
   return path.join(directory, "recap.json");
 };
 

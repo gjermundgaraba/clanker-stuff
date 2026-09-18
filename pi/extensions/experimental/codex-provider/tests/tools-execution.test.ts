@@ -16,9 +16,11 @@ import { ProcessManager } from "../tools/process.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "./fixtures.js";
 
+// oxlint-disable-next-line anti-slop/no-module-mocking -- Observes Pi helpers without replacing them; Pi exposes no seam.
 vi.mock(import("@earendil-works/pi-coding-agent"), { spy: true });
 
 const tempDirectories: string[] = [];
+
 const ChangesSchema = Type.Object({
   changes: Type.Array(
     Type.Object({
@@ -31,11 +33,13 @@ const ChangesSchema = Type.Object({
   ),
   diffs: Type.Array(Type.Object({ diff: Type.String(), index: Type.Integer() })),
 });
+
 const SessionDetailsSchema = Type.Object({
   running: Type.Optional(Type.Boolean()),
   sessionId: Type.Optional(Type.Number()),
   status: Type.Optional(Type.String()),
 });
+
 const OutputDetailsSchema = Type.Object({
   fullOutputPath: Type.Optional(Type.String()),
   truncation: Type.Optional(Type.Object({ truncated: Type.Boolean() })),
@@ -44,6 +48,7 @@ const OutputDetailsSchema = Type.Object({
 const createTempDirectory = async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "codex-tools-"));
   tempDirectories.push(directory);
+
   return directory;
 };
 
@@ -130,6 +135,7 @@ describe("profile execution", () => {
           throw new Error("apply_patch blocked on the FIFO");
         }),
       ]);
+
       const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
       expect(changes).toEqual([
         { changed: true, kind: "delete", path: "pipe" },
@@ -141,7 +147,7 @@ describe("profile execution", () => {
     },
   );
 
-  it("keeps every change's metadata ahead of the diffs under the nested trace bound", async () => {
+  it("keeps direct patch metadata and bounds oversized nested diagnostic strings", async () => {
     const cwd = await createTempDirectory();
     const big = Array.from({ length: 3000 }, (_, i) => `+${"x".repeat(30)} ${i}`);
     const names = Array.from({ length: 200 }, (_, i) => `dir/file-${i}.txt`);
@@ -165,6 +171,7 @@ describe("profile execution", () => {
       },
       ctx,
     );
+
     const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
     expect(changes).toHaveLength(204);
     expect(diffs).toHaveLength(204);
@@ -175,15 +182,14 @@ describe("profile execution", () => {
     expect(diffs[0]).toMatchObject({ index: 0 });
     expect(diffs[0]?.diff).toContain("[diff truncated for display]");
 
-    // Nested Code Mode traces cut details in key order, so the diffs absorb the cut and the
-    // change list stays complete.
-    expect(Object.keys(Value.Parse(Type.Object({}), result.details))).toEqual(["changes", "diffs"]);
-    const traced = Value.Parse(
-      Type.Object({ changes: Type.Array(Type.Unknown()), diffs: Type.Array(Type.Unknown()) }),
-      boundRuntimeToolResult({ content: [], details: result.details }, 0).details,
-    );
-    expect(traced.changes).toEqual(changes);
-    expect(traced.diffs.length).toBeLessThan(diffs.length);
+    // Diagnostic reduction preserves the change records and shortens large diffs.
+    const nested = boundRuntimeToolResult({ content: [], details: result.details }, 0).details;
+    const snapshot = Value.Parse(ChangesSchema, nested);
+    expect(snapshot.changes).toEqual(changes);
+    expect(snapshot.diffs).toHaveLength(diffs.length);
+    expect(snapshot.diffs.some((entry) => entry.diff.endsWith("[value truncated]"))).toBe(true);
+    expect(JSON.stringify(nested).length).toBeLessThanOrEqual(65_536);
+    expect(Value.Parse(ChangesSchema, result.details).diffs).toEqual(diffs);
   });
 
   it("skips the display diff for a large rewrite but keeps it for a small edit", async () => {
@@ -196,6 +202,7 @@ describe("profile execution", () => {
     await host.emitSessionStart(ctx);
 
     const startedAt = performance.now();
+
     const rewrite = await host.runTool(
       "apply_patch",
       {
@@ -210,6 +217,7 @@ describe("profile execution", () => {
       },
       ctx,
     );
+
     // A full Myers diff of this rewrite takes seconds on the event loop; the patch's own line
     // counts bound the work up front so the change records metadata only.
     expect(performance.now() - startedAt).toBeLessThan(1500);
@@ -234,6 +242,7 @@ describe("profile execution", () => {
       },
       ctx,
     );
+
     const edited = Value.Parse(ChangesSchema, edit.details);
     expect(edited.changes[0]).toMatchObject({ changed: true, lines: { added: 1, removed: 1 } });
     expect(edited.diffs[0]?.diff).toContain("+3001 row 3000 changed");
@@ -246,6 +255,7 @@ describe("profile execution", () => {
       "utf-8",
     );
     const contextStartedAt = performance.now();
+
     const contextOnly = await host.runTool(
       "apply_patch",
       {
@@ -259,6 +269,7 @@ describe("profile execution", () => {
       },
       ctx,
     );
+
     expect(performance.now() - contextStartedAt).toBeLessThan(1500);
     const normalized = Value.Parse(ChangesSchema, contextOnly.details);
     // No plus or minus lines, yet the contents changed; `changed` records that directly.
@@ -298,6 +309,7 @@ describe("profile execution", () => {
       },
       ctx,
     );
+
     const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
     // Too large to diff, yet its line count is exact rather than a false zero.
     expect(changes[0]).toEqual({
@@ -345,6 +357,7 @@ describe("profile execution", () => {
         },
         ctx,
       );
+
       // Display metadata is best-effort: an unreadable file is still deleted, and its count is
       // absent rather than a false zero.
       const { changes } = Value.Parse(ChangesSchema, result.details);
@@ -478,6 +491,7 @@ describe("profile execution", () => {
       cmd: "read value; printf 'got:%s' \"$value\"",
       yield_time_ms: 0,
     });
+
     const details = Value.Parse(SessionDetailsSchema, started.details);
     expect(details.sessionId).toBeTypeOf("number");
     expect(textContent(started)).toContain(`Session ID: ${details.sessionId}`);
@@ -504,6 +518,7 @@ describe("profile execution", () => {
     const manager = new ProcessManager();
     let now = 0;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+
     try {
       const started = await manager.start({
         command: "read value",
@@ -511,16 +526,20 @@ describe("profile execution", () => {
         cwd: ctx.cwd,
         yieldMs: 0,
       });
+
       expect(started).toMatchObject({ durationMs: 0, status: "running" });
+
       if (started.status !== "running") {
         throw new Error("Expected a running process");
       }
 
       now = 60_000;
+
       const continued = await manager.continue({
         sessionId: started.sessionId,
         yieldMs: 0,
       });
+
       expect(continued).toMatchObject({ durationMs: 0, status: "running" });
     } finally {
       clock.mockRestore();
@@ -575,10 +594,13 @@ describe("profile execution", () => {
       cmd: "read value",
       yield_time_ms: 0,
     });
+
     const { sessionId } = Value.Parse(SessionDetailsSchema, started.details);
+
     if (!sessionId) {
       throw new Error("Process session ID was not returned");
     }
+
     const controller = new AbortController();
     controller.abort();
 
@@ -615,6 +637,7 @@ describe("profile execution", () => {
         },
         ctx,
       );
+
       await delay(100);
       await host.emitSessionShutdown(ctx);
       await running;
@@ -632,6 +655,7 @@ describe("profile execution", () => {
     const result = await host.runTool("exec_command", {
       cmd: `node -e "for(let i=0;i<3000;i++) console.log('line')"`,
     });
+
     const details = Value.Parse(OutputDetailsSchema, result.details);
 
     // The returned text was rebuilt from the full output file, so the capture buffer's line
@@ -641,9 +665,11 @@ describe("profile execution", () => {
     expect(textContent(result)).not.toContain("Warning: truncated output");
     expect(textContent(result)).toContain("Full output:");
     const { fullOutputPath } = details;
+
     if (!fullOutputPath) {
       throw new Error("Full output path was not returned");
     }
+
     await expect(readFile(fullOutputPath, "utf-8")).resolves.toContain("line\nline\n");
     await rm(fullOutputPath);
   });

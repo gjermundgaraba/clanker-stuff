@@ -36,6 +36,7 @@ const createHarness = (
   tui.addChild(previousFocus);
   tui.setFocus(previousFocus);
   const search = createSearch(() => history);
+
   return {
     tui,
     previousFocus,
@@ -53,6 +54,7 @@ describe("reverse search", () => {
       item("Check deploy status", 200),
       item("Deploy production", 100),
     ]);
+
     ctx.ui.setEditorText("unfinished draft");
 
     begin();
@@ -77,6 +79,7 @@ describe("reverse search", () => {
       "regular",
       true,
     );
+
     ctx.ui.setEditorText("unfinished draft");
     begin();
     host.terminalInput("deploy");
@@ -142,9 +145,11 @@ describe("reverse search", () => {
         "tui.select.cancel": "ctrl+q",
       }),
     );
+
     const { begin, ctx, host, widget, tui, previousFocus } = createHarness([
       item("deploy production", 100),
     ]);
+
     ctx.ui.setEditorText("original draft");
     begin();
     host.terminalInput("deploy");
@@ -281,8 +286,11 @@ describe("reverse search", () => {
   it.each(["end", "start", "middle"])("undoes whole-query clear from the %s", (position) => {
     const { begin, host, ctx } = createHarness([item("deploy production", 100)]);
     begin();
+
     for (const char of "deploy") host.terminalInput(char);
+
     if (position === "start") host.terminalInput("\u0001");
+
     if (position === "middle") host.terminalInput("\u001B[D");
     host.terminalInput("\u0015");
     expect(ctx.ui.getEditorText()).toBe("");
@@ -308,12 +316,14 @@ describe("reverse search", () => {
   it("clears independently of remapped keys and restores the user's keybindings", () => {
     const original = getKeybindings();
     onTestFinished(() => setKeybindings(original));
+
     const bindings = new KeybindingsManager(TUI_KEYBINDINGS, {
       "tui.editor.cursorLineEnd": [],
       "tui.editor.deleteToLineStart": [],
       "tui.editor.undo": "ctrl+z",
       "tui.editor.cursorLeft": "ctrl+e",
     });
+
     setKeybindings(bindings);
     const { begin, host, ctx, widget } = createHarness([item("deploy production", 100)]);
     begin();
@@ -333,6 +343,7 @@ describe("reverse search", () => {
       const { begin, host, tui, previousFocus, widget, reset, ctx } = createHarness([
         item("deploy production", 100),
       ]);
+
       begin();
       const queryFocus = tui.getFocusedComponent();
       expect(queryFocus).not.toBe(previousFocus);
@@ -343,6 +354,7 @@ describe("reverse search", () => {
       expect(widget()).toContain(CURSOR_MARKER + "\u001B[7my");
       expect(tui.getFocusedComponent()).toBe(queryFocus);
       expect(ctx.ui.setWidget).toHaveBeenCalledTimes(1);
+
       if (action === "reset") reset();
       else
         host.terminalInput(action === "accept" ? "\r" : action === "escape" ? "\u001B" : "\u0003");
@@ -372,6 +384,7 @@ describe("reverse search", () => {
     });
     installHistoryEditor({ type: "session_start", reason: "startup" }, ctx, () => []);
     const historyFactory = ctx.ui.getEditorComponent();
+
     if (!historyFactory) throw new Error("Expected history factory");
     const wrapper = historyFactory(tui, editorTheme, createKeybindings());
     const wrapperInput = vi.spyOn(wrapper, "handleInput");
@@ -393,6 +406,7 @@ describe("reverse search", () => {
         [item("deploy production", 100)],
         mode,
       );
+
       begin();
       host.terminalInput("de");
       const query = widget();
@@ -429,7 +443,9 @@ describe("reverse search", () => {
           [item("deploy production", 200), item("deploy staging", 100)],
           mode,
         );
+
         ctx.ui.setEditorText("original draft");
+
         // Exercise repeated ownership handoffs, including an intentionally empty draft.
         for (const draft of ["new overlay draft", ""]) {
           begin();
@@ -448,6 +464,7 @@ describe("reverse search", () => {
           [item("deploy production", 200), item("deploy staging", 100)],
           mode,
         );
+
         ctx.ui.setEditorText("original draft");
         begin();
         host.terminalInput("deploy");
@@ -468,11 +485,13 @@ describe("reverse search", () => {
         [item("deploy production", 200), item("deploy staging", 100)],
         mode,
       );
+
       ctx.ui.setEditorText("original unsent draft");
       begin();
       host.terminalInput("deploy");
       host.terminalInput("\u0012");
       expect(ctx.ui.getEditorText()).toBe("deploy staging");
+
       for (let round = 0; round < 2; round++) {
         const dialog = new Input();
         tui.setFocus(dialog);
@@ -481,12 +500,14 @@ describe("reverse search", () => {
         tui.setFocus(previousFocus);
         begin();
         expect(ctx.ui.getEditorText()).toBe("original unsent draft");
+
         if (round === 0) {
           host.terminalInput("\u001B");
           expect(ctx.ui.getEditorText()).toBe("original unsent draft");
           begin();
         }
       }
+
       host.terminalInput("production");
       expect(ctx.ui.getEditorText()).toBe("deploy production");
       host.terminalInput("\u001B");
@@ -500,6 +521,7 @@ describe("reverse search", () => {
     Object.assign(ctx.sessionManager, { getSessionDir: () => "", getHeader: () => undefined });
     installHistoryEditor({ type: "session_start", reason: "startup" }, ctx, () => []);
     const editor = ctx.ui.getEditorComponent()?.(tui, editorTheme, createKeybindings());
+
     if (!editor) throw new Error("Expected editor");
     vi.spyOn(ctx.ui, "getEditorText").mockImplementation(() => editor.getText());
     vi.spyOn(ctx.ui, "setEditorText").mockImplementation((text) => editor.setText(text));
@@ -525,7 +547,9 @@ describe("reverse search", () => {
       host.terminalInput("deploy");
       const dialog = new Input();
       tui.setFocus(dialog);
+
       if (state === "edited") ctx.ui.setEditorText("newer draft");
+
       if (state === "cleared") ctx.ui.setEditorText("");
       reset();
       expect(ctx.ui.getEditorText()).toBe(
@@ -539,6 +563,7 @@ describe("reverse search", () => {
     const { begin, host, tui, ctx, previousFocus } = createHarness([
       item("deploy production", 100),
     ]);
+
     ctx.ui.setEditorText("original draft");
     begin();
     host.terminalInput("deploy");

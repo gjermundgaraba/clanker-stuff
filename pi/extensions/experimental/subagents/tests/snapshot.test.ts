@@ -16,13 +16,16 @@ import {
 describe("atomic control store", () => {
   it("round-trips one authoritative snapshot", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "subagents-store-"));
+
     try {
       const root = rootBinding("root-id", path.join(directory, "root.jsonl"));
       const store = createControlStore(directory, root);
       const snapshot = freshSnapshot("v2", root);
+
       if (snapshot.protocolLatch !== "v2") {
         throw new Error("Expected V2");
       }
+
       snapshot.state.nodes.push({
         nickname: "worker",
         path: "/root/worker",
@@ -59,9 +62,11 @@ describe("atomic control store", () => {
   it("rejects a pending V2 node without its owned task mail", () => {
     const root = rootBinding("invalid");
     const snapshot = freshSnapshot("v2", root);
+
     if (snapshot.protocolLatch !== "v2") {
       throw new Error("Expected V2");
     }
+
     snapshot.nicknames.push("worker");
     snapshot.state.nodes.push({
       activeDeliveryId: "missing",
@@ -76,9 +81,11 @@ describe("atomic control store", () => {
 
   it("rejects notifications that reference no V1 agent", () => {
     const snapshot = freshSnapshot("v1", rootBinding("invalid"));
+
     if (snapshot.protocolLatch !== "v1") {
       throw new Error("Expected V1");
     }
+
     snapshot.state.notifications.push({
       agentId: "missing",
       content: "done",

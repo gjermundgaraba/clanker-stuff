@@ -32,14 +32,17 @@ const StashFileSchema = Type.Object({ entries: Type.Array(Type.String()) });
 const readStore = async (filePath: string): Promise<StashStore> => {
   try {
     const data: unknown = JSON.parse(await readFile(filePath, "utf-8"));
+
     return Value.Check(StashFileSchema, data) ? { entries: data.entries } : emptyStore();
   } catch (error) {
     if (error instanceof Object && "code" in error && error.code === "ENOENT") {
       return emptyStore();
     }
+
     if (error instanceof SyntaxError) {
       return emptyStore();
     }
+
     throw error;
   }
 };
@@ -107,6 +110,7 @@ export const createStash = () => {
 
       if (matchesKey(data, "c")) {
         void copyStashedText(ctx, text);
+
         return { consume: true };
       }
 
@@ -116,24 +120,31 @@ export const createStash = () => {
 
   const popIntoEditor = (ctx: ExtensionContext) => {
     const popped = stack.pop();
+
     if (popped === undefined) {
       return false;
     }
 
     ctx.ui.setEditorText(popped);
+
     return true;
   };
 
   const toggle = async (ctx: ExtensionContext) => {
     const text = ctx.ui.getEditorText();
+
     if (!text.trim()) {
       clearPendingCopy(ctx);
+
       if (!popIntoEditor(ctx)) {
         ctx.ui.notify("Nothing stashed.", "info");
+
         return;
       }
+
       pendingRestore = false;
       await saveStack(ctx);
+
       return;
     }
 
@@ -152,6 +163,7 @@ export const createStash = () => {
 
     if (!popIntoEditor(ctx)) {
       ctx.ui.notify("Nothing stashed.", "info");
+
       return;
     }
 
@@ -169,6 +181,7 @@ export const createStash = () => {
     // This prevents losing the stash when a later extension returns
     // { action: "handled" } and the agent never runs.
     const peeked = stack.at(-1);
+
     if (peeked !== undefined) {
       pendingRestore = true;
       ctx.ui.setEditorText(peeked);

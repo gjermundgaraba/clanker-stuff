@@ -25,6 +25,7 @@ export const registerCodexTools = (
     description: "Toggle Code Mode when the Codex model has no required tool mode",
     handler: (_args, ctx) => {
       tools.toggle(ctx);
+
       return Promise.resolve();
     },
   });

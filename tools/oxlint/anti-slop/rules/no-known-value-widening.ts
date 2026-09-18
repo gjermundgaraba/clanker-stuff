@@ -7,8 +7,9 @@ import {
 	type TypeEnvironment,
 	type WideningTarget,
 } from "../shared/dictionary-types.ts";
+import { resolveVariable } from "../shared/scope.ts";
 
-import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
+import type { ESTree, SourceCode, Variable } from "@oxlint/plugins";
 
 type FunctionExpression = ESTree.ArrowFunctionExpression | ESTree.Function;
 
@@ -24,19 +25,6 @@ function unwrapExpression(expression: ESTree.Expression): ESTree.Expression {
 		current = current.expression;
 	}
 	return current;
-}
-
-function resolveVariable(
-	sourceCode: SourceCode,
-	identifier: ESTree.IdentifierReference,
-): Variable | null {
-	let scope: Scope | null = sourceCode.getScope(identifier);
-	while (scope !== null) {
-		const variable = scope.set.get(identifier.name);
-		if (variable !== undefined) return variable;
-		scope = scope.upper;
-	}
-	return null;
 }
 
 function variableDeclarator(variable: Variable): ESTree.VariableDeclarator | null {
@@ -68,6 +56,8 @@ function hasKnownEvidence(
 	const declarator = variableDeclarator(variable);
 	if (
 		declarator === null ||
+		// A destructured binding is not an alias for its entire initializer.
+		declarator.id.type !== "Identifier" ||
 		declarator.init === null ||
 		!isStableConstVariable(variable, declarator)
 	) {
@@ -136,7 +126,7 @@ export const noKnownValueWideningRule = defineRule({
 		type: "problem",
 		docs: {
 			description:
-				"Disallow syntactically established values from flowing into explicitly broad or anonymous target types that discard useful evidence.",
+				"Disallow syntactically established values from flowing into explicitly broad target types that discard useful evidence.",
 		},
 		messages: {
 			widening:
@@ -171,7 +161,10 @@ export const noKnownValueWideningRule = defineRule({
 
 		return {
 			Program(node) {
-				environment = createTypeEnvironment(node);
+				environment = createTypeEnvironment(
+					node,
+					context.sourceCode.visitorKeys,
+				);
 			},
 			VariableDeclarator(node) {
 				if (node.init === null || node.id.type !== "Identifier") return;

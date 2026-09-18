@@ -32,12 +32,14 @@ const NONZERO_USAGE: Usage = {
   output: 1,
   totalTokens: 2,
 };
+
 const ALLOWED_TOOL_CALL_PROVIDERS = new Set([
   "openai",
   "openai-codex",
   "opencode",
   "azure-openai-responses",
 ]);
+
 const ResponsesInputSchema = Type.Array(ResponsesInputItemSchema);
 
 const assistant = (
@@ -92,15 +94,19 @@ const assertMarkerFreeParity = (live: readonly Message[]) => {
   const logical = serialize(live);
   const extracted = extractFinalizedFrame(markerful, nonce);
   expect(extracted.kind).toBe("ok");
+
   if (extracted.kind !== "ok") {
     return;
   }
+
   const mapping = buildFallbackAssistantIdMap(markerful, logical);
   expect(hasMarkerFreeStructuralParity(markerful, logical, nonce, mapping)).toBeTruthy();
+
   const corrected = correctFallbackAssistantIds(
     rewriteFramedInput(extracted, replacement),
     mapping,
   );
+
   expect(corrected).toStrictEqual([...replacement, ...logical]);
 };
 
@@ -116,6 +122,7 @@ describe("pinned marker-free fallback assistant ID parity", () => {
     ],
     "toolUse",
   );
+
   const splitResult: Message = {
     content: [{ text: "real split result", type: "text" }],
     isError: false,
@@ -127,13 +134,16 @@ describe("pinned marker-free fallback assistant ID parity", () => {
 
   it("quantifies a +1 framed shift and +2 suffix shift", () => {
     const nonce = "offsets";
+
     const prefix: Message = {
       content: "prefix",
       role: "user",
       timestamp: 1,
     };
+
     const framed = assistant([{ text: "framed", type: "text" }]);
     const suffix = assistant([{ text: "suffix", type: "text" }]);
+
     const markerful = serialize([
       prefix,
       marker("start", nonce),
@@ -141,6 +151,7 @@ describe("pinned marker-free fallback assistant ID parity", () => {
       marker("end", nonce),
       suffix,
     ]);
+
     const logical = serialize([prefix, framed, suffix]);
 
     expect(buildFallbackAssistantIdMap(markerful, logical)).toStrictEqual({
@@ -228,12 +239,14 @@ describe("pinned marker-free fallback assistant ID parity", () => {
 
   it("detects a start marker splitting a prefix call from a framed result", () => {
     const nonce = "split-start";
+
     const markerful = serialize([
       splitCall,
       marker("start", nonce),
       splitResult,
       marker("end", nonce),
     ]);
+
     const logical = serialize([splitCall, splitResult]);
     const mapping = buildFallbackAssistantIdMap(markerful, logical);
 
@@ -248,12 +261,14 @@ describe("pinned marker-free fallback assistant ID parity", () => {
 
   it("detects an end marker splitting a framed call from a suffix result", () => {
     const nonce = "split-end";
+
     const markerful = serialize([
       marker("start", nonce),
       splitCall,
       marker("end", nonce),
       splitResult,
     ]);
+
     const logical = serialize([splitCall, splitResult]);
     const mapping = buildFallbackAssistantIdMap(markerful, logical);
 

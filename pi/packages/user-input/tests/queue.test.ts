@@ -14,13 +14,16 @@ describe("prompt coordination", () => {
     const ctx = host.createContext();
     const hold = Promise.withResolvers<void>();
     const order: string[] = [];
+
     const first = runQueuedPrompt(ctx, undefined, async () => {
       order.push("first");
       await hold.promise;
     });
+
     const second = runQueuedPrompt(ctx, undefined, async () => {
       order.push("second");
     });
+
     const other: Pick<ExtensionContext, "ui"> = { ui: { ...ctx.ui } };
     await runQueuedPrompt(other, undefined, async () => {
       order.push("other");
@@ -54,10 +57,13 @@ describe("prompt coordination", () => {
     const abort = new AbortController();
     const started = Promise.withResolvers<AbortSignal>();
     const settled = Promise.withResolvers<void>();
+
     const first = runQueuedPrompt(ctx, abort.signal, (signal) => {
       started.resolve(signal);
+
       return settled.promise;
     });
+
     const activeSignal = await started.promise;
     const show = vi.fn(async () => "next");
     const second = runQueuedPrompt(ctx, undefined, show);
@@ -72,6 +78,7 @@ describe("prompt coordination", () => {
 
   it("finishes cancelled queue cleanup after the originating runner is invalidated", async () => {
     const modelRegistry = createExtensionHost(() => {}).createContext().modelRegistry;
+
     const runner = new ExtensionRunner(
       [],
       createExtensionRuntime(),
@@ -79,13 +86,17 @@ describe("prompt coordination", () => {
       SessionManager.inMemory(),
       modelRegistry,
     );
+
     const ctx = runner.createContext();
     const started = Promise.withResolvers<void>();
     const hold = Promise.withResolvers<void>();
+
     const first = runQueuedPrompt(ctx, undefined, () => {
       started.resolve();
+
       return hold.promise;
     });
+
     try {
       await started.promise;
       const abort = new AbortController();
@@ -109,9 +120,11 @@ describe("prompt coordination", () => {
 
   it("releases the queue after a failed prompt", async () => {
     const ctx = createExtensionHost(() => {}).createContext();
+
     const first = runQueuedPrompt(ctx, undefined, async () => {
       throw new Error("Prompt failed");
     });
+
     const second = runQueuedPrompt(ctx, undefined, async () => "next");
     await expect(first).rejects.toThrow("Prompt failed");
     await expect(second).resolves.toBe("next");

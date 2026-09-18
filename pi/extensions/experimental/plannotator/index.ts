@@ -1,9 +1,10 @@
+import type { CliStarter } from "./cli.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createPlannotatorHost } from "./host.js";
 
-export default function plannotatorExtension(pi: ExtensionAPI): void {
-  const host = createPlannotatorHost(pi);
+export default function plannotatorExtension(pi: ExtensionAPI, starter?: CliStarter): void {
+  const host = createPlannotatorHost(pi, starter);
 
   pi.registerCommand("plannotator-review", {
     description: "Review current changes, a base ref, or a pull request URL",

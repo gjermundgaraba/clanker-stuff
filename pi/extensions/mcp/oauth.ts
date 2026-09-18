@@ -31,12 +31,17 @@ const oauthFetch =
   (signal?: AbortSignal): typeof fetch =>
   (input, init) => {
     const signals = [AbortSignal.timeout(30_000)];
+
     if (signal) signals.push(signal);
+
     if (input instanceof Request) signals.push(input.signal);
+
     if (init?.signal) signals.push(init.signal);
+
     return fetch(input, { ...init, signal: AbortSignal.any(signals) });
   };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The MCP transport rejects with SDK authentication errors or arbitrary network failures.
 export const isAuthorizationError = (cause: unknown): boolean =>
   UnauthorizedError.isInstance(cause) ||
   cause instanceof InsufficientScopeError ||
@@ -44,6 +49,7 @@ export const isAuthorizationError = (cause: unknown): boolean =>
 
 const requestedScopes = (...scopes: (string | undefined)[]): string | undefined => {
   const words = scopes.flatMap((scope) => scope?.split(/\s+/u).filter(Boolean) ?? []);
+
   return [...new Set(words)].join(" ") || undefined;
 };
 
@@ -51,41 +57,57 @@ export const startOAuthCallbackServer = async (redirectUrl: URL, expectedState: 
   const code = Promise.withResolvers<{ code: string; iss?: string }>();
   // Requests can arrive before waitForCode attaches its rejection handler.
   void code.promise.catch(() => {});
+
   const server = createServer((req, res) => {
     const url = URL.parse(req.url ?? "/", redirectUrl);
+
     if (!url) {
       res.writeHead(400).end();
+
       return;
     }
+
     if (url.pathname !== redirectUrl.pathname) {
       res.writeHead(404).end();
+
       return;
     }
+
     if (url.searchParams.get("state") !== expectedState) {
       // Unrelated local requests must not cancel a legitimate authorization attempt.
       res.writeHead(400).end("Invalid OAuth state.");
+
       return;
     }
+
     const error = url.searchParams.get("error");
     const value = url.searchParams.get("code");
+
     if (error || !value) {
       res.writeHead(400).end("Authorization failed. You can close this tab.");
       code.reject(new Error(error ? `MCP OAuth failed: ${error}` : "Missing OAuth code"));
+
       return;
     }
+
     res
       .writeHead(200, { "Content-Type": "text/plain" })
       .end("MCP authorization complete. You can close this tab.");
-    code.resolve({ code: value, iss: url.searchParams.get("iss") ?? undefined });
+    const iss = url.searchParams.get("iss");
+    code.resolve({ code: value, ...(iss !== null ? { iss } : {}) });
   });
+
   server.listen(Number(redirectUrl.port), redirectUrl.hostname);
   await once(server, "listening");
   server.on("error", code.reject);
   const address = server.address();
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Node address() returns null, a pipe name, or a TCP address; this listener requires the TCP variant.
   if (address === null || typeof address === "string")
     throw new Error("OAuth listener has no TCP address");
   const boundUrl = new URL(redirectUrl);
   boundUrl.port = String(address.port);
+
   return {
     redirectUrl: boundUrl,
     waitForCode: (signal?: AbortSignal) =>
@@ -104,10 +126,10 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   readonly statePath: string;
   private readonly expectedState = randomUUID();
   redirectUrl: URL;
-  authorizationUrl?: URL;
-  private verifier?: string;
-  private authorizationClient?: StoredOAuthClientInformation;
-  private discovery?: OAuthDiscoveryState;
+  authorizationUrl: URL | undefined;
+  private verifier: string | undefined;
+  private authorizationClient: StoredOAuthClientInformation | undefined;
+  private discovery: OAuthDiscoveryState | undefined;
   private readonly config: NonNullable<HttpServerConfig["oauth"]>;
   private fetcher: typeof fetch = oauthFetch();
 
@@ -136,9 +158,12 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   async clientInformation(): Promise<StoredOAuthClientInformation | undefined> {
     if (this.authorizationClient) return this.authorizationClient;
     const stored = (await readOAuthState(this.statePath)).clientInformation;
+
     if (stored) return stored;
+
     if (this.config.clientId)
       return { client_id: this.config.clientId, client_secret: this.config.clientSecret };
+
     return undefined;
   }
   async saveClientInformation(value: StoredOAuthClientInformation): Promise<void> {
@@ -152,6 +177,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   async saveTokens(value: StoredOAuthTokens): Promise<void> {
     await updateOAuthState(this.statePath, (state) => {
       state.tokens = value;
+
       if (this.authorizationClient) {
         state.clientInformation = this.authorizationClient;
         state.discoveryState = this.discovery;
@@ -168,13 +194,18 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
     if (scope === "all" || scope === "verifier") this.verifier = undefined;
+
     if (scope === "all" || scope === "client" || scope === "verifier")
       this.authorizationClient = undefined;
+
     if (scope === "all" || scope === "discovery") this.discovery = undefined;
+
     if (scope === "verifier") return;
     await updateOAuthState(this.statePath, (state) => {
       if (scope === "all" || scope === "client") delete state.clientInformation;
+
       if (scope === "all" || scope === "tokens") delete state.tokens;
+
       if (scope === "all" || scope === "discovery") delete state.discoveryState;
     });
   }
@@ -188,6 +219,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   }
   codeVerifier(): string {
     if (!this.verifier) throw new Error("No MCP OAuth code verifier saved");
+
     return this.verifier;
   }
   async saveDiscoveryState(value: OAuthDiscoveryState): Promise<void> {
@@ -199,8 +231,10 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
     if (this.discovery) return this.discovery;
     this.discovery = (await readOAuthState(this.statePath)).discoveryState;
+
     if (!this.discovery && this.config.authServerMetadataUrl) {
       const response = await this.fetcher(this.config.authServerMetadataUrl);
+
       if (!response.ok) throw new Error(`OAuth metadata request failed: ${response.status}`);
       const metadata = AuthorizationMetadataSchema.parse(await response.json());
       this.discovery = {
@@ -208,6 +242,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
         authorizationServerMetadata: metadata,
       };
     }
+
     return this.discovery;
   }
 
@@ -215,6 +250,7 @@ export class PersistentMcpOAuthProvider implements OAuthClientProvider {
     this.redirectUrl = url;
     // A dynamically registered client may have an exact redirect URI. Register it again for a new port.
     const stored = (await readOAuthState(this.statePath)).clientInformation;
+
     if (
       !this.config.clientId &&
       stored &&
@@ -232,9 +268,11 @@ export const createHttpAuth = (serverConfig: HttpServerConfig) => {
   let lastToken: string | undefined;
   let challenge: ReturnType<typeof extractWWWAuthenticateParams> = {};
   let operationSignal: AbortSignal | undefined;
+
   const authProvider: AuthProvider = {
     token: async () => {
       lastToken = (await provider.tokens())?.access_token;
+
       return lastToken;
     },
     onUnauthorized: async ({ response }) => {
@@ -242,19 +280,25 @@ export const createHttpAuth = (serverConfig: HttpServerConfig) => {
       challenge = extractWWWAuthenticateParams(response);
       await withOAuthLock(`${provider.statePath}.auth`, operationSignal, async () => {
         const current = await provider.tokens();
+
         if (current?.access_token && current.access_token !== rejectedToken) return;
+
         if (!current?.refresh_token)
           throw new UnauthorizedError(
             "MCP authorization required. Reconnect with /mcp or mcp_connect.",
           );
         const fetchFn = oauthFetch(operationSignal);
         provider.setFetch(fetchFn);
+
+        const scope = requestedScopes(serverConfig.oauth?.scopes, challenge.scope);
+
         const result = await auth(provider, {
           serverUrl: serverConfig.url,
           ...challenge,
-          scope: requestedScopes(serverConfig.oauth?.scopes, challenge.scope),
+          ...(scope !== undefined ? { scope } : {}),
           fetchFn,
         });
+
         if (result === "REDIRECT")
           throw new UnauthorizedError(
             "MCP authorization required. Reconnect with /mcp or mcp_connect.",
@@ -262,6 +306,7 @@ export const createHttpAuth = (serverConfig: HttpServerConfig) => {
       });
     },
   };
+
   return {
     authProvider,
     setSignal: (signal?: AbortSignal) => {
@@ -273,27 +318,37 @@ export const createHttpAuth = (serverConfig: HttpServerConfig) => {
       scopeError?: InsufficientScopeError,
     ) => {
       signal?.throwIfAborted();
+
       if (scopeError)
         challenge = {
-          scope: scopeError.requiredScope,
-          resourceMetadataUrl: scopeError.resourceMetadataUrl,
+          ...(scopeError.requiredScope !== undefined ? { scope: scopeError.requiredScope } : {}),
+          ...(scopeError.resourceMetadataUrl !== undefined
+            ? { resourceMetadataUrl: scopeError.resourceMetadataUrl }
+            : {}),
         };
       provider.clearHandshake();
       const callback = await startOAuthCallbackServer(provider.redirectUrl, provider.state());
+
       try {
         const fetchFn = oauthFetch(signal);
         provider.setFetch(fetchFn);
+
+        const scope = requestedScopes(serverConfig.oauth?.scopes, challenge.scope);
+
         const result = await withOAuthLock(`${provider.statePath}.auth`, signal, async () => {
           await provider.prepareRedirect(callback.redirectUrl);
+
           return await auth(provider, {
             serverUrl: serverConfig.url,
             ...challenge,
-            scope: requestedScopes(serverConfig.oauth?.scopes, challenge.scope),
+            ...(scope !== undefined ? { scope } : {}),
             fetchFn,
             forceReauthorization: true,
           });
         });
+
         const authorizationUrl = provider.authorizationUrl;
+
         if (result !== "REDIRECT" || !authorizationUrl)
           throw new Error("MCP OAuth did not redirect to an authorization URL");
         notifyUrl(authorizationUrl);
@@ -302,8 +357,8 @@ export const createHttpAuth = (serverConfig: HttpServerConfig) => {
           auth(provider, {
             serverUrl: serverConfig.url,
             authorizationCode: code,
-            iss,
-            scope: requestedScopes(serverConfig.oauth?.scopes, challenge.scope),
+            ...(iss !== undefined ? { iss } : {}),
+            ...(scope !== undefined ? { scope } : {}),
             fetchFn,
           }),
         );

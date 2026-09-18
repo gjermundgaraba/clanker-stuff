@@ -21,7 +21,8 @@ const getAssistantText = (message: SessionMessage): string | undefined => {
   }
 
   const text = message.content
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
     .join("\n")
     .trim();
 
@@ -30,16 +31,19 @@ const getAssistantText = (message: SessionMessage): string | undefined => {
 
 const getLastAssistantSnapshot = (ctx: ExtensionCommandContext): AssistantSnapshot | undefined => {
   const branch = ctx.sessionManager.getBranch();
-  for (let index = branch.length - 1; index >= 0; index -= 1) {
-    const entry = branch[index];
+
+  for (const entry of branch.toReversed()) {
     if (entry.type !== "message") {
       continue;
     }
+
     const text = getAssistantText(entry.message);
+
     if (text !== undefined) {
       return { entryId: entry.id, text };
     }
   }
+
   return undefined;
 };
 
@@ -47,17 +51,21 @@ const hasMovedPastSnapshot = (ctx: ExtensionCommandContext, entryId: string): bo
   if (!ctx.isIdle()) {
     return true;
   }
+
   const branch = ctx.sessionManager.getBranch();
   const index = branch.findIndex((entry) => entry.id === entryId);
+
   if (index === -1) {
     return true;
   }
+
   return branch.slice(index + 1).some((entry) => entry.type === "message");
 };
 
 const anchorFeedback = (feedback: string, message: string): string => {
   const trimmed = message.trim();
   const excerpt = trimmed.length <= 1000 ? trimmed : `${trimmed.slice(0, 1000).trimEnd()}...`;
+
   const quote = excerpt
     .split("\n")
     .map((line) => `> ${line}`)
@@ -70,21 +78,26 @@ export const createLastHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     const parsed = runtime.parseArguments(args, ctx);
+
     if (parsed === undefined) {
       return;
     }
 
     let tokens: string[];
+
     try {
       tokens = normalizeAnnotationArguments(parsed, new Set(["--json", "--stdin"]));
     } catch (error) {
       notifyError(ctx, "Invalid Plannotator arguments", error);
+
       return;
     }
 
     const snapshot = getLastAssistantSnapshot(ctx);
+
     if (snapshot === undefined) {
       ctx.ui.notify("No assistant message found in session.", "error");
+
       return;
     }
 
@@ -92,23 +105,31 @@ export const createLastHandler =
       failureLabel: "Plannotator message annotation",
       onOutput(stdout) {
         const outcome = parseAnnotationOutcome(stdout);
+
         if (outcome.decision === "approved") {
           ctx.ui.notify("Plannotator message approved.", "info");
+
           return;
         }
+
         if (outcome.decision === "dismissed") {
           ctx.ui.notify("Plannotator message annotation closed.", "info");
+
           return;
         }
 
         let feedback = outcome.feedback.trim();
+
         if (feedback.length === 0) {
           ctx.ui.notify("Plannotator message annotation closed without feedback.", "info");
+
           return;
         }
+
         if (hasMovedPastSnapshot(ctx, snapshot.entryId)) {
           feedback = anchorFeedback(feedback, snapshot.text);
         }
+
         pi.sendUserMessage(
           `# Message Annotations\n\n${feedback}\n\nPlease address the annotation feedback above.`,
           { deliverAs: "followUp" },

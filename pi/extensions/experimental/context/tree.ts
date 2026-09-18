@@ -27,7 +27,7 @@ export const buildTree = (snapshot: ContextSnapshot): TreeNode[] => [
 ];
 
 export const groupIds = (nodes: readonly TreeNode[]): string[] =>
-  nodes.filter((node) => node.children.length > 0).map((node) => node.id);
+  nodes.flatMap((node) => (node.children.length > 0 ? [node.id] : []));
 
 export interface FlatRow {
   readonly depth: number;
@@ -59,11 +59,14 @@ export const flattenTree = (
 
 export const filterTree = (nodes: readonly TreeNode[], query: string): TreeNode[] => {
   const needle = query.trim().toLowerCase();
+
   return nodes.flatMap((node) => {
     if (node.label.toLowerCase().includes(needle) || node.body.toLowerCase().includes(needle)) {
       return [node];
     }
+
     const children = filterTree(node.children, needle);
+
     return children.length > 0 ? [{ ...node, children }] : [];
   });
 };
@@ -76,5 +79,6 @@ export const followSelection = (
 ): number => {
   if (viewport <= 0) return 0;
   const next = Math.max(selected - viewport + 1, Math.min(scroll, selected));
+
   return Math.max(0, Math.min(next, total - viewport));
 };

@@ -23,6 +23,7 @@ describe("agent evaluator infrastructure", () => {
     const events: WireRecord[] = [];
     const trailingEvent = { type: "tail", text: "😀" };
     const descendant = `setTimeout(() => process.stdout.write(${JSON.stringify(JSON.stringify(trailingEvent))}), 50);`;
+
     const result = await runJsonProcess(
       process.execPath,
       [
@@ -57,6 +58,7 @@ describe("agent evaluator infrastructure", () => {
   test("rejects a spawn error and immediately clears its timeout", async () => {
     vi.useFakeTimers();
     const directory = mkdtempSync(path.join(tmpdir(), "codex-evaluator-spawn-"));
+
     try {
       await expect(
         runJsonProcess(
@@ -80,6 +82,7 @@ describe("agent evaluator infrastructure", () => {
     async (ignoreTermination) => {
       vi.useFakeTimers();
       const ready = Promise.withResolvers<void>();
+
       const result = runJsonProcess(
         process.execPath,
         [
@@ -96,12 +99,15 @@ describe("agent evaluator infrastructure", () => {
         25,
         () => ready.resolve(),
       );
+
       await ready.promise;
       await vi.advanceTimersByTimeAsync(25);
+
       if (ignoreTermination) {
         expect(vi.getTimerCount()).toBe(1);
         await vi.advanceTimersByTimeAsync(5000);
       }
+
       await expect(result).resolves.toStrictEqual({
         exitCode: ignoreTermination ? null : 0,
         timedOut: true,
@@ -116,10 +122,12 @@ describe("agent evaluator infrastructure", () => {
 
     expect(initial.slice(0, 1)).toStrictEqual(["exec"]);
     expect(resumed.slice(0, 4)).toStrictEqual(["exec", "resume", "--last", "--json"]);
+
     for (const args of [initial, resumed]) {
       const sandboxIndex = args.indexOf('sandbox_mode="workspace-write"');
       expect(args[sandboxIndex - 1]).toBe("--config");
     }
+
     expect(resumed).not.toContain("--sandbox");
   });
 
@@ -141,9 +149,12 @@ describe("agent evaluator infrastructure", () => {
   test("keeps the previous complete report when a replacement cannot serialize", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "codex-evaluator-test-"));
     const target = path.join(directory, "results.json");
+
     try {
       writeJsonReport(target, { results: ["complete"] });
+
       type Cyclic = { self?: Cyclic | undefined };
+
       const cyclic: Cyclic = {};
       cyclic.self = cyclic;
 

@@ -11,6 +11,7 @@ const CAPABILITY_FIELDS = [
   "support_verbosity",
   "supports_parallel_tool_calls",
 ] as const;
+
 const WINDOW_FIELDS = ["auto_compact_token_limit", "context_window", "max_context_window"] as const;
 
 const remoteModel = {
@@ -70,7 +71,7 @@ const refreshContext = (
   credential: { key: SPIKE_API_KEY, type: "api_key" },
   publish,
   signal: new AbortController().signal,
-  stored,
+  ...(stored !== undefined ? { stored } : {}),
 });
 
 const fetchStoredCatalog = async (
@@ -84,13 +85,17 @@ const fetchStoredCatalog = async (
       if (publication.persist !== undefined && publication.persist !== null) {
         stored = structuredClone(publication.persist);
       }
+
       publication.update?.();
+
       return true;
     }),
   );
+
   if (stored === undefined) {
     throw new Error("Remote model catalog was not persisted");
   }
+
   return stored;
 };
 
@@ -112,6 +117,7 @@ describe("Codex model catalog", () => {
         visibility: "hide",
       },
     ]);
+
     const expected = {
       spawnAgentMetadata: {
         description: "Fast and affordable synthetic worker.",
@@ -122,16 +128,19 @@ describe("Codex model catalog", () => {
       multiAgentVersion: "v1",
       thinkingLevelMap: { low: "low", medium: "medium", high: null, max: null },
     };
+
     expect(stored.models[0]).toMatchObject(expected);
     const catalog = createCodexModelCatalog();
     await catalog.refreshModels(
       refreshContext(async (publication) => {
         publication.update?.();
+
         return true;
       }, stored),
     );
     expect(catalog.getModels()[0]).toMatchObject(expected);
     const fallback = createCodexModelCatalog();
+
     for (const model of fallback.getModels()) {
       expect(fallback.supportsFastMode(model)).toBe(
         model.spawnAgentMetadata?.serviceTiers.includes("priority") ?? false,
@@ -191,6 +200,7 @@ describe("Codex model catalog", () => {
         .filterModels?.(catalog.getModels(), undefined)
         .some((model) => model.id === "gpt-6-astra"),
     ).toBeTruthy();
+
     if (astra === undefined) throw new Error("Missing Astra fallback");
     expect(catalog.getModelWindow(astra)).toEqual({
       autoCompactTokens: 244_800,
@@ -204,6 +214,7 @@ describe("Codex model catalog", () => {
     await catalog.refreshModels(
       refreshContext(async (publication) => {
         publication.update?.();
+
         return true;
       }, stored),
     );
@@ -245,10 +256,12 @@ describe("Codex model catalog", () => {
         visibility: "list",
       },
     ]);
+
     const catalog = createCodexModelCatalog();
     await catalog.refreshModels(
       refreshContext(async (publication) => {
         publication.update?.();
+
         return true;
       }, stored),
     );
@@ -278,6 +291,7 @@ describe("Codex model catalog", () => {
     await catalog.refreshModels(
       refreshContext(async (publication) => {
         publication.update?.();
+
         return true;
       }, stored),
     );
@@ -319,22 +333,30 @@ describe("Codex model catalog", () => {
         tool_mode: "future_mode",
         use_responses_lite: useResponsesLite,
       };
+
       const stored = await fetchStoredCatalog([nativeMetadata]);
+
+      const {
+        auto_compact_token_limit: _auto,
+        context_window: _context,
+        max_context_window: _max,
+        tool_mode: _mode,
+        ...preservedMetadata
+      } = nativeMetadata;
+
       const expectedMetadata = {
-        ...nativeMetadata,
-        auto_compact_token_limit: undefined,
-        context_window: undefined,
+        ...preservedMetadata,
         effective_context_window_percent: 95,
-        max_context_window: undefined,
-        tool_mode: undefined,
         use_responses_lite: useResponsesLite === true,
       };
+
       expect(stored.models[0]).toMatchObject({ codexProviderMetadata: expectedMetadata });
 
       const catalog = createCodexModelCatalog();
       await catalog.refreshModels(
         refreshContext(async (publication) => {
           publication.update?.();
+
           return true;
         }, stored),
       );
@@ -349,6 +371,7 @@ describe("Codex model catalog", () => {
         experimental_supported_tools: ["request_user_input_async", "send_message_to_user_async"],
       },
     ]);
+
     expect(stored.models[0]).toMatchObject({
       codexSupportedTools: ["request_user_input_async", "send_message_to_user_async"],
     });
@@ -356,6 +379,7 @@ describe("Codex model catalog", () => {
     await catalog.refreshModels(
       refreshContext(async (publication) => {
         publication.update?.();
+
         return true;
       }, stored),
     );
@@ -448,6 +472,7 @@ describe("Codex model catalog", () => {
       priority: limit === 0 ? Number.MIN_SAFE_INTEGER : limit,
       truncation_policy: { mode: "tokens", limit },
     };
+
     const stored = await fetchStoredCatalog([metadata]);
     expect(stored.models[0]).toMatchObject({ codexProviderMetadata: metadata });
   });
@@ -462,6 +487,7 @@ describe("Codex model catalog", () => {
       catalog.refreshModels(
         refreshContext(async (publication) => {
           publication.update?.();
+
           return true;
         }),
       ),
@@ -474,10 +500,12 @@ describe("Codex model catalog", () => {
 
   it.each(CAPABILITY_FIELDS)("rejects non-boolean cached %s metadata", async (field) => {
     const stored = await fetchStoredCatalog();
+
     const models = stored.models.map((model) => {
       if (model.id !== remoteModel.slug || !("codexProviderMetadata" in model)) {
         return model;
       }
+
       return {
         ...model,
         codexProviderMetadata: {
@@ -486,12 +514,14 @@ describe("Codex model catalog", () => {
         },
       };
     });
+
     const catalog = createCodexModelCatalog();
 
     await catalog.refreshModels(
       refreshContext(
         async (publication) => {
           publication.update?.();
+
           return true;
         },
         { ...stored, models },

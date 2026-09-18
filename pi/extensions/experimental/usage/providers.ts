@@ -54,6 +54,7 @@ export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult => {
   ) {
     return usageFailure(NO_WINDOWS_MESSAGE);
   }
+
   return { ok: true, snapshot };
 };
 
@@ -66,6 +67,7 @@ export const getActiveProvider = (
   model: { provider?: string } | undefined | null,
 ): SupportedProvider | undefined => {
   const provider = model?.provider;
+
   return isSupportedProvider(provider) ? provider : undefined;
 };
 

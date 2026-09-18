@@ -14,6 +14,7 @@ const responseChunks = (chunks: readonly Uint8Array[]) =>
         for (const chunk of chunks) {
           controller.enqueue(chunk);
         }
+
         controller.close();
       },
     }),
@@ -34,6 +35,7 @@ describe("SSE framing", () => {
       "",
       "",
     ].join(newline);
+
     expect(await collect(parseSseEvents(new Response(wire)))).toStrictEqual([
       { type: "response.done" },
     ]);
@@ -41,6 +43,7 @@ describe("SSE framing", () => {
 
   it("handles every UTF-8 and CRLF chunk boundary", async () => {
     const wire = Buffer.from('data: {"text":"é 🦄"}\r\n\r\ndata: {"type":"response.done"}\r\n\r\n');
+
     for (let offset = 0; offset <= wire.length; offset += 1) {
       const response = responseChunks([wire.subarray(0, offset), wire.subarray(offset)]);
       expect(await collect(parseSseEvents(response))).toStrictEqual([
@@ -74,8 +77,10 @@ describe("SSE framing", () => {
       const signal = new AbortController();
       const cancel = vi.fn();
       const response = new Response(new ReadableStream<Uint8Array>({ cancel }));
+
       if (alreadyAborted) signal.abort();
       const reading = collect(parseSseEvents(response, signal.signal));
+
       if (!alreadyAborted) signal.abort();
       await expect(reading).rejects.toThrow("Request was aborted");
       await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
@@ -84,6 +89,7 @@ describe("SSE framing", () => {
 
   it("cancels upstream when the consumer stops early", async () => {
     const cancel = vi.fn();
+
     const response = new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
@@ -92,6 +98,7 @@ describe("SSE framing", () => {
         cancel,
       }),
     );
+
     const iterator = parseSseEvents(response);
     expect((await iterator.next()).value).toStrictEqual({ type: "response.done" });
     await iterator.return(undefined);
@@ -101,6 +108,7 @@ describe("SSE framing", () => {
   it("does not deliver queued events after abort", async () => {
     const controller = new AbortController();
     const cancel = vi.fn();
+
     const response = new Response(
       new ReadableStream<Uint8Array>({
         start(stream) {
@@ -111,6 +119,7 @@ describe("SSE framing", () => {
         cancel,
       }),
     );
+
     const iterator = parseSseEvents(response, controller.signal);
     expect((await iterator.next()).value).toStrictEqual({ type: "response.created" });
     controller.abort();
@@ -127,6 +136,7 @@ describe("SSE framing", () => {
         },
       }),
     );
+
     await expect(collect(parseSseEvents(response))).rejects.toThrow("body failed");
   });
 
@@ -135,7 +145,9 @@ describe("SSE framing", () => {
       { type: "response.created" },
       { delta: "partial output", type: "response.output_text.delta" },
     ];
+
     let sent = false;
+
     const response = new Response(
       new ReadableStream<Uint8Array>({
         pull(controller) {
@@ -153,11 +165,14 @@ describe("SSE framing", () => {
         },
       }),
     );
+
     const iterator = parseSseEvents(response);
+
     for (const event of events) {
       await expect(iterator.next()).resolves.toStrictEqual({ done: false, value: event });
       await setImmediate();
     }
+
     await expect(iterator.next()).rejects.toThrow("body failed after output");
   });
 });

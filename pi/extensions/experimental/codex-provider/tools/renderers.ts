@@ -19,7 +19,7 @@ import { formatSize, highlightCode, renderDiff } from "@earendil-works/pi-coding
 import type { Component } from "@earendil-works/pi-tui";
 import { Container, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import type { Static } from "typebox";
+import type { Static, TUnsafe } from "typebox";
 import { Value } from "typebox/value";
 
 import { TRACE_VALUE_TRUNCATED_MARKER } from "../code-mode/trace-values.js";
@@ -30,14 +30,25 @@ import { lazyComponent } from "./render-components.js";
 import { formatProcessMetadata } from "./process-metadata.js";
 
 export const COMMAND_PREVIEW_LINES = 3;
+
 export const OUTPUT_PREVIEW_LINES = 5;
+
 export const DIFF_PREVIEW_LINES = 12;
+
 export const PATCH_FILE_PREVIEW_ROWS = 8;
+
 export const STDIN_PREVIEW_LINES = 3;
 
-type RenderContext = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
-type Renderers = Required<Pick<ToolDefinition, "renderCall" | "renderResult">>;
+type RenderContext = Parameters<
+  NonNullable<ToolDefinition<TUnsafe<unknown>, unknown, ProcessCallState>["renderCall"]>
+>[2];
+
+type Renderers<State = ProcessCallState> = Required<
+  Pick<ToolDefinition<TUnsafe<unknown>, unknown, State>, "renderCall" | "renderResult">
+>;
+
 type ToolResult = AgentToolResult<unknown>;
+
 type ResultLike = Pick<ToolResult, "content">;
 
 /** Tool arguments and details arrive from the session as opaque values and are parsed here. */
@@ -46,11 +57,14 @@ const ExecCommandArgsSchema = Type.Object({
   cmd: Type.Optional(Type.String()),
   workdir: Type.Optional(Type.String()),
 });
+
 const WriteStdinArgsSchema = Type.Object({
   chars: Type.Optional(Type.String()),
   session_id: Type.Optional(Type.Integer()),
 });
+
 const ApplyPatchArgsSchema = Type.Object({ patch: Type.Optional(Type.String()) });
+
 const ViewImageArgsSchema = Type.Object({ path: Type.Optional(Type.String()) });
 
 const ProcessDisplayDetailsSchema = Type.Object({
@@ -72,28 +86,34 @@ const ProcessDisplayDetailsSchema = Type.Object({
     }),
   ),
 });
+
 export type ProcessDisplayDetails = Static<typeof ProcessDisplayDetailsSchema>;
 
 const ApplyPatchDetailsSchema = Type.Object({ changes: Type.Array(Type.Unknown()) });
+
 const UnknownArraySchema = Type.Array(Type.Unknown());
 
 interface PatchDetails {
-  entries: { change: PatchChange; diff?: string }[];
+  entries: { change: PatchChange; diff: string | undefined }[];
   /** False when the trace bound reached the change list itself, so the list is not authoritative. */
   complete: boolean;
 }
 
 /** The change list and the diffs are validated independently: a cut in one must not hide the other. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Persisted and size-bounded delegated results are opaque; validate changes and diffs independently to retain partial display evidence.
 const parsePatchDetails = (details: unknown): PatchDetails | undefined => {
   if (!Value.Check(ApplyPatchDetailsSchema, details)) return undefined;
   const diffs = new Map<number, string>();
   const rawDiffs = "diffs" in details ? details.diffs : undefined;
+
   for (const entry of Value.Check(UnknownArraySchema, rawDiffs) ? rawDiffs : []) {
     if (Value.Check(PatchDiffSchema, entry)) diffs.set(entry.index, entry.diff);
   }
+
   const entries = details.changes.flatMap((change, index) =>
     Value.Check(PatchChangeSchema, change) ? [{ change, diff: diffs.get(index) }] : [],
   );
+
   return { entries, complete: entries.length === details.changes.length };
 };
 
@@ -108,6 +128,7 @@ const textOf = (result: ResultLike): string =>
 
 export const shortenPath = (path: string): string => {
   const home = homedir();
+
   return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 };
 
@@ -115,6 +136,7 @@ const formatDuration = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 
 /** Indentation grows with nesting, so deep or dense values keep their original layout instead. */
 const JSON_FORMAT_MAX_DEPTH = 32;
+
 const JSON_FORMAT_GROWTH_LIMIT = 8;
 
 /**
@@ -124,15 +146,20 @@ const JSON_FORMAT_GROWTH_LIMIT = 8;
 export const formatJsonText = (text: string): string => {
   const maxOutput = text.length * JSON_FORMAT_GROWTH_LIMIT;
   const indent = (depth: number) => "\n" + "  ".repeat(depth);
+
   const nonSpaceAfter = (index: number): string | undefined =>
     /[^\s]/u.exec(text.slice(index + 1))?.[0];
+
   let output = "";
   let depth = 0;
   let inString = false;
+
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index] ?? "";
+
     if (inString) {
       output += char;
+
       if (char === "\\") {
         index += 1;
         output += text[index] ?? "";
@@ -144,11 +171,13 @@ export const formatJsonText = (text: string): string => {
       output += char;
     } else if (char === "{" || char === "[") {
       const close = char === "{" ? "}" : "]";
+
       if (nonSpaceAfter(index) === close) {
         output += `${char}${close}`;
         index = text.indexOf(close, index + 1);
       } else {
         depth += 1;
+
         if (depth > JSON_FORMAT_MAX_DEPTH) return text;
         output += `${char}${indent(depth)}`;
       }
@@ -162,23 +191,28 @@ export const formatJsonText = (text: string): string => {
     } else if (!/\s/u.test(char)) {
       output += char;
     }
+
     if (output.length > maxOutput) return text;
   }
+
   return output;
 };
 
 /** Pretty-prints and highlights JSON objects or arrays; other text keeps the plain output color. */
 export const highlightJsonIfPossible = (text: string, theme: Theme): string => {
   const trimmed = text.trim();
+
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
       // Parsing only validates the text; the displayed tokens come from the original string.
       JSON.parse(trimmed);
+
       return highlightCode(formatJsonText(trimmed), "json").join("\n");
     } catch {
       // Not JSON; fall through to plain output.
     }
   }
+
   return text
     .split("\n")
     .map((line) => theme.fg("toolOutput", line))
@@ -200,6 +234,7 @@ export class PrefixedComponent implements Component {
   render(width: number): string[] {
     const prefixWidth = Math.max(visibleWidth(this.firstPrefix), visibleWidth(this.restPrefix));
     const innerWidth = Math.max(1, width - prefixWidth);
+
     return this.child
       .render(innerWidth)
       .map((line, index) =>
@@ -215,38 +250,55 @@ export const formatCodeBlock = (source: string, language: string): string[] =>
 const invalidArgs = (title: string, theme: Theme): string =>
   `${title} ${theme.fg("error", "[invalid arg]")}`;
 
-const formatExecCommandCall = (args: unknown, theme: Theme): string => {
+const formatExecCommandCall = (
+  args: Static<typeof ExecCommandArgsSchema> | undefined,
+  theme: Theme,
+): string => {
   const prompt = theme.fg("toolTitle", theme.bold("$"));
-  if (!Value.Check(ExecCommandArgsSchema, args)) {
+
+  if (args === undefined) {
     return invalidArgs(prompt, theme);
   }
+
   if (args.cmd === undefined) {
     return `${prompt} ${theme.fg("toolOutput", "...")}`;
   }
+
   const [first = "", ...rest] = formatCodeBlock(args.cmd, "bash");
+
   const workdir =
     args.workdir !== undefined && args.workdir.length > 0
       ? theme.fg("muted", ` (in ${inlineText(shortenPath(args.workdir))})`)
       : "";
+
   return [`${prompt} ${first}${workdir}`, ...rest.map((line) => `  ${line}`)].join("\n");
 };
 
-const formatWriteStdinCall = (args: unknown, theme: Theme): string => {
+const formatWriteStdinCall = (
+  args: Static<typeof WriteStdinArgsSchema> | undefined,
+  theme: Theme,
+): string => {
   const label = theme.fg("toolTitle", theme.bold("stdin"));
-  if (!Value.Check(WriteStdinArgsSchema, args)) {
+
+  if (args === undefined) {
     return invalidArgs(label, theme);
   }
+
   const session = args.session_id === undefined ? "session …" : `session ${args.session_id}`;
   const title = `${label} ${theme.fg("accent", session)}`;
   const chars = args.chars ?? "";
+
   if (chars.length === 0) {
     return `${title} ${theme.fg("muted", "(poll)")}`;
   }
+
   // Serialize before escaping display controls so the original stdin value is preserved.
   const escaped = jsonText(chars).slice(1, -1);
+
   return `${title} ${theme.fg("muted", "←")} ${theme.fg("toolOutput", escaped)}`;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi and delegated traces supply opaque result details; this is the process display schema boundary.
 export const parseProcessDetails = (details: unknown): ProcessDisplayDetails | undefined =>
   Value.Check(ProcessDisplayDetailsSchema, details) ? details : undefined;
 
@@ -254,39 +306,50 @@ export const parseProcessDetails = (details: unknown): ProcessDisplayDetails | u
 export const displayedProcessOutput = (text: string, details: ProcessDisplayDetails): string => {
   const metadata = formatProcessMetadata(details);
   let output = text;
+
   if (output === metadata) {
     output = "";
   } else if (output.endsWith(`\n\n${metadata}`)) {
     output = output.slice(0, -metadata.length - 2);
   }
+
   if (details.requestedBudgetTruncation !== undefined) {
     output = output.replace(BUDGET_TRUNCATION_HEADER, "");
   }
+
   return displayText(output);
 };
 
 export const formatProcessStatus = (details: ProcessDisplayDetails, theme: Theme): string => {
   const duration = theme.fg("muted", ` · ${formatDuration(details.durationMs)}`);
+
   if (details.status === "running") {
     const session =
       details.sessionId === undefined ? "" : theme.fg("muted", ` · session ${details.sessionId}`);
+
     return `${theme.fg("accent", "● running")}${session}${duration}`;
   }
+
   if (details.status === "killed") {
     return `${theme.fg("error", "■ killed")}${duration}`;
   }
+
   if (details.exitCode === 0) {
     return `${theme.fg("success", "✓ exit 0")}${duration}`;
   }
+
   return `${theme.fg("error", `✗ exit ${details.exitCode ?? "unknown"}`)}${duration}`;
 };
 
 const formatProcessWarnings = (details: ProcessDisplayDetails): string[] => {
   const warnings: string[] = [];
+
   if (details.fullOutputPath !== undefined) {
     warnings.push(`Full output: ${inlineText(details.fullOutputPath)}`);
   }
+
   const { truncation } = details;
+
   // Output is rebuilt from the full file whenever both fields are present, so the capture
   // buffer's line truncation does not describe the displayed text of older persisted results.
   if (truncation?.truncated === true && details.fullOutputPath === undefined) {
@@ -296,16 +359,19 @@ const formatProcessWarnings = (details: ProcessDisplayDetails): string[] => {
         : `Truncated: ${truncation.outputLines} lines shown${truncation.maxBytes === undefined ? "" : ` (${formatSize(truncation.maxBytes)} limit)`}`,
     );
   }
+
   if (details.requestedBudgetTruncation !== undefined) {
     warnings.push(
       `Model view capped: ~${details.requestedBudgetTruncation.originalTokenCount.toLocaleString("en-US")} tokens total`,
     );
   }
+
   return warnings;
 };
 
 const errorComponent = (result: ResultLike, theme: Theme): Component => {
   const text = displayText(textOf(result));
+
   return preview(() => new Text(text.length > 0 ? `\n${theme.fg("error", text)}` : "", 0, 0), true);
 };
 
@@ -321,15 +387,21 @@ export const renderProcessResult = (
     if (context.isError) {
       return errorComponent(result, theme);
     }
+
     const container = new Container();
+
     if (details === undefined) {
       const text = displayText(textOf(result));
+
       if (text.length > 0) {
         container.addChild(new Text(`\n${theme.fg("toolOutput", text)}`, 0, 0));
       }
+
       return container;
     }
+
     const output = displayedProcessOutput(textOf(result), details);
+
     if (output.length > 0) {
       // Keep spacing outside the bounded output, and rebuild colors on theme invalidation.
       container.addChild(new Spacer(1));
@@ -344,11 +416,15 @@ export const renderProcessResult = (
     } else if (details.status !== "running") {
       container.addChild(new Text(`\n${theme.fg("muted", "(no output)")}`, 0, 0));
     }
+
     const warnings = formatProcessWarnings(details);
+
     if (warnings.length > 0) {
       container.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
     }
+
     container.addChild(new Text(`\n${formatProcessStatus(details, theme)}`, 0, 0));
+
     return container;
   });
 
@@ -360,12 +436,13 @@ interface ProcessCallState {
 
 /** A pending row that has not been drawn for this long has left the transcript. */
 const PENDING_TICK_MS = 1000;
+
 const DETACHED_AFTER_MS = PENDING_TICK_MS * 3;
 
 const clearPendingTimer = (state: ProcessCallState): void => {
   if (state.interval !== undefined) {
     clearInterval(state.interval);
-    state.interval = undefined;
+    delete state.interval;
   }
 };
 
@@ -378,26 +455,33 @@ const armPendingTimer = (context: RenderContext, state: ProcessCallState): void 
   state.interval ??= setInterval(() => {
     if (Date.now() - (state.drawnAt ?? state.startedAt ?? 0) > DETACHED_AFTER_MS) {
       clearPendingTimer(state);
+
       return;
     }
+
     context.invalidate();
   }, PENDING_TICK_MS);
 };
 
 const trackPendingProcess = (context: RenderContext): string => {
-  // SAFETY: Row-local state is owned by this renderer pair; no other slot writes to it.
-  const state = context.state as ProcessCallState;
+  // Row-local state is owned by this renderer pair; no other slot writes to it.
+  const state = context.state;
+
   if (context.isPartial && context.executionStarted) {
     state.startedAt ??= Date.now();
     armPendingTimer(context, state);
+
     return formatDuration(Date.now() - state.startedAt);
   }
+
   clearPendingTimer(state);
+
   return "";
 };
 
 const pendingLine = (context: RenderContext, theme: Theme): string => {
   const elapsed = trackPendingProcess(context);
+
   return elapsed.length > 0
     ? `\n${theme.fg("accent", "● running")}${theme.fg("muted", ` · ${elapsed}`)}`
     : "";
@@ -413,35 +497,37 @@ const processCallComponent = (
   const container = new Container();
   container.addChild(preview(() => new Text(formatted(), 0, 0), context.expanded, previewLines));
   const pending = pendingLine(context, theme);
+
   if (pending.length > 0) {
     container.addChild(new Text(pending, 0, 0));
   }
-  // SAFETY: Row-local state is owned by this renderer pair; no other slot writes to it.
-  const state = context.state as ProcessCallState;
+
+  // Row-local state is owned by this renderer pair; no other slot writes to it.
+  const state = context.state;
+
   return {
     invalidate() {
       container.invalidate();
     },
     render(width) {
       state.drawnAt = Date.now();
+
       // Pi stops drawing while an external editor runs; a live row drawn again re-arms the timer.
       if (context.isPartial && context.executionStarted) armPendingTimer(context, state);
+
       return container.render(width);
     },
   };
 };
 
-const processResultRenderer: NonNullable<ToolDefinition["renderResult"]> = (
-  result,
-  options,
-  theme,
-  context,
-) => renderProcessResult(result, options, theme, context, parseProcessDetails(result.details));
+const processResultRenderer: Renderers["renderResult"] = (result, options, theme, context) =>
+  renderProcessResult(result, options, theme, context, parseProcessDetails(result.details));
 
 export const execCommandRenderers: Renderers = {
   renderCall(args, theme, context) {
     return processCallComponent(
-      () => formatExecCommandCall(args, theme),
+      () =>
+        formatExecCommandCall(Value.Check(ExecCommandArgsSchema, args) ? args : undefined, theme),
       COMMAND_PREVIEW_LINES,
       theme,
       context,
@@ -453,7 +539,7 @@ export const execCommandRenderers: Renderers = {
 export const writeStdinRenderers: Renderers = {
   renderCall(args, theme, context) {
     return processCallComponent(
-      () => formatWriteStdinCall(args, theme),
+      () => formatWriteStdinCall(Value.Check(WriteStdinArgsSchema, args) ? args : undefined, theme),
       STDIN_PREVIEW_LINES,
       theme,
       context,
@@ -466,6 +552,7 @@ const formatLineCounts = (added: number, removed: number, theme: Theme): string 
   `${theme.fg("muted", "(")}${theme.fg("toolDiffAdded", `+${added}`)} ${theme.fg("toolDiffRemoved", `-${removed}`)}${theme.fg("muted", ")")}`;
 
 const patchVerb = { add: "Add", delete: "Delete", update: "Update" } as const;
+
 const patchMarker = { add: "A", delete: "D", update: "M" } as const;
 
 const formatPatchPath = (change: Pick<PatchChange, "from" | "path">, theme: Theme): string =>
@@ -499,43 +586,60 @@ const summarizePatchArgs = (patch: string): PatchSummary => {
   const changes = summarizePatchText(patch);
   const partial = patch.endsWith(TRACE_VALUE_TRUNCATED_MARKER);
   const last = changes.at(-1);
+
   if (partial && last !== undefined) {
     delete last.lines;
   }
+
   return { changes, partial };
 };
 
-const formatApplyPatchCall = (args: unknown, theme: Theme, state: PatchCallState): string => {
+const formatApplyPatchCall = (
+  args: Static<typeof ApplyPatchArgsSchema> | undefined,
+  theme: Theme,
+  state: PatchCallState,
+): string => {
   const title = theme.fg("toolTitle", theme.bold("apply_patch"));
-  if (!Value.Check(ApplyPatchArgsSchema, args)) {
+
+  if (args === undefined) {
     return invalidArgs(title, theme);
   }
+
   const { changes, partial } =
     state.completed === undefined
       ? summarizePatchArgs(args.patch ?? "")
       : { changes: state.completed, partial: false };
+
   const [single] = changes;
+
   if (single === undefined) {
     return `${title} ${theme.fg("toolOutput", "...")}`;
   }
+
   const open = partial ? theme.fg("muted", " …") : "";
+
   if (changes.length === 1) {
     const verb = theme.fg("muted", patchVerb[single.kind]);
+
     return `${title} ${verb} ${formatPatchPath(single, theme)}${formatPatchCounts(single, theme)}${open}`;
   }
+
   // Totals need every count: a pending deletion's is unknown until the result arrives, and an
   // unreadable deletion's stays unknown.
-  const known = changes.flatMap((change) => (change.lines === undefined ? [] : [change.lines]));
+  const known = changes.map((change) => change.lines).filter((lines) => lines !== undefined);
+
   const total = known.reduce<NonNullable<PatchChange["lines"]>>(
     (sum, lines) => ({ added: sum.added + lines.added, removed: sum.removed + lines.removed }),
     { added: 0, removed: 0 },
   );
+
   const totals =
     state.completed !== undefined &&
     known.length === changes.length &&
     (total.added > 0 || total.removed > 0)
       ? ` ${formatLineCounts(total.added, total.removed, theme)}`
       : "";
+
   return [
     `${title} ${theme.fg("muted", `${changes.length}${partial ? "+" : ""} files`)}${totals}`,
     ...changes.map(
@@ -555,6 +659,7 @@ const formatApplyPatchResult = (details: PatchDetails, theme: Theme): string => 
   const lines: string[] = [];
   details.entries.forEach(({ change, diff }) => {
     const path = formatPatchPath(change, theme);
+
     if (diff !== undefined) {
       if (!single) lines.push(path);
       lines.push(...renderDiff(displayText(diff)).split("\n"));
@@ -572,39 +677,56 @@ const formatApplyPatchResult = (details: PatchDetails, theme: Theme): string => 
       lines.push(path);
     }
   });
+
   if (!details.complete) {
     lines.push(theme.fg("muted", "… further changes not recorded"));
   }
+
   return lines.join("\n");
 };
 
-export const applyPatchRenderers: Renderers = {
+export const applyPatchRenderers: Renderers<PatchCallState> = {
   renderCall(args, theme, context) {
     // Pi invokes renderCall before renderResult; defer formatting until the component is
     // rendered so the completed result can supply the header on the first draw.
-    // SAFETY: This renderer pair owns the row-local patch state.
-    const state = context.state as PatchCallState;
+    // This renderer pair owns the row-local patch state.
+    const state = context.state;
+
     return preview(
-      () => new Text(formatApplyPatchCall(args, theme, state), 0, 0),
+      () =>
+        new Text(
+          formatApplyPatchCall(
+            Value.Check(ApplyPatchArgsSchema, args) ? args : undefined,
+            theme,
+            state,
+          ),
+          0,
+          0,
+        ),
       context.expanded,
       PATCH_FILE_PREVIEW_ROWS + 1,
     );
   },
   renderResult(result, options, theme, context) {
-    // SAFETY: This renderer pair owns the row-local patch state.
-    const state = context.state as PatchCallState;
-    state.completed = undefined;
+    // This renderer pair owns the row-local patch state.
+    const state = context.state;
+    delete state.completed;
+
     if (context.isError) {
       return errorComponent(result, theme);
     }
+
     const details = parsePatchDetails(result.details);
     const container = new Container();
+
     if (details === undefined) {
       return container;
     }
+
     if (!options.isPartial && details.complete) {
       state.completed = details.entries.map(({ change }) => change);
     }
+
     container.addChild(
       preview(
         () => new Text(formatApplyPatchResult(details, theme), 0, 0),
@@ -612,6 +734,7 @@ export const applyPatchRenderers: Renderers = {
         DIFF_PREVIEW_LINES,
       ),
     );
+
     return container;
   },
 };
@@ -620,10 +743,13 @@ export const viewImageRenderers: Renderers = {
   renderCall(args, theme, context) {
     const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
     const title = theme.fg("toolTitle", theme.bold("view_image"));
+
     if (!Value.Check(ViewImageArgsSchema, args)) {
       text.setText(invalidArgs(title, theme));
+
       return text;
     }
+
     text.setText(
       `${title} ${
         args.path === undefined
@@ -631,16 +757,20 @@ export const viewImageRenderers: Renderers = {
           : theme.fg("accent", inlineText(shortenPath(args.path)))
       }`,
     );
+
     return text;
   },
   renderResult(result, options, theme, context) {
     if (context.isError) {
       return errorComponent(result, theme);
     }
+
     const note = displayText(textOf(result));
+
     if (note.length === 0 || !options.expanded) {
       return new Container();
     }
+
     return new Text(`\n${theme.fg("muted", note)}`, 0, 0);
   },
 };

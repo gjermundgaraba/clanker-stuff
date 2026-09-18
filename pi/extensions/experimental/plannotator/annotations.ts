@@ -22,6 +22,7 @@ export const normalizeAnnotationArguments = (
   if (tokens.includes("--hook")) {
     throw new Error("--hook is not supported by this Pi extension");
   }
+
   return tokens.filter((token) => !controlledFlags.has(token));
 };
 
@@ -41,11 +42,13 @@ export const findAnnotationTarget = (tokens: string[]): string | undefined => {
     },
     strict: true,
   });
+
   return positionals[0];
 };
 
 export const parseAnnotationOutcome = (stdout: string): AnnotationOutcome => {
   let value: unknown;
+
   try {
     value = JSON.parse(stdout.trim());
   } catch {

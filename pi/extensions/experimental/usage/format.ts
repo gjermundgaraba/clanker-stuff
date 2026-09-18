@@ -16,10 +16,13 @@ export const sanitizeUsageText = (value: string): string => value.replaceAll(/\p
 
 export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()): string => {
   const resetMs = Date.parse(resetsAt);
+
   if (Number.isNaN(resetMs)) {
     return "unknown";
   }
+
   const remainingMs = resetMs - nowMs;
+
   if (remainingMs <= 0) {
     return "now";
   }
@@ -32,30 +35,41 @@ export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()
   if (days > 0) {
     return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
   }
+
   if (hours > 0) {
     return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
   }
+
   return `${Math.max(1, minutes)}m`;
 };
 
 const formatAge = (fetchedAt: number, nowMs: number = Date.now()): string => {
   const ageMs = Math.max(0, nowMs - fetchedAt);
+
   if (ageMs < 1000) {
     return "just now";
   }
+
   const seconds = Math.floor(ageMs / 1000);
+
   if (seconds < 60) {
     return `${seconds}s ago`;
   }
+
   const minutes = Math.floor(seconds / 60);
+
   if (minutes < 60) {
     return `${minutes}m ago`;
   }
+
   const hours = Math.floor(minutes / 60);
+
   if (hours < 48) {
     return `${hours}h ago`;
   }
+
   const days = Math.floor(hours / 24);
+
   return `${days}d ago`;
 };
 
@@ -63,27 +77,33 @@ const formatCreditsAmount = (value: number): string => {
   if (Number.isInteger(value)) {
     return String(value);
   }
+
   const rounded = Math.round(value * 100) / 100;
+
   return String(rounded);
 };
 
 export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()): string => {
   const lines: string[] = [];
   const title = providerDisplayName(snapshot.provider);
+
   const plan =
     snapshot.planLabel === undefined || snapshot.planLabel.length === 0
       ? ""
       : ` (${sanitizeUsageText(snapshot.planLabel)})`;
+
   lines.push(`${title}${plan}`);
 
   if (snapshot.ordinaryUsageAllowed !== undefined) {
     lines.push(`ordinary usage  ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`);
   }
+
   for (const window of orderWindows(snapshot.windows)) {
     const reset =
       window.resetsAt === undefined || window.resetsAt.length === 0
         ? "resets unknown"
         : `resets in ${formatResetDuration(window.resetsAt, nowMs)}`;
+
     lines.push(
       `${sanitizeUsageText(window.label)}  ${Math.round(window.remainingPercent)}% left  ${reset}`,
     );

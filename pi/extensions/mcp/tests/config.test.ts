@@ -66,13 +66,14 @@ describe(resolveMcpServer, () => {
 
   it("preserves absent OAuth keys and does not mutate the source", () => {
     const oauth = { callbackPort: 33418 };
+
     const config = {
       mcpServers: { remote: { type: "http", url: "https://example.com", oauth } },
     };
+
     expect(resolveMcpServer(config, "remote")).toStrictEqual({
       type: "http",
       url: "https://example.com",
-      headers: undefined,
       oauth: { callbackPort: 33418 },
     });
     expect(oauth).toStrictEqual({ callbackPort: 33418 });
@@ -80,6 +81,7 @@ describe(resolveMcpServer, () => {
 
   it.each(["url", "authServerMetadataUrl"])("checks the expanded %s URL scheme", (field) => {
     vi.stubEnv("MCP_TEST_BAD_URL", "file:///tmp/mcp");
+
     const config = {
       mcpServers: {
         remote: {
@@ -92,6 +94,7 @@ describe(resolveMcpServer, () => {
         },
       },
     };
+
     try {
       expect(() => resolveMcpServer(config, "remote")).toThrow("MCP URLs must use HTTP or HTTPS");
     } finally {
@@ -142,12 +145,15 @@ describe(loadMcpConfig, () => {
     await t.writeConfig({ mcpServers: {} });
     const held = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
+
     const blocker = withFileMutationQueue(t.configPath, async () => {
       held.resolve();
       await release.promise;
     });
+
     await held.promise;
     const controller = new AbortController();
+
     const mutation = setMcpServer(
       "canceled",
       { type: "stdio", command: "fixture" },
@@ -155,6 +161,7 @@ describe(loadMcpConfig, () => {
       {},
       controller.signal,
     );
+
     controller.abort();
     release.resolve();
     await blocker;

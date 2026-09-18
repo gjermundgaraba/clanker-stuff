@@ -14,6 +14,7 @@ import type {
 } from "../../code-mode/types.js";
 
 const extensionContext = createExtensionHost(() => {}).createContext();
+
 const response = (kind: RuntimeResponse["kind"] = "yielded"): RuntimeResponse => ({
   cellId: "cell",
   contentItems: [],
@@ -31,6 +32,7 @@ describe("Code Mode wait snapshots", () => {
     const sent = Promise.withResolvers<void>();
     const runtime = new CodeModeDelegateRuntime(() => sent.resolve());
     const contexts: ToolExecutionContext[] = [];
+
     const tool: NestedTool = {
       name: "probe",
       kind: "function",
@@ -44,22 +46,28 @@ describe("Code Mode wait snapshots", () => {
       },
       invoke: async (_input, ctx) => {
         contexts.push(ctx);
+
         return "ok";
       },
     };
+
     const tools = new Map([[nestedToolKey({ name: "probe" }), tool]]);
+
     const original = host.createContext({
       model: createToolsModel("gpt-5.6-sol", true),
       thinkingLevel: "low",
     });
+
     const later = host.createContext({
       model: createToolsModel("gpt-6-astra", true),
       thinkingLevel: "high",
       cwd: "/new-wait-context",
     });
+
     runtime.bindCell("a", original, tools);
     runtime.bindCell("b", later, tools);
     runtime.bindCell("a", later);
+
     for (const [index, cell] of ["a", "b"].entries()) {
       runtime.handleRequest({
         id: index + 1,
@@ -74,6 +82,7 @@ describe("Code Mode wait snapshots", () => {
         },
       });
     }
+
     await sent.promise;
     expect(
       contexts.map(({ extensionContext: ctx }) => [ctx.model?.id, ctx.thinkingLevel, ctx.cwd]),
@@ -96,11 +105,13 @@ describe("Code Mode wait snapshots", () => {
       runtime.observe(1, "cell", a);
       runtime.observe(2, "cell", b);
       runtime.observe(3, "other", other);
+
       const notify = () =>
         runtime.handleRequest({
           id: 10,
           request: { type: "notification/send", cellId: "cell", text: "progress" },
         });
+
       notify();
       expect(a).toHaveBeenCalledTimes(2);
       expect(b).toHaveBeenCalledTimes(2);
@@ -166,13 +177,18 @@ describe("Code Mode wait snapshots", () => {
     let now = 0;
     vi.spyOn(performance, "now").mockImplementation(() => now);
     const sent = Promise.withResolvers<void>();
-    const send = vi.fn(() => sent.resolve());
+
+    const send = vi.fn<ConstructorParameters<typeof CodeModeDelegateRuntime>[0]>(() =>
+      sent.resolve(),
+    );
+
     const runtime = new CodeModeDelegateRuntime(send);
     const original = vi.fn();
     const firstWait = vi.fn();
     const secondWait = vi.fn();
     const finished = Promise.withResolvers<RuntimeToolResult>();
     let invocation: ToolExecutionContext | undefined;
+
     const tool: NestedTool = {
       name: "test",
       kind: "function",
@@ -186,9 +202,11 @@ describe("Code Mode wait snapshots", () => {
       },
       invoke: async (_input, context) => {
         invocation = context;
+
         return await finished.promise;
       },
     };
+
     runtime.bindCell("cell", extensionContext, new Map([[nestedToolKey({ name: "test" }), tool]]));
     runtime.observe(1, "cell", original);
     original.mockClear();
@@ -218,19 +236,15 @@ describe("Code Mode wait snapshots", () => {
     expect(original).toHaveBeenCalledOnce();
     now = 15_000;
     runtime.observe(2, "cell", firstWait);
-    expect(firstWait).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        details: expect.objectContaining({
-          elapsedMs: 15_000,
-          traces: [
-            expect.objectContaining({
-              status: "running",
-              result: { content: [{ type: "text", text: "between waits" }] },
-            }),
-          ],
-        }),
-      }),
-    );
+    expect(firstWait).toHaveBeenCalledOnce();
+    expect(firstWait.mock.calls[0]?.[0]).toMatchObject({
+      details: {
+        elapsedMs: 15_000,
+        traces: [
+          { status: "running", result: { content: [{ type: "text", text: "between waits" }] } },
+        ],
+      },
+    });
     invocation?.onUpdate?.({
       content: [{ type: "text", text: "during wait" }],
       details: undefined,
@@ -245,20 +259,17 @@ describe("Code Mode wait snapshots", () => {
     expect(secondWait).toHaveBeenCalledOnce();
     finished.resolve({ content: [{ type: "text", text: "done" }] });
     await sent.promise;
-    expect(secondWait).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        details: expect.objectContaining({
-          elapsedMs: 25_000,
-          traces: [expect.objectContaining({ status: "done" })],
-        }),
-      }),
-    );
+    expect(secondWait.mock.calls.at(-1)?.[0]).toMatchObject({
+      details: { elapsedMs: 25_000, traces: [{ status: "done" }] },
+    });
     expect(firstWait).toHaveBeenCalledTimes(2);
     expect(initial.traces?.[0]).not.toHaveProperty("result");
     expect(first).toMatchObject({ elapsedMs: 20_000, traces: [{ status: "running" }] });
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 1, result: expect.objectContaining({ status: "ok" }) }),
+    expect(send.mock.calls.map(([message]) => message)).toContainEqual(
+      expect.objectContaining({ id: 1 }),
     );
+    const reply = send.mock.calls.find(([message]) => "id" in message && message.id === 1)?.[0];
+    expect(reply).toHaveProperty("result.status", "ok");
     runtime.attach(response("result"));
     runtime.unobserve(3);
     runtime.clear();
@@ -277,9 +288,10 @@ describe("Code Mode wait snapshots", () => {
       expect(runtime.attach(response())).toMatchObject({ elapsedMs: 5000 });
       now = 10_000;
       runtime.observe(1, "cell", onUpdate);
-      expect(onUpdate).toHaveBeenCalledWith({
+      expect(onUpdate).toHaveBeenCalled();
+      expect(onUpdate.mock.calls.at(-1)?.[0]).toMatchObject({
         content: [],
-        details: expect.objectContaining({ elapsedMs: 10_000, traces: [] }),
+        details: { elapsedMs: 10_000, traces: [] },
       });
       now = 12_000;
       runtime.closeCell("cell");
@@ -319,22 +331,62 @@ describe("Code Mode wait snapshots", () => {
     runtime.clear();
   });
 
+  it("clones normalized snapshots without revisiting hooks or sharing nested data", () => {
+    const store = new CodeModeTraceStore();
+    store.startCell("cell");
+    let projections = 0;
+    const details = { nested: { value: 1 } };
+    const input = { cmd: "x".repeat(9000), nested: { value: 1 } };
+    const trace = store.start("cell", "call", "test", input);
+
+    trace.result = store.captureResult("cell", trace, {
+      content: [],
+      details: {
+        toJSON() {
+          projections += 1;
+
+          return details;
+        },
+      },
+    });
+    input.nested.value = 2;
+    details.nested.value = 2;
+    const first = store.snapshot("cell");
+    const second = store.snapshot("cell");
+
+    expect(first).toMatchObject({
+      traces: [
+        {
+          input: { cmd: input.cmd, nested: { value: 1 } },
+          result: { details: { nested: { value: 1 } } },
+        },
+      ],
+    });
+    expect(second.traces).toEqual(first.traces);
+    expect(first.traces[0]?.input).not.toBe(second.traces[0]?.input);
+    expect(first.traces[0]?.result?.details).not.toBe(second.traces[0]?.result?.details);
+    expect(projections).toBe(1);
+  });
+
   it("attaches timing to script errors without changing output or trace limits", () => {
     const store = new CodeModeTraceStore();
     store.startCell("cell");
+
     for (let i = 0; i < 51; i++) store.start("cell", String(i), "test", {});
     const contentItems = [{ type: "input_text" as const, text: "output" }];
+
     const attached = store.attach({
       cellId: "cell",
       kind: "result",
       contentItems,
       errorText: "boom",
     });
+
     expect(attached).toMatchObject({
-      elapsedMs: expect.any(Number),
       errorText: "boom",
       droppedTraceCount: 1,
     });
+    expect(attached.elapsedMs).toEqual(expect.any(Number));
     expect(attached.contentItems).toBe(contentItems);
     expect(attached.traces).toHaveLength(50);
     expect(store.snapshot("cell")).toMatchObject({ traces: [], elapsedMs: undefined });

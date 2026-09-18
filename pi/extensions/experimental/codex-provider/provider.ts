@@ -63,39 +63,55 @@ import {
   shrinkTrailingOutputs,
 } from "./replay.js";
 import type { ResponsesInputItem } from "./replay.js";
-import { CodexSamplingBound } from "./sampling-bound.js";
+import { CodexSamplingBound, SamplingEventSchema } from "./sampling-bound.js";
 import type { SamplingScope } from "@clanker-stuff/mcp/sampling-protocol";
 import { parseSseEvents } from "./sse.js";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
+
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
+
 const PREMATURE_RESPONSE_STREAM_ERROR =
   "OpenAI Responses stream ended before a terminal response event";
+
 const REQUEST_COMPRESSION_LEVEL = 3;
+
 const WEBSOCKET_BETA = "responses_websockets=2026-02-06";
+
 const WEBSOCKET_IDLE_TTL_MS = 5 * 60_000;
+
 const WEBSOCKET_MAX_AGE_MS = 55 * 60_000;
+
 const UUID_NAMESPACE_OID = "6ba7b812-9dad-11d1-80b4-00c04fd430c8";
+
 export const ALLOWED_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
 
 type SupportedModel = Model<"openai-codex-responses">;
+
 const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
+
 type JsonRecord = Static<typeof JsonRecordSchema>;
+
 const isTerminalResponseEvent = (event: JsonRecord) =>
   event.type === "response.done" ||
   event.type === "response.completed" ||
   event.type === "response.incomplete";
+
 const TransformedRequestBodySchema = Type.Intersect([
   JsonRecordSchema,
   Type.Object({ input: Type.Array(JsonRecordSchema) }),
 ]);
+
 type TransformedRequestBody = Static<typeof TransformedRequestBodySchema>;
+
 const ResponseStreamEventEnvelopeSchema = Type.Intersect([
   JsonRecordSchema,
   Type.Object({ type: Type.String() }),
 ]);
+
 type PiResponseStreamEvent =
   Parameters<typeof processResponsesStream>[0] extends AsyncIterable<infer Event> ? Event : never;
+
 const ServiceTierSchema = Type.Union([
   Type.Literal("auto"),
   Type.Literal("default"),
@@ -104,25 +120,33 @@ const ServiceTierSchema = Type.Union([
   Type.Literal("priority"),
   Type.Null(),
 ]);
+
 const LiteImageSchema = Type.Object({ type: Type.Literal("input_image") });
+
 const RemoteLiteImageSchema = Type.Object({
   image_url: Type.String({ pattern: /^https?:\/\//iu }),
   type: Type.Literal("input_image"),
 });
+
 const EndTurnResponseSchema = Type.Object({ end_turn: Type.Boolean() });
+
 const WebSocketMessageSchema = Type.Object({ data: Type.Unknown() });
+
 const ReasoningTextSchema = Type.Object({
   text: Type.String(),
   type: Type.Literal("reasoning_text"),
 });
+
 const SummaryTextSchema = Type.Object({
   text: Type.String(),
   type: Type.Literal("summary_text"),
 });
+
 const OutputTextSchema = Type.Object({
   text: Type.String(),
   type: Type.Literal("output_text"),
 });
+
 const ContinuationOutputItemSchema = Type.Union([
   Type.Object({
     content: Type.Optional(Type.Array(ReasoningTextSchema)),
@@ -207,7 +231,9 @@ const WebSocketEventTypeSchema = Type.Union([
   Type.Literal("message"),
   Type.Literal("open"),
 ]);
+
 const WebSocketListenerSchema = Type.Function([Type.Unknown()], Type.Void());
+
 const WebSocketLikeSchema = Type.Object({
   addEventListener: Type.Function([WebSocketEventTypeSchema, WebSocketListenerSchema], Type.Void()),
   close: Type.Function([Type.Optional(Type.Number()), Type.Optional(Type.String())], Type.Void()),
@@ -218,26 +244,32 @@ const WebSocketLikeSchema = Type.Object({
   ),
   send: Type.Function([Type.String()], Type.Void()),
 });
+
 type WebSocketLike = Static<typeof WebSocketLikeSchema>;
+
 const WebSocketConstructorSchema = Type.Function([Type.String(), Type.Unknown()], Type.Unknown());
 
 interface SessionRuntime {
   accountId?: string;
-  continuation?: ContinuationState;
+  continuation: ContinuationState | undefined;
   fallbackToSse: boolean;
-  socket?: {
-    busy: boolean;
-    createdAt: number;
-    identity: string;
-    idleTimer?: ReturnType<typeof setTimeout>;
-    value: WebSocketLike;
-  };
-  turn?: {
-    id: string;
-    prewarmed: boolean;
-    startedAt: number;
-    state?: string;
-  };
+  socket:
+    | undefined
+    | {
+        busy: boolean;
+        createdAt: number;
+        identity: string;
+        idleTimer?: ReturnType<typeof setTimeout>;
+        value: WebSocketLike;
+      };
+  turn:
+    | undefined
+    | {
+        id: string;
+        prewarmed: boolean;
+        startedAt: number;
+        state?: string;
+      };
   transportFallbackPending: boolean;
   window: {
     currentId: string;
@@ -326,10 +358,13 @@ const dispatchInference = <T>(recovery: InferenceRecovery | undefined, dispatch:
   if (!hasInferenceDispatchCapacity(recovery)) {
     throw new Error("Codex inference replay budget exhausted");
   }
+
   const result = dispatch();
+
   if (recovery !== undefined) {
     recovery.dispatches += 1;
   }
+
   return result;
 };
 
@@ -341,6 +376,7 @@ const beginInferenceAttempt = (
   if (recovery === undefined) {
     return undefined;
   }
+
   const attempt: InferenceAttemptObservation = {
     continuationMode,
     failureClass: "none",
@@ -349,7 +385,9 @@ const beginInferenceAttempt = (
     responseCreated: "absent",
     transport,
   };
+
   recovery.attempts.push(attempt);
+
   return attempt;
 };
 
@@ -361,24 +399,31 @@ const classifyInferenceAttemptFailure = (
   if (isAborted(signal)) {
     return "abort";
   }
+
   if (dispatchFailed) {
     return "transport_dispatch";
   }
+
   if (error instanceof CodexProviderError) {
     if (error.status === 401) {
       return "authentication";
     }
+
     if (error.code === "previous_response_not_found") {
       return "protocol_missing_continuation";
     }
+
     if (error.code === "websocket_connection_limit_reached") {
       return "protocol_connection_limit";
     }
+
     if (error.status !== undefined) {
       return error.retryable ? "http_retryable" : "http_terminal";
     }
+
     return "protocol_terminal";
   }
+
   return "transport_stream";
 };
 
@@ -422,18 +467,31 @@ const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecord
 
 const requestThinkingLevel = (body: JsonRecord): ModelThinkingLevel => {
   const { reasoning } = body;
+
   if (reasoning === undefined) {
     return "off";
   }
+
   if (!isRecord(reasoning)) {
     throw new TypeError("Codex payload reasoning must be an object");
   }
+
   const { effort } = reasoning;
-  if (effort === undefined) return "off";
-  const level = typeof effort === "string" ? piReasoningLevel(effort) : undefined;
+
+  if (effort === undefined) {
+    return "off";
+  }
+
+  if (!isCodexWireReasoningEffort(effort)) {
+    throw new Error(`Unsupported Codex Responses reasoning effort: ${JSON.stringify(effort)}`);
+  }
+
+  const level = piReasoningLevel(effort);
+
   if (level === undefined) {
     throw new Error(`Unsupported Codex Responses reasoning effort: ${JSON.stringify(effort)}`);
   }
+
   return level;
 };
 
@@ -444,7 +502,9 @@ const toCodexReasoningEffort = (
   if (level !== undefined && level !== "off") {
     return level;
   }
+
   const offEffort = model.thinkingLevelMap?.off;
+
   return offEffort === null || (offEffort === undefined && !model.reasoning) ? undefined : "none";
 };
 
@@ -452,21 +512,27 @@ const isAborted = (signal: AbortSignal | undefined) => signal?.aborted ?? false;
 
 const cloneJson = <T>(value: T): T => structuredClone(value);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Responses Lite adapts open message/tool-output content, normalizing recognized image parts while preserving foreign content for the protocol processor.
 const prepareLiteContent = (content: unknown): unknown => {
   if (!Array.isArray(content)) {
     return content;
   }
+
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Open wire content can contain unrecognized parts; decode only images and preserve all other values.
   return content.map((item: unknown) => {
     if (!Value.Check(LiteImageSchema, item)) {
       return item;
     }
+
     if (Value.Check(RemoteLiteImageSchema, item)) {
       return {
         text: REMOTE_USER_IMAGE_PLACEHOLDER,
         type: "input_text",
       };
     }
+
     const { detail: _detail, ...image } = Value.Parse(JsonRecordSchema, item);
+
     return image;
   });
 };
@@ -481,12 +547,14 @@ const prepareLiteInputItem = (item: ResponsesInputItem): ResponsesInputItem => {
   ) {
     return { ...item, content: prepareLiteContent(item.content) };
   }
+
   if (
     (item.type === "function_call_output" || item.type === "custom_tool_call_output") &&
     Array.isArray(item.output)
   ) {
     return { ...item, output: prepareLiteContent(item.output) };
   }
+
   return item;
 };
 
@@ -507,15 +575,18 @@ const normalizeTimeout = (value: number | undefined, name: string): number | und
   if (value === undefined) {
     return undefined;
   }
+
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be a nonnegative finite number`);
   }
+
   return Math.floor(value);
 };
 
 const resolveWebSocketUrl = (baseUrl?: string) => {
   const url = new URL(resolveCodexResponsesUrl(baseUrl));
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+
   return url.toString();
 };
 
@@ -523,6 +594,7 @@ const headersRecord = (headers: Headers) => Object.fromEntries(headers.entries()
 
 const webSocketIdentity = (url: string, headers: Headers) => {
   const stableHeaders = new Headers(headers);
+
   for (const name of [
     "session-id",
     "x-client-request-id",
@@ -532,6 +604,7 @@ const webSocketIdentity = (url: string, headers: Headers) => {
   ]) {
     stableHeaders.delete(name);
   }
+
   return sha256Canonical([url, ...stableHeaders.entries()]);
 };
 
@@ -541,9 +614,11 @@ const buildBaseHeaders = (
   requestId: string,
 ) => {
   const apiKey = options?.apiKey;
+
   if (apiKey === undefined || apiKey.length === 0) {
     throw new Error("OpenAI Codex authentication is unavailable");
   }
+
   return createCodexHeaders(model, apiKey, requestId, options?.headers);
 };
 
@@ -563,10 +638,13 @@ const requestMetadata = (
   compaction?: Readonly<Record<string, string>>,
 ) => {
   const { turn } = session;
+
   if (!turn) {
     throw new Error("Codex turn is not initialized");
   }
+
   const windowId = `${sessionId}:${session.window.number}`;
+
   const canonical = JSON.stringify({
     compaction: compaction ? compaction : undefined,
     context_window_id: session.window.currentId,
@@ -578,6 +656,7 @@ const requestMetadata = (
     window_id: windowId,
     window_number: session.window.number,
   });
+
   return {
     session_id: sessionId,
     thread_id: sessionId,
@@ -612,46 +691,56 @@ const buildRequestBody = (
   if (!isSupportedCodexModelId(model.id)) {
     throw new Error(`Unsupported Codex provider model: ${model.id}`);
   }
+
   const grammarToolInputProperties = createGrammarToolInputProperties(
     context.tools,
     model.compat?.supportsOpenAIGrammarTools ?? false,
   );
+
   const supportsStrictMode = model.compat?.supportsStrictMode ?? true;
   const supportsOpenAIGrammarTools = model.compat?.supportsOpenAIGrammarTools ?? false;
+
   const deferredToolsMode =
     model.compat?.supportsAdditionalTools === true
       ? "additional-tools"
       : model.compat?.supportsToolSearch === true
         ? "tool-search"
         : undefined;
+
   const placement = splitDeferredTools(context, deferredToolsMode !== undefined);
+
   const toolOptions = {
     strict: null,
     supportsOpenAIGrammarTools,
     supportsStrictMode,
   } as const;
+
   let input: ResponsesInputItem[] = convertResponsesMessages(
     model,
     context,
     ALLOWED_TOOL_CALL_PROVIDERS,
     {
       deferredTools: placement.deferred,
-      deferredToolsMode,
+      ...(deferredToolsMode !== undefined ? { deferredToolsMode } : {}),
       grammarToolInputProperties,
       includeSystemPrompt: false,
       toolOptions,
     },
   ).map((item) => ({ ...item }));
+
   const tools =
     placement.immediate.length > 0
       ? convertResponsesTools(placement.immediate, toolOptions).map((tool) => ({
           ...tool,
         }))
       : undefined;
+
   const lite = metadata?.use_responses_lite === true;
+
   if (lite) {
     const prefixNamespace = uuidV5(Buffer.from(sessionId, "utf8"), UUID_NAMESPACE_OID);
     const additionalTools = tools ?? [];
+
     const prefix: ResponsesInputItem[] = [
       {
         id: `at_${uuidV5(Buffer.from(JSON.stringify(additionalTools), "utf8"), prefixNamespace)}`,
@@ -660,6 +749,7 @@ const buildRequestBody = (
         type: "additional_tools",
       },
     ];
+
     if (context.systemPrompt !== undefined && context.systemPrompt.length > 0) {
       prefix.push({
         content: [{ text: context.systemPrompt, type: "input_text" }],
@@ -668,8 +758,10 @@ const buildRequestBody = (
         type: "message",
       });
     }
+
     input = [...prefix, ...input];
   }
+
   const body: RequestBody = {
     client_metadata: requestMetadata(sessionId, session, kind),
     include: ["reasoning.encrypted_content"],
@@ -681,24 +773,25 @@ const buildRequestBody = (
         : "You are a helpful assistant.",
     model: model.id,
     parallel_tool_calls: !lite && metadata?.supports_parallel_tool_calls !== false,
-    prompt_cache_key: options?.cacheRetention === "none" ? undefined : promptCacheKey(sessionId),
+    ...(options?.cacheRetention !== "none" ? { prompt_cache_key: promptCacheKey(sessionId) } : {}),
     store: false,
     stream: true,
-    text:
-      metadata?.support_verbosity === false
-        ? undefined
-        : {
-            verbosity: options?.textVerbosity ?? metadata?.default_verbosity ?? "low",
-          },
+    ...(metadata?.support_verbosity !== false
+      ? { text: { verbosity: options?.textVerbosity ?? metadata?.default_verbosity ?? "low" } }
+      : {}),
     tool_choice: options?.toolChoice ?? "auto",
   };
+
   if (!lite && tools !== undefined) {
     body.tools = tools;
   }
+
   if (options?.temperature !== undefined) {
     body.temperature = options.temperature;
   }
+
   const serviceTier = options?.serviceTier;
+
   if (
     serviceTier !== null &&
     serviceTier !== undefined &&
@@ -708,20 +801,26 @@ const buildRequestBody = (
   ) {
     body.service_tier = serviceTier;
   }
+
   const remoteDefaultReasoningEffort = metadata?.default_reasoning_level;
+
   const reasoningEffort =
     options?.reasoningEffort ??
     (isCodexWireReasoningEffort(remoteDefaultReasoningEffort)
       ? remoteDefaultReasoningEffort
       : undefined);
+
   if (reasoningEffort !== undefined && reasoningEffort.length > 0) {
     const thinkingLevelMap: Readonly<Record<string, string | null | undefined>> =
       model.thinkingLevelMap ?? {};
+
     const mappedEffort =
       reasoningEffort === "none"
         ? (model.thinkingLevelMap?.off ?? "none")
         : (thinkingLevelMap[reasoningEffort] ?? reasoningEffort);
+
     const configuredSummary = options?.reasoningSummary ?? metadata?.default_reasoning_summary;
+
     const summary =
       metadata?.supports_reasoning_summary_parameter === false ||
       configuredSummary === "none" ||
@@ -729,33 +828,44 @@ const buildRequestBody = (
       configuredSummary === null
         ? undefined
         : (configuredSummary ?? "auto");
+
     const reasoning: NonNullable<RequestBody["reasoning"]> = { effort: mappedEffort };
+
     if (lite) {
       reasoning.context = "all_turns";
     }
+
     if (summary !== undefined) {
       reasoning.summary = summary;
     }
+
     body.reasoning = reasoning;
   }
+
   return { body, grammarToolInputProperties, responsesLite: lite };
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Continuation equality compares heterogeneous wire values after JSON serialization, omitting transport metadata at any depth.
 const equalContinuationValue = (value: unknown) => {
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- The JSON replacer receives arbitrary nested values and must return non-metadata fields unchanged.
   const serialized = JSON.stringify(value, (key: string, nested: unknown): unknown =>
     key === "internal_chat_message_metadata_passthrough" ? undefined : nested,
   );
+
   return serialized === undefined ? undefined : canonicalJson(JSON.parse(serialized));
 };
 
 const parseLosslessJsonRecord = (value: string): JsonRecord | undefined => {
   let lossyNumber = false;
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(
       value,
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- The JSON reviver inspects original numeric tokens and preserves every other decoded value; a domain projection would lose wire fidelity.
       (_key: string, nested: unknown, context?: { source?: string }): unknown => {
         const number = Number(context?.source);
+
         if (
           Object.is(nested, number) &&
           (!Number.isFinite(number) ||
@@ -764,27 +874,34 @@ const parseLosslessJsonRecord = (value: string): JsonRecord | undefined => {
         ) {
           lossyNumber = true;
         }
+
         return nested;
       },
     );
   } catch {
     return undefined;
   }
+
   return !lossyNumber && isRecord(parsed) ? parsed : undefined;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Terminal Responses output is untrusted; decode the supported item families before allowing continuation replay.
 const normalizedContinuationOutputItem = (value: unknown): ResponsesInputItem | undefined => {
   if (!Value.Check(ContinuationOutputItemSchema, value)) {
     return undefined;
   }
+
   if (value.type === "reasoning") {
     return cloneJson(value);
   }
+
   if (value.type === "message") {
     const [content] = value.content;
+
     if (content === undefined) {
       return undefined;
     }
+
     return {
       content: [{ annotations: [], text: content.text, type: "output_text" }],
       id: value.id,
@@ -794,11 +911,14 @@ const normalizedContinuationOutputItem = (value: unknown): ResponsesInputItem | 
       type: "message",
     };
   }
+
   if (value.type === "function_call") {
     const argumentsValue = parseLosslessJsonRecord(value.arguments);
+
     if (argumentsValue === undefined) {
       return undefined;
     }
+
     return {
       arguments: JSON.stringify(argumentsValue),
       call_id: value.call_id,
@@ -808,6 +928,7 @@ const normalizedContinuationOutputItem = (value: unknown): ResponsesInputItem | 
       type: "function_call",
     };
   }
+
   return {
     call_id: value.call_id,
     id: value.id,
@@ -825,38 +946,50 @@ const continuationOutputMatches = (
 ) => {
   const matchesProjection = (items: readonly unknown[]) => {
     const normalized: ResponsesInputItem[] = [];
+
     for (const item of items) {
       const projected = normalizedContinuationOutputItem(item);
+
       if (projected === undefined) {
         return false;
       }
+
       normalized.push(projected);
     }
+
     return equalContinuationValue(normalized) === equalContinuationValue(responseItems);
   };
+
   if (terminalOutput === undefined) {
     return matchesProjection(outputItems);
   }
+
   const enrichedOutputItems = outputItems.map((item, index) => {
     const terminalItem = terminalOutput[index];
+
     if (
       item.type === "reasoning" &&
       isRecord(terminalItem) &&
       terminalItem.type === "reasoning" &&
       item.id === terminalItem.id &&
+      /* oxlint-disable anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior. */
       (typeof item.encrypted_content !== "string" || item.encrypted_content.length === 0) &&
       typeof terminalItem.encrypted_content === "string" &&
+      /* oxlint-enable anti-slop/no-runtime-typeof */
       terminalItem.encrypted_content.length > 0
     ) {
       return { ...item, encrypted_content: terminalItem.encrypted_content };
     }
+
     return item;
   });
+
   return matchesProjection(enrichedOutputItems) && matchesProjection(terminalOutput);
 };
 
 const stableRequestValue = (value: OutboundRequestBody) => {
   const ignored = new Set(["client_metadata", "input", "previous_response_id", "stream_options"]);
+
   return Object.fromEntries(Object.entries(value).filter(([key]) => !ignored.has(key)));
 };
 
@@ -870,24 +1003,32 @@ const continuationDelta = (
   ) {
     return undefined;
   }
+
   const baseline = [...continuation.request.input, ...continuation.responseItems];
+
   if (body.input.length < baseline.length) {
     return undefined;
   }
+
   const prefix = body.input.slice(0, baseline.length);
+
   return equalContinuationValue(prefix) === equalContinuationValue(baseline)
     ? body.input.slice(baseline.length)
     : undefined;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Diagnostic hashes must reflect JSON wire serialization of arbitrary request fields; canonical hashing validates the resulting value.
 const jsonWireValue = (value: unknown): unknown => {
   const serialized = JSON.stringify(value);
+
   return serialized === undefined ? undefined : JSON.parse(serialized);
 };
 
 const requestObservation = (body: OutboundRequestBody) => {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
   const cacheKey = typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : undefined;
   const cacheEnabled = cacheKey !== undefined && cacheKey.length > 0;
+
   try {
     return {
       cacheEnabled,
@@ -906,10 +1047,10 @@ const requestServiceTier = (body: JsonRecord) =>
   Value.Check(ServiceTierSchema, body.service_tier) ? body.service_tier : undefined;
 
 class CodexProviderError extends Error {
-  readonly body?: string;
-  readonly code?: string;
+  readonly body: string | undefined;
+  readonly code: string | undefined;
   readonly retryable: boolean;
-  readonly status?: number;
+  readonly status: number | undefined;
   readonly useCurrentModelFallback: boolean;
 
   constructor(
@@ -941,6 +1082,7 @@ const RETRYABLE_WEBSOCKET_ERROR_CODES = new Set([
   "previous_response_not_found",
   "websocket_connection_limit_reached",
 ]);
+
 const TERMINAL_QUOTA_ERROR_CODES = new Set([
   "credit_balance_exhausted",
   "insufficient_quota",
@@ -950,6 +1092,7 @@ const TERMINAL_QUOTA_ERROR_CODES = new Set([
   "usage_not_included",
 ]);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
 const requestErrorObservation = (cause: unknown) => ({
   code: cause instanceof CodexProviderError ? cause.code : undefined,
   name: cause instanceof Error ? cause.name : "ThrownValue",
@@ -957,6 +1100,7 @@ const requestErrorObservation = (cause: unknown) => ({
   status: cause instanceof CodexProviderError ? cause.status : undefined,
 });
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
 export const isCodexCompactionCurrentModelFallbackError = (cause: unknown) =>
   cause instanceof CodexProviderError && cause.useCurrentModelFallback;
 
@@ -964,15 +1108,19 @@ const responseFailureClassification = (code: string | undefined) => {
   if (code === "context_length_exceeded") {
     return { retryable: false, useCurrentModelFallback: true };
   }
+
   if (TERMINAL_QUOTA_ERROR_CODES.has(code ?? "") || code === "cyber_policy") {
     return { retryable: false, useCurrentModelFallback: false };
   }
+
   if (code === "invalid_prompt" || code === "bio_policy") {
     return { retryable: false, useCurrentModelFallback: true };
   }
+
   if (code === "server_is_overloaded" || code === "slow_down") {
     return { retryable: false, useCurrentModelFallback: true };
   }
+
   return { retryable: true, useCurrentModelFallback: false };
 };
 
@@ -984,26 +1132,34 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
   ) {
     output.endTurn = event.response.end_turn;
   }
+
   if (event.type === "error") {
     const nested = isRecord(event.error) ? event.error : undefined;
+
+    /* oxlint-disable anti-slop/no-runtime-typeof -- Error-envelope decoder accepts top-level and nested fields independently; retain recoverable server diagnostics when a sibling field is malformed. */
     const status =
       typeof event.status === "number" && Number.isFinite(event.status)
         ? event.status
         : typeof nested?.status === "number" && Number.isFinite(nested?.status)
           ? nested.status
           : undefined;
+
     if (status !== undefined) {
       throw responseError(status, JSON.stringify({ error: nested ?? event }));
     }
+
     const code = [event.code, nested?.code, nested?.type].find(
       (value) => typeof value === "string",
     );
+
     const message =
       typeof event.message === "string"
         ? event.message
         : typeof nested?.message === "string"
           ? nested.message
           : code;
+    /* oxlint-enable anti-slop/no-runtime-typeof */
+
     const resolvedMessage = message ?? "Codex request failed";
     throw new CodexProviderError(
       resolvedMessage,
@@ -1011,11 +1167,14 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
       RETRYABLE_WEBSOCKET_ERROR_CODES.has(code ?? ""),
     );
   }
+
   if (event.type === "response.failed") {
     const response = isRecord(event.response) ? event.response : undefined;
     const error = isRecord(response?.error) ? response.error : undefined;
+    /* oxlint-disable anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior. */
     const message = typeof error?.message === "string" ? error.message : "Codex response failed";
     const code = typeof error?.code === "string" ? error.code : undefined;
+    /* oxlint-enable anti-slop/no-runtime-typeof */
     const classification = responseFailureClassification(code);
     throw new CodexProviderError(
       message,
@@ -1026,12 +1185,15 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
       classification.useCurrentModelFallback,
     );
   }
+
   if (event.type === "response.done" || event.type === "response.incomplete") {
     const response = isRecord(event.response)
       ? { ...event.response, status: event.response.status ?? "completed" }
       : event.response;
+
     return { ...event, response, type: "response.completed" };
   }
+
   return event;
 };
 
@@ -1040,10 +1202,12 @@ const toPiResponseStreamEvent = (
   output: AssistantMessage,
 ): PiResponseStreamEvent => {
   const mapped = mapCodexEvent(event, output);
+
   if (!Value.Check(ResponseStreamEventEnvelopeSchema, mapped)) {
     throw new Error("Codex stream event must have a string type");
   }
-  // SAFETY: The transport validated a JSON record and discriminator; pinned pi-ai owns the remaining Responses protocol shape, and processor failures are contained by this stream.
+
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: The pinned pi-ai processor owns the Responses event variants; this transport validates the envelope and maps Codex terminal events. Malformed variant failures are contained by the stream.
   return Object.assign({} as PiResponseStreamEvent, mapped);
 };
 
@@ -1053,20 +1217,28 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
       capture.continuationBlocked = true;
     } else {
       capture.outputItems.push(cloneJson(event.item));
+
       if (!Value.Check(ContinuationOutputItemSchema, event.item)) {
         capture.continuationBlocked = true;
       }
     }
   }
+
   if (isTerminalResponseEvent(event)) {
     const response = isRecord(event.response) ? event.response : undefined;
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
     if (typeof response?.id === "string") {
       capture.responseId = response.id;
     }
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
     if (typeof response?.service_tier === "string") {
       capture.serviceTier = response.service_tier;
     }
+
     capture.completed = event.type !== "response.incomplete" && response?.status !== "incomplete";
+
     if (response?.output !== undefined) {
       if (
         !Array.isArray(response.output) ||
@@ -1079,27 +1251,35 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
       }
     }
   }
+
   {
     const response = isRecord(event.response) ? event.response : undefined;
     const rawUsage = isRecord(response?.usage) ? response.usage : undefined;
+
     if (rawUsage) {
       capture.usageComplete = isTerminalResponseEvent(event);
+
       const details = isRecord(rawUsage.input_tokens_details)
         ? rawUsage.input_tokens_details
         : undefined;
+
+      /* oxlint-disable anti-slop/no-runtime-typeof -- Usage decoder preserves valid counters when optional siblings are malformed; a whole-object rejection would discard billable usage. */
       const cached =
         typeof details?.cached_tokens === "number" && Number.isFinite(details?.cached_tokens)
           ? details.cached_tokens
           : 0;
+
       const cacheWrite =
         typeof details?.cache_write_tokens === "number" &&
         Number.isFinite(details?.cache_write_tokens)
           ? details.cache_write_tokens
           : 0;
+
       const input =
         typeof rawUsage.input_tokens === "number" && Number.isFinite(rawUsage.input_tokens)
           ? rawUsage.input_tokens
           : 0;
+
       capture.usage = {
         ...initialUsage(),
         cacheRead: cached,
@@ -1114,12 +1294,14 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
             ? rawUsage.total_tokens
             : 0,
       };
+
       if (
         isRecord(rawUsage.output_tokens_details) &&
         typeof rawUsage.output_tokens_details.reasoning_tokens === "number"
       ) {
         capture.usage.reasoning = rawUsage.output_tokens_details.reasoning_tokens;
       }
+      /* oxlint-enable anti-slop/no-runtime-typeof */
     }
   }
 };
@@ -1128,34 +1310,44 @@ const terminalTurnState = (event: JsonRecord): string | undefined => {
   if (event.type !== "response.metadata" || !Value.Check(JsonRecordSchema, event.headers)) {
     return undefined;
   }
+
   for (const [name, value] of Object.entries(event.headers)) {
     if (
       name.toLowerCase() === "x-codex-turn-state" &&
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
       typeof value === "string" &&
       value.length > 0
     ) {
       return value;
     }
   }
+
   return undefined;
 };
 
 const retryDelay = (response: Response, attempt: number) => {
   const milliseconds = response.headers.get("retry-after-ms");
+
   if (milliseconds !== null && Number.isFinite(Number(milliseconds))) {
     return Math.max(0, Number(milliseconds));
   }
+
   const retryAfter = response.headers.get("retry-after");
+
   if (retryAfter !== null) {
     const seconds = Number(retryAfter);
+
     if (Number.isFinite(seconds)) {
       return Math.max(0, seconds * 1000);
     }
+
     const date = Date.parse(retryAfter);
+
     if (!Number.isNaN(date)) {
       return Math.max(0, date - Date.now());
     }
   }
+
   return 1000 * 2 ** attempt;
 };
 
@@ -1164,29 +1356,35 @@ const responseErrorClassification = (status: number, code: string | undefined, b
     const excludedFromModelFallback =
       code === "cyber_policy" ||
       body.includes("The image data you provided does not represent a valid image");
+
     return {
       retryable: false,
       useCurrentModelFallback: !excludedFromModelFallback,
     };
   }
+
   if (status === 429) {
     if (TERMINAL_QUOTA_ERROR_CODES.has(code ?? "")) {
       return { retryable: false, useCurrentModelFallback: false };
     }
+
     return {
       retryable: code !== "usage_limit_reached",
       useCurrentModelFallback: true,
     };
   }
+
   if (status === 503 && (code === "server_is_overloaded" || code === "slow_down")) {
     return { retryable: false, useCurrentModelFallback: true };
   }
+
   if (status >= 400 && status < 500) {
     return {
       retryable: status === 408 || status === 409 || status === 425,
       useCurrentModelFallback: false,
     };
   }
+
   return {
     retryable: status >= 500,
     useCurrentModelFallback: status >= 500,
@@ -1197,14 +1395,18 @@ const responseError = (status: number, text: string) => {
   try {
     const parsed: unknown = JSON.parse(text);
     const error = isRecord(parsed) && isRecord(parsed.error) ? parsed.error : undefined;
+
     if (error !== undefined) {
+      /* oxlint-disable anti-slop/no-runtime-typeof -- HTTP error decoder preserves a useful message/code independently; plain text and malformed sibling fields still follow the status-based fallback. */
       const code =
         typeof error.code === "string"
           ? error.code
           : typeof error.type === "string"
             ? error.type
             : undefined;
+
       const classification = responseErrorClassification(status, code, text);
+
       return new CodexProviderError(
         typeof error.message === "string" ? error.message : `Codex request failed (${status})`,
         code,
@@ -1213,11 +1415,14 @@ const responseError = (status: number, text: string) => {
         text,
         classification.useCurrentModelFallback,
       );
+      /* oxlint-enable anti-slop/no-runtime-typeof */
     }
   } catch {
     // Plain-text error bodies are valid.
   }
+
   const classification = responseErrorClassification(status, undefined, text);
+
   return new CodexProviderError(
     text.length > 0 ? text : `Codex request failed (${status})`,
     undefined,
@@ -1235,21 +1440,26 @@ const compressBody = (body: string): Uint8Array | undefined => {
         [zlibConstants.ZSTD_c_compressionLevel]: REQUEST_COMPRESSION_LEVEL,
       },
     });
+
     return new Uint8Array(compressed.buffer, compressed.byteOffset, compressed.byteLength);
   } catch {
     // Compression is optional.
   }
+
   return undefined;
 };
 
 const closeSocket = (session: SessionRuntime, expected = session.socket?.value) => {
   const cached = session.socket;
+
   if (!cached || cached.value !== expected) {
     return;
   }
+
   session.socket = undefined;
   session.continuation = undefined;
   clearTimeout(cached.idleTimer);
+
   try {
     cached.value.close(1000, "session reset");
   } catch {
@@ -1268,9 +1478,11 @@ const connectSocket = async (
   const now = Date.now();
   const identity = webSocketIdentity(url, headers);
   const cached = session.socket;
+
   if (cached?.busy === true) {
     throw new WebSocketUnavailableError("WebSocket session is busy");
   }
+
   if (
     cached &&
     !cached.busy &&
@@ -1280,32 +1492,45 @@ const connectSocket = async (
   ) {
     clearTimeout(cached.idleTimer);
     cached.busy = true;
+
     return cached.value;
   }
+
   if (cached) {
     closeSocket(session, cached.value);
   }
+
   const constructorValue = globalThis.WebSocket;
+
   if (!Value.Check(WebSocketConstructorSchema, constructorValue)) {
     throw new WebSocketUnavailableError("WebSocket transport is unavailable");
   }
+
   const Constructor = constructorValue;
   signal?.throwIfAborted();
   trace.websocketHandshakeAttempts += 1;
   let socket: WebSocketLike;
+
   try {
-    const socketValue = Reflect.construct(Constructor, [url, { headers: headersRecord(headers) }]);
+    const socketValue: unknown = Reflect.construct(Constructor, [
+      url,
+      { headers: headersRecord(headers) },
+    ]);
+
     if (!Value.Check(WebSocketLikeSchema, socketValue)) {
       throw new WebSocketUnavailableError("WebSocket transport returned an invalid socket");
     }
+
     socket = socketValue;
   } catch (error) {
     trace.websocketHandshakeFailures += 1;
     throw error;
   }
+
   session.socket = { busy: true, createdAt: now, identity, value: socket };
   await new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+
     const cleanup = () => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
@@ -1313,58 +1538,74 @@ const connectSocket = async (
       socket.removeEventListener("error", onError);
       socket.removeEventListener("open", onOpen);
     };
+
     const finish = (error?: Error) => {
       cleanup();
+
       if (error === undefined) {
         resolve();
       } else {
         reject(error);
       }
     };
+
     const onAbort = () => {
       finish(new Error("Request was aborted"));
     };
+
     const onClose = () => {
       finish(new Error("WebSocket closed during connect"));
     };
+
     const onError = () => {
       finish(new Error("WebSocket connection failed"));
     };
+
     const onOpen = () => {
       finish();
     };
+
     socket.addEventListener("close", onClose);
     socket.addEventListener("error", onError);
     socket.addEventListener("open", onOpen);
     signal?.addEventListener("abort", onAbort, { once: true });
     const timeout = timeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+
     if (timeout > 0) {
       timer = setTimeout(() => {
         finish(new Error(`WebSocket connect timed out after ${timeout}ms`));
       }, timeout);
     }
+
     if (signal?.aborted === true) {
       onAbort();
     }
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
   }).catch((cause: unknown) => {
     if (!isAborted(signal)) {
       trace.websocketHandshakeFailures += 1;
     }
+
     closeSocket(session, socket);
     throw cause;
   });
+
   return socket;
 };
 
 const releaseSocket = (session: SessionRuntime, socket: WebSocketLike, keep: boolean) => {
   const cached = session.socket;
+
   if (cached?.value !== socket) {
     return;
   }
+
   if (!keep) {
     closeSocket(session, socket);
+
     return;
   }
+
   cached.busy = false;
   cached.idleTimer = setTimeout(() => {
     closeSocket(session, socket);
@@ -1372,23 +1613,31 @@ const releaseSocket = (session: SessionRuntime, socket: WebSocketLike, keep: boo
   cached.idleTimer.unref?.();
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Supported Node and Bun WebSocket implementations expose different message objects; this decoder validates and converts their actual text/byte payloads.
 const messageData = async (event: unknown) => {
   if (!Value.Check(WebSocketMessageSchema, event)) {
     throw new Error("Unsupported WebSocket message payload");
   }
+
   const data = event.data;
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- WebSocket decoder distinguishes text from Blob/buffer payloads before decoding bytes.
   if (typeof data === "string") {
     return data;
   }
+
   if (data instanceof ArrayBuffer) {
     return new TextDecoder().decode(data);
   }
+
   if (ArrayBuffer.isView(data)) {
     return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
   }
+
   if (data instanceof Blob) {
     return await data.text();
   }
+
   throw new Error("Unsupported WebSocket message payload");
 };
 
@@ -1402,48 +1651,61 @@ async function* parseWebSocket(
   let finished = false;
   let listening = true;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
   const enqueue = (value: Error | JsonRecord) => {
     queue.push(value);
     wake?.();
     wake = undefined;
   };
+
   const armIdle = () => {
     clearTimeout(idleTimer);
+
     if (idleTimeoutMs !== undefined && idleTimeoutMs > 0) {
       idleTimer = setTimeout(() => {
         enqueue(new Error(`WebSocket stream timed out after ${idleTimeoutMs}ms`));
       }, idleTimeoutMs);
     }
   };
+
   const onAbort = () => {
     enqueue(new Error("Request was aborted"));
   };
+
   const onClose = () => {
     enqueue(new Error("WebSocket closed before completion"));
   };
+
   const onError = () => {
     enqueue(new Error("WebSocket error: stream failed"));
   };
+
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The WebSocket adapter receives opaque foreign events and passes each to messageData before JSON decoding.
   const onMessage = (event: unknown) => {
     void messageData(event)
       .then((data) => {
         if (!listening) return;
         const value: unknown = JSON.parse(data);
+
         if (!isRecord(value)) {
           throw new Error("Codex WebSocket event must be an object");
         }
+
         armIdle();
         enqueue(value);
       })
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
       .catch((cause: unknown) => {
         enqueue(cause instanceof Error ? cause : new Error(String(cause)));
       });
   };
+
   socket.addEventListener("close", onClose);
   socket.addEventListener("error", onError);
   socket.addEventListener("message", onMessage);
   signal?.addEventListener("abort", onAbort, { once: true });
   armIdle();
+
   try {
     while (!finished) {
       if (queue.length === 0) {
@@ -1451,15 +1713,20 @@ async function* parseWebSocket(
         wake = () => {
           waiting.resolve(null);
         };
+
         await waiting.promise;
       }
+
       const value = queue.shift();
+
       if (!value) {
         continue;
       }
+
       if (value instanceof Error) {
         throw value;
       }
+
       yield value;
       finished = isTerminalResponseEvent(value);
     }
@@ -1479,10 +1746,13 @@ async function* bufferInitialResponseCreated(
 ): AsyncGenerator<JsonRecord> {
   if (attempt === undefined) {
     yield* events;
+
     return;
   }
+
   let first = true;
   let pending: JsonRecord | undefined;
+
   try {
     for await (const event of events) {
       if (first && event.type === "response.created") {
@@ -1490,15 +1760,19 @@ async function* bufferInitialResponseCreated(
         pending = event;
         continue;
       }
+
       first = false;
+
       if (pending !== undefined) {
         attempt.responseCreated = "committed";
         const created = pending;
         pending = undefined;
         yield created;
       }
+
       yield event;
     }
+
     if (pending !== undefined) {
       throw new Error(PREMATURE_RESPONSE_STREAM_ERROR);
     }
@@ -1511,14 +1785,20 @@ async function* bufferInitialResponseCreated(
 
 const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRuntime) => {
   const clientMetadata = isRecord(body.client_metadata) ? body.client_metadata : undefined;
+  /* oxlint-disable anti-slop/no-runtime-typeof -- Hook-supplied metadata is open; only string headers may be forwarded to the transport. */
   const metadata = clientMetadata?.["x-codex-turn-metadata"];
+
   if (typeof metadata === "string") {
     headers.set("x-codex-turn-metadata", metadata);
   }
+
   const windowId = clientMetadata?.["x-codex-window-id"];
+
   if (typeof windowId === "string") {
     headers.set("x-codex-window-id", windowId);
   }
+  /* oxlint-enable anti-slop/no-runtime-typeof */
+
   if (session.turn?.state !== undefined && session.turn.state.length > 0) {
     headers.set("x-codex-turn-state", session.turn.state);
   }
@@ -1526,8 +1806,11 @@ const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRu
 
 const applyRoutingHint = (headers: Headers, body: JsonRecord) => {
   headers.set("originator", body.service_tier === "priority" ? "codex_cli_rs" : "pi");
+  /* oxlint-disable anti-slop/no-runtime-typeof -- Hook-supplied request fields are open; construct routing telemetry only from string model/tier values. */
   const model = typeof body.model === "string" ? body.model : "";
   const tier = typeof body.service_tier === "string" ? `;tier=${body.service_tier}` : "";
+  /* oxlint-enable anti-slop/no-runtime-typeof */
+
   const hint = `model=${model}${tier}`;
   headers.set("x-codex-routing-hint", hint);
 };
@@ -1548,41 +1831,54 @@ const sseEvents = async function* sseEvents(
   headers.set("accept", "text/event-stream");
   headers.set("content-type", "application/json");
   headers.set("openai-beta", "responses=experimental");
+
   if (responsesLite) {
     headers.set("x-openai-internal-codex-responses-lite", "true");
   }
+
   applyTurnHeaders(headers, body, session);
   applyRoutingHint(headers, body);
   const bodyJson = JSON.stringify(body);
   const compressed = compressBody(bodyJson);
+
   if (compressed !== undefined) {
     headers.set("content-encoding", "zstd");
   }
+
   const fetch = options?.fetch ?? globalThis.fetch;
   const timeoutMs = normalizeTimeout(options?.timeoutMs, "timeoutMs");
   let attemptIndex = 0;
+
   while (true) {
     let dispatchFailed = false;
     let replayUnsafe = false;
     let retryResponse: Response | undefined;
+
     if (isAborted(options?.signal)) {
       throw new Error("Request was aborted");
     }
+
     const attempt = beginInferenceAttempt(recovery, "sse", "full");
+
     try {
       const signals: AbortSignal[] = [];
+
       if (options?.signal !== undefined) {
         signals.push(options.signal);
       }
+
       const timeoutController = new AbortController();
       let timeout: ReturnType<typeof setTimeout> | undefined;
+
       if (timeoutMs !== undefined && timeoutMs > 0) {
         signals.push(timeoutController.signal);
         timeout = setTimeout(() => {
           timeoutController.abort();
         }, timeoutMs);
       }
+
       let response: Response;
+
       try {
         const requestInit: RequestInit = {
           body: compressed ?? bodyJson,
@@ -1591,10 +1887,13 @@ const sseEvents = async function* sseEvents(
           redirect,
           signal: AbortSignal.any(signals),
         };
+
         dispatchFailed = true;
+
         const responsePromise = dispatchInference(recovery, () =>
           fetchCodexHttp(resolveCodexResponsesUrl(model.baseUrl), requestInit, fetch),
         );
+
         trace.transportUsed = "sse";
         dispatchFailed = false;
         response = await responsePromise;
@@ -1604,15 +1903,18 @@ const sseEvents = async function* sseEvents(
             cause: error,
           });
         }
+
         throw error;
       } finally {
         clearTimeout(timeout);
       }
+
       await options?.onResponse?.(
         { headers: headersRecord(response.headers), status: response.status },
         model,
       );
       const turnState = response.headers.get("x-codex-turn-state");
+
       if (
         turnState !== null &&
         turnState.length > 0 &&
@@ -1622,8 +1924,10 @@ const sseEvents = async function* sseEvents(
         session.turn.state = turnState;
         replayUnsafe = true;
       }
+
       if (response.ok) {
         let terminal = false;
+
         for await (const event of bufferInitialResponseCreated(
           parseSseEvents(response, options?.signal),
           attempt,
@@ -1632,39 +1936,50 @@ const sseEvents = async function* sseEvents(
           replayUnsafe = true;
           yield event;
         }
+
         if (recovery !== undefined && !terminal) {
           throw new Error(PREMATURE_RESPONSE_STREAM_ERROR);
         }
+
         finishInferenceAttempt(attempt, "none", "completed");
+
         return;
       }
+
       const text = await response.text();
       retryResponse = response;
       throw responseError(response.status, text);
     } catch (error) {
       const resolvedError = error instanceof Error ? error : new Error(String(error));
+
       const failureClass = classifyInferenceAttemptFailure(
         resolvedError,
         options?.signal,
         dispatchFailed,
       );
+
       if (isAborted(options?.signal)) {
         finishInferenceAttempt(attempt, failureClass, "aborted");
         throw resolvedError;
       }
+
       if (replayUnsafe) {
         finishInferenceAttempt(attempt, failureClass, "fail_closed");
         throw resolvedError;
       }
+
       const retryable =
         resolvedError instanceof CodexProviderError
           ? resolvedError.status !== undefined && resolvedError.retryable
           : true;
+
       if (!retryable) {
         finishInferenceAttempt(attempt, failureClass, "surfaced");
         throw resolvedError;
       }
+
       const hasCapacity = hasInferenceDispatchCapacity(recovery);
+
       if (attemptIndex === maxRetries || !hasCapacity) {
         finishInferenceAttempt(
           attempt,
@@ -1673,11 +1988,14 @@ const sseEvents = async function* sseEvents(
         );
         throw resolvedError;
       }
+
       const retryWait =
         retryResponse === undefined
           ? 1000 * 2 ** attemptIndex
           : retryDelay(retryResponse, attemptIndex);
+
       const cap = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
+
       if (
         !Number.isSafeInteger(retryWait) ||
         retryWait > 2_147_483_647 ||
@@ -1686,6 +2004,7 @@ const sseEvents = async function* sseEvents(
         const retryDelayError = new CodexProviderError(
           `Server requested ${Math.ceil(retryWait / 1000)}s retry delay (max: ${Math.ceil(cap / 1000)}s)`,
         );
+
         finishInferenceAttempt(
           attempt,
           classifyInferenceAttemptFailure(retryDelayError, options?.signal),
@@ -1693,6 +2012,7 @@ const sseEvents = async function* sseEvents(
         );
         throw retryDelayError;
       }
+
       try {
         await delay(retryWait, undefined, {
           signal: options?.signal,
@@ -1701,6 +2021,7 @@ const sseEvents = async function* sseEvents(
         finishInferenceAttempt(attempt, "abort", "aborted");
         throw delayError;
       }
+
       finishInferenceAttempt(attempt, failureClass, "retry_sse");
       attemptIndex += 1;
     }
@@ -1721,15 +2042,19 @@ const websocketEvents = async function* websocketEvents(
 ) {
   let retriedConnectionLimit = false;
   let retriedMissingContinuation = false;
+
   while (true) {
     const headers = buildBaseHeaders(model, options, requestId);
     headers.set("openai-beta", WEBSOCKET_BETA);
+
     if (responsesLite) {
       headers.set("x-openai-internal-codex-responses-lite", "true");
     }
+
     applyTurnHeaders(headers, fullBody, session);
     applyRoutingHint(headers, fullBody);
     const previousSocket = session.socket;
+
     const socket = await connectSocket(
       resolveWebSocketUrl(model.baseUrl),
       headers,
@@ -1738,7 +2063,9 @@ const websocketEvents = async function* websocketEvents(
       normalizeTimeout(options?.websocketConnectTimeoutMs, "websocketConnectTimeoutMs"),
       trace,
     );
+
     let keepSocket = false;
+
     try {
       if (generate) {
         if (session.socket) {
@@ -1746,12 +2073,15 @@ const websocketEvents = async function* websocketEvents(
           trace.socketAgeMs = Date.now() - session.socket.createdAt;
         }
       }
+
       const delta = session.continuation
         ? continuationDelta(fullBody, session.continuation)
         : undefined;
+
       if (generate) {
         trace.continuationMode = delta === undefined ? "full" : "delta";
       }
+
       const requestBody =
         delta !== undefined && session.continuation !== undefined
           ? {
@@ -1760,17 +2090,22 @@ const websocketEvents = async function* websocketEvents(
               previous_response_id: session.continuation.responseId,
             }
           : fullBody;
+
       session.continuation = undefined;
       let emitted = false;
       let dispatchFailed = false;
+
       const attempt = generate
         ? beginInferenceAttempt(recovery, "websocket", delta === undefined ? "full" : "delta")
         : undefined;
+
       try {
         const requestRecord: JsonRecord = requestBody;
+
         const clientMetadata = isRecord(requestRecord.client_metadata)
           ? requestRecord.client_metadata
           : {};
+
         const frame = JSON.stringify({
           ...requestBody,
           client_metadata: {
@@ -1787,6 +2122,7 @@ const websocketEvents = async function* websocketEvents(
           generate: generate ? undefined : false,
           type: "response.create",
         });
+
         if (generate) {
           dispatchFailed = true;
           dispatchInference(recovery, () => {
@@ -1798,6 +2134,7 @@ const websocketEvents = async function* websocketEvents(
           socket.send(frame);
           trace.prewarmDispatches += 1;
         }
+
         for await (const event of bufferInitialResponseCreated(
           parseWebSocket(
             socket,
@@ -1809,6 +2146,7 @@ const websocketEvents = async function* websocketEvents(
           captureEvent(capture, event);
           mapCodexEvent(event);
           const turnState = terminalTurnState(event);
+
           if (
             turnState !== undefined &&
             session.turn !== undefined &&
@@ -1816,45 +2154,56 @@ const websocketEvents = async function* websocketEvents(
           ) {
             session.turn.state = turnState;
           }
+
           emitted = true;
           yield event;
         }
-        capture.socket = capture.completed ? socket : undefined;
+
+        if (capture.completed) capture.socket = socket;
+        else delete capture.socket;
         keepSocket = capture.completed;
         finishInferenceAttempt(attempt, "none", "completed");
+
         return;
       } catch (error) {
         const resolvedError = error instanceof Error ? error : new Error(String(error));
         const code = resolvedError instanceof CodexProviderError ? resolvedError.code : undefined;
+
         const failureClass = classifyInferenceAttemptFailure(
           resolvedError,
           options?.signal,
           dispatchFailed,
         );
+
         if (emitted) {
           finishInferenceAttempt(attempt, failureClass, "fail_closed");
           throw error;
         }
+
         if (code === "previous_response_not_found" && !retriedMissingContinuation) {
           if (!hasInferenceDispatchCapacity(recovery)) {
             finishInferenceAttempt(attempt, failureClass, "replay_budget_exhausted");
             throw error;
           }
+
           retriedMissingContinuation = true;
           trace.missingContinuationRetries += 1;
           finishInferenceAttempt(attempt, failureClass, "retry_websocket");
           continue;
         }
+
         if (code === "websocket_connection_limit_reached" && !retriedConnectionLimit) {
           if (!hasInferenceDispatchCapacity(recovery)) {
             finishInferenceAttempt(attempt, failureClass, "replay_budget_exhausted");
             throw error;
           }
+
           retriedConnectionLimit = true;
           trace.connectionLimitRetries += 1;
           finishInferenceAttempt(attempt, failureClass, "retry_websocket");
           continue;
         }
+
         finishInferenceAttempt(
           attempt,
           failureClass,
@@ -1869,6 +2218,9 @@ const websocketEvents = async function* websocketEvents(
 };
 
 const createSession = (): SessionRuntime => ({
+  continuation: undefined,
+  socket: undefined,
+  turn: undefined,
   fallbackToSse: false,
   transportFallbackPending: false,
   window: { currentId: uuidv7(), number: 0 },
@@ -1899,9 +2251,11 @@ const resolveServiceTier = <Tier extends string | null | undefined>(
 
 const applyServiceTier = (usage: Usage, tier: string | null | undefined) => {
   const multiplier = tier === "flex" ? 0.5 : tier === "priority" ? 2 : 1;
+
   if (multiplier === 1) {
     return;
   }
+
   usage.cost.input *= multiplier;
   usage.cost.output *= multiplier;
   usage.cost.cacheRead *= multiplier;
@@ -1918,19 +2272,23 @@ export const createCodexProviderRuntime = (
 ) => {
   const { base } = catalog;
   const sessions = new Map<string, SessionRuntime>();
+
   interface SamplingOperation {
     bound: CodexSamplingBound;
     disposed: boolean;
     started: boolean;
     sessionId?: string;
-    controller?: AbortController;
-    task?: Promise<void>;
+    controller: AbortController | undefined;
+    task: Promise<void> | undefined;
   }
+
   const samplingOperation = new AsyncLocalStorage<SamplingOperation>();
   const activeSampling = new Set<SamplingScope>();
+
   const synchronizeAccount = (sessionId: string, apiKey: string) => {
     let session = getSession(sessionId);
     const accountId = extractAccountId(apiKey);
+
     if (session.accountId !== undefined && session.accountId !== accountId) {
       closeSocket(session);
       // Detach the old record: an already-running SSE callback may still hold it.
@@ -1939,6 +2297,7 @@ export const createCodexProviderRuntime = (
       const previous = session;
       session = createSession();
       session.window = { ...previous.window };
+
       if (previous.turn) {
         session.turn = {
           id: previous.turn.id,
@@ -1946,21 +2305,27 @@ export const createCodexProviderRuntime = (
           prewarmed: false,
         };
       }
+
       sessions.set(sessionId, session);
     }
+
     session.accountId = accountId;
+
     return session;
   };
+
   const requestTransport = new AsyncLocalStorage<
     NonNullable<OpenAICodexResponsesOptions["transport"]>
   >();
 
   const getSession = (sessionId: string) => {
     let session = sessions.get(sessionId);
+
     if (!session) {
       session = createSession();
       sessions.set(sessionId, session);
     }
+
     return session;
   };
 
@@ -1978,8 +2343,10 @@ export const createCodexProviderRuntime = (
     recovery?: InferenceRecovery,
   ) {
     const transport = options?.transport ?? "auto";
+
     if (transport !== "sse" && !session.fallbackToSse) {
       let emitted = false;
+
       try {
         for await (const event of websocketEvents(
           model,
@@ -1996,6 +2363,7 @@ export const createCodexProviderRuntime = (
           emitted = true;
           yield event;
         }
+
         return;
       } catch (error) {
         if (
@@ -2006,21 +2374,27 @@ export const createCodexProviderRuntime = (
         ) {
           throw error;
         }
+
         activateSseFallback(session, trace);
         const websocketAttempt = recovery?.attempts.at(-1);
+
         if (!hasInferenceDispatchCapacity(recovery)) {
           if (websocketAttempt?.finalDecision === "surfaced") {
             websocketAttempt.finalDecision = "replay_budget_exhausted";
           }
+
           throw error;
         }
+
         if (websocketAttempt?.finalDecision === "surfaced") {
           websocketAttempt.finalDecision = "fallback_to_sse";
         }
       }
     }
+
     session.continuation = undefined;
     trace.continuationMode = "full";
+
     for await (const event of sseEvents(
       model,
       body,
@@ -2041,37 +2415,48 @@ export const createCodexProviderRuntime = (
   const compact = async (request: CodexCompactionRequest): Promise<CodexCompactionResult> => {
     request = { ...request, model: cloneJson(request.model) };
     const standalone = request.phase === "standalone";
+
     const runtimeSessionId = standalone
       ? `${request.sessionId}:compaction:${uuidv7()}`
       : request.sessionId;
+
     const logicalSession = synchronizeAccount(request.sessionId, request.apiKey);
     const session = standalone ? createSession() : logicalSession;
+
     if (standalone) {
       session.window = { ...logicalSession.window };
     }
+
     session.turn ??= {
       id: uuidv7(),
       prewarmed: true,
       startedAt: Date.now(),
     };
+
+    const reasoningEffort = toCodexReasoningEffort(request.model, request.thinkingLevel);
+
     const options: OpenAICodexResponsesOptions = {
       apiKey: request.apiKey,
-      env: request.env,
-      headers: request.headers === undefined ? undefined : { ...request.headers },
+      ...(request.env !== undefined ? { env: request.env } : {}),
+      ...(request.headers !== undefined ? { headers: { ...request.headers } } : {}),
+
       maxRetries: 0,
-      reasoningEffort: toCodexReasoningEffort(request.model, request.thinkingLevel),
-      serviceTier:
-        isFastModeEnabled() && catalog.supportsFastMode(request.model) ? "priority" : undefined,
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+      ...(isFastModeEnabled() && catalog.supportsFastMode(request.model)
+        ? { serviceTier: "priority" }
+        : {}),
       sessionId: runtimeSessionId,
       signal: request.signal,
       transport: requestTransport.getStore() ?? "auto",
     };
+
     const startedAt = Date.now();
     const trace = createRequestTrace();
     let attempts = 0;
     let compactionError: unknown;
     let compactionResult: CodexCompactionResult | undefined;
     let observedBody: RequestBody | undefined;
+
     try {
       const built = buildRequestBody(
         request.model,
@@ -2081,34 +2466,46 @@ export const createCodexProviderRuntime = (
         request.sessionId,
         session,
       );
+
       const envelope = request.authoritativeEnvelope
         ? cloneJson(request.authoritativeEnvelope)
         : built.body;
+
       let envelopeInput = built.body.input;
+
       if (envelope.input !== undefined) {
         if (!Array.isArray(envelope.input) || !envelope.input.every(isRecord)) {
           throw new Error("Authoritative Codex input is malformed");
         }
+
         envelopeInput = envelope.input;
       }
+
       const source = [...request.inputPrefix, ...(request.authoritativeInput ?? envelopeInput)];
+
       if (source.some((item) => item.type === "compaction_trigger")) {
         throw new Error("Compaction source already contains a trigger");
       }
+
       const instructions =
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
         typeof envelope.instructions === "string"
           ? envelope.instructions
           : (request.context.systemPrompt ?? "");
+
       const normalized = normalizeToolHistory(
         omitUnsupportedUserImages(source, request.model.input.includes("image")),
       );
+
       const effectiveInput = shrinkTrailingOutputs(
         normalized,
         instructions,
         request.effectiveTokenLimit,
       );
+
       const estimatedSourceTokens = estimateModelVisibleTokens(instructions, effectiveInput);
       const envelopeMetadata = isRecord(envelope.client_metadata) ? envelope.client_metadata : {};
+
       let body: RequestBody = {
         ...built.body,
         ...envelope,
@@ -2118,10 +2515,13 @@ export const createCodexProviderRuntime = (
         },
         input: [...effectiveInput, { type: "compaction_trigger" }],
         model: request.model.id,
-        previous_response_id: undefined,
         store: false,
         stream: true,
       };
+
+      // Compaction is a full request, never a continuation of the supplied envelope.
+      delete body.previous_response_id;
+
       if (
         request.codexReason !== undefined &&
         body.service_tier === "priority" &&
@@ -2129,24 +2529,34 @@ export const createCodexProviderRuntime = (
       ) {
         delete body.service_tier;
       }
+
       if (built.responsesLite) {
         body = prepareLiteRequest(body);
       }
+
       requestThinkingLevel(body);
+
       observedBody = body;
       const requestId = promptCacheKey(request.sessionId);
+
       const configuredWebsocketTransport =
         options.transport === "sse" ? undefined : (options.transport ?? "auto");
+
       const websocketAttempts =
         configuredWebsocketTransport === undefined || session.fallbackToSse ? 0 : 3;
+
       const maxAttempts = websocketAttempts + 3;
+
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         attempts += 1;
+
         const capture: ResponseCapture = {
           completed: false,
           outputItems: [],
         };
+
         const compactions: CanonicalCompactionItem[] = [];
+
         try {
           for await (const event of normalEvents(
             request.model,
@@ -2161,6 +2571,7 @@ export const createCodexProviderRuntime = (
             false,
           )) {
             mapCodexEvent(event);
+
             if (
               event.type === "response.output_item.done" &&
               isRecord(event.item) &&
@@ -2174,6 +2585,7 @@ export const createCodexProviderRuntime = (
               );
             }
           }
+
           if (!capture.completed) {
             throw new CodexProviderError(
               "Codex compaction stream ended before completion",
@@ -2181,6 +2593,7 @@ export const createCodexProviderRuntime = (
               true,
             );
           }
+
           if (
             capture.responseId === undefined ||
             capture.usage === undefined ||
@@ -2188,22 +2601,26 @@ export const createCodexProviderRuntime = (
           ) {
             throw new CodexProviderError("Codex compaction returned an invalid response");
           }
+
           calculateCost(request.model, capture.usage);
           applyServiceTier(
             capture.usage,
             resolveServiceTier(capture.serviceTier, body.service_tier),
           );
           compactionResult = {
-            compaction: compactions[0],
+            // The preceding response validation requires exactly one compaction.
+            compaction: compactions[0]!,
             estimatedSourceTokens,
             responseId: capture.responseId,
             usage: capture.usage,
           };
+
           return compactionResult;
         } catch (error) {
           if (request.signal.aborted || (error instanceof CodexProviderError && !error.retryable)) {
             throw error;
           }
+
           if (
             configuredWebsocketTransport !== undefined &&
             attempt < websocketAttempts &&
@@ -2213,20 +2630,25 @@ export const createCodexProviderRuntime = (
             attempt = websocketAttempts - 1;
             continue;
           }
+
           if (configuredWebsocketTransport !== undefined && attempt + 1 === websocketAttempts) {
             activateSseFallback(session, trace);
             continue;
           }
+
           if (attempt === maxAttempts - 1) {
             throw error;
           }
+
           const transportAttempt =
             attempt < websocketAttempts ? attempt : attempt - websocketAttempts;
+
           await delay(transportAttempt === 0 ? 500 : 1000, undefined, {
             signal: request.signal,
           });
         }
       }
+
       throw new Error("Compaction retry loop ended unexpectedly");
     } catch (error) {
       compactionError = error;
@@ -2262,6 +2684,7 @@ export const createCodexProviderRuntime = (
           ...trace,
         },
       });
+
       if (standalone) {
         closeSocket(session);
       }
@@ -2288,14 +2711,18 @@ export const createCodexProviderRuntime = (
     ) {
       return;
     }
+
     trace.prewarmAttempts += 1;
+
     if (session.turn) {
       session.turn.prewarmed = true;
     }
+
     const capture: ResponseCapture = {
       completed: false,
       outputItems: [],
     };
+
     try {
       for await (const _event of websocketEvents(
         model,
@@ -2318,6 +2745,7 @@ export const createCodexProviderRuntime = (
       )) {
         // Prewarm output is intentionally discarded.
       }
+
       trace.prewarmSucceeded = capture.completed;
       session.continuation = undefined;
     } catch {
@@ -2336,44 +2764,56 @@ export const createCodexProviderRuntime = (
     model = cloneJson(model);
     // The selected model can outlive a registry/catalog refresh. Capture current
     // catalog-owned tool policy now without replacing request identity or pricing.
+
     const catalogModel = catalog
       .getModels()
       .find((candidate) => candidate.provider === model.provider && candidate.id === model.id);
+
     const toolModel =
       catalogModel === undefined
         ? model
         : { ...model, codexOutputTokenLimit: catalogModel.codexOutputTokenLimit };
     // Header values are request data; detach them before payload hooks or retries.
     // Signals, callbacks, and injected transports intentionally keep their identity.
-    options =
-      options === undefined
-        ? undefined
-        : {
-            ...options,
-            headers: options.headers === undefined ? undefined : { ...options.headers },
-          };
+
+    if (options !== undefined) {
+      const { headers, ...rest } = options;
+
+      options = {
+        ...rest,
+        ...(headers === undefined ? {} : { headers: { ...headers } }),
+      };
+    }
+
     const operation = samplingOperation.getStore();
+
     if (operation?.disposed) throw new Error("Sampling scope is disposed");
+
     if (operation?.started) throw new Error("Sampling scope permits exactly one provider request");
+
     if (
       operation &&
       (context.tools?.length ||
         context.messages.some(
           (message) =>
             (message.role !== "user" && message.role !== "assistant") ||
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pi user/assistant content is a string/block union; discriminate it before checking for non-text blocks.
             (typeof message.content !== "string" &&
               message.content.some((block) => block.type !== "text")),
         ))
     ) {
       throw new Error("Codex sampling supports text messages without tools only");
     }
+
     if (
       operation &&
       (model.id !== operation.bound.model.id || model.provider !== operation.bound.model.provider)
     ) {
       throw new Error("Sampling scope model does not match registry request");
     }
+
     const controller = operation ? new AbortController() : undefined;
+
     if (operation && controller) {
       operation.started = true;
       operation.controller = controller;
@@ -2385,7 +2825,9 @@ export const createCodexProviderRuntime = (
           : controller.signal,
       };
     }
+
     const events = createAssistantMessageEventStream();
+
     const output: AssistantMessage = {
       api: "openai-codex-responses",
       content: [],
@@ -2396,24 +2838,31 @@ export const createCodexProviderRuntime = (
       timestamp: Date.now(),
       usage: initialUsage(),
     };
+
     const sessionId =
       options?.sessionId !== undefined && options.sessionId.length > 0
         ? options.sessionId
         : uuidv7();
+
     const publishToolSettings = operation ? undefined : executionSettings?.beginResponse(sessionId);
+
     if (operation) {
       if (sessions.has(sessionId)) {
         operation.controller = undefined;
         throw new Error("Sampling identity collides with an existing provider session");
       }
+
       operation.sessionId = sessionId;
     }
+
     let settle: (() => void) | undefined;
+
     const task = operation
       ? new Promise<void>((resolve) => {
           settle = resolve;
         })
       : undefined;
+
     if (operation) operation.task = task;
     const startedAt = Date.now();
     const trace = createRequestTrace();
@@ -2421,6 +2870,7 @@ export const createCodexProviderRuntime = (
     let observedBody: OutboundRequestBody | undefined;
     let observedError: unknown;
     const capture: ResponseCapture = { completed: false, outputItems: [] };
+
     const applySamplingUsage = () => {
       if (!operation || !capture.usage) return;
       output.usage = { ...capture.usage, cost: { ...capture.usage.cost } };
@@ -2435,11 +2885,13 @@ export const createCodexProviderRuntime = (
       operation.bound.status.usage = output.usage;
       operation.bound.status.usageComplete = capture.usageComplete === true;
     };
+
     void (async () => {
       try {
         if (options?.apiKey === undefined || options.apiKey.length === 0) {
           throw new Error(`No API key for provider: ${model.provider}`);
         }
+
         options.signal?.throwIfAborted();
         const session = synchronizeAccount(sessionId, options.apiKey);
         session.turn ??= {
@@ -2447,6 +2899,7 @@ export const createCodexProviderRuntime = (
           prewarmed: false,
           startedAt: Date.now(),
         };
+
         const built = buildRequestBody(
           model,
           context,
@@ -2455,11 +2908,14 @@ export const createCodexProviderRuntime = (
           sessionId,
           session,
         );
+
         let litePrefixLength = 0;
+
         if (built.responsesLite) {
           if (built.body.input[0]?.type === "additional_tools") {
             litePrefixLength += 1;
           }
+
           if (
             context.systemPrompt !== undefined &&
             context.systemPrompt.length > 0 &&
@@ -2469,37 +2925,49 @@ export const createCodexProviderRuntime = (
             litePrefixLength += 1;
           }
         }
+
         const prewarmInput = built.responsesLite ? built.body.input.slice(0, litePrefixLength) : [];
         let requestBody = built.body;
+
         if (isFastModeEnabled() && catalog.supportsFastMode(model)) {
           requestBody.service_tier = "priority";
         }
+
         if (built.responsesLite) {
           requestBody = prepareLiteRequest(requestBody);
         }
+
         const originalBodyJson = JSON.stringify(requestBody);
         let body: OutboundRequestBody = requestBody;
         const transport = session.fallbackToSse ? "sse" : (options.transport ?? "auto");
+
         const transformed = await requestTransport.run(transport, () =>
           options.onPayload?.(body, model),
         );
+
         if (transformed !== undefined) {
           if (!Value.Check(TransformedRequestBodySchema, transformed)) {
             throw new Error("Codex payload transform returned an invalid request");
           }
+
           body = transformed;
+
           if (built.responsesLite) {
             body = prepareLiteTransformedRequest(body);
           }
         }
+
         const toolSettings: ExecutionSettings = {
           model: toolModel,
           thinkingLevel: requestThinkingLevel(body),
         };
+
         observedBody = body;
         const requestId = promptCacheKey(sessionId);
+
         const prewarmCompatible =
           transformed === undefined || JSON.stringify(body) === originalBodyJson;
+
         await prewarm(
           model,
           requestBody,
@@ -2512,6 +2980,7 @@ export const createCodexProviderRuntime = (
           trace,
         );
         let started = false;
+
         const source = async function* source() {
           for await (const event of normalEvents(
             model,
@@ -2530,18 +2999,32 @@ export const createCodexProviderRuntime = (
               started = true;
               events.push({ partial: output, type: "start" });
             }
+
             options?.signal?.throwIfAborted();
+
             if (operation && capture.usage) {
               applySamplingUsage();
             }
-            const mapped = operation ? operation.bound.transform(event) : event;
+
+            let mapped: ReturnType<CodexSamplingBound["transform"]> | JsonRecord = event;
+
+            if (operation) {
+              if (!Value.Check(SamplingEventSchema, event)) {
+                throw new Error("Malformed sampling event envelope");
+              }
+
+              mapped = operation.bound.transform(event);
+            }
+
             if (mapped) yield toPiResponseStreamEvent(mapped, output);
+
             if (operation?.bound.status.limitReached) {
               controller?.abort();
               throw new Error("Sampling output token limit reached");
             }
           }
         };
+
         await processResponsesStream(source(), output, events, model, {
           applyServiceTierPricing: applyServiceTier,
           grammarToolInputProperties: built.grammarToolInputProperties,
@@ -2550,6 +3033,7 @@ export const createCodexProviderRuntime = (
         });
         successfulOutput(output);
         const cachedSocket = session.socket;
+
         if (
           capture.completed &&
           capture.continuationBlocked !== true &&
@@ -2573,6 +3057,7 @@ export const createCodexProviderRuntime = (
                 item.type !== "function_call_output" && item.type !== "custom_tool_call_output",
             )
             .map((item) => ({ ...item }));
+
           if (
             continuationOutputMatches(capture.outputItems, responseItems, capture.terminalOutput)
           ) {
@@ -2583,10 +3068,12 @@ export const createCodexProviderRuntime = (
             };
           }
         }
+
         publishToolSettings?.(
           output.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : [])),
           toolSettings,
         );
+
         events.push({
           message: output,
           reason: output.stopReason,
@@ -2596,19 +3083,23 @@ export const createCodexProviderRuntime = (
       } catch (error) {
         applySamplingUsage();
         observedError = error;
+
         for (const block of output.content) {
           if (isRecord(block)) {
             delete block.customInput;
             delete block.partialJson;
           }
         }
+
         if (operation?.bound.status.limitReached) {
           output.stopReason = "length";
           delete output.errorMessage;
           events.push({ message: output, reason: "length", type: "done" });
           events.end();
+
           return;
         }
+
         output.stopReason = isAborted(options?.signal) ? "aborted" : "error";
         output.errorMessage = error instanceof Error ? error.message : String(error);
         events.push({
@@ -2622,16 +3113,20 @@ export const createCodexProviderRuntime = (
           operation.controller = undefined;
           operation.task = undefined;
         }
+
         settle?.();
+
         for (const attempt of recovery.attempts) {
           if (attempt.finalDecision !== "pending") {
             continue;
           }
+
           if (output.stopReason === "aborted") {
             finishInferenceAttempt(attempt, "abort", "aborted");
           } else if (output.stopReason === "error") {
             const error =
               observedError instanceof Error ? observedError : new Error(String(observedError));
+
             finishInferenceAttempt(
               attempt,
               classifyInferenceAttemptFailure(error, options?.signal),
@@ -2641,10 +3136,12 @@ export const createCodexProviderRuntime = (
             finishInferenceAttempt(attempt, "none", "completed");
           }
         }
+
         const observedMetadata =
           observedBody !== undefined && isRecord(observedBody.client_metadata)
             ? observedBody.client_metadata
             : undefined;
+
         observability.record(sessionId, "request", {
           durationMs: Date.now() - startedAt,
           error: observedError === undefined ? undefined : requestErrorObservation(observedError),
@@ -2669,15 +3166,18 @@ export const createCodexProviderRuntime = (
             inferenceAttempts: recovery.attempts,
             inferenceDispatches: recovery.dispatches,
           },
+          /* oxlint-disable anti-slop/no-runtime-typeof -- Observation records hook-supplied metadata only when textual; telemetry must not reject the actual request. */
           turnId:
             typeof observedMetadata?.turn_id === "string" ? observedMetadata.turn_id : undefined,
           windowId:
             typeof observedMetadata?.["x-codex-window-id"] === "string"
               ? observedMetadata["x-codex-window-id"]
               : undefined,
+          /* oxlint-enable anti-slop/no-runtime-typeof */
         });
       }
     })();
+
     return events;
   };
 
@@ -2687,19 +3187,24 @@ export const createCodexProviderRuntime = (
     options,
   ) => {
     const baseOptions = buildBaseOptions(model, context, options, options?.apiKey);
+
     const level =
       options?.reasoning !== undefined && options.reasoning.length > 0
         ? clampThinkingLevel(model, options.reasoning)
         : undefined;
+
+    const reasoningEffort = toCodexReasoningEffort(model, level);
+
     return stream(model, context, {
       ...baseOptions,
-      reasoningEffort: toCodexReasoningEffort(model, level),
-      toolChoice: options?.toolChoice,
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+      ...(options?.toolChoice !== undefined ? { toolChoice: options.toolChoice } : {}),
     } satisfies OpenAICodexResponsesOptions);
   };
 
   const closeSession = (sessionId: string) => {
     const session = sessions.get(sessionId);
+
     if (session) {
       closeSocket(session);
       sessions.delete(sessionId);
@@ -2708,35 +3213,47 @@ export const createCodexProviderRuntime = (
 
   const createSamplingScope = (model: Model<string>, maxTokens: number): SamplingScope => {
     const operation: SamplingOperation = {
+      controller: undefined,
+      task: undefined,
       bound: new CodexSamplingBound(model, maxTokens),
       disposed: false,
       started: false,
     };
+
     let disposal: Promise<void> | undefined;
+
     const scope: SamplingScope = {
       boundText: (text) => operation.bound.boundText(text),
       status: operation.bound.status,
       run: (callback) => {
         if (operation.disposed) throw new Error("Sampling scope is disposed");
+
         return samplingOperation.run(operation, callback);
       },
       dispose: () => {
         if (disposal) return disposal;
         operation.disposed = true;
         operation.controller?.abort();
+
         if (operation.sessionId !== undefined) {
           const session = sessions.get(operation.sessionId);
+
           if (session) closeSocket(session);
         }
+
         disposal = (async () => {
           await operation.task;
+
           if (operation.sessionId !== undefined) closeSession(operation.sessionId);
           activeSampling.delete(scope);
         })();
+
         return disposal;
       },
     };
+
     activeSampling.add(scope);
+
     return scope;
   };
 
@@ -2770,13 +3287,16 @@ export const createCodexProviderRuntime = (
     consumeTransportFallback(sessionId: string) {
       const session = sessions.get(sessionId);
       const pending = session?.transportFallbackPending ?? false;
+
       if (session) {
         session.transportFallbackPending = false;
       }
+
       return pending;
     },
     endTurn(sessionId: string) {
       const session = sessions.get(sessionId);
+
       if (session) {
         session.turn = undefined;
       }
@@ -2799,6 +3319,7 @@ export const createCodexProviderRuntime = (
       },
     ) {
       const session = getSession(sessionId);
+
       if (
         session.window.currentId === window.currentWindowId &&
         session.window.number === window.windowNumber &&
@@ -2806,15 +3327,19 @@ export const createCodexProviderRuntime = (
       ) {
         return { ...session.window };
       }
+
       const nextWindow: typeof session.window = {
         currentId: window.currentWindowId,
         number: window.windowNumber,
       };
+
       if (window.previousWindowId !== null && window.previousWindowId.length > 0) {
         nextWindow.previousId = window.previousWindowId;
       }
+
       session.window = nextWindow;
       session.continuation = undefined;
+
       return { ...session.window };
     },
     provider,

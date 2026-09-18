@@ -30,6 +30,7 @@ const resolveAuth = async (
   provider: SupportedProvider,
 ): Promise<AuthResolution<ResolvedAuth>> => {
   let auth: AuthLike | undefined;
+
   try {
     auth = await client.getProviderAuth(provider);
   } catch {
@@ -42,6 +43,7 @@ const resolveAuth = async (
 
   const accessToken = auth?.auth?.apiKey;
   const source = auth?.source;
+
   if (accessToken === undefined || accessToken.length === 0) {
     return {
       kind: "unavailable",
@@ -61,6 +63,7 @@ export const resolveAccessToken = async (
   provider: SupportedProvider,
 ): Promise<AuthResolution> => {
   const resolved = await resolveAuth(client, provider);
+
   return resolved.ok ? { ok: true, value: { accessToken: resolved.value.accessToken } } : resolved;
 };
 
@@ -69,9 +72,11 @@ export const resolveOAuthAccess = async (
   provider: SupportedProvider,
 ): Promise<AuthResolution> => {
   const resolved = await resolveAuth(client, provider);
+
   if (!resolved.ok) {
     return resolved;
   }
+
   if (resolved.value.source !== "OAuth") {
     return {
       kind: "unavailable",
@@ -99,6 +104,7 @@ export const providerAuthClientFromContext = (
   getProviderAuth: async (provider) => {
     if (provider === "github-copilot") {
       const credential = readCredential(provider);
+
       if (credential?.type === "oauth" && credential.refresh.length > 0) {
         return {
           auth: { apiKey: credential.refresh },
@@ -106,6 +112,7 @@ export const providerAuthClientFromContext = (
         };
       }
     }
+
     return await ctx.modelRegistry.getProviderAuth(provider);
   },
 });

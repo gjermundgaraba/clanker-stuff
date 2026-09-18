@@ -6,6 +6,7 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 export const RECAP_ENTRY_TYPE = "@clanker-stuff/recap";
+
 export const RECAP_MAX_CHARS = 320;
 
 /** Recaps omit tabs rather than expanding them; the terminal safety policy is shared. */
@@ -24,6 +25,7 @@ export type RecapEntryData = Static<typeof RecapEntrySchema>;
 export const registerRecapEntry = (pi: ExtensionAPI): void => {
   pi.registerEntryRenderer(RECAP_ENTRY_TYPE, (entry, _options, theme) => {
     const data = entry.data;
+
     if (!Value.Check(RecapEntrySchema, data)) {
       return undefined;
     }
@@ -38,6 +40,7 @@ export const registerRecapEntry = (pi: ExtensionAPI): void => {
         const heading = truncateToWidth(`─ Conversation recap ${"─".repeat(width)}`, width, "");
         const indent = width > 2 ? "  " : "";
         const recap = sanitizeRecapText(data.recap);
+
         return [
           theme.fg("borderAccent", heading),
           "",

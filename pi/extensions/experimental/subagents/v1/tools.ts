@@ -22,6 +22,7 @@ import { V1InputItemSchema } from "./input.js";
 import type { V1InputItem } from "./input.js";
 
 const STRICT = { additionalProperties: false } as const;
+
 interface SpawnArguments {
   agent_type?: string;
   fork_context?: boolean;
@@ -30,6 +31,7 @@ interface SpawnArguments {
   model?: string;
   reasoning_effort?: AgentThinkingLevel;
 }
+
 export type V1ToolController = Pick<
   V1Controller,
   "close" | "resume" | "sendInput" | "spawn" | "wait"
@@ -42,13 +44,16 @@ type JsonValue =
   | string
   | { readonly [key: string]: JsonValue }
   | readonly JsonValue[];
+
 type JsonRecord = Record<string, JsonValue>;
+
 const closedObject = (properties: JsonRecord, required: readonly string[]) => ({
   additionalProperties: false,
   properties,
   required,
   type: "object",
 });
+
 const AGENT_STATUS_SCHEMA = {
   oneOf: [
     {
@@ -59,6 +64,7 @@ const AGENT_STATUS_SCHEMA = {
     closedObject({ errored: { type: "string" } }, ["errored"]),
   ],
 } satisfies JsonRecord;
+
 const V1_OUTPUT_SCHEMAS = new Map<string, JsonRecord>(
   Object.entries({
     close_agent: closedObject(
@@ -110,6 +116,7 @@ const V1_OUTPUT_SCHEMAS = new Map<string, JsonRecord>(
     ),
   }),
 );
+
 const spawnCommon = (config: SubagentsConfig) => ({
   ...roleParameter(config),
   fork_context: Type.Optional(
@@ -120,6 +127,7 @@ const spawnCommon = (config: SubagentsConfig) => ({
   ),
   ...modelParameters(config),
 });
+
 const roleParameter = (config: SubagentsConfig) =>
   Object.keys(config.roles).length === 0
     ? {}
@@ -136,6 +144,7 @@ const roleParameter = (config: SubagentsConfig) =>
           }),
         ),
       };
+
 const modelParameters = (config: SubagentsConfig) =>
   config.expose_spawn_agent_model_overrides
     ? {
@@ -152,6 +161,7 @@ const modelParameters = (config: SubagentsConfig) =>
         }),
       }
     : {};
+
 const SendCommon = {
   interrupt: Type.Optional(
     Type.Boolean({
@@ -193,6 +203,7 @@ export const registerV1Tools = (
     ),
   });
   const spawnParameters = Type.Unsafe<SpawnArguments>(Type.Object(spawnProperties, STRICT));
+
   const definitions: ToolDefinition[] = [
     defineTool({
       description: [
@@ -203,15 +214,18 @@ export const registerV1Tools = (
         .join("\n\n"),
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
+
         return result(
           await controller.spawn(
             {
-              agentType: params.agent_type,
+              ...(params.agent_type !== undefined ? { agentType: params.agent_type } : {}),
               forkContext: params.fork_context ?? false,
-              items: params.items,
-              message: params.message,
-              model: params.model,
-              thinking: params.reasoning_effort,
+              ...(params.items !== undefined ? { items: params.items } : {}),
+              ...(params.message !== undefined ? { message: params.message } : {}),
+              ...(params.model !== undefined ? { model: params.model } : {}),
+              ...(params.reasoning_effort !== undefined
+                ? { thinking: params.reasoning_effort }
+                : {}),
             },
             ctx,
             signal,
@@ -231,13 +245,14 @@ export const registerV1Tools = (
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
         signal?.throwIfAborted();
+
         return result(
           await controller.sendInput(
             params.target,
             {
               interrupt: params.interrupt ?? false,
-              items: "items" in params ? params.items : undefined,
-              message: "message" in params ? params.message : undefined,
+              ...("items" in params ? { items: params.items } : {}),
+              ...("message" in params ? { message: params.message } : {}),
             },
             ctx,
             signal,
@@ -274,6 +289,7 @@ export const registerV1Tools = (
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
         signal?.throwIfAborted();
+
         return result(await controller.resume(params.id, ctx, signal));
       },
       executionMode: "parallel",
@@ -288,6 +304,7 @@ export const registerV1Tools = (
         "Wait for agents to reach a final status. Completed statuses may include the final message. Returns an empty status object on timeout; prefer longer waits over polling.",
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
+
         return result(await controller.wait(params.targets, params.timeout_ms ?? 30_000, signal));
       },
       executionMode: "parallel",
@@ -316,6 +333,7 @@ export const registerV1Tools = (
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
         signal?.throwIfAborted();
+
         return result(await controller.close(params.target, ctx, signal));
       },
       executionMode: "parallel",
@@ -326,9 +344,11 @@ export const registerV1Tools = (
       promptSnippet: "Close an agent when it is no longer needed",
     }),
   ];
+
   for (const definition of definitions) {
     pi.registerTool(definition);
   }
+
   return definitions.map((definition) => ({
     definition,
     outputSchema: V1_OUTPUT_SCHEMAS.get(definition.name),

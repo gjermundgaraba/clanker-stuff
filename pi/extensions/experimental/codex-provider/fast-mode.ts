@@ -10,6 +10,7 @@ import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
 import { FAST_MODE_STATUS_KEY } from "./footer.js";
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem promise rejections can be any JavaScript value; inspect an error code only when present.
 const errorCode = (cause: unknown): string | undefined =>
   cause instanceof Object && "code" in cause ? String(cause.code) : undefined;
 
@@ -17,9 +18,11 @@ const FastConfigSchema = Type.Object({ fast: Type.Boolean() }, { additionalPrope
 
 const parseConfig = (text: string): boolean => {
   const parsed: unknown = JSON.parse(text);
+
   if (!Value.Check(FastConfigSchema, parsed)) {
     throw new Error('config must be exactly { "fast": boolean }');
   }
+
   return parsed.fast;
 };
 
@@ -29,22 +32,27 @@ const runAfter = async (previous: Promise<void>, task: () => Promise<void>): Pro
   } catch {
     // A failed operation must not block later commands.
   }
+
   await task();
 };
 
 export const createFastModeConfigStore = (configPath: string) => {
   const targetPath = path.resolve(configPath);
+
   return {
     async load() {
       let text: string;
+
       try {
         text = await readFile(targetPath, "utf-8");
       } catch (error) {
         if (errorCode(error) === "ENOENT") {
           return false;
         }
+
         throw error;
       }
+
       return parseConfig(text);
     },
     path: targetPath,
@@ -52,6 +60,7 @@ export const createFastModeConfigStore = (configPath: string) => {
       await withFileMutationQueue(targetPath, async () => {
         await mkdir(path.dirname(targetPath), { recursive: true });
         const temporary = `${targetPath}.tmp-${process.pid}-${randomUUID()}`;
+
         try {
           await writeFile(temporary, `${JSON.stringify({ fast: enabled }, null, 2)}\n`, {
             encoding: "utf-8",
@@ -101,7 +110,9 @@ export const createFastModeState = (
         if (stopped) {
           return;
         }
+
         let next = false;
+
         if (useStartupFlag && pi.getFlag("fast") === true) {
           next = true;
         } else {
@@ -116,6 +127,7 @@ export const createFastModeState = (
             }
           }
         }
+
         if (!stopped) {
           enabled = next;
         }
@@ -128,7 +140,9 @@ export const createFastModeState = (
         if (stopped) {
           return;
         }
+
         const next = !enabled;
+
         try {
           await config.save(next);
         } catch (error) {
@@ -138,11 +152,14 @@ export const createFastModeState = (
               "error",
             );
           }
+
           return;
         }
+
         if (stopped) {
           return;
         }
+
         enabled = next;
         ctx.ui.notify(`Codex fast mode ${next ? "enabled" : "disabled"}`);
       }),

@@ -20,25 +20,32 @@ function permutations<T>(items: T[]): T[][] {
       )
     : [[]];
 }
+
 it.each(permutations(["vim", "history", "skills", "border"]))(
   "composes in order %j %j %j %j",
   (...order) => {
     const fixture = createExtensionHost(() => {});
+
     const theme = Object.assign(createIdentityTheme(), {
       fg: (_color: string, text: string) => `\x1b[36m${text}\x1b[39m`,
       bg: (_color: string, text: string) => `\x1b[44m${text}\x1b[49m`,
     });
+
     const ctx = fixture.createContext({
       ui: { theme },
       sessionManager: { getHeader: () => null, getSessionDir: () => "/sessions" },
     });
+
     for (const name of order) {
       if (name === "vim") mountVim(acquireEditorHost(ctx)!, () => {});
+
       if (name === "history")
         installHistoryEditor({ type: "session_start", reason: "new" }, ctx, () => [
           { text: "remembered", timestamp: 1 },
         ]);
+
       if (name === "skills") installSkillMentionEditor(ctx, () => ["plan"]);
+
       if (name === "border")
         installBorderEditor(ctx, {
           mounted() {},
@@ -53,8 +60,10 @@ it.each(permutations(["vim", "history", "skills", "border"]))(
             ),
         });
     }
+
     expect(ctx.ui.setEditorComponent).toHaveBeenCalledTimes(1);
     const identity = (s: string) => s;
+
     const editor = acquireEditorHost(ctx)!.create(
       createMockTui(),
       {
@@ -69,6 +78,7 @@ it.each(permutations(["vim", "history", "skills", "border"]))(
       },
       createKeybindings(),
     );
+
     editor.setText("$plan some 👩‍💻 wrapped text");
     editor.render(12);
     editor.handleInput("\x1b");

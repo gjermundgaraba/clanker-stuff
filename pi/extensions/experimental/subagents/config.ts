@@ -10,9 +10,13 @@ import { supportsSpawn, unknownSpawnModel, validateSpawnReasoning } from "./mode
 import type { SpawnModelRegistry } from "./model-catalog.js";
 
 const STRICT = { additionalProperties: false } as const;
+
 const ProtocolModeSchema = StringEnum(["auto", "off", "v1", "v2"] as const);
+
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
 export const ThinkingSchema = StringEnum(THINKING_LEVELS);
+
 const RoleSchema = Type.Object(
   {
     description: Type.Optional(Type.String({ minLength: 1 })),
@@ -32,6 +36,7 @@ const RoleSchema = Type.Object(
   },
   STRICT,
 );
+
 const PromptSchema = Type.Object(
   {
     child: Type.Optional(Type.String()),
@@ -49,6 +54,7 @@ const PromptSchema = Type.Object(
   },
   STRICT,
 );
+
 const SubagentsConfigSchema = Type.Object(
   {
     expose_spawn_agent_model_overrides: Type.Optional(Type.Boolean()),
@@ -64,7 +70,9 @@ const SubagentsConfigSchema = Type.Object(
 );
 
 export type ProtocolMode = Static<typeof ProtocolModeSchema>;
+
 export type RoleConfig = Static<typeof RoleSchema>;
+
 export interface SubagentsConfig {
   expose_spawn_agent_model_overrides: boolean;
   max_concurrent_threads_per_session?: number;
@@ -97,6 +105,7 @@ export const parseConfig = <T>(value: T): SubagentsConfig => {
   if (!Value.Check(SubagentsConfigSchema, value)) {
     throw new Error("config must be a strict version 1 object");
   }
+
   return {
     ...value,
     expose_spawn_agent_model_overrides: value.expose_spawn_agent_model_overrides ?? true,
@@ -117,6 +126,7 @@ export const loadConfig = async (
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { config: structuredClone(DEFAULT_CONFIG) };
     }
+
     return {
       config: structuredClone(DEFAULT_CONFIG),
       error: `Invalid ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -125,6 +135,7 @@ export const loadConfig = async (
 };
 
 export type AgentThinkingLevel = (typeof THINKING_LEVELS)[number];
+
 export interface ChildSettings {
   instructions?: string;
   model: Model<Api> | undefined;
@@ -141,9 +152,11 @@ const findModel = (
   protocol: "v1" | "v2",
 ): Model<Api> => {
   const model = registry.find(provider, modelId);
+
   if (!model || !supportsSpawn(model, protocol)) {
     throw unknownSpawnModel(modelId, registry, provider, protocol);
   }
+
   return model;
 };
 
@@ -156,9 +169,11 @@ export const parseModelOverride = (
   if (requested === undefined || requested === "") {
     return fallback;
   }
+
   if (fallback === undefined) {
     throw new Error("Cannot resolve a model override without an inherited parent model");
   }
+
   return findModel(fallback.provider, requested, registry, protocol);
 };
 
@@ -176,23 +191,31 @@ export const resolveChildSettings = (
     roleName !== undefined && Object.hasOwn(config.roles, roleName)
       ? config.roles[roleName]
       : undefined;
+
   if (roleName !== undefined && role === undefined) {
     throw new Error(`Unknown agent_type: ${roleName}`);
   }
+
   let model = parseModelOverride(requestedModel, registry, parentModel, protocol);
+
   if (role?.model !== undefined) {
     model = parseModelOverride(role.model, registry, parentModel, protocol);
   }
+
   const settings: ChildSettings = {
     model,
     thinking: role?.thinking ?? requestedThinking ?? parentThinking,
   };
+
   const explicitThinking = role?.thinking ?? requestedThinking;
+
   if (model !== undefined && explicitThinking !== undefined) {
     validateSpawnReasoning(model, explicitThinking);
   }
+
   if (role?.instructions !== undefined) {
     settings.instructions = role.instructions;
   }
+
   return settings;
 };

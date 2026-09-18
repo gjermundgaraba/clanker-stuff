@@ -16,10 +16,14 @@ const model = {
   id: "gpt-5.6-sol",
   cost: { input: 1, output: 2, cacheRead: 0.5, cacheWrite: 1.5 },
 };
+
 const context: Context = { messages: [{ role: "user", content: "server input", timestamp: 0 }] };
+
 const tokenizer = getEncoding("o200k_base");
+
 const textOf = (message: AssistantMessage) =>
   message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+
 const usage = {
   input_tokens: 14,
   output_tokens: 9,
@@ -30,19 +34,24 @@ const usage = {
 const fixture = async (fast = false) => {
   const credentials = new InMemoryCredentialStore();
   await credentials.modify("openai-codex", async () => ({ type: "api_key", key: SPIKE_API_KEY }));
+
   const models = await ModelRuntime.create({
     credentials,
     modelsPath: null,
     refreshOnCreate: false,
   });
+
   const registry = new ModelRegistry(models);
   const observations = new CodexObservability(":memory:");
   const runtime = createCodexProviderRuntime(observations, () => fast);
   registry.registerProvider(runtime.provider);
   const auth = await registry.getApiKeyAndHeaders(model);
+
   if (!auth.ok) throw new Error(auth.error);
   const provider = registry.getProvider(model.provider);
+
   if (!provider) throw new Error("Registry provider missing");
+
   return {
     runtime,
     observations,
@@ -52,21 +61,26 @@ const fixture = async (fast = false) => {
 };
 
 type Transport = "sse" | "websocket";
+
 const transportFixture = (transport: Transport, events: readonly unknown[]) => {
   let canceled = false;
   let signal: AbortSignal | null | undefined;
   const frames: unknown[] = [];
   let emitLate: (() => void) | undefined;
+
   if (transport === "sse") {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_url: unknown, init: RequestInit) => {
+      vi.fn(async (_url: Parameters<typeof fetch>[0], init: RequestInit) => {
         signal = init.signal;
         const headers = new Headers(init.headers);
+
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture distinguishes text from compressed bytes before inspecting emitted requests.
         if (typeof init.body === "string") frames.push(JSON.parse(init.body));
         else if (init.body instanceof Uint8Array && headers.get("content-encoding") === "zstd")
           frames.push(JSON.parse(zstdDecompressSync(init.body).toString("utf8")));
         let index = 0;
+
         return new Response(
           new ReadableStream<Uint8Array>({
             pull(controller) {
@@ -103,6 +117,7 @@ const transportFixture = (transport: Transport, events: readonly unknown[]) => {
           const frame = wireRecord(JSON.parse(data));
           frames.push(frame);
           const output = frame.generate === false ? responseEvents("prewarm", "") : events;
+
           for (const event of output)
             queueMicrotask(() =>
               value.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(event) })),
@@ -119,10 +134,13 @@ const transportFixture = (transport: Transport, events: readonly unknown[]) => {
             );
         },
       });
+
       queueMicrotask(() => value.dispatchEvent(new Event("open")));
+
       return value;
     });
   }
+
   return {
     frames,
     get canceled() {
@@ -147,6 +165,7 @@ describe("registry-backed isolated Codex sampling", () => {
     expect(() => new CodexSamplingBound({ ...model, id: "gpt-6-astra" }, 10)).toThrow(
       "No verified",
     );
+
     for (const budget of [0, -1, 1.2, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])
       expect(() => new CodexSamplingBound(model, budget)).toThrow("positive safe integer");
     expect(new CodexSamplingBound({ ...model, maxTokens: 5 }, 100).maxTokens).toBe(5);
@@ -162,10 +181,39 @@ describe("registry-backed isolated Codex sampling", () => {
   });
 
   for (const transport of ["sse", "websocket"] as const) {
+    it.each([-1, 0.5, "0", null])(
+      `${transport}: rejects malformed sampling indexes %j`,
+      async (outputIndex) => {
+        const { runtime, observations, stream } = await fixture();
+
+        const events = responseEvents("malformed-index", "text").map((event) => {
+          const record = wireRecord(event);
+
+          return record.type === "response.output_text.delta"
+            ? { ...record, output_index: outputIndex }
+            : event;
+        });
+
+        transportFixture(transport, events);
+        const scope = runtime.createSamplingScope(model, 64);
+
+        try {
+          const result = await scope.run(() => stream({ transport })).result();
+          expect(result.stopReason).toBe("error");
+          expect(result.errorMessage).toContain("Malformed sampling event envelope");
+          expect(textOf(result)).toBe("");
+        } finally {
+          await scope.dispose();
+          observations.close();
+        }
+      },
+    );
+
     for (const fast of [false, true]) {
       for (const responseTier of [undefined, "default", "priority", "flex"] as const) {
         it(`${transport}: ${fast ? "Fast" : "standard"} sampling and ordinary usage agree for ${responseTier ?? "missing"} response tier`, async () => {
           const { runtime, observations, stream } = await fixture(fast);
+
           const reportedUsage = {
             input_tokens: 14,
             input_tokens_details: { cached_tokens: 3, cache_write_tokens: 2 },
@@ -173,8 +221,10 @@ describe("registry-backed isolated Codex sampling", () => {
             output_tokens_details: { reasoning_tokens: 4 },
             total_tokens: 23,
           };
+
           const raw = responseEvents("sample", "ok");
           const terminal = wireRecord(raw.at(-1));
+
           const transportState = transportFixture(transport, [
             ...raw.slice(0, -1),
             {
@@ -186,7 +236,9 @@ describe("registry-backed isolated Codex sampling", () => {
               },
             },
           ]);
+
           const scope = runtime.createSamplingScope(model, 20);
+
           try {
             const ordinary = await stream({ transport, sessionId: "ordinary" }).result();
             const sample = await scope.run(() => stream({ transport })).result();
@@ -196,14 +248,18 @@ describe("registry-backed isolated Codex sampling", () => {
             expect(scope.status.usageComplete).toBe(true);
             expect(scope.status.usage).toEqual(sample.usage);
             expect(sample.usage).toEqual(ordinary.usage);
+
             const multiplier =
               responseTier === "flex" ? 0.5 : responseTier === "priority" || fast ? 2 : 1;
+
             const costs = { input: 9, output: 18, cacheRead: 1.5, cacheWrite: 3, total: 31.5 };
+
             for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const)
               expect(scope.status.usage?.cost[key]).toBeCloseTo(
                 (costs[key] * multiplier) / 1_000_000,
                 12,
               );
+
             for (const frame of transportState.frames)
               expect(wireRecord(frame).service_tier).toBe(fast ? "priority" : undefined);
           } finally {
@@ -223,6 +279,7 @@ describe("registry-backed isolated Codex sampling", () => {
           ...raw.slice(1),
         ]);
         const scope = runtime.createSamplingScope(model, 2);
+
         try {
           const result = await scope.run(() => stream({ transport })).result();
           expect(result.stopReason).toBe("length");
@@ -252,6 +309,7 @@ describe("registry-backed isolated Codex sampling", () => {
         ...raw.slice(3),
       ]);
       const scope = runtime.createSamplingScope(model, 4096);
+
       try {
         const result = await scope.run(() => stream({ transport })).result();
         expect(result.stopReason).toBe("stop");
@@ -265,11 +323,13 @@ describe("registry-backed isolated Codex sampling", () => {
 
     it(`${transport}: bounds authoritative completed text, refusals and multiple Unicode content items`, async () => {
       const { runtime, observations, stream } = await fixture();
+
       const samples = [
         ["hello", " 世界 👩🏽‍💻".repeat(30)],
         ["a", "bc def ghi jkl mno pqr stu"],
         ["é", "👩🏽‍💻世界".repeat(30)],
       ];
+
       for (const [first, second] of samples) {
         const events = [
           ...responseEvents("one", first!).slice(0, 4),
@@ -284,8 +344,10 @@ describe("registry-backed isolated Codex sampling", () => {
             },
           },
         ];
+
         transportFixture(transport, events);
         const scope = runtime.createSamplingScope(model, 4);
+
         try {
           const result = await scope.run(() => stream({ transport })).result();
           expect(result.stopReason).toBe("length");
@@ -296,6 +358,7 @@ describe("registry-backed isolated Codex sampling", () => {
           await scope.dispose();
         }
       }
+
       observations.close();
     });
     it(`${transport}: bounds oversized chunked UTF-8 output, aborts upstream, retains partial reported usage`, async () => {
@@ -303,6 +366,7 @@ describe("registry-backed isolated Codex sampling", () => {
       runtime.beginTurn("ordinary-pi-session");
       const baseline = runtime.samplingDiagnostics();
       const raw = responseEvents("sample", "hello 世界 👩🏽‍💻 ".repeat(30));
+
       const transportState = transportFixture(transport, [
         raw[0],
         { type: "response.in_progress", response: { usage } },
@@ -313,7 +377,9 @@ describe("registry-backed isolated Codex sampling", () => {
         raw[3],
         raw[4],
       ]);
+
       const scope = runtime.createSamplingScope(model, 6);
+
       try {
         const result = await scope.run(() => stream({ transport, timeoutMs: 30_000 })).result();
         expect(result.stopReason).toBe("length");
@@ -327,13 +393,16 @@ describe("registry-backed isolated Codex sampling", () => {
           usage: { output: 9 },
         });
         expect(transportState.canceled).toBeTruthy();
+
         if (transport === "sse") expect(transportState.signal?.aborted).toBeTruthy();
+
         for (const frame of transportState.frames)
           expect(frame).not.toHaveProperty("max_output_tokens");
       } finally {
         await scope.dispose();
         observations.close();
       }
+
       transportState.late();
       await Promise.resolve();
       expect(runtime.samplingDiagnostics()).toEqual(baseline);
@@ -344,9 +413,11 @@ describe("registry-backed isolated Codex sampling", () => {
       const { runtime, observations, stream } = await fixture();
       runtime.beginTurn("ordinary");
       const baseline = runtime.samplingDiagnostics();
+
       for (const id of [undefined, "sampling-id"]) {
         for (const scenario of ["success", "failure", "abort", "dispose", "conversion"] as const) {
           const raw = responseEvents("sample", "ok");
+
           const events =
             scenario === "failure"
               ? [
@@ -359,14 +430,22 @@ describe("registry-backed isolated Codex sampling", () => {
               : scenario === "abort" || scenario === "dispose"
                 ? raw.slice(0, 2)
                 : raw;
+
           transportFixture(transport, events);
           const caller = new AbortController();
           const scope = runtime.createSamplingScope(model, 30);
           let result: AssistantMessage | undefined;
+
           try {
             const running = scope.run(() =>
-              stream({ transport, sessionId: id, signal: caller.signal, timeoutMs: 1000 }),
+              stream({
+                transport,
+                ...(id !== undefined ? { sessionId: id } : {}),
+                signal: caller.signal,
+                timeoutMs: 1000,
+              }),
             );
+
             if (scenario === "abort" || scenario === "dispose") {
               for await (const event of running) {
                 if (event.type === "start") {
@@ -376,7 +455,9 @@ describe("registry-backed isolated Codex sampling", () => {
                 }
               }
             }
+
             result = await running.result();
+
             if (scenario === "conversion") throw new Error("conversion failed");
           } catch (error) {
             expect(scenario).toBe("conversion");
@@ -384,6 +465,7 @@ describe("registry-backed isolated Codex sampling", () => {
           } finally {
             await scope.dispose();
           }
+
           expect(result?.stopReason).toBe(
             scenario === "failure"
               ? "error"
@@ -391,11 +473,13 @@ describe("registry-backed isolated Codex sampling", () => {
                 ? "aborted"
                 : "stop",
           );
+
           if (scenario === "success")
             expect(scope.status).toMatchObject({
               usageComplete: true,
               usage: { input: 8, output: 2 },
             });
+
           if (scenario === "failure")
             expect(scope.status).toMatchObject({
               usageComplete: false,
@@ -405,6 +489,7 @@ describe("registry-backed isolated Codex sampling", () => {
           expect(() => scope.run(() => stream({ transport }))).toThrow("disposed");
         }
       }
+
       observations.close();
     });
   }
@@ -422,6 +507,7 @@ describe("registry-backed isolated Codex sampling", () => {
       { ...terminal, response },
     ]);
     const scope = runtime.createSamplingScope(model, 20);
+
     try {
       expect((await scope.run(() => stream({ transport: "sse" })).result()).stopReason).toBe(
         "stop",
@@ -464,6 +550,7 @@ describe("registry-backed isolated Codex sampling", () => {
     vi.stubGlobal("WebSocket", function WebSocket() {
       socket = Object.assign(new EventTarget(), { readyState: 0, send() {}, close() {} });
       created.resolve();
+
       return socket;
     });
     const connecting = runtime.createSamplingScope(model, 20);
@@ -477,17 +564,20 @@ describe("registry-backed isolated Codex sampling", () => {
 
     const decoded = Promise.withResolvers<string>();
     const submitted = Promise.withResolvers<void>();
+
     class LateBlob extends Blob {
       override text() {
         return decoded.promise;
       }
     }
+
     vi.stubGlobal("WebSocket", function WebSocket() {
       const value = Object.assign(new EventTarget(), {
         readyState: 1,
         close() {},
         send(data: string) {
           const frame = wireRecord(JSON.parse(data));
+
           if (frame.generate === false) {
             for (const event of responseEvents("prewarm", ""))
               queueMicrotask(() =>
@@ -501,7 +591,9 @@ describe("registry-backed isolated Codex sampling", () => {
           }
         },
       });
+
       queueMicrotask(() => value.dispatchEvent(new Event("open")));
+
       return value;
     });
     const late = runtime.createSamplingScope(model, 20);
@@ -538,10 +630,13 @@ describe("registry-backed isolated Codex sampling", () => {
     await second.dispose();
     const delayed = runtime.createSamplingScope(model, 20);
     const gate = Promise.withResolvers<void>();
+
     const late = delayed.run(async () => {
       await gate.promise;
+
       return stream({ transport: "sse" });
     });
+
     await delayed.dispose();
     gate.resolve();
     await expect(late).rejects.toThrow("disposed");
@@ -554,13 +649,16 @@ describe("registry-backed isolated Codex sampling", () => {
     runtime.beginTurn("ordinary");
     const baseline = runtime.samplingDiagnostics();
     const scope = runtime.createSamplingScope(model, 20);
+
     try {
       expect(() => scope.run(() => stream({ sessionId: "ordinary" }))).toThrow("collides");
     } finally {
       await scope.dispose();
     }
+
     expect(runtime.samplingDiagnostics()).toEqual(baseline);
     const images = runtime.createSamplingScope(model, 20);
+
     try {
       expect(() =>
         images.run(() =>
@@ -582,6 +680,7 @@ describe("registry-backed isolated Codex sampling", () => {
     } finally {
       await images.dispose();
     }
+
     expect(runtime.samplingDiagnostics()).toEqual(baseline);
     observations.close();
   });

@@ -6,12 +6,18 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const CHECK_READMES_PATH = path.join(import.meta.dirname, "check-readmes.ts");
+
 const DESCRIPTION = "Adds a sample extension.";
+
 const PACKAGE_NAME = "@clanker-stuff/sample";
+
 const EXPERIMENTAL_DESCRIPTION = "Previews an unstable extension.";
+
 const EXPERIMENTAL_PACKAGE_NAME = "@clanker-stuff/preview";
+
 const EXPERIMENTAL_NOTICE =
   "Experimental extensions are not published to npm and are not stable daily drivers; they may change incompatibly or be deleted without notice.";
+
 const tempDirs: string[] = [];
 
 const createFixture = (usage: string, finalNewline = true, experimental = false) => {
@@ -39,6 +45,7 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
       private: false,
     }),
   );
+
   if (experimental) {
     const experimentalDir = path.join(root, "pi/extensions/experimental/preview");
     mkdirSync(experimentalDir, { recursive: true });
@@ -52,9 +59,11 @@ const createFixture = (usage: string, finalNewline = true, experimental = false)
       }),
     );
   }
+
   const experimentalSection = experimental
     ? `\n\n## Experimental pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${EXPERIMENTAL_PACKAGE_NAME}\`](pi/extensions/experimental/preview) | ${EXPERIMENTAL_DESCRIPTION} |\n\n${EXPERIMENTAL_NOTICE}`
     : "";
+
   writeFileSync(
     path.join(root, "README.md"),
     `# clanker stuff\n\nFixture repository.\n\n## Pi extensions\n\n| Extension | Description |\n| --- | --- |\n| [\`${PACKAGE_NAME}\`](sample) | ${DESCRIPTION} |${experimentalSection}\n\n## Claude Code plugins\n\nNone.\n\n## Codex plugins\n\nNone.\n\n## Development\n\nRequires Vite+ and Node.js 26 or newer. Run \`vp run ready\`.\n\n## License\n\n[MIT](LICENSE)\n`,

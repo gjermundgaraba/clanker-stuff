@@ -30,10 +30,12 @@ describe("lazy singleton", () => {
 
   it("retries after initialization fails", async () => {
     const value = { id: "loaded" };
+
     const create = vi
       .fn<() => Promise<typeof value>>()
       .mockRejectedValueOnce(new Error("load failed"))
       .mockResolvedValueOnce(value);
+
     const singleton = createLazySingleton(create);
 
     await expect(singleton.load()).rejects.toThrow("load failed");
@@ -43,9 +45,11 @@ describe("lazy singleton", () => {
 
   it("stops terminally and disposes an in-flight result once", async () => {
     const loading = Promise.withResolvers<{ id: string }>();
+
     const dispose = vi.fn<(value: { id: string }) => Promise<void>>(
       async () => await Promise.resolve(),
     );
+
     const singleton = createLazySingleton(() => loading.promise);
 
     const load = singleton.load();

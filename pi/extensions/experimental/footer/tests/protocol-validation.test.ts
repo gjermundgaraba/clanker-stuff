@@ -44,6 +44,7 @@ describe("protocol validation", () => {
 
   it("copies validated icon glyph maps", () => {
     const glyphs = { ascii: "A" };
+
     const result = validateFooterWidgetMessage({
       instanceId: "host",
       protocol: 1,
@@ -53,11 +54,14 @@ describe("protocol validation", () => {
         icon: { glyphs },
       },
     });
+
     if (!result.ok || result.value.type !== "upsert") {
       throw new Error("expected valid upsert");
     }
+
     glyphs.ascii = "B";
     const { icon } = result.value.widget;
+
     if (icon === undefined || icon === false || !Value.Check(GlyphMapSchema, icon.glyphs)) {
       throw new Error("expected glyph map");
     }
@@ -139,28 +143,34 @@ describe("widget message refinements", () => {
       type: "upsert",
       widget: { id: "example.widget", label: "Example", content: [], ...fields },
     };
+
     expect(Value.Check(FooterWidgetMessageSchema, message)).toBe(true);
     expect(validateFooterWidgetMessage(message)).toMatchObject({ ok: false, class: kind });
   });
 
   it("copies all mutable fields and counts aggregate code points", () => {
+    const firstSpan = { text: "🦄".repeat(512) };
+
     const widget = {
       id: "example.widget",
       label: "🦄".repeat(80),
-      content: [{ text: "🦄".repeat(512) }, { text: "🦄".repeat(512) }],
+      content: [firstSpan, { text: "🦄".repeat(512) }],
       defaults: { enabled: true },
       health: { state: "ready" as const, message: "ready" },
       consumesStatusKeys: ["native"],
     };
+
     const result = validateFooterWidgetMessage({
       instanceId: "host",
       protocol: 1,
       type: "upsert",
       widget,
     });
+
     expect(result.ok).toBe(true);
+
     if (!result.ok || result.value.type !== "upsert") throw new Error("expected upsert");
-    widget.content[0].text = "changed";
+    firstSpan.text = "changed";
     widget.defaults.enabled = false;
     widget.health.message = "changed";
     widget.consumesStatusKeys[0] = "changed";

@@ -16,19 +16,23 @@ describe("context command", () => {
       allTools: ["read", "bash"],
       activeTools: ["read"],
     });
+
     const session = SessionManager.inMemory();
     session.appendMessage({ role: "user", content: "RESTORED MESSAGE", timestamp: 0 });
+
     for (const prompt of ["FIRST PROMPT", "UPDATED PROMPT"]) {
       const ui = createCustomUiDriver({
         captureRender: "before",
         keys: ["\u001B"],
         width: 120,
-        keybindings: createKeybindings({ "tui.select.cancel": ["\u001B"] }),
+        keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
         onComponent(component) {
           expect(component.render(120).join("\n")).toContain(prompt);
+
           for (const key of ["j", "j", "j", "j"]) component.handleInput?.(key);
         },
       });
+
       await host.runCommand(
         "context",
         "",
@@ -42,6 +46,7 @@ describe("context command", () => {
       expect(ui.getLastRender()).toContain("RESTORED MESSAGE");
       expect(ui.getLastRender()).toContain("Active tools (1)");
     }
+
     expect([...host.getRegisteredCommands().keys()]).toEqual(["context"]);
   });
 
@@ -50,10 +55,11 @@ describe("context command", () => {
     const tui = Object.assign(createMockTui(), { mode: "regular" });
     const write = vi.fn();
     Object.assign(tui.terminal, { write });
+
     const ui = createCustomUiDriver({
       tui,
       keys: ["\u001B"],
-      keybindings: createKeybindings({ "tui.select.cancel": ["\u001B"] }),
+      keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
       async onComponent(component) {
         if (isFocusable(component)) component.focused = true;
         expect(write).toHaveBeenLastCalledWith("\u001B[?1000h\u001B[?1006h");
@@ -61,6 +67,7 @@ describe("context command", () => {
         expect(write).toHaveBeenLastCalledWith("\u001B[?1006l\u001B[?1000l");
       },
     });
+
     await host.runCommand(
       "context",
       "",

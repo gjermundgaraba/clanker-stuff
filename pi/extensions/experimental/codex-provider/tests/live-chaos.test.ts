@@ -21,6 +21,7 @@ class FakeChild extends EventEmitter {
   kill(signal: NodeJS.Signals) {
     this.signals.push(signal);
     queueMicrotask(() => this.emit("exit", null, signal));
+
     return true;
   }
 }
@@ -49,21 +50,26 @@ const captureError = async (promise: Promise<unknown>) => {
 
 const rpcCompactionHarness = () => {
   type Listener = Parameters<RpcClient["onEvent"]>[0];
+
   const compaction = Promise.withResolvers<Awaited<ReturnType<RpcClient["compact"]>>>();
   const listeners = new Set<Listener>();
+
   const client = {
     abort: vi.fn(async () => {}),
     compact: vi.fn(() => compaction.promise),
     onEvent: vi.fn((listener: Listener) => {
       listeners.add(listener);
+
       return () => listeners.delete(listener);
     }),
   } satisfies Pick<RpcClient, "abort" | "compact" | "onEvent">;
+
   const start = () => {
     for (const listener of listeners) {
       listener({ type: "compaction_start", reason: "manual" });
     }
   };
+
   return { client, compaction, listeners, start };
 };
 
@@ -79,6 +85,7 @@ describe("live chaos infrastructure", () => {
       killSignal: "SIGKILL",
       timeout: 10_000,
     });
+
     const output = `${result.stdout}${result.stderr}`;
 
     expect(result.status).toBe(0);
@@ -89,9 +96,11 @@ describe("live chaos infrastructure", () => {
   it("waits for a complete artifact line before polling", async () => {
     const child = new FakeChild();
     const stdout = new PassThrough();
+
     const find = vi.fn<(root: string) => Promise<object | undefined>>(async () => ({
       checkpoint: true,
     }));
+
     const result = watch(child, stdout, find);
 
     stdout.write("Live artifacts: /tmp/part");
@@ -109,9 +118,11 @@ describe("live chaos infrastructure", () => {
   it("propagates polling errors and stops all later polling", async () => {
     const child = new FakeChild();
     const stdout = new PassThrough();
+
     const find = vi
       .fn<(root: string) => Promise<object | undefined>>()
       .mockRejectedValue(new Error("unreadable session"));
+
     const result = watch(child, stdout, find);
     const rejection = captureError(result);
 
@@ -147,10 +158,13 @@ describe("live chaos infrastructure", () => {
       const stdout = new PassThrough();
       const lookup = Promise.withResolvers<object | undefined>();
       const lookupStarted = Promise.withResolvers<void>();
+
       const find = vi.fn<(root: string) => Promise<object | undefined>>(() => {
         lookupStarted.resolve();
+
         return lookup.promise;
       });
+
       const result = watch(child, stdout, find);
 
       stdout.write("Live artifacts: /tmp/artifacts\n");
@@ -174,10 +188,13 @@ describe("live chaos infrastructure", () => {
     const stdout = new PassThrough();
     const lookup = Promise.withResolvers<object | undefined>();
     const lookupStarted = Promise.withResolvers<void>();
+
     const find = vi.fn<(root: string) => Promise<object | undefined>>(() => {
       lookupStarted.resolve();
+
       return lookup.promise;
     });
+
     const result = watch(child, stdout, find);
 
     stdout.write("Live artifacts: /tmp/artifacts\n");
@@ -197,10 +214,13 @@ describe("live chaos infrastructure", () => {
     const stdout = new PassThrough();
     const lookup = Promise.withResolvers<object | undefined>();
     const lookupStarted = Promise.withResolvers<void>();
+
     const find = vi.fn<(root: string) => Promise<object | undefined>>(() => {
       lookupStarted.resolve();
+
       return lookup.promise;
     });
+
     const rejection = captureError(watch(child, stdout, find));
     const failure = new Error("child failed");
 
@@ -265,6 +285,7 @@ describe("live chaos infrastructure", () => {
     const cancellation = new Error("Compaction cancelled");
     client.abort.mockImplementation(() => {
       abortCalled.resolve();
+
       return aborting.promise;
     });
 

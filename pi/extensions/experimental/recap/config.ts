@@ -7,6 +7,7 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
+
 const RecapConfigSchema = Type.Object(
   {
     model: Type.Object(
@@ -27,6 +28,7 @@ export type RecapConfig = Static<typeof RecapConfigSchema>;
 
 export const getRecapConfigPath = (): string => getExtensionStoragePaths("recap").configFile;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for the parsed config file.
 export const parseRecapConfig = (value: unknown): RecapConfig => {
   if (!Value.Check(RecapConfigSchema, value)) {
     throw new Error(
@@ -36,14 +38,17 @@ export const parseRecapConfig = (value: unknown): RecapConfig => {
 
   const provider = value.model.provider.trim();
   const id = value.model.id.trim();
+
   if (provider.length === 0 || id.length === 0) {
     throw new Error("model.provider and model.id must be non-empty");
   }
 
   const config: RecapConfig = { model: { id, provider } };
+
   if (value.thinking !== undefined) {
     config.thinking = value.thinking;
   }
+
   return config;
 };
 

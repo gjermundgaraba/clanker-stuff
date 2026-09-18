@@ -1,27 +1,34 @@
+import assert from "node:assert/strict";
 import { afterEach, describe, it, expect, vi } from "vite-plus/test";
 import { Delivery } from "../delivery.js";
 import { Inbox, type Batch } from "../inbox.js";
 
 const deliveries: Delivery[] = [];
+
 afterEach(() => {
   for (const d of deliveries.splice(0)) d.close();
   vi.useRealTimers();
 });
+
 function setup() {
   vi.useFakeTimers();
   const inbox = new Inbox();
   const batches: Batch[] = [];
   let ready = true;
   let fail = false;
+
   const delivery = new Delivery(inbox, {
     ready: () => ready,
     send: (batch) => {
       batches.push(batch);
+
       if (fail) throw new Error("send failed");
     },
     changed: () => {},
   });
+
   deliveries.push(delivery);
+
   return {
     inbox,
     delivery,
@@ -40,19 +47,24 @@ function setup() {
     },
   };
 }
+
 const add = (inbox: Inbox) => inbox.add({ taskId: "a", terminal: false, reason: "observation" });
 
 describe("Delivery", () => {
   it("automatically delivers successive batches", () => {
     const { delivery, inbox, batches } = setup();
+
     for (let i = 0; i < 20; i++) {
       add(inbox);
       delivery.schedule();
       vi.advanceTimersByTime(100);
       expect(batches).toHaveLength(i + 1);
-      delivery.acknowledge(batches[i].id);
+      const batch = batches[i];
+      assert.ok(batch);
+      delivery.acknowledge(batch.id);
       delivery.settled();
     }
+
     expect(inbox.count).toBe(0);
   });
   it("waits for both observation and settle before dispatching the next batch", () => {
@@ -64,7 +76,9 @@ describe("Delivery", () => {
     delivery.schedule();
     vi.advanceTimersByTime(100);
     expect(batches).toHaveLength(1);
-    delivery.acknowledge(batches[0].id);
+    const [batch] = batches;
+    assert.ok(batch);
+    delivery.acknowledge(batch.id);
     delivery.schedule();
     vi.advanceTimersByTime(100);
     expect(batches).toHaveLength(1);
@@ -125,7 +139,7 @@ describe("Delivery", () => {
     s.recover();
     vi.advanceTimersByTime(1);
     expect(s.batches).toHaveLength(2);
-    expect(s.batches[1].events[0].id).toBe(event.id);
+    expect(s.batches[1]?.events[0]?.id).toBe(event.id);
   });
   it("retries an unobserved notice only after the agent settles", () => {
     const { delivery, inbox, batches } = setup();
@@ -139,7 +153,7 @@ describe("Delivery", () => {
     expect(batches).toHaveLength(1);
     vi.advanceTimersByTime(1);
     expect(batches).toHaveLength(2);
-    expect(batches[1].events[0].id).toBe(event.id);
+    expect(batches[1]?.events[0]?.id).toBe(event.id);
   });
   it("releases terminal capacity when Pi observes the notification", () => {
     const { delivery, inbox, batches } = setup();
@@ -148,7 +162,9 @@ describe("Delivery", () => {
     delivery.schedule();
     vi.advanceTimersByTime(100);
     expect(inbox.protected("a")).toBe(true);
-    delivery.acknowledge(batches[0].id);
+    const [batch] = batches;
+    assert.ok(batch);
+    delivery.acknowledge(batch.id);
     expect(inbox.protected("a")).toBe(false);
     expect(inbox.count).toBe(0);
     expect(inbox.lookup("a")).toHaveLength(1);

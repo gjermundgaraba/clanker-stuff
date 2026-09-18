@@ -53,6 +53,7 @@ describe(parseConfig, () => {
       version: 1,
     });
     expect(() => parseConfig({ unknown: true, version: 1 })).toThrow("strict");
+
     for (const max of [0, 1.5]) {
       expect(() =>
         parseConfig({
@@ -70,6 +71,7 @@ describe(parseConfig, () => {
       model("other", "unique"),
       model("parent", "nested/model"),
     ];
+
     const registry = {
       getAvailable: () => [],
       find: (provider: string, id: string) =>
@@ -109,6 +111,7 @@ describe(parseConfig, () => {
     const parentRoleModel = model("parent", "role-model");
     const requestedProviderRoleModel = model("requested", "role-model");
     const requested = model("requested", "request-model");
+
     const registry = {
       getAvailable: () => [],
       find: (provider: string, id: string) =>

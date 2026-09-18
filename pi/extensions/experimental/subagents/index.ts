@@ -7,13 +7,16 @@ import { SubagentManager } from "./manager.js";
 const subagents = async (pi: ExtensionAPI) => {
   const paths = getExtensionStoragePaths("subagents");
   const loaded = await loadConfig(paths.configFile);
+
   const options = {
     config: loaded.config,
     dataDir: paths.dataDir,
   };
+
   if (loaded.error !== undefined) {
     Object.assign(options, { configError: loaded.error });
   }
+
   const manager = new SubagentManager(pi, options);
 
   pi.on("session_start", manager.start.bind(manager));
@@ -33,6 +36,7 @@ const subagents = async (pi: ExtensionAPI) => {
     description: "Show the durable subagent tree",
     handler: (_args, ctx) => {
       ctx.ui.notify(manager.describe(), "info");
+
       return Promise.resolve();
     },
   });

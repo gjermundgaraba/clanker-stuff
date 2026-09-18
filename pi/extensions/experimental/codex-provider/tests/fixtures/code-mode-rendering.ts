@@ -9,6 +9,7 @@ import { formatProcessMetadata } from "../../tools/process-metadata.js";
 import { stripVTControlCharacters } from "node:util";
 
 export type Context = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
+
 export const context = (expanded = false): Context => ({
   args: {},
   argsComplete: true,
@@ -23,17 +24,23 @@ export const context = (expanded = false): Context => ({
   state: {},
   toolCallId: "synthetic",
 });
+
 export const theme = createIdentityTheme();
+
 // Content rows only: the shell's blank padding rows and one-column side padding are dropped.
 // Content never starts or ends with a blank row.
 export const rows = (component: Component, width = 80): string[] => {
   const lines = component
     .render(width)
     .map((line) => stripVTControlCharacters(line).trimEnd().replace(/^ /u, ""));
+
   while (lines[0] === "") lines.shift();
+
   while (lines.at(-1) === "") lines.pop();
+
   return lines;
 };
+
 export const codeModeTool = (
   name = "exec",
   definitions: ToolDefinition[] = createCodexDirectTools().nestedDefinitions,
@@ -41,9 +48,12 @@ export const codeModeTool = (
   const runtime = new CodeModeRuntime();
   runtime.setNestedTools(definitions.map((definition) => ({ definition })));
   const tool = runtime.createTools().find((tool) => tool.name === name);
+
   if (!tool?.renderCall || !tool.renderResult) throw new Error("Missing Code Mode renderer");
+
   return { definition: tool, renderCall: tool.renderCall, renderResult: tool.renderResult };
 };
+
 export const processTrace = (
   id: string,
   cmd: string,
@@ -61,6 +71,7 @@ export const processTrace = (
       original_token_count: 30,
     },
   };
+
   return {
     id,
     input: { cmd },
@@ -72,6 +83,7 @@ export const processTrace = (
     },
   };
 };
+
 export const result = (traces: RuntimeToolTrace[], output: string[] = [], status = "result") => ({
   content: [
     { type: "text" as const, text: "Script completed" },

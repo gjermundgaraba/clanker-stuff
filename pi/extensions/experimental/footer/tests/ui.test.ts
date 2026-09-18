@@ -16,6 +16,7 @@ import { FooterEditor, showFooterEditor } from "../ui.js";
 describe("footer editor", () => {
   it("moves a grabbed chip through the real row configuration", () => {
     let preview: FooterConfig | undefined;
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -86,6 +87,7 @@ describe("footer editor", () => {
     const onSave = vi.fn<(config: FooterConfig) => Promise<void>>(async () => {
       await Promise.resolve();
     });
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -117,6 +119,7 @@ describe("footer editor", () => {
   it("restores the loaded preview when closed without saving", () => {
     const done = vi.fn<(value: null) => void>();
     const onPreview = vi.fn<(config: FooterConfig) => void>();
+
     const editor = new FooterEditor(createIdentityTheme(), vi.fn<() => void>(), done, {
       loaded: {
         config: cloneFooterConfig(DEFAULT_CONFIG),
@@ -139,8 +142,10 @@ describe("footer editor", () => {
   it("opens as a bounded overlay", async () => {
     let customOptions: unknown;
     const driver = createCustomUiDriver({ keys: ["q"] });
+
     const custom: ExtensionCommandContext["ui"]["custom"] = async (factory, options) => {
       customOptions = options;
+
       return await driver.custom(factory);
     };
 
@@ -174,6 +179,7 @@ describe("footer editor", () => {
 
   it("adds an unplaced aggregate member through its cell picker", () => {
     let preview: FooterConfig | undefined;
+
     const config: FooterConfig = {
       enabled: true,
       iconFamily: "unicode",
@@ -182,6 +188,7 @@ describe("footer editor", () => {
       version: 1,
       widgets: { "example.rich": { enabled: false } },
     };
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -213,6 +220,7 @@ describe("footer editor", () => {
 
   it("opens the picker for the selected non-first-row cell", () => {
     let preview: FooterConfig | undefined;
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -245,6 +253,7 @@ describe("footer editor", () => {
     for (let index = 0; index < 5; index += 1) {
       editor.handleInput("\u001B[C");
     }
+
     editor.handleInput("\r");
     expect(editor.render(80).join("\n")).toContain("Add · row 2 right");
     editor.handleInput("\r");
@@ -254,6 +263,7 @@ describe("footer editor", () => {
 
   it("adds and removes aggregate placements as real chips", () => {
     let preview: FooterConfig | undefined;
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -297,6 +307,7 @@ describe("footer editor", () => {
   it("uses injected keybindings for navigation, confirm, and cancel", () => {
     let preview: FooterConfig | undefined;
     const done = vi.fn<(value: null) => void>();
+
     const keybindings = {
       matches: (data: string, action: string) =>
         ({
@@ -306,6 +317,7 @@ describe("footer editor", () => {
           "tui.select.up": "p",
         })[action] === data,
     };
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -339,9 +351,11 @@ describe("footer editor", () => {
 
   it("prioritizes colliding selection bindings over editor shortcuts", () => {
     const onPreview = vi.fn<(config: FooterConfig) => void>();
+
     const onSave = vi.fn<(config: FooterConfig) => Promise<void>>(async () => {
       await Promise.resolve();
     });
+
     const keybindings = {
       matches: (data: string, action: string) =>
         ({
@@ -350,6 +364,7 @@ describe("footer editor", () => {
           "tui.select.up": "r",
         })[action] === data,
     };
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -376,15 +391,19 @@ describe("footer editor", () => {
 
   it("uses remapped bindings inside the widget picker", () => {
     const previousKeybindings = getKeybindings();
+
     const keybindings = new KeybindingsManager(TUI_KEYBINDINGS, {
       "tui.select.cancel": "x",
       "tui.select.confirm": "s",
       "tui.select.down": "n",
       "tui.select.up": "p",
     });
+
     setKeybindings(keybindings);
+
     try {
       let preview: FooterConfig | undefined;
+
       const editor = new FooterEditor(
         createIdentityTheme(),
         vi.fn<() => void>(),
@@ -412,6 +431,7 @@ describe("footer editor", () => {
       );
 
       editor.handleInput("s");
+
       for (const [input, selected] of [
         ["l", "Beta"],
         ["h", "Alpha"],
@@ -421,10 +441,11 @@ describe("footer editor", () => {
         ["k", "Alpha"],
         ["\u001B[B", "Beta"],
         ["\u001B[A", "Alpha"],
-      ]) {
+      ] as const) {
         editor.handleInput(input);
         expect(editor.render(80).join("\n")).toContain(`→ ${selected}`);
       }
+
       editor.handleInput("n");
       editor.handleInput("s");
       expect(preview?.rows[0]?.left).toStrictEqual(["beta"]);
@@ -442,9 +463,11 @@ describe("footer editor", () => {
 
   it("marks changes made during an in-flight save as unsaved", async () => {
     const saving = Promise.withResolvers<null>();
+
     const onSave = vi.fn<(config: FooterConfig) => Promise<void>>(async () => {
       await saving.promise;
     });
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -473,6 +496,7 @@ describe("footer editor", () => {
   it("serializes concurrent saves with immutable snapshots", async () => {
     const first = Promise.withResolvers<null>();
     const second = Promise.withResolvers<null>();
+
     const onSave = vi
       .fn<(config: FooterConfig) => Promise<void>>()
       .mockImplementationOnce(async () => {
@@ -481,6 +505,7 @@ describe("footer editor", () => {
       .mockImplementationOnce(async () => {
         await second.promise;
       });
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -511,6 +536,7 @@ describe("footer editor", () => {
     const onSave = vi.fn<(config: FooterConfig) => Promise<void>>(async () => {
       await Promise.resolve();
     });
+
     const editor = new FooterEditor(
       createIdentityTheme(),
       vi.fn<() => void>(),
@@ -572,9 +598,11 @@ describe("footer editor", () => {
     );
 
     editor.handleInput("\r");
+
     for (let index = 0; index < 6; index += 1) {
       editor.handleInput("\u001B[B");
     }
+
     const rendered = editor.render(80).join("\n");
 
     expect(rendered).toContain("Widget 006");

@@ -16,8 +16,10 @@ export const showToolsPicker = async (
       label: tool.name,
       values: ["enabled", "disabled"],
     }));
+
     const container = new Container();
     container.addChild(new Text(theme.fg("accent", theme.bold("Tool Configuration")), 0, 1));
+
     const settings = new SettingsList(
       items,
       Math.min(items.length + 2, 15),
@@ -29,6 +31,7 @@ export const showToolsPicker = async (
         done(null);
       },
     );
+
     container.addChild(settings);
 
     return {

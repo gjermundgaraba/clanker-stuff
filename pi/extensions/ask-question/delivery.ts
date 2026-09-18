@@ -22,6 +22,7 @@ export function answerEnvelope(item: Interaction, submission: Submission) {
     changed: submissionChanges(item, submission),
   };
 }
+
 export function answerSummary(item: Interaction, submission: Submission): string {
   const summary = [
     `${item.request.title ?? "Questionnaire"} · ${item.id} · revision ${submission.revision}${submission.parent_revision ? ` · supersedes revision ${submission.parent_revision}` : ""}`,
@@ -30,17 +31,22 @@ export function answerSummary(item: Interaction, submission: Submission): string
         `${a.header}: ${[...a.selections.map((s) => s.label), ...(a.custom ? [a.custom.text] : [])].join(", ")}`,
     ),
   ].join("\n");
+
   return summary.length > 700
     ? `${summary.slice(0, 680)}… (full structured answer below)`
     : summary;
 }
+
 export function answerMessage(item: Interaction, submission: Submission): string {
   return `${answerSummary(item, submission)}\n\n${JSON.stringify(answerEnvelope(item, submission))}`;
 }
+
 export function answerResult(item: Interaction, submission: Submission) {
   const details = answerEnvelope(item, submission);
+
   return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
 }
+
 /** Correlation requires exact authored answer content, never a receipt or an ID substring. */
 export function isDelivered(
   item: Interaction,
@@ -48,21 +54,24 @@ export function isDelivered(
   branch: SessionEntry[],
 ): boolean {
   const resultText = JSON.stringify(answerEnvelope(item, submission));
+
   return branch.some((entry) => {
     if (entry.type !== "message") return false;
     const message = entry.message;
+
     if (message.role === "user") {
-      const text =
-        typeof message.content === "string"
-          ? message.content
-          : message.content
-              .filter((c) => c.type === "text")
-              .map((c) => c.text)
-              .join("\n");
+      const text = Array.isArray(message.content)
+        ? message.content
+            .filter((c) => c.type === "text")
+            .map((c) => c.text)
+            .join("\n")
+        : message.content;
+
       // TUI Stop can restore this answer alongside unrelated queued text.
       // Require the complete immutable envelope, not a coincidental ID substring.
       return text.split("\n").some((line) => line.trim() === resultText);
     }
+
     return (
       message.role === "toolResult" &&
       !message.isError &&

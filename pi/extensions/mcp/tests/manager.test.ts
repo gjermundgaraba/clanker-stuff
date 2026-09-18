@@ -11,6 +11,7 @@ describe("mcp manager", () => {
 
   it("sets, lists, and removes raw config through the manager", async () => {
     const host = await t.loadManager({ cwd: t.projectDir });
+
     for (const { definition } of host.getRegisteredTools().values()) {
       expect(definition.renderCall).toBeTypeOf("function");
       expect(definition.renderResult).toBeTypeOf("function");
@@ -96,6 +97,7 @@ describe("mcp manager", () => {
     const host = await t.loadManager();
 
     await host.runTool("mcp_connect", { name: "github" });
+
     const result = await host.runTool(toGeneratedToolName("github", "search"), {
       query: "managed",
     });

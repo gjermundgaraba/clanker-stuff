@@ -47,6 +47,7 @@ export type {
   FauxProviderRegistration,
   FauxResponseStep,
 } from "@earendil-works/pi-ai";
+
 export type {
   AgentSession,
   AgentSessionEvent,
@@ -77,6 +78,7 @@ const CapturedProviderPayloadSchema = Type.Object(
   },
   { additionalProperties: true },
 );
+
 type CapturedProviderPayload = Static<typeof CapturedProviderPayloadSchema>;
 
 const applyCapturedPayloadToContext = (
@@ -84,15 +86,19 @@ const applyCapturedPayloadToContext = (
   candidate: CapturedProviderPayload,
 ): Context => {
   const merged: Context = { ...context };
+
   if (candidate.systemPrompt !== undefined) {
     merged.systemPrompt = candidate.systemPrompt;
   }
+
   if (candidate.messages !== undefined) {
     merged.messages = candidate.messages;
   }
+
   if (candidate.tools !== undefined) {
     merged.tools = candidate.tools;
   }
+
   return merged;
 };
 
@@ -129,7 +135,9 @@ const wrapFauxProviderPayloadHooks = (
             systemPrompt: context.systemPrompt,
             tools: context.tools,
           };
+
           const nextPayload = await streamOptions?.onPayload?.(syntheticPayload, model);
+
           const finalPayload = Value.Parse(
             CapturedProviderPayloadSchema,
             nextPayload === undefined ? syntheticPayload : nextPayload,
@@ -138,10 +146,10 @@ const wrapFauxProviderPayloadHooks = (
           hookOptions?.onFinalPayload?.(finalPayload);
 
           const nextContext = applyCapturedPayloadToContext(context, finalPayload);
-          const inner = delegate(model, nextContext, {
-            ...streamOptions,
-            onPayload: undefined,
-          });
+
+          const delegateOptions: StreamOptions | SimpleStreamOptions = { ...streamOptions };
+          delete delegateOptions.onPayload;
+          const inner = delegate(model, nextContext, delegateOptions);
 
           for await (const event of inner) {
             outer.push(event);
@@ -156,6 +164,7 @@ const wrapFauxProviderPayloadHooks = (
             model: model.id,
             provider: model.provider,
           };
+
           outer.push({
             error: errorMessage,
             reason: "error",
@@ -243,7 +252,7 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
 
     const providerPayloads: CapturedProviderPayload[] = [];
 
-    const localFaux = fauxProvider({ models: options.models });
+    const localFaux = fauxProvider(options.models === undefined ? {} : { models: options.models });
     localFaux.setResponses([]);
 
     const withConfiguredAuth = options.withConfiguredAuth ?? true;
@@ -253,13 +262,16 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
       credentials: new InMemoryCredentialStore(),
       modelsPath: null,
     });
+
     const wrappedProvider = wrapFauxProviderPayloadHooks(localFaux.provider, {
       onFinalPayload(payload) {
         providerPayloads.push(payload);
       },
     });
+
     modelRuntime.registerNativeProvider(wrappedProvider);
     let unregistered = false;
+
     const registeredFaux = fauxRegistrationFacade(localFaux, () => {
       if (unregistered) {
         return;
@@ -268,6 +280,7 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
       unregistered = true;
       modelRuntime.unregisterProvider(wrappedProvider.id);
     });
+
     faux = registeredFaux;
 
     if (withConfiguredAuth) {
@@ -275,6 +288,7 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
     }
 
     let sessionManager: ReturnType<typeof SessionManager.inMemory>;
+
     if (!options.sessionDir) {
       sessionManager = SessionManager.inMemory(cwd);
     } else if (options.continueSession) {
@@ -282,23 +296,28 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
     } else {
       sessionManager = SessionManager.create(cwd, options.sessionDir);
     }
+
     const settingsManager = SettingsManager.inMemory(options.settings);
+
     const resourceLoader = new DefaultResourceLoader({
-      additionalSkillPaths: options.skillPaths,
+      ...(options.skillPaths === undefined ? {} : { additionalSkillPaths: options.skillPaths }),
       agentDir,
       cwd,
-      extensionFactories: options.extensionFactories,
+      ...(options.extensionFactories === undefined
+        ? {}
+        : { extensionFactories: options.extensionFactories }),
       noPromptTemplates: true,
       noSkills: !options.skillPaths,
       noThemes: true,
       settingsManager,
-      systemPrompt: options.systemPrompt,
+      ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),
     });
+
     await resourceLoader.reload();
 
     const createdSession = await createAgentSession({
       agentDir,
-      customTools: options.tools,
+      ...(options.tools === undefined ? {} : { customTools: options.tools }),
       cwd,
       model,
       modelRuntime,
@@ -306,15 +325,19 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
       sessionManager,
       settingsManager,
     });
+
     ({ session } = createdSession);
 
     const bindOptions: Parameters<AgentSession["bindExtensions"]>[0] = {};
+
     if (options.mode !== undefined) {
       bindOptions.mode = options.mode;
     }
+
     if (options.uiContext !== undefined) {
       bindOptions.uiContext = options.uiContext;
     }
+
     await session.bindExtensions(bindOptions);
 
     const events: AgentSessionEvent[] = [];
@@ -350,9 +373,12 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
       },
       lastProviderPayload<TSchema extends TypeBoxSchema>(schema: TSchema): Static<TSchema> {
         const payload = providerPayloads.at(-1);
+
         if (payload === undefined) {
           throw new Error("No provider payload has been captured");
         }
+
+        // oxlint-disable-next-line typescript/no-unsafe-return -- TypeBox's unresolved Static<TSchema> conditional appears as any to the checker; Parse validates against the caller's schema before returning its derived type.
         return Value.Parse(schema, payload);
       },
       messages() {
@@ -362,6 +388,7 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
         await activeSession.prompt(text, promptOptions);
       },
       providerPayloads<TSchema extends TypeBoxSchema>(schema: TSchema): Static<TSchema>[] {
+        // oxlint-disable-next-line typescript/no-unsafe-return -- TypeBox's unresolved Static<TSchema> conditional appears as any to the checker; every payload is parsed against the caller's schema.
         return providerPayloads.map((payload) => Value.Parse(schema, payload));
       },
       resourceLoader: activeResourceLoader,
@@ -379,4 +406,5 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
 };
 
 export type AgentSessionHarness = Awaited<ReturnType<typeof createAgentSessionHarness>>;
+
 export type { AgentSessionHarnessOptions };

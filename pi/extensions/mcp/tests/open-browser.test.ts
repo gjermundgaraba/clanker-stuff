@@ -21,6 +21,7 @@ describe(openBrowser, () => {
     const spawn = vi.spyOn(childProcess, "spawn").mockReturnValue(child);
     syncBuiltinESMExports();
     const url = "https://example.com/authorize?state=a&scope=b|c^d";
+
     try {
       Object.defineProperty(process, "platform", { value: platform });
       openBrowser(url);

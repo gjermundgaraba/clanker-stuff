@@ -47,9 +47,11 @@ type Tool = ReturnType<typeof createCodexDirectTools>["definitions"][number];
 
 const tool = (name: string): Tool => {
   const found = createCodexDirectTools().definitions.find((definition) => definition.name === name);
+
   if (found === undefined) {
     throw new Error(`Missing tool ${name}`);
   }
+
   return found;
 };
 
@@ -57,9 +59,11 @@ type CallArgs = Parameters<NonNullable<Tool["renderCall"]>>[0];
 
 const renderCall = (name: string, args: CallArgs, expanded = false) => {
   const definition = tool(name);
+
   if (!definition.renderCall) {
     throw new Error(`${name} has no renderCall`);
   }
+
   return rendered(definition.renderCall(args, theme, renderContext({ args, expanded })));
 };
 
@@ -69,9 +73,11 @@ const renderResult = (
   options: { expanded?: boolean; isError?: boolean } = {},
 ) => {
   const definition = tool(name);
+
   if (!definition.renderResult) {
     throw new Error(`${name} has no renderResult`);
   }
+
   return rendered(
     definition.renderResult(
       result,
@@ -111,6 +117,7 @@ describe("Codex tool renderers", () => {
     const changing = createIdentityTheme();
     let color = "\x1b[31m";
     changing.fg = (_name, value) => color + value + "\x1b[0m";
+
     const components = [
       execCommandRenderers.renderCall(
         { cmd: "echo done", workdir: "/tmp/project" },
@@ -129,9 +136,11 @@ describe("Codex tool renderers", () => {
         renderContext(),
       ),
     ];
+
     for (const component of components)
       expect(component.render(80).join("\n")).toContain("\x1b[31m");
     color = "\x1b[32m";
+
     for (const component of components) {
       component.invalidate();
       expect(component.render(80).join("\n")).toContain("\x1b[32m");
@@ -142,20 +151,24 @@ describe("Codex tool renderers", () => {
     const changing = createIdentityTheme();
     let color = "\x1b[31m";
     changing.fg = (_name, value) => color + value + "\x1b[0m";
+
     const results = [
       processResult("output", exited({ fullOutputPath: "/tmp/result" })),
       processResult("", exited()),
       { content: [{ type: "text" as const, text: "unstructured" }], details: undefined },
     ];
+
     for (const isError of [false, true])
       for (const result of results) {
         color = "\x1b[31m";
+
         const component = execCommandRenderers.renderResult(
           result,
           { expanded: false, isPartial: false },
           changing,
           renderContext({ isError }),
         );
+
         expect(component.render(80).join("\n")).toContain("\x1b[31m");
         color = "\x1b[32m";
         component.invalidate();
@@ -188,23 +201,28 @@ describe("Codex tool renderers", () => {
 
   it("shows a live elapsed counter while a command is pending", () => {
     vi.useFakeTimers();
+
     try {
       const definition = tool("exec_command");
       const invalidate = vi.fn();
       const state = {};
+
       const context = renderContext({
         args: { cmd: "sleep 5" },
         invalidate,
         isPartial: true,
         state,
       });
+
       const first = rendered(definition.renderCall?.({ cmd: "sleep 5" }, theme, context));
       expect(first).toMatch(/● running · 0\.0s/u);
       vi.advanceTimersByTime(2500);
       expect(invalidate).toHaveBeenCalledTimes(2);
+
       const settled = rendered(
         definition.renderCall?.({ cmd: "sleep 5" }, theme, { ...context, isPartial: false }),
       );
+
       expect(settled).toBe("$ sleep 5");
       vi.advanceTimersByTime(5000);
       expect(invalidate).toHaveBeenCalledTimes(2);
@@ -225,9 +243,11 @@ describe("Codex tool renderers", () => {
     expect(collapsed).not.toContain("line 4\n");
     expect(collapsed).toContain("line 5\nline 6\nline 7\nline 8\nline 9");
     expect(collapsed).toContain("✗ exit 2 · 1.2s");
+
     const expanded = renderResult("exec_command", processResult(output, exited()), {
       expanded: true,
     });
+
     expect(expanded).toContain("line 1\nline 2");
     expect(expanded).not.toContain("earlier lines");
   });
@@ -242,12 +262,16 @@ describe("Codex tool renderers", () => {
         status: "running",
       }),
     );
+
     expect(running).toBe("\npartial\n\n● running · session 3 · 10.0s");
+
     const killed = renderResult(
       "exec_command",
       processResult("", exited({ exitCode: null, status: "killed" })),
     );
+
     expect(killed).toBe("\n(no output)\n\n■ killed · 1.2s");
+
     const truncated = renderResult(
       "exec_command",
       processResult("tail", {
@@ -256,6 +280,7 @@ describe("Codex tool renderers", () => {
         truncation: { outputLines: 5, totalLines: 50, truncated: true, truncatedBy: "lines" },
       }),
     );
+
     // Output with a full-output path was rebuilt from that file, so the capture buffer's line
     // truncation does not describe it, even in results persisted before the details changed.
     expect(truncated).toContain("[Full output: /tmp/full.log]");
@@ -270,6 +295,7 @@ describe("Codex tool renderers", () => {
         }),
       ),
     ).toContain("[Full output: /tmp/full.log]");
+
     const capture = renderResult(
       "exec_command",
       processResult("tail", {
@@ -277,11 +303,13 @@ describe("Codex tool renderers", () => {
         truncation: { outputLines: 5, totalLines: 50, truncated: true, truncatedBy: "lines" },
       }),
     );
+
     expect(capture).toContain("[Truncated: showing 5 of 50 lines]");
   });
 
   it("removes the budget truncation header from displayed output", () => {
     const details = { ...exited(), requestedBudgetTruncation: { originalTokenCount: 12_345 } };
+
     const text = [
       "Warning: truncated output (original token count: 12345)",
       "Total output lines: 400",
@@ -290,6 +318,7 @@ describe("Codex tool renderers", () => {
       "",
       formatProcessMetadata(details),
     ].join("\n");
+
     expect(displayedProcessOutput(text, details)).toBe("head…3000 tokens truncated…tail");
     expect(renderResult("exec_command", { content: [{ text, type: "text" }], details })).toContain(
       "[Model view capped: ~12,345 tokens total]",
@@ -302,6 +331,7 @@ describe("Codex tool renderers", () => {
       { content: [{ text: "spawn failed", type: "text" }], details: undefined },
       { isError: true },
     );
+
     expect(rendered).toBe("\nspawn failed");
   });
 
@@ -310,6 +340,7 @@ describe("Codex tool renderers", () => {
     const display = renderCall("write_stdin", { chars, session_id: 7 });
     const encoded = display.slice("stdin session 7 ← ".length);
     expect(JSON.parse(`"${encoded}"`)).toBe(chars);
+
     for (const control of ["\u061c", "\u200e", "\u200f", "\u202e", "\u2066", "\u2069"])
       expect(display).not.toContain(control);
   });
@@ -337,10 +368,12 @@ describe("Codex tool renderers", () => {
         "+hi",
       ].join("\n"),
     );
+
     expect(partial).toEqual([
       { changed: true, kind: "update", lines: { added: 2, removed: 1 }, path: "src/a.ts" },
       { changed: true, kind: "add", lines: { added: 1, removed: 0 }, path: "b.txt" },
     ]);
+
     const moved = summarizePatchText(
       [
         "*** Begin Patch",
@@ -350,6 +383,7 @@ describe("Codex tool renderers", () => {
         "*** End Patch",
       ].join("\n"),
     );
+
     expect(moved).toEqual([
       {
         changed: false,
@@ -366,6 +400,7 @@ describe("Codex tool renderers", () => {
     const esc = String.fromCharCode(0x1b);
     const linked = `see ${esc}]8;;https://a.example${esc}\\docs${esc}]8;;${esc}\\ and ${esc}]8;;https://b.example${esc}\\more${esc}]8;;${esc}\\ here`;
     expect(stripVTControlCharacters(linked)).toBe("see docs and more here");
+
     const rendered = renderResult(
       "exec_command",
       processResult(
@@ -373,7 +408,9 @@ describe("Codex tool renderers", () => {
         exited(),
       ),
     );
+
     expect(rendered).toContain("see docs and more here\nbell backspaceform");
+
     for (const control of ["\u061c", "\u200e", "\u200f", "\u202e", "\u2066"])
       expect(rendered).not.toContain(control);
   });
@@ -382,7 +419,9 @@ describe("Codex tool renderers", () => {
     const single = renderCall("apply_patch", {
       patch: "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-old\n+new\n*** End Patch",
     });
+
     expect(single).toBe("apply_patch Update src/a.ts (+1 -1)");
+
     const multi = renderCall("apply_patch", {
       patch: [
         "*** Begin Patch",
@@ -394,6 +433,7 @@ describe("Codex tool renderers", () => {
         "*** End Patch",
       ].join("\n"),
     });
+
     expect(multi.split("\n")).toEqual([
       "apply_patch 3 files",
       "  A new.txt (+1 -0)",
@@ -407,6 +447,7 @@ describe("Codex tool renderers", () => {
     const diff = Array.from({ length: 20 }, (_, index) => `+${index + 1} line ${index + 1}`).join(
       "\n",
     );
+
     const result = {
       content: [{ text: "Done!\n- a.ts", type: "text" as const }],
       details: {
@@ -417,6 +458,7 @@ describe("Codex tool renderers", () => {
         diffs: [{ diff, index: 0 }],
       },
     };
+
     const collapsed = renderResult("apply_patch", result);
     expect(collapsed).toContain("a.ts\n+1 line 1");
     expect(collapsed).not.toContain("+12 line 12");
@@ -425,6 +467,7 @@ describe("Codex tool renderers", () => {
     expect(expanded).toContain("+20 line 20");
     expect(expanded).toContain("moved.ts (diff omitted)");
     expect(expanded).not.toContain("more lines");
+
     const two = renderResult("apply_patch", {
       content: [],
       details: {
@@ -438,6 +481,7 @@ describe("Codex tool renderers", () => {
         ],
       },
     });
+
     expect(two).toBe("a.ts\n+1 a\nb.ts\n-1 b");
     expect(
       renderResult(
@@ -478,6 +522,7 @@ describe("Codex tool renderers", () => {
         diffs: [{ diff: "+1 small", index: 1 }],
       },
     });
+
     expect(rendered).toBe(
       [
         "big.ts (diff omitted)",
@@ -489,6 +534,7 @@ describe("Codex tool renderers", () => {
         "same.ts (unchanged)",
       ].join("\n"),
     );
+
     const lone = (change: {
       changed: boolean;
       from?: string;
@@ -496,6 +542,7 @@ describe("Codex tool renderers", () => {
       lines?: { added: number; removed: number };
       path: string;
     }) => renderResult("apply_patch", { content: [], details: { changes: [change], diffs: [] } });
+
     // A lone change repeats its name only when there is more to say than the header shows.
     expect(
       lone({
@@ -544,7 +591,9 @@ describe("Codex tool renderers", () => {
     const patch = "*** Begin Patch\n*** Add File: a.ts\n+1\n*** Add File: b.ts\n+2\n*** End Patch";
     const state = {};
     const context = renderContext({ args: { patch }, state });
-    const render = (details: Parameters<NonNullable<Tool["renderResult"]>>[0]["details"]) =>
+
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- These deliberately truncated persisted details exercise the renderer’s independent partial decoders.
+    const render = (details: unknown) =>
       rendered(
         definition.renderResult?.(
           { content: [], details },
@@ -553,6 +602,7 @@ describe("Codex tool renderers", () => {
           context,
         ),
       ).replace(/^\n/u, "");
+
     const header = () => rendered(definition.renderCall?.({ patch }, theme, context)).split("\n");
     const a = { changed: true, kind: "add", lines: { added: 1, removed: 0 }, path: "a.ts" };
 
@@ -588,8 +638,10 @@ describe("Codex tool renderers", () => {
 
   it("withholds totals while any completed count is unknown", () => {
     const definition = tool("apply_patch");
+
     const patch =
       "*** Begin Patch\n*** Delete File: locked.txt\n*** Add File: a.txt\n+1\n*** End Patch";
+
     const context = renderContext({ args: { patch }, state: {} });
     definition.renderResult?.(
       {
@@ -616,6 +668,7 @@ describe("Codex tool renderers", () => {
   it("marks a header built from cut arguments as open-ended", () => {
     const cut = (patch: string) =>
       renderCall("apply_patch", { patch: `${patch}[value truncated]` });
+
     expect(cut("*** Begin Patch\n*** Add File: a.ts\n+1\n*** Add File: b.ts\n+2\n+3")).toBe(
       ["apply_patch 2+ files", "  A a.ts (+1 -0)", "  A b.ts"].join("\n"),
     );
@@ -624,9 +677,11 @@ describe("Codex tool renderers", () => {
 
   it("strips terminal controls from commands, paths, and diffs before styling", () => {
     const esc = String.fromCharCode(0x1b);
+
     // Assert on raw rows too: the trimmed helper strips ANSI and would hide a live control.
     const raw = (name: string, args: CallArgs) =>
       renderComponent(tool(name).renderCall?.(args, theme, renderContext({ args })), 200) ?? "";
+
     for (const row of [
       raw("exec_command", { cmd: `echo ${esc}[2Jhi`, workdir: `/tmp/${esc}]0;x\u0007d` }),
       raw("apply_patch", {
@@ -638,6 +693,7 @@ describe("Codex tool renderers", () => {
       expect(row).not.toContain(`${esc}[2J`);
       expect(row).not.toContain("\u0007");
     }
+
     expect(
       renderCall("exec_command", { cmd: `echo ${esc}[2Jhi`, workdir: `/tmp/${esc}]0;x\u0007d` }),
     ).toBe("$ echo hi (in /tmp/d)");
@@ -649,6 +705,7 @@ describe("Codex tool renderers", () => {
     expect(renderCall("view_image", { path: `/tmp/${esc}[31mshot.png` })).toBe(
       "view_image /tmp/shot.png",
     );
+
     const hostile = {
       content: [],
       details: {
@@ -662,7 +719,9 @@ describe("Codex tool renderers", () => {
         ],
       },
     };
+
     expect(renderResult("apply_patch", hostile)).toBe("a.txt\n-1 secret\nb.txt\n+1 b");
+
     const rawResult =
       renderComponent(
         tool("apply_patch").renderResult?.(
@@ -673,6 +732,7 @@ describe("Codex tool renderers", () => {
         ),
         200,
       ) ?? "";
+
     expect(rawResult).not.toContain(`${esc}]`);
     expect(rawResult).not.toContain(`${esc}[2J`);
     expect(rawResult).not.toContain("\u0007");
@@ -712,21 +772,26 @@ describe("Codex tool renderers", () => {
 
   it("stops the pending timer once a replaced row is no longer drawn", () => {
     vi.useFakeTimers();
+
     try {
       const definition = tool("exec_command");
       const invalidate = vi.fn();
+
       const context = renderContext({
         args: { cmd: "sleep 5" },
         invalidate,
         isPartial: true,
         state: {},
       });
+
       // A live row is drawn on every tick because Pi re-renders after each invalidation.
       const live = definition.renderCall?.({ cmd: "sleep 5" }, theme, context);
+
       for (let tick = 0; tick < 5; tick += 1) {
         vi.advanceTimersByTime(1000);
         rendered(live);
       }
+
       expect(invalidate).toHaveBeenCalledTimes(5);
       // After a transcript rebuild the old row is never drawn again; its timer must give up.
       vi.advanceTimersByTime(60_000);
@@ -749,12 +814,14 @@ describe("Codex tool renderers", () => {
 
   it("builds the completed header from result metadata when the arguments were cut short", () => {
     const definition = tool("apply_patch");
+
     const patch = [
       "*** Begin Patch",
       "*** Add File: first.txt",
       ...Array.from({ length: 3 }, (_, index) => `+line ${index}`),
       "+partial[value truncated]",
     ].join("\n");
+
     const state = {};
     const context = renderContext({ args: { patch }, state });
     const pending = rendered(definition.renderCall?.({ patch }, theme, context));
@@ -793,6 +860,7 @@ describe("Codex tool renderers", () => {
     const summary = summarizePatchText(
       "*** Begin Patch\r\n*** Delete File: a.txt\r\n*** Update File: b.txt\r\n*** Move to: c.txt\r\n@@\r\n-x\r\n+y\r\n*** End Patch\r\n",
     );
+
     expect(summary).toEqual([
       { changed: true, kind: "delete", lines: { added: 0, removed: 0 }, path: "a.txt" },
       {
@@ -807,10 +875,12 @@ describe("Codex tool renderers", () => {
 
   it("shows the image path and hides attachment notes until expanded", () => {
     expect(renderCall("view_image", { path: "/tmp/shot.png" })).toBe("view_image /tmp/shot.png");
+
     const result = {
       content: [{ text: "Image loaded", type: "text" as const }],
       details: undefined,
     };
+
     expect(renderResult("view_image", result)).toBe("");
     expect(renderResult("view_image", result, { expanded: true })).toBe("\nImage loaded");
   });

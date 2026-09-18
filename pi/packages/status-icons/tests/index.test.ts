@@ -13,6 +13,7 @@ it("selects one shared fallback policy for every status renderer", () => {
   expect(selectGlyph(undefined, "nerd")).toBe("");
   expect(selectGlyph({ nerd: "", unicode: "✉" }, "nerd")).toBe("");
 });
+
 it("validates families and bounded glyph maps", () => {
   for (const family of ["ascii", "unicode", "nerd"])
     expect(Value.Check(IconFamilySchema, family)).toBe(true);

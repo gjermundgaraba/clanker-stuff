@@ -11,7 +11,9 @@ import { createExtensionHost } from "../../../../tests/harness/extension-host.js
 const terminalControls = Array.from({ length: 0xa0 }, (_, code) =>
   code === 0x0a || (code >= 0x20 && code < 0x7f) ? "" : String.fromCharCode(code),
 ).join("");
+
 const bidiControls = "\u061C\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069";
+
 const data = {
   completedTurns: 3,
   recap: `Finished the parser.\u001B[31m${terminalControls}${bidiControls}\u001B[0m\nNext: test it.`,
@@ -35,15 +37,19 @@ describe("recap extension", () => {
     });
 
     const branch = sessionWithTurns(1).getBranch();
+
     const model = fauxProvider({
       models: [{ id: "small" }],
       provider: "cheap",
     }).getModel();
+
     const completion = completionMock(async (_model, _context, options) => {
       const signal = options?.signal;
+
       if (signal === undefined) {
         throw new Error("Expected a recap cancellation signal");
       }
+
       return await new Promise((resolve) => {
         signal.addEventListener(
           "abort",
@@ -59,10 +65,12 @@ describe("recap extension", () => {
         );
       });
     });
+
     const host = createExtensionHost(extension, {
       entries: branch,
-      leafId: branch.at(-1)?.id,
+      leafId: branch.at(-1)?.id ?? null,
     });
+
     const ctx = host.createContext({
       modelRegistry: {
         complete: completion,
@@ -97,6 +105,7 @@ describe("recap extension", () => {
     await host.ready;
     const renderer = host.getEntryRenderer(RECAP_ENTRY_TYPE);
     const ctx = host.createContext();
+
     const entry: CustomEntry = {
       customType: RECAP_ENTRY_TYPE,
       data,

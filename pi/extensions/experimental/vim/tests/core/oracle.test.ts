@@ -1,8 +1,11 @@
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vite-plus/test";
 import { setup } from "../helpers.js";
 
 const available = spawnSync("nvim", ["--version"]).status === 0;
+
 const program = `local case = vim.json.decode(vim.env.PI_VIM_ORACLE)
 vim.o.startofline = true
 vim.api.nvim_buf_set_lines(0, 0, -1, false, case.lines)
@@ -10,6 +13,7 @@ vim.api.nvim_win_set_cursor(0, {1, 0})
 vim.cmd.normal({args={case.keys}, bang=true})
 local cursor=vim.api.nvim_win_get_cursor(0)
 io.write(vim.json.encode({lines=vim.api.nvim_buf_get_lines(0,0,-1,false),row=cursor[1],col=cursor[2]}))`;
+
 const cases: [string, string[]][] = [
   ["aaa bbb", ["i", "a", "\x1b", "w", "."]],
   ["aaa bbb", ["3i", "a", "\x1b", "w", "."]],
@@ -247,8 +251,16 @@ describe.skipIf(!available)("headless Neovim differential oracle", () => {
         timeout: 5000,
       },
     );
-    // SAFETY: The local oracle emits this fixed JSON record from the Lua program above.
-    const expected = JSON.parse(output) as { lines: string[]; row: number; col: number };
+
+    const expected = Value.Parse(
+      Type.Object({
+        lines: Type.Array(Type.String()),
+        row: Type.Integer({ minimum: 1 }),
+        col: Type.Integer({ minimum: 0 }),
+      }),
+      JSON.parse(output),
+    );
+
     const { editor, normal, keys } = setup(text);
     normal();
     // Escape is its own terminal packet; everything else may arrive together.
@@ -258,11 +270,13 @@ describe.skipIf(!available)("headless Neovim differential oracle", () => {
       ),
     );
     expect(editor.getText()).toBe(expected.lines.join("\n"));
+
     const cursor =
       expected.lines.slice(0, expected.row - 1).reduce((n, row) => n + row.length + 1, 0) +
       Buffer.from(expected.lines[expected.row - 1]!)
         .subarray(0, expected.col)
         .toString().length;
+
     expect(editor.document.cursor()).toBe(cursor);
   });
 });

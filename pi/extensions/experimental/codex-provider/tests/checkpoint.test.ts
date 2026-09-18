@@ -61,6 +61,7 @@ interface CheckpointFixture {
 
 const validCheckpoint = (): CheckpointFixture => {
   const replacement = [user(), compaction()];
+
   return {
     identity: {
       api: "openai-codex-responses",
@@ -97,21 +98,44 @@ const validCheckpoint = (): CheckpointFixture => {
   };
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Parser rejection tests must accept deliberately malformed persisted checkpoints, not assert them into the valid domain.
 const parseKind = (value: unknown) => {
   const parsed = parseCheckpoint(value);
+
   return parsed.ok ? "ok" : "invalid";
 };
 
 const mutate = (change: (checkpoint: ReturnType<typeof validCheckpoint>) => void) => {
   const checkpoint = validCheckpoint();
   change(checkpoint);
+
   return checkpoint;
 };
 
 describe("checkpoint protocol", () => {
+  it("rejects cyclic and executable values but permits repeated acyclic references", () => {
+    const cycle: unknown[] = [];
+    cycle.push(cycle);
+    expect(() => canonicalJson(cycle)).toThrow("cycles");
+
+    interface RecursiveFixture {
+      child?: RecursiveFixture;
+    }
+
+    const objectCycle: RecursiveFixture = {};
+    objectCycle.child = objectCycle;
+    expect(() => canonicalJson(objectCycle)).toThrow("cycles");
+    expect(() => canonicalJson(() => "value")).toThrow("non-JSON value");
+    expect(() => canonicalJson({ toJSON: () => "projected" })).toThrow("non-JSON value");
+
+    const shared = { b: 2, a: 1 };
+    expect(canonicalJson([shared, shared])).toBe('[{"a":1,"b":2},{"a":1,"b":2}]');
+    expect(shared).toEqual({ b: 2, a: 1 });
+  });
   it("canonicalizes, hashes, parses immutably, and compares compatibility", () => {
     const source = validCheckpoint();
     const parsed = parseCheckpoint(source);
+
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
@@ -144,9 +168,11 @@ describe("checkpoint protocol", () => {
     expect(canonicalJson([null, true, false, -0, "🦄", { b: 2, a: 1 }])).toBe(
       '[null,true,false,0,"🦄",{"a":1,"b":2}]',
     );
+
     for (const invalid of [NaN, Infinity, -Infinity, undefined, 1n, Symbol("not-json")]) {
       expect(() => canonicalJson(invalid)).toThrow();
     }
+
     expect(Object.isFrozen(parsed.checkpoint.response.usage)).toBe(true);
     source.response.usage.input = 999;
     expect(parsed.checkpoint.response.usage.input).not.toBe(999);
@@ -349,7 +375,11 @@ describe("checkpoint protocol", () => {
     ];
 
     expect(
-      invalidCases.filter(([, value]) => parseKind(value) !== "invalid").map(([name]) => name),
+      invalidCases
+        .values()
+        .filter(([, value]) => parseKind(value) !== "invalid")
+        .map(([name]) => name)
+        .toArray(),
     ).toStrictEqual([]);
     expect(parseKind({ ...validCheckpoint(), version: 0 })).toBe("invalid");
     expect(parseKind({ ...validCheckpoint(), version: 4 })).toBe("invalid");
@@ -362,15 +392,18 @@ describe("checkpoint protocol", () => {
     first.response.id = "resp_first";
     const second = validCheckpoint();
     second.response.id = "resp_second";
+
     const inline = entry("inline", {
       customType: CHECKPOINT_CUSTOM_TYPE,
       data: first,
       type: "custom",
     });
+
     const message = entry("message", {
       message: { content: "tail", role: "user", timestamp: 1 },
       type: "message",
     });
+
     const lifecycle = entry("lifecycle", {
       details: {
         checkpoint: second,
@@ -381,17 +414,20 @@ describe("checkpoint protocol", () => {
       tokensBefore: 10,
       type: "compaction",
     });
+
     const fallback = entry("fallback", {
       firstKeptEntryId: "message",
       summary: "ordinary Pi summary",
       tokensBefore: 20,
       type: "compaction",
     });
+
     const corrupt = entry("corrupt", {
       customType: CHECKPOINT_CUSTOM_TYPE,
       data: { ...second, version: 9 },
       type: "custom",
     });
+
     const corruptLifecycle = entry("corrupt-lifecycle", {
       details: {
         checkpoint: { ...second, version: 9 },
@@ -445,17 +481,20 @@ describe("checkpoint protocol", () => {
       message: { content: "kept", role: "user", timestamp: 1 },
       type: "message",
     });
+
     const inline = entry("inline", {
       customType: CHECKPOINT_CUSTOM_TYPE,
       data: validCheckpoint(),
       type: "custom",
     });
+
     const ordinary = entry("ordinary", {
       firstKeptEntryId: kept.id,
       summary: "ordinary Pi summary",
       tokensBefore: 10,
       type: "compaction",
     });
+
     const lifecycle = () =>
       entry("lifecycle", {
         details: {
@@ -467,8 +506,10 @@ describe("checkpoint protocol", () => {
         tokensBefore: 10,
         type: "compaction",
       });
+
     const native = lifecycle();
     const corrupt = lifecycle();
+
     if (corrupt.type === "compaction") {
       corrupt.details = {
         checkpoint: { ...validCheckpoint(), version: 9 },
@@ -485,18 +526,22 @@ describe("checkpoint protocol", () => {
 
   it("parses runtime state and applies comp-hash compatibility", () => {
     const source = validCheckpoint();
+
     const agent = {
       author: "assistant",
       content: [{ text: "delegated result", type: "input_text" }],
       recipient: "user",
       type: "agent_message",
     };
+
     source.replacement = [user(), agent, compaction()];
     source.replacementSha256 = sha256Canonical(source.replacement);
     const parsed = parseCheckpoint(source);
+
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
+
     const incompatible = structuredClone(source);
     Object.assign(incompatible.runtime, { extra: true });
 

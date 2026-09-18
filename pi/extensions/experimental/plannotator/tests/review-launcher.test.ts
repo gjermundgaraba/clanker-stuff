@@ -1,11 +1,12 @@
 import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CliCompletion, CliStarter } from "../cli.js";
 import { createTargetedReviewStarter } from "../review-launcher.js";
-import { expectString } from "./helpers.js";
 
 const exited = (): CliCompletion => ({
   code: 0,
@@ -19,6 +20,7 @@ describe("targeted review launcher", () => {
     const child = Promise.withResolvers<CliCompletion>();
     const childController = new AbortController();
     let readyFile = "";
+
     const start = vi.fn<CliStarter>((_args, options) => {
       readyFile = options.env?.PLANNOTATOR_READY_FILE ?? "";
       writeFileSync(
@@ -29,17 +31,22 @@ describe("targeted review launcher", () => {
           url: "http://127.0.0.1:19432",
         })}\n`,
       );
+
       return {
         cancel: vi.fn<() => void>(),
         completion: child.promise,
         signal: childController.signal,
       };
     });
+
     const order: string[] = [];
+
     const fetchImpl = vi.fn<typeof fetch>(async () => {
       order.push("switch");
+
       return Response.json({ base: "origin/main" });
     });
+
     const openUrl = vi.fn<() => Promise<void>>(async () => {
       order.push("open");
     });
@@ -53,12 +60,11 @@ describe("targeted review launcher", () => {
 
     await vi.waitFor(() => expect(openUrl).toHaveBeenCalledOnce());
     const [request, requestInit] = fetchImpl.mock.calls[0] ?? [];
-    const body = JSON.parse(expectString(requestInit?.body));
+    const body: unknown = JSON.parse(Value.Parse(Type.String(), requestInit?.body));
     expect({
       args: start.mock.calls[0]?.[0],
       body,
       endpoint: request instanceof URL ? request.href : request,
-      env: start.mock.calls[0]?.[1].env,
       order,
     }).toStrictEqual({
       args: ["review", "--git", "--local"],
@@ -68,13 +74,14 @@ describe("targeted review launcher", () => {
         explicitBase: true,
       },
       endpoint: "http://127.0.0.1:19432/api/diff/switch",
-      env: expect.objectContaining({
-        PLANNOTATOR_READY_FILE: expect.any(String),
-        PLANNOTATOR_SKIP_BROWSER_OPEN: "1",
-      }),
       order: ["switch", "open"],
     });
 
+    expect(start.mock.calls[0]?.[1].env).toHaveProperty(
+      "PLANNOTATOR_READY_FILE",
+      expect.any(String),
+    );
+    expect(start.mock.calls[0]?.[1].env).toHaveProperty("PLANNOTATOR_SKIP_BROWSER_OPEN", "1");
     child.resolve(exited());
     await expect(review.completion).resolves.toStrictEqual(exited());
     expect(existsSync(path.dirname(readyFile))).toBeFalsy();
@@ -83,13 +90,17 @@ describe("targeted review launcher", () => {
   it("exposes cancellation and only cancels the child once", async () => {
     const child = Promise.withResolvers<CliCompletion>();
     const childController = new AbortController();
+
     const cancelChild = vi.fn<() => void>(() => {
       childController.abort();
       child.resolve({ kind: "cancelled" });
     });
+
     let readyFile = "";
+
     const start = vi.fn<CliStarter>((_args, options) => {
       readyFile = options.env?.PLANNOTATOR_READY_FILE ?? "";
+
       return {
         cancel: cancelChild,
         completion: child.promise,
@@ -100,6 +111,7 @@ describe("targeted review launcher", () => {
     const review = createTargetedReviewStarter(start)(["review", "--base", "main"], {
       cwd: "/work/project",
     });
+
     expect(review.signal.aborted).toBeFalsy();
 
     review.cancel();

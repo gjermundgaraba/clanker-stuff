@@ -26,6 +26,7 @@ describe("agent paths", () => {
   });
   it("uses the Codex mailbox envelope and leaves payload text after its header", () => {
     const payload = "work\nMessage Type: FINAL_ANSWER\nSender: /root";
+
     const envelope = communicationEnvelope({
       content: payload,
       delivery: "queue",
@@ -34,6 +35,7 @@ describe("agent paths", () => {
       kind: "MESSAGE",
       to: "/root",
     });
+
     expect(envelope).toBe(
       `Message Type: MESSAGE
 Task name: /root
@@ -114,12 +116,14 @@ describe("V2 durable protocol", () => {
       id: "mail",
       to: "/root/worker",
     };
+
     const valid = [
       { ...communication, delivery: "queue", kind: "NEW_TASK" },
       { ...communication, delivery: "turn", kind: "NEW_TASK" },
       { ...communication, delivery: "queue", kind: "MESSAGE" },
       { ...communication, delivery: "queue", kind: "FINAL_ANSWER" },
     ];
+
     const invalid = [
       { ...communication, delivery: "turn", kind: "MESSAGE" },
       { ...communication, delivery: "turn", kind: "FINAL_ANSWER" },
@@ -133,6 +137,7 @@ describe("V2 durable protocol", () => {
         }),
       ).toBeTruthy();
     }
+
     for (const candidate of invalid) {
       expect(
         Value.Check(V2SnapshotSchema, {

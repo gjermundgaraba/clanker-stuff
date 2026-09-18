@@ -49,12 +49,15 @@ describe("mcp server pool", () => {
     const connection = Promise.withResolvers<McpClientConnection>();
     const close = vi.fn<() => Promise<void>>(() => Promise.resolve());
     const pool = new McpServerPool(createToolRegistry());
+
     const load = pool.loadServer({
       connectionFactory: () => connection.promise,
       interactive: false,
       serverName: "slow",
     });
+
     const queuedFactory = vi.fn<McpConnectionFactory>();
+
     const queued = pool.loadServer({
       connectionFactory: queuedFactory,
       interactive: false,
@@ -80,6 +83,7 @@ describe("mcp server pool", () => {
     const connection = Promise.withResolvers<McpClientConnection>();
     const connectionFactory = vi.fn<McpConnectionFactory>(async () => await connection.promise);
     const pool = new McpServerPool(createToolRegistry());
+
     const options = {
       connectionFactory,
       interactive: false,
@@ -103,14 +107,17 @@ describe("mcp server pool", () => {
     const connection = Promise.withResolvers<McpClientConnection>();
     const connectionFactory = vi.fn<McpConnectionFactory>(async () => await connection.promise);
     const pool = new McpServerPool(createToolRegistry());
+
     const options = {
       connectionFactory,
       interactive: false,
       serverName: "shared",
     };
+
     const first = pool.loadServer(options);
     const controller = new AbortController();
     const canceledFactory = vi.fn<McpConnectionFactory>();
+
     const queued = pool.loadServer({
       ...options,
       reconnect: true,
@@ -140,6 +147,7 @@ describe("mcp server pool", () => {
     const factory = vi.fn<McpConnectionFactory>(async () => replacement);
     const pool = new McpServerPool(createToolRegistry());
     const options = { serverName: "remote", interactive: false };
+
     try {
       const first = pool.loadServer({ ...options, connectionFactory: () => initial.promise });
       const second = pool.loadServer({ ...options, reconnect: true, connectionFactory: factory });
@@ -156,28 +164,34 @@ describe("mcp server pool", () => {
 
   it("runs the next requested connection after its predecessor fails", async () => {
     const firstAttempt = Promise.withResolvers<null>();
+
     const connectionFactory = vi.fn<McpConnectionFactory>(async (interactive) => {
       if (!interactive) {
         await firstAttempt.promise;
         throw new Error("background authorization failed");
       }
+
       return {
         client: createEmptyClient(),
         close: vi.fn<() => Promise<void>>(async () => {}),
         transport: {},
       };
     });
+
     const pool = new McpServerPool(createToolRegistry());
+
     const background = pool.loadServer({
       connectionFactory,
       interactive: false,
       serverName: "shared",
     });
+
     const interactive = pool.loadServer({
       connectionFactory,
       interactive: true,
       serverName: "shared",
     });
+
     firstAttempt.resolve(null);
 
     await expect(background).rejects.toThrow("background authorization failed");
@@ -189,6 +203,7 @@ describe("mcp server pool", () => {
   it("replaces tools, deactivates disconnected servers, and permits removed tools to return", async () => {
     const tools = new Map<string, ToolInfo>();
     let active = ["read"];
+
     const pi: McpToolRegistry = {
       getActiveTools: () => active,
       getAllTools: () => [...tools.values()],
@@ -204,9 +219,12 @@ describe("mcp server pool", () => {
         active = names;
       },
     };
+
     const pool = new McpServerPool(pi);
+
     const makeConnection = (name: string) => {
       const closed = new AbortController();
+
       return {
         client: {
           ...createEmptyClient(),
@@ -219,9 +237,11 @@ describe("mcp server pool", () => {
         transport: {},
       };
     };
+
     const first = makeConnection("first");
     const second = makeConnection("second");
     const options = { serverName: "remote", interactive: false };
+
     try {
       await pool.loadServer({ ...options, connectionFactory: async () => first });
       await pool.loadServer({ ...options, reconnect: true, connectionFactory: async () => second });
@@ -287,6 +307,7 @@ describe("mcp server pool", () => {
       const callTool = vi.fn<McpClient["callTool"]>(async () => {
         throw new SdkHttpError(SdkErrorCode.SendFailed, "uncertain result", { status });
       });
+
       const connectionFactory = vi.fn<McpConnectionFactory>(async () => ({
         client: {
           ...createEmptyClient(),
@@ -296,20 +317,24 @@ describe("mcp server pool", () => {
         close: async () => {},
         transport: {},
       }));
+
       const ctx = t.createExtensionHost(() => {}).createContext();
       let execute: RegisteredToolExecutor | undefined;
+
       const pool = new McpServerPool(
         createToolRegistry((definition) => {
           execute = (id, signal) =>
             definition.execute(id, Value.Parse(definition.parameters, {}), signal, undefined, ctx);
         }),
       );
+
       try {
         await pool.loadServer({
           connectionFactory,
           serverName: "remote",
           interactive: false,
         });
+
         if (!execute) throw new Error("Tool not registered");
         await expect(execute("call")).rejects.toThrow("uncertain result");
         expect(callTool).toHaveBeenCalledOnce();
@@ -329,6 +354,7 @@ describe("mcp server pool", () => {
       },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ remote"),
@@ -336,6 +362,7 @@ describe("mcp server pool", () => {
     });
 
     await host.runCommand("mcp", "", ctx);
+
     const result = await host.runTool(toGeneratedToolName("remote", "search"), {
       query: "http-needle",
     });
@@ -355,6 +382,7 @@ describe("mcp server pool", () => {
       },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ remote"),
@@ -368,6 +396,7 @@ describe("mcp server pool", () => {
     expect(host.getActiveTools()).not.toContain(name);
     expect(fixture.getToolCallCount()).toBe(1);
     await expect.poll(() => host.getActiveTools()).toContain(name);
+
     const result = await host.runTool(toGeneratedToolName("remote", "search"), {
       query: "after-reconnect",
     });
@@ -384,37 +413,41 @@ describe("mcp server pool", () => {
       mcpServers: { github: fixtureServer("large") },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
+
     await host.runCommand("mcp", "", ctx);
 
     const result = await host.runTool(toGeneratedToolName("github", "search"), {
       query: "anything",
     });
 
-    expect(result.content).toContainEqual({
-      text: expect.stringContaining("[MCP output truncated:"),
-      type: "text",
-    });
+    expect(
+      result.content.some(
+        (item) => item.type === "text" && item.text.includes("[MCP output truncated:"),
+      ),
+    ).toBe(true);
+    const details = Value.Parse(PersistedMcpToolDetailsSchema, result.details);
+    expect(details.outputPath).toContain("/data/mcp/results/");
     expect(result.details).toStrictEqual({
-      outputPath: expect.stringContaining("/data/mcp/results/"),
+      outputPath: details.outputPath,
       overflowNoticeIndex: result.content.length - 1,
       serverName: "github",
       toolName: "search",
       truncated: true,
     });
-    const details = Value.Parse(PersistedMcpToolDetailsSchema, result.details);
     const overflow = await readFile(details.outputPath, "utf-8");
     expect(Buffer.byteLength(overflow)).toBeGreaterThan(50_000);
-    expect(result.content).toContainEqual({
-      type: "text",
-      text: expect.stringContaining(details.outputPath),
-    });
+    expect(
+      result.content.some((item) => item.type === "text" && item.text.includes(details.outputPath)),
+    ).toBe(true);
     expect(JSON.stringify(result)).not.toContain("mcpResult");
     const original = structuredClone(result);
+
     for (const expanded of [false, true]) {
       const rows = renderedRows(
         mcpRenderers("github", "search").renderResult(
@@ -425,6 +458,7 @@ describe("mcp server pool", () => {
         ),
         200,
       );
+
       const display = rows.join("\n");
       expect(display.match(/MCP output truncated:/gu)).toHaveLength(1);
       expect(display.match(/Persisted output:/gu)).toHaveLength(1);
@@ -433,6 +467,7 @@ describe("mcp server pool", () => {
       expect(display.replace(/\s/gu, "")).toContain(details.outputPath.replace(/\s/gu, ""));
       expect(display.replace(/\s+/gu, " ")).toContain("temporary, may be partial");
     }
+
     expect(result).toEqual(original);
   });
 
@@ -447,14 +482,17 @@ describe("mcp server pool", () => {
       host.createContext({ ui: { select: async () => "○ github" } }),
     );
     const result = await host.runTool(toGeneratedToolName("github", "search"), { query: "once" });
-    expect(result.content).toContainEqual({
-      type: "text",
-      text: expect.stringContaining("remote operation has already completed"),
-    });
+    expect(
+      result.content.some(
+        (item) =>
+          item.type === "text" && item.text.includes("remote operation has already completed"),
+      ),
+    ).toBe(true);
     expect(result.details).toMatchObject({
       truncated: true,
       overflowNoticeIndex: result.content.length - 1,
     });
+
     for (const expanded of [false, true]) {
       const rows = renderedRows(
         mcpRenderers("github", "search").renderResult(
@@ -465,6 +503,7 @@ describe("mcp server pool", () => {
         ),
         200,
       );
+
       const display = rows.join("\n");
       expect(display.match(/MCP output truncated:/gu)).toHaveLength(1);
       expect(display.match(/Could not persist overflow/gu)).toHaveLength(1);
@@ -479,19 +518,23 @@ describe("mcp server pool", () => {
       mcpServers: { github: fixtureServer("error") },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
     });
+
     await host.runCommand("mcp", "", ctx);
 
     let failure: unknown;
+
     try {
       await host.runTool(toGeneratedToolName("github", "search"), { query: "anything" });
     } catch (error) {
       failure = error;
     }
+
     const message = failure instanceof Error ? failure.message : "";
     const outputPath = /Persisted output: (?<path>[^;\]]+)/u.exec(message)?.groups?.path;
 
@@ -507,6 +550,7 @@ describe("mcp server pool", () => {
       mcpServers: { github: fixtureServer("collision") },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
@@ -516,10 +560,12 @@ describe("mcp server pool", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(host.getRegisteredTools().size).toBe(2);
+
     for (const { definition } of host.getRegisteredTools().values()) {
       expect(definition.renderCall).toBeTypeOf("function");
       expect(definition.renderResult).toBeTypeOf("function");
     }
+
     expect(host.getRegisteredTools().has(toGeneratedToolName("github", "foo-bar"))).toBe(true);
     expect(host.getRegisteredTools().has(toGeneratedToolName("github", "foo_bar"))).toBe(true);
   });

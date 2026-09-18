@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createRealCodexSession } from "./agent-session.js";
 
 type RegistrationStrategy = "factory" | "resources_discover" | "session_start";
+
 type OrderedHook =
   | "before_provider_headers"
   | "before_provider_request"
@@ -24,6 +25,7 @@ interface HookRecord {
   label: string;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The SSE fixture encodes protocol events into bytes consumed by the real provider.
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 const assistantResponse = () => {
@@ -40,7 +42,9 @@ const assistantResponse = () => {
     status: "completed",
     type: "message",
   };
+
   const responseId = `resp_${crypto.randomUUID()}`;
+
   return new Response(
     [
       event({
@@ -109,6 +113,7 @@ const orderedProbe =
         records.push({ hook: "session_before_compact", label });
       });
     };
+
     if (strategy === "factory") {
       register();
     } else if (strategy === "session_start") {
@@ -125,9 +130,11 @@ const expectTargetBeforeAdversary = (records: readonly HookRecord[]) => {
     "before_provider_headers",
     "session_before_compact",
   ];
+
   for (const hook of hooks) {
-    const labels = records.filter((record) => record.hook === hook).map((record) => record.label);
+    const labels = records.flatMap((record) => (record.hook === hook ? [record.label] : []));
     expect(labels.length).toBeGreaterThanOrEqual(2);
+
     for (let index = 0; index < labels.length; index += 2) {
       expect(labels.slice(index, index + 2)).toStrictEqual(["target", "adversary"]);
     }
@@ -138,6 +145,7 @@ const workspace = async (prefix: string) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), prefix));
   const cwd = path.join(rootDir, "project");
   await mkdir(cwd, { recursive: true });
+
   return { cwd, rootDir };
 };
 
@@ -156,6 +164,7 @@ describe("public Pi hook ordering", () => {
         "fetch",
         vi.fn(async () => assistantResponse()),
       );
+
       const session = await createRealCodexSession({
         compaction: {
           enabled: true,
@@ -189,6 +198,7 @@ describe("public Pi hook ordering", () => {
       "fetch",
       vi.fn(async () => assistantResponse()),
     );
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -224,6 +234,7 @@ describe("public Pi hook ordering", () => {
         "fetch",
         vi.fn(async () => assistantResponse()),
       );
+
       const session = await createRealCodexSession({
         compaction: {
           enabled: true,
@@ -280,10 +291,12 @@ describe("public Pi hook ordering", () => {
       writeFile(localExtension, "export default () => {};\n"),
       writeFile(cliExtension, "export default () => {};\n"),
     ]);
+
     const settings = SettingsManager.inMemory({
       extensions: [localExtension],
       packages: [packageA, packageB],
     });
+
     const loader = new DefaultResourceLoader({
       additionalExtensionPaths: [cliExtension],
       agentDir: paths.rootDir,

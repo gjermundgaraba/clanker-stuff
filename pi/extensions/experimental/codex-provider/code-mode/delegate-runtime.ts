@@ -10,7 +10,9 @@ import { toolResultFromValue, truncateTraceText } from "./trace-values.js";
 import type { NestedTool, RuntimeResponse, ToolExecutionContext } from "./types.js";
 
 const MAX_TRACE_ERROR_CHARS = 16_384;
+
 const MAX_NOTIFICATION_CHARS = 16_384;
+
 const MAX_NOTIFICATIONS_PER_CELL = 100;
 
 export class CodeModeDelegateRuntime {
@@ -40,6 +42,7 @@ export class CodeModeDelegateRuntime {
       cellId,
       withExecutionSettings(context, captureExecutionSettings(previous ?? context)),
     );
+
     if (tools) {
       this.cellTools.set(cellId, tools);
     }
@@ -60,9 +63,11 @@ export class CodeModeDelegateRuntime {
     this.cellContexts.delete(cellId);
     this.cellTools.delete(cellId);
     const previous = this.cleanupTimers.get(cellId);
+
     if (previous) {
       clearTimeout(previous);
     }
+
     this.cleanupTimers.set(
       cellId,
       setTimeout(() => {
@@ -77,15 +82,18 @@ export class CodeModeDelegateRuntime {
     for (const controller of this.controllers.values()) {
       controller.abort();
     }
+
     this.controllers.clear();
     this.cellContexts.clear();
     this.observers.clear();
     this.cellTools.clear();
     this.traces.clear();
     this.notifications.clear();
+
     for (const timer of this.cleanupTimers.values()) {
       clearTimeout(timer);
     }
+
     this.cleanupTimers.clear();
   }
 
@@ -99,8 +107,10 @@ export class CodeModeDelegateRuntime {
     if (this.controllers.has(message.id)) {
       throw new Error(`Duplicate code-mode delegate request: ${message.id}`);
     }
+
     const controller = new AbortController();
     this.controllers.set(message.id, controller);
+
     const run = async () => {
       try {
         await this.invoke(message, controller);
@@ -108,12 +118,14 @@ export class CodeModeDelegateRuntime {
         if (!this.controllers.delete(message.id)) {
           return;
         }
+
         this.respond(message.id, {
           message: error instanceof Error ? error.message : String(error),
           status: "error",
         });
       }
     };
+
     void run();
   }
 
@@ -122,17 +134,22 @@ export class CodeModeDelegateRuntime {
       this.cellContexts.delete(response.cellId);
       this.cellTools.delete(response.cellId);
     }
+
     const cleanupTimer = this.cleanupTimers.get(response.cellId);
+
     if (cleanupTimer) {
       clearTimeout(cleanupTimer);
     }
+
     this.cleanupTimers.delete(response.cellId);
     const notifications = this.notifications.get(response.cellId) ?? [];
     this.notifications.delete(response.cellId);
     const withTraces = this.traces.attach(response);
+
     if (notifications.length === 0) {
       return withTraces;
     }
+
     return {
       ...withTraces,
       contentItems: [
@@ -177,16 +194,20 @@ export class CodeModeDelegateRuntime {
     controller: AbortController,
   ): Promise<void> {
     const { request } = message;
+
     if (request.type === "notification/send") {
       this.handleNotification(message.id, request);
+
       return;
     }
+
     const { invocation } = request;
     const cellId = invocation.cell_id;
     const toolName = nestedToolKey(invocation.tool_name);
     const { input } = invocation;
     const tool = this.cellTools.get(cellId)?.get(toolName);
     const context = this.cellContexts.get(cellId);
+
     if (!(tool && context)) {
       this.respond(message.id, {
         message: tool
@@ -195,6 +216,7 @@ export class CodeModeDelegateRuntime {
         status: "error",
       });
       this.controllers.delete(message.id);
+
       return;
     }
 
@@ -204,6 +226,7 @@ export class CodeModeDelegateRuntime {
       tool.definition.name,
       input,
     );
+
     const invocationContext: ToolExecutionContext = {
       extensionContext: context,
       captureResult: (result) => {
@@ -216,7 +239,9 @@ export class CodeModeDelegateRuntime {
       },
       toolCallId: trace.id,
     };
+
     this.emitCellUpdate(cellId);
+
     try {
       const result = await tool.invoke(input, invocationContext, controller.signal);
       trace.result ??= this.traces.captureResult(cellId, trace, toolResultFromValue(result));
@@ -248,20 +273,25 @@ export class CodeModeDelegateRuntime {
   ): void {
     const { cellId } = request;
     const context = this.cellContexts.get(cellId);
+
     if (!context) {
       this.respond(id, {
         message: "Code-mode notification cell is unavailable",
         status: "error",
       });
       this.controllers.delete(id);
+
       return;
     }
+
     const notifications = this.notifications.get(cellId) ?? [];
     const text = request.text.slice(0, MAX_NOTIFICATION_CHARS);
     notifications.push(text);
+
     if (notifications.length > MAX_NOTIFICATIONS_PER_CELL) {
       notifications.splice(0, notifications.length - MAX_NOTIFICATIONS_PER_CELL);
     }
+
     this.notifications.set(cellId, notifications);
     this.emitCellUpdate(cellId, text);
     this.respond(id, {

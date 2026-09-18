@@ -5,11 +5,13 @@ interface Position {
   cursorLine: number;
   cursorCol: number;
 }
+
 interface NativeSnapshot {
   state: Position;
   pastes: Map<number, string>;
   pasteCounter: number;
 }
+
 export interface Draft extends NativeSnapshot {
   undo: NativeSnapshot[];
   historyIndex: number;
@@ -19,6 +21,7 @@ export interface Draft extends NativeSnapshot {
   preferredVisualCol: number | null;
   snappedFromCursorCol: number | null;
 }
+
 export interface DocumentView {
   readonly text: string;
   readonly cursor: number;
@@ -28,6 +31,7 @@ export interface DocumentView {
     readonly content: string;
   }[];
 }
+
 const markers = /\[paste #(\d+)(?: [^\]\n]*)?\]/g;
 
 function cursorOffset(state: Position) {
@@ -36,20 +40,25 @@ function cursorOffset(state: Position) {
     state.cursorCol
   );
 }
+
 function documentView({ state, pastes }: NativeSnapshot): DocumentView {
   const text = state.lines.join("\n");
+
   return {
     text,
     cursor: cursorOffset(state),
-    atoms: [...text.matchAll(markers)]
+    atoms: text
+      .matchAll(markers)
       .filter((match) => pastes.has(Number(match[1])))
       .map((match) => ({
         start: match.index,
         end: match.index + match[0].length,
         content: pastes.get(Number(match[1]))!,
-      })),
+      }))
+      .toArray(),
   };
 }
+
 interface NativeEditor extends NativeSnapshot {
   killRing: {
     push(text: string, options: { prepend: boolean; accumulate?: boolean }): void;
@@ -71,28 +80,35 @@ interface NativeEditor extends NativeSnapshot {
   buildVisualLineMap(width: number): { logicalLine: number; startCol: number; length: number }[];
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Version boundary: validates Pi internals that no public type describes.
 function nativeEditor(instance: unknown): NativeEditor {
   // SAFETY: This single boundary targets Pi 0.85.0's Editor; validate required internals before use.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exposes no public document/undo adapter; the pinned private layout is checked below and covered by native editor contract tests.
   const native = instance as NativeEditor;
+
   if (
     !Array.isArray(native.state?.lines) ||
     !(native.pastes instanceof Map) ||
     !Array.isArray(native.undoStack?.stack) ||
+    /* oxlint-disable anti-slop/no-runtime-typeof -- Version adapter checks required Pi internals at runtime; the private structural declaration alone cannot guarantee callable methods. */
     typeof native.killRing?.push !== "function" ||
     typeof native.killRing?.peek !== "function" ||
     typeof native.killRing?.rotate !== "function" ||
     typeof native.expandPasteMarkers !== "function" ||
     typeof native.cancelAutocomplete !== "function" ||
     typeof native.buildVisualLineMap !== "function"
+    /* oxlint-enable anti-slop/no-runtime-typeof */
   ) {
     throw new Error("The shared editor requires Pi 0.85.0 Editor internals");
   }
+
   return native;
 }
 
 export function connect(editor: CustomEditor) {
   const native = nativeEditor(editor);
   const text = () => native.state.lines.join("\n");
+
   const capture = (): Draft =>
     structuredClone({
       state: native.state,
@@ -106,6 +122,7 @@ export function connect(editor: CustomEditor) {
       preferredVisualCol: native.preferredVisualCol,
       snappedFromCursorCol: native.snappedFromCursorCol,
     });
+
   const restore = (draft: Draft) => {
     native.cancelAutocomplete();
     const value = structuredClone(draft);
@@ -120,8 +137,10 @@ export function connect(editor: CustomEditor) {
     native.preferredVisualCol = value.preferredVisualCol;
     native.snappedFromCursorCol = value.snappedFromCursorCol;
   };
+
   const view = () => documentView(native);
   const cursor = () => cursorOffset(native.state);
+
   const move = (offset: number) => {
     const value = text();
     const bounded = Math.max(0, Math.min(value.length, offset));
@@ -131,10 +150,13 @@ export function connect(editor: CustomEditor) {
     native.preferredVisualCol = null;
     native.snappedFromCursorCol = null;
   };
+
   const expand = (text: string) =>
     text.replace(markers, (marker, id: string) => native.pastes.get(Number(id)) ?? marker);
+
   // Native retrieval and submission share nonrecursive payload ownership.
   native.expandPasteMarkers = expand;
+
   const replace = (start: number, end: number, insertion: string, target: number) => {
     native.cancelAutocomplete();
     const value = text();
@@ -144,19 +166,23 @@ export function connect(editor: CustomEditor) {
     native.lastAction = null;
     move(target);
   };
+
   // Views own immutable strings, including payloads, so they also serve as modal checkpoints.
   const restoreView = (view: DocumentView) => {
     native.pastes = new Map();
     native.pasteCounter = 0;
+
     for (const atom of view.atoms) {
       const id = Number([...view.text.slice(atom.start, atom.end).matchAll(markers)][0]![1]);
       native.pastes.set(id, atom.content);
       native.pasteCounter = Math.max(native.pasteCounter, id);
     }
+
     replace(0, text().length, view.text, view.cursor);
     native.undoStack.clear();
     native.scrollOffset = 0;
   };
+
   // Payload text never becomes terminal control input. Complex register content uses native markers.
   const encode = (text: string) => {
     if (
@@ -167,8 +193,10 @@ export function connect(editor: CustomEditor) {
       return text;
     const id = ++native.pasteCounter;
     native.pastes.set(id, text);
+
     return `[paste #${id} +${text.split("\n").length} lines]`;
   };
+
   // Native kill-ring entries otherwise retain marker IDs after their payload map is cleared.
   // Keep its accumulation/rotation semantics, but own payloads at this per-instance boundary.
   const ring = native.killRing;
@@ -177,9 +205,12 @@ export function connect(editor: CustomEditor) {
     push: (value, options) => ring.push(expand(value), options),
     peek: () => {
       const raw = ring.peek();
+
       if (raw === undefined) return undefined;
+
       if (!cached || cached.raw !== raw || expand(cached.encoded) !== raw)
         cached = { raw, encoded: encode(raw) };
+
       return cached.encoded;
     },
     rotate: () => ring.rotate(),
@@ -187,6 +218,7 @@ export function connect(editor: CustomEditor) {
       return ring.length;
     },
   };
+
   return {
     text,
     capture,
@@ -208,4 +240,5 @@ export function connect(editor: CustomEditor) {
     }),
   };
 }
+
 export type DocumentAdapter = ReturnType<typeof connect>;

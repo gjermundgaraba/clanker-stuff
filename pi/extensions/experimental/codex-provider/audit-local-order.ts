@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const TARGET_PATH = realpathSync(path.join(import.meta.dirname, "index.ts"));
+
 export const SUPPORTED_PI_VERSION = "0.85.0";
 
 export interface LocalOrderAuditResult {
@@ -31,18 +32,23 @@ export const auditLocalOrder = async (options?: {
   if (VERSION !== SUPPORTED_PI_VERSION) {
     throw new Error(`Unsupported audit SDK version ${VERSION}; expected ${SUPPORTED_PI_VERSION}`);
   }
+
   const piVersion =
     options?.piVersion ?? execFileSync("pi", ["--version"], { encoding: "utf-8" }).trim();
+
   if (piVersion !== SUPPORTED_PI_VERSION) {
     throw new Error(
       `Unsupported Pi executable version ${piVersion}; expected ${SUPPORTED_PI_VERSION}`,
     );
   }
+
   const cwd = path.resolve(options?.cwd ?? process.cwd());
   const agentDir = path.resolve(options?.agentDir ?? getAgentDir());
+
   const settingsManager = SettingsManager.create(cwd, agentDir, {
     projectTrusted: true,
   });
+
   const loader = new DefaultResourceLoader({
     agentDir,
     cwd,
@@ -56,6 +62,7 @@ export const auditLocalOrder = async (options?: {
   const resolveExtensions = async () => {
     await loader.reload();
     const result = loader.getExtensions();
+
     if (result.errors.length > 0) {
       throw new Error(
         `Extension loading diagnostics:\n${result.errors
@@ -63,6 +70,7 @@ export const auditLocalOrder = async (options?: {
           .join("\n")}`,
       );
     }
+
     return result.extensions.map((extension) => ({
       path: realpathSync(extension.resolvedPath),
     }));
@@ -70,21 +78,26 @@ export const auditLocalOrder = async (options?: {
 
   const extensions = await resolveExtensions();
   const reloaded = await resolveExtensions();
+
   if (
     JSON.stringify(extensions.map(({ path: extensionPath }) => extensionPath)) !==
     JSON.stringify(reloaded.map(({ path: extensionPath }) => extensionPath))
   ) {
     throw new Error("Resolved extension order changed after reload");
   }
+
   const targetCount = extensions.filter(
     ({ path: extensionPath }) => extensionPath === TARGET_PATH,
   ).length;
+
   const finalPath = extensions.at(-1)?.path;
+
   if (targetCount !== 1 || finalPath !== TARGET_PATH) {
     throw new Error(
       `Expected ${TARGET_PATH} exactly once and last; resolved ${targetCount} occurrence(s), final path ${finalPath ?? "(none)"}`,
     );
   }
+
   return {
     count: extensions.length,
     extensions,
@@ -100,7 +113,8 @@ const isMain =
 
 if (isMain) {
   try {
-    const result = await auditLocalOrder({ cwd: process.argv[2] });
+    const cwd = process.argv[2];
+    const result = await auditLocalOrder(cwd !== undefined ? { cwd } : {});
     console.log(`Pi version: ${result.piVersion}`);
     console.log(`Audit SDK version: ${result.sdkVersion}`);
     console.log(`Resolved ${result.count} extensions`);

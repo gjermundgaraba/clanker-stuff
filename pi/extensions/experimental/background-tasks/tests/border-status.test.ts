@@ -1,13 +1,17 @@
+import { Value } from "typebox/value";
+import type { Static } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   BORDER_READY_EVENT,
   BORDER_STATUS_EVENT,
+  BorderUpdateSchema,
   borderScope,
 } from "@clanker-stuff/border-status-protocol";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { TaskRuntime } from "../runtime.js";
 
 const runtimes: TaskRuntime[] = [];
+
 afterEach(async () => {
   for (const runtime of runtimes.splice(0)) await runtime.shutdown();
   vi.restoreAllMocks();
@@ -17,19 +21,22 @@ afterEach(async () => {
 async function setup(mode: "tui" | "rpc" = "tui") {
   vi.useFakeTimers();
   let runtime!: TaskRuntime;
+
   const host = createExtensionHost((pi) => {
     runtime = new TaskRuntime(pi);
   });
+
   await host.ready;
   runtimes.push(runtime);
   const setStatus = vi.fn();
   const ctx = host.createContext({ mode, isIdle: () => false, ui: { setStatus } });
-  const updates = vi.fn();
-  host.events.on(BORDER_STATUS_EVENT, updates);
+  const updates = vi.fn<(update: Static<typeof BorderUpdateSchema>) => void>();
+  host.events.on(BORDER_STATUS_EVENT, (raw) => updates(Value.Parse(BorderUpdateSchema, raw)));
   const ready = { version: 1, instanceId: "border", scope: borderScope(ctx) };
   const active = vi.spyOn(runtime.supervisor, "activeCount", "get").mockReturnValue(0);
   runtime.startSession(ctx);
   const announce = () => host.events.emit(BORDER_READY_EVENT, ready);
+
   return { runtime, host, ctx, updates, ready, active, announce, setStatus };
 }
 
@@ -40,9 +47,9 @@ describe("background task border indicators", () => {
     const { runtime, ctx, updates, active, announce, setStatus } = await setup();
     announce();
     await tick();
-    expect(updates.mock.calls.map(([update]) => [update.type, update.key])).toEqual([
-      ["clear", "active"],
-      ["clear", "pending"],
+    expect(updates.mock.calls).toMatchObject([
+      [{ type: "clear", key: "active" }],
+      [{ type: "clear", key: "pending" }],
     ]);
     active.mockReturnValue(2);
     runtime.inbox.add({ taskId: "task", terminal: false, reason: "observation" });
@@ -50,26 +57,16 @@ describe("background task border indicators", () => {
     await runtime.tree(ctx, null);
     announce();
     await tick();
-    expect(updates).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "set",
-        key: "active",
-        status: expect.objectContaining({
-          text: "2",
-          icon: { nerd: "\uF085", unicode: "⚙", ascii: "tasks" },
-        }),
-      }),
-    );
-    expect(updates).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        type: "set",
-        key: "pending",
-        status: expect.objectContaining({
-          text: "2",
-          icon: { nerd: "\uF0F3", unicode: "🔔", ascii: "pending" },
-        }),
-      }),
-    );
+    expect(updates.mock.calls.at(-2)?.[0]).toMatchObject({
+      type: "set",
+      key: "active",
+      status: { text: "2", icon: { nerd: "\uF085", unicode: "⚙", ascii: "tasks" } },
+    });
+    expect(updates.mock.calls.at(-1)?.[0]).toMatchObject({
+      type: "set",
+      key: "pending",
+      status: { text: "2", icon: { nerd: "\uF0F3", unicode: "🔔", ascii: "pending" } },
+    });
     const batch = runtime.inbox.take()!;
     active.mockReturnValue(0);
     await runtime.tree(ctx, null);
@@ -78,19 +75,15 @@ describe("background task border indicators", () => {
     expect(updates.mock.calls.at(-2)?.[0]).toEqual(
       expect.objectContaining({ type: "clear", key: "active" }),
     );
-    expect(updates).toHaveBeenLastCalledWith(
-      expect.objectContaining({ key: "pending", status: expect.objectContaining({ text: "2" }) }),
-    );
+    expect(updates.mock.calls.at(-1)?.[0]).toMatchObject({ key: "pending", status: { text: "2" } });
     active.mockReturnValue(1);
     runtime.delivery.acknowledge(batch.id);
     await tick();
-    expect(updates.mock.calls.at(-2)?.[0]).toEqual(
-      expect.objectContaining({
-        type: "set",
-        key: "active",
-        status: expect.objectContaining({ text: "1" }),
-      }),
-    );
+    expect(updates.mock.calls.at(-2)?.[0]).toMatchObject({
+      type: "set",
+      key: "active",
+      status: { text: "1" },
+    });
     expect(updates).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: "clear", key: "pending" }),
     );

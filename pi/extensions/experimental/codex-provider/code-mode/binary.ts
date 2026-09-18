@@ -17,13 +17,15 @@ export const codeModeHostBinaryPath = (platform = process.platform, arch = proce
 
 export const ensureCodeModeHostBinary = async (signal?: AbortSignal) => {
   const binaryPath = codeModeHostBinaryPath();
+
   if (!existsSync(binaryPath)) {
     await installCodeModeHost({
       arch: process.arch,
       destination: binaryPath,
       platform: process.platform,
-      signal,
+      ...(signal !== undefined ? { signal } : {}),
     });
   }
+
   return binaryPath;
 };

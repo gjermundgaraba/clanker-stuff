@@ -19,9 +19,11 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)+$/u;
 
 const codePointLength = (value: string): number => {
   let length = 0;
+
   for (const _codePoint of value) {
     length += 1;
   }
+
   return length;
 };
 
@@ -34,16 +36,21 @@ export const validateRichWidgetId = (value: string): boolean =>
 const copyContent = (value: FooterContent): FooterContent | undefined => {
   const spans: FooterSpan[] = [];
   let length = 0;
+
   for (const candidate of value) {
     if (hasTerminalControl(candidate.text)) {
       return undefined;
     }
+
     length += codePointLength(candidate.text);
+
     if (length > 1024) {
       return undefined;
     }
+
     spans.push({ ...candidate });
   }
+
   return spans;
 };
 
@@ -51,12 +58,16 @@ const copyIcon = (value: FooterWidgetIcon | false): FooterWidgetIcon | false | u
   if (value === false) {
     return false;
   }
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate the decoded string/glyph-map union before applying text limits to each glyph.
   if (typeof value.glyphs !== "string") {
     if (Object.values(value.glyphs).some((glyph) => glyph !== undefined && !validText(glyph, 16))) {
       return undefined;
     }
+
     return { ...value, glyphs: { ...value.glyphs } };
   }
+
   return validText(value.glyphs, 16) ? { ...value } : undefined;
 };
 
@@ -71,10 +82,13 @@ const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterW
       ok: false,
     };
   }
+
   if (!validText(value.label, 80)) {
     return { class: "text", message: "widget label is invalid", ok: false };
   }
+
   const content = copyContent(value.content);
+
   if (!content) {
     return {
       class: "content",
@@ -82,14 +96,19 @@ const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterW
       ok: false,
     };
   }
+
   const icon = value.icon === undefined ? undefined : copyIcon(value.icon);
+
   if (value.icon !== undefined && icon === undefined) {
     return { class: "icon", message: "widget icon is invalid", ok: false };
   }
+
   const health = value.health === undefined ? undefined : copyHealth(value.health);
+
   if (value.health !== undefined && health === undefined) {
     return { class: "health", message: "widget health is invalid", ok: false };
   }
+
   if (value.consumesStatusKeys?.some((key) => !validText(key, 128)) === true) {
     return {
       class: "fallback",
@@ -97,21 +116,24 @@ const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterW
       ok: false,
     };
   }
+
   return {
     ok: true,
     value: {
       ...value,
-      consumesStatusKeys:
-        value.consumesStatusKeys === undefined ? undefined : [...value.consumesStatusKeys],
+      ...(value.consumesStatusKeys !== undefined
+        ? { consumesStatusKeys: [...value.consumesStatusKeys] }
+        : {}),
       content,
-      defaults: value.defaults === undefined ? undefined : { ...value.defaults },
-      health,
-      icon,
+      ...(value.defaults !== undefined ? { defaults: { ...value.defaults } } : {}),
+      ...(health !== undefined ? { health } : {}),
+      ...(icon !== undefined ? { icon } : {}),
     },
   };
 };
 
 export const validateFooterWidgetMessage = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for untyped event-bus payloads.
   value: unknown,
 ): ValidationResult<FooterWidgetMessage> => {
   if (!Value.Check(FooterWidgetMessageSchema, value)) {
@@ -121,6 +143,7 @@ export const validateFooterWidgetMessage = (
       ok: false,
     };
   }
+
   if (value.type === "remove") {
     return validateRichWidgetId(value.id)
       ? {
@@ -132,7 +155,9 @@ export const validateFooterWidgetMessage = (
         }
       : { class: "id", message: "widget id is invalid or reserved", ok: false };
   }
+
   const widget = validateSnapshot(value.widget);
+
   return widget.ok
     ? {
         ok: true,

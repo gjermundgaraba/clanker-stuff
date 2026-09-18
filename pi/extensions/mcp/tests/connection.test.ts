@@ -17,18 +17,23 @@ describe("mcp connection", () => {
       if (ms !== 30_000) return timeout(ms);
       const deadline = new AbortController();
       deadlines.push(deadline);
+
       return deadline.signal;
     });
     const fixture = await t.startHttpFixture();
     const release = fixture.pauseToolCalls();
     const connection = await connectToServer({ serverConfig: { type: "http", url: fixture.url } });
+
     try {
       const call = connection.client.callTool({ name: "search", arguments: { query: "slow" } });
+
       const result = expect(call).resolves.toMatchObject({
         content: [{ type: "text", text: "result: slow" }],
       });
+
       await expect.poll(fixture.getToolCallCount).toBe(1);
       expect(deadlines.length).toBeGreaterThan(0);
+
       // Expire setup and any accidental per-fetch deadline while the real request is pending.
       for (const deadline of deadlines)
         deadline.abort(new DOMException("Deadline expired", "TimeoutError"));
@@ -45,6 +50,7 @@ describe("mcp connection", () => {
     const release = fixture.pauseToolCalls();
     const connection = await connectToServer({ serverConfig: { type: "http", url: fixture.url } });
     const controller = new AbortController();
+
     try {
       const call = connection.client.callTool(
         { name: "search", arguments: { query: "cancel" } },
@@ -52,6 +58,7 @@ describe("mcp connection", () => {
           signal: controller.signal,
         },
       );
+
       const rejected = expect(call).rejects.toThrow();
       await expect.poll(fixture.getToolCallCount).toBe(1);
       controller.abort();
@@ -72,6 +79,7 @@ describe("mcp connection", () => {
       const controller = new AbortController();
       const request = once(server, "request");
       const url = `http://127.0.0.1:${port}`;
+
       const connection = connectToServer({
         serverConfig:
           type === "http"
@@ -83,13 +91,17 @@ describe("mcp connection", () => {
               },
         signal: controller.signal,
       });
+
       let error: unknown;
+
       const settled = connection.then(
         (value) => value.close(),
+        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Capture the actual connection rejection without assuming dependencies throw Error objects.
         (cause: unknown) => {
           error = cause;
         },
       );
+
       try {
         await request;
         controller.abort(new Error("Canceled discovery"));
@@ -108,17 +120,21 @@ describe("mcp connection", () => {
     "keeps an established %s connection usable after its load signal is aborted",
     async (type) => {
       const controller = new AbortController();
+
       const connection = await connectToServer({
         serverConfig:
           type === "http" ? { type, url: (await t.startHttpFixture()).url } : fixtureServer(),
         signal: controller.signal,
       });
+
       try {
         controller.abort();
+
         const result = await connection.client.callTool({
           name: "search",
           arguments: { query: "needle" },
         });
+
         expect(result.content).toContainEqual({ type: "text", text: "result: needle" });
       } finally {
         await connection.close();
@@ -129,20 +145,25 @@ describe("mcp connection", () => {
     "serves %s results from the shared HTTP fixture",
     async (scenario) => {
       const fixture = await t.startHttpFixture({ scenario });
+
       const connection = await connectToServer({
         serverConfig: { type: "http", url: fixture.url },
       });
+
       try {
         const result = await connection.client.callTool({
           name: "search",
           arguments: { query: "content" },
         });
+
         if (scenario === "image" || scenario === "mixed") {
           const image = result.content.find((item) => item.type === "image");
           expect(image).toBeDefined();
+
           if (image?.type === "image")
             expect(Buffer.from(image.data, "base64").subarray(1, 4).toString()).toBe("PNG");
         }
+
         if (scenario === "structured" || scenario === "mixed")
           expect(result.structuredContent).toMatchObject({ query: "content" });
         expect(fixture.state.operations).toBe(1);
@@ -156,6 +177,7 @@ describe("mcp connection", () => {
     const fixture = await t.startHttpFixture();
     const connection = await connectToServer({ serverConfig: { type: "http", url: fixture.url } });
     const origin = new URL(fixture.url).origin;
+
     try {
       await fetch(`${origin}/control?action=pause`, { method: "POST" });
       const call = connection.client.callTool({ name: "search", arguments: { query: "paused" } });

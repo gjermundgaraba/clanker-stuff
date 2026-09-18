@@ -2,8 +2,11 @@ import { geometry, project, TAU } from "./geometry.ts";
 
 // Integer 20ms ticks preserve the 8s loop; Node truncates 1000/60 to 16ms.
 export const FPS = 50;
+
 export const SEED = "amp-orb";
+
 export const STRIKES = [32, 64];
+
 // Cached Amp web bright palette, not a claim about native callers' supplied Color.
 const HUES = {
   blue: 250,
@@ -16,6 +19,7 @@ const HUES = {
   cyan: 205,
   gray: 0,
 };
+
 export const INKS = Object.fromEntries(
   Object.entries(HUES).map(([name, hue]) => [
     name,
@@ -25,12 +29,14 @@ export const INKS = Object.fromEntries(
     },
   ]),
 );
+
 // Fixed across every shape and pose. Keep perspective overflow without
 // fitting individual frames, which would introduce artificial scale changes.
 export const VIEWBOX = 32;
 
 export function frame(shape: string, seconds: number, rest = false) {
   const g = geometry(SEED, shape);
+
   return {
     lines: project(g, rest ? 0 : (seconds / 8) * TAU, rest ? 1 : 0),
     strokeWidth: g.strokeWidth,
@@ -53,11 +59,15 @@ export function paint(
   ctx.lineWidth = scene.strokeWidth;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+
   for (const line of scene.lines) {
+    const [first, ...rest] = line.points;
+
     ctx.globalAlpha = line.opacity;
     ctx.beginPath();
-    ctx.moveTo(line.points[0][0], line.points[0][1]);
-    for (const point of line.points.slice(1)) ctx.lineTo(point[0], point[1]);
+    ctx.moveTo(first[0], first[1]);
+
+    for (const point of rest) ctx.lineTo(point[0], point[1]);
     ctx.stroke();
   }
 }

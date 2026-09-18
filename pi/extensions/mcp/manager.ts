@@ -6,13 +6,18 @@ import { Type } from "typebox";
 import { setMcpServer, listMcpServers, removeMcpServer, ServerConfigSchema } from "./config.js";
 
 export const MCP_MANAGER_SERVER_NAME = "mcp-manager";
+
 export const MANAGER_TOOL_NAMES = ["mcp_set", "mcp_remove", "mcp_list", "mcp_connect"];
+
 const ScopeSchema = StringEnum(["global", "project"] as const);
+
 const NameSchema = Type.String({ minLength: 1 });
+
 const textResult = (text: string) => ({
   content: [{ type: "text" as const, text }],
   details: undefined,
 });
+
 export const configOptions = (ctx: ExtensionContext) => ({
   cwd: ctx.cwd,
   projectTrusted: ctx.isProjectTrusted(),
@@ -27,6 +32,7 @@ type Connect = (
 
 export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void => {
   const collision = pi.getAllTools().find(({ name }) => MANAGER_TOOL_NAMES.includes(name));
+
   if (collision) throw new Error(`MCP manager tool name collision: ${collision.name}`);
   pi.registerTool({
     name: "mcp_set",
@@ -42,6 +48,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
       if (args.name === MCP_MANAGER_SERVER_NAME)
         throw new Error(`MCP server name ${MCP_MANAGER_SERVER_NAME} is reserved`);
       await setMcpServer(args.name, args.config, args.scope, configOptions(ctx), signal);
+
       return textResult(`Set MCP server ${args.name} to the ${args.scope} config`);
     },
   });
@@ -57,6 +64,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
     ),
     async execute(_id, args, signal, _update, ctx) {
       await removeMcpServer(args.name, args.scope, configOptions(ctx), signal);
+
       return textResult(`MCP server ${args.name} is absent from the ${args.scope} config`);
     },
   });
@@ -70,6 +78,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
     async execute(_id, _args, signal, _update, ctx) {
       signal?.throwIfAborted();
       const servers = await listMcpServers(configOptions(ctx));
+
       return textResult(
         [
           `${MCP_MANAGER_SERVER_NAME} (built-in)`,
@@ -92,6 +101,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
     ),
     async execute(_id, args, signal, _update, ctx) {
       const count = await connect(ctx, args.name, args.reconnect ?? false, signal);
+
       return textResult(`MCP server ${args.name} was loaded with ${count} tools`);
     },
   });

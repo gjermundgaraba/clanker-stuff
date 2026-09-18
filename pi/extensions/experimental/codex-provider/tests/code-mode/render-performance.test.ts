@@ -19,6 +19,7 @@ import { codeModeTool, processTrace, result } from "../fixtures/code-mode-render
 import { observeRenderWork } from "../fixtures/render-work.js";
 
 const code = 'text(await tools.exec_command({cmd: "cat example.ts"}));';
+
 const makeRow = (definition = codeModeTool().definition) =>
   new ToolExecutionComponent(
     "exec",
@@ -29,6 +30,7 @@ const makeRow = (definition = codeModeTool().definition) =>
     createMockTui(),
     "/tmp",
   );
+
 const output = (id: number) =>
   Array.from({ length: 400 }, (_, i) => `file-${id}:${i} ${"output ".repeat(10)}`).join("\n");
 
@@ -53,6 +55,7 @@ describe("Code Mode render work", () => {
     expect(boxes).toHaveBeenCalled();
     prefixes.mockClear();
     boxes.mockClear();
+
     for (let i = 0; i < 10; i++) expect(row.render(120)).toEqual(first);
     expect(prefixes).not.toHaveBeenCalled();
     expect(boxes).not.toHaveBeenCalled();
@@ -82,6 +85,7 @@ describe("Code Mode render work", () => {
     expect(work.layouts).toHaveBeenCalled();
     work.layouts.mockClear();
     work.highlights.mockClear();
+
     for (let i = 0; i < 10; i++) expect(row.render(120)).toEqual(first);
     expect(work.layouts).not.toHaveBeenCalled();
     expect(work.highlights).not.toHaveBeenCalled();
@@ -99,12 +103,14 @@ describe("Code Mode render work", () => {
     (mode) => {
       const work = observeRenderWork();
       const row = makeRow();
+
       if (mode !== "pending") {
         row.updateResult({
           ...result(mode === "expanded" ? [processTrace("a", "cat example.ts", "done")] : []),
           isError: false,
         });
       }
+
       if (mode === "expanded") row.setExpanded(true);
       row.render(120);
       expect(work.highlights).toHaveBeenCalled();
@@ -116,6 +122,7 @@ describe("Code Mode render work", () => {
       expect(work.layouts).toHaveBeenCalled();
       expect(work.highlights).not.toHaveBeenCalled();
       const dark = row.render(40).join("\n");
+
       try {
         initTheme("light");
         row.invalidate();
@@ -168,6 +175,7 @@ describe("Code Mode render work", () => {
     const dark = row.render(120).join("\n");
     expect(dark).toContain("48;2;60;40;40m");
     expect(stripVTControlCharacters(dark)).toContain("new failure");
+
     try {
       initTheme("light");
       row.invalidate();
@@ -181,11 +189,14 @@ describe("Code Mode render work", () => {
 
   it.each([false, true])("honors delegated renderer invalidation (expanded=%s)", (expanded) => {
     let label = "before";
+
     let invalidate: () => void = () => {
       throw new Error("Nested renderer not prepared");
     };
+
     const callInvalidated = vi.fn();
     const resultInvalidated = vi.fn();
+
     const nested: ToolDefinition = {
       name: "custom",
       label: "Custom",
@@ -197,13 +208,16 @@ describe("Code Mode render work", () => {
       renderCall(_args, _theme, context) {
         invalidate = context.invalidate;
         const text = new Text(label, 0, 0);
+
         return { render: (width) => text.render(width), invalidate: callInvalidated };
       },
       renderResult() {
         const text = new Text(`output ${label}`, 0, 0);
+
         return { render: (width) => text.render(width), invalidate: resultInvalidated };
       },
     };
+
     const row = makeRow(codeModeTool("exec", [nested]).definition);
     row.updateResult({
       ...result([{ id: "a", name: "custom", input: {}, status: "done", result: { content: [] } }]),
@@ -243,9 +257,11 @@ describe("Code Mode render work", () => {
         setTitle() {},
         setProgress() {},
       };
+
       const tui = new TuiAltScreen(terminal);
       const document = new Container();
       const { definition } = codeModeTool();
+
       for (let i = 0; i < 50; i++) {
         const row = new ToolExecutionComponent(
           "exec",
@@ -256,6 +272,7 @@ describe("Code Mode render work", () => {
           tui,
           "/tmp",
         );
+
         row.updateResult({
           ...result([processTrace(`trace-${i}`, `cat file-${i}`, output(i))], [output(i)]),
           isError: false,
@@ -263,10 +280,12 @@ describe("Code Mode render work", () => {
         row.setExpanded(expanded);
         document.addChild(row);
       }
+
       const scroll = new ScrollView(document, { follow: "end", primary: true });
       tui.setLayoutRoot(scroll);
       const work = observeRenderWork();
       const prefixes = vi.spyOn(PrefixedComponent.prototype, "render");
+
       try {
         tui.start();
         tui.renderNow();
@@ -276,10 +295,12 @@ describe("Code Mode render work", () => {
         work.highlights.mockClear();
         prefixes.mockClear();
         const start = scroll.scrollTop;
+
         for (let i = 0; i < 10; i++) {
           scroll.scrollBy(-1);
           tui.renderNow();
         }
+
         expect(scroll.scrollTop).toBe(start - 10);
         expect(work.layouts).not.toHaveBeenCalled();
         expect(work.highlights).not.toHaveBeenCalled();

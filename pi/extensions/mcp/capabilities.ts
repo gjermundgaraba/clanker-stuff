@@ -40,15 +40,20 @@ export class ContextClient extends Client {
         },
       },
     );
+
     const originatingContext = () =>
       this.current.getStore() ??
       (this.contexts.size === 1 ? this.contexts.values().next().value : undefined);
+
     const context = () => {
       const owned = originatingContext();
+
       if (!owned) throw new Error("MCP input request has no unambiguous originating tool call");
       owned.signal.throwIfAborted();
+
       return owned;
     };
+
     this.setNotificationHandler("notifications/elicitation/complete", (notification) => {
       this.urlCompletions.get(notification.params.elicitationId)?.abort();
     });
@@ -56,6 +61,7 @@ export class ContextClient extends Client {
       const owned = originatingContext();
       owned?.signal.throwIfAborted();
       const workspace = owned ? owned.ctx.cwd : getWorkspace();
+
       return {
         roots: workspace ? [{ uri: pathToFileURL(workspace).href, name: "Workspace" }] : [],
       };
@@ -67,7 +73,9 @@ export class ContextClient extends Client {
         const owned = context();
         const id = params.mode === "url" ? params.elicitationId : undefined;
         const completion = id ? new AbortController() : undefined;
+
         if (id && completion) this.urlCompletions.set(id, completion);
+
         try {
           return await this.track(owned, () =>
             elicit(
@@ -83,9 +91,11 @@ export class ContextClient extends Client {
         }
       },
     );
+
     if (pi)
       this.setRequestHandler("sampling/createMessage", async (request, requestContext) => {
         const owned = context();
+
         return await this.track(owned, () =>
           sample(
             pi,
@@ -103,12 +113,15 @@ export class ContextClient extends Client {
     ...[method, handler]: Parameters<Client["_wrapHandler"]>
   ): ReturnType<Client["_wrapHandler"]> {
     if (method !== "elicitation/create") return super._wrapHandler(method, handler);
+
     return async (request, ctx) => {
       let original!: Awaited<ReturnType<typeof handler>>;
       await super._wrapHandler(method, async (request, ctx) => {
         original = await handler(request, ctx);
+
         return original;
       })(request, ctx);
+
       // Retain SDK mode/result validation without replacing valid answers with its
       // Zod-record projection, which drops __proto__. elicit validates every value.
       return original;
@@ -118,6 +131,7 @@ export class ContextClient extends Client {
   private track<T>(owned: McpCallContext, run: () => Promise<T>): Promise<T> {
     const promise = run();
     this.work.get(owned)?.add(promise);
+
     return promise;
   }
 
@@ -126,6 +140,7 @@ export class ContextClient extends Client {
   ): ReturnType<Client["_resolveNonCompleteResult"]> {
     const signal = args[1].options?.signal;
     const owned = signal ? this.contexts.get(signal) : undefined;
+
     return owned
       ? this.current.run(owned, () => super._resolveNonCompleteResult(...args))
       : super._resolveNonCompleteResult(...args);
@@ -141,15 +156,18 @@ export class ContextClient extends Client {
     const execute = async () => {
       owned.signal.throwIfAborted();
       const controller = new AbortController();
+
       const interactionContext: McpCallContext = {
         ...owned,
         signal: AbortSignal.any([owned.signal, controller.signal]),
       };
+
       // SDK continuation lookup uses the original request signal; reverse work
       // also observes this call's lifetime, including an SDK timeout or failure.
       this.contexts.set(owned.signal, interactionContext);
       const tasks = new Set<Promise<unknown>>();
       this.work.set(interactionContext, tasks);
+
       try {
         return await this.current.run(interactionContext, run);
       } catch (error) {
@@ -163,15 +181,20 @@ export class ContextClient extends Client {
         this.contexts.delete(owned.signal);
       }
     };
+
     // Legacy reverse requests carry no originating-call identity. Serialize only that era.
     if (this.getNegotiatedProtocolVersion() !== "2026-07-28") {
       let started = false;
+
       const start = () => {
         started = true;
+
         return execute();
       };
+
       const call = this.legacyTail.then(start, start);
       this.legacyTail = call.catch(() => {});
+
       try {
         return await raceWithAbortSignal(call, owned.signal);
       } catch (error) {
@@ -180,6 +203,7 @@ export class ContextClient extends Client {
         throw error;
       }
     }
+
     return await execute();
   }
 }

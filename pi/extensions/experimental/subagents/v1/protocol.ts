@@ -17,6 +17,7 @@ const StatusSchema = Type.Union([
   Type.Literal("errored"),
   Type.Literal("shutdown"),
 ]);
+
 const PromptInputSchema = Type.Object(
   {
     images: Type.Optional(
@@ -35,6 +36,7 @@ const PromptInputSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const TurnSchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
@@ -42,9 +44,11 @@ const TurnSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const ActiveTurnProperties = {
   ...TurnSchema.properties,
 };
+
 const PendingTurnSchema = Type.Object(
   {
     ...ActiveTurnProperties,
@@ -52,6 +56,7 @@ const PendingTurnSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const RunningTurnSchema = Type.Object(
   {
     ...ActiveTurnProperties,
@@ -59,6 +64,7 @@ const RunningTurnSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const NotificationSchema = Type.Object(
   {
     agentId: Type.String({ minLength: 1 }),
@@ -67,6 +73,7 @@ const NotificationSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const AgentIdentityProperties = {
   id: Type.String({ minLength: 1 }),
   nickname: Type.String({ minLength: 1 }),
@@ -74,12 +81,14 @@ const AgentIdentityProperties = {
   sessionFile: Type.String({ minLength: 1 }),
   tools: Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true }),
 };
+
 const OpenAgentProperties = {
   ...AgentIdentityProperties,
   edge: Type.Literal("open"),
   lastAnswer: Type.Optional(Type.String()),
   queue: Type.Array(TurnSchema),
 };
+
 const AgentSchema = Type.Union([
   Type.Object(
     {
@@ -139,6 +148,7 @@ const AgentSchema = Type.Union([
     { additionalProperties: false },
   ),
 ]);
+
 export const V1SnapshotSchema = Type.Object(
   {
     agents: Type.Array(AgentSchema),
@@ -148,9 +158,13 @@ export const V1SnapshotSchema = Type.Object(
 );
 
 export type V1AgentStatus = Static<typeof StatusSchema>;
+
 export type V1Notification = Static<typeof NotificationSchema>;
+
 export type V1PersistedAgent = Static<typeof AgentSchema>;
+
 export type V1Snapshot = Static<typeof V1SnapshotSchema>;
+
 export type V1Turn = Static<typeof TurnSchema>;
 
 export const isFinalStatus = (status: V1AgentStatus): boolean =>

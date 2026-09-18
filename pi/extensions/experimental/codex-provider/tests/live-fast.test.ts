@@ -11,6 +11,7 @@ const packageRoot = path.resolve(import.meta.dirname, "..");
 const invoke = (seed: string) => {
   const env = { ...process.env };
   delete env.CODEX_FAST_LIVE_PAID;
+
   return spawnSync("pnpm", ["run", "test:live:fast", "--", "--seed", seed], {
     cwd: packageRoot,
     encoding: "utf-8",
@@ -21,6 +22,7 @@ const invoke = (seed: string) => {
 describe("live fast runner", () => {
   it("keeps late messages with the sample that created the socket", async () => {
     const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
+
     class FakeWebSocket {
       static readonly instances: FakeWebSocket[] = [];
       readonly listeners = new Set<(event: { data: unknown }) => void>();
@@ -36,16 +38,17 @@ describe("live fast runner", () => {
         }
       }
 
-      emitMessage(data: unknown) {
+      emitMessage(data: Blob) {
         for (const listener of this.listeners) {
           listener({ data });
         }
       }
 
-      send(data: unknown) {
+      send(data: Parameters<WebSocket["send"]>[0]) {
         this.sent.push(data);
       }
     }
+
     Object.defineProperty(globalThis, "WebSocket", {
       configurable: true,
       value: FakeWebSocket,
@@ -85,6 +88,7 @@ describe("live fast runner", () => {
       expect(second.terminalResponses).toStrictEqual([]);
     } finally {
       probe?.restore();
+
       if (original === undefined) {
         Reflect.deleteProperty(globalThis, "WebSocket");
       } else {

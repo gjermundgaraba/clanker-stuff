@@ -42,17 +42,23 @@ export const spawnModelsDescription = (
   protocol: "v1" | "v2",
 ): string => {
   const models = suggestedSpawnModels(registry, provider, protocol);
+
   if (models.length === 0) return "No picker-visible model overrides are currently loaded.";
+
   const descriptions = models.map((model) => {
     const info = metadata(model);
+
     const efforts = getSupportedThinkingLevels(model).map((effort) =>
       effort === info?.defaultReasoningEffort ? `${effort} (default)` : effort,
     );
+
     const reasoning = efforts.length === 0 ? "" : ` Reasoning efforts: ${efforts.join(", ")}.`;
     const tiers = info?.serviceTiers ?? [];
     const service = tiers.length === 0 ? "" : ` Service tiers: ${tiers.join(", ")}.`;
+
     return `- \`${model.id}\`: ${info?.description ?? model.name}${reasoning}${service}`;
   });
+
   return `Available model overrides (optional; inherited parent model is preferred):\n${descriptions.join("\n")}`;
 };
 
@@ -74,6 +80,7 @@ export const unknownSpawnModel = (
 
 export const validateSpawnReasoning = (model: Model<Api>, effort: ModelThinkingLevel): void => {
   const supported = getSupportedThinkingLevels(model);
+
   if (!supported.includes(effort)) {
     throw new Error(
       `Reasoning effort \`${effort}\` is not supported for model \`${model.id}\`. Supported reasoning efforts: ${supported.join(", ")}`,

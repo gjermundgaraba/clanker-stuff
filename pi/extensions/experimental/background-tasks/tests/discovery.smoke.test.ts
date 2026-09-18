@@ -5,11 +5,14 @@ import { createExtensionSmokeHarness } from "../../../../tests/harness/extension
 describe("background-tasks discovery", () => {
   it("loads the package and registers its four tools and command", async () => {
     const h = await createExtensionSmokeHarness({ packages: [resolve(import.meta.dirname, "..")] });
+
     try {
       expect(h.extensionsResult.errors).toEqual([]);
+
       const extension = h.extensionsResult.extensions.find((e) =>
         e.resolvedPath.includes("background-tasks"),
       );
+
       expect(extension?.commands.has("tasks")).toBe(true);
       expect([...extension!.tools.keys()]).toEqual([
         "task_start",

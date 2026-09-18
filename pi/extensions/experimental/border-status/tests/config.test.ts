@@ -9,6 +9,7 @@ import { loadConfig, loadFooterPreference, saveConfig } from "../config.js";
 it("defaults without creating files and roundtrips an explicit icon preference", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "border-config-"));
   const file = path.join(dir, "nested", "border.json");
+
   try {
     expect(await loadConfig(file)).toEqual({ version: 1, iconFamily: "inherit" });
     await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
@@ -27,8 +28,10 @@ it("defaults without creating files and roundtrips an explicit icon preference",
 it("inherits the same fully validated configuration as the footer, not just its icon field", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "footer-inheritance-"));
   const file = path.join(dir, "footer.json");
+
   try {
     const store = createFooterConfigStore(file);
+
     for (const contents of [
       undefined,
       "not json",
@@ -41,6 +44,7 @@ it("inherits the same fully validated configuration as the footer, not just its 
       const inherited = await loadFooterPreference(file);
       expect(inherited).toBe((await store.load()).config.iconFamily);
     }
+
     expect(await loadFooterPreference(file)).toBe("nerd");
   } finally {
     await rm(dir, { recursive: true, force: true });

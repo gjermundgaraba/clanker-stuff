@@ -33,17 +33,20 @@ export interface FixtureState {
   operations: number;
   url: string;
 }
+
 export const createFixtureState = (): FixtureState => ({
   records: [],
   operations: 0,
   url: "http://127.0.0.1:1/interaction",
 });
+
 export const createFixtureMcpServer = (
   scenario = "normal",
   state = createFixtureState(),
 ): McpServer => {
   if (!FIXTURE_SCENARIOS.some((value) => value === scenario))
     throw new Error(`Unknown fixture scenario: ${scenario}`);
+
   const server = new McpServer({
     name: "mcp-test-fixture",
     version: "1.0.0",
@@ -72,10 +75,13 @@ export const createFixtureMcpServer = (
       async ({ maxTokens, rounds }, ctx) => {
         const round = Number(ctx.mcpReq.requestState<string>() ?? "0");
         state.records.push({ tool: "interact", round });
+
         if (round < rounds) {
           const requests: InputRequests = {};
+
           if (["capabilities", "roots"].includes(scenario))
             requests.roots = inputRequired.listRoots();
+
           if (
             ["capabilities", "form", "rounds", "continuation-error", "sampling-error"].includes(
               scenario,
@@ -95,6 +101,7 @@ export const createFixtureMcpServer = (
                 required: ["name", "count", "enabled", "choice", "tags"],
               },
             });
+
           if (["capabilities", "sampling", "sampling-error"].includes(scenario))
             requests.sample = inputRequired.createMessage({
               maxTokens,
@@ -103,19 +110,25 @@ export const createFixtureMcpServer = (
                 { role: "user", content: { type: "text", text: "Count from one to one hundred." } },
               ],
             });
+
           if (scenario === "url")
             requests.url = inputRequired.elicitUrl({
               message: "Complete local interaction",
               url: state.url,
             });
+
           return inputRequired({ inputRequests: requests, requestState: String(round + 1) });
         }
+
         state.operations += 1;
+
         if (["continuation-error", "sampling-error"].includes(scenario))
           throw new Error("Fixture failed after receiving input");
+
         return { content: [{ type: "text", text: JSON.stringify(ctx.mcpReq.inputResponses) }] };
       },
     );
+
     return server;
   }
 
@@ -127,6 +140,7 @@ export const createFixtureMcpServer = (
         content: [{ type: "text", text: `changed: ${term}` }],
       }),
     );
+
     return server;
   }
 
@@ -137,6 +151,7 @@ export const createFixtureMcpServer = (
     server.registerTool("foo_bar", { inputSchema: z.object({ query: z.string() }) }, async () => ({
       content: [{ text: "collision", type: "text" }],
     }));
+
     return server;
   }
 
@@ -149,24 +164,30 @@ export const createFixtureMcpServer = (
     async ({ query }): Promise<CallToolResult> => {
       state.records.push({ tool: "search", round: 0 });
       state.operations += 1;
+
       const image = {
         type: "image" as const,
         data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII=",
         mimeType: "image/png",
       };
+
       if (scenario === "image") return { content: [image] };
+
       if (scenario === "structured") return { content: [], structuredContent: { query, count: 3 } };
+
       if (scenario === "mixed")
         return {
           content: [{ type: "text", text: query }, image, { type: "text", text: "after image" }],
           structuredContent: { query },
         };
       let text = `result: ${query}`;
+
       if (scenario === "large") {
         text = "result\n".repeat(20_000);
       } else if (scenario === "error") {
         text = "failure\n".repeat(20_000);
       }
+
       return {
         content: [
           { text, type: "text" },
@@ -184,23 +205,29 @@ export const createFixtureMcpServer = (
       };
     },
   );
+
   return server;
 };
 
 const runFixtureServer = async () => {
   const scenario = process.argv[2] ?? "normal";
+
   if (process.argv.includes("--http")) {
     const { startMcpHttpFixture } = await import("./http-server.ts");
+
     const fixture = await startMcpHttpFixture({
       scenario,
       oauth: process.argv.includes("--oauth"),
     });
+
     process.stderr.write(
       `MCP fixture: ${fixture.url}\nRecords: ${fixture.url.replace("/mcp", "/records")}\n`,
     );
+
     const stop = () => {
       void fixture.close().then(() => process.exit(0));
     };
+
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   } else if (scenario === "url") {

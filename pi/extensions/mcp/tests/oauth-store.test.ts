@@ -8,6 +8,7 @@ import { readOAuthState, withOAuthLock } from "../oauth-store.js";
 import { setupMcpTest } from "./helpers.js";
 
 const run = promisify(execFile);
+
 const writer = fileURLToPath(new URL("./fixtures/oauth-writer.ts", import.meta.url));
 
 describe("OAuth persistence", () => {
@@ -28,22 +29,28 @@ describe("OAuth persistence", () => {
     const file = path.join(t.dataDir, "state.auth");
     const started = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
+
     const first = withOAuthLock(file, undefined, async () => {
       started.resolve();
       await release.promise;
     });
+
     await started.promise;
+
     try {
       const controller = new AbortController();
+
       const second = withOAuthLock(file, controller.signal, async () => {
         throw new Error("Must not enter");
       });
+
       controller.abort();
       await expect(second).rejects.toMatchObject({ name: "AbortError" });
     } finally {
       release.resolve();
       await first;
     }
+
     await expect(withOAuthLock(file, undefined, async () => "released")).resolves.toBe("released");
   });
 });

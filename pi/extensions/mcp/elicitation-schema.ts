@@ -9,6 +9,7 @@ import { z } from "zod";
 const properties = z
   .preprocess(
     (value) =>
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Schema preprocessing must preserve arbitrary field names, including __proto__, before validating each entry.
       typeof value === "object" && value !== null && !Array.isArray(value)
         ? Object.entries(value)
         : undefined,
@@ -18,7 +19,6 @@ const properties = z
 
 export const elicitationParamsSchema = z.union([
   ElicitRequestFormParamsSchema.extend({
-    // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- Zod's public schema API.
     requestedSchema: ElicitRequestFormParamsSchema.shape.requestedSchema.extend({ properties }),
   }),
   // The SDK wrapper enforces the negotiated era first. Modern embedded URL requests

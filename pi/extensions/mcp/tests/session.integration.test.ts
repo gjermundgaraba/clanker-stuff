@@ -1,3 +1,4 @@
+import type { SamplingScopeRequest } from "../sampling-protocol.js";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -21,7 +22,9 @@ describe("MCP tools in a real AgentSession", () => {
         mcp,
       ],
     });
+
     const name = toGeneratedToolName("remote", "search");
+
     try {
       expect(harness.session.getActiveToolNames()).toEqual(
         expect.arrayContaining(MANAGER_TOOL_NAMES),
@@ -100,6 +103,7 @@ describe("MCP tools in a real AgentSession", () => {
     await t.writeConfig({
       mcpServers: { remote: { type: "http", url: fixture.url, heartbeatIntervalMs: 0 } },
     });
+
     const harness = await createAgentSessionHarness({
       extensionFactories: [
         (pi) => {
@@ -110,7 +114,9 @@ describe("MCP tools in a real AgentSession", () => {
         mcp,
       ],
     });
+
     const name = toGeneratedToolName("remote", "search");
+
     try {
       harness.setResponses([
         fauxAssistantMessage(fauxToolCall(name, { query: "expired" }), { stopReason: "toolUse" }),
@@ -118,15 +124,19 @@ describe("MCP tools in a real AgentSession", () => {
       ]);
       await harness.prompt("Search once.");
       expect(fixture.getToolCallCount()).toBe(1);
-      expect(harness.messages()).toContainEqual(
-        expect.objectContaining({
-          role: "toolResult",
-          toolName: name,
-          isError: true,
-          content: [
-            { type: "text", text: expect.stringContaining("the tool call was not replayed") },
-          ],
-        }),
+
+      const failed = harness
+        .messages()
+        .find(
+          (message) =>
+            message.role === "toolResult" && message.toolName === name && message.isError,
+        );
+
+      expect(failed).toHaveProperty("content.length", 1);
+      expect(failed).toHaveProperty("content.0.type", "text");
+      expect(failed).toHaveProperty(
+        "content.0.text",
+        expect.stringContaining("the tool call was not replayed"),
       );
       await expect.poll(() => harness.session.getActiveToolNames()).toContain(name);
       harness.setResponses([
@@ -155,6 +165,7 @@ describe("MCP tools in a real AgentSession", () => {
     async (scenario) => {
       const fixture = await t.startHttpFixture({ scenario });
       const dispose = vi.fn(async () => {});
+
       const usage = {
         input: 7,
         output: 9,
@@ -163,6 +174,7 @@ describe("MCP tools in a real AgentSession", () => {
         totalTokens: 16,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       };
+
       const harness = await createAgentSessionHarness({
         extensionFactories: [
           (pi) => {
@@ -171,7 +183,8 @@ describe("MCP tools in a real AgentSession", () => {
             });
             pi.events.on("clanker-codex:sampling-scope-request", (request) => {
               // SAFETY: Only the MCP sampling owner emits this event in the isolated test runtime.
-              const typed = request as { resolve: (scope: Promise<unknown>) => void };
+              // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
+              const typed = request as SamplingScopeRequest;
               typed.resolve(
                 Promise.resolve({
                   run: <T>(run: () => T) => run(),
@@ -185,7 +198,9 @@ describe("MCP tools in a real AgentSession", () => {
           mcp,
         ],
       });
+
       const name = toGeneratedToolName("sample", "interact");
+
       try {
         harness.setResponses([
           fauxAssistantMessage(
@@ -207,9 +222,11 @@ describe("MCP tools in a real AgentSession", () => {
           fauxAssistantMessage("done"),
         ]);
         await harness.prompt("Use the fixture sampling tool.");
+
         const result = harness
           .messages()
           .find((message) => message.role === "toolResult" && message.toolName === name);
+
         expect(result).toMatchObject({
           role: "toolResult",
           isError: scenario === "sampling-error",
@@ -227,6 +244,7 @@ describe("MCP tools in a real AgentSession", () => {
   it("retains partial sampling accounting after caller cancellation", async () => {
     const fixture = await t.startHttpFixture({ scenario: "sampling" });
     await t.writeConfig({ mcpServers: { sample: { type: "http", url: fixture.url } } });
+
     const usage = {
       input: 5,
       output: 3,
@@ -235,8 +253,10 @@ describe("MCP tools in a real AgentSession", () => {
       totalTokens: 8,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     };
+
     const dispose = vi.fn(async () => {});
     const started = Promise.withResolvers<void>();
+
     const harness = await createAgentSessionHarness({
       extensionFactories: [
         (pi) => {
@@ -245,7 +265,8 @@ describe("MCP tools in a real AgentSession", () => {
           });
           pi.events.on("clanker-codex:sampling-scope-request", (request) => {
             // SAFETY: The isolated MCP owner is the only emitter of this test event.
-            const typed = request as { resolve: (scope: Promise<unknown>) => void };
+            // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
+            const typed = request as SamplingScopeRequest;
             typed.resolve(
               Promise.resolve({
                 run: <T>(run: () => T) => run(),
@@ -259,7 +280,9 @@ describe("MCP tools in a real AgentSession", () => {
         mcp,
       ],
     });
+
     const name = toGeneratedToolName("sample", "interact");
+
     try {
       harness.setResponses([
         fauxAssistantMessage(fauxToolCall(name, { maxTokens: 8 }), { stopReason: "toolUse" }),
@@ -270,6 +293,7 @@ describe("MCP tools in a real AgentSession", () => {
               once: true,
             }),
           );
+
           return fauxAssistantMessage("unreachable");
         },
       ]);

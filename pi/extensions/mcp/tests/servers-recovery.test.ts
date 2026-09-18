@@ -17,6 +17,7 @@ import { McpServerPool } from "../servers.js";
 import { setupMcpTest } from "./helpers.js";
 
 const expired = () => new SdkHttpError(SdkErrorCode.SendFailed, "session expired", { status: 404 });
+
 const timeout = () => new SdkError(SdkErrorCode.RequestTimeout, "ping timed out");
 
 // Deferred requests must honor cancellation, just like the SDK's ping implementation.
@@ -27,6 +28,7 @@ const pendingPing =
 
 const makeConnection = (toolName = "mutate") => {
   const lifetime = new AbortController();
+
   return {
     client: {
       ping: vi.fn<McpClient["ping"]>(async () => ({})),
@@ -63,9 +65,11 @@ describe("MCP connection maintenance", () => {
     // Node's promise timers need an explicit bridge to the controlled clock.
     vi.spyOn(timers, "setTimeout").mockImplementation(async (delay, value, options) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
+
       const pending = new Promise<typeof value>((resolve) => {
         timer = setTimeout(() => resolve(value), delay);
       });
+
       try {
         return await (options?.signal ? raceWithAbortSignal(pending, options.signal) : pending);
       } finally {
@@ -87,7 +91,7 @@ describe("MCP connection maintenance", () => {
       serverName: "remote",
       interactive: true,
       connectionFactory,
-      heartbeatIntervalMs,
+      ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
     });
 
   const execute = (id: string, signal?: AbortSignal) =>
@@ -99,10 +103,10 @@ describe("MCP connection maintenance", () => {
     await vi.advanceTimersByTimeAsync(59_999);
     expect(connection.client.ping).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(connection.client.ping).toHaveBeenCalledExactlyOnceWith({
-      signal: expect.any(AbortSignal),
-      timeout: 10_000,
-    });
+    expect(connection.client.ping).toHaveBeenCalledOnce();
+    const pingOptions = connection.client.ping.mock.calls[0]?.[0];
+    expect(pingOptions).toHaveProperty("signal", expect.any(AbortSignal));
+    expect(pingOptions).toStrictEqual({ signal: pingOptions?.signal, timeout: 10_000 });
     await vi.advanceTimersByTimeAsync(60_000);
     expect(connection.client.ping).toHaveBeenCalledTimes(2);
     await pool.closeAll();
@@ -124,10 +128,10 @@ describe("MCP connection maintenance", () => {
       heartbeatTimeoutMs: 5_000,
     });
     await vi.advanceTimersByTimeAsync(200);
-    expect(connection.client.ping).toHaveBeenCalledExactlyOnceWith({
-      signal: expect.any(AbortSignal),
-      timeout: 5_000,
-    });
+    expect(connection.client.ping).toHaveBeenCalledOnce();
+    const pingOptions = connection.client.ping.mock.calls[0]?.[0];
+    expect(pingOptions).toHaveProperty("signal", expect.any(AbortSignal));
+    expect(pingOptions).toStrictEqual({ signal: pingOptions?.signal, timeout: 5_000 });
     await vi.advanceTimersByTimeAsync(2_000);
     expect(connection.client.ping).toHaveBeenCalledOnce();
     ping.resolve({});
@@ -138,10 +142,12 @@ describe("MCP connection maintenance", () => {
   it("disables pings with zero but still reconnects a closed connection noninteractively", async () => {
     const first = makeConnection();
     const second = makeConnection("replacement");
+
     const factory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(first)
       .mockResolvedValue(second);
+
     await load(factory, 0);
     await vi.advanceTimersByTimeAsync(120_000);
     expect(first.client.ping).not.toHaveBeenCalled();
@@ -158,10 +164,12 @@ describe("MCP connection maintenance", () => {
       const first = makeConnection();
       const second = makeConnection();
       first.client.ping.mockRejectedValueOnce(failure());
+
       const factory = vi
         .fn<McpConnectionFactory>()
         .mockResolvedValueOnce(first)
         .mockResolvedValue(second);
+
       await load(factory, 100);
       await vi.advanceTimersByTimeAsync(100);
       expect(first.close).toHaveBeenCalledOnce();
@@ -180,10 +188,12 @@ describe("MCP connection maintenance", () => {
     const second = makeConnection();
     const failure = Promise.withResolvers<never>();
     first.client.callTool.mockReturnValue(failure.promise);
+
     const factory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(first)
       .mockResolvedValue(second);
+
     await load(factory);
     const calls = Promise.allSettled([execute("one"), execute("two")]);
     await vi.advanceTimersByTimeAsync(0);
@@ -247,10 +257,12 @@ describe("MCP connection maintenance", () => {
   it("continues capped retries through a long outage and recovers without replay", async () => {
     const connection = makeConnection();
     const replacement = makeConnection();
+
     const factory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(connection)
       .mockRejectedValue(new Error("offline"));
+
     await load(factory, 0);
     await connection.close();
     await vi.advanceTimersByTimeAsync(243_000);
@@ -278,8 +290,10 @@ describe("MCP connection maintenance", () => {
       setTimeout(() => {
         void connection.close();
       }, 5);
+
       return connection;
     });
+
     await load(factory, 0);
     await vi.advanceTimersByTimeAsync(200);
     expect(factory).toHaveBeenCalledTimes(2);
@@ -300,15 +314,18 @@ describe("MCP connection maintenance", () => {
       const second = makeConnection();
       const healthy = makeConnection();
       const replacement = makeConnection();
+
       const factory = vi
         .fn<McpConnectionFactory>()
         .mockResolvedValueOnce(first)
         .mockResolvedValueOnce(second)
         .mockResolvedValueOnce(healthy)
         .mockResolvedValue(replacement);
+
       await load(factory, probe === "ping" ? 100 : 0);
       await first.close();
       await vi.advanceTimersByTimeAsync(100);
+
       if (probe === "tool") await execute("early");
       await second.close();
       await vi.advanceTimersByTimeAsync(999);
@@ -316,6 +333,7 @@ describe("MCP connection maintenance", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(factory).toHaveBeenCalledTimes(3);
       await vi.advanceTimersByTimeAsync(60_000);
+
       if (probe === "tool") await execute("healthy");
       await healthy.close();
       await vi.advanceTimersByTimeAsync(0);
@@ -326,14 +344,17 @@ describe("MCP connection maintenance", () => {
 
   it.each(["branch", "shutdown"])("cancels retry backoff on %s", async (action) => {
     const connection = makeConnection();
+
     const factory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(connection)
       .mockRejectedValue(new Error("offline"));
+
     await load(factory, 0);
     await connection.close();
     await vi.advanceTimersByTimeAsync(0);
     expect(factory).toHaveBeenCalledTimes(2);
+
     if (action === "shutdown") await pool.closeAll();
     else pool.reconcileActiveServers([]);
     await vi.advanceTimersByTimeAsync(600_000);
@@ -344,10 +365,12 @@ describe("MCP connection maintenance", () => {
 
   it("does not repeatedly reconnect when saved credentials cannot authorize", async () => {
     const connection = makeConnection();
+
     const factory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(connection)
       .mockRejectedValue(new UnauthorizedError("login required"));
+
     await load(factory);
     await connection.close();
     await vi.advanceTimersByTimeAsync(60_000);
@@ -363,6 +386,7 @@ describe("MCP connection maintenance", () => {
       const replacement = makeConnection("replacement");
       const pending = Promise.withResolvers<McpClientConnection>();
       const factory = vi.fn<McpConnectionFactory>().mockResolvedValueOnce(first);
+
       if (phase === "backoff") factory.mockRejectedValue(new Error("offline"));
       else factory.mockReturnValue(pending.promise);
       await load(factory, 0);
@@ -387,6 +411,7 @@ describe("MCP connection maintenance", () => {
         pending.resolve(replacement);
         await vi.advanceTimersByTimeAsync(0);
       }
+
       expect(host.getActiveTools()).toContain(toGeneratedToolName("remote", "replacement"));
       expect(replacement.client.callTool).not.toHaveBeenCalled();
       expect(warn).not.toHaveBeenCalled();
@@ -395,10 +420,12 @@ describe("MCP connection maintenance", () => {
 
   it("still stops recovery for authorization failure after a branch restore", async () => {
     const first = makeConnection();
+
     const factory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(first)
       .mockRejectedValue(new Error("offline"));
+
     await load(factory, 0);
     await first.close();
     await vi.advanceTimersByTimeAsync(0);
@@ -414,10 +441,12 @@ describe("MCP connection maintenance", () => {
   it("lets an explicit reconnect supersede retry backoff and keeps the new configuration", async () => {
     const first = makeConnection();
     const replacement = makeConnection("new-config");
+
     const oldFactory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(first)
       .mockRejectedValue(new Error("offline"));
+
     await load(oldFactory, 100);
     await first.close();
     await vi.advanceTimersByTimeAsync(0);
@@ -454,15 +483,18 @@ describe("MCP connection maintenance", () => {
       const first = makeConnection();
       const late = makeConnection("late");
       const deferred = Promise.withResolvers<McpClientConnection>();
+
       const factory = vi
         .fn<McpConnectionFactory>()
         .mockResolvedValueOnce(first)
         .mockReturnValue(deferred.promise);
+
       await load(factory);
       await first.close();
       await vi.advanceTimersByTimeAsync(0);
       expect(factory).toHaveBeenCalledTimes(2);
       const shutdown = action === "shutdown" ? pool.closeAll() : undefined;
+
       if (action === "branch") pool.reconcileActiveServers([]);
       deferred.resolve(late);
       await shutdown;
@@ -495,10 +527,12 @@ describe("MCP connection maintenance", () => {
     const second = makeConnection();
     const ping = Promise.withResolvers<Awaited<ReturnType<McpClient["ping"]>>>();
     first.client.ping.mockImplementation(pendingPing(ping.promise));
+
     const factory = vi
       .fn<McpConnectionFactory>()
       .mockResolvedValueOnce(first)
       .mockResolvedValue(second);
+
     await load(factory, 100);
     await vi.advanceTimersByTimeAsync(100);
     await first.close();

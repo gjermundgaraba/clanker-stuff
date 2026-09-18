@@ -8,6 +8,7 @@ import extension from "../index.js";
 import { createCodexLifecycle } from "../lifecycle.js";
 import { SPIKE_MODEL } from "./fixtures.js";
 
+// oxlint-disable-next-line anti-slop/no-module-mocking -- This test observes the actual lazy module load; injecting a lifecycle instance would bypass the behavior being verified.
 vi.mock(import("../lifecycle.js"), { spy: true });
 
 const OTHER_MODEL = {
@@ -21,7 +22,7 @@ const OTHER_MODEL = {
 const createHost = (entries: SessionEntry[] = []) =>
   createExtensionHost(extension, {
     entries,
-    leafId: entries.at(-1)?.id,
+    leafId: entries.at(-1)?.id ?? null,
     model: OTHER_MODEL,
   });
 
@@ -93,6 +94,7 @@ describe("Codex lifecycle loading", () => {
       timestamp: new Date().toISOString(),
       type: "custom",
     };
+
     const host = createHost([checkpoint]);
     const ctx = host.createContext();
 
@@ -122,6 +124,7 @@ describe("Codex lifecycle loading", () => {
         type: "compaction",
       },
     ];
+
     const host = createHost(entries);
     const ctx = host.createContext();
 
@@ -142,6 +145,7 @@ describe("Codex lifecycle loading", () => {
       tokensBefore: 10,
       type: "compaction",
     };
+
     const host = createHost([checkpoint]);
     const ctx = host.createContext();
 

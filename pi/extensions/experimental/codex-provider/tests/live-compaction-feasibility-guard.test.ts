@@ -38,9 +38,11 @@ class FakeWebSocket {
 
 const canaryCase = (id: ReturnType<typeof feasibilityCases>[number]["id"]) => {
   const found = feasibilityCases().find((candidate) => candidate.id === id);
+
   if (found === undefined) {
     throw new Error(`Missing feasibility case: ${id}`);
   }
+
   return found;
 };
 
@@ -126,9 +128,11 @@ const reusedIdentityCases = [
 
 const constructSocket = (url: string, headers: Record<string, string>) => {
   const socket: unknown = Reflect.construct(globalThis.WebSocket, [url, { headers }]);
+
   if (!(socket instanceof FakeWebSocket)) {
     throw new Error("Expected feasibility guard to construct the fake WebSocket");
   }
+
   return socket;
 };
 
@@ -167,6 +171,7 @@ describe("live compaction feasibility request budget", () => {
       headers: COMPACTION_HEADERS,
       method: "POST",
     });
+
     await expect(globalThis.fetch(request)).resolves.toBe(response);
 
     expect(nativeFetch).toHaveBeenCalledOnce();
@@ -267,6 +272,7 @@ describe("live compaction feasibility request budget", () => {
     const budget = installFeasibilityRequestBudget();
     const abort = new AbortController();
     budget.begin(canaryCase("sol-sse-1"), "gpt-5.6-sol", abort);
+
     const request = {
       body: compactionBody(),
       headers: COMPACTION_HEADERS,
@@ -448,9 +454,11 @@ describe("live compaction feasibility request budget", () => {
     const credentialAccess = vi
       .spyOn(ModelRuntime, "create")
       .mockRejectedValue(new Error("credential access is poisoned"));
+
     const networkAccess = vi.fn<typeof fetch>(async () => {
       throw new Error("network access is poisoned");
     });
+
     const log = vi.spyOn(console, "log").mockReturnValue();
     vi.stubGlobal("fetch", networkAccess);
 

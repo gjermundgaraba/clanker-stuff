@@ -16,6 +16,7 @@ describe("V1 durable protocol", () => {
     sessionFile: "/sessions/worker.jsonl",
     tools: [],
   };
+
   const turn = {
     id: "turn",
     input: { text: "work" },

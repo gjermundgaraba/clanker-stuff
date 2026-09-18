@@ -78,27 +78,37 @@ import { formatCodexProviderStatus } from "./status.js";
 import { APPLY_PATCH_CONSTRAINED_SAMPLING } from "./tools/direct.js";
 
 export const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
+
 const CONSTRAINED_SAMPLING_BY_TOOL = new Map([
   ["apply_patch", APPLY_PATCH_CONSTRAINED_SAMPLING],
   ["exec", EXEC_CONSTRAINED_SAMPLING],
 ]);
 
 const STATUS_KEY = "codex-provider";
+
 const STATUS_MESSAGE = "Compacting with OpenAI Codex…";
+
 const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
+
 type JsonRecord = Static<typeof JsonRecordSchema>;
+
 const TypeTaggedSchema = Type.Object({ type: Type.String() });
+
 const ImageItemSchema = Type.Object({
   image_url: Type.String(),
   type: Type.Literal("input_image"),
 });
+
 const NamedErrorSchema = Type.Object({ name: Type.String() });
+
 const CausedErrorSchema = Type.Object({ cause: NamedErrorSchema });
+
 const AssistantMessageItemSchema = Type.Object({
   id: Type.String(),
   role: Type.Literal("assistant"),
   type: Type.Literal("message"),
 });
+
 const FinalizedResponsesEnvelopeSchema = Type.Intersect([
   JsonRecordSchema,
   Type.Object({
@@ -111,6 +121,7 @@ const FinalizedResponsesEnvelopeSchema = Type.Intersect([
 ]);
 
 type SupportedModel = Model<"openai-codex-responses">;
+
 type SerializedResponseItem = ReturnType<typeof convertResponsesMessages>[number];
 
 interface SessionBeforeCompactResult {
@@ -178,11 +189,12 @@ interface UnframedCandidate {
 }
 
 interface LifecycleState {
-  candidate?: UnframedCandidate;
+  candidate: UnframedCandidate | undefined;
   controller: AbortController;
-  frame?: RequestFrame;
+  frame: RequestFrame | undefined;
   generation: number;
-  inFlight?:
+  inFlight:
+    | undefined
     | {
         kind: "inline";
         promise: Promise<InlineOperationResult>;
@@ -196,19 +208,23 @@ interface LifecycleState {
         settled: boolean;
       };
   notified: Set<string>;
-  pendingInstall?: PendingInstall;
-  requestHeaders?: {
-    readonly generation: number;
-    readonly headers: ProviderHeaders;
-    readonly leafId: string | null;
-    readonly modelIdentity: string;
-  };
-  transition?: {
-    readonly currentIdentity: string;
-    readonly previousCompHash?: string | null;
-    readonly previousEffectiveTokenLimit?: number;
-    readonly previousModel: SupportedModel;
-  };
+  pendingInstall: PendingInstall | undefined;
+  requestHeaders:
+    | undefined
+    | {
+        readonly generation: number;
+        readonly headers: ProviderHeaders;
+        readonly leafId: string | null;
+        readonly modelIdentity: string;
+      };
+  transition:
+    | undefined
+    | {
+        readonly currentIdentity: string;
+        readonly previousCompHash: string | null | undefined;
+        readonly previousEffectiveTokenLimit: number | undefined;
+        readonly previousModel: SupportedModel;
+      };
   transitionRestored: boolean;
 }
 
@@ -224,7 +240,7 @@ type InlineOperationResult =
 
 export const resolveCheckpointPhase = (options: {
   readonly carrier: "inline" | "lifecycle";
-  readonly latestMessageRole?: string;
+  readonly latestMessageRole: string | undefined;
   readonly reason: SessionBeforeCompactEvent["reason"];
   readonly runContinues: boolean;
   readonly willRetry: boolean;
@@ -232,9 +248,11 @@ export const resolveCheckpointPhase = (options: {
   if (options.reason !== "threshold") {
     return options.reason === "overflow" && options.willRetry ? "overflow-retry" : "standalone";
   }
+
   if (options.runContinues && options.latestMessageRole === "toolResult") {
     return "mid-turn";
   }
+
   return options.carrier === "inline" ? "pre-sampling" : "standalone";
 };
 
@@ -242,6 +260,7 @@ const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecord
 
 const isUnknownArray = (value: unknown): value is unknown[] => Array.isArray(value);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript promise rejection values are unconstrained; classify both direct and wrapped abort errors.
 const isAbortError = (cause: unknown) =>
   (Value.Check(NamedErrorSchema, cause) && cause.name === "AbortError") ||
   (Value.Check(CausedErrorSchema, cause) && cause.cause.name === "AbortError");
@@ -254,11 +273,14 @@ export const isSupportedLifecycleModel = (
 export const hasResolvedLifecycleAuth = (apiKey?: string): apiKey is string =>
   apiKey !== undefined && apiKey.trim().length > 0;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Snapshot hashing serializes heterogeneous messages and hook payloads, then validates their canonical JSON representation.
 const hashJsonClone = (value: unknown) => {
   const serialized = JSON.stringify(value);
+
   if (!serialized) {
     throw new Error("Value is not JSON serializable");
   }
+
   return sha256Canonical(JSON.parse(serialized));
 };
 
@@ -266,25 +288,31 @@ const branchSha256 = (branch: readonly SessionEntry[]) => hashJsonClone(branch);
 
 const serializeRealUserEntries = (entries: readonly SessionEntry[], model: SupportedModel) => {
   const users: RealUserInputItem[] = [];
+
   for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "user") {
       continue;
     }
+
     const input = convertResponsesMessages(
       model,
       { messages: convertToLlm([entry.message]) },
       ALLOWED_TOOL_CALL_PROVIDERS,
       { includeSystemPrompt: false },
     );
+
     if (input.length !== 1 || !isRecord(input[0])) {
       throw new Error("A real user entry did not serialize to one input item");
     }
+
     const serialized = Value.Parse(JsonRecordSchema, { ...input[0], type: "message" });
+
     const content = isUnknownArray(serialized.content)
       ? serialized.content.map((item) => {
           if (!Value.Check(ImageItemSchema, item)) {
             return item;
           }
+
           return /^data:image\//iu.test(item.image_url)
             ? { image_url: item.image_url, type: "input_image" }
             : {
@@ -293,8 +321,10 @@ const serializeRealUserEntries = (entries: readonly SessionEntry[], model: Suppo
               };
         })
       : serialized.content;
+
     users.push(parseRealUserInputItem({ ...serialized, content }));
   }
+
   return users;
 };
 
@@ -315,41 +345,53 @@ const omitUnsupportedImagesFromRetained = (
     items.filter((item): item is RealUserInputItem => item.type === "message"),
     model,
   );
+
   let userIndex = 0;
+
   return items.map((item) => {
     if (item.type === "agent_message") {
       return item;
     }
-    const user = users[userIndex];
+
+    // omitUnsupportedImagesFromUsers preserves the filtered users’ cardinality and order.
+    const user = users[userIndex]!;
     userIndex += 1;
+
     return user;
   });
 };
 
 const retainedFinalizedInput = (input: readonly ResponsesInputItem[], model: SupportedModel) => {
   const retained: (CheckpointAgentMessageItem | RealUserInputItem)[] = [];
+
   for (const [index, item] of input.entries()) {
     if (item.type === "agent_message") {
       retained.push(parseAgentMessageItem(item, `finalized input[${index}]`));
       continue;
     }
+
     if ((item.type !== undefined && item.type !== "message") || item.role !== "user") {
       continue;
     }
+
     const content = Array.isArray(item.content)
-      ? item.content.map((part: unknown) => {
+      ? // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Finalized provider content is open wire data; normalize only image parts before the complete user-item decoder.
+        item.content.map((part: unknown) => {
           if (!Value.Check(ImageItemSchema, part)) {
             return part;
           }
+
           return /^data:image\//iu.test(part.image_url)
             ? { image_url: part.image_url, type: "input_image" }
             : { text: REMOTE_USER_IMAGE_PLACEHOLDER, type: "input_text" };
         })
       : item.content;
+
     retained.push(
       parseRealUserInputItem({ ...item, content, type: "message" }, `finalized input[${index}]`),
     );
   }
+
   return omitUnsupportedImagesFromRetained(retained, model);
 };
 
@@ -359,13 +401,17 @@ const isRequestStateInput = (item: ResponsesInputItem) =>
 // Responses Lite carries current tools and instructions beside history in input.
 const splitUnframedInput = (input: readonly ResponsesInputItem[]) => {
   let start = 0;
+
   while (start < input.length && isRequestStateInput(input[start] ?? {})) {
     start += 1;
   }
+
   let end = input.length;
+
   while (end > start && isRequestStateInput(input[end - 1] ?? {})) {
     end -= 1;
   }
+
   return {
     durable: input.slice(start, end),
     prefix: input.slice(0, start),
@@ -379,10 +425,12 @@ export const buildLifecycleSource = (
   compHash?: string | null,
 ): LifecycleSource => {
   const boundary = resolveActiveCheckpointBoundary(branch);
+
   const canUseLocalHistory =
     (boundary.kind === "checkpoint" || boundary.kind === "invalid-checkpoint") &&
     boundary.carrier === "inline" &&
     canUseInlineLocalFallback(branch, boundary.boundaryIndex);
+
   if (boundary.kind === "invalid-checkpoint" && !canUseLocalHistory) {
     throw new Error("The active checkpoint boundary is invalid");
   }
@@ -391,14 +439,17 @@ export const buildLifecycleSource = (
     const compatibility = decideCheckpointCompatibility(boundary.checkpoint, {
       api: model.api,
       baseUrl: model.baseUrl,
-      compHash,
+      ...(compHash !== undefined ? { compHash } : {}),
       provider: model.provider,
     });
+
     if (!compatibility.compatible && !canUseLocalHistory) {
       throw new Error("The active checkpoint identity is incompatible");
     }
+
     if (compatibility.compatible) {
       const previousItems: (CheckpointAgentMessageItem | RealUserInputItem)[] = [];
+
       for (const [index, item] of boundary.checkpoint.replacement.entries()) {
         if (item.type === "agent_message") {
           previousItems.push(parseAgentMessageItem(item, `checkpoint agent[${index}]`));
@@ -406,16 +457,22 @@ export const buildLifecycleSource = (
           previousItems.push(parseRealUserInputItem(item, `checkpoint user[${index}]`));
         }
       }
+
       const safePreviousItems = omitUnsupportedImagesFromRetained(previousItems, model);
+
       const tailUsers = omitUnsupportedImagesFromUsers(
         serializeRealUserEntries(boundary.tail, model),
         model,
       );
+
       const compaction = boundary.checkpoint.replacement.at(-1);
+
       if (compaction?.type !== "compaction") {
         throw new Error("The active checkpoint compaction is unavailable");
       }
+
       const inputPrefix = [...safePreviousItems, { ...compaction }].map((item) => ({ ...item }));
+
       return {
         branchSha256: branchSha256(branch),
         contextMessages: convertToLlm(boundary.tail.flatMap(sessionEntryToContextMessages)),
@@ -429,6 +486,7 @@ export const buildLifecycleSource = (
   const contextEntries = buildContextEntries([...branch]);
   const users = serializeRealUserEntries(contextEntries, model);
   const retainedItems = omitUnsupportedImagesFromUsers(users, model);
+
   return {
     branchSha256: branchSha256(branch),
     contextMessages: convertToLlm(buildSessionContext([...branch]).messages),
@@ -447,11 +505,13 @@ const lifecycleSourceSha256 = (source: LifecycleSource) =>
 
 const withRemoteCompactionFeature = (features: readonly string[]) => {
   const merged = [...features];
+
   if (
     !merged.some((feature) => feature.toLowerCase() === REMOTE_COMPACTION_FEATURE.toLowerCase())
   ) {
     merged.push(REMOTE_COMPACTION_FEATURE);
   }
+
   return merged.filter(
     (feature, index) =>
       merged.findIndex((candidate) => candidate.toLowerCase() === feature.toLowerCase()) === index,
@@ -462,16 +522,20 @@ export const mergeRemoteCompactionFeatureHeader = (headers: Record<string, strin
   const matchingKeys = Object.keys(headers).filter(
     (key) => key.toLowerCase() === "x-codex-beta-features",
   );
+
   const featureKey = matchingKeys[0] ?? "x-codex-beta-features";
+
   const features = matchingKeys.flatMap((key) =>
     (headers[key] ?? "")
       .split(",")
       .map((feature) => feature.trim())
       .filter(Boolean),
   );
+
   for (const key of matchingKeys.slice(1)) {
     headers[key] = null;
   }
+
   headers[featureKey] = withRemoteCompactionFeature(features).join(",");
 };
 
@@ -480,6 +544,7 @@ const runEffectiveProviderCompaction = async (
   options: ProviderCompactionOptions,
 ): Promise<ProviderCompactionResult> => {
   const window = runtime.getModelWindow(options.model);
+
   if (window === undefined) {
     return {
       currentModelFallback: false,
@@ -487,14 +552,17 @@ const runEffectiveProviderCompaction = async (
       ok: false,
     };
   }
+
   const headers = { ...options.headers };
   mergeRemoteCompactionFeatureHeader(headers);
+
   try {
     const result = await runtime.compact({
       ...options,
       effectiveTokenLimit: window.effectiveWindowTokens,
       headers,
     });
+
     return { ...result, ok: true };
   } catch (error) {
     return {
@@ -523,6 +591,7 @@ export const buildLifecycleCheckpoint = (options: {
 }): Checkpoint => {
   const { execution, model, phase, reason, runtime } = options;
   const replacement = buildCheckpointReplacement(options.retainedItems, execution.compaction);
+
   const parsed = parseCheckpoint({
     identity: {
       api: "openai-codex-responses",
@@ -544,9 +613,11 @@ export const buildLifecycleCheckpoint = (options: {
     sourceTokens: execution.estimatedSourceTokens,
     version: 1,
   });
+
   if (!parsed.ok) {
     throw new Error("Constructed checkpoint failed strict validation");
   }
+
   return parsed.checkpoint;
 };
 
@@ -557,9 +628,11 @@ const nextCheckpointRuntime = (
 ): Checkpoint["runtime"] => {
   const current = runtime.getWindow(sessionId);
   const window = runtime.getModelWindow(model);
+
   if (!window) {
     throw new Error("Model context window is unavailable");
   }
+
   return {
     compHash: runtime.getModelMetadata(model.id)?.comp_hash ?? null,
     currentWindowId: uuidv7(),
@@ -576,6 +649,7 @@ export const isLifecycleInstallationResolvable = (
   replacementSha256: string,
 ) => {
   const active = resolveActiveCheckpointBoundary(branch);
+
   return (
     active.kind === "checkpoint" &&
     active.carrier === "lifecycle" &&
@@ -593,6 +667,7 @@ const isPendingInstallationResolvable = (
   const active = resolveActiveCheckpointBoundary(branch);
   const boundaryIndex = active.kind === "checkpoint" ? active.boundaryIndex : -1;
   const installedEntry = boundaryIndex === -1 ? undefined : branch[boundaryIndex];
+
   return (
     state.generation === pending.generation &&
     ctx.sessionManager.getSessionId() === pending.sessionId &&
@@ -617,10 +692,12 @@ export const shouldCompactFinalizedInput = (options: {
     options.freshUsageTokens >= 0
       ? options.freshUsageTokens
       : undefined;
+
   const tokens =
     freshUsage === undefined
       ? options.estimatedTokens
       : Math.max(options.estimatedTokens, freshUsage);
+
   return (
     options.unchangedReplacement !== true &&
     (options.autoCompactTokens === undefined
@@ -636,6 +713,7 @@ export const isInlineInstallationResolvable = (
   replacementSha256: string,
 ) => {
   const active = resolveActiveCheckpointBoundary(branch);
+
   if (
     active.kind !== "checkpoint" ||
     active.carrier !== "inline" ||
@@ -644,7 +722,9 @@ export const isInlineInstallationResolvable = (
   ) {
     return false;
   }
+
   const boundary = branch[active.boundaryIndex];
+
   return (
     boundary?.type === "custom" &&
     boundary.id === branch.at(-1)?.id &&
@@ -660,21 +740,29 @@ const snapshotLifecycleRequestState = (
   ctx: ExtensionContext,
 ) => {
   const activeNames = new Set(pi.getActiveTools());
+
   const tools = pi
     .getAllTools()
     .filter((tool) => activeNames.has(tool.name))
-    .map((tool) => ({
-      constrainedSampling: CONSTRAINED_SAMPLING_BY_TOOL.get(tool.name),
-      description: tool.description,
-      name: tool.name,
-      parameters: tool.parameters,
-    }));
+    .map((tool) => {
+      const constrainedSampling = CONSTRAINED_SAMPLING_BY_TOOL.get(tool.name);
+
+      return {
+        ...(constrainedSampling !== undefined ? { constrainedSampling } : {}),
+        description: tool.description,
+        name: tool.name,
+        parameters: tool.parameters,
+      };
+    });
+
   const systemPrompt = ctx.getSystemPrompt();
   const thinkingLevel = pi.getThinkingLevel();
   const serialized = JSON.stringify({ systemPrompt, thinkingLevel, tools });
+
   if (!serialized) {
     throw new Error("Lifecycle request state is not serializable");
   }
+
   return {
     hash: sha256Canonical(JSON.parse(serialized)),
     systemPrompt,
@@ -702,6 +790,7 @@ const notifyOnce = (
   if (state.notified.has(key)) {
     return;
   }
+
   state.notified.add(key);
   withUi(() => {
     ctx.ui.notify(message, type);
@@ -716,13 +805,17 @@ const setLifecycleStatus = (ctx: ExtensionContext, message: string | undefined):
 
 const releaseLifecycleOperation = (state: LifecycleState, abort = false) => {
   const operation = state.inFlight;
+
   if (operation?.kind !== "lifecycle") {
     return;
   }
+
   state.inFlight = undefined;
+
   if (abort) {
     operation.abort();
   }
+
   operation.finish();
 };
 
@@ -730,6 +823,7 @@ const finishLifecycleOperation = (state: LifecycleState): PendingInstall | undef
   const pending = state.pendingInstall;
   state.pendingInstall = undefined;
   releaseLifecycleOperation(state);
+
   return pending;
 };
 
@@ -740,9 +834,11 @@ const releaseSettledLifecycleOperation = (
 ) => {
   const pending = state.pendingInstall;
   state.pendingInstall = undefined;
+
   if (pending && isPendingInstallationResolvable(state, pending, ctx)) {
     providerRuntime.installWindow(pending.sessionId, pending.runtime);
   }
+
   releaseLifecycleOperation(state);
 };
 
@@ -763,6 +859,7 @@ const consumeRequestHeaders = (state: LifecycleState, ctx: ExtensionContext) => 
   const { requestHeaders } = state;
   state.requestHeaders = undefined;
   const { model } = ctx;
+
   return requestHeaders !== undefined &&
     isSupportedLifecycleModel(model) &&
     requestHeaders.generation === state.generation &&
@@ -781,13 +878,16 @@ const runLifecycleHook = async (
   runContinues: boolean,
 ): Promise<SessionBeforeCompactResult | undefined> => {
   const { model } = ctx;
+
   if (!isSupportedLifecycleModel(model)) {
     const boundary = resolveActiveCheckpointBoundary(event.branchEntries);
+
     const localContextIsAuthoritative =
       boundary.kind !== "checkpoint" && boundary.kind !== "invalid-checkpoint"
         ? true
         : boundary.carrier === "inline" &&
           canUseInlineLocalFallback(event.branchEntries, boundary.boundaryIndex);
+
     return localContextIsAuthoritative ? undefined : { cancel: true };
   }
 
@@ -795,6 +895,7 @@ const runLifecycleHook = async (
   let sourceSha256: string;
   let operationKey: string;
   let requestSnapshot: ReturnType<typeof snapshotLifecycleRequestState>;
+
   try {
     normalizeBaseUrl(model.baseUrl);
     source = buildLifecycleSource(
@@ -820,8 +921,10 @@ const runLifecycleHook = async (
       "OpenAI remote compaction was cancelled because active context is unsafe.",
       "error",
     );
+
     return { cancel: true };
   }
+
   if (source.ignoredInlineCheckpoint) {
     notifyOnce(
       state,
@@ -834,14 +937,17 @@ const runLifecycleHook = async (
 
   if (state.inFlight) {
     const active = state.inFlight;
+
     if (active.kind === "lifecycle") {
       active.abort();
+
       if (active.settled) {
         releaseSettledLifecycleOperation(state, ctx, providerRuntime);
       } else {
         await active.completion;
       }
     }
+
     return { cancel: true };
   }
 
@@ -851,11 +957,13 @@ const runLifecycleHook = async (
   const sessionId = ctx.sessionManager.getSessionId();
   const operationController = new AbortController();
   const completion = Promise.withResolvers<null>();
+
   const signal = AbortSignal.any([
     event.signal,
     state.controller.signal,
     operationController.signal,
   ]);
+
   const isCurrent = () => {
     try {
       if (
@@ -869,7 +977,9 @@ const runLifecycleHook = async (
       ) {
         return false;
       }
+
       const branch = ctx.sessionManager.getBranch();
+
       return (
         branchSha256(branch) === source.branchSha256 &&
         lifecycleSourceSha256(
@@ -884,6 +994,7 @@ const runLifecycleHook = async (
       return false;
     }
   };
+
   const notifyStale = (key: string, message: string) => {
     if (!signal.aborted) {
       notifyOnce(state, key, ctx, message, "error");
@@ -892,12 +1003,15 @@ const runLifecycleHook = async (
 
   const operation = (async (): Promise<SessionBeforeCompactResult> => {
     setLifecycleStatus(ctx, STATUS_MESSAGE);
+
     try {
       signal.throwIfAborted();
       const auth = await raceWithAbortSignal(ctx.modelRegistry.getApiKeyAndHeaders(model), signal);
+
       if (signal.aborted) {
         return { cancel: true };
       }
+
       if (!auth.ok || !hasResolvedLifecycleAuth(auth.apiKey)) {
         notifyOnce(
           state,
@@ -906,6 +1020,7 @@ const runLifecycleHook = async (
           "OpenAI remote compaction was cancelled because provider authentication is unavailable.",
           "error",
         );
+
         return { cancel: true };
       }
 
@@ -914,6 +1029,7 @@ const runLifecycleHook = async (
           `${operationKey}:stale`,
           "OpenAI compaction was discarded because the session changed.",
         );
+
         return { cancel: true };
       }
 
@@ -924,6 +1040,7 @@ const runLifecycleHook = async (
         runContinues,
         willRetry: event.willRetry,
       });
+
       const execution = await runEffectiveProviderCompaction(providerRuntime, {
         apiKey: auth.apiKey,
         context: {
@@ -931,8 +1048,8 @@ const runLifecycleHook = async (
           systemPrompt: requestSnapshot.systemPrompt,
           tools: requestSnapshot.tools,
         },
-        env: auth.env,
-        headers: auth.headers,
+        ...(auth.env !== undefined ? { env: auth.env } : {}),
+        ...(auth.headers !== undefined ? { headers: auth.headers } : {}),
         inputPrefix: source.inputPrefix,
         model,
         phase,
@@ -947,6 +1064,7 @@ const runLifecycleHook = async (
           `${operationKey}:stale`,
           "OpenAI compaction was discarded because the session changed.",
         );
+
         return { cancel: true };
       }
 
@@ -958,10 +1076,12 @@ const runLifecycleHook = async (
           "OpenAI compaction was cancelled; local context was left unchanged.",
           "error",
         );
+
         return { cancel: true };
       }
 
       const runtime = nextCheckpointRuntime(providerRuntime, sessionId, model);
+
       const checkpoint = buildLifecycleCheckpoint({
         execution,
         model,
@@ -970,6 +1090,7 @@ const runLifecycleHook = async (
         retainedItems: source.retainedItems,
         runtime,
       });
+
       const compaction = {
         details: {
           checkpoint,
@@ -980,6 +1101,7 @@ const runLifecycleHook = async (
         tokensBefore: event.preparation.tokensBefore,
         usage: execution.usage,
       } satisfies CompactionResult;
+
       state.pendingInstall = {
         generation,
         replacementSha256: checkpoint.replacementSha256,
@@ -987,6 +1109,7 @@ const runLifecycleHook = async (
         runtime,
         sessionId,
       };
+
       return {
         compaction: {
           ...compaction,
@@ -1002,6 +1125,7 @@ const runLifecycleHook = async (
           "error",
         );
       }
+
       return { cancel: true };
     } finally {
       setLifecycleStatus(ctx, undefined);
@@ -1020,11 +1144,14 @@ const runLifecycleHook = async (
     promise: operation,
     settled: false,
   };
+
   state.inFlight = lifecycleOperation;
   let result: SessionBeforeCompactResult | undefined;
+
   try {
     result = await operation;
     lifecycleOperation.settled = true;
+
     return result;
   } finally {
     if (state.inFlight?.promise === operation && !result?.compaction) {
@@ -1045,40 +1172,47 @@ const replayBoundaryDecision = (
   previousCompHash?: string | null,
 ): ReplayBoundaryDecision => {
   const boundary = resolveActiveCheckpointBoundary(branch);
+
   if (boundary.kind === "invalid-checkpoint") {
     return boundary.carrier === "inline" &&
       canUseInlineLocalFallback(branch, boundary.boundaryIndex)
       ? { kind: "fallback" }
       : { kind: "blocked" };
   }
+
   if (boundary.kind !== "checkpoint") {
     return { kind: "none" };
   }
+
   const compatibility = model
     ? decideCheckpointCompatibility(boundary.checkpoint, {
         api: model.api,
         baseUrl: model.baseUrl,
-        compHash: providerRuntime.getModelMetadata(model.id)?.comp_hash,
+        compHash: providerRuntime.getModelMetadata(model.id)?.comp_hash ?? null,
         provider: model.provider,
       })
     : undefined;
+
   if (compatibility?.compatible === true) {
     return { boundary, kind: "active" };
   }
+
   const previousCompatibility = previousModel
     ? decideCheckpointCompatibility(boundary.checkpoint, {
         api: previousModel.api,
         baseUrl: previousModel.baseUrl,
         compHash:
           previousCompHash === undefined
-            ? providerRuntime.getModelMetadata(previousModel.id)?.comp_hash
+            ? (providerRuntime.getModelMetadata(previousModel.id)?.comp_hash ?? null)
             : previousCompHash,
         provider: previousModel.provider,
       })
     : undefined;
+
   if (previousCompatibility?.compatible === true) {
     return { boundary, kind: "active" };
   }
+
   return boundary.carrier === "inline" && canUseInlineLocalFallback(branch, boundary.boundaryIndex)
     ? { kind: "fallback" }
     : { kind: "blocked" };
@@ -1092,48 +1226,41 @@ const contextSourceMessages = (
     ? activeCheckpoint.tail.flatMap(sessionEntryToContextMessages)
     : buildSessionContext([...branch]).messages;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Mismatch diagnostics must classify arbitrary content, including malformed values, without hiding the evidence behind a domain decoder.
 const diagnosticContentType = (content: unknown) => {
   if (Value.Check(TypeTaggedSchema, content)) {
     return content.type;
   }
-  if (typeof content === "string") {
-    return "string";
-  }
-  if (typeof content === "number" && Number.isFinite(content)) {
-    return "number";
-  }
-  if (typeof content === "boolean") {
-    return "boolean";
-  }
-  if (typeof content === "function") {
-    return "function";
-  }
-  if (typeof content === "bigint") {
-    return "bigint";
-  }
-  if (typeof content === "symbol") {
-    return "symbol";
-  }
-  return content === undefined ? "undefined" : "object";
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Diagnostic classification intentionally accepts arbitrary JS values, including functions and symbols.
+  const kind = typeof content;
+
+  // Preserve the diagnostic convention that non-finite numbers use the object bucket.
+  return kind === "number" && !Number.isFinite(content) ? "object" : kind;
 };
 
 const messageDiagnostic = (message: ContextEvent["messages"][number] | undefined) => {
   if (!message) {
     return undefined;
   }
+
   const content = "content" in message ? message.content : undefined;
+
   const contentTypes = Array.isArray(content)
-    ? content.map((contentItem: unknown) => diagnosticContentType(contentItem))
+    ? content.map(diagnosticContentType)
     : [diagnosticContentType(content)];
+
   return {
     contentTypes,
     hash: hashJsonClone(message),
     role: message.role,
     stopReason:
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Context diagnostics inspect open message fields without rejecting the message whose mismatch they must report.
       "stopReason" in message && typeof message.stopReason === "string"
         ? message.stopReason
         : undefined,
     toolName:
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Context diagnostics inspect open message fields without rejecting the message whose mismatch they must report.
       "toolName" in message && typeof message.toolName === "string" ? message.toolName : undefined,
   };
 };
@@ -1150,13 +1277,16 @@ export const buildContextFrameDiagnostic = (options: {
   const baselineHashes = options.baseline.map(hashJsonClone);
   const comparableLength = Math.min(eventHashes.length, baselineHashes.length);
   let commonPrefixMessages = 0;
+
   while (
     commonPrefixMessages < comparableLength &&
     eventHashes[commonPrefixMessages] === baselineHashes[commonPrefixMessages]
   ) {
     commonPrefixMessages += 1;
   }
+
   let commonSuffixMessages = 0;
+
   while (
     commonPrefixMessages + commonSuffixMessages < comparableLength &&
     eventHashes[eventHashes.length - 1 - commonSuffixMessages] ===
@@ -1192,13 +1322,17 @@ const jsonInputClone = (
   input: readonly (ResponsesInputItem | SerializedResponseItem)[],
 ): readonly ResponsesInputItem[] => {
   const serialized = JSON.stringify(input);
+
   if (!serialized) {
     throw new Error("Responses input is not JSON serializable");
   }
+
   const cloned: unknown = JSON.parse(serialized);
+
   if (!Array.isArray(cloned) || !cloned.every(isRecord)) {
     throw new Error("Responses input clone is invalid");
   }
+
   return cloned;
 };
 
@@ -1217,16 +1351,21 @@ export const buildFallbackAssistantIdMap = (
 ): AssistantIdMap => {
   const markerful = assistantMessageItems(markerfulInput);
   const logical = assistantMessageItems(logicalInput);
+
   if (markerful.length !== logical.length) {
     throw new Error("Framing changed assistant message cardinality");
   }
+
   const mapping: Record<string, string> = {};
+
   for (const [index, item] of markerful.entries()) {
     const oldId = item.id;
     const newId = logical[index]?.id;
+
     if (newId === undefined || oldId === newId) {
       continue;
     }
+
     if (
       !FALLBACK_ASSISTANT_ID.test(oldId) ||
       !FALLBACK_ASSISTANT_ID.test(newId) ||
@@ -1234,8 +1373,10 @@ export const buildFallbackAssistantIdMap = (
     ) {
       throw new Error("Framing changed a non-fallback assistant identity");
     }
+
     mapping[oldId] = newId;
   }
+
   return mapping;
 };
 
@@ -1244,20 +1385,27 @@ export const correctFallbackAssistantIds = (
   mapping: Readonly<Record<string, string>>,
 ): readonly ResponsesInputItem[] => {
   const pending = new Map(Object.entries(mapping).map(([id]) => [id, 0]));
+
   const corrected = input.map((item) => {
     if (!Value.Check(AssistantMessageItemSchema, item)) {
       return item;
     }
+
     const replacement = mapping[item.id];
+
     if (!replacement) {
       return item;
     }
+
     pending.set(item.id, (pending.get(item.id) ?? 0) + 1);
+
     return { ...item, id: replacement };
   });
+
   if ([...pending.values()].some((count) => count !== 1)) {
     throw new Error("Finalized fallback assistant identity is ambiguous");
   }
+
   return corrected;
 };
 
@@ -1271,13 +1419,16 @@ export const hasMarkerFreeStructuralParity = (
     const markerful = jsonInputClone(markerfulInput);
     const logical = jsonInputClone(logicalInput);
     const extracted = extractFinalizedFrame(markerful, nonce);
+
     if (extracted.kind !== "ok") {
       return false;
     }
+
     const corrected = correctFallbackAssistantIds(
       rewriteFramedInput(extracted, []),
       fallbackAssistantIds,
     );
+
     return sha256Canonical(corrected) === sha256Canonical(logical);
   } catch {
     return false;
@@ -1305,6 +1456,7 @@ export const latestTurnMessageRole = (branch: readonly SessionEntry[]) => {
       }
     }
   }
+
   return undefined;
 };
 
@@ -1316,6 +1468,7 @@ const inlineCheckpointPhase = (branch: readonly SessionEntry[]): RequestFrame["p
     runContinues: true,
     willRetry: false,
   });
+
   return phase === "mid-turn" ? phase : "pre-sampling";
 };
 
@@ -1333,9 +1486,11 @@ const inlineFailureMessage = (kind: Exclude<InlineOperationResult["kind"], "succ
   if (kind === "stale") {
     return "OpenAI checkpoint input changed before completion; the result was discarded.";
   }
+
   if (kind === "persistence") {
     return "OpenAI checkpoint persistence could not be verified; the model request was cancelled.";
   }
+
   return "OpenAI checkpoint generation failed; the model request was cancelled.";
 };
 
@@ -1345,9 +1500,11 @@ const isPossibleAutomaticThreshold = (
   providerRuntime: CodexProviderRuntime,
 ) => {
   const window = providerRuntime.getModelWindow(model);
+
   if (!window) {
     return false;
   }
+
   return (
     usage?.tokens === null ||
     usage?.tokens === undefined ||
@@ -1384,10 +1541,12 @@ const prepareContextReplay = (
     }
   | undefined => {
   const currentModel = isSupportedLifecycleModel(ctx.model) ? ctx.model : undefined;
+
   const previousModel =
     currentModel && state.transition?.currentIdentity === modelIdentity(currentModel)
       ? state.transition.previousModel
       : undefined;
+
   const decision = replayBoundaryDecision(
     branch,
     ctx.model,
@@ -1395,6 +1554,7 @@ const prepareContextReplay = (
     previousModel,
     state.transition?.previousCompHash,
   );
+
   if (decision.kind === "blocked") {
     abortUnsafeRequest(
       state,
@@ -1402,8 +1562,10 @@ const prepareContextReplay = (
       `context:${branchSha256(branch)}`,
       "OpenAI checkpoint replay was blocked because active native context is unsafe.",
     );
+
     return undefined;
   }
+
   if (decision.kind === "fallback") {
     notifyOnce(
       state,
@@ -1412,19 +1574,24 @@ const prepareContextReplay = (
       "An incompatible OpenAI checkpoint was ignored because authoritative Pi context is available.",
       "warning",
     );
+
     return undefined;
   }
+
   if (!currentModel) {
     return undefined;
   }
+
   const activeCheckpoint = decision.kind === "active" ? decision.boundary : undefined;
+
   if (activeCheckpoint) {
     providerRuntime.installWindow(
       ctx.sessionManager.getSessionId(),
       activeCheckpoint.checkpoint.runtime,
     );
   }
-  return { activeCheckpoint, model: currentModel };
+
+  return { ...(activeCheckpoint !== undefined ? { activeCheckpoint } : {}), model: currentModel };
 };
 
 const runContextHook = (
@@ -1440,20 +1607,25 @@ const runContextHook = (
   state.requestHeaders = undefined;
   const branch = ctx.sessionManager.getBranch();
   const replay = prepareContextReplay(state, branch, ctx, providerRuntime);
+
   if (!replay) {
     return undefined;
   }
+
   const { activeCheckpoint, model } = replay;
   const usage = ctx.getContextUsage();
   const possibleThreshold = isPossibleAutomaticThreshold(model, usage, providerRuntime);
+
   if (!activeCheckpoint && !possibleThreshold) {
     captureUnframedCandidate(pi, state, branch, model, ctx);
+
     return undefined;
   }
 
   const baseline = buildSessionContext([...branch]).messages;
   const framedSegment = contextSourceMessages(branch, activeCheckpoint);
   const nonce = uuidv7();
+
   const framed = frameContiguousBaseline(
     event.messages,
     baseline,
@@ -1462,10 +1634,12 @@ const runContextHook = (
     sentinelMessage("end", nonce),
     isPersistedRetryError,
   );
+
   if (framed.kind !== "ok") {
     if (activeCheckpoint) {
       const notificationKey = `frame:${activeCheckpoint.boundaryEntryId}`;
       let diagnosticRecorded = false;
+
       if (!state.notified.has(notificationKey)) {
         try {
           const diagnostic = buildContextFrameDiagnostic({
@@ -1476,6 +1650,7 @@ const runContextHook = (
             frameResult: framed.kind,
             framedSegment,
           });
+
           diagnosticRecorded = observability.record(
             ctx.sessionManager.getSessionId(),
             "context-frame-failure",
@@ -1485,6 +1660,7 @@ const runContextHook = (
           // The request still fails closed if diagnostic construction fails.
         }
       }
+
       abortUnsafeRequest(
         state,
         ctx,
@@ -1496,15 +1672,19 @@ const runContextHook = (
     } else {
       captureUnframedCandidate(pi, state, branch, model, ctx);
     }
+
     return undefined;
   }
+
   const requestSnapshot = snapshotLifecycleRequestState(pi, ctx);
+
   const markerfulInput = convertResponsesMessages(
     model,
     { messages: convertToLlm([...framed.messages]) },
     ALLOWED_TOOL_CALL_PROVIDERS,
     { includeSystemPrompt: false },
   );
+
   const logicalInput = convertResponsesMessages(
     model,
     {
@@ -1513,8 +1693,10 @@ const runContextHook = (
     ALLOWED_TOOL_CALL_PROVIDERS,
     { includeSystemPrompt: false },
   );
+
   let fallbackAssistantIds: Readonly<Record<string, string>> = {};
   let structuralParity = false;
+
   try {
     fallbackAssistantIds = buildFallbackAssistantIdMap(markerfulInput, logicalInput);
     structuralParity = hasMarkerFreeStructuralParity(
@@ -1526,6 +1708,7 @@ const runContextHook = (
   } catch {
     structuralParity = false;
   }
+
   if (!structuralParity) {
     if (activeCheckpoint) {
       abortUnsafeRequest(
@@ -1537,10 +1720,12 @@ const runContextHook = (
     } else {
       captureUnframedCandidate(pi, state, branch, model, ctx);
     }
+
     return undefined;
   }
+
   state.frame = {
-    activeCheckpoint,
+    ...(activeCheckpoint !== undefined ? { activeCheckpoint } : {}),
     fallbackAssistantIds,
     generation: state.generation,
     leafId: ctx.sessionManager.getLeafId(),
@@ -1549,19 +1734,23 @@ const runContextHook = (
     phase: inlineCheckpointPhase(branch),
     requestStateSha256: requestSnapshot.hash,
   };
+
   return { messages: [...framed.messages] };
 };
 
 export type FinalizedResponsesEnvelope = Static<typeof FinalizedResponsesEnvelopeSchema>;
 
 export const parseFinalizedResponsesEnvelope = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   model: SupportedModel,
 ): FinalizedResponsesEnvelope | undefined => {
   if (!Value.Check(FinalizedResponsesEnvelopeSchema, payload)) {
     return undefined;
   }
+
   const envelope = Value.Clone(payload);
+
   return envelope.model === model.id &&
     !envelope.input.some((item) => item.type === "compaction_trigger")
     ? envelope
@@ -1573,15 +1762,17 @@ export const freshAssistantUsageTokens = (
   boundaryIndex: number,
   model: SupportedModel,
 ): number | undefined => {
-  for (let index = branch.length - 1; index > boundaryIndex; index -= 1) {
-    const entry = branch[index];
+  for (const entry of branch.slice(boundaryIndex + 1).reverse()) {
     if (sessionEntryToContextMessages(entry).length === 0) {
       continue;
     }
+
     if (entry.type !== "message" || entry.message.role !== "assistant") {
       continue;
     }
+
     const { message } = entry;
+
     if (
       message.stopReason === "aborted" ||
       message.stopReason === "error" ||
@@ -1591,21 +1782,28 @@ export const freshAssistantUsageTokens = (
     ) {
       return undefined;
     }
+
     const tokens = calculateContextTokens(message.usage);
+
     return tokens > 0 ? tokens : undefined;
   }
+
   return undefined;
 };
 
 const jsonCloneEnvelope = (envelope: FinalizedResponsesEnvelope): JsonRecord => {
   const serialized = JSON.stringify(envelope);
+
   if (!serialized) {
     throw new Error("Finalized provider envelope is not serializable");
   }
+
   const cloned: unknown = JSON.parse(serialized);
+
   if (!isRecord(cloned)) {
     throw new Error("Finalized provider envelope clone is invalid");
   }
+
   return cloned;
 };
 
@@ -1621,6 +1819,7 @@ type FinalizedReplayPreparation =
     };
 
 const prepareFinalizedReplay = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   model: Model<string> | undefined,
   frame: RequestFrame,
@@ -1630,37 +1829,50 @@ const prepareFinalizedReplay = (
   if (!isSupportedLifecycleModel(model)) {
     return { kind: "invalid-payload" };
   }
+
   const envelope = parseFinalizedResponsesEnvelope(payload, model);
+
   if (!envelope) {
     return { kind: "invalid-payload" };
   }
+
   const extracted = extractFinalizedFrame(envelope.input, frame.nonce);
+
   if (extracted.kind !== "ok") {
     return { kind: "invalid-markers" };
   }
+
   const replacement =
     frame.activeCheckpoint?.checkpoint.replacement.map((item) => ({
       ...item,
     })) ?? [];
+
   const effectiveInput = jsonInputClone(
     correctFallbackAssistantIds(
       rewriteFramedInput(extracted, replacement),
       frame.fallbackAssistantIds,
     ),
   );
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Provider hooks can supply open payload fields; inspect them without assuming the hook preserved the original types.
   const instructions = typeof envelope.instructions === "string" ? envelope.instructions : "";
   const estimatedTokens = estimateModelVisibleTokens(instructions, effectiveInput);
+
   const freshUsageTokens = freshAssistantUsageTokens(
     branch,
     frame.activeCheckpoint?.boundaryIndex ?? -1,
     model,
   );
+
+  const autoCompactTokens = providerRuntime.getModelWindow(model)?.autoCompactTokens;
+
   const unchangedReplacement =
     Boolean(frame.activeCheckpoint) &&
     extracted.prefix.length === 0 &&
     extracted.framed.length === 0 &&
     extracted.suffix.length === 0 &&
     sha256Canonical(effectiveInput) === frame.activeCheckpoint?.checkpoint.replacementSha256;
+
   return {
     effectiveInput,
     envelope,
@@ -1668,10 +1880,10 @@ const prepareFinalizedReplay = (
     kind: "ok",
     model,
     shouldCompact: shouldCompactFinalizedInput({
-      autoCompactTokens: providerRuntime.getModelWindow(model)?.autoCompactTokens,
+      ...(autoCompactTokens !== undefined ? { autoCompactTokens } : {}),
       contextWindow: model.contextWindow,
       estimatedTokens,
-      freshUsageTokens,
+      ...(freshUsageTokens !== undefined ? { freshUsageTokens } : {}),
       unchangedReplacement,
     }),
   };
@@ -1695,6 +1907,7 @@ export const decideModelTransitionReason = (options: {
   ) {
     return "comp_hash_changed";
   }
+
   return options.currentEffectiveTokenLimit !== undefined &&
     options.previousModel !== options.currentModel &&
     options.previousEffectiveTokenLimit > options.currentEffectiveTokenLimit &&
@@ -1716,34 +1929,44 @@ const transitionCompactionModel = (
     }
   | undefined => {
   const { transition } = state;
+
   if (!transition || transition.currentIdentity !== modelIdentity(currentModel)) {
     return undefined;
   }
+
   const previousMetadata = runtime.getModelMetadata(transition.previousModel.id);
   const currentMetadata = runtime.getModelMetadata(currentModel.id);
+
   const previousCompHash =
     transition.previousCompHash === undefined
       ? previousMetadata?.comp_hash
       : transition.previousCompHash;
+
   const window =
     runtime.getModelWindow(currentModel) ?? contextWindowDecision(currentModel.contextWindow);
+
   const reason = decideModelTransitionReason({
-    currentCompHash: currentMetadata?.comp_hash,
-    currentEffectiveTokenLimit: window?.effectiveWindowTokens,
+    ...(currentMetadata?.comp_hash !== undefined
+      ? { currentCompHash: currentMetadata.comp_hash }
+      : {}),
+    ...(window !== undefined ? { currentEffectiveTokenLimit: window.effectiveWindowTokens } : {}),
     currentModel: currentModel.id,
     estimatedTokens: estimateModelVisibleTokens(instructions, input),
-    previousCompHash,
+    ...(previousCompHash !== undefined ? { previousCompHash } : {}),
     previousEffectiveTokenLimit:
       transition.previousEffectiveTokenLimit ?? transition.previousModel.contextWindow,
     previousModel: transition.previousModel.id,
   });
+
   if (reason) {
     return {
       codexReason: reason,
       model: transition.previousModel,
     };
   }
+
   state.transition = undefined;
+
   return undefined;
 };
 
@@ -1780,7 +2003,9 @@ const runInlineCompactionOperation = async (
     model,
     request,
   } = options;
+
   const sourceSha256 = sha256Canonical(authoritativeInput);
+
   const operationKey = sha256Canonical({
     discriminator,
     envelope: hashJsonClone(authoritativeEnvelope),
@@ -1788,35 +2013,45 @@ const runInlineCompactionOperation = async (
     retained: hashJsonClone(durableInput),
     source: sourceSha256,
   });
+
   const signals = [state.controller.signal];
+
   if (ctx.signal) {
     signals.push(ctx.signal);
   }
+
   const signal = AbortSignal.any(signals);
+
   const operation = (async (): Promise<InlineOperationResult> => {
     setLifecycleStatus(ctx, STATUS_MESSAGE);
+
     try {
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+
       if (!auth.ok || !hasResolvedLifecycleAuth(auth.apiKey) || !headers) {
         return { kind: "remote" };
       }
+
       const requestSnapshot = snapshotLifecycleRequestState(pi, ctx);
+
       if (requestSnapshot.hash !== request.requestStateSha256) {
         return { kind: "stale" };
       }
+
       const retainedItems = retainedFinalizedInput(durableInput, model);
+
       const compactionOptions: ProviderCompactionOptions = {
         apiKey: auth.apiKey,
         authoritativeEnvelope,
         authoritativeInput,
-        codexReason,
+        ...(codexReason !== undefined ? { codexReason } : {}),
         context: {
           messages: [],
           systemPrompt: requestSnapshot.systemPrompt,
           tools: requestSnapshot.tools,
         },
-        env: auth.env,
-        headers,
+        ...(auth.env !== undefined ? { env: auth.env } : {}),
+        ...(headers !== undefined ? { headers } : {}),
         inputPrefix: [],
         model: compactionModel ?? model,
         phase: request.phase,
@@ -1825,16 +2060,20 @@ const runInlineCompactionOperation = async (
         signal,
         thinkingLevel: requestSnapshot.thinkingLevel,
       };
+
       let execution = await runEffectiveProviderCompaction(providerRuntime, compactionOptions);
+
       if (!execution.ok && compactionModel && execution.currentModelFallback && !signal.aborted) {
         execution = await runEffectiveProviderCompaction(providerRuntime, {
           ...compactionOptions,
           model,
         });
       }
+
       if (!execution.ok) {
         return { kind: "remote" };
       }
+
       if (
         signal.aborted ||
         state.generation !== request.generation ||
@@ -1847,11 +2086,13 @@ const runInlineCompactionOperation = async (
       ) {
         return { kind: "stale" };
       }
+
       const runtime = nextCheckpointRuntime(
         providerRuntime,
         ctx.sessionManager.getSessionId(),
         model,
       );
+
       const checkpoint = buildLifecycleCheckpoint({
         execution,
         model,
@@ -1860,12 +2101,15 @@ const runInlineCompactionOperation = async (
         retainedItems,
         runtime,
       });
+
       const requestReplacement = buildTransientCheckpointReplacement(
         retainedItems,
         execution.compaction,
       ).map((item) => ({ ...item }));
+
       pi.appendEntry(CHECKPOINT_CUSTOM_TYPE, checkpoint);
       const installedBranch = ctx.sessionManager.getBranch();
+
       if (
         state.generation !== request.generation ||
         !isInlineInstallationResolvable(
@@ -1877,18 +2121,22 @@ const runInlineCompactionOperation = async (
       ) {
         return { kind: "persistence" };
       }
+
       providerRuntime.installWindow(ctx.sessionManager.getSessionId(), runtime);
       state.transition = undefined;
+
       return { checkpoint, kind: "success", requestReplacement };
     } finally {
       setLifecycleStatus(ctx, undefined);
     }
   })();
+
   state.inFlight = {
     kind: "inline",
     promise: operation,
   };
   let result: InlineOperationResult;
+
   try {
     result = await operation;
   } catch {
@@ -1898,6 +2146,7 @@ const runInlineCompactionOperation = async (
       state.inFlight = undefined;
     }
   }
+
   return { operationKey, result };
 };
 
@@ -1906,11 +2155,14 @@ const runUnframedCandidateHook = async (
   state: LifecycleState,
   candidate: UnframedCandidate,
   headers: Readonly<ProviderHeaders> | undefined,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- Provider hooks must preserve opaque payloads for requests they do not own; owned payloads pass through the finalized-envelope decoder.
 ): Promise<unknown> => {
   const { model } = ctx;
+
   if (
     candidate.generation !== state.generation ||
     candidate.requestStateSha256 !== snapshotLifecycleRequestState(pi, ctx).hash ||
@@ -1924,8 +2176,10 @@ const runUnframedCandidateHook = async (
       `candidate-state:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was blocked because the finalized request is unsafe.",
     );
+
     return payload;
   }
+
   if (ctx.sessionManager.getLeafId() !== candidate.leafId) {
     state.candidate = undefined;
     abortUnsafeRequest(
@@ -1934,10 +2188,13 @@ const runUnframedCandidateHook = async (
       `candidate-branch:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was blocked because session context changed after context preparation.",
     );
+
     return payload;
   }
+
   const branch = ctx.sessionManager.getBranch();
   const envelope = parseFinalizedResponsesEnvelope(payload, model);
+
   if (!envelope) {
     state.candidate = undefined;
     abortUnsafeRequest(
@@ -1946,11 +2203,15 @@ const runUnframedCandidateHook = async (
       `candidate-payload:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was blocked because the finalized request is unsafe.",
     );
+
     return payload;
   }
+
   const authoritativeInput = jsonInputClone(envelope.input);
   const split = splitUnframedInput(authoritativeInput);
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Provider hooks can supply open payload fields; inspect them without assuming the hook preserved the original types.
   const instructions = typeof envelope.instructions === "string" ? envelope.instructions : "";
+
   const transitionCompaction = transitionCompactionModel(
     state,
     providerRuntime,
@@ -1958,17 +2219,25 @@ const runUnframedCandidateHook = async (
     instructions,
     authoritativeInput,
   );
+
   const compactionModel = transitionCompaction?.model;
+
+  const autoCompactTokens = providerRuntime.getModelWindow(model)?.autoCompactTokens;
+  const freshUsageTokens = freshAssistantUsageTokens(branch, -1, model);
+
   const shouldCompact = shouldCompactFinalizedInput({
-    autoCompactTokens: providerRuntime.getModelWindow(model)?.autoCompactTokens,
+    ...(autoCompactTokens !== undefined ? { autoCompactTokens } : {}),
     contextWindow: model.contextWindow,
     estimatedTokens: estimateModelVisibleTokens(instructions, authoritativeInput),
-    freshUsageTokens: freshAssistantUsageTokens(branch, -1, model),
+    ...(freshUsageTokens !== undefined ? { freshUsageTokens } : {}),
   });
+
   if (!shouldCompact && !compactionModel) {
     state.candidate = undefined;
+
     return payload;
   }
+
   if (state.inFlight) {
     state.candidate = undefined;
     abortUnsafeRequest(
@@ -1977,10 +2246,12 @@ const runUnframedCandidateHook = async (
       `candidate-concurrent:${candidate.generation}:${candidate.leafId ?? "root"}`,
       "OpenAI inline compaction was cancelled because another compaction is active.",
     );
+
     return payload;
   }
 
   const authoritativeEnvelope = jsonCloneEnvelope(envelope);
+
   const { operationKey, result } = await runInlineCompactionOperation(
     pi,
     state,
@@ -1989,17 +2260,21 @@ const runUnframedCandidateHook = async (
     {
       authoritativeEnvelope,
       authoritativeInput,
-      codexReason: transitionCompaction?.codexReason,
-      compactionModel,
+      ...(transitionCompaction !== undefined
+        ? { codexReason: transitionCompaction.codexReason }
+        : {}),
+      ...(compactionModel !== undefined ? { compactionModel } : {}),
       current: () => state.candidate === candidate,
       discriminator: "unframed",
       durableInput: split.durable,
-      headers,
+      ...(headers !== undefined ? { headers } : {}),
       model,
       request: candidate,
     },
   );
+
   state.candidate = undefined;
+
   if (result.kind !== "success") {
     abortUnsafeRequest(
       state,
@@ -2007,8 +2282,10 @@ const runUnframedCandidateHook = async (
       `candidate:${result.kind}:${operationKey}`,
       inlineFailureMessage(result.kind),
     );
+
     return payload;
   }
+
   return {
     ...envelope,
     input: [...split.prefix, ...result.requestReplacement, ...split.suffix],
@@ -2019,17 +2296,22 @@ const runBeforeProviderRequestHook = async (
   pi: Parameters<ExtensionFactory>[0],
   state: LifecycleState,
   headers: Readonly<ProviderHeaders> | undefined,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- Provider hooks must preserve opaque payloads for requests they do not own; owned payloads pass through the finalized-envelope decoder.
 ): Promise<unknown> => {
   const { frame } = state;
+
   if (!frame) {
     const { candidate } = state;
+
     return candidate
       ? await runUnframedCandidateHook(pi, state, candidate, headers, payload, ctx, providerRuntime)
       : payload;
   }
+
   if (
     frame.generation !== state.generation ||
     frame.requestStateSha256 !== snapshotLifecycleRequestState(pi, ctx).hash
@@ -2041,8 +2323,10 @@ const runBeforeProviderRequestHook = async (
       `payload:${frame.nonce}`,
       "OpenAI checkpoint replay was blocked because the finalized request is unsafe.",
     );
+
     return payload;
   }
+
   if (ctx.sessionManager.getLeafId() !== frame.leafId) {
     state.frame = undefined;
     abortUnsafeRequest(
@@ -2051,10 +2335,13 @@ const runBeforeProviderRequestHook = async (
       `stale-frame:${frame.nonce}`,
       "OpenAI checkpoint replay was blocked because session context changed after framing.",
     );
+
     return payload;
   }
+
   const branch = ctx.sessionManager.getBranch();
   const prepared = prepareFinalizedReplay(payload, ctx.model, frame, branch, providerRuntime);
+
   if (prepared.kind !== "ok") {
     state.frame = undefined;
     abortUnsafeRequest(
@@ -2065,9 +2352,12 @@ const runBeforeProviderRequestHook = async (
         ? "OpenAI checkpoint replay was blocked because request markers are invalid."
         : "OpenAI checkpoint replay was blocked because the finalized request is unsafe.",
     );
+
     return payload;
   }
+
   const { effectiveInput, envelope, extracted, model, shouldCompact } = prepared;
+
   if (frame.modelIdentity !== modelIdentity(model)) {
     state.frame = undefined;
     abortUnsafeRequest(
@@ -2076,20 +2366,27 @@ const runBeforeProviderRequestHook = async (
       `identity:${frame.nonce}`,
       "OpenAI checkpoint replay was blocked because model identity changed.",
     );
+
     return payload;
   }
+
   const transitionCompaction = transitionCompactionModel(
     state,
     providerRuntime,
     model,
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Provider hooks can supply open payload fields; inspect them without assuming the hook preserved the original types.
     typeof envelope.instructions === "string" ? envelope.instructions : "",
     effectiveInput,
   );
+
   const compactionModel = transitionCompaction?.model;
+
   if (!shouldCompact && !compactionModel) {
     state.frame = undefined;
+
     return { ...envelope, input: effectiveInput };
   }
+
   if (state.inFlight) {
     state.frame = undefined;
     abortUnsafeRequest(
@@ -2098,11 +2395,13 @@ const runBeforeProviderRequestHook = async (
       `concurrent:${frame.nonce}`,
       "OpenAI inline compaction was cancelled because another compaction is active.",
     );
+
     return payload;
   }
 
   const authoritativeEnvelope = jsonCloneEnvelope(envelope);
   const authoritativeInput = structuredClone(effectiveInput);
+
   const { operationKey, result } = await runInlineCompactionOperation(
     pi,
     state,
@@ -2111,8 +2410,10 @@ const runBeforeProviderRequestHook = async (
     {
       authoritativeEnvelope,
       authoritativeInput,
-      codexReason: transitionCompaction?.codexReason,
-      compactionModel,
+      ...(transitionCompaction !== undefined
+        ? { codexReason: transitionCompaction.codexReason }
+        : {}),
+      ...(compactionModel !== undefined ? { compactionModel } : {}),
       current: () => state.frame === frame,
       discriminator: frame.nonce,
       durableInput: [
@@ -2121,12 +2422,14 @@ const runBeforeProviderRequestHook = async (
         })) ?? []),
         ...extracted.framed,
       ],
-      headers,
+      ...(headers !== undefined ? { headers } : {}),
       model,
       request: frame,
     },
   );
+
   state.frame = undefined;
+
   if (result.kind !== "success") {
     abortUnsafeRequest(
       state,
@@ -2134,8 +2437,10 @@ const runBeforeProviderRequestHook = async (
       `inline:${result.kind}:${operationKey}`,
       inlineFailureMessage(result.kind),
     );
+
     return payload;
   }
+
   return {
     ...envelope,
     input: [...extracted.prefix, ...result.requestReplacement, ...extracted.suffix],
@@ -2143,6 +2448,12 @@ const runBeforeProviderRequestHook = async (
 };
 
 const createLifecycleState = (): LifecycleState => ({
+  candidate: undefined,
+  frame: undefined,
+  inFlight: undefined,
+  pendingInstall: undefined,
+  requestHeaders: undefined,
+  transition: undefined,
   controller: new AbortController(),
   generation: 0,
   notified: new Set(),
@@ -2165,11 +2476,14 @@ export const resolvePreviousTurnTransition = (
 ): LifecycleState["transition"] => {
   const boundary = resolveActiveCheckpointBoundary(branch);
   const durableCheckpoint = boundary.kind === "checkpoint" ? boundary.checkpoint : undefined;
+
   const tailMessage =
     boundary.kind === "checkpoint" ? findPreviousModelMessage(boundary.tail) : undefined;
+
   const previousMessage = tailMessage ?? findPreviousModelMessage(branch);
   const durableIdentity = tailMessage ? undefined : durableCheckpoint?.identity;
   let previousModel: Model<string> | undefined;
+
   if (durableIdentity) {
     previousModel =
       durableIdentity.provider === currentModel.provider &&
@@ -2179,9 +2493,11 @@ export const resolvePreviousTurnTransition = (
   } else if (previousMessage?.type === "message" && previousMessage.message.role === "assistant") {
     previousModel = findModel(previousMessage.message.provider, previousMessage.message.model);
   }
+
   if (!isSupportedLifecycleModel(previousModel)) {
     return undefined;
   }
+
   return {
     currentIdentity: modelIdentity(currentModel),
     previousCompHash:
@@ -2199,9 +2515,11 @@ export const resolvePreviousTurnTransition = (
 const restoreTransition = (state: LifecycleState, ctx: ExtensionContext) => {
   state.transition = undefined;
   const currentModel = ctx.model;
+
   if (!isSupportedLifecycleModel(currentModel)) {
     return;
   }
+
   const branch = ctx.sessionManager.getBranch();
   state.transition = resolvePreviousTurnTransition(branch, currentModel, (provider, model) =>
     ctx.modelRegistry.find(provider, model),
@@ -2221,6 +2539,7 @@ export const createCodexLifecycle = (
     catalog,
     executionSettings,
   );
+
   const state = createLifecycleState();
 
   return {
@@ -2229,6 +2548,7 @@ export const createCodexLifecycle = (
         restoreTransition(state, ctx);
         state.transitionRestored = true;
       }
+
       providerRuntime.beginTurn(ctx.sessionManager.getSessionId());
     },
     beforeCompact: (
@@ -2240,8 +2560,10 @@ export const createCodexLifecycle = (
     beforeProviderHeaders: (event: BeforeProviderHeadersEvent, ctx: ExtensionContext): void => {
       if (!isSupportedLifecycleModel(ctx.model)) {
         state.requestHeaders = undefined;
+
         return;
       }
+
       mergeRemoteCompactionFeatureHeader(event.headers);
       state.requestHeaders = {
         generation: state.generation,
@@ -2252,11 +2574,13 @@ export const createCodexLifecycle = (
     },
     beforeProviderRequest: async (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => {
       const headers = consumeRequestHeaders(state, ctx);
+
       try {
         // Background Codex calls can load this lifecycle while another provider is active.
         const payload = isSupportedLifecycleModel(ctx.model)
           ? rewriteCollaborationTools(event.payload, pi, ctx)
           : event.payload;
+
         return await runBeforeProviderRequestHook(
           pi,
           state,
@@ -2274,14 +2598,17 @@ export const createCodexLifecycle = (
           "payload:failure",
           "Codex provider request preparation failed; the model request was cancelled.",
         );
+
         return event.payload;
       }
     },
     compact: (event: SessionCompactEvent, ctx: ExtensionContext): void => {
       const pending = finishLifecycleOperation(state);
+
       if (!pending) {
         return;
       }
+
       if (!event.fromExtension || !isPendingInstallationResolvable(state, pending, ctx)) {
         notifyOnce(
           state,
@@ -2290,8 +2617,10 @@ export const createCodexLifecycle = (
           "OpenAI compaction checkpoint installation could not be verified.",
           "error",
         );
+
         return;
       }
+
       providerRuntime.installWindow(pending.sessionId, pending.runtime);
     },
     compactFailed: (): void => {
@@ -2309,11 +2638,13 @@ export const createCodexLifecycle = (
           "context:failure",
           "OpenAI checkpoint context preparation failed; the model request was cancelled.",
         );
+
         return undefined;
       }
     },
     messageEnd: (event: MessageEndEvent, ctx: ExtensionContext): void => {
       const { message } = event;
+
       if (
         message.role !== "assistant" ||
         message.provider !== "openai-codex" ||
@@ -2325,6 +2656,7 @@ export const createCodexLifecycle = (
       ) {
         return;
       }
+
       notifyOnce(
         state,
         "transport-fallback",
@@ -2359,12 +2691,15 @@ export const createCodexLifecycle = (
     runCommand: async (_args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const { model } = ctx;
       const supportedModel = isSupportedLifecycleModel(model) ? model : undefined;
+
       const modelWindow = supportedModel
         ? providerRuntime.getModelWindow(supportedModel)
         : undefined;
+
       const metadata = supportedModel
         ? providerRuntime.getModelMetadata(supportedModel.id)
         : undefined;
+
       const contextUsage = ctx.getContextUsage();
       const sessionId = ctx.sessionManager.getSessionId();
       const observations = observability.list(sessionId);
@@ -2372,21 +2707,27 @@ export const createCodexLifecycle = (
         formatCodexProviderStatus({
           branch: ctx.sessionManager.getBranch(),
           current: {
-            autoCompactTokens: modelWindow?.autoCompactTokens,
-            contextUsage: contextUsage ?? undefined,
-            identity: supportedModel
+            ...(modelWindow !== undefined
+              ? { autoCompactTokens: modelWindow.autoCompactTokens }
+              : {}),
+            ...(contextUsage != null ? { contextUsage } : {}),
+            ...(supportedModel !== undefined
               ? {
-                  api: supportedModel.api,
-                  baseUrl: supportedModel.baseUrl,
-                  compHash: metadata?.comp_hash,
-                  provider: supportedModel.provider,
+                  identity: {
+                    api: supportedModel.api,
+                    baseUrl: supportedModel.baseUrl,
+                    compHash: metadata?.comp_hash ?? null,
+                    provider: supportedModel.provider,
+                  },
                 }
-              : undefined,
-            model: model ? `${model.provider}/${model.id}` : undefined,
-            reasoning: ctx.thinkingLevel,
+              : {}),
+            ...(model !== undefined ? { model: `${model.provider}/${model.id}` } : {}),
+            ...(ctx.thinkingLevel !== undefined ? { reasoning: ctx.thinkingLevel } : {}),
           },
           entries: ctx.sessionManager.getEntries(),
-          observabilityError: observability.lastError,
+          ...(observability.lastError !== undefined
+            ? { observabilityError: observability.lastError }
+            : {}),
           observabilityPath: observability.path,
           observations,
           sessionId,
@@ -2415,6 +2756,7 @@ export const createCodexLifecycle = (
       if (ctx.sessionManager.getSessionFile() === undefined) {
         observability.useMemory();
       }
+
       providerRuntime.closeSession(ctx.sessionManager.getSessionId());
       state.transition = undefined;
       state.transitionRestored = false;

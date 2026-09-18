@@ -10,6 +10,7 @@ describe("user-attention discovery", () => {
         ...(withQuestions ? [resolve(import.meta.dirname, "../../../ask-question")] : []),
       ],
     });
+
     try {
       expect(harness.extensionsResult.errors).toEqual([]);
       const tools = harness.extensionsResult.extensions.flatMap((e) => [...e.tools.keys()]);

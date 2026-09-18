@@ -11,6 +11,7 @@ import { envVarRef, fixtureServer, setupMcpTest } from "./helpers.js";
 
 const createBranchSession = ({ chained = false }: { chained?: boolean } = {}) => {
   const timestamp = new Date().toISOString();
+
   return {
     entries: [
       {
@@ -61,12 +62,16 @@ describe("mcp loader", () => {
     });
     const connect = connections.connectToServer;
     let connection: connections.McpClientConnection | undefined;
+
     const spy = vi.spyOn(connections, "connectToServer").mockImplementation(async (options) => {
       connection = await connect(options);
+
       return connection;
     });
+
     const host = t.createExtensionHost(mcp, createBranchSession());
     const original = host.createContext({ cwd: process.cwd() });
+
     try {
       await host.emitSessionStart(original);
       expect((await connection!.client.callTool({ name: "startup-roots" })).content).toEqual([
@@ -147,6 +152,7 @@ describe("mcp loader", () => {
     });
     const select = vi.fn<() => Promise<string>>(async () => "○ project");
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       cwd: t.projectDir,
       ui: { select },
@@ -170,6 +176,7 @@ describe("mcp loader", () => {
       },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
@@ -177,6 +184,7 @@ describe("mcp loader", () => {
     });
 
     await host.runCommand("mcp", "", ctx);
+
     const result = await host.runTool(toGeneratedToolName("github", "search"), {
       query: "needle",
     });
@@ -216,11 +224,13 @@ describe("mcp loader", () => {
     });
     const host = t.createExtensionHost(mcp);
     let customOpened = false;
+
     const driver = createCustomUiDriver({
       onComponent: () => {
         customOpened = true;
       },
     });
+
     const ctx = host.createContext({
       ui: {
         custom: driver.custom,
@@ -259,10 +269,14 @@ describe("mcp loader", () => {
     await host.runCommand("mcp", "", ctx);
 
     expect(select).toHaveBeenCalledWith("MCP server", [`○ ${MCP_MANAGER_SERVER_NAME}`]);
-    expect(host.getNotifications()).toContainEqual({
-      message: expect.stringContaining("Failed to load MCP config:"),
-      type: "error",
-    });
+    expect(
+      host
+        .getNotifications()
+        .some(
+          (notice) =>
+            notice.type === "error" && notice.message.includes("Failed to load MCP config:"),
+        ),
+    ).toBe(true);
   });
 
   it("persists loaded server state to session entries", async () => {
@@ -270,6 +284,7 @@ describe("mcp loader", () => {
       mcpServers: { github: fixtureServer() },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
+
     const ctx = host.createContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
@@ -281,6 +296,7 @@ describe("mcp loader", () => {
     const mcpEntries = host
       .getAppendedEntries()
       .filter((entry) => entry.type === "custom" && entry.customType === "mcp-server-loaded");
+
     expect(mcpEntries).toStrictEqual([expect.objectContaining({ data: { serverName: "github" } })]);
   });
 
@@ -304,11 +320,13 @@ describe("mcp loader", () => {
 
   it("preserves externally owned manager names during branch reconciliation", async () => {
     await t.writeConfig({ mcpServers: { alpha: fixtureServer() } });
+
     const host = t.createExtensionHost(mcp, {
       ...createBranchSession(),
       externalTools: ["mcp_list"],
       activeTools: ["read", "mcp_list"],
     });
+
     await host.emitSessionStart();
     expect(host.getActiveTools()).toContain("mcp_list");
     host.setLeafId("root");
@@ -346,19 +364,26 @@ describe("mcp loader", () => {
     const connect = connections.connectToServer;
     let first: connections.McpClientConnection | undefined;
     let offline = false;
+
     const spy = vi.spyOn(connections, "connectToServer").mockImplementation(async (options) => {
       if (options.serverName === "alpha" && offline) throw new Error("offline");
       const connection = await connect(options);
+
       if (options.serverName === "alpha") first ??= connection;
+
       return connection;
     });
+
     const host = t.createExtensionHost(mcp, {
       ...createBranchSession({ chained: true }),
       leafId: "alpha-load",
     });
+
     const alpha = toGeneratedToolName("alpha", "search");
+
     try {
       await host.emitSessionStart();
+
       if (!first) throw new Error("Missing initial connection");
       offline = true;
       await first.close();
@@ -446,6 +471,7 @@ describe("mcp loader", () => {
       timestamp: new Date().toISOString(),
       type: "custom",
     };
+
     const host = t.createExtensionHost(mcp, {
       entries: [persistedEntry],
       hasUI: false,

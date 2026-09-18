@@ -9,6 +9,7 @@ import type { AdapterDeps } from "./util.js";
 import { isDefined, makeUsageWindow, parseIso } from "./util.js";
 
 const BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";
+
 const CREDITS_URL = `${BILLING_URL}?format=credits`;
 
 const MoneySchema = Type.Union([Type.Number(), Type.Object({ val: Type.Number() })]);
@@ -32,20 +33,24 @@ const XaiPayloadSchema = Type.Object({
 });
 
 type XaiConfig = Static<typeof XaiConfigSchema>;
+
 export type XaiPayload = Static<typeof XaiPayloadSchema>;
 
 const moneyValue = (value: XaiConfig["monthlyLimit"]): number | undefined =>
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate the schema-derived numeric/object quota union before reading its amount.
   typeof value === "number" ? value : value?.val;
 
 export const mapXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undefined => {
   const config = payload.config;
   const monthlyLimit = moneyValue(config.monthlyLimit);
   const used = moneyValue(config.used);
+
   if (monthlyLimit === undefined || used === undefined) {
     return undefined;
   }
 
   let remainingPercent: number;
+
   if (monthlyLimit > 0) {
     remainingPercent = 100 * (1 - used / monthlyLimit);
   } else if (used > 0) {
@@ -63,6 +68,7 @@ export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefine
   const config = payload.config;
 
   const { currentPeriod } = config;
+
   if (
     currentPeriod !== undefined &&
     currentPeriod.type !== undefined &&
@@ -72,6 +78,7 @@ export const mapXaiWeeklyPayload = (payload: XaiPayload): UsageWindow | undefine
   }
 
   const usagePercent = config.creditUsagePercent;
+
   if (usagePercent === undefined) {
     return undefined;
   }
@@ -107,6 +114,7 @@ export const mapXaiUsagePayloads = (
 export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveOAuthAccess(deps.authClient, "xai");
+
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }
@@ -121,6 +129,7 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
     headers,
     timeoutMs: USAGE_HTTP_TIMEOUT_MS,
   });
+
   const weeklyPromise = (async () => {
     try {
       return await deps.fetchJson(CREDITS_URL, XaiPayloadSchema, {
@@ -131,6 +140,7 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
       return null;
     }
   })();
+
   const monthly = await monthlyPromise;
 
   if (!monthly.ok && monthly.kind === "response") {
@@ -138,6 +148,7 @@ export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult
   }
 
   const weekly = await weeklyPromise;
+
   return mapXaiUsagePayloads(
     monthly.ok ? monthly.json : undefined,
     weekly !== null && weekly.ok ? weekly.json : undefined,

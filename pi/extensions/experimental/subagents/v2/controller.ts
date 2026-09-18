@@ -44,17 +44,19 @@ import { registerV2Tools } from "./tools.js";
 import { childContextSummary, withChildContext } from "./context.js";
 
 const MAX_ERROR_LENGTH = 1000;
+
 const V2_TOOL_SET: ReadonlySet<string> = new Set(V2_TOOL_NAMES);
 
 type CallerContext = Pick<
   ExtensionContext,
   "cwd" | "isProjectTrusted" | "model" | "modelRegistry" | "sessionManager" | "thinkingLevel"
 >;
+
 type ToolEndpoint = Pick<ExtensionAPI, "getActiveTools">;
 
 interface RuntimeSlot {
   api?: ExtensionAPI;
-  load?: Promise<ChildRuntime>;
+  load: Promise<ChildRuntime> | undefined;
   retiring?: Promise<void>;
   runtime?: ChildRuntime;
   token: symbol;
@@ -74,7 +76,7 @@ interface ActiveTurn {
 interface DeliveryRetry {
   attempts: number;
   permanent?: boolean;
-  timer?: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 interface ReservationRecord {
@@ -104,6 +106,7 @@ export interface V2ControllerDependencies {
   dataDir: string;
   id?: () => string;
   nicknames: NicknamePool;
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Background task rejections may be arbitrary JavaScript values.
   onBackgroundError?: (cause: unknown) => void;
 }
 
@@ -119,6 +122,7 @@ const findSelectedModel = (
   if (selected === undefined) {
     return selected;
   }
+
   return registry.find(selected.provider, selected.id) ?? selected;
 };
 
@@ -135,6 +139,7 @@ const runtimeMessage = (communication: Communication) => ({
 
 const reportFailure = async (
   operation: Promise<unknown> | undefined,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Cleanup must report arbitrary promise rejections without changing the thrown value.
   report?: (cause: unknown) => void,
 ): Promise<void> => {
   try {
@@ -158,6 +163,7 @@ export class V2Controller {
   readonly #maxChildren: number;
   readonly #nicknames: NicknamePool;
   readonly #observedSequence = new Map<string, number>();
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Preserves the background-error callback contract for arbitrary thrown values.
   readonly #onBackgroundError: ((cause: unknown) => void) | undefined;
   readonly #provisionalSpawns = new Set<Promise<null>>();
   readonly #queue = new KeyedSerialQueue();
@@ -204,9 +210,11 @@ export class V2Controller {
     this.#slots.clear();
     this.#queue.clear();
     this.#deliveries.clear();
+
     for (const { timer } of this.#deliveryRetries.values()) {
       clearTimeout(timer);
     }
+
     this.#deliveryRetries.clear();
     this.#contexts.clear();
     this.#reservations.clear();
@@ -216,6 +224,7 @@ export class V2Controller {
     this.#ultraInheritance.clear();
     this.#nextSequence = 0;
     await Promise.all([...this.#settleSlots(slots), ...provisionalSpawns]);
+
     if (this.#epoch === epoch) {
       this.#closing = false;
     }
@@ -223,16 +232,21 @@ export class V2Controller {
 
   attachChild(pathname: string, api: ExtensionAPI, token: symbol): void {
     const slot = this.#slots.get(pathname);
+
     if (slot?.token !== token) {
       throw new Error(`Stale child endpoint: ${pathname}`);
     }
+
     slot.api = api;
     const owns = () => this.#slots.get(pathname)?.token === token && slot.api === api;
     let collaborationEnabled: boolean | undefined;
+
     const unsubscribeContract = registerContractResponder(
       api,
       (ctx) => ({
-        inheritedServiceTier: this.#rootServiceTier,
+        ...(this.#rootServiceTier !== undefined
+          ? { inheritedServiceTier: this.#rootServiceTier }
+          : {}),
         inheritedUltra: this.#ultraInheritance.has(pathname),
         nestedTools: [],
         protocol: "v2",
@@ -241,13 +255,16 @@ export class V2Controller {
       (_ctx, ultra) => {
         if (ultra !== undefined) {
           this.setUltra(pathname, ultra);
+
           if (ultra) {
             this.#ultraInheritance.delete(pathname);
           }
         }
       },
     );
+
     let catalogDescription: string | undefined;
+
     const applyEligibility = (
       selected: CallerContext["model"],
       registry: CallerContext["modelRegistry"],
@@ -255,6 +272,7 @@ export class V2Controller {
       const description = this.#config.expose_spawn_agent_model_overrides
         ? spawnModelsDescription(registry, selected?.provider, "v2")
         : "";
+
       if (description !== catalogDescription) {
         catalogDescription = description;
         registerV2Tools(
@@ -270,15 +288,19 @@ export class V2Controller {
           catalogDescription,
         );
       }
+
       const resolved = findSelectedModel(selected, registry);
       const enabled = modelDeclaresV2(resolved);
+
       if (enabled === collaborationEnabled) return;
       collaborationEnabled = enabled;
       const base = api.getActiveTools().filter((name) => !V2_TOOL_SET.has(name));
       api.setActiveTools(collaborationEnabled ? [...base, ...V2_TOOL_NAMES] : base);
     };
+
     api.on("before_agent_start", (event, ctx) => {
       let response: { systemPrompt: string } | undefined;
+
       if (owns()) {
         applyEligibility(ctx.model, ctx.modelRegistry);
         response = {
@@ -289,6 +311,7 @@ export class V2Controller {
           )}`,
         };
       }
+
       return response;
     });
     api.on("input", () => {
@@ -305,6 +328,7 @@ export class V2Controller {
       if (!owns()) {
         return;
       }
+
       applyEligibility(ctx.model, ctx.modelRegistry);
     });
     api.on("model_select", (event, ctx) => {
@@ -319,6 +343,7 @@ export class V2Controller {
     });
     api.on("session_shutdown", () => {
       unsubscribeContract();
+
       if (slot.api === api) {
         delete slot.api;
       }
@@ -366,29 +391,37 @@ export class V2Controller {
 
   async restore(ctx: CallerContext): Promise<void> {
     const epoch = this.#epoch;
+
     const abandoned = new Set(
       this.#state()
         .nodes.filter(({ status }) => status === "running")
         .map(({ path }) => path),
     );
+
     const pending = this.#state().nodes.filter(({ status }) => status === "pending");
+
     if (abandoned.size > 0 || pending.length > this.#maxChildren) {
       const interrupt = new Set(pending.slice(this.#maxChildren).map(({ path }) => path));
       await this.#coordinator.transact((draft) => {
         this.#assertEpoch(epoch);
+
         if (draft.protocolLatch !== "v2") {
           return;
         }
+
         const removed = new Set<string>();
         draft.state.nodes = draft.state.nodes.map((node) => {
           if (!abandoned.has(node.path) && !interrupt.has(node.path)) {
             return node;
           }
+
           if (node.status !== "pending" && node.status !== "running") {
             return node;
           }
+
           const { activeDeliveryId, error: _error, ...durableNode } = node;
           removed.add(activeDeliveryId);
+
           return {
             ...durableNode,
             status: "interrupted",
@@ -399,12 +432,15 @@ export class V2Controller {
         );
       });
     }
+
     const communications = this.#state().communications.filter(
       (communication) => communication.to !== ROOT_AGENT_PATH,
     );
+
     for (const communication of communications) {
       this.#contexts.set(communication.to, ctx);
     }
+
     this.#drainDeliveries(epoch);
   }
 
@@ -415,26 +451,33 @@ export class V2Controller {
     signal?: AbortSignal,
   ): Promise<{ nickname: string; task_name: string }> {
     signal?.throwIfAborted();
+
     if (this.#closing) {
       throw new Error("Subagent controller is shutting down");
     }
+
     const epoch = this.#epoch;
     this.#requireNode(caller);
+
     if (input.message.trim() === "") {
       throw new Error("message must not be blank");
     }
+
     const completion = Promise.withResolvers<null>();
     this.#provisionalSpawns.add(completion.promise);
+
     try {
       const pathname = childAgentPath(caller, input.taskName);
       const reservation = await this.#reserveExecution(pathname, epoch);
       let nickname: string | undefined;
       let runtime: ChildRuntime | undefined;
       let slotToken: symbol | undefined;
+
       try {
         if (this.#node(pathname) !== undefined) {
           throw new Error(`Agent already exists: ${pathname}`);
         }
+
         nickname = this.#nicknames.choose(
           input.agentType,
           new Set([
@@ -446,6 +489,7 @@ export class V2Controller {
         );
         reservation.nickname = nickname;
         const tools = this.#requireEndpoint(caller).getActiveTools();
+
         const settings = resolveChildSettings(
           this.#config,
           input.agentType,
@@ -456,17 +500,20 @@ export class V2Controller {
           ctx.thinkingLevel,
           "v2",
         );
+
         const inheritUltra =
           this.#ultraAgents.has(caller) &&
           input.thinking === undefined &&
           this.#config.roles[input.agentType ?? ""]?.thinking === undefined;
+
         if (inheritUltra) {
           this.#ultraAgents.add(pathname);
           this.#ultraInheritance.add(pathname);
         }
+
         const token = Symbol(pathname);
         slotToken = token;
-        this.#slots.set(pathname, { token });
+        this.#slots.set(pathname, { token, load: undefined });
         reservation.residency = false;
         runtime = await this.#createRuntime({
           bridge: (api) => this.attachChild(pathname, api, token),
@@ -479,8 +526,8 @@ export class V2Controller {
           prompt: [v2ChildBasePrompt(this.#config, pathname, nickname), settings.instructions]
             .filter((value): value is string => Boolean(value))
             .join("\n\n"),
-          promptOptions: this.#promptOptions,
-          thinkingLevel: settings.thinking,
+          ...(this.#promptOptions !== undefined ? { promptOptions: this.#promptOptions } : {}),
+          ...(settings.thinking !== undefined ? { thinkingLevel: settings.thinking } : {}),
           tools,
           trusted: ctx.isProjectTrusted(),
         });
@@ -488,11 +535,14 @@ export class V2Controller {
         const provisionalRuntime = runtime;
         const { sessionFile } = provisionalRuntime;
         const slot = this.#slots.get(pathname);
+
         if (slot?.token !== token) {
           throw new Error(`Stale child spawn: ${pathname}`);
         }
+
         slot.runtime = provisionalRuntime;
         const claimedNickname = nickname;
+
         const communication: Communication = {
           content: input.message,
           delivery: "turn",
@@ -501,15 +551,19 @@ export class V2Controller {
           kind: "NEW_TASK",
           to: pathname,
         };
+
         await this.#coordinator.transact(
           (draft) => {
             this.#assertEpoch(epoch);
+
             if (draft.protocolLatch !== "v2") {
               throw new Error("V2 is not active");
             }
+
             if (draft.state.nodes.some((node) => node.path === pathname)) {
               throw new Error(`Agent already exists: ${pathname}`);
             }
+
             const agentType = input.agentType === undefined ? {} : { agentType: input.agentType };
             draft.state.nodes.push({
               activeDeliveryId: communication.id,
@@ -533,14 +587,17 @@ export class V2Controller {
         this.#assertEpoch(epoch);
         this.#contexts.set(pathname, ctx);
         this.#scheduleDelivery(communication.id, ctx, epoch);
+
         return { nickname: claimedNickname, task_name: pathname };
       } catch (error) {
         if (runtime !== undefined) {
           await runtime.rollback();
         }
+
         if (slotToken !== undefined && this.#slots.get(pathname)?.token === slotToken) {
           this.#slots.delete(pathname);
         }
+
         this.#ultraAgents.delete(pathname);
         this.#ultraInheritance.delete(pathname);
         throw error;
@@ -563,18 +620,23 @@ export class V2Controller {
   ): Promise<void> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
+
     if (message.trim() === "") {
       throw new Error("message must not be blank");
     }
+
     const resolved = resolveAgentPath(caller, target);
     await this.#serial(
       resolved,
       async () => {
         this.#requireNode(resolved);
+
         if (resolved !== ROOT_AGENT_PATH && this.#slots.get(resolved)?.retiring === undefined) {
           await this.#load(resolved, ctx, epoch);
         }
+
         signal?.throwIfAborted();
+
         const communication = await this.#publishCommunication(
           {
             content: message,
@@ -586,6 +648,7 @@ export class V2Controller {
           },
           epoch,
         );
+
         this.#contexts.set(resolved, ctx);
         this.#scheduleDelivery(communication.id, ctx, epoch);
       },
@@ -602,33 +665,43 @@ export class V2Controller {
   ): Promise<void> {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
+
     if (message.trim() === "") {
       throw new Error("message must not be blank");
     }
+
     const resolved = resolveAgentPath(caller, target);
+
     if (resolved === ROOT_AGENT_PATH) {
       throw new Error("followup_task cannot target the root agent");
     }
+
     await this.#serial(
       resolved,
       async () => {
         const node = this.#requireNode(resolved);
         const runtime = this.#slots.get(resolved)?.runtime;
         const running = node.status === "running" && runtime !== undefined && runtime.isStreaming();
+
         if (node.status === "pending") {
           throw new Error(`Agent is already running: ${resolved}`);
         }
+
         if (node.status === "running" && !running) {
           throw new Error(`Agent turn is still settling: ${resolved}`);
         }
+
         const reservation = running ? undefined : await this.#reserveExecution(resolved, epoch);
         let lease: RuntimeLease | undefined;
         let published = false;
+
         try {
           if (this.#slots.get(resolved)?.retiring === undefined) {
             lease = await this.#load(resolved, ctx, epoch, reservation);
           }
+
           signal?.throwIfAborted();
+
           const communication: Communication = {
             content: message,
             delivery: running ? "queue" : "turn",
@@ -637,24 +710,31 @@ export class V2Controller {
             kind: "NEW_TASK",
             to: resolved,
           };
+
           await this.#coordinator.transact(
             (draft) => {
               this.#assertEpoch(epoch);
+
               if (draft.protocolLatch !== "v2") {
                 return;
               }
+
               const targetIndex = draft.state.nodes.findIndex(({ path }) => path === resolved);
               const targetNode = draft.state.nodes[targetIndex];
+
               if (targetNode === undefined) {
                 throw new Error(`Unknown agent: ${resolved}`);
               }
+
               draft.state.communications.push(communication);
+
               if (!running) {
                 const {
                   activeDeliveryId: _activeDeliveryId,
                   error: _error,
                   ...durableNode
                 } = targetNode;
+
                 draft.state.nodes[targetIndex] = {
                   ...durableNode,
                   activeDeliveryId: communication.id,
@@ -671,6 +751,7 @@ export class V2Controller {
           if (!published && lease !== undefined) {
             await this.#retire(resolved, lease.token);
           }
+
           throw error;
         } finally {
           if (reservation !== undefined) {
@@ -690,32 +771,41 @@ export class V2Controller {
     signal?.throwIfAborted();
     const epoch = this.#epoch;
     const resolved = resolveAgentPath(caller, target);
+
     if (resolved === ROOT_AGENT_PATH || resolved === caller) {
       throw new Error("An agent cannot interrupt itself or the root agent");
     }
+
     return await this.#serial(
       resolved,
       async () => {
         signal?.throwIfAborted();
         const node = this.#node(resolved);
+
         if (node === undefined) {
           throw new Error(`Unknown agent: ${resolved}`);
         }
+
         const slot = this.#slots.get(resolved);
         const runtime = slot?.runtime;
+
         if (slot === undefined || runtime === undefined) {
           if (node.status === "pending") {
             const previous = publicStatus(node);
             await this.#coordinator.transact((draft) => {
               this.#assertEpoch(epoch);
+
               if (draft.protocolLatch !== "v2") {
                 return;
               }
+
               const targetIndex = draft.state.nodes.findIndex(({ path }) => path === resolved);
               const targetNode = draft.state.nodes[targetIndex];
+
               if (targetNode?.status !== "pending") {
                 return;
               }
+
               const { activeDeliveryId, error: _error, ...durableNode } = targetNode;
               draft.state.nodes[targetIndex] = {
                 ...durableNode,
@@ -727,23 +817,31 @@ export class V2Controller {
                   !(communication.to === resolved && communication.kind === "NEW_TASK"),
               );
             });
+
             return { previous_status: previous };
           }
+
           return { previous_status: "not_found" };
         }
+
         const slotToken = slot.token;
         const previous = publicStatus(node);
+
         if (node.status === "pending" || node.status === "running") {
           await this.#coordinator.transact((draft) => {
             this.#assertEpoch(epoch);
+
             if (draft.protocolLatch !== "v2") {
               return;
             }
+
             const targetIndex = draft.state.nodes.findIndex(({ path }) => path === resolved);
             const targetNode = draft.state.nodes[targetIndex];
+
             if (targetNode?.status !== "pending" && targetNode?.status !== "running") {
               return;
             }
+
             const { activeDeliveryId, error: _error, ...durableNode } = targetNode;
             draft.state.nodes[targetIndex] = {
               ...durableNode,
@@ -755,12 +853,14 @@ export class V2Controller {
                 !(communication.to === resolved && communication.kind === "NEW_TASK"),
             );
           });
+
           try {
             await runtime.abort();
           } finally {
             await this.#retire(resolved, slotToken, false);
           }
         }
+
         return { previous_status: previous };
       },
       epoch,
@@ -776,6 +876,7 @@ export class V2Controller {
     })[] {
     const resolved =
       prefix === undefined || prefix === "" ? ROOT_AGENT_PATH : resolveAgentPath(caller, prefix);
+
     const root = {
       error: undefined,
       lastAnswer: undefined,
@@ -783,6 +884,7 @@ export class V2Controller {
       path: ROOT_AGENT_PATH,
       status: this.#rootRunning ? ("running" as const) : ("completed" as const),
     };
+
     return [root, ...this.#state().nodes]
       .filter((node) => node.path === resolved || node.path.startsWith(`${resolved}/`))
       .toSorted((left, right) => left.path.localeCompare(right.path))
@@ -790,6 +892,7 @@ export class V2Controller {
         const error = node.error === undefined ? {} : { error: node.error };
         const lastAnswer = node.lastAnswer === undefined ? {} : { lastAnswer: node.lastAnswer };
         const nickname = node.nickname === undefined ? {} : { nickname: node.nickname };
+
         return {
           ...error,
           ...lastAnswer,
@@ -810,32 +913,42 @@ export class V2Controller {
     signal?: AbortSignal,
   ): Promise<{ message: string; timed_out: boolean }> {
     this.#requireNode(caller);
+
     if (!Number.isInteger(timeoutMs)) {
       throw new TypeError("timeout_ms must be an integer");
     }
+
     if (timeoutMs > 3_600_000) {
       throw new Error("timeout_ms must not exceed 3600000");
     }
+
     signal?.throwIfAborted();
     const effective = Math.max(10_000, timeoutMs);
     const settled = Promise.withResolvers<WaitActivity>();
+
     const wake = (activity: WaitActivity) => {
       settled.resolve(activity);
     };
+
     const abort = () => {
       settled.resolve("aborted");
     };
+
     signal?.addEventListener("abort", abort, { once: true });
     let timer: ReturnType<typeof setTimeout> | undefined;
+
     try {
       await this.#coordinator.command(() => {
         const observed = this.#observedSequence.get(caller) ?? 0;
         const current = this.#mailboxSequence.get(caller) ?? 0;
+
         if (current > observed) {
           this.#observedSequence.set(caller, current);
           settled.resolve("mailbox");
+
           return;
         }
+
         const waiters = this.#waiters.get(caller) ?? new Set();
         waiters.add(wake);
         this.#waiters.set(caller, waiters);
@@ -845,19 +958,24 @@ export class V2Controller {
         settled.resolve("timed_out");
       }, effective);
       const result = await settled.promise;
+
       if (result === "aborted") {
         signal?.throwIfAborted();
         throw new Error("Wait aborted");
       }
+
       let message = "Wait interrupted by new input.";
+
       if (result === "timed_out") {
         message = "Wait timed out.";
       } else if (result === "mailbox") {
         message = "Wait completed.";
       }
+
       if (timeoutMs < effective) {
         message += `\n\nRequested timeout of ${timeoutMs}ms was clamped to the minimum of ${effective}ms.`;
       }
+
       return {
         message,
         timed_out: result === "timed_out",
@@ -866,6 +984,7 @@ export class V2Controller {
       if (timer !== undefined) {
         clearTimeout(timer);
       }
+
       signal?.removeEventListener("abort", abort);
       this.#waiters.get(caller)?.delete(wake);
     }
@@ -888,9 +1007,11 @@ export class V2Controller {
     this.#slots.clear();
     this.#queue.clear();
     this.#deliveries.clear();
+
     for (const { timer } of this.#deliveryRetries.values()) {
       clearTimeout(timer);
     }
+
     this.#deliveryRetries.clear();
     this.#contexts.clear();
     this.#reservations.clear();
@@ -902,37 +1023,47 @@ export class V2Controller {
       identity: pathname,
       residency: false,
     };
+
     await this.#coordinator.command(() => {
       this.#assertEpoch(epoch);
+
       if (this.#reservations.has(pathname)) {
         throw new Error(`Agent is already being created: ${pathname}`);
       }
+
       if (this.#node(pathname) !== undefined) {
         const node = this.#node(pathname);
+
         if (node?.status === "pending" || node?.status === "running") {
           throw new Error(`Agent is already running: ${pathname}`);
         }
       }
+
       const active = new Set(
         this.#state()
           .nodes.filter(({ status }) => status === "pending" || status === "running")
           .map(({ path }) => path),
       );
+
       const provisional = [...this.#reservations.values()].filter(
         ({ identity }) => !active.has(identity),
       ).length;
+
       if (active.size + provisional >= this.#maxChildren) {
         throw new Error(`Subagent execution limit reached (${this.#maxChildren})`);
       }
+
       if (
         !this.#slots.has(pathname) &&
         this.#slots.size + this.#residencyReservationCount() >= this.#maxChildren
       ) {
         throw new Error(`Subagent residency limit reached (${this.#maxChildren})`);
       }
+
       reservation.residency = !this.#slots.has(pathname);
       this.#reservations.set(pathname, reservation);
     });
+
     return reservation;
   }
 
@@ -950,26 +1081,33 @@ export class V2Controller {
     await this.#coordinator.transact(
       (draft) => {
         this.#assertEpoch(epoch);
+
         if (draft.protocolLatch !== "v2") {
           throw new Error("V2 is not active");
         }
+
         draft.state.communications.push(communication);
       },
       { reserveTerminalHeadroom: true },
     );
+
     return communication;
   }
 
   #scheduleDelivery(id: string, ctx: CallerContext, epoch: symbol = this.#epoch): void {
     const communication = this.#communication(id);
+
     if (communication !== undefined) {
       this.#contexts.set(communication.to, ctx);
       const retry = this.#deliveryRetries.get(communication.to);
+
       if (retry?.timer !== undefined) {
         clearTimeout(retry.timer);
       }
+
       this.#deliveryRetries.delete(communication.to);
     }
+
     this.#drainDeliveries(epoch);
   }
 
@@ -977,14 +1115,19 @@ export class V2Controller {
     if (epoch !== this.#epoch) {
       return;
     }
+
     const plannedTargets = new Set(this.#slots.keys());
+
     const activeTargets = new Set(
       [...this.#deliveries.keys()].flatMap((id) => {
         const target = this.#communication(id)?.to;
+
         return target === undefined ? [] : [target];
       }),
     );
+
     let capacity = this.#maxChildren - this.#slots.size - this.#residencyReservationCount();
+
     for (const communication of this.#state().communications) {
       if (
         communication.to === ROOT_AGENT_PATH ||
@@ -996,17 +1139,22 @@ export class V2Controller {
       ) {
         continue;
       }
+
       const context = this.#contexts.get(communication.to);
+
       if (context === undefined) {
         continue;
       }
+
       if (!plannedTargets.has(communication.to)) {
         if (capacity <= 0) {
           continue;
         }
+
         plannedTargets.add(communication.to);
         capacity -= 1;
       }
+
       const delivery = this.#deliver(communication.id, context, epoch);
       this.#deliveries.set(communication.id, delivery);
       activeTargets.add(communication.to);
@@ -1022,38 +1170,51 @@ export class V2Controller {
   ): Promise<void> {
     try {
       await delivery;
+
       if (epoch !== this.#epoch) {
         return;
       }
+
       const retry = this.#deliveryRetries.get(target);
+
       if (retry?.timer !== undefined) {
         clearTimeout(retry.timer);
       }
+
       this.#deliveryRetries.delete(target);
     } catch (error) {
       if (epoch !== this.#epoch) {
         return;
       }
+
       this.#onBackgroundError?.(error);
+
       if (error instanceof PermanentChildError) {
-        this.#deliveryRetries.set(target, { attempts: 1, permanent: true });
+        this.#deliveryRetries.set(target, { attempts: 1, permanent: true, timer: undefined });
+
         return;
       }
+
       const attempts = (this.#deliveryRetries.get(target)?.attempts ?? 0) + 1;
+
       const timer = setTimeout(
         () => {
           if (epoch !== this.#epoch) {
             return;
           }
+
           const retry = this.#deliveryRetries.get(target);
+
           if (retry?.timer !== timer) {
             return;
           }
+
           retry.timer = undefined;
           this.#drainDeliveries(epoch);
         },
         Math.min(250 * 2 ** (attempts - 1), 30_000),
       );
+
       timer.unref();
       this.#deliveryRetries.set(target, { attempts, timer });
     } finally {
@@ -1061,6 +1222,7 @@ export class V2Controller {
         if (this.#deliveries.get(id) === delivery) {
           this.#deliveries.delete(id);
         }
+
         this.#drainDeliveries(epoch);
       }
     }
@@ -1069,17 +1231,21 @@ export class V2Controller {
   async #deliver(id: string, ctx: CallerContext, epoch: symbol): Promise<void> {
     this.#assertEpoch(epoch);
     const communication = this.#communication(id);
+
     if (communication === undefined || communication.to === ROOT_AGENT_PATH) {
       return;
     }
+
     if (communication.delivery === "turn") {
       const active = await this.#serial(
         communication.to,
         async () => {
           const current = this.#communication(id);
           let started: ActiveTurn | undefined;
+
           if (current !== undefined) {
             const lease = await this.#load(current.to, ctx, epoch);
+
             try {
               const turn = lease.runtime.startTurn({ text: communicationEnvelope(current) });
               started = { current, lease, turn };
@@ -1091,33 +1257,44 @@ export class V2Controller {
               }
             }
           }
+
           return started;
         },
         epoch,
       );
+
       if (active === undefined) {
         return;
       }
+
       try {
         await active.turn.accepted;
       } catch (error) {
         await this.#rejectTurn(active, id, error, epoch);
+
         return;
       }
+
       if (!(await this.#commitAcceptedTurn(active, id, epoch))) {
         return;
       }
+
       void this.#observeTurn(active, id, epoch);
+
       return;
     }
+
     const admitted = await this.#serial(
       communication.to,
       async () => {
         const current = this.#communication(id);
+
         if (current === undefined) {
           return null;
         }
+
         const lease = await this.#load(current.to, ctx, epoch);
+
         try {
           const delivered = lease.runtime.sendMessage(
             runtimeMessage(current),
@@ -1128,8 +1305,10 @@ export class V2Controller {
             },
             current.kind === "NEW_TASK",
           );
+
           if (delivered.settled !== undefined) {
             await this.#claimTurn(current, lease.token, epoch);
+
             return {
               active: {
                 current,
@@ -1141,6 +1320,7 @@ export class V2Controller {
               },
             };
           }
+
           return { active: null, current, delivered, lease };
         } catch (error) {
           await this.#retire(current.to, lease.token);
@@ -1149,51 +1329,67 @@ export class V2Controller {
       },
       epoch,
     );
+
     if (admitted === null) {
       return;
     }
+
     if (admitted.active !== null) {
       try {
         await admitted.active.turn.accepted;
       } catch (error) {
         await this.#rejectTurn(admitted.active, id, error, epoch);
+
         return;
       }
+
       if (!(await this.#commitAcceptedTurn(admitted.active, id, epoch))) {
         return;
       }
+
       void this.#observeTurn(admitted.active, id, epoch);
+
       return;
     }
+
     try {
       await admitted.delivered.accepted;
     } catch (error) {
       if (epoch !== this.#epoch) {
         return;
       }
+
       let ownsFailure: boolean;
+
       try {
         ownsFailure = await this.#retireFailedDelivery(admitted, id, epoch);
       } catch (publicationError) {
         if (epoch !== this.#epoch) {
           return;
         }
+
         throw publicationError;
       }
+
       if (!ownsFailure) {
         return;
       }
+
       throw error;
     }
+
     await this.#serial(
       admitted.current.to,
       async () => {
         const current = this.#communication(id);
+
         if (current === undefined || current.id !== admitted.current.id) {
           return;
         }
+
         await this.#removeCommunication(id, epoch);
         const node = this.#node(current.to);
+
         if (node !== undefined && node.status !== "pending" && node.status !== "running") {
           await this.#retire(current.to, admitted.lease.token);
         }
@@ -1205,15 +1401,20 @@ export class V2Controller {
   async #claimTurn(communication: Communication, token: symbol, epoch: symbol): Promise<void> {
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
+
       if (draft.protocolLatch !== "v2") {
         throw new Error("V2 is not active");
       }
+
       const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === communication.to);
       const node = draft.state.nodes[nodeIndex];
+
       const communicationIndex = draft.state.communications.findIndex(
         ({ id }) => id === communication.id,
       );
+
       const current = draft.state.communications[communicationIndex];
+
       if (
         node === undefined ||
         this.#slots.get(communication.to)?.token !== token ||
@@ -1221,6 +1422,7 @@ export class V2Controller {
       ) {
         throw new Error(`Stale V2 turn delivery: ${communication.id}`);
       }
+
       const { error: _error, ...durableNode } = node;
       draft.state.nodes[nodeIndex] = {
         ...durableNode,
@@ -1239,6 +1441,7 @@ export class V2Controller {
     if (epoch !== this.#epoch) {
       return false;
     }
+
     try {
       return await this.#serial(
         active.current.to,
@@ -1246,6 +1449,7 @@ export class V2Controller {
           if (!this.#ownsTurn(active, deliveryId)) {
             return false;
           }
+
           try {
             await this.#acceptTurn(active.current, active.lease.token, epoch);
           } catch (error) {
@@ -1254,8 +1458,10 @@ export class V2Controller {
             } finally {
               await this.#retire(active.current.to, active.lease.token);
             }
+
             throw error;
           }
+
           return true;
         },
         epoch,
@@ -1264,6 +1470,7 @@ export class V2Controller {
       if (epoch !== this.#epoch) {
         return false;
       }
+
       throw error;
     }
   }
@@ -1280,18 +1487,21 @@ export class V2Controller {
   async #rejectTurn(
     active: ActiveTurn,
     deliveryId: string,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A child prompt can reject with any value; delivery failure handling owns its diagnostic conversion.
     cause: unknown,
     epoch: symbol,
   ): Promise<void> {
     if (epoch !== this.#epoch) {
       return;
     }
+
     await this.#serial(
       active.current.to,
       async () => {
         if (!this.#ownsTurn(active, deliveryId)) {
           return;
         }
+
         try {
           await this.#finishError(active.current.to, deliveryId, cause, epoch);
         } finally {
@@ -1316,7 +1526,9 @@ export class V2Controller {
         ) {
           return false;
         }
+
         await this.#retire(admitted.current.to, admitted.lease.token);
+
         return true;
       },
       epoch,
@@ -1342,6 +1554,7 @@ export class V2Controller {
               error,
               epoch,
             );
+
             if (ownsDelivery) {
               await this.#retire(active.current.to, active.lease.token);
             }
@@ -1357,11 +1570,14 @@ export class V2Controller {
   async #acceptTurn(communication: Communication, token: symbol, epoch: symbol): Promise<void> {
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
+
       if (draft.protocolLatch !== "v2") {
         throw new Error("V2 is not active");
       }
+
       const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === communication.to);
       const node = draft.state.nodes[nodeIndex];
+
       if (
         node === undefined ||
         !draft.state.communications.some(({ id }) => id === communication.id) ||
@@ -1369,6 +1585,7 @@ export class V2Controller {
       ) {
         throw new Error(`Stale V2 turn delivery: ${communication.id}`);
       }
+
       const { activeDeliveryId: _activeDeliveryId, error: _error, ...durableNode } = node;
       draft.state.nodes[nodeIndex] = {
         ...durableNode,
@@ -1379,6 +1596,7 @@ export class V2Controller {
         ({ id }) => id !== communication.id,
       );
     });
+
     if (epoch === this.#epoch && this.#slots.get(communication.to)?.token === token) {
       this.#recordMailbox(communication.to);
     }
@@ -1392,30 +1610,40 @@ export class V2Controller {
     epoch: symbol,
   ): Promise<void> {
     let ownsDelivery = false;
+
     try {
       if (final.status === "errored") {
         ownsDelivery = await this.#finishError(pathname, deliveryId, final.error, epoch);
+
         return;
       }
+
       let completionId: string | undefined;
       ownsDelivery = await this.#coordinator.transact((draft) => {
         this.#assertEpoch(epoch);
+
         if (draft.protocolLatch !== "v2") {
           return false;
         }
+
         const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === pathname);
         const node = draft.state.nodes[nodeIndex];
+
         if (node?.activeDeliveryId !== deliveryId) {
           return false;
         }
+
         const { activeDeliveryId: _activeDeliveryId, error: _error, ...durableNode } = node;
+
         if (final.status === "interrupted") {
           draft.state.nodes[nodeIndex] = {
             ...durableNode,
             status: "interrupted",
           };
+
           return true;
         }
+
         const lastAnswer = final.text === undefined ? undefined : boundDurableText(final.text);
         const { lastAnswer: _lastAnswer, ...completedNode } = durableNode;
         const answer = lastAnswer === undefined ? {} : { lastAnswer };
@@ -1425,6 +1653,7 @@ export class V2Controller {
           status: "completed",
         };
         const parent = parentAgentPath(pathname);
+
         if (parent !== undefined) {
           completionId = this.#id();
           draft.state.communications.push({
@@ -1436,14 +1665,18 @@ export class V2Controller {
             to: parent,
           });
         }
+
         return true;
       });
+
       if (completionId !== undefined) {
         const parent = parentAgentPath(pathname);
+
         const context =
           parent === undefined
             ? undefined
             : (this.#contexts.get(parent) ?? this.#contexts.get(pathname));
+
         if (parent !== ROOT_AGENT_PATH && context !== undefined) {
           this.#scheduleDelivery(completionId, context, epoch);
         }
@@ -1458,27 +1691,34 @@ export class V2Controller {
   async #finishError(
     pathname: string,
     deliveryId: string,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A child prompt can reject with any value; delivery failure handling owns its diagnostic conversion.
     cause: unknown,
     epoch: symbol,
   ): Promise<boolean> {
     const message = bound(cause instanceof Error ? cause.message : String(cause), MAX_ERROR_LENGTH);
     let completionId: string | undefined;
+
     const ownsDelivery = await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
+
       if (draft.protocolLatch !== "v2") {
         return false;
       }
+
       const nodeIndex = draft.state.nodes.findIndex(({ path }) => path === pathname);
       const node = draft.state.nodes[nodeIndex];
+
       if (node?.activeDeliveryId !== deliveryId) {
         return false;
       }
+
       const {
         activeDeliveryId: _activeDeliveryId,
         error: _error,
         lastAnswer: _lastAnswer,
         ...durableNode
       } = node;
+
       draft.state.nodes[nodeIndex] = {
         ...durableNode,
         error: message,
@@ -1486,6 +1726,7 @@ export class V2Controller {
       };
       draft.state.communications = draft.state.communications.filter(({ id }) => id !== deliveryId);
       const parent = parentAgentPath(pathname);
+
       if (parent !== undefined) {
         completionId = this.#id();
         draft.state.communications.push({
@@ -1497,18 +1738,23 @@ export class V2Controller {
           to: parent,
         });
       }
+
       return true;
     });
+
     if (completionId !== undefined) {
       const parent = parentAgentPath(pathname);
+
       const context =
         parent === undefined
           ? undefined
           : (this.#contexts.get(parent) ?? this.#contexts.get(pathname));
+
       if (parent !== ROOT_AGENT_PATH && context !== undefined) {
         this.#scheduleDelivery(completionId, context, epoch);
       }
     }
+
     return ownsDelivery;
   }
 
@@ -1521,17 +1767,22 @@ export class V2Controller {
     this.#assertEpoch(epoch);
     this.#requireNode(pathname);
     let slot = this.#slots.get(pathname);
+
     if (slot?.retiring !== undefined) {
       await slot.retiring;
       this.#assertEpoch(epoch);
+
       return await this.#load(pathname, ctx, epoch, residencyReservation);
     }
+
     if (slot?.runtime !== undefined) {
       if (residencyReservation !== undefined) {
         residencyReservation.residency = false;
       }
+
       return { runtime: slot.runtime, token: slot.token };
     }
+
     if (slot === undefined) {
       const otherReservations =
         this.#residencyReservationCount() -
@@ -1540,26 +1791,31 @@ export class V2Controller {
         residencyReservation.residency
           ? 1
           : 0);
+
       if (this.#slots.size + otherReservations >= this.#maxChildren) {
         throw new Error(`Subagent residency limit reached (${this.#maxChildren})`);
       }
-      slot = { token: Symbol(pathname) };
+
+      slot = { token: Symbol(pathname), load: undefined };
       this.#slots.set(pathname, slot);
     }
+
     if (residencyReservation !== undefined) {
       residencyReservation.residency = false;
     }
+
     if (slot.load === undefined) {
       const { token } = slot;
       slot.load = (async () => {
         const current = this.#requireNode(pathname);
+
         const runtime = await this.#createRuntime({
           bridge: (api) => this.attachChild(pathname, api, token),
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
           history: [],
-          identity: pathname,
           model: undefined,
+          identity: pathname,
           modelRegistry: ctx.modelRegistry,
           prompt: [
             v2ChildBasePrompt(this.#config, pathname, current.nickname ?? pathname),
@@ -1567,27 +1823,33 @@ export class V2Controller {
           ]
             .filter((value): value is string => Boolean(value))
             .join("\n\n"),
-          promptOptions: this.#promptOptions,
+          ...(this.#promptOptions !== undefined ? { promptOptions: this.#promptOptions } : {}),
           sessionFile: current.sessionFile,
           tools: current.tools,
           trusted: ctx.isProjectTrusted(),
         });
+
         if (epoch !== this.#epoch || this.#slots.get(pathname)?.token !== token) {
           await runtime.dispose();
           throw new Error(`Stale child runtime load: ${pathname}`);
         }
+
         slot.runtime = runtime;
+
         return runtime;
       })();
     }
+
     try {
       const runtime = await slot.load;
       this.#assertEpoch(epoch);
+
       return { runtime, token: slot.token };
     } catch (error) {
       if (this.#slots.get(pathname) === slot && slot.runtime === undefined) {
         this.#slots.delete(pathname);
       }
+
       throw error;
     } finally {
       if (this.#slots.get(pathname) === slot) {
@@ -1600,24 +1862,33 @@ export class V2Controller {
     if (pathname === "") {
       return;
     }
+
     const slot = this.#slots.get(pathname);
+
     if (slot === undefined || (token !== undefined && slot.token !== token)) {
       return;
     }
+
     if (slot.retiring !== undefined) {
       if (wait) {
         await slot.retiring;
       }
+
       return;
     }
+
     const runtime = slot.runtime;
+
     if (runtime === undefined) {
       this.#slots.delete(pathname);
       this.#drainDeliveries();
+
       return;
     }
-    const retiringSlot: RuntimeSlot = { token: Symbol(pathname) };
+
+    const retiringSlot: RuntimeSlot = { token: Symbol(pathname), load: undefined };
     this.#slots.set(pathname, retiringSlot);
+
     const retirement = (async () => {
       try {
         await runtime.dispose();
@@ -1628,7 +1899,9 @@ export class V2Controller {
         }
       }
     })();
+
     retiringSlot.retiring = retirement;
+
     if (wait) {
       await retirement;
     } else {
@@ -1641,12 +1914,15 @@ export class V2Controller {
       if (slot.runtime !== undefined) {
         return [reportFailure(slot.runtime.dispose(), this.#onBackgroundError)];
       }
+
       if (slot.retiring !== undefined) {
         return [reportFailure(slot.retiring, this.#onBackgroundError)];
       }
+
       if (slot.load !== undefined) {
         return [reportFailure(slot.load)];
       }
+
       return [];
     });
   }
@@ -1654,9 +1930,11 @@ export class V2Controller {
   async #removeCommunication(id: string, epoch: symbol = this.#epoch): Promise<void> {
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
+
       if (draft.protocolLatch !== "v2") {
         return;
       }
+
       draft.state.communications = draft.state.communications.filter((item) => item.id !== id);
     });
   }
@@ -1665,8 +1943,10 @@ export class V2Controller {
     this.#nextSequence += 1;
     this.#mailboxSequence.set(pathname, this.#nextSequence);
     const waiters = this.#waiters.get(pathname);
+
     if (waiters !== undefined && waiters.size > 0) {
       this.#observedSequence.set(pathname, this.#nextSequence);
+
       for (const wake of waiters) {
         wake("mailbox");
       }
@@ -1685,14 +1965,17 @@ export class V2Controller {
         wake("steered");
       }
     }
+
     this.#waiters.clear();
   }
 
   #requireEndpoint(pathname: string): ToolEndpoint {
     const api = pathname === ROOT_AGENT_PATH ? this.#rootApi : this.#slots.get(pathname)?.api;
+
     if (api === undefined) {
       throw new Error(`Agent endpoint is not resident: ${pathname}`);
     }
+
     return api;
   }
 
@@ -1706,10 +1989,13 @@ export class V2Controller {
         tools: [],
       };
     }
+
     const node = this.#node(pathname);
+
     if (node === undefined) {
       throw new Error(`Unknown agent: ${pathname}`);
     }
+
     return node;
   }
 
@@ -1723,9 +2009,11 @@ export class V2Controller {
 
   #state(): Readonly<V2Snapshot> {
     const snapshot = this.#coordinator.state;
+
     if (snapshot.protocolLatch !== "v2") {
       throw new Error("V2 is not active");
     }
+
     return snapshot.state;
   }
 
@@ -1742,9 +2030,11 @@ export class V2Controller {
   ): Promise<T> {
     return await this.#queue.run(key, async () => {
       this.#assertEpoch(epoch);
+
       if (this.#closing) {
         throw new Error("Subagent controller is shutting down");
       }
+
       return await operation();
     });
   }

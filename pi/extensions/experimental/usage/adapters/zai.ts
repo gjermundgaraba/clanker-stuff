@@ -45,23 +45,29 @@ const windowIdFromLimit = (limit: ZaiLimit): UsageWindowId | undefined => {
   if (limit.type === "TIME_LIMIT") {
     return "month";
   }
+
   if (limit.type !== "TOKENS_LIMIT" && limit.type !== "CREDIT_LIMIT") {
     return undefined;
   }
+
   if (limit.unit === 3) {
     return "5h";
   }
+
   if (limit.unit === 6) {
     return "7d";
   }
+
   return undefined;
 };
 
 const remainingPercentFrom = (limit: ZaiLimit): number | undefined => {
   const total = limit.usage;
+
   if (total !== undefined && total > 0 && limit.remaining !== undefined) {
     return (limit.remaining / total) * 100;
   }
+
   // percentage is used percent on this endpoint.
   return limit.percentage === undefined ? undefined : 100 - limit.percentage;
 };
@@ -72,25 +78,29 @@ const epochMsToIso = (value: number | undefined): string | undefined =>
 const parseLimitEntry = (limit: ZaiLimit): UsageWindow | undefined => {
   const remainingPercent = remainingPercentFrom(limit);
   const id = windowIdFromLimit(limit);
+
   if (remainingPercent === undefined || id === undefined) {
     return undefined;
   }
+
   return makeUsageWindow(id, remainingPercent, epochMsToIso(limit.nextResetTime));
 };
 
 const planLabelFromLevel = (level: string | undefined): string | undefined =>
   level === undefined || level.length === 0
     ? undefined
-    : `${level[0].toUpperCase()}${level.slice(1)}`;
+    : `${level.charAt(0).toUpperCase()}${level.slice(1)}`;
 
 export const mapZaiQuotaPayload = (
   payload: Static<typeof ZaiQuotaPayloadSchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
   const { code } = payload;
+
   if (code !== undefined && code !== 200) {
     const message =
       payload.msg !== undefined && payload.msg.length > 0 ? payload.msg : `API ${code}`;
+
     return usageFailure(message);
   }
 
@@ -108,6 +118,7 @@ export const mapZaiQuotaPayload = (
 export const fetchZaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, "zai");
+
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }

@@ -35,13 +35,15 @@ export const defaultFetchJson: FetchJson = async (url, schema, options) => {
 
   try {
     const response = await fetchCodexHttp(url, {
-      body: options.body,
-      headers: options.headers,
+      ...(options.body !== undefined ? { body: options.body } : {}),
+      ...(options.headers !== undefined ? { headers: options.headers } : {}),
+
       method: options.method ?? "GET",
       signal,
     });
 
     const text = await response.text();
+
     if (response.status === 401 || response.status === 403) {
       return {
         message: "auth rejected by usage API",
@@ -49,6 +51,7 @@ export const defaultFetchJson: FetchJson = async (url, schema, options) => {
         ok: false,
       };
     }
+
     if (!response.ok) {
       return {
         message: `HTTP ${response.status}`,
@@ -59,6 +62,7 @@ export const defaultFetchJson: FetchJson = async (url, schema, options) => {
 
     try {
       const json: unknown = text.length > 0 ? JSON.parse(text) : undefined;
+
       return Value.Check(schema, json)
         ? { json, ok: true }
         : { kind: "payload", message: "invalid usage payload", ok: false };
@@ -73,7 +77,9 @@ export const defaultFetchJson: FetchJson = async (url, schema, options) => {
     if (signal.aborted) {
       return { kind: "response", message: "request timed out", ok: false };
     }
+
     const message = error instanceof Error ? error.message : "network request failed";
+
     return { kind: "response", message, ok: false };
   }
 };

@@ -11,12 +11,15 @@ beforeAll(() => initTheme("dark"));
 describe("patch header render work", () => {
   it("prepares arguments once, rewraps without reformatting, and refreshes from completed metadata", () => {
     let reads = 0;
+
     const args = {
       get patch() {
         reads += 1;
+
         return "*** Begin Patch\n*** Delete File: old.txt\n*** End Patch";
       },
     };
+
     const row = new ToolExecutionComponent(
       "apply_patch",
       "patch",
@@ -26,6 +29,7 @@ describe("patch header render work", () => {
       createMockTui(),
       "/tmp",
     );
+
     const work = observeRenderWork();
     expect(reads).toBe(0);
     expect(stripVTControlCharacters(row.render(80).join("\n"))).toContain(
@@ -68,6 +72,7 @@ describe("patch header render work", () => {
       createMockTui(),
       "/tmp",
     );
+
     row.updateResult({
       content: [],
       isError: false,
@@ -78,6 +83,7 @@ describe("patch header render work", () => {
         diffs: [],
       },
     });
+
     for (const expanded of [false, true]) {
       row.setExpanded(expanded);
       const rendered = stripVTControlCharacters(row.render(80).join("\n"));

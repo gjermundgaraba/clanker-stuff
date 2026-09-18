@@ -24,11 +24,13 @@ describe("subagents package", () => {
       cwd: PACKAGE_ROOT,
       stdio: "pipe",
     });
+
     const entries = execFileSync("tar", ["-tzf", tarball], {
       encoding: "utf-8",
     })
       .trim()
       .split("\n");
+
     expect(entries).toContain("package/keyed-queue.ts");
     expect(entries).toContain("package/docs/protocols.md");
     expect(entries).toContain("package/LICENSE.openai");
@@ -52,6 +54,7 @@ describe("subagents package", () => {
     mkdirSync(extracted);
     execFileSync("tar", ["-xzf", tarball, "-C", extracted]);
     const packageRoot = path.join(extracted, "package");
+
     const loader = new DefaultResourceLoader({
       agentDir: path.join(tempRoot, "agent"),
       cwd: path.join(tempRoot, "project"),

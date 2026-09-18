@@ -6,14 +6,17 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 const runtimeRequire = createRequire("/opt/codex-provider/package.json");
-// SAFETY: These are pinned production dependencies resolved from the deployed extension.
+
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Resolve this pinned production dependency from the deployed extension, whose package declarations are the imported type contract.
 const { Type } = /** @type {typeof import("typebox")} */ (runtimeRequire("typebox"));
-// SAFETY: These are pinned production dependencies resolved from the deployed extension.
+
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Resolve this pinned production dependency from the deployed extension, whose package declarations are the imported type contract.
 const { Value } = /** @type {typeof import("typebox/value")} */ (runtimeRequire("typebox/value"));
 
 const codingAgentUrl = pathToFileURL(
   "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
 ).href;
+
 const compactionTimeoutMs = 4 * 60 * 1000;
 
 const ConfigSchema = Type.Object({
@@ -35,19 +38,23 @@ const parseConfig = (text) => {
   }
 };
 
-/** @typedef {{aborted?: boolean, errorMessage?: string, result?: {usage?: unknown}, type: "compaction_end"}} CompactionTerminal */
+// Pi emits a present undefined result on failed/aborted compaction; malformed/missing terminal fields remain testable.
+/** @typedef {{aborted?: boolean, errorMessage?: string, result?: {usage?: unknown}|undefined, type: "compaction_end"}} CompactionTerminal */
 
 /** @param {CompactionTerminal} event */
 const compactionState = (event) => {
   if (event.aborted !== true && event.aborted !== false) {
     return undefined;
   }
+
   if (event.aborted) {
     return event.errorMessage === undefined ? "aborted" : undefined;
   }
+
   if (event.errorMessage) {
     return "failed";
   }
+
   return event.errorMessage === undefined && event.result?.usage !== undefined
     ? "succeeded"
     : undefined;
@@ -60,17 +67,22 @@ const compactionState = (event) => {
  */
 const validateCompaction = (terminals, commandError, commandTimedOut) => {
   const terminal = terminals[0];
+
   if (terminals.length !== 1 || terminal === undefined) {
     throw commandError ?? new Error("Pi manual compaction did not emit one terminal event");
   }
+
   const state = compactionState(terminal);
+
   const commandConsistent =
     state === "succeeded"
       ? commandError === undefined
       : commandTimedOut || commandError !== undefined;
+
   if (state === undefined || !commandConsistent) {
     throw commandError ?? new Error("Pi manual compaction emitted an invalid terminal event");
   }
+
   return state;
 };
 
@@ -86,6 +98,7 @@ const selfTestCompactionValidation = () => {
   assert.equal(validateCompaction([failed], commandError, false), "failed");
   assert.equal(validateCompaction([aborted], commandError, false), "aborted");
   assert.equal(validateCompaction([failed], undefined, true), "failed");
+
   for (const invalid of [
     () => validateCompaction([], undefined, false),
     () => validateCompaction([succeeded, succeeded], undefined, false),
@@ -99,13 +112,12 @@ const selfTestCompactionValidation = () => {
 
 /** @returns {Promise<typeof import("@earendil-works/pi-coding-agent").RpcClient>} */
 const loadRpcClient = async () => {
-  // SAFETY: ESM loaded the pinned pi-coding-agent entry point at the exact deployed path.
+  /* oxlint-disable typescript/no-unsafe-type-assertion -- ESM loads the pinned pi-coding-agent entry point at the exact deployed path; the URL-based loader cannot infer its exported declarations. */
   const module = /** @type {typeof import("@earendil-works/pi-coding-agent")} */ (
     await import(codingAgentUrl)
   );
-  if (!(module.RpcClient instanceof Function)) {
-    throw new TypeError("Pi RPC client is unavailable");
-  }
+
+  /* oxlint-enable typescript/no-unsafe-type-assertion */
   return module.RpcClient;
 };
 
@@ -117,6 +129,7 @@ const run = async (configPath) => {
   /** @type {import("@earendil-works/pi-coding-agent").JsonAgentSessionEvent[]} */
   const events = [];
   const { promise: completionEvent, resolve: resolveCompletion } = Promise.withResolvers();
+
   const client = new RpcClient({
     args: config.args,
     cliPath: "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
@@ -124,22 +137,27 @@ const run = async (configPath) => {
     model: config.model,
     provider: config.provider,
   });
+
   client.onEvent((event) => {
     events.push(event);
     process.stdout.write(`${JSON.stringify(event)}\n`);
+
     if (event.type === "compaction_end") {
       resolveCompletion(event);
     }
   });
 
   await client.start();
+
   const timeout = setTimeout(() => {
     resolveCompletion(undefined);
   }, compactionTimeoutMs);
+
   try {
     /** @type {Error | undefined} */
     let commandError;
     let commandTimedOut = false;
+
     try {
       await client.compact();
     } catch (error) {
@@ -150,9 +168,11 @@ const run = async (configPath) => {
         throw error;
       }
     }
+
     if (commandTimedOut && !events.some((event) => event.type === "compaction_end")) {
       await completionEvent;
     }
+
     const completed = events.filter((event) => event.type === "compaction_end");
     validateCompaction(completed, commandError, commandTimedOut);
   } finally {
@@ -166,8 +186,10 @@ if (process.argv[2] === "--self-test") {
   await loadRpcClient();
 } else {
   const configPath = process.argv[2];
+
   if (process.argv.length !== 3 || configPath === undefined) {
     throw new Error("usage: pi-eval-compact CONFIG_JSON | pi-eval-compact --self-test");
   }
+
   await run(configPath);
 }

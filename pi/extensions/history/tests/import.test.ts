@@ -18,6 +18,7 @@ const setup = async () => {
     restoreAgentDir();
     await rm(agentDir, { force: true, recursive: true });
   });
+
   return { agentDir, database, abort };
 };
 
@@ -46,9 +47,11 @@ describe("history import", () => {
     const { agentDir, database, abort } = await setup();
     const directory = path.join(agentDir, "sessions", "project");
     await mkdir(directory, { recursive: true });
+
     for (const id of ["a", "b"]) {
       await writeFile(path.join(directory, `${id}.jsonl`), session(id));
     }
+
     await expect(
       importPersistentHistory(
         database,
@@ -87,12 +90,14 @@ describe("history import", () => {
     await mkdir(path.join(directory, "directory.jsonl"));
     const parses = vi.spyOn(JSON, "parse");
     const progress: string[] = [];
+
     const count = await importPersistentHistory(
       database,
       directory,
       (status) => progress.push(status),
       abort.signal,
     );
+
     expect(count).toBe(1);
     expect(
       parses.mock.calls.filter(([line]) => line === session("imported prompt").split("\n")[1]),
@@ -132,18 +137,21 @@ describe("history import", () => {
     const nested = path.join(project, "nested");
     const linked = path.join(agentDir, "linked");
     const custom = path.join(agentDir, "custom");
+
     for (const directory of [nested, linked, custom]) await mkdir(directory, { recursive: true });
     await symlink(linked, path.join(root, "symlink"));
     await symlink(path.join(agentDir, "missing"), path.join(root, "broken-symlink"));
+
     for (const [directory, text] of [
       [root, "root ignored"],
       [nested, "nested ignored"],
       [project, "project prompt"],
       [linked, "linked prompt"],
       [custom, "custom prompt"],
-    ]) {
+    ] as const) {
       await writeFile(path.join(directory, "session.jsonl"), session(text));
     }
+
     await writeFile(path.join(project, "ignored.txt"), session("non-jsonl ignored"));
     expect(await importPersistentHistory(database, custom, () => {}, abort.signal)).toBe(3);
     expect(
@@ -164,7 +172,9 @@ describe("history import", () => {
     const parse = JSON.parse;
     vi.spyOn(JSON, "parse").mockImplementation((text, reviver) => {
       const entry: unknown = parse(text, reviver);
+
       if (text.includes('"content":"uncommitted prompt"')) abort.abort();
+
       return entry;
     });
     await expect(

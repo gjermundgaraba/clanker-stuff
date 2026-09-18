@@ -14,7 +14,9 @@ const accent = (text: string) =>
     .split("")
     .map((c) => `\x1b[36m${c}\x1b[39m`)
     .join("");
+
 const identity = (text: string) => text;
+
 const editorTheme: EditorTheme = {
   borderColor: identity,
   selectList: {
@@ -28,18 +30,22 @@ const editorTheme: EditorTheme = {
 
 const createEditor = (host: ReturnType<typeof createExtensionHost>) => {
   const factory = host.getEditorFactory();
+
   if (!factory) {
     throw new Error("Expected a custom editor factory");
   }
+
   return factory(createMockTui(), editorTheme, createKeybindings());
 };
 
 describe("skill mention editor", () => {
   it("highlights exact loaded skill mentions without changing editor text", () => {
     const host = createExtensionHost(() => {});
+
     const theme = Object.assign(createIdentityTheme(), {
       fg: (color: string, text: string) => (color === "accent" ? `\x1b[36m${text}\x1b[39m` : text),
     });
+
     const ctx = host.createContext({ ui: { theme } });
     installSkillMentionEditor(ctx, () => ["alpha", "plugin:deploy"]);
 
@@ -54,6 +60,7 @@ describe("skill mention editor", () => {
 
   it("leaves a competing editor owner usable", () => {
     const host = createExtensionHost(() => {});
+
     const context = host.createContext({
       ui: {
         theme: Object.assign(createIdentityTheme(), {
@@ -61,6 +68,7 @@ describe("skill mention editor", () => {
         }),
       },
     });
+
     const previousEditor = {
       getText: () => "Use $alpha",
       handleInput: vi.fn<(data: string) => void>(),
@@ -68,6 +76,7 @@ describe("skill mention editor", () => {
       render: () => ["Use $alpha"],
       setText: vi.fn<(text: string) => void>(),
     } satisfies EditorComponent;
+
     context.ui.setEditorComponent(() => previousEditor);
     installSkillMentionEditor(context, () => ["alpha"]);
     expect(createEditor(host)).toBe(previousEditor);
@@ -75,9 +84,11 @@ describe("skill mention editor", () => {
 
   it("reads live skill names on every render", () => {
     const host = createExtensionHost(() => {});
+
     const theme = Object.assign(createIdentityTheme(), {
       fg: (color: string, text: string) => (color === "accent" ? `\x1b[36m${text}\x1b[39m` : text),
     });
+
     const ctx = host.createContext({ ui: { theme } });
     let names = ["alpha"];
     installSkillMentionEditor(ctx, () => names);

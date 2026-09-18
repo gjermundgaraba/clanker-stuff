@@ -1,3 +1,4 @@
+import { TerminatingToolResultSchema } from "./contract.js";
 import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setImmediate as yieldImmediate } from "node:timers/promises";
@@ -25,7 +26,9 @@ import { PermanentChildError } from "./permanent-error.js";
 import { lastPersistedEntryId, TranscriptCursor } from "./transcript.js";
 
 type HistoryMessage = Parameters<SessionManager["appendMessage"]>[0];
+
 const CHILD_BRIDGE_PATH = "<inline:subagents-child>";
+
 export const SUBAGENT_IDENTITY_ENTRY_TYPE = "subagent-child-identity";
 
 const canonicalExtensionPath = (candidate: string): string => {
@@ -35,7 +38,9 @@ const canonicalExtensionPath = (candidate: string): string => {
     return path.resolve(candidate);
   }
 };
+
 const SUBAGENT_HOST_PATH = canonicalExtensionPath(path.resolve(import.meta.dirname, "index.ts"));
+
 export const isSubagentHostExtensionPath = (candidate: string): boolean =>
   canonicalExtensionPath(candidate) === SUBAGENT_HOST_PATH;
 
@@ -99,6 +104,7 @@ export interface ChildRuntimeRequest {
 }
 
 export type ChildRuntimeFactory = (request: ChildRuntimeRequest) => Promise<ChildRuntime>;
+
 type RuntimeModelSource = Pick<
   ModelRegistry,
   | "getAll"
@@ -115,6 +121,7 @@ const IdentitySchema = Type.Object(
   },
   { additionalProperties: true },
 );
+
 const TextContentSchema = Type.Object(
   {
     text: Type.String(),
@@ -122,6 +129,7 @@ const TextContentSchema = Type.Object(
   },
   { additionalProperties: true },
 );
+
 const AssistantCandidateSchema = Type.Object(
   {
     content: Type.Optional(Type.Array(Type.Unknown())),
@@ -131,13 +139,13 @@ const AssistantCandidateSchema = Type.Object(
   },
   { additionalProperties: true },
 );
+
 const CommunicationDetailsSchema = Type.Object(
   {
     communicationId: Type.String(),
   },
   { additionalProperties: true },
 );
-const StringSchema = Type.String();
 
 const findModel = (
   registry: ModelRegistry,
@@ -145,6 +153,7 @@ const findModel = (
   modelId: string,
 ): Model<Api> | undefined => registry.find(provider, modelId);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Restored child-session failures can throw arbitrary values; this boundary turns them into a permanent runtime failure.
 const restoreError = (cause: unknown): PermanentChildError =>
   cause instanceof PermanentChildError
     ? cause
@@ -162,6 +171,7 @@ const validateRestoredSession = (
     const resolvedDirectory = realpathSync(sessionDir);
     const resolvedFile = realpathSync(sessionFile);
     const relative = path.relative(resolvedDirectory, resolvedFile);
+
     if (
       relative === "" ||
       relative === ".." ||
@@ -170,17 +180,22 @@ const validateRestoredSession = (
     ) {
       throw new PermanentChildError("Child session file escapes the session directory");
     }
+
     const info = lstatSync(sessionFile);
+
     if (info.isSymbolicLink() || !info.isFile() || info.size === 0) {
       throw new PermanentChildError("Child session file must be a nonempty regular file");
     }
+
     const session = SessionManager.open(resolvedFile, resolvedDirectory, cwd);
+
     const identities = session
       .getBranch()
       .filter(
         (entry): entry is Extract<typeof entry, { type: "custom" }> =>
           entry.type === "custom" && entry.customType === SUBAGENT_IDENTITY_ENTRY_TYPE,
       );
+
     if (
       identities.length !== 1 ||
       !Value.Check(IdentitySchema, identities[0]?.data) ||
@@ -188,9 +203,11 @@ const validateRestoredSession = (
     ) {
       throw new PermanentChildError("Child session file belongs to a different agent");
     }
+
     if (lastPersistedEntryId(resolvedFile) !== session.getLeafId()) {
       throw new PermanentChildError("Child session branch is not fully persisted");
     }
+
     return session;
   } catch (error) {
     throw restoreError(error);
@@ -200,10 +217,13 @@ const validateRestoredSession = (
 const createMaterializedSession = (request: ChildRuntimeRequest, sessionDir: string) => {
   mkdirSync(sessionDir, { mode: 0o700, recursive: true });
   const directoryInfo = lstatSync(sessionDir);
+
   if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
     throw new Error("Child session directory must be a regular directory");
   }
+
   chmodSync(sessionDir, 0o700);
+
   if (request.sessionFile !== undefined) {
     return {
       fresh: false,
@@ -215,11 +235,14 @@ const createMaterializedSession = (request: ChildRuntimeRequest, sessionDir: str
       ),
     };
   }
+
   const generated = SessionManager.create(request.cwd, sessionDir);
   const sessionFile = generated.getSessionFile();
+
   if (sessionFile === undefined) {
     throw new Error("Unable to allocate a child session file");
   }
+
   try {
     writeFileSync(sessionFile, `${JSON.stringify(generated.getHeader())}\n`, {
       flag: "wx",
@@ -229,12 +252,15 @@ const createMaterializedSession = (request: ChildRuntimeRequest, sessionDir: str
     session.appendCustomEntry(SUBAGENT_IDENTITY_ENTRY_TYPE, {
       identity: request.identity,
     });
+
     for (const message of request.history) {
       session.appendMessage(message);
     }
+
     if (lastPersistedEntryId(sessionFile) !== session.getLeafId()) {
       throw new Error("Unable to materialize child transcript");
     }
+
     return { fresh: true, session };
   } catch (error) {
     rmSync(sessionFile, { force: true });
@@ -245,34 +271,41 @@ const createMaterializedSession = (request: ChildRuntimeRequest, sessionDir: str
 export const finalFromMessages = (messages: readonly unknown[]): ChildTurnOutcome => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index];
+
     if (!Value.Check(AssistantCandidateSchema, candidate)) {
       continue;
     }
+
     const text = Array.isArray(candidate.content)
       ? candidate.content
           .filter((item) => Value.Check(TextContentSchema, item))
           .map((item) => item.text)
           .join("")
       : undefined;
+
     if (candidate.stopReason === "error") {
       return {
-        error: Value.Check(StringSchema, candidate.errorMessage)
-          ? candidate.errorMessage
-          : "Agent failed",
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Child failure diagnostics retain a fallback when an external assistant message has a malformed error field.
+        error: typeof candidate.errorMessage === "string" ? candidate.errorMessage : "Agent failed",
         status: "errored",
       };
     }
+
     if (candidate.stopReason === "aborted") {
       return { status: "interrupted" };
     }
+
     const completed: Extract<ChildTurnOutcome, { status: "completed" }> = {
       status: "completed",
     };
+
     if (text !== undefined && text.trim() !== "") {
       completed.text = text;
     }
+
     return completed;
   }
+
   return { status: "completed" };
 };
 
@@ -281,31 +314,38 @@ export const cloneModelRuntime = async (
   requiredProvider?: string,
 ): Promise<ModelRuntime> => {
   const agentDir = getAgentDir();
+
   const runtime = await ModelRuntime.create({
     authPath: path.join(agentDir, "auth.json"),
     modelsPath: path.join(agentDir, "models.json"),
   });
+
   for (const providerId of source.getRegisteredProviderIds()) {
     const nativeProvider = source.getRegisteredNativeProvider(providerId);
     const config = source.getRegisteredProviderConfig(providerId);
+
     if (nativeProvider) {
       runtime.registerNativeProvider(nativeProvider);
     } else if (config) {
       runtime.registerProvider(providerId, config);
     }
   }
+
   const providers = new Set([
     ...source.getAll().map((model) => model.provider),
     ...source.getRegisteredProviderIds(),
     ...(requiredProvider === undefined ? [] : [requiredProvider]),
   ]);
+
   await Promise.all(
     [...providers].map(async (providerId) => {
       try {
         if (source.getProviderAuthStatus(providerId).source !== "runtime") {
           return;
         }
+
         const apiKey = await source.getApiKeyForProvider(providerId);
+
         if (apiKey !== undefined && apiKey !== "") {
           await runtime.setRuntimeApiKey(providerId, apiKey);
         }
@@ -316,6 +356,7 @@ export const cloneModelRuntime = async (
       }
     }),
   );
+
   return runtime;
 };
 
@@ -332,33 +373,41 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
   const materialized = createMaterializedSession(request, sessionDir);
   const { session: sessionManager } = materialized;
   const sessionFile = sessionManager.getSessionFile();
+
   if (sessionFile === undefined) {
     throw new Error("Child session is not persistent");
   }
+
   let createdSession: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+
   try {
     const restored = sessionManager.buildSessionContext();
     let selectedModel = request.model;
     let selectedThinking = request.thinkingLevel;
+
     if (!materialized.fresh) {
       if (restored.model === null) {
         throw new PermanentChildError("Restored child session has no selected model");
       }
+
       selectedModel = findModel(
         request.modelRegistry,
         restored.model.provider,
         restored.model.modelId,
       );
+
       if (selectedModel === undefined) {
         throw new PermanentChildError(
           `Unable to resolve restored child model ${restored.model.provider}/${restored.model.modelId}`,
         );
       }
+
       if (!isThinkingLevel(restored.thinkingLevel)) {
         throw new PermanentChildError(
           `Invalid restored child thinking level: ${restored.thinkingLevel}`,
         );
       }
+
       selectedThinking = restored.thinkingLevel;
     }
 
@@ -369,6 +418,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     const pendingCustom = new Map<string, PromiseWithResolvers<void>>();
     const pendingPassive: RuntimeMessage[] = [];
     const terminatingToolCalls = new Set<string>();
+
     interface ActiveAttempt {
       accepted: PromiseWithResolvers<void>;
       cancellation: PromiseWithResolvers<void>;
@@ -377,14 +427,18 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       preflight: boolean;
       userSeen: boolean;
     }
+
     let activeAttempt: ActiveAttempt | undefined;
     let settlementFlush: Promise<void> | undefined;
     const poisoned = Promise.withResolvers<never>();
     void ignored(poisoned.promise);
+
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Child-session persistence failures must poison that runtime even when a dependency rejects with a non-Error value.
     const poison = (cause: unknown): PermanentChildError => {
       if (poisonError !== undefined) {
         return poisonError;
       }
+
       poisonError =
         cause instanceof PermanentChildError
           ? cause
@@ -392,16 +446,20 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
               cause,
             });
       poisoned.reject(poisonError);
+
       if (createdSession !== undefined) {
         void ignored(createdSession.abort());
       }
+
       return poisonError;
     };
+
     const assertHealthy = (): void => {
       if (poisonError instanceof Error) {
         throw poisonError;
       }
     };
+
     const verifyLeaf = async <T>(expectedMessage?: T): Promise<void> => {
       const entry =
         expectedMessage === undefined
@@ -412,6 +470,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
                 (candidate) =>
                   candidate.type === "message" && candidate.message === expectedMessage,
               );
+
       if (entry === undefined) {
         throw poison(
           new Error(
@@ -421,14 +480,17 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           ),
         );
       }
+
       try {
         await cursor.verify(entry.id);
       } catch (error) {
         throw poison(error);
       }
     };
+
     const verifyCustomDelivery = async (deliveryId: string): Promise<void> => {
       const entry = sessionManager.getLeafEntry();
+
       if (
         entry?.type !== "custom_message" ||
         !Value.Check(CommunicationDetailsSchema, entry.details) ||
@@ -440,6 +502,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           ),
         );
       }
+
       try {
         await cursor.verify(entry.id);
       } catch (error) {
@@ -448,27 +511,37 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     };
 
     const { promptOptions } = request;
+
     const appendedPrompt = [promptOptions?.appendSystemPrompt, request.prompt].filter(
       (value): value is string => Boolean(value),
     );
+
     const agentDir = getAgentDir();
+
     const settingsManager = SettingsManager.create(request.cwd, agentDir, {
       projectTrusted: request.trusted,
     });
+
     const excludedExtensionPaths = new Set<string>();
+
     const flushPassive = async (triggerTurn: boolean): Promise<void> => {
       const session = createdSession;
+
       if (session === undefined) {
         throw new Error("Child session is unavailable");
       }
+
       const pending = pendingPassive.splice(0, triggerTurn ? 1 : pendingPassive.length);
+
       for (const message of pending) {
         const receipt = pendingCustom.get(message.details.communicationId);
+
         try {
           await session.sendCustomMessage(
             { ...message, display: false },
             { deliverAs: "steer", triggerTurn },
           );
+
           if (!triggerTurn) {
             await receipt?.promise;
           }
@@ -480,6 +553,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         }
       }
     };
+
     const hostBridge: ExtensionFactory = async (pi) => {
       pi.on("session_before_compact", () =>
         activeAttempt?.cancellationError !== undefined ? { cancel: true } : undefined,
@@ -494,7 +568,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         terminatingToolCalls.clear();
       });
       pi.on("tool_execution_end", (event) => {
-        if (event.result?.terminate === true) {
+        if (Value.Check(TerminatingToolResultSchema, event.result)) {
           terminatingToolCalls.add(event.toolCallId);
         }
       });
@@ -503,10 +577,12 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           ctx.signal?.aborted === true ||
           (event.message.role === "assistant" &&
             (event.message.stopReason === "error" || event.message.stopReason === "aborted"));
+
         const continues =
           !terminal &&
           event.toolResults.length > 0 &&
           event.toolResults.some(({ toolCallId }) => !terminatingToolCalls.has(toolCallId));
+
         try {
           if (continues && !ctx.hasPendingMessages()) {
             await flushPassive(true);
@@ -520,6 +596,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       pi.on("agent_settled", async () => {
         const operation = flushPassive(false);
         settlementFlush = operation;
+
         try {
           await operation;
         } catch (error) {
@@ -533,12 +610,15 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       pi.on("tool_call", async () => {
         assertHealthy();
         await cursor.verify();
+
         if (cursor.parentId !== sessionManager.getLeafId()) {
           throw poison(new Error("Child transcript is behind its in-memory session"));
         }
+
         assertHealthy();
       });
     };
+
     const resourceLoader = new DefaultResourceLoader({
       agentDir,
       agentsFilesOverride: () => ({
@@ -552,11 +632,14 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           const keep =
             extension.path === CHILD_BRIDGE_PATH ||
             !isSubagentHostExtensionPath(extension.resolvedPath);
+
           if (!keep) {
             excludedExtensionPaths.add(extension.path);
           }
+
           return keep;
         });
+
         return {
           ...base,
           errors: base.errors.filter(
@@ -583,16 +666,22 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         diagnostics: [],
         skills: promptOptions?.skills ?? [],
       }),
-      systemPrompt: promptOptions?.customPrompt,
+      ...(promptOptions?.customPrompt !== undefined
+        ? { systemPrompt: promptOptions.customPrompt }
+        : {}),
     });
+
     await resourceLoader.reload();
     const loadedExtensions = resourceLoader.getExtensions();
+
     const bridgeError = loadedExtensions.errors.find(
       ({ path: extensionPath }) => extensionPath === CHILD_BRIDGE_PATH,
     );
+
     if (bridgeError !== undefined) {
       throw new Error(`Unable to load the required child bridge: ${bridgeError.error}`);
     }
+
     if (!loadedExtensions.extensions.some((extension) => extension.path === CHILD_BRIDGE_PATH)) {
       throw new Error("Unable to load the required child bridge");
     }
@@ -600,30 +689,36 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     const { session } = await createAgentSession({
       agentDir,
       cwd: request.cwd,
-      model: selectedModel,
+      ...(selectedModel !== undefined ? { model: selectedModel } : {}),
       modelRuntime: await cloneModelRuntime(request.modelRegistry, selectedModel?.provider),
       resourceLoader,
       sessionManager,
       settingsManager,
-      thinkingLevel: selectedThinking,
+      ...(selectedThinking !== undefined ? { thinkingLevel: selectedThinking } : {}),
       tools: request.tools.filter(
         (name) => name !== "request_user_input_async" && name !== "send_message_to_user_async",
       ),
     });
+
     createdSession = session;
     const stream = session.agent.streamFunction;
     session.agent.streamFunction = (model, context, options) => {
       const cancellation = activeAttempt?.cancellationError;
+
       if (cancellation !== undefined) {
         if (session.agent.signal?.aborted !== true) {
           session.agent.abort();
         }
+
         throw cancellation;
       }
+
       return stream(model, context, options);
     };
+
     const activeModel = session.model;
     const activeContext = sessionManager.buildSessionContext();
+
     if (
       activeModel !== undefined &&
       (activeContext.model?.provider !== activeModel.provider ||
@@ -631,14 +726,17 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     ) {
       sessionManager.appendModelChange(activeModel.provider, activeModel.id);
     }
+
     if (activeContext.thinkingLevel !== session.thinkingLevel) {
       sessionManager.appendThinkingLevelChange(session.thinkingLevel);
     }
+
     await cursor.verify(sessionManager.getLeafId() ?? undefined);
     await session.bindExtensions({ mode: "print" });
 
     let committed = !materialized.fresh;
     let disposal: Promise<void> | undefined;
+
     const unsubscribe = session.subscribe((event) => {
       if (event.type === "message_start" && event.message.role === "custom") {
         if (Value.Check(CommunicationDetailsSchema, event.message.details)) {
@@ -646,13 +744,17 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           customStarts.push(communicationId);
           startedCustom.add(communicationId);
         }
+
         return;
       }
+
       if (event.type === "message_end" && event.message.role === "user") {
         const attempt = activeAttempt;
+
         if (attempt !== undefined) {
           attempt.userSeen = true;
         }
+
         queueMicrotask(() => {
           void (async () => {
             try {
@@ -663,16 +765,21 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
             }
           })();
         });
+
         return;
       }
+
       if (event.type === "message_end" && event.message.role === "custom") {
         const deliveryId = customStarts.shift();
+
         if (deliveryId === undefined) {
           queueMicrotask(() => {
             void ignored(verifyLeaf());
           });
+
           return;
         }
+
         queueMicrotask(() => {
           void (async () => {
             try {
@@ -686,8 +793,10 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
             }
           })();
         });
+
         return;
       }
+
       if (
         event.type === "message_end" &&
         (event.message.role === "assistant" || event.message.role === "toolResult")
@@ -695,8 +804,10 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         queueMicrotask(() => {
           void ignored(verifyLeaf(event.message));
         });
+
         return;
       }
+
       if (event.type === "compaction_end") {
         queueMicrotask(() => {
           void ignored(verifyLeaf());
@@ -706,13 +817,16 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
 
     const startTurn = (input: PromptInput): ChildTurn => {
       assertHealthy();
+
       if (session.isStreaming || activeAttempt !== undefined) {
         throw new Error("Child is already running");
       }
+
       const accepted = Promise.withResolvers<void>();
       const cancellation = Promise.withResolvers<void>();
       const finished = Promise.withResolvers<void>();
       const boundary = session.state.messages.at(-1);
+
       const attempt: ActiveAttempt = {
         accepted,
         cancellation,
@@ -720,56 +834,71 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         preflight: true,
         userSeen: false,
       };
+
       activeAttempt = attempt;
+
       const prompt = session.prompt(input.text, {
         expandPromptTemplates: false,
-        images: input.images,
+        ...(input.images !== undefined ? { images: input.images } : {}),
         preflightResult: (success) => {
           if (!success) {
             return;
           }
+
           if (attempt.cancellationError !== undefined) {
             throw attempt.cancellationError;
           }
+
           attempt.preflight = false;
         },
         source: "extension",
       });
+
       const settled = (async () => {
         try {
           await Promise.race([prompt, cancellation.promise, poisoned.promise]);
           await yieldImmediate();
+
           if (!attempt.userSeen) {
             throw new Error("Child input did not produce a user turn");
           }
+
           await cursor.barrier();
           assertHealthy();
           const { messages } = session.state;
           const index = boundary === undefined ? -1 : messages.lastIndexOf(boundary);
+
           return finalFromMessages(messages.slice(index + 1));
         } catch (error) {
           accepted.reject(error);
           throw error;
         } finally {
           await ignored(prompt);
+
           if (activeAttempt === attempt) {
             activeAttempt = undefined;
           }
+
           attempt.finished.resolve();
         }
       })();
+
       void ignored(accepted.promise);
       void ignored(cancellation.promise);
       void ignored(settled);
+
       return { accepted: accepted.promise, settled };
     };
 
     const cancelAttempt = (cause: Error): void => {
       const attempt = activeAttempt;
+
       if (attempt === undefined || attempt.cancellationError !== undefined) {
         return;
       }
+
       attempt.cancellationError = cause;
+
       if (attempt.preflight) {
         attempt.cancellation.reject(cause);
       }
@@ -780,14 +909,18 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       cancelAttempt(failure);
       session.clearQueue();
       session.abortCompaction();
+
       const postRun =
         attempt !== undefined &&
         !attempt.preflight &&
         session.isStreaming &&
         session.agent.signal === undefined;
+
       let stopError: unknown;
+
       try {
         const abort = session.abort();
+
         if (waitForAttempt || !postRun) {
           await abort;
         } else {
@@ -796,29 +929,36 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       } catch (error) {
         stopError = error;
       }
+
       if (waitForAttempt) {
         await attempt?.finished.promise;
       }
+
       try {
         await settlementFlush;
       } catch (error) {
         stopError ??= error;
       }
+
       await Promise.allSettled(
-        [...pendingCustom]
-          .filter(([deliveryId]) => startedCustom.has(deliveryId))
-          .map(([, delivery]) => delivery.promise),
+        [...pendingCustom].flatMap(([deliveryId, delivery]) =>
+          startedCustom.has(deliveryId) ? [delivery.promise] : [],
+        ),
       );
+
       for (const [deliveryId, delivery] of pendingCustom) {
         if (!startedCustom.has(deliveryId)) {
           delivery.reject(failure);
           pendingCustom.delete(deliveryId);
         }
       }
+
       pendingPassive.length = 0;
+
       if (stopError !== undefined) {
         throw stopError;
       }
+
       assertHealthy();
     };
 
@@ -837,16 +977,20 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
             const failure = new PermanentChildError("Child runtime was disposed");
             const preflight = activeAttempt?.preflight === true;
             const stopping = stop(failure, true);
+
             try {
               if (preflight) {
                 const shutdown = session.extensionRunner.emit({
                   reason: "quit",
                   type: "session_shutdown",
                 });
+
                 const [stopResult, shutdownResult] = await Promise.allSettled([stopping, shutdown]);
+
                 if (shutdownResult.status === "rejected") {
                   throw shutdownResult.reason;
                 }
+
                 if (stopResult.status === "rejected") {
                   throw stopResult.reason;
                 }
@@ -869,6 +1013,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
             }
           })().then(deferred.resolve, deferred.reject);
         }
+
         return disposal;
       },
       isStreaming: () => session.isStreaming,
@@ -883,18 +1028,23 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       },
       sendMessage(message, onEnqueued, triggerTurn = false) {
         assertHealthy();
+
         if (triggerTurn && !session.isStreaming) {
           return startTurn({ text: message.content });
         }
+
         const { communicationId: deliveryId } = message.details;
         const accepted = Promise.withResolvers<void>();
         pendingCustom.set(deliveryId, accepted);
         const streaming = session.isStreaming;
+
         if (streaming && !triggerTurn) {
           pendingPassive.push(message);
           onEnqueued?.();
+
           return { accepted: accepted.promise };
         }
+
         const operation = (async () => {
           try {
             await session.sendCustomMessage(
@@ -910,12 +1060,15 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
             accepted.reject(poison(error));
           }
         })();
+
         void ignored(operation);
+
         return { accepted: accepted.promise };
       },
       sessionFile,
       startTurn,
     };
+
     return runtime;
   } catch (error) {
     try {
@@ -933,6 +1086,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         rmSync(sessionFile, { force: true });
       }
     }
+
     throw error;
   }
 };

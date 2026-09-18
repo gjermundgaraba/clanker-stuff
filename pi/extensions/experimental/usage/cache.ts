@@ -21,12 +21,15 @@ export class UsageCache {
 
   private getFresh(provider: SupportedProvider): UsageSnapshot | undefined {
     const snapshot = this.success.get(provider);
+
     if (snapshot === undefined) {
       return undefined;
     }
+
     if (this.now() - snapshot.fetchedAt >= this.ttlMs) {
       return undefined;
     }
+
     return snapshot;
   }
 
@@ -41,18 +44,21 @@ export class UsageCache {
   ): Promise<UsageFetchResult> {
     if (!force) {
       const fresh = this.getFresh(provider);
+
       if (fresh !== undefined) {
         return { ok: true, snapshot: fresh };
       }
     }
 
     const existing = this.inflight.get(provider);
+
     if (existing !== undefined) {
       return await existing;
     }
 
     const promise = this.runFetch(provider, fetcher);
     this.inflight.set(provider, promise);
+
     try {
       return await promise;
     } finally {
@@ -66,13 +72,17 @@ export class UsageCache {
   ): Promise<UsageFetchResult> {
     try {
       const result = await fetcher();
+
       if (result.ok) {
         this.success.set(provider, result.snapshot);
+
         return result;
       }
+
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "unexpected fetch error";
+
       return usageFailure(message);
     }
   }

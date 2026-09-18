@@ -30,10 +30,12 @@ export const createHistoryRuntime = () => {
 
   const search = createSearch(() => history);
 
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem and SQLite failures are arbitrary thrown values; this diagnostic only formats Error messages.
   const warnPersistence = (ui: ExtensionContext["ui"], cause: unknown): void => {
     if (persistenceWarningShown) {
       return;
     }
+
     persistenceWarningShown = true;
     const message = cause instanceof Error ? `: ${cause.message}` : "";
     ui.notify(`Prompt history persistence is unavailable${message}`, "warning");
@@ -42,10 +44,13 @@ export const createHistoryRuntime = () => {
   const replaceHistoryFromDatabase = (activeDatabase: DatabaseSync) => {
     const nextVersion = getDataVersion(activeDatabase);
     const nextHistory = loadHistory(activeDatabase);
+
     for (const item of nextHistory) {
       const pending = unsaved.get(item.text);
+
       if (pending && item.timestamp >= pending.timestamp) unsaved.delete(item.text);
     }
+
     history =
       unsaved.size > 0 ? normalizeHistory([...nextHistory, ...unsaved.values()]) : nextHistory;
     databaseVersion = nextVersion;
@@ -55,8 +60,10 @@ export const createHistoryRuntime = () => {
     if (!database) {
       return;
     }
+
     try {
       const nextVersion = getDataVersion(database);
+
       if (nextVersion !== databaseVersion) {
         replaceHistoryFromDatabase(database);
       }
@@ -67,6 +74,7 @@ export const createHistoryRuntime = () => {
 
   const addHistory = (text: string, ui: ExtensionContext["ui"]) => {
     const trimmed = text.trim();
+
     if (!trimmed) {
       return;
     }
@@ -75,15 +83,18 @@ export const createHistoryRuntime = () => {
       text: trimmed,
       timestamp: Date.now(),
     };
+
     history = [item, ...history.filter((entry) => entry.text !== trimmed)];
 
     if (database) {
       try {
         saveHistoryItem(database, item);
         const pending = unsaved.get(item.text);
+
         if (pending && item.timestamp >= pending.timestamp) unsaved.delete(item.text);
       } catch (error) {
         const pending = unsaved.get(item.text);
+
         if (!pending || item.timestamp >= pending.timestamp) unsaved.set(item.text, item);
         warnPersistence(ui, error);
       }
@@ -94,25 +105,32 @@ export const createHistoryRuntime = () => {
     if (ctx.mode !== "tui") {
       return;
     }
+
     if (!search.isActive()) {
       refreshHistory(ctx.ui);
     }
+
     search.begin(ctx.ui);
   };
 
   const importHistory = async (ctx: ExtensionContext) => {
     if (ctx.mode !== "tui") return;
     const activeDatabase = database;
+
     if (!activeDatabase) {
       ctx.ui.notify("Prompt history persistence is unavailable", "warning");
+
       return;
     }
+
     if (importPromise) {
       ctx.ui.notify("Session history import is already running.", "warning");
+
       return;
     }
 
     const abort = new AbortController();
+
     const pendingImport = importPersistentHistory(
       activeDatabase,
       ctx.sessionManager.getSessionDir(),
@@ -121,6 +139,7 @@ export const createHistoryRuntime = () => {
       },
       abort.signal,
     );
+
     importAbort = abort;
     importPromise = pendingImport;
 
@@ -138,6 +157,7 @@ export const createHistoryRuntime = () => {
         } catch (reconciliationError) {
           warnPersistence(ctx.ui, reconciliationError);
         }
+
         const message = error instanceof Error ? `: ${error.message}` : "";
         ctx.ui.notify(`Session history import failed${message}`, "error");
       }
@@ -165,10 +185,12 @@ export const createHistoryRuntime = () => {
         } catch {
           // Keep current-session history usable even when SQLite cleanup fails.
         }
+
         database = undefined;
         warnPersistence(ctx.ui, error);
       }
     }
+
     installHistoryEditor(event, ctx, () => {
       if (database) {
         try {
@@ -179,6 +201,7 @@ export const createHistoryRuntime = () => {
           warnPersistence(ctx.ui, error);
         }
       }
+
       return history;
     });
   };
@@ -197,6 +220,7 @@ export const createHistoryRuntime = () => {
   const dispose = async (ctx: ExtensionContext) => {
     if (ctx.mode !== "tui") return;
     importAbort?.abort();
+
     try {
       await importPromise;
     } catch {

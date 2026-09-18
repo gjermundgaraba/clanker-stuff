@@ -11,6 +11,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 
 export const CODE_MODE_STATUS_KEY = "codex-code-mode";
+
 export const FAST_MODE_STATUS_KEY = "codex-fast";
 
 const WIDGETS = {
@@ -48,6 +49,7 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
     if (instanceId === undefined) {
       return;
     }
+
     const widget = WIDGETS[name];
     const envelope = { instanceId, protocol: FOOTER_PROTOCOL_VERSION };
     pi.events.emit(
@@ -70,11 +72,13 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
     if (active.has(name) === enabled) {
       return;
     }
+
     if (enabled) {
       active.add(name);
     } else {
       active.delete(name);
     }
+
     emit(name, enabled);
   };
 
@@ -82,12 +86,15 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
     if (!Value.Check(FooterReadyMessageSchema, value)) {
       return;
     }
+
     const { instanceId: readyInstanceId } = value;
     instanceId = readyInstanceId;
+
     for (const name of active) {
       emit(name, true);
     }
   });
+
   pi.events.emit(FOOTER_READY_REQUEST_EVENT, {
     protocol: FOOTER_PROTOCOL_VERSION,
     type: "ready-request",
@@ -98,6 +105,7 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
       for (const name of active) {
         emit(name, false);
       }
+
       active.clear();
       instanceId = undefined;
       readyUnsubscribe();

@@ -43,6 +43,7 @@ export class ProcessOutput {
     if (this.closed) {
       return;
     }
+
     this.stream.write(data);
     this.appendText(this.decoder.decode(data, { stream: true }));
   }
@@ -60,6 +61,7 @@ export class ProcessOutput {
     const tailTruncation = truncateTail(this.tail);
     const totalLines = this.completedLines + (this.hasOpenLine ? 1 : 0);
     const truncated = totalLines > DEFAULT_MAX_LINES || this.totalBytes > DEFAULT_MAX_BYTES;
+
     const truncation: TruncationResult = {
       ...tailTruncation,
       maxBytes: DEFAULT_MAX_BYTES,
@@ -71,12 +73,14 @@ export class ProcessOutput {
         ? (tailTruncation.truncatedBy ?? (this.totalBytes > DEFAULT_MAX_BYTES ? "bytes" : "lines"))
         : null,
     };
+
     if (!truncated) {
       await rm(this.tempFilePath, { force: true });
     }
+
     return {
       content: truncation.content,
-      fullOutputPath: truncated ? this.tempFilePath : undefined,
+      ...(truncated ? { fullOutputPath: this.tempFilePath } : {}),
       truncation,
     };
   }
@@ -85,15 +89,18 @@ export class ProcessOutput {
     if (text.length === 0) {
       return;
     }
+
     this.totalBytes += Buffer.byteLength(text);
     this.tail += text;
 
     let newlines = 0;
     let lastNewline = -1;
+
     for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) {
       newlines += 1;
       lastNewline = index;
     }
+
     if (newlines === 0) {
       this.hasOpenLine = true;
     } else {
@@ -107,6 +114,7 @@ export class ProcessOutput {
         maxBytes: DEFAULT_MAX_BYTES * 2,
         maxLines: DEFAULT_MAX_LINES * 2,
       }).content;
+
       if (endsWithNewline) {
         this.tail += "\n";
       }
@@ -117,6 +125,7 @@ export class ProcessOutput {
     if (this.closed) {
       return;
     }
+
     this.closed = true;
     this.appendText(this.decoder.decode());
     const done = finished(this.stream);

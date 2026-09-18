@@ -37,44 +37,54 @@ export function createBorderHost(pi: ExtensionAPI) {
   let mounted = false;
   let generation = 0;
   let requestRender = () => {};
+
   let detachEditor: (() => void) | undefined;
   let unsubscribe: (() => void)[] = [];
   const entries = new Map<string, StatusEntry>();
+
   const emitReady = () => {
     if (ready && mounted) pi.events.emit(BORDER_READY_EVENT, ready);
   };
+
   const reset = () => {
     if (ready) pi.events.emit(BORDER_UNAVAILABLE_EVENT, ready);
     ready = undefined;
     entries.clear();
     requestRender();
   };
+
   const navigate = (next: ExtensionContext, navigationId: string | null = null) => {
     reset();
     ctx = next;
+
     if (next.mode !== "tui") return;
     ready = { version: 1, instanceId: randomUUID(), scope: borderScope(next, navigationId) };
     emitReady();
   };
+
   const shutdown = () => {
     generation++;
     reset();
     detachEditor?.();
     detachEditor = undefined;
+
     for (const stop of unsubscribe) stop();
     unsubscribe = [];
     ctx = undefined;
     mounted = false;
     requestRender = () => {};
   };
+
   return {
     navigate,
     shutdown,
     async start(next: ExtensionContext) {
       shutdown();
+
       if (next.mode !== "tui") return;
       const epoch = generation;
       const [loaded, inherited] = await Promise.all([loadConfig(), loadFooterPreference()]);
+
       if (epoch !== generation) return;
       config = loaded;
       family = inherited;
@@ -89,6 +99,7 @@ export function createBorderHost(pi: ExtensionAPI) {
           )
             return;
           const key = value.type === "clear-owner" ? "" : JSON.stringify([value.owner, value.key]);
+
           if (value.type === "set") {
             entries.set(key, {
               owner: value.owner,
@@ -135,19 +146,25 @@ export function createBorderHost(pi: ExtensionAPI) {
     async command(args: string, context: ExtensionContext) {
       if (context.mode !== "tui" || !ready) {
         context.ui.notify("Border status requires an active TUI session", "warning");
+
         return;
       }
+
       const parts = args.trim().split(/\s+/);
       const candidate = { version: 1, iconFamily: parts[1] };
+
       if (parts.length !== 2 || parts[0] !== "icons" || !Value.Check(ConfigSchema, candidate)) {
         context.ui.notify(
           `Border icons: ${config.iconFamily} (effective: ${config.iconFamily === "inherit" ? family : config.iconFamily}). Usage: /border-status icons inherit|nerd|unicode|ascii`,
           "info",
         );
+
         return;
       }
+
       const epoch = generation;
       await saveConfig(candidate);
+
       if (epoch !== generation) return;
       config = candidate;
       requestRender();

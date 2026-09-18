@@ -37,6 +37,7 @@ describe("usage widgets", () => {
         ],
       },
     };
+
     expect(JSON.stringify(activeSnapshot(presentation, 1000).content)).toContain("Codex 7d");
     expect(detailsSnapshot(presentation, 1000).content).toStrictEqual([
       { text: "5h 10%", tone: "text" },
@@ -48,6 +49,7 @@ describe("usage widgets", () => {
       kind: "ready" as const,
       snapshot: { ...snapshot, windows: snapshot.windows.slice(0, 1) },
     };
+
     expect(detailsSnapshot(presentation, 1000).content).toStrictEqual([]);
     expect(detailsSnapshot(presentation, 1000).defaults).toStrictEqual({ enabled: false });
   });

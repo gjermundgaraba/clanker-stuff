@@ -8,6 +8,7 @@ describe("TaskLogs", () => {
   it("bounds stream tails in memory and on disk and reports omitted bytes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "task-log-test-"));
     const logs = new TaskLogs(directory);
+
     try {
       logs.append("stdout", Buffer.alloc(LOG_BYTES * 4, 120));
       logs.append("stdout", Buffer.from("end"));

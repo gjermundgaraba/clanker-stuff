@@ -52,6 +52,7 @@ export const tokenizeArguments = (input: string): string[] => {
       } else {
         current += character;
       }
+
       continue;
     }
 
@@ -67,6 +68,7 @@ export const tokenizeArguments = (input: string): string[] => {
         current = "";
         started = false;
       }
+
       continue;
     }
 
@@ -77,9 +79,11 @@ export const tokenizeArguments = (input: string): string[] => {
   if (escaping) {
     throw new Error("Arguments end with an incomplete escape");
   }
+
   if (quote) {
     throw new Error(`Arguments contain an unterminated ${quote} quote`);
   }
+
   if (started) {
     tokens.push(current);
   }
@@ -87,9 +91,11 @@ export const tokenizeArguments = (input: string): string[] => {
   return tokens;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- CLI and filesystem exceptions may be arbitrary thrown values.
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command failures are caught JavaScript values, not a domain payload to decode.
 export const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown): void => {
   ctx.ui.notify(`${label}: ${errorMessage(cause)}`, "error");
 };
@@ -111,32 +117,39 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
   const launch = (args: string[], ctx: ExtensionCommandContext, options: LaunchOptions): void => {
     let pendingStderr = "";
     let streamedStderr = "";
+
     const streamStderrLines = (chunk: string, flush = false): void => {
       pendingStderr += chunk;
       const lines = pendingStderr.split("\n");
       pendingStderr = lines.pop() ?? "";
+
       if (flush && pendingStderr !== "") {
         lines.push(pendingStderr);
         pendingStderr = "";
       }
+
       for (const line of lines) {
         const message = line.trim();
+
         if (message !== "") {
           ctx.ui.notify(message, "info");
         }
+
         streamedStderr += `${line}\n`;
       }
     };
 
     let cliProcess: CliProcess;
+
     try {
       cliProcess = starter(args, {
         cwd: ctx.cwd,
         onStderr: streamStderrLines,
-        stdin: options.stdin,
+        ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
       });
     } catch (error) {
       notifyError(ctx, options.failureLabel, error);
+
       return;
     }
 
@@ -144,18 +157,23 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
       process: cliProcess,
       settled: Promise.resolve(),
     };
+
     activeRuns.add(run);
 
     const settleRun = async (): Promise<void> => {
       let flushPendingStderrOnError = true;
+
       try {
         const completion = await cliProcess.completion;
+
         if (cliProcess.signal.aborted || completion.kind === "cancelled") {
           return;
         }
+
         if (completion.kind === "signaled") {
           throw new Error(`terminated by ${completion.signal}`);
         }
+
         if (completion.code !== 0) {
           flushPendingStderrOnError = false;
           throw processFailure({
@@ -165,6 +183,7 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
               : completion.stderr,
           });
         }
+
         streamStderrLines("", true);
         options.onOutput(completion.stdout);
       } catch (error) {
@@ -172,12 +191,14 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
           if (flushPendingStderrOnError) {
             streamStderrLines("", true);
           }
+
           notifyError(ctx, options.failureLabel, error);
         }
       } finally {
         activeRuns.delete(run);
       }
     };
+
     run.settled = settleRun();
 
     ctx.ui.notify(options.openedMessage, "info");
@@ -188,17 +209,20 @@ export const createCommandRuntime = (starter: CliStarter): CommandRuntime => {
       return tokenizeArguments(args);
     } catch (error) {
       notifyError(ctx, "Invalid Plannotator arguments", error);
+
       return undefined;
     }
   };
 
   const shutdown = async (): Promise<void> => {
     const runs = [...activeRuns];
+
     for (const run of runs) {
       if (!run.process.signal.aborted) {
         run.process.cancel();
       }
     }
+
     await Promise.race([
       Promise.allSettled(runs.map((run) => run.settled)),
       delay(SHUTDOWN_TIMEOUT_MS, undefined, { ref: false }),

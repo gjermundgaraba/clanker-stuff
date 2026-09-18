@@ -11,6 +11,7 @@ const persisted = [
   { text: "latest global", timestamp: 300 },
   { text: "older global", timestamp: 100 },
 ];
+
 const branch = [
   userEntry("a", null, "older session", 50),
   userEntry("b", "a", "latest session", 200),
@@ -23,6 +24,7 @@ const setup = (entries: SessionEntry[] = []) => {
     getHeader: () => undefined,
     getSessionDir: () => "/sessions",
   });
+
   return { host, ctx };
 };
 
@@ -32,11 +34,13 @@ const start = (reason: SessionStartEvent["reason"]): SessionStartEvent => ({
 });
 
 const up = "\u001B[A";
+
 const down = "\u001B[B";
 
 const recall = (editor: ReturnType<typeof createEditor>, key: string) => {
   editor.handleInput(key);
   editor.render(80);
+
   return editor.getText();
 };
 
@@ -59,18 +63,22 @@ describe("history editor", () => {
       expect(recall(editor, up)).toBe("latest global");
       expect(recall(editor, down)).toBe("unfinished draft");
       expect(editor).toBeInstanceOf(CustomEditor);
+
       if (editor instanceof CustomEditor) expect(editor.embedWorkingStatus).toBeTruthy();
     },
   );
 
   it("keeps only the latest 100 prompts and lets new submissions join native history", () => {
     const { host, ctx } = setup();
+
     const history = Array.from({ length: 105 }, (_, index) => ({
       text: `prompt ${105 - index}`,
       timestamp: 105 - index,
     }));
+
     installHistoryEditor(start("startup"), ctx, () => history);
     const editor = createEditor(host);
+
     for (let index = 0; index < 105; index++) recall(editor, up);
     expect(editor.getText()).toBe("prompt 6");
     editor.setText("");
@@ -93,6 +101,7 @@ describe("history editor", () => {
     const { host, ctx } = setup();
     installHistoryEditor(start("startup"), ctx, () => persisted);
     const editor = createEditor(host);
+
     if (!(editor instanceof CustomEditor)) throw new Error("Expected CustomEditor");
     editor.setAutocompleteProvider({
       getSuggestions: () =>

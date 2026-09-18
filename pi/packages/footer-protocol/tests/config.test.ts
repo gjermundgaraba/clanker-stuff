@@ -43,15 +43,19 @@ describe(parseFooterConfig, () => {
 
 describe("footer config constraints and copying", () => {
   it("uses code-point limits and copies rows and overrides", () => {
+    const row = { left: ["🦄".repeat(256)], center: [], right: [] };
+    const widget = { enabled: false };
+
     const source = {
       ...DEFAULT_CONFIG,
       separator: "🦄".repeat(8),
-      rows: [{ left: ["🦄".repeat(256)], center: [], right: [] }],
-      widgets: { ["🦄".repeat(256)]: { enabled: false } },
+      rows: [row],
+      widgets: { ["🦄".repeat(256)]: widget },
     };
+
     const config = parseFooterConfig(source);
-    source.rows[0].left[0] = "changed";
-    source.widgets["🦄".repeat(256)].enabled = true;
+    row.left[0] = "changed";
+    widget.enabled = true;
     expect(config.rows[0]?.left[0]).toBe("🦄".repeat(256));
     expect(config.widgets["🦄".repeat(256)]).toStrictEqual({ enabled: false });
     expect(config.separator).toBe("🦄".repeat(8));

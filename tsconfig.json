@@ -1,8 +1,43 @@
 {
   "compilerOptions": {
     "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": true,
+    "module": "NodeNext",
     "noEmit": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
-    "lib": ["ES2025"]
+    "lib": ["ES2025"],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "rootDirs": [
+      "pi/evals/verifiers",
+      "pi/evals/runtime",
+      "pi/evals/suites/scaling",
+      "pi/evals/suites/frontier"
+    ],
+    "paths": {
+      "/opt/codex-provider/codex-runner.mjs": ["./pi/evals/runtime/codex-eval.mjs"],
+      "/opt/codex-provider/pi-eval-tools.mjs": ["./pi/evals/suites/scaling/pi-eval-tools.mjs"],
+      "/opt/codex-provider/services.mjs": ["./pi/evals/suites/scaling/services.mjs"],
+      "/opt/codex-provider/eval-journal.mjs": ["./pi/evals/runtime/eval-journal.mjs"],
+      "/opt/codex-provider/service-tools.mjs": ["./pi/evals/runtime/service-tools.mjs"],
+      "/opt/codex-provider/*": ["./pi/extensions/experimental/codex-provider/*"],
+      "/solution/solve.mjs": ["./pi/evals/suites/scaling/solve.mjs"],
+      "/tests/scoring.mjs": ["./pi/evals/suites/scaling/scoring.mjs"],
+      "/app/src/release.js": [
+        "./pi/evals/suites/compaction/tasks/decision-continuity/steps/implement/solution/release.js"
+      ],
+      "/app/src/deployment.js": [
+        "./pi/evals/suites/compaction/tasks/superseded-decisions/steps/implement/solution/deployment.js"
+      ],
+      "/app/src/route.js": [
+        "./pi/evals/suites/compaction/tasks/debugging-continuity/steps/implement/solution/route.js"
+      ],
+      "/app/src/ledger.js": [
+        "./pi/evals/suites/smoke/tasks/coding/inventory-ledger/solution/ledger.js"
+      ]
+    }
   }
 }

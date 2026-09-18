@@ -1,12 +1,14 @@
+import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import type { ExtensionUIContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createAgentSessionHarness } from "../../../tests/harness/agent-session.js";
+import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import { createCustomUiDriver, createKeybindings } from "../../../tests/harness/tui.js";
 import extension from "../index.js";
 import { Value } from "typebox/value";
@@ -27,48 +29,56 @@ const question = {
     },
   ],
 };
+
 const keys = createKeybindings({
-  "tui.select.confirm": ["\r"],
-  "tui.select.cancel": ["\u001b"],
-  "tui.input.submit": ["\r"],
-  "tui.input.newLine": ["\n"],
-  "tui.input.tab": ["\t"],
+  "tui.select.confirm": ["enter"],
+  "tui.select.cancel": ["escape"],
+  "tui.input.submit": ["enter"],
+  "tui.input.newLine": ["ctrl+j"],
+  "tui.input.tab": ["tab"],
 });
+
 async function setup(mode: ExtensionContext["mode"] = "tui", persisted = true) {
   initTheme("dark");
   const dir = mkdtempSync(join(tmpdir(), "question-lifecycle-"));
   let component: Component | undefined;
+
   const driver = createCustomUiDriver({
     keybindings: keys,
     onComponent: (c) => {
       component = c;
     },
   });
+
   const select = vi.fn(async (_title: string, choices: string[]) => choices[0]);
-  // SAFETY: The extension uses only custom/select/notify/setWidget in this isolated TUI driver.
-  const uiContext = Object.assign({} as ExtensionUIContext, {
+
+  const uiContext = Object.assign(createExtensionHost(() => {}).createContext().ui, {
     custom: driver.custom,
     select,
     notify: vi.fn(),
     setWidget: vi.fn(),
   });
+
   const harness = await createAgentSessionHarness({
     extensionFactories: [extension],
     mode,
     uiContext,
-    sessionDir: persisted ? dir : undefined,
+    ...(persisted ? { sessionDir: dir } : {}),
   });
+
   const press = async (...input: string[]) => {
     for (const key of input) {
       component?.handleInput?.(key);
       await new Promise((resolve) => setTimeout(resolve, 30));
     }
   };
+
   const checkpoint = () =>
     harness.sessionManager
       .getBranch()
       .filter((e) => e.type === "custom" && e.customType === JOURNAL_TYPE)
       .at(-1);
+
   return {
     harness,
     select,
@@ -89,6 +99,7 @@ async function setup(mode: ExtensionContext["mode"] = "tui", persisted = true) {
 describe("durable questionnaires in AgentSession", () => {
   it("opens submitted answers directly and only revises on an explicit action", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
@@ -142,6 +153,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("opens cancelled questionnaires read-only without creating an answer or draft", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
@@ -175,6 +187,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("blocks for explicit Review and returns structured answers without another user message", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input", question), {
@@ -206,6 +219,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("accepts async durably, survives replay, keeps submission in inbox and explicitly sends it", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
@@ -240,23 +254,30 @@ describe("durable questionnaires in AgentSession", () => {
       await expect.poll(() => env.harness.getPendingResponseCount()).toBe(0);
       await expect.poll(() => env.harness.session.isIdle).toBe(true);
       expect(JSON.stringify(env.harness.messages())).toContain('\\"option_id\\":\\"remote\\"');
+
       const answer = env.harness
         .messages()
         .filter((m) => m.role === "user")
         .at(-1)!;
+
       const wire =
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Session test: discriminate Pi message content before inspecting the delivered wire text.
         typeof answer.content === "string"
           ? answer.content
           : answer.content
               .filter((c) => c.type === "text")
               .map((c) => c.text)
               .join("\n");
+
       const transformer = env.harness.session.extensionRunner.getMarkdownTransformers()[0];
+      assert(transformer);
+
       const displayContext = {
         messageType: "user" as const,
         isStreaming: false,
         availableWidth: 80,
       };
+
       expect(transformer(wire, displayContext)).toContain("✓ Remote");
       expect(transformer(wire, displayContext)).not.toContain('"type":"questionnaire_answer"');
       // Reattached branch state must render the same answer, without rewriting history.
@@ -269,6 +290,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("observes Stop in a later run, retains a pending request, and does not resume on normal input", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
@@ -283,6 +305,7 @@ describe("durable questionnaires in AgentSession", () => {
             if (options?.signal?.aborted) resolve();
             else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
           });
+
           return fauxAssistantMessage("Interrupted", { stopReason: "aborted" });
         },
       ]);
@@ -301,6 +324,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("keeps Pi-owned text uncertain after queue clearing/abort and requires explicit resend", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
@@ -314,6 +338,7 @@ describe("durable questionnaires in AgentSession", () => {
           await new Promise<void>((resolve) =>
             options?.signal?.addEventListener("abort", () => resolve(), { once: true }),
           );
+
           return fauxAssistantMessage("Stopped", { stopReason: "aborted" });
         },
       ]);
@@ -355,6 +380,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("flushes a blocking draft on Stop and returns no invented answer", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input", question), {
@@ -375,6 +401,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("agent revisions share the same immutable user-revision path and report supersession", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input", question), {
@@ -387,6 +414,7 @@ describe("durable questionnaires in AgentSession", () => {
       await env.press("1", "\r");
       await first;
       const result = env.harness.messages().find((m) => m.role === "toolResult");
+
       if (result?.role !== "toolResult") throw new Error("Missing result");
       const original = Value.Parse(AnswerEnvelopeSchema, result.details);
       const oldView = env.component;
@@ -427,6 +455,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("flushes before tree navigation and fences the old dialog from the active branch", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
@@ -435,13 +464,14 @@ describe("durable questionnaires in AgentSession", () => {
         fauxAssistantMessage("Independent"),
       ]);
       await env.harness.prompt("Ask async");
-      const root = env.harness.sessionManager.getBranch()[0].id;
+      const root = env.harness.sessionManager.getBranch()[0];
+      assert(root);
       const answering = env.harness.prompt("/answers");
       await expect.poll(() => !!env.component).toBe(true);
       await env.press("g");
       env.component?.handleInput?.("branch-local draft note");
       const stale = env.component;
-      await env.harness.session.navigateTree(root, { summarize: false });
+      await env.harness.session.navigateTree(root.id, { summarize: false });
       await answering;
       expect(env.checkpoint()).toBeUndefined();
       stale?.handleInput?.("1");
@@ -456,6 +486,7 @@ describe("durable questionnaires in AgentSession", () => {
   });
   it("cancels navigation rather than discarding editor text that cannot be checkpointed", async () => {
     const env = await setup();
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input_async", question), {
@@ -464,12 +495,13 @@ describe("durable questionnaires in AgentSession", () => {
         fauxAssistantMessage("Independent"),
       ]);
       await env.harness.prompt("Ask async");
-      const root = env.harness.sessionManager.getBranch()[0].id;
+      const root = env.harness.sessionManager.getBranch()[0];
+      assert(root);
       const answering = env.harness.prompt("/answers");
       await expect.poll(() => !!env.component).toBe(true);
       await env.press("g");
       env.component?.handleInput?.("x".repeat(1001));
-      const navigation = await env.harness.session.navigateTree(root, { summarize: false });
+      const navigation = await env.harness.session.navigateTree(root.id, { summarize: false });
       expect(navigation.cancelled).toBe(true);
       expect(env.component?.render(80).join("\n")).toContain("1001/1000");
       await env.harness.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
@@ -482,6 +514,7 @@ describe("durable questionnaires in AgentSession", () => {
     "proactively disables questionnaires in %s",
     async (mode) => {
       const env = await setup(mode);
+
       try {
         expect(env.harness.session.getActiveToolNames()).not.toContain("request_user_input");
         expect(env.harness.session.getActiveToolNames()).not.toContain("request_user_input_async");
@@ -495,6 +528,7 @@ describe("durable questionnaires in AgentSession", () => {
   );
   it("rejects --no-session without displaying a dialog", async () => {
     const env = await setup("tui", false);
+
     try {
       env.harness.setResponses([
         fauxAssistantMessage(fauxToolCall("request_user_input", question), {

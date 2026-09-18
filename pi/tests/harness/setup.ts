@@ -8,6 +8,7 @@ import { afterAll, beforeAll } from "vite-plus/test";
 import { patchEnv } from "../helpers/env.js";
 
 let homeDir: string | undefined;
+
 let restoreEnv: (() => void) | undefined;
 
 beforeAll(async () => {

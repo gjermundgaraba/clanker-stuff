@@ -5,6 +5,7 @@ import { createKeybindings, createMockTui } from "../../../../tests/harness/tui.
 import vim from "../index.js";
 
 const identity = (s: string) => s;
+
 const theme = {
   borderColor: identity,
   selectList: {
@@ -15,6 +16,7 @@ const theme = {
     scrollInfo: identity,
   },
 };
+
 describe("extension lifecycle", () => {
   it("mounts a modal contribution, reports mode and detaches on shutdown", async () => {
     const fixture = createExtensionHost(vim);
@@ -43,6 +45,7 @@ describe("extension lifecycle", () => {
     const fixture = createExtensionHost(vim);
     await fixture.ready;
     const ctx = fixture.createContext();
+
     const foreign = () => ({
       getText: () => "draft",
       setText() {},
@@ -50,6 +53,7 @@ describe("extension lifecycle", () => {
       render: () => ["draft"],
       invalidate() {},
     });
+
     ctx.ui.setEditorComponent(foreign);
     await fixture.emitSessionStart(ctx);
     expect(ctx.ui.getEditorComponent()).toBe(foreign);

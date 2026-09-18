@@ -1,9 +1,9 @@
+import assert from "node:assert/strict";
+import type { PendingProcess } from "./helpers.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { tokenizeArguments } from "../command-runtime.js";
 import { exited, setup, signaled } from "./helpers.js";
-
-vi.mock(import("../command-runtime.js"), { spy: true });
 
 describe("command runtime", () => {
   it("tokenizes quotes and escapes", () => {
@@ -38,10 +38,12 @@ describe("command runtime", () => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "--git", ctx);
 
-    pending[0].options.onStderr?.("Plannotator session rea");
+    const [child] = pending;
+    assert.ok(child);
+    child.options.onStderr?.("Plannotator session rea");
     expect(host.getNotifications()).toHaveLength(1);
 
-    pending[0].options.onStderr?.("dy:\nhttps://plannotator.example/review\nOpening review...\n");
+    child.options.onStderr?.("dy:\nhttps://plannotator.example/review\nOpening review...\n");
 
     expect(host.getNotifications().slice(1)).toStrictEqual([
       { message: "Plannotator session ready:", type: "info" },
@@ -54,8 +56,10 @@ describe("command runtime", () => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "", ctx);
 
-    pending[0].options.onStderr?.("Fetching pull request...\nbad repository\n");
-    pending[0].resolve(
+    const [child] = pending;
+    assert.ok(child);
+    child.options.onStderr?.("Fetching pull request...\nbad repository\n");
+    child.resolve(
       exited("", {
         code: 2,
         stderr: "Fetching pull request...\nbad repository\n",
@@ -68,6 +72,7 @@ describe("command runtime", () => {
         type: "error",
       });
     });
+
     for (const message of ["Fetching pull request...", "bad repository"]) {
       expect(
         host.getNotifications().filter((notification) => notification.message.includes(message)),
@@ -79,8 +84,10 @@ describe("command runtime", () => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "", ctx);
 
-    pending[0].options.onStderr?.("Fetching pull request...\nbad repository");
-    pending[0].resolve(
+    const [child] = pending;
+    assert.ok(child);
+    child.options.onStderr?.("Fetching pull request...\nbad repository");
+    child.resolve(
       exited("", {
         code: 2,
         stderr: "Fetching pull request...\nbad repository",
@@ -100,15 +107,19 @@ describe("command runtime", () => {
     await host.runCommand("plannotator-review", "", ctx);
 
     let shutdownFinished = false;
+
     const shutdown = (async () => {
       await host.emitSessionShutdown(ctx);
       shutdownFinished = true;
     })();
+
     await Promise.resolve();
-    expect(pending[0].cancel).toHaveBeenCalledOnce();
+    const [child] = pending;
+    assert.ok(child);
+    expect(child.cancel).toHaveBeenCalledOnce();
     expect(shutdownFinished).toBeFalsy();
 
-    pending[0].resolve({ kind: "cancelled" });
+    child.resolve({ kind: "cancelled" });
     await shutdown;
     expect(shutdownFinished).toBeTruthy();
     expect(host.getSentUserMessages()).toHaveLength(0);
@@ -126,10 +137,12 @@ describe("command runtime", () => {
     const secondShutdown = host.emitSessionShutdown(ctx);
     await Promise.resolve();
 
-    expect(pending[0].signal.aborted).toBeTruthy();
-    expect(pending[0].cancel).toHaveBeenCalledOnce();
+    const [child] = pending;
+    assert.ok(child);
+    expect(child.signal.aborted).toBeTruthy();
+    expect(child.cancel).toHaveBeenCalledOnce();
 
-    pending[0].resolve({ kind: "cancelled" });
+    child.resolve({ kind: "cancelled" });
     await Promise.all([firstShutdown, secondShutdown]);
     expect(host.getNotifications()).toStrictEqual([
       { message: "Plannotator code review opened.", type: "info" },
@@ -138,6 +151,7 @@ describe("command runtime", () => {
 
   it("bounds shutdown when a child never reports completion", async () => {
     vi.useFakeTimers();
+
     try {
       const { ctx, host, pending } = setup();
       await host.runCommand("plannotator-review", "", ctx);
@@ -146,7 +160,9 @@ describe("command runtime", () => {
       await vi.advanceTimersByTimeAsync(2500);
       await shutdown;
 
-      expect(pending[0].cancel).toHaveBeenCalledOnce();
+      const [child] = pending;
+      assert.ok(child);
+      expect(child.cancel).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
@@ -166,7 +182,9 @@ describe("command runtime", () => {
   ])("reports $label as an error notification", async ({ completion, message }) => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "", ctx);
-    pending[0].resolve(completion);
+    const [child] = pending;
+    assert.ok(child);
+    child.resolve(completion);
     await vi.waitFor(() => {
       expect(host.getNotifications().at(-1)).toStrictEqual({
         message,
@@ -178,33 +196,38 @@ describe("command runtime", () => {
   it("reports asynchronous spawn failures", async () => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "", ctx);
-    pending[0].reject(new Error("spawn plannotator ENOENT"));
+    const [child] = pending;
+    assert.ok(child);
+    child.reject(new Error("spawn plannotator ENOENT"));
     await vi.waitFor(() => {
-      expect(host.getNotifications().at(-1)).toMatchObject({
-        message: expect.stringContaining("ENOENT"),
-        type: "error",
-      });
+      expect(host.getNotifications().at(-1)).toHaveProperty("type", "error");
+      expect(host.getNotifications().at(-1)).toHaveProperty(
+        "message",
+        expect.stringContaining("ENOENT"),
+      );
     });
   });
 
   it.each([
     {
-      finish: (pending: ReturnType<typeof setup>["pending"]) => {
-        pending[0].resolve(signaled("SIGTERM"));
+      finish: (child: PendingProcess) => {
+        child.resolve(signaled("SIGTERM"));
       },
       message: "Plannotator code review: terminated by SIGTERM",
     },
     {
-      finish: (pending: ReturnType<typeof setup>["pending"]) => {
-        pending[0].reject(new Error("spawn plannotator EIO"));
+      finish: (child: PendingProcess) => {
+        child.reject(new Error("spawn plannotator EIO"));
       },
       message: "Plannotator code review: spawn plannotator EIO",
     },
   ])("flushes an unterminated stderr tail before $message", async (testCase) => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "", ctx);
-    pending[0].options.onStderr?.("final stderr detail");
-    testCase.finish(pending);
+    const [child] = pending;
+    assert.ok(child);
+    child.options.onStderr?.("final stderr detail");
+    testCase.finish(child);
 
     await vi.waitFor(() => {
       expect(host.getNotifications().slice(1)).toStrictEqual([

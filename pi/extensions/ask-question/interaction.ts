@@ -7,8 +7,11 @@ import type { Questionnaire } from "./request.js";
 
 const record = <T extends import("typebox").TSchema>(schema: T) =>
   Type.Record(Id, schema, { additionalProperties: false });
+
 const enumOf = <T extends string>(values: T[]) => Type.Unsafe<T>({ type: "string", enum: values });
+
 const Mode = enumOf(["blocking", "async"]);
+
 const Fields = Type.Object(
   {
     selected: Type.Array(Id, { uniqueItems: true }),
@@ -19,6 +22,7 @@ const Fields = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const DraftSchema = Type.Object(
   {
     answers: record(Fields),
@@ -31,6 +35,7 @@ const DraftSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const AnswerSchema = Type.Object(
   {
     question: Type.String(),
@@ -50,6 +55,7 @@ const AnswerSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 export const SubmissionSchema = Type.Object(
   {
     revision: Type.Integer({ minimum: 1 }),
@@ -65,6 +71,7 @@ export const SubmissionSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 export const InteractionSchema = Type.Object(
   {
     id: Id,
@@ -89,11 +96,17 @@ export const InteractionSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 export type Interaction = Static<typeof InteractionSchema>;
+
 export type Draft = Static<typeof DraftSchema>;
+
 export type Submission = Static<typeof SubmissionSchema>;
+
 export type Answer = Static<typeof AnswerSchema>;
+
 export type Mode = Static<typeof Mode>;
+
 export type Action =
   | { type: "select"; question: string; option: string }
   | { type: "custom"; question: string; text: string }
@@ -119,6 +132,7 @@ export function createInteraction(
   now = new Date().toISOString(),
 ): Interaction {
   validateRequest(request);
+
   return {
     id,
     request: structuredClone(request),
@@ -154,38 +168,54 @@ export function createInteraction(
 
 export function collectAnswers(item: Interaction): Submission["answers"] {
   const draft = item.draft;
+
   if (!draft) throw new Error("No editable draft; reopen a submission first");
   const answers: Submission["answers"] = {};
+
   for (const q of item.request.questions) {
     const a = draft.answers[q.id];
+
     if (!a || (!a.selected.length && !(a.custom_selected && displayText(a.custom).trim())))
       throw new Error(`Answer required: ${q.header}`);
+
     if (a.custom_selected && !displayText(a.custom).trim())
       throw new Error(`Custom answer is blank: ${q.header}`);
+
     if (!q.multi_select && a.selected.length + Number(a.custom_selected) !== 1)
       throw new Error(`Choose one answer: ${q.header}`);
+
     const selections = a.selected.map((id) => {
       const option = q.options?.find((o) => o.id === id);
+
       if (!option) throw new Error(`Unknown option: ${id}`);
       const selection: Answer["selections"][number] = { option_id: id, label: option.label };
+
       if (a.notes[id]) selection.note = a.notes[id];
+
       return selection;
     });
-    answers[q.id] = {
+
+    const answer: Answer = {
       question: q.question,
       header: q.header,
       selections,
     };
+
     if (a.custom_selected) {
       const custom: NonNullable<Answer["custom"]> = { text: a.custom };
+
       if (a.custom_note) custom.note = a.custom_note;
-      answers[q.id].custom = custom;
+      answer.custom = custom;
     }
+
+    answers[q.id] = answer;
   }
+
   if (Buffer.byteLength(JSON.stringify({ answers, note: draft.note })) > 40000)
     throw new Error(
       "Combined answers and notes exceed 40,000 UTF-8 bytes; shorten them before submitting",
     );
+
   return answers;
 }
 
@@ -201,20 +231,27 @@ export function transition(
     );
   const next = structuredClone(item);
   const draft = next.draft;
+
   switch (action.type) {
     case "select":
     case "custom":
     case "toggle_custom":
     case "note": {
       if (!draft || next.cancelled) throw new Error("No editable draft; reopen first");
+
       if (action.type === "note" && !action.question) {
         if (action.text.length > MAX_NOTE) throw new Error(`Note limit: ${MAX_NOTE} characters`);
         draft.note = action.text;
         break;
       }
+
       const q = next.request.questions.find((q) => q.id === action.question);
+
       if (!q) throw new Error("Unknown question");
       const a = draft.answers[q.id];
+
+      if (!a) throw new Error(`Missing draft answer: ${q.id}`);
+
       if (action.type === "select") {
         if (!q.options?.some((o) => o.id === action.option)) throw new Error("Unknown option");
         a.selected = q.multi_select
@@ -222,28 +259,36 @@ export function transition(
             ? a.selected.filter((id) => id !== action.option)
             : [...a.selected, action.option]
           : [action.option];
+
         if (!q.multi_select) a.custom_selected = false;
       } else if (action.type === "custom") {
         if (action.text.length > MAX_TEXT) throw new Error(`Answer limit: ${MAX_TEXT} characters`);
         a.custom = action.text;
         a.custom_selected = true;
+
         if (!q.multi_select) a.selected = [];
       } else if (action.type === "toggle_custom") {
         a.custom_selected = !a.custom_selected;
+
         if (!q.multi_select && a.custom_selected) a.selected = [];
       } else {
         if (action.text.length > MAX_NOTE) throw new Error(`Note limit: ${MAX_NOTE} characters`);
+
         if (action.option) {
           if (!q.options?.some((o) => o.id === action.option)) throw new Error("Unknown option");
           a.notes[action.option] = action.text;
         } else a.custom_note = action.text;
       }
+
       break;
     }
+
     case "submit": {
       if (!draft || next.cancelled) throw new Error("No editable draft");
       const latest = next.submissions.at(-1)?.revision ?? 0;
+
       if (draft.base_revision !== latest) throw new Error("Stale base revision");
+
       const submission: Submission = {
         revision: latest + 1,
         parent_revision: latest,
@@ -255,25 +300,30 @@ export function transition(
         answers: collectAnswers(next),
         note: draft.note,
       };
+
       if (draft.reason) submission.reason = draft.reason;
+
       if (draft.tool_call_id) submission.tool_call_id = draft.tool_call_id;
       next.submissions.push(submission);
       next.deliveries.push({ revision: submission.revision, status: "pending" });
       delete next.draft;
       break;
     }
+
     case "reopen": {
       if (draft)
         throw new Error(
           "An editable draft already exists; finish or cancel it before requesting a revision",
         );
       const base = next.submissions.at(-1);
+
       if (!base)
         throw new Error(
           next.cancelled
             ? "This request was cancelled before any answer; author a new request instead"
             : "Nothing has been submitted yet; wait for an answer before revising",
         );
+
       if (base.revision !== action.base)
         throw new Error(`Stale base revision; the latest submission is revision ${base.revision}`);
       next.draft = {
@@ -285,6 +335,9 @@ export function transition(
         answers: Object.fromEntries(
           next.request.questions.map((q) => {
             const a = base.answers[q.id];
+
+            if (!a) throw new Error(`Missing submitted answer: ${q.id}`);
+
             return [
               q.id,
               {
@@ -303,11 +356,14 @@ export function transition(
           }),
         ),
       };
+
       if (action.reason) next.draft.reason = action.reason;
+
       if (action.tool_call_id) next.draft.tool_call_id = action.tool_call_id;
       next.cancelled = false;
       break;
     }
+
     case "pause":
       next.paused = true;
       break;
@@ -320,28 +376,37 @@ export function transition(
       break;
     case "delivery": {
       const delivery = next.deliveries.find((d) => d.revision === action.revision);
+
       if (!delivery) throw new Error("Unknown submission revision");
+
       if (delivery.status === "delivered" && action.status !== "delivered")
         throw new Error("Delivered submissions cannot be unsent");
       delivery.status = action.status;
       break;
     }
   }
+
   next.version++;
   next.updated_at = now;
+
   if (!Value.Check(InteractionSchema, next)) throw new Error("Invalid interaction state");
+
   return next;
 }
 
 export function submissionChanges(item: Interaction, submission: Submission): string[] {
   const previous = item.submissions.find((s) => s.revision === submission.parent_revision);
+
   if (!previous) return [];
+
   const changes = item.request.questions
     .filter(
       (q) => JSON.stringify(previous.answers[q.id]) !== JSON.stringify(submission.answers[q.id]),
     )
     .map((q) => q.header);
+
   if (previous.note !== submission.note) changes.push("Questionnaire note");
+
   return changes;
 }
 

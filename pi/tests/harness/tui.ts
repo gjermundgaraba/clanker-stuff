@@ -4,6 +4,7 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
+  matchesKey,
   type Component,
   type KeyId,
   type OverlayHandle,
@@ -13,16 +14,20 @@ import {
 } from "@earendil-works/pi-tui";
 
 type CustomUiComponent = Component & { dispose?: () => void };
+
 type TestKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
+
 type CustomUiFactory<T> = (
   tui: TUI,
   theme: Theme,
   keybindings: KeybindingsManager,
   done: (result: T) => void,
 ) => CustomUiComponent | Promise<CustomUiComponent>;
+
 interface MockTuiOptions {
   rows?: number;
 }
+
 interface CustomUiDriverOptions {
   tui?: TUI;
   theme?: Theme;
@@ -33,33 +38,20 @@ interface CustomUiDriverOptions {
   onAfterCapture?: () => void | Promise<void>;
   onComponent?: (component: CustomUiComponent) => void | Promise<void>;
 }
+
 interface CustomUiRunResult<T> {
   component: CustomUiComponent;
   handle: OverlayHandle;
   rendered: string[];
   result: T;
 }
-type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
-const toKeyId = (key: string): KeyId => {
-  switch (key) {
-    case "\r":
-      return "enter";
-    case "\u001B":
-      return "escape";
-    case "\t":
-      return "tab";
-    case " ":
-      return "space";
-    default:
-      // SAFETY: Callers provide valid Pi key IDs; raw control sequences are normalized above.
-      return key as KeyId;
-  }
-};
+type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
 const createOverlayHandle = (remove?: () => void): OverlayHandle => {
   let focused = true;
   let hidden = false;
+
   return {
     focus() {
       focused = true;
@@ -73,6 +65,7 @@ const createOverlayHandle = (remove?: () => void): OverlayHandle => {
     isHidden: () => hidden,
     setHidden(nextHidden: boolean) {
       hidden = nextHidden;
+
       if (hidden) focused = false;
     },
     unfocus(_options?: OverlayUnfocusOptions) {
@@ -91,12 +84,15 @@ export const createIdentityTheme = (): Theme => {
     strikethrough: (text: string) => text,
     underline: (text: string) => text,
   };
-  // SAFETY: Every harness consumer uses only these identity formatting methods; Theme's private state is inaccessible.
+
+  // SAFETY: Rendering tests use only these deterministic formatting methods, not Theme's private palette state.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi's nominal theme contract includes private state that this formatting-only test double intentionally does not implement.
   return theme as Theme;
 };
 
 export const createMockTui = (options: MockTuiOptions = {}): TUI => {
   const overlays: Array<{ handle: OverlayHandle; options?: OverlayOptions }> = [];
+
   const tui = {
     hasOverlay: () =>
       overlays.some(
@@ -112,31 +108,40 @@ export const createMockTui = (options: MockTuiOptions = {}): TUI => {
       let handle: OverlayHandle;
       handle = createOverlayHandle(() => {
         const index = overlays.indexOf(entry);
+
         if (index !== -1) {
           overlays.splice(index, 1);
         }
       });
       entry = { handle };
+
       if (overlayOptions !== undefined) {
         entry.options = overlayOptions;
       }
+
       overlays.push(entry);
+
       return handle;
     },
     terminal: { rows: options.rows ?? 40 },
   };
+
   // SAFETY: Harness consumers use only the implemented overlay methods, requestRender, and terminal.rows.
-  return Object.assign({} as TUI, tui);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test UI implements only overlay ownership and invalidation; no terminal renderer is started.
+  return tui as TUI;
 };
 
 export const createKeybindings = (
-  bindings: Partial<Record<string, string[]>> = {},
+  bindings: Partial<Record<string, KeyId[]>> = {},
 ): KeybindingsManager => {
   const keybindings: TestKeybindings = {
-    getKeys: (keybinding) => (bindings[keybinding] ?? []).map(toKeyId),
-    matches: (data, keybinding) => bindings[keybinding]?.includes(data) ?? false,
+    getKeys: (keybinding) => bindings[keybinding] ?? [],
+    matches: (data, keybinding) =>
+      bindings[keybinding]?.some((key) => key === data || matchesKey(data, key)) ?? false,
   };
-  // SAFETY: The harness exercises only matches/getKeys; the remaining members are private configuration state.
+
+  // SAFETY: Component tests consume matches/getKeys, not the manager's private persistence state.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exports this nominal manager only as a type; the test double implements the keyboard contract consumed by components.
   return keybindings as KeybindingsManager;
 };
 
@@ -160,9 +165,11 @@ async function runCustomUi<T>(
     if (resolved) {
       return;
     }
+
     if (customOptions?.overlay) {
       tui.hideOverlay();
     }
+
     resolved = true;
     pending.resolve(value);
   };
@@ -170,12 +177,15 @@ async function runCustomUi<T>(
   const component = await factory(tui, theme, keybindings, done);
   let handle = createOverlayHandle();
   const mounted = !resolved;
+
   if (mounted) {
     const configuredOverlayOptions = customOptions?.overlayOptions;
+
     const overlayOptions =
       configuredOverlayOptions instanceof Function
         ? configuredOverlayOptions()
         : configuredOverlayOptions;
+
     handle = customOptions?.overlay
       ? tui.showOverlay(component, overlayOptions)
       : createOverlayHandle();
@@ -192,6 +202,7 @@ async function runCustomUi<T>(
 
       for (const key of options.keys ?? []) {
         component.handleInput?.(key);
+
         if (resolved) break;
       }
 
@@ -223,6 +234,7 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
     customOptions?: CustomUiOptions,
   ): Promise<CustomUiRunResult<TResult>> {
     const onComponent = runOptions.onComponent;
+
     const result = await runCustomUi(
       factory,
       {
@@ -242,6 +254,7 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
     );
 
     rendered.push(...result.rendered);
+
     return result;
   }
 
@@ -250,6 +263,7 @@ export const createCustomUiDriver = (options: CustomUiDriverOptions = {}) => {
     customOptions?: CustomUiOptions,
   ): Promise<TResult> => {
     const result = await runWithState(factory, options, customOptions);
+
     return result.result;
   };
 

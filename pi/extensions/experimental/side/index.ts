@@ -1,9 +1,13 @@
+import type { createSideConversation } from "./session.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createSideRuntime } from "./runtime.js";
 
-export default function sideExtension(pi: ExtensionAPI): void {
-  const runtime = createSideRuntime(pi);
+export default function sideExtension(
+  pi: ExtensionAPI,
+  createConversation?: typeof createSideConversation,
+): void {
+  const runtime = createSideRuntime(pi, createConversation);
 
   pi.registerCommand("side", {
     description: "Open or resume a concurrent multi-turn side conversation",

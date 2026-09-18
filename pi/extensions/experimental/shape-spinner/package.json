@@ -27,6 +27,7 @@
   "type": "module",
   "exports": "./index.ts",
   "devDependencies": {
+    "typebox": "1.3.14",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

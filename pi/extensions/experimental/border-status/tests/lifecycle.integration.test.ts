@@ -11,6 +11,7 @@ import {
   createKeybindings,
   createIdentityTheme,
 } from "../../../../tests/harness/tui.js";
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import questions from "../../../ask-question/index.js";
 import borderStatus from "../index.js";
 import { editorTheme } from "./fixtures.js";
@@ -25,24 +26,31 @@ it.each([true, false])(
     let editor: ReturnType<EditorFactory> | undefined;
     const widget = vi.fn();
     const tui = createMockTui();
-    // SAFETY: This real-session test supplies every UI member used by these two extensions.
-    const ui = Object.assign({} as ExtensionUIContext, {
-      getEditorComponent: () => factory,
-      getEditorText: () => editor?.getText() ?? "",
-      setEditorComponent: (next: EditorFactory | undefined) => {
-        factory = next;
-        editor = next?.(tui, editorTheme, createKeybindings());
-        editor?.render(80);
+
+    const uiHost = createExtensionHost(() => {});
+    await uiHost.ready;
+
+    const ui = uiHost.createContext({
+      ui: {
+        getEditorComponent: () => factory,
+        getEditorText: () => editor?.getText() ?? "",
+        setEditorComponent: (next: EditorFactory | undefined) => {
+          factory = next;
+          editor = next?.(tui, editorTheme, createKeybindings());
+          editor?.render(80);
+        },
+        setWidget: widget,
+        notify: vi.fn(),
+        setStatus: vi.fn(),
+        theme: createIdentityTheme(),
       },
-      setWidget: widget,
-      notify: vi.fn(),
-      setStatus: vi.fn(),
-      theme: createIdentityTheme(),
-    });
+    }).ui;
+
     const appender = (pi: ExtensionAPI) => {
       pi.on("session_start", () => pi.appendEntry("unrelated", {}));
       pi.on("session_tree", () => pi.appendEntry("unrelated", {}));
     };
+
     const harness = await createAgentSessionHarness({
       extensionFactories: hostFirst
         ? [borderStatus, appender, questions]
@@ -51,7 +59,9 @@ it.each([true, false])(
       uiContext: ui,
       sessionDir: dir,
     });
+
     const line = () => stripTerminalSequences(editor?.render(80)[0] ?? "");
+
     try {
       const before = harness.sessionManager.getLeafId();
       harness.setResponses([
@@ -77,7 +87,9 @@ it.each([true, false])(
         "1 questionnaire awaiting you · /answers",
       ]);
       const pending = harness.sessionManager.getLeafId();
+
       if (!pending) throw new Error("Expected persisted questionnaire branch");
+
       if (before) harness.sessionManager.branch(before);
       else harness.sessionManager.resetLeaf();
       await harness.session.extensionRunner.emit({

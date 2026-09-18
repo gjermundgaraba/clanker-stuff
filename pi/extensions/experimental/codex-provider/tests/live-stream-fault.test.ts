@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { installTransportProbe } from "../scripts/live-multi-compaction.js";
 
 const originalFetch = globalThis.fetch;
+
 const originalWebSocket = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
 
 describe("live stream-fault probe", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
+
     if (originalWebSocket === undefined) {
       Reflect.deleteProperty(globalThis, "WebSocket");
     } else {
@@ -20,6 +22,7 @@ describe("live stream-fault probe", () => {
   it("observes multiline SSE failures across byte and CRLF boundaries without consuming the response", async () => {
     const body =
       ': heartbeat\r\ndata:{"type":"response.failed",\r\ndata: "response":{"error":{"code":"€_failure"}}}\r\n\r\ndata: [DONE]\r\n\r\n';
+
     globalThis.fetch = async () =>
       new Response(
         new ReadableStream<Uint8Array>({
@@ -27,6 +30,7 @@ describe("live stream-fault probe", () => {
             for (const byte of Buffer.from(body)) {
               controller.enqueue(new Uint8Array([byte]));
             }
+
             controller.close();
           },
         }),
@@ -44,6 +48,7 @@ describe("live stream-fault probe", () => {
     let request = 0;
     globalThis.fetch = async () => {
       request += 1;
+
       if (request === 1) {
         return new Response(
           new ReadableStream<Uint8Array>({
@@ -56,16 +61,19 @@ describe("live stream-fault probe", () => {
           }),
         );
       }
+
       return new Response(
         'data: {"type":"response.failed","response":{"error":{"code":"ordinary_failure"}}}\n\n',
       );
     };
+
     const probe = installTransportProbe("sse", true, true);
 
     const faulted = await fetch("https://api.openai.com/v1/responses", {
       body: JSON.stringify({ input: [{ type: "compaction_trigger" }] }),
       method: "POST",
     });
+
     await expect(
       Promise.race([
         faulted.text(),
@@ -79,6 +87,7 @@ describe("live stream-fault probe", () => {
       body: JSON.stringify({ input: [] }),
       method: "POST",
     });
+
     await ordinary.text();
 
     expect(cancelled).toBeTruthy();

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -37,19 +38,23 @@ import {
 } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The SSE fixture serializes arbitrary server frames, including malformed ones, to exercise the real transport decoder.
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
-const StringValueSchema = Type.String();
 const TypeTaggedSchema = Type.Object({ type: Type.String() });
 
 const requestJson = (body: RequestInit["body"], headers: Headers): WireRecord => {
-  if (Value.Check(StringValueSchema, body)) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
+  if (typeof body === "string") {
     return wireRecord(JSON.parse(body));
   }
+
   if (!(body instanceof Uint8Array)) {
     throw new Error("Unexpected request body");
   }
+
   const bytes = headers.get("content-encoding") === "zstd" ? zstdDecompressSync(body) : body;
+
   return wireRecord(JSON.parse(new TextDecoder().decode(bytes)));
 };
 
@@ -57,17 +62,24 @@ const turnMetadata = (request: WireRecord) => {
   const metadata = Value.Check(WireRecordSchema, request.client_metadata)
     ? request.client_metadata
     : undefined;
+
   const value = metadata?.["x-codex-turn-metadata"];
-  return Value.Check(StringValueSchema, value) ? wireRecord(JSON.parse(value)) : undefined;
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
+  return typeof value === "string" ? wireRecord(JSON.parse(value)) : undefined;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The assertion decodes raw observed request input rather than trusting the implementation’s output type.
 const inputItemTypes = (input: unknown) =>
   Array.isArray(input)
     ? wireArray(input).flatMap((item) => (Value.Check(TypeTaggedSchema, item) ? [item.type] : []))
     : [];
 
 const assistantText = (message: AssistantMessage) =>
-  message.content.flatMap((content) => (content.type === "text" ? [content.text] : [])).join("");
+  message.content
+    .filter((content) => content.type === "text")
+    .map((content) => content.text)
+    .join("");
 
 const assistantEvents = (id = "normal", inputTokens = 10) => {
   const message = {
@@ -83,6 +95,7 @@ const assistantEvents = (id = "normal", inputTokens = 10) => {
     status: "completed",
     type: "message",
   };
+
   return [
     {
       response: { id: `resp_${id}`, status: "in_progress" },
@@ -164,15 +177,19 @@ const interruptedAssistantResponse = (
       }),
     ].join(""),
   );
+
   let sent = false;
+
   return new Response(
     new ReadableStream<Uint8Array>({
       pull(controller) {
         if (!sent) {
           sent = true;
           controller.enqueue(bytes);
+
           return;
         }
+
         controller.error(new Error(errorMessage));
       },
     }),
@@ -186,6 +203,7 @@ const compactResponse = (id = "compact") => {
     id: `cmp_${id}`,
     type: "compaction",
   };
+
   return new Response(
     [
       event({
@@ -229,6 +247,7 @@ const toolCallResponse = (id = "tool", name = "large_result", inputTokens = 100,
     status: "completed",
     type: "function_call",
   };
+
   return new Response(
     [
       event({
@@ -305,6 +324,7 @@ const workspace = async (prefix: string) => {
   const sessionDir = path.join(rootDir, "sessions");
   vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
   await mkdir(cwd, { recursive: true });
+
   return { cwd, rootDir, sessionDir };
 };
 
@@ -322,25 +342,32 @@ const responsesLiteTransform: ExtensionFactory = (pi) => {
   });
   pi.on("before_provider_request", (providerEvent) => {
     const payload = wireRecord(providerEvent.payload);
+
     if (!Array.isArray(payload.input)) {
       return;
     }
-    const input = payload.input.map((item) => {
+
+    const input = wireArray(payload.input).map((item) => {
       if (!Value.Check(WireRecordSchema, item) || !Array.isArray(item.content)) {
         return item;
       }
+
       return {
         ...item,
-        content: item.content.map((content) => {
+        content: wireArray(item.content).map((content) => {
           if (!Value.Check(WireRecordSchema, content) || content.type !== "input_image") {
             return content;
           }
+
           const { detail: _detail, ...image } = content;
+
           return image;
         }),
       };
     });
+
     const { instructions, tools, ...rest } = payload;
+
     const prefix: WireRecord[] = [
       {
         role: "developer",
@@ -348,13 +375,16 @@ const responsesLiteTransform: ExtensionFactory = (pi) => {
         type: "additional_tools",
       },
     ];
-    if (Value.Check(StringValueSchema, instructions) && instructions.length > 0) {
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
+    if (typeof instructions === "string" && instructions.length > 0) {
       prefix.push({
         content: [{ text: instructions, type: "input_text" }],
         role: "developer",
         type: "message",
       });
     }
+
     return { ...rest, input: [...prefix, ...input], instructions: "" };
   });
 };
@@ -369,19 +399,23 @@ const addOneLargePayloadOnlyMessage =
     let injected = false;
     pi.on("context", (_event, ctx) => {
       const tokens = ctx.getContextUsage()?.tokens;
+
       if (observedContextTokens.value === undefined && tokens !== null && tokens !== undefined) {
         observedContextTokens.value = tokens;
       }
     });
     pi.on("before_provider_request", (providerEvent) => {
       const payload = wireRecord(providerEvent.payload);
+
       if (injected) {
         return {
           ...payload,
           client_metadata: { phase: "four" },
         };
       }
+
       injected = true;
+
       return {
         ...payload,
         client_metadata: { phase: "four" },
@@ -470,6 +504,7 @@ const duplicateCurrentMarker: ExtensionFactory = (pi) => {
             content.type === "text" && content.text.startsWith(`${FRAME_MARKER_PREFIX}start:`),
         ),
     );
+
     return marker ? { messages: [...contextEvent.messages, structuredClone(marker)] } : undefined;
   });
 };
@@ -502,6 +537,7 @@ const mutateBranchBeforeSecondProviderRequest: ExtensionFactory = (pi) => {
   let requests = 0;
   pi.on("before_provider_request", () => {
     requests += 1;
+
     if (requests === 2) {
       pi.appendEntry("test-replay-race", {
         changed: true,
@@ -514,6 +550,7 @@ const mutateBranchAndAddLargePayload: ExtensionFactory = (pi) => {
   pi.on("before_provider_request", (providerEvent) => {
     pi.appendEntry("test-candidate-race", { changed: true });
     const payload = wireRecord(providerEvent.payload);
+
     return {
       ...payload,
       input: [
@@ -647,6 +684,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         "fetch",
         vi.fn<FetchFunction>(async (_input, init) => {
           requests.push(requestJson(init?.body, new Headers(init?.headers)));
+
           return requests.length === 1
             ? toolCallResponse("settings", "exec_command", 10, {
                 cmd: "printf ORIGIN_EFFORT=%s $PI_REASONING_LEVEL",
@@ -655,18 +693,21 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
             : assistantResponse("settings-done");
         }),
       );
+
       const session = await createRealCodexSession({
         compaction: { enabled: false },
         model: createToolsModel("gpt-5.6-sol", true),
         extensionFactories: [
           (pi) => {
             let changed = false;
+
             const change = async () => {
               if (changed) return;
               changed = true;
               await Promise.resolve();
               pi.setThinkingLevel("high");
             };
+
             if (boundary === "turn_start") pi.on("turn_start", change);
             else pi.on("context", change);
           },
@@ -676,6 +717,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         sessionManager: SessionManager.inMemory(paths.cwd),
         onExtensionError: (error) => errors.push(error.error),
       });
+
       try {
         session.setThinkingLevel("low");
         await session.prompt("check originating effort");
@@ -696,12 +738,14 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-provider-status-");
     const manager = SessionManager.inMemory(paths.cwd);
     const notifications: { message: string; type?: string }[] = [];
+
     const session = await createRealCodexSession({
       extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: mockUiContext({
-        notify: (message: string, type?: string) => notifications.push({ message, type }),
+      uiContext: await mockUiContext({
+        notify: (message: string, type?: string) =>
+          notifications.push({ message, ...(type !== undefined ? { type } : {}) }),
         setStatus: () => null,
       }),
     });
@@ -711,14 +755,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("/codex-provider");
 
       expect(manager.getEntries()).toStrictEqual(before);
-      expect(notifications).toStrictEqual([
-        {
-          message: expect.stringContaining(
-            `Codex provider status\nSession: ${manager.getSessionId()}`,
-          ),
-          type: "info",
-        },
-      ]);
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0]).toHaveProperty("type", "info");
+      expect(notifications[0]?.message).toContain(
+        `Codex provider status\nSession: ${manager.getSessionId()}`,
+      );
       expect(notifications[0]?.message).toContain(
         `Model: ${SPIKE_MODEL.provider}/${SPIKE_MODEL.id}`,
       );
@@ -737,11 +778,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       vi.fn<FetchFunction>(async (_input, init) => {
         const request = requestJson(init?.body, new Headers(init?.headers));
         requests.push(request);
+
         return inputItemTypes(request.input).includes("compaction_trigger")
           ? compactResponse("reasoning-off")
           : assistantResponse("reasoning-off");
       }),
     );
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -771,19 +814,25 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-inline-unchanged-");
     const bodies: Uint8Array[] = [];
     const headersSeen: Headers[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       headersSeen.push(headers);
-      if (Value.Check(StringValueSchema, init?.body)) {
+
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
+      if (typeof init?.body === "string") {
         bodies.push(new TextEncoder().encode(init.body));
       } else if (init?.body instanceof Uint8Array) {
         bodies.push(init.body);
       } else {
         throw new TypeError("Unexpected request body");
       }
+
       return assistantResponse(`unchanged-${bodies.length}`);
     });
+
     vi.stubGlobal("fetch", fetch);
+
     const baseline = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -795,6 +844,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       sessionManager: SessionManager.inMemory(paths.cwd),
       systemPrompt: "unchanged system",
     });
+
     const combined = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -815,22 +865,28 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await baseline.prompt("unchanged request");
       await combined.prompt("unchanged request");
 
-      const baselineBody = requestJson(bodies[0], headersSeen[0]);
-      const replacementBody = requestJson(bodies[1], headersSeen[1]);
+      const [baselineHeaders, replacementHeaders] = headersSeen;
+      assert.ok(baselineHeaders && replacementHeaders);
+      const baselineBody = requestJson(bodies[0], baselineHeaders);
+      const replacementBody = requestJson(bodies[1], replacementHeaders);
       const { client_metadata: clientMetadata, ...compatibleBody } = replacementBody;
       expect(compatibleBody).toStrictEqual(baselineBody);
-      expect(clientMetadata).toMatchObject({
-        session_id: expect.any(String),
-        thread_id: expect.any(String),
-        turn_id: expect.any(String),
-        "x-codex-turn-metadata": expect.any(String),
-        "x-codex-window-id": expect.any(String),
-      });
+
+      for (const key of [
+        "session_id",
+        "thread_id",
+        "turn_id",
+        "x-codex-turn-metadata",
+        "x-codex-window-id",
+      ]) {
+        expect(clientMetadata).toHaveProperty(key, expect.any(String));
+      }
+
       expect(turnMetadata({ client_metadata: clientMetadata })).toMatchObject({
         request_kind: "turn",
       });
       expect({
-        combinedFeatures: headersSeen[1].get("x-codex-beta-features"),
+        combinedFeatures: replacementHeaders.get("x-codex-beta-features"),
         fetches: fetch.mock.calls.length,
       }).toStrictEqual({
         combinedFeatures: "existing_one,REMOTE_COMPACTION_V2",
@@ -846,6 +902,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("prewarms an unchanged request through a real AgentSession", async () => {
     const paths = await workspace("codex-agent-session-prewarm-");
     const frames: WireRecord[] = [];
+
     const AgentSessionWebSocket = function AgentSessionWebSocket() {
       const socket = Object.assign(new EventTarget(), {
         close: () => null,
@@ -853,6 +910,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         send: (data: string) => {
           const frame = wireRecord(JSON.parse(data));
           frames.push(frame);
+
           const response =
             frame.generate === false
               ? new Response(
@@ -862,22 +920,28 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
                   }),
                 )
               : assistantResponse("agent-session-prewarm");
+
           void response.text().then((body) => {
             for (const line of body.split("\n\n")) {
               if (!line.startsWith("data: ")) {
                 continue;
               }
+
               socket.dispatchEvent(new MessageEvent("message", { data: line.slice(6) }));
             }
           });
         },
       });
+
       queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+
       return socket;
     };
+
     vi.stubGlobal("WebSocket", AgentSessionWebSocket);
     const fetch = vi.fn<FetchFunction>(async () => assistantResponse("unexpected-sse"));
     vi.stubGlobal("fetch", fetch);
+
     const session = await createRealCodexSession({
       extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
@@ -905,26 +969,33 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("leaves non-Codex hooks, transport, and session state untouched", async () => {
     const paths = await workspace("codex-inline-non-codex-");
+
     const before: HookObservations = {
       contexts: [],
       headers: [],
       payloads: [],
     };
+
     const after: HookObservations = {
       contexts: [],
       headers: [],
       payloads: [],
     };
+
     const networkRequests: WireRecord[] = [];
     const networkHeaders: Headers[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       networkHeaders.push(headers);
       networkRequests.push(requestJson(init?.body, headers));
+
       return assistantResponse("non-codex");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -956,7 +1027,9 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         payloadUntouched: after.payloads,
         remoteFeature: networkHeaders[0]?.get("x-codex-beta-features"),
         requestMatchesPayload: JSON.stringify(networkRequests[0]) === after.payloads[0],
-        roles: branch.flatMap((entry) => (entry.type === "message" ? [entry.message.role] : [])),
+        roles: branch
+          .filter((entry) => entry.type === "message")
+          .map((entry) => entry.message.role),
       }).toStrictEqual({
         contextUntouched: before.contexts,
         customEntries: 0,
@@ -978,17 +1051,22 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const notifications: string[] = [];
     const requests: WireRecord[] = [];
     const responses = [compactResponse("malformed-text"), assistantResponse("malformed-text")];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1004,7 +1082,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -1038,6 +1116,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const fetch = vi.fn<FetchFunction>();
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1053,7 +1132,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -1081,17 +1160,22 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-active-frame-diagnostic-");
     const notifications: string[] = [];
     let ordinaryResponses = 0;
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("diagnostic");
       }
+
       return assistantResponse(`diagnostic-source-${(ordinaryResponses += 1)}`);
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.create(paths.cwd, paths.sessionDir);
     let replacementEnabled = false;
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -1101,7 +1185,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       extensionFactories: [replaceContextWhen(() => replacementEnabled), codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -1112,12 +1196,15 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.compact();
       replacementEnabled = true;
       await session.prompt("must fail closed");
+
       const observations = new CodexObservability(
         path.join(getExtensionStoragePaths("codex-provider").dataDir, "codex-provider.sqlite"),
       );
+
       const frameObservations = observations
         .list(manager.getSessionId())
         .filter((observation) => observation.kind === "context-frame-failure");
+
       observations.close();
 
       expect({
@@ -1142,16 +1229,20 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-inline-custom-timestamp-drift-");
     const notifications: string[] = [];
     const requests: WireRecord[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const request = requestJson(init?.body, new Headers(init?.headers));
       requests.push(request);
+
       return inputItemTypes(request.input).includes("compaction_trigger")
         ? compactResponse("timestamp-drift")
         : assistantResponse(`timestamp-drift-${requests.length}`);
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     let injectCustomMessage = true;
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1170,7 +1261,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -1210,22 +1301,29 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("replays after Pi omits an auto-retry error from live context", async () => {
     const paths = await workspace("codex-auto-retry-alignment-");
     let ordinaryRequests = 0;
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("retry-checkpoint");
       }
+
       ordinaryRequests += 1;
+
       if (ordinaryRequests === 2) {
         throw new TypeError("fetch failed");
       }
+
       return ordinaryRequests === 3
         ? toolCallResponse("retry-tool")
         : assistantResponse(ordinaryRequests === 1 ? "retry-seed" : "retry-final");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -1306,12 +1404,16 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     }) => {
       const paths = await workspace(`codex-outer-retry-${label}-`);
       const requests: WireRecord[] = [];
+
       const fetch = vi.fn<FetchFunction>(async (_input, init) => {
         requests.push(requestJson(init?.body, new Headers(init?.headers)));
+
         return requests.length === 1 ? firstResponse() : assistantResponse("retry-clean");
       });
+
       vi.stubGlobal("fetch", fetch);
       const manager = SessionManager.inMemory(paths.cwd);
+
       const session = await createRealCodexSession({
         compaction: {
           enabled: false,
@@ -1323,8 +1425,9 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           baseDelayMs: 1,
           enabled: true,
           maxRetries: 1,
-          provider:
-            providerMaxRetries === undefined ? undefined : { maxRetries: providerMaxRetries },
+          ...(providerMaxRetries !== undefined
+            ? { provider: { maxRetries: providerMaxRetries } }
+            : {}),
         },
         rootDir: paths.rootDir,
         sessionManager: manager,
@@ -1332,6 +1435,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
       try {
         await session.prompt("retry after partial output");
+
         const persistedAssistants = manager
           .getBranch()
           .flatMap((branchEntry) =>
@@ -1339,7 +1443,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
               ? [branchEntry.message]
               : [],
           );
+
         const liveAssistants = session.messages.filter((message) => message.role === "assistant");
+        const [winning] = liveAssistants;
+        assert.ok(winning);
+        expect(JSON.stringify(requests[1]?.input)).not.toContain("partial-before-retry");
 
         expect({
           failedResponseId: persistedAssistants[0]?.responseId,
@@ -1347,15 +1455,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           liveStops: liveAssistants.map((message) => message.stopReason),
           persistedStops: persistedAssistants.map((message) => message.stopReason),
           persistedText: persistedAssistants.map(assistantText),
-          retryContext: JSON.stringify(requests[1]?.input),
-          winningText: assistantText(liveAssistants[0]),
+          winningText: assistantText(winning),
         }).toStrictEqual({
           failedResponseId,
           fetches: 2,
           liveStops: ["stop"],
           persistedStops,
           persistedText: persistedTexts,
-          retryContext: expect.not.stringContaining("partial-before-retry"),
           winningText: "assistant-retry-clean",
         });
       } finally {
@@ -1392,6 +1498,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const fetch = vi.fn<FetchFunction>(async () => response());
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1412,6 +1519,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
     try {
       await session.prompt("do not retry this failure");
+
       const persistedAssistants = manager
         .getBranch()
         .flatMap((branchEntry) =>
@@ -1441,6 +1549,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-provider-outer-retry-websocket-");
     const transports: string[] = [];
     let generatedAttempts = 0;
+
     const CreatedOnlyWebSocket = function CreatedOnlyWebSocket() {
       const socket = Object.assign(new EventTarget(), {
         close: () => null,
@@ -1464,18 +1573,25 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           setTimeout(() => socket.dispatchEvent(new Event("error")), 0);
         },
       });
+
       queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+
       return socket;
     };
+
     vi.stubGlobal("WebSocket", CreatedOnlyWebSocket);
     let sseRequests = 0;
+
     const fetch = vi.fn<FetchFunction>(async () => {
       sseRequests += 1;
       transports.push("sse");
+
       return assistantResponse(`outer-retry-${sseRequests}`);
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1496,6 +1612,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     try {
       await session.prompt("outer retry the WebSocket stream error");
       await session.prompt("remain on sticky SSE");
+
       const persistedAssistants = manager
         .getBranch()
         .flatMap((branchEntry) =>
@@ -1503,6 +1620,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
             ? [branchEntry.message]
             : [],
         );
+
       const liveAssistants = session.messages.filter((message) => message.role === "assistant");
 
       expect({
@@ -1531,13 +1649,17 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const notifications: string[] = [];
     const started = Promise.withResolvers<boolean>();
     const released = Promise.withResolvers<boolean>();
+
     const fetch = vi.fn<FetchFunction>(async () => {
       started.resolve(true);
       await released.promise;
+
       return compactResponse("stale-inline");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1554,7 +1676,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -1597,6 +1719,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       value: () => {
         const branch = actualGetBranch();
         const last = branch.at(-1);
+
         return concealCheckpoint &&
           last?.type === "custom" &&
           last.customType === CHECKPOINT_CUSTOM_TYPE
@@ -1604,6 +1727,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           : branch;
       },
     });
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1619,7 +1743,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -1653,6 +1777,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const fetch = vi.fn<FetchFunction>(async () => malformedCompactResponse());
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -1668,7 +1793,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -1698,18 +1823,23 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-lifecycle-manual-");
     const requests: WireRecord[] = [];
     const requestHeaders: Headers[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
       requestHeaders.push(headers);
       requests.push(request);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("manual");
       }
+
       return assistantResponse(`manual-${requests.length}`);
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.create(paths.cwd, paths.sessionDir);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -1720,6 +1850,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
     });
+
     let resumed: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
     let incompatible: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
     const notifications: string[] = [];
@@ -1729,9 +1860,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.compact();
 
       const installed = resolveActiveCheckpointBoundary(manager.getBranch());
+
       const installedEntry =
         installed.kind === "checkpoint" ? manager.getEntry(installed.boundaryEntryId) : undefined;
+
       const sessionFile = manager.getSessionFile();
+
       if (
         installed.kind !== "checkpoint" ||
         installedEntry?.type !== "compaction" ||
@@ -1739,6 +1873,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       ) {
         throw new Error("Manual checkpoint was not installed");
       }
+
       session.dispose();
 
       const resumedManager = SessionManager.continueRecent(paths.cwd, paths.sessionDir);
@@ -1764,12 +1899,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         model: NON_CODEX_MODEL,
         rootDir: paths.rootDir,
         sessionManager: incompatibleManager,
-        uiContext: mockUiContext({
+        uiContext: await mockUiContext({
           notify: (message: string) => notifications.push(message),
           setStatus: () => null,
         }),
       });
       await incompatible.prompt("must fail closed");
+
       const nativeRequestIndex = requests.findIndex((request) =>
         inputItemTypes(request.input).includes("compaction_trigger"),
       );
@@ -1840,12 +1976,14 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         const request = requestJson(init?.body, headers);
         requestHeaders.push(headers);
         requests.push(request);
+
         return inputItemTypes(request.input).includes("compaction_trigger")
           ? compactResponse("resume-cache")
           : assistantResponse("resume-cache");
       }),
     );
     const manager = SessionManager.create(paths.cwd, paths.sessionDir);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -1857,6 +1995,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
     });
+
     let resumed: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
 
     try {
@@ -1877,9 +2016,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await resumed.compact();
 
       const [ordinary, compact] = requests;
+
       if (!ordinary || !compact) {
         throw new Error("Expected an ordinary request and a compaction request");
       }
+
       const ordinaryInput = wireArray(ordinary.input);
       const compactInput = wireArray(compact.input);
       const cacheKey = wireString(ordinary.prompt_cache_key);
@@ -1887,13 +2028,16 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const compactMetadata = wireRecord(compact.client_metadata);
       const ordinaryTurnMetadata = turnMetadata(ordinary);
       const compactTurnMetadata = turnMetadata(compact);
+
       if (!ordinaryTurnMetadata || !compactTurnMetadata) {
         throw new Error("Expected ordinary and compaction turn metadata");
       }
+
       const identity = (metadata: WireRecord) => ({
         sessionId: wireString(metadata.session_id),
         threadId: wireString(metadata.thread_id),
       });
+
       const expectedIdentity = identity(ordinaryMetadata);
       expect(requestHeaders.map((headers) => headers.get("x-client-request-id"))).toStrictEqual([
         cacheKey,
@@ -1922,19 +2066,25 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const requests: WireRecord[] = [];
     const requestHeaders: Headers[] = [];
     let ordinaryResponses = 0;
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requestHeaders.push(headers);
       const request = requestJson(init?.body, headers);
       requests.push(request);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("manual-replay");
       }
+
       ordinaryResponses += 1;
+
       return assistantResponse(`manual-replay-${ordinaryResponses}`);
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -1956,10 +2106,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const nativeRequest = requests.find((request) =>
         inputItemTypes(request.input).includes("compaction_trigger"),
       );
+
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
+
       if (active.kind !== "checkpoint") {
         throw new Error("Manual replay checkpoint was not installed");
       }
+
       const activeEntry = manager.getEntry(active.boundaryEntryId);
       const marker = nativeCheckpointSummary(active.checkpoint.runtime.currentWindowId);
       const replayInput = requests.at(-1)?.input;
@@ -1996,16 +2149,21 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("aborts replay before fetch when an earlier payload handler mutates the framed branch", async () => {
     const paths = await workspace("codex-inline-replay-race-");
     const notifications: string[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("replay-race");
       }
+
       return assistantResponse("replay-race-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -2015,7 +2173,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       extensionFactories: [mutateBranchBeforeSecondProviderRequest, codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -2049,17 +2207,22 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-inline-corrupt-after-native-");
     const notifications: string[] = [];
     const requests: WireRecord[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
       requests.push(request);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("corrupt-source");
       }
+
       return assistantResponse("corrupt-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -2069,7 +2232,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -2101,36 +2264,45 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("retries an eligible previous-model compaction once with the current model", async () => {
     const paths = await workspace("codex-model-fallback-");
+
     const previousModel = {
       ...SPIKE_MODEL,
       contextWindow: 20_000,
       id: "gpt-5.6-previous",
       name: "Previous Codex",
     };
+
     const currentModel = {
       ...SPIKE_MODEL,
       contextWindow: 4000,
       id: "gpt-5.6-current",
       name: "Current Codex",
     };
+
     const requests: WireRecord[] = [];
+
     const responses = [
       assistantResponse("previous-turn"),
       overflowResponse(),
       compactResponse("current-fallback"),
       assistantResponse("current-turn"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: { enabled: false },
       extensionFactories: [codexCompactionExtension],
@@ -2181,12 +2353,14 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         vi.fn<FetchFunction>(async (_input, init) => {
           const request = requestJson(init?.body, new Headers(init?.headers));
           requests.push(request);
+
           return inputItemTypes(request.input).includes("compaction_trigger")
             ? compactResponse(`inventory-${requests.length}`)
             : assistantResponse(`inventory-${requests.length}`);
         }),
       );
       let childPath = "/root/first_child";
+
       const inventory: ExtensionFactory = (pi) => {
         pi.on("context", (contextEvent) =>
           withChildContext(
@@ -2195,7 +2369,9 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           ),
         );
       };
+
       const manager = SessionManager.inMemory(paths.cwd);
+
       const session = await createRealCodexSession({
         compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 1000 },
         extensionFactories:
@@ -2207,16 +2383,19 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         sessionManager: manager,
         systemPrompt: "short",
       });
+
       try {
         await session.prompt("x".repeat(15_000));
         expect(requests.length).toBeGreaterThanOrEqual(2);
         expect(inputItemTypes(requests[0]?.input)).toContain("compaction_trigger");
+
         for (const request of requests) {
           const text = JSON.stringify(request.input);
           expect(text.match(/<subagents>/gu)).toHaveLength(1);
           expect(text).toContain("/root/first_child");
           expect(text).not.toContain(FRAME_MARKER_PREFIX);
         }
+
         const checkpoint = resolveActiveCheckpointBoundary(manager.getBranch());
         expect(checkpoint.kind).toBe("checkpoint");
         expect(JSON.stringify(checkpoint)).not.toContain("/root/first_child");
@@ -2225,6 +2404,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         await session.prompt("Continue with the current children.");
         expect(requests.length).toBeGreaterThan(firstRequestCount);
         const secondRequests = requests.slice(firstRequestCount);
+
         for (const request of secondRequests) {
           const text = JSON.stringify(request.input);
           expect(text.match(/<subagents>/gu)).toHaveLength(1);
@@ -2232,6 +2412,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           expect(text).not.toContain("/root/first_child");
           expect(text).not.toContain(FRAME_MARKER_PREFIX);
         }
+
         expect(inputItemTypes(secondRequests.at(-1)?.input)).toContain("compaction");
         expect(JSON.stringify(manager.getBranch())).not.toContain(CHILD_CONTEXT_TYPE);
         expect(JSON.stringify(manager.getBranch())).not.toContain("<subagents>");
@@ -2248,13 +2429,17 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const model = { ...SPIKE_MODEL, contextWindow: 4000, maxTokens: 1000 };
     const prompt = `accepted-before-compaction ${"x".repeat(15_000)}`;
     const requests: WireRecord[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const request = requestJson(init?.body, new Headers(init?.headers));
       requests.push(request);
+
       return malformedCompactResponse();
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.create(paths.cwd, paths.sessionDir);
+
     const session = await createRealCodexSession({
       compaction: { enabled: false },
       extensionFactories: [codexCompactionExtension],
@@ -2263,6 +2448,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       sessionManager: manager,
       systemPrompt: "short",
     });
+
     try {
       await session.prompt(prompt);
       expect(requests).toHaveLength(1);
@@ -2270,12 +2456,15 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       expect(resolveActiveCheckpointBoundary(manager.getBranch()).kind).toBe("none");
       const file = manager.getSessionFile();
       expect(file).toBeDefined();
+
       if (!file) throw new Error("Missing durable session");
       const restored = SessionManager.open(file, paths.sessionDir);
+
       for (const branch of [manager.getBranch(), restored.getBranch()]) {
         const users = branch.flatMap((entry) =>
           entry.type === "message" && entry.message.role === "user" ? [entry.message] : [],
         );
+
         expect(users).toHaveLength(1);
         expect(users[0]?.content).toEqual([{ type: "text", text: prompt }]);
       }
@@ -2287,29 +2476,37 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("compacts inline before pre-sampling and continues the pending request", async () => {
     const paths = await workspace("codex-inline-pre-sampling-");
+
     const thresholdModel = {
       ...SPIKE_MODEL,
       contextWindow: 4000,
       maxTokens: 1000,
     };
+
     const requests: WireRecord[] = [];
     const headersSeen: Headers[] = [];
+
     const responses = [
       compactResponse("inline-pre-sampling"),
       assistantResponse("inline-pre-sampling"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       headersSeen.push(headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2328,6 +2525,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
       const sideInput = requests[0]?.input;
       const normalInput = requests[1]?.input;
+
       const checkpointJson =
         active.kind === "checkpoint" ? JSON.stringify(active.checkpoint.replacement) : "";
 
@@ -2360,6 +2558,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         normalTrigger: inputItemTypes(normalInput).includes("compaction_trigger"),
         requestMutationCounts: requests.map((request) => {
           const json = JSON.stringify(request);
+
           return [
             json.split("earlier-context-prefix").length - 1,
             json.split("earlier-context-suffix").length - 1,
@@ -2406,34 +2605,43 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("recompacts recoverable inline history after the endpoint changes", async () => {
     const paths = await workspace("codex-inline-endpoint-change-");
+
     const initialModel = {
       ...SPIKE_MODEL,
       contextWindow: 4000,
       maxTokens: 1000,
     };
+
     const changedModel = {
       ...initialModel,
       baseUrl: "https://changed-endpoint.invalid/backend-api",
       id: "gpt-5.6-changed-endpoint",
       name: "Changed endpoint Codex",
     };
+
     const notifications: string[] = [];
     const requests: WireRecord[] = [];
+
     const responses = [
       compactResponse("inline-old-endpoint"),
       assistantResponse("inline-old-endpoint"),
       compactResponse("lifecycle-new-endpoint"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       requests.push(requestJson(init?.body, new Headers(init?.headers)));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2445,7 +2653,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -2495,24 +2703,31 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("normalizes provider image detail before checkpoint persistence", async () => {
     const paths = await workspace("codex-inline-image-detail-");
+
     const imageModel: Model<"openai-codex-responses"> = {
       ...SPIKE_MODEL,
       contextWindow: 4000,
       input: ["text", "image"],
       maxTokens: 1000,
     };
+
     const requests: WireRecord[] = [];
     const responses = [compactResponse("image-detail"), assistantResponse("image-detail")];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       requests.push(requestJson(init?.body, new Headers(init?.headers)));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: { enabled: false },
       extensionFactories: [codexCompactionExtension],
@@ -2527,9 +2742,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         images: [{ data: "AA", mimeType: "image/png", type: "image" }],
       });
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
+
       if (active.kind !== "checkpoint") {
         throw new Error("Image checkpoint was not installed");
       }
+
       const checkpointJson = JSON.stringify(active.checkpoint.replacement);
       const requestJsons = requests.map((request) => JSON.stringify(request.input));
 
@@ -2558,30 +2775,38 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("preserves paired payload headers and replay-safe images after transformation", async () => {
     const paths = await workspace("codex-inline-transformed-request-");
+
     const imageModel: Model<"openai-codex-responses"> = {
       ...SPIKE_MODEL,
       contextWindow: 4000,
       input: ["text", "image"],
       maxTokens: 1000,
     };
+
     const requests: WireRecord[] = [];
     const headersSeen: Headers[] = [];
+
     const responses = [
       compactResponse("transformed-request"),
       assistantResponse("transformed-request"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       headersSeen.push(headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2600,9 +2825,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         images: [{ data: "AA", mimeType: "image/png", type: "image" }],
       });
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
+
       if (active.kind !== "checkpoint") {
         throw new Error("Transformed checkpoint was not installed");
       }
+
       const checkpointJson = JSON.stringify(active.checkpoint.replacement);
       const requestJsons = requests.map((request) => JSON.stringify(request.input));
 
@@ -2644,20 +2871,26 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("compacts a pending user turn from fresh provider usage", async () => {
     const paths = await workspace("codex-inline-fresh-usage-");
+
     const responses = [
       assistantResponse("high-usage", 3700),
       compactResponse("fresh-usage"),
       assistantResponse("after-fresh-usage"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async () => {
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2701,17 +2934,22 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-inline-replaced-context-");
     const requests: WireRecord[] = [];
     const responses = [compactResponse("replaced-context"), assistantResponse("replaced-context")];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2755,29 +2993,37 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("compacts a finalized payload-only threshold crossing without marker framing", async () => {
     const paths = await workspace("codex-inline-payload-only-");
+
     const thresholdModel = {
       ...SPIKE_MODEL,
       contextWindow: 80_000,
       maxTokens: 1000,
     };
+
     const contextTokens: ContextTokenCapture = {};
     const requests: WireRecord[] = [];
+
     const responses = [
       compactResponse("payload-only"),
       assistantResponse("payload-only-pending"),
       assistantResponse("payload-only-replay"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2851,23 +3097,29 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-inline-lite-tool-");
     const contextTokens: ContextTokenCapture = {};
     const requests: WireRecord[] = [];
+
     const responses = [
       compactResponse("lite-tool"),
       toolCallResponse("lite-tool", "post_compaction_probe"),
       assistantResponse("lite-tool-final"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     const probeCheckpointCounts: number[] = [];
+
     const postCompactionProbe: ExtensionFactory = (pi) => {
       pi.registerTool({
         description: "Confirm tools remain available after compaction",
@@ -2879,6 +3131,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
                 (entry) => entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE,
               ).length,
           );
+
           return {
             content: [{ text: "post-compaction probe complete", type: "text" }],
             details: {},
@@ -2889,8 +3142,10 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         parameters: Type.Object({}),
       });
     };
+
     const systemPrompt =
       "POST_COMPACTION_SYSTEM_SENTINEL: use post_compaction_probe when requested.";
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2917,24 +3172,27 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("Run the post-compaction probe");
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
       const [, pending] = requests;
-      const pendingInput = Array.isArray(pending?.input) ? pending.input : [];
+      const pendingInput = Array.isArray(pending?.input) ? wireArray(pending.input) : [];
+
       const additionalTools = pendingInput.find(
         (item): item is WireRecord =>
           Value.Check(WireRecordSchema, item) && item.type === "additional_tools",
       );
+
       const developerMessage = pendingInput.find(
         (item) =>
           Value.Check(WireRecordSchema, item) &&
           item.type === "message" &&
           item.role === "developer",
       );
+
       const toolNames = Array.isArray(additionalTools?.tools)
         ? additionalTools.tools.flatMap((tool) =>
-            Value.Check(WireRecordSchema, tool) && Value.Check(StringValueSchema, tool.name)
-              ? [tool.name]
-              : [],
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
+            Value.Check(WireRecordSchema, tool) && typeof tool.name === "string" ? [tool.name] : [],
           )
         : [];
+
       const checkpointJson =
         active.kind === "checkpoint" ? JSON.stringify(active.checkpoint.replacement) : "";
 
@@ -2972,11 +3230,14 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("blocks an unframed threshold candidate after a payload-stage branch race", async () => {
     const paths = await workspace("codex-inline-payload-race-");
     const notifications: string[] = [];
+
     const fetch = vi.fn<FetchFunction>(async () => {
       throw new Error("Unexpected fetch");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -2992,7 +3253,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -3023,15 +3284,19 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-inline-tool-split-");
     const requests: WireRecord[] = [];
     const responses = [compactResponse("tool-split"), assistantResponse("tool-split-pending")];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     manager.appendMessage({
@@ -3047,6 +3312,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       toolCallId: "call_split",
       toolName: "read_file",
     });
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -3092,17 +3358,22 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("blocks active replay when a marker would split a tool pair", async () => {
     const paths = await workspace("codex-inline-active-tool-split-");
     const notifications: string[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("active-tool-split");
       }
+
       return assistantResponse("active-tool-split-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     let splitEnabled = false;
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3118,7 +3389,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -3155,13 +3426,16 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("keeps host mid-turn ownership in an agent.continue() run", async () => {
     const paths = await workspace("codex-lifecycle-mid-turn-");
+
     const toolLoopModel = {
       ...SPIKE_MODEL,
       contextWindow: 30_000,
       maxTokens: 2000,
     };
+
     const requests: WireRecord[] = [];
     const compactEvents: SessionCompactEvent[] = [];
+
     const responses = [
       assistantResponse("cold-start"),
       assistantResponse("host-initial"),
@@ -3169,19 +3443,24 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       compactResponse("host-mid-turn"),
       assistantResponse("host-mid-turn-final"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       requests.push(requestJson(init?.body, new Headers(init?.headers)));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     let agentEnds = 0;
     let agentStarts = 0;
     let beforeAgentStarts = 0;
     let queuedContinuation = false;
+
     const observeCompaction: ExtensionFactory = (pi) => {
       pi.on("before_agent_start", () => {
         beforeAgentStarts += 1;
@@ -3191,6 +3470,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       });
       pi.on("agent_end", () => {
         agentEnds += 1;
+
         if (agentEnds === 2 && !queuedContinuation) {
           queuedContinuation = true;
           pi.sendUserMessage("Run the large result tool", { deliverAs: "followUp" });
@@ -3200,8 +3480,10 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         compactEvents.push(compactEvent);
       });
     };
+
     const manager = SessionManager.inMemory(paths.cwd);
     const systemPrompt = "HOST_MIDTURN_SYSTEM_SENTINEL: use the large_result tool once.";
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3235,14 +3517,15 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
       const continuation = requests[4];
       const continuationInput = continuation?.input;
-      const continuationInstructions = Value.Check(StringValueSchema, continuation?.instructions)
-        ? continuation.instructions
-        : "";
+
+      const continuationInstructions =
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
+        typeof continuation?.instructions === "string" ? continuation.instructions : "";
+
       const continuationToolNames = Array.isArray(continuation?.tools)
         ? continuation.tools.flatMap((tool) =>
-            Value.Check(WireRecordSchema, tool) && Value.Check(StringValueSchema, tool.name)
-              ? [tool.name]
-              : [],
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
+            Value.Check(WireRecordSchema, tool) && typeof tool.name === "string" ? [tool.name] : [],
           )
         : [];
 
@@ -3288,28 +3571,36 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("uses inline mid-turn compaction only in the provider-native limit gap", async () => {
     const paths = await workspace("codex-inline-mid-turn-");
+
     const toolLoopModel = {
       ...SPIKE_MODEL,
       contextWindow: 30_000,
       maxTokens: 2000,
     };
+
     const requests: WireRecord[] = [];
+
     const responses = [
       toolCallResponse("mid-turn"),
       compactResponse("mid-turn"),
       assistantResponse("mid-turn-final"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3356,14 +3647,17 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("replaces repeated inline opaque state and replays it after resume and branch", async () => {
     const paths = await workspace("codex-inline-repeated-");
+
     const repeatModel = {
       ...SPIKE_MODEL,
       contextWindow: 30_000,
       maxTokens: 2000,
     };
+
     const requests: WireRecord[] = [];
     const notifications: string[] = [];
     const extensionErrors: string[] = [];
+
     const responses = [
       toolCallResponse("repeat-first-tool"),
       compactResponse("repeat-first"),
@@ -3374,17 +3668,22 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       assistantResponse("repeat-resume"),
       assistantResponse("repeat-branch"),
     ];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       requests.push(requestJson(init?.body, headers));
       const response = responses.shift();
+
       if (!response) {
         throw new Error("Unexpected fetch");
       }
+
       return response;
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.create(paths.cwd, paths.sessionDir);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: false,
@@ -3397,11 +3696,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "Use large_result when requested.",
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
     });
+
     let resumed: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
 
     try {
@@ -3409,9 +3709,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("Run large_result for second checkpoint");
       const second = resolveActiveCheckpointBoundary(manager.getBranch());
       const sessionFile = manager.getSessionFile();
+
       if (second.kind !== "checkpoint" || !sessionFile) {
         throw new Error("Second inline checkpoint was not installed");
       }
+
       const secondPending = JSON.stringify(requests[5]?.input) ?? "";
       session.dispose();
 
@@ -3468,29 +3770,38 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-lifecycle-repeated-");
     let nativeCompactions = 0;
     let ordinaryResponses = 0;
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         nativeCompactions += 1;
+
         return compactResponse(nativeCompactions === 1 ? "first" : "second");
       }
+
       ordinaryResponses += 1;
+
       return assistantResponse(ordinaryResponses === 1 ? "first-source" : "second-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     const notifications: string[] = [];
     const compactEvents: SessionCompactEvent[] = [];
+
     const captureCompactions: ExtensionFactory = (pi) => {
       pi.on("session_compact", (compactEvent) => {
         compactEvents.push(compactEvent);
       });
     };
-    const uiContext = mockUiContext({
+
+    const uiContext = await mockUiContext({
       notify: (message: string) => notifications.push(message),
       setStatus: () => null,
     });
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3507,6 +3818,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("first lifecycle source");
       await session.compact();
       const first = resolveActiveCheckpointBoundary(manager.getBranch());
+
       if (first.kind !== "checkpoint") {
         throw new Error("First lifecycle checkpoint was not installed");
       }
@@ -3514,10 +3826,13 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("second lifecycle source");
       await session.compact();
       const newest = resolveActiveCheckpointBoundary(manager.getBranch());
+
       const eventResponses = compactEvents.map((compactEvent) => {
         const carrier = resolveCheckpointCarrier(compactEvent.compactionEntry);
+
         return carrier.kind === "checkpoint" ? carrier.checkpoint.response.id : carrier.kind;
       });
+
       expect({
         compactions: manager.getBranch().filter((entry) => entry.type === "compaction").length,
         eventResponses,
@@ -3547,34 +3862,44 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-lifecycle-abort-");
     const sideRequestsStarted = Promise.withResolvers<null>();
     let sideRequests = 0;
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         sideRequests += 1;
+
         if (sideRequests > 1) {
           return compactResponse("abort-recovery");
         }
+
         sideRequestsStarted.resolve(null);
         const pending = Promise.withResolvers<Response>();
         const signal = init?.signal;
+
         const onAbort = () => {
           const error = new Error("aborted lifecycle compaction");
           error.name = "AbortError";
           pending.reject(error);
         };
+
         if (signal?.aborted) {
           onAbort();
         } else {
           signal?.addEventListener("abort", onAbort, { once: true });
         }
+
         return pending.promise;
       }
+
       return assistantResponse("abort-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     const notifications: string[] = [];
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3584,7 +3909,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -3622,15 +3947,18 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("skips lifecycle authentication when a preceding hook aborts compaction", async () => {
     const paths = await workspace("codex-lifecycle-pre-aborted-");
     let abortCompaction = () => {};
+
     const abortBeforeLifecycle: ExtensionFactory = (pi) => {
       pi.on("session_before_compact", () => {
         abortCompaction();
       });
     };
+
     vi.stubGlobal(
       "fetch",
       vi.fn<FetchFunction>(async () => assistantResponse("pre-aborted-source")),
     );
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3641,9 +3969,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: SessionManager.inMemory(paths.cwd),
     });
+
     abortCompaction = () => {
       session.abortCompaction();
     };
+
     const authSpy = vi.spyOn(session.extensionRunner.getModelRegistry(), "getApiKeyAndHeaders");
 
     try {
@@ -3666,6 +3996,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
     const notifications: string[] = [];
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3675,17 +4006,20 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
     });
+
     const authSpy = vi
       .spyOn(session.extensionRunner.getModelRegistry(), "getApiKeyAndHeaders")
       .mockImplementation(() => {
         authStarted.resolve(null);
+
         return pendingAuth.promise;
       });
+
     let cleanup: Promise<unknown> | undefined;
 
     try {
@@ -3727,7 +4061,9 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("discards a cancelled pending install and reuses window one", async () => {
     const paths = await workspace("codex-lifecycle-cancelled-install-");
     let abortCompaction = () => {};
+
     let cancelNext = true;
+
     const cancelAfterCheckpoint: ExtensionFactory = (pi) => {
       pi.on("session_before_compact", () => {
         if (cancelNext) {
@@ -3736,18 +4072,25 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         }
       });
     };
+
     let nativeCompactions = 0;
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         nativeCompactions += 1;
+
         return compactResponse(`cancelled-install-${nativeCompactions}`);
       }
+
       return assistantResponse("cancelled-install-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3758,6 +4101,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       rootDir: paths.rootDir,
       sessionManager: manager,
     });
+
     abortCompaction = () => {
       session.abortCompaction();
     };
@@ -3790,17 +4134,23 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-lifecycle-request-state-");
     const delayed = Promise.withResolvers<Response>();
     const sideRequestStarted = Promise.withResolvers<null>();
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         sideRequestStarted.resolve(null);
+
         return delayed.promise;
       }
+
       return assistantResponse("state-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3814,9 +4164,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
     try {
       await session.prompt("request state source");
+
       if (session.getActiveToolNames().length === 0) {
         throw new Error("Fixture requires at least one active tool");
       }
+
       const before = manager.getBranch().map((branchEntry) => branchEntry.id);
       const compacting = session.compact();
       await sideRequestStarted.promise;
@@ -3881,10 +4233,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       timestamp: Date.now(),
     });
     const notifications: string[] = [];
-    const uiContext = mockUiContext({
+
+    const uiContext = await mockUiContext({
       notify: (message: string) => notifications.push(message),
       setStatus: () => null,
     });
+
     const session = await createRealCodexSession({
       apiKey: "",
       compaction: {
@@ -3923,14 +4277,18 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   it("leaves the branch unchanged after native lifecycle failure", async () => {
     const paths = await workspace("codex-lifecycle-policy-");
     const notifications: string[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const request = requestJson(init?.body, new Headers(init?.headers));
+
       return inputItemTypes(request.input).includes("compaction_trigger")
         ? malformedCompactResponse()
         : assistantResponse("policy-source");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -3940,7 +4298,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       extensionFactories: [codexCompactionExtension],
       rootDir: paths.rootDir,
       sessionManager: manager,
-      uiContext: mockUiContext({
+      uiContext: await mockUiContext({
         notify: (message: string) => notifications.push(message),
         setStatus: () => null,
       }),
@@ -3950,9 +4308,11 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("policy source");
       const before = manager.getBranch().map((branchEntry) => branchEntry.id);
       await expect(session.compact()).rejects.toThrow("cancelled");
+
       const compactions = manager
         .getBranch()
         .filter((branchEntry) => branchEntry.type === "compaction");
+
       const after = manager.getBranch().map((branchEntry) => branchEntry.id);
 
       expect({
@@ -3978,20 +4338,28 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const paths = await workspace("codex-lifecycle-automatic-policy-");
       let nativeCompactions = 0;
       let ordinaryRequests = 0;
+
       const fetch = vi.fn<FetchFunction>(async (_input, init) => {
         const request = requestJson(init?.body, new Headers(init?.headers));
+
         if (inputItemTypes(request.input).includes("compaction_trigger")) {
           nativeCompactions += 1;
+
           return malformedCompactResponse();
         }
+
         ordinaryRequests += 1;
+
         if (reason === "overflow" && ordinaryRequests === 2) {
           return overflowResponse();
         }
+
         return assistantResponse(`${reason}-turn-${ordinaryRequests}`);
       });
+
       vi.stubGlobal("fetch", fetch);
       const manager = SessionManager.inMemory(paths.cwd);
+
       const session = await createRealCodexSession({
         compaction: {
           enabled: true,
@@ -4005,12 +4373,15 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
       try {
         await session.prompt(`${reason} policy seed`);
+
         if (reason === "overflow") {
           await session.prompt("trigger overflow policy");
         }
+
         const compactions = manager
           .getBranch()
           .filter((branchEntry) => branchEntry.type === "compaction");
+
         expect({
           compactions: compactions.length,
           nativeCompactions,
@@ -4029,6 +4400,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
   it("records post-run threshold compaction after a terminating tool as standalone", async () => {
     const paths = await workspace("codex-lifecycle-threshold-");
+
     const terminalTool: ExtensionFactory = (pi) => {
       pi.registerTool({
         description: "Finish the run with a short result",
@@ -4042,16 +4414,21 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         parameters: Type.Object({}),
       });
     };
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("threshold");
       }
+
       return toolCallResponse("threshold", "terminal_threshold");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,
@@ -4066,14 +4443,18 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     try {
       await session.prompt("Call terminal_threshold once");
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
+
       const activeEntry =
         active.kind === "checkpoint" ? manager.getEntry(active.boundaryEntryId) : undefined;
+
       const entryBeforeCompaction =
         active.kind === "checkpoint" ? manager.getBranch()[active.boundaryIndex - 1] : undefined;
+
       const marker =
         active.kind === "checkpoint"
           ? nativeCheckpointSummary(active.checkpoint.runtime.currentWindowId)
           : undefined;
+
       expect({
         carrier: active.kind === "checkpoint" ? active.carrier : undefined,
         fetches: fetch.mock.calls.length,
@@ -4104,20 +4485,26 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const paths = await workspace("codex-lifecycle-overflow-");
     const requests: WireRecord[] = [];
     let ordinaryRequests = 0;
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       const headers = new Headers(init?.headers);
       const request = requestJson(init?.body, headers);
       requests.push(request);
+
       if (inputItemTypes(request.input).includes("compaction_trigger")) {
         return compactResponse("overflow");
       }
+
       ordinaryRequests += 1;
+
       return ordinaryRequests === 2
         ? overflowResponse()
         : assistantResponse(ordinaryRequests === 1 ? "seed" : "retry");
     });
+
     vi.stubGlobal("fetch", fetch);
     const manager = SessionManager.inMemory(paths.cwd);
+
     const session = await createRealCodexSession({
       compaction: {
         enabled: true,

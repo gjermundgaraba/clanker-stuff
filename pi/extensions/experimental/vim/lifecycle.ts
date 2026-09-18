@@ -8,14 +8,18 @@ export function createVim(pi: ExtensionAPI) {
   let stop: (() => void) | undefined;
   let context: ExtensionContext | undefined;
   let mode: Mode = "insert";
+
   const fallback = () =>
     context?.ui.setStatus("vim", border.available ? undefined : `VIM ${mode.toUpperCase()}`);
+
   const border = createBorderStatusClient(pi, { owner: "vim", onAvailabilityChange: fallback });
+
   const publish = (next: Mode) => {
     mode = next;
     border.set("mode", { text: next.toUpperCase(), tone: "accent", priority: 100 });
     fallback();
   };
+
   const dispose = () => {
     stop?.();
     stop = undefined;
@@ -23,12 +27,15 @@ export function createVim(pi: ExtensionAPI) {
     context?.ui.setStatus("vim", undefined);
     context = undefined;
   };
+
   return {
     start(ctx: ExtensionContext) {
       dispose();
       context = ctx;
+
       if (ctx.mode !== "tui") return;
       const host = acquireEditorHost(ctx);
+
       if (!host) return;
       border.attach(ctx);
       stop = mountVim(host, publish);

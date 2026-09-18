@@ -1,3 +1,4 @@
+import type { createSideConversation } from "./session.js";
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import type {
   ExtensionAPI,
@@ -9,11 +10,15 @@ import type { createSideController } from "./controller.js";
 
 type SideController = ReturnType<typeof createSideController>;
 
-export const createSideRuntime = (pi: ExtensionAPI) => {
+export const createSideRuntime = (
+  pi: ExtensionAPI,
+  createConversation?: typeof createSideConversation,
+) => {
   const side = createLazySingleton<SideController>(async (signal) => {
     const { createSideController } = await import("./controller.js");
     signal.throwIfAborted();
-    return createSideController(pi);
+
+    return createSideController(pi, createConversation);
   });
 
   return {
@@ -21,6 +26,7 @@ export const createSideRuntime = (pi: ExtensionAPI) => {
       if (side.get() === undefined && !side.isLoading()) {
         return;
       }
+
       const controller = await side.load();
       await controller?.closeOnTreeChange(ctx);
     },

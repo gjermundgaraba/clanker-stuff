@@ -89,6 +89,7 @@ export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarness
         if (projectDir && existsSync(projectDir)) {
           rmSync(projectDir, { force: true, recursive: true });
         }
+
         if (homeDir && existsSync(homeDir)) {
           rmSync(homeDir, { force: true, recursive: true });
         }
@@ -112,11 +113,13 @@ export const createExtensionSmokeHarness = async (options: ExtensionSmokeHarness
 
     harness = await createAgentSessionHarness({
       cwd: projectDir,
-      models: options.models,
-      settings: options.packages === undefined ? undefined : { packages: options.packages },
-      skillPaths: options.skillPaths,
-      uiContext: options.uiContext,
-      withConfiguredAuth: options.withConfiguredAuth,
+      ...(options.models === undefined ? {} : { models: options.models }),
+      ...(options.packages === undefined ? {} : { settings: { packages: options.packages } }),
+      ...(options.skillPaths === undefined ? {} : { skillPaths: options.skillPaths }),
+      ...(options.uiContext === undefined ? {} : { uiContext: options.uiContext }),
+      ...(options.withConfiguredAuth === undefined
+        ? {}
+        : { withConfiguredAuth: options.withConfiguredAuth }),
     });
 
     return {

@@ -11,6 +11,7 @@ export const ToneSchema = Type.Union([
   Type.Literal("warning"),
   Type.Literal("error"),
 ]);
+
 export type Tone = Static<typeof ToneSchema>;
 
 /** Usage meters stay neutral until they need attention. */

@@ -15,8 +15,11 @@ import {
 } from "../fixtures/code-mode-rendering.js";
 
 const SUCCESS_BG = "48;2;40;50;40m";
+
 const ERROR_BG = "48;2;60;40;40m";
+
 const PENDING_BG = "48;2;40;40;50m";
+
 const isPaddingRow = (line: string | undefined): boolean =>
   line !== undefined && line.length > 0 && stripVTControlCharacters(line).trim().length === 0;
 
@@ -26,6 +29,7 @@ describe("Code Mode display", () => {
   it("renders through Pi's real shell, expands, resizes, and refreshes theme colors", () => {
     const { definition } = codeModeTool();
     const code = 'await tools.exec_command({cmd: "vp test"});';
+
     const row = new ToolExecutionComponent(
       "exec",
       "shell",
@@ -35,10 +39,12 @@ describe("Code Mode display", () => {
       createMockTui(),
       "/tmp/demo",
     );
+
     row.updateResult({
       ...result([processTrace("failed", "vp test", "test failed", 1)]),
       isError: false,
     });
+
     for (const width of [40, 60, 80, 120]) {
       const rendered = row.render(width);
       expect(rendered.length).toBeLessThanOrEqual(19);
@@ -48,10 +54,12 @@ describe("Code Mode display", () => {
       expect(rendered.slice(1).every((line) => line.includes(ERROR_BG))).toBe(true);
       expect(rendered.join("\n")).not.toContain(SUCCESS_BG);
     }
+
     row.setExpanded(true);
     expect(stripVTControlCharacters(row.render(120).join("\n"))).toContain(code);
     row.setExpanded(false);
     const dark = row.render(80).join("\n");
+
     try {
       initTheme("light");
       row.invalidate();
@@ -65,6 +73,7 @@ describe("Code Mode display", () => {
 
   it("draws one shared box whose color follows the script and its nested commands", () => {
     const { definition } = codeModeTool();
+
     const row = new ToolExecutionComponent(
       "exec",
       "shell",
@@ -74,6 +83,7 @@ describe("Code Mode display", () => {
       createMockTui(),
       "/tmp/demo",
     );
+
     const boxed = (lines: string[], bg: string) => {
       // Pi emits one unpainted spacer row, then the box: padding, content, padding.
       expect(lines[0]).toBe("");
@@ -82,6 +92,7 @@ describe("Code Mode display", () => {
       expect(lines.slice(1).every((line) => line.includes(bg))).toBe(true);
       expect(lines.slice(1).every((line) => visibleWidth(line) === 80)).toBe(true);
     };
+
     const pending = row.render(80);
     boxed(pending, PENDING_BG);
     expect(stripVTControlCharacters(pending[2] ?? "")).toMatch(/^ Exec/u);
@@ -94,10 +105,12 @@ describe("Code Mode display", () => {
     );
 
     row.setExpanded(true);
+
     const expanded = row
       .render(80)
       .map((line) => stripVTControlCharacters(line).trimEnd())
       .join("\n");
+
     boxed(row.render(80), SUCCESS_BG);
     // The script and its results share one box: no seam between the call and the result rows.
     expect(expanded).toMatch(/exec_command\(\{cmd: "echo hi"\}\);\n Results · 1 command/u);
@@ -105,45 +118,55 @@ describe("Code Mode display", () => {
 
   it("keeps a short script preview, then replaces it with commands on the first result frame", () => {
     const tool = codeModeTool();
+
     const code =
       '// @exec: {"yield_time_ms": 500}\n' +
       Array.from({ length: 10 }, (_, i) => `const value${i} = ${i};`).join("\n");
+
     const ctx = context();
     const call = tool.renderCall({ code }, theme, ctx);
     expect(rows(call)).toHaveLength(5);
     expect(rows(call)[0]).toContain("Exec @exec");
     expect(rows(call).at(-1)).toContain("to expand");
+
     const body = tool.renderResult(
       result([processTrace("a", "echo hello", "hello")]),
       { expanded: false, isPartial: false },
       theme,
       ctx,
     );
+
     expect(rows(call)).toEqual([]);
     expect(rows(body)[0]).toBe("Exec · 1 command · ✓ completed");
     const expanded = rows(tool.renderCall({ code }, theme, { ...ctx, expanded: true }));
     expect(expanded).toHaveLength(11);
     expect(expanded.join("\n")).toContain("const value9 = 9;");
     const long = tool.renderCall({ code: `text("${"x".repeat(1500)}")` }, theme, context());
+
     for (const width of [40, 60, 80, 120]) expect(rows(long, width)).toHaveLength(5);
   });
 
   it("puts failed command output inline and restores the complete source and results when expanded", () => {
     const tool = codeModeTool();
+
     const traces = [
       processTrace("a", "rg --files src", "src/app.ts"),
       processTrace("b", "vp test", "FAIL editor.test.ts\nExpected: 4\nReceived: 3", 1),
     ];
+
     const returned = JSON.stringify({
       output: "FAIL editor.test.ts\nExpected: 4\nReceived: 3",
       exit_code: 1,
       wall_time_seconds: 1.2,
       original_token_count: 30,
     });
+
     const data = result(traces, [returned, "Custom summary"]);
+
     const compact = rows(
       tool.renderResult(data, { expanded: false, isPartial: false }, theme, context()),
     ).join("\n");
+
     expect(compact).toContain("Exec · 2 commands · 1 failed");
     expect(compact).toMatch(/✓ \$ rg --files src\s+1\.2s/u);
     expect(compact).toMatch(/✗ \$ vp test\s+exit 1 · 1\.2s/u);
@@ -151,9 +174,11 @@ describe("Code Mode display", () => {
     expect(compact.match(/FAIL editor.test.ts/gu)).toHaveLength(1);
     expect(compact).not.toContain("wall_time_seconds");
     expect(compact).toContain("Custom summary");
+
     const expanded = rows(
       tool.renderResult(data, { expanded: true, isPartial: false }, theme, context(true)),
     ).join("\n");
+
     expect(expanded).toContain("src/app.ts");
     expect(expanded).toContain("Script output");
     expect(expanded).toContain('"wall_time_seconds": 1.2');
@@ -163,8 +188,10 @@ describe("Code Mode display", () => {
 
   it("renders nested freeform patches from the raw string Code Mode passes", () => {
     const tool = codeModeTool();
+
     const patch =
       "*** Begin Patch\n*** Update File: before.ts\n*** Move to: after.ts\n*** End Patch";
+
     const trace: RuntimeToolTrace = {
       id: "p",
       input: patch,
@@ -186,11 +213,14 @@ describe("Code Mode display", () => {
       },
       status: "done",
     };
+
     const compact = rows(
       tool.renderResult(result([trace]), { expanded: false, isPartial: false }, theme, context()),
     ).join("\n");
+
     expect(compact).toContain("apply_patch Update before.ts → after.ts");
     expect(compact).not.toContain("invalid arg");
+
     const expanded = rows(
       tool.renderResult(
         result([trace]),
@@ -199,6 +229,7 @@ describe("Code Mode display", () => {
         context(true),
       ),
     ).join("\n");
+
     expect(expanded).toContain("apply_patch Update before.ts → after.ts");
   });
 
@@ -211,12 +242,14 @@ describe("Code Mode display", () => {
       content: [{ type: "text", text: `${head}\n[Trace output truncated]` }],
       details: trace.result?.details,
     };
+
     const returned = JSON.stringify({
       output: complete,
       exit_code: 1,
       wall_time_seconds: 1.2,
       original_token_count: 30,
     });
+
     const compact = rows(
       tool.renderResult(
         result([trace], [returned]),
@@ -225,6 +258,7 @@ describe("Code Mode display", () => {
         context(),
       ),
     ).join("\n");
+
     expect(compact).toContain("FAIL final assertion");
     expect(compact).not.toContain("[Trace output truncated]");
   });
@@ -232,6 +266,7 @@ describe("Code Mode display", () => {
   it("shows multiline returned process output without its JSON envelope", () => {
     const tool = codeModeTool();
     const trace = processTrace("a", "echo files", "a.ts\nb.ts");
+
     const data = result(
       [trace],
       [
@@ -243,11 +278,14 @@ describe("Code Mode display", () => {
         }),
       ],
     );
+
     const output = rows(
       tool.renderResult(data, { expanded: false, isPartial: false }, theme, context()),
     ).join("\n");
+
     expect(output).toContain("\na.ts\nb.ts\n");
     expect(output).not.toContain("original_token_count");
+
     const arbitrary = rows(
       tool.renderResult(
         result([], ['{"exit_code":0,"output":"a\\nb"}']),
@@ -256,14 +294,17 @@ describe("Code Mode display", () => {
         context(true),
       ),
     ).join("\n");
+
     expect(arbitrary).toContain('"output": "a\\nb"');
   });
 
   it("caps the complete collapsed result and prioritizes failed and running calls", () => {
     const tool = codeModeTool();
+
     const traces = Array.from({ length: 30 }, (_, i) =>
       processTrace(`t${i}`, `echo task-${i}`, "ok"),
     );
+
     traces[0] = processTrace("t0", "failed-task", "failure details", 2);
     traces[1] = {
       id: "t1",
@@ -272,6 +313,7 @@ describe("Code Mode display", () => {
       status: "running",
     };
     const data = result(traces, ["extra output\n".repeat(100)], "running");
+
     for (const width of [40, 60, 80, 120]) {
       const component = tool.renderResult(
         data,
@@ -279,6 +321,7 @@ describe("Code Mode display", () => {
         theme,
         context(),
       );
+
       const raw = component.render(width);
       expect(raw.length).toBeLessThanOrEqual(18);
       expect(raw.every((line) => visibleWidth(line) <= width)).toBe(true);
@@ -287,26 +330,32 @@ describe("Code Mode display", () => {
       expect(text).toContain("running-task");
       expect(text).toContain("26 more calls");
     }
+
     const expanded = rows(
       tool.renderResult(data, { expanded: true, isPartial: true }, theme, context(true)),
     ).join("\n");
+
     expect(expanded).toContain("echo task-2");
     expect(expanded).toContain("echo task-29");
   });
 
   it("reports hidden failures without exceeding the budget", () => {
     const tool = codeModeTool();
+
     const traces = Array.from({ length: 20 }, (_, i) =>
       processTrace(`t${i}`, `fail-${i}`, "error\n".repeat(100), 1),
     );
+
     const data = {
       ...result(traces),
       details: { ...result(traces).details, droppedTraceCount: 2 },
     };
+
     const output = rows(
       tool.renderResult(data, { expanded: false, isPartial: false }, theme, context()),
       120,
     );
+
     expect(output.length).toBeLessThanOrEqual(16);
     expect(output[0]).toContain("20 failed");
     expect(output.at(-1)).toContain("16 more calls · 16 failed · 2 calls not traced");
@@ -314,8 +363,10 @@ describe("Code Mode display", () => {
 
   it("does not borrow a running parent's status or start duplicate pending timers", () => {
     vi.useFakeTimers();
+
     try {
       const tool = codeModeTool();
+
       const data = result(
         [
           processTrace("done", "finished-command", "done"),
@@ -329,10 +380,13 @@ describe("Code Mode display", () => {
         [],
         "running",
       );
+
       const ctx = { ...context(), isPartial: true };
+
       const output = rows(
         tool.renderResult(data, { expanded: false, isPartial: true }, theme, ctx),
       );
+
       expect(output.filter((line) => line.includes("finished-command"))).toEqual([
         expect.stringMatching(/✓ \$ finished-command\s+1\.2s/u),
       ]);
@@ -349,6 +403,7 @@ describe("Code Mode display", () => {
 
   it("reconciles a yielded process with the later poll that observes its exit", () => {
     const tool = codeModeTool();
+
     const started: RuntimeToolTrace = {
       id: "start",
       input: { cmd: "long-job" },
@@ -359,11 +414,13 @@ describe("Code Mode display", () => {
         details: { status: "running", sessionId: 7, exitCode: null, durationMs: 100 },
       },
     };
+
     const ended: RuntimeToolTrace = {
       ...processTrace("end", "", "finished"),
       name: "write_stdin",
       input: { session_id: 7 },
     };
+
     const output = rows(
       tool.renderResult(
         result([started, ended]),
@@ -372,6 +429,7 @@ describe("Code Mode display", () => {
         context(),
       ),
     );
+
     expect(output[0]).toBe("Exec · 2 calls · ✓ completed");
     expect(output.join("\n")).not.toContain("running");
     expect(output.join("\n")).toContain("yielded · 0.1s");
@@ -399,6 +457,7 @@ describe("Code Mode display", () => {
 
   it("keeps cell identity terminal-safe and single-line in both views", () => {
     const tool = codeModeTool("wait");
+
     for (const expanded of [false, true]) {
       for (const terminate of [false, true]) {
         const component = tool.renderCall(
@@ -409,7 +468,9 @@ describe("Code Mode display", () => {
           theme,
           context(expanded),
         );
+
         expect(rows(component, 80)).toEqual([`${terminate ? "Terminate" : "Wait"} #557 second`]);
+
         for (const width of [16, 30, 80]) {
           expect(rows(component, width)).toHaveLength(1);
           expect(component.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
@@ -432,10 +493,12 @@ describe("Code Mode display", () => {
     ["wait", undefined, "✗ Tool errors · 1 running · 1 failed"],
   ])("selects one status for %s / %s with mixed outcomes", (kind, status, expected) => {
     const tool = codeModeTool(kind);
+
     const data = result([
       processTrace("failed", "false", "failed", 1),
       { id: "running", name: "exec_command", input: { cmd: "sleep 10" }, status: "running" },
     ]);
+
     const render = (scriptError?: string) =>
       rows(
         tool.renderResult(
@@ -449,6 +512,7 @@ describe("Code Mode display", () => {
         ),
         120,
       );
+
     expect(render()[kind === "wait" ? 1 : 0]).toContain(expected);
     // Script errors outrank even termination and independently failed nested tools.
     expect(render("boom")[kind === "wait" ? 1 : 0]).toContain("✗ error");
@@ -457,6 +521,7 @@ describe("Code Mode display", () => {
 
   it("distinguishes a pending termination from an ordinary wait", () => {
     const tool = codeModeTool("wait");
+
     const output = rows(
       tool.renderResult(
         result([], [], "running"),
@@ -468,11 +533,13 @@ describe("Code Mode display", () => {
         { ...context(), args: { cell_id: "557", terminate: true } },
       ),
     );
+
     expect(output).toEqual(["Terminate #557", "● Stopping script"]);
   });
 
   it("lets an observed exit outrank a concurrent poll that still saw the process running", () => {
     const tool = codeModeTool();
+
     const started: RuntimeToolTrace = {
       id: "start",
       input: { cmd: "long-job" },
@@ -483,11 +550,13 @@ describe("Code Mode display", () => {
         details: { status: "running", sessionId: 7, exitCode: null, durationMs: 100 },
       },
     };
+
     const slowPoll: RuntimeToolTrace = {
       ...processTrace("slow", "", "finished"),
       name: "write_stdin",
       input: { session_id: 7, yield_time_ms: 5000 },
     };
+
     const fastPoll: RuntimeToolTrace = {
       id: "fast",
       input: { session_id: 7, yield_time_ms: 0 },
@@ -498,6 +567,7 @@ describe("Code Mode display", () => {
         details: { status: "running", sessionId: 7, exitCode: null, durationMs: 1 },
       },
     };
+
     const output = rows(
       tool.renderResult(
         result([started, slowPoll, fastPoll]),
@@ -506,6 +576,7 @@ describe("Code Mode display", () => {
         context(),
       ),
     );
+
     expect(output[0]).toBe("Exec · 3 calls · ✓ completed");
     expect(output.join("\n")).not.toContain("running");
   });
@@ -516,12 +587,14 @@ describe("Code Mode display", () => {
     const ctx = { ...context(), args };
     const call = tool.renderCall(args, theme, ctx);
     expect(rows(call)).toEqual(["Terminate #cell-9"]);
+
     const output = tool.renderResult(
       result([processTrace("a", "echo hello", "hello")], [], "terminated"),
       { expanded: false, isPartial: false },
       theme,
       ctx,
     );
+
     expect(rows(call)).toEqual([]);
     expect(rows(output).slice(0, 2)).toEqual(["Terminate #cell-9", "■ terminated · 1 finished"]);
     expect(rows(tool.renderCall({ cell_id: "cell-9" }, theme, context()))).toEqual([
@@ -531,8 +604,10 @@ describe("Code Mode display", () => {
 
   it("shows wait activity and frozen elapsed time through Pi's real shell", () => {
     vi.useFakeTimers();
+
     try {
       const { definition } = codeModeTool("wait");
+
       const row = new ToolExecutionComponent(
         "wait",
         "wait-1",
@@ -542,6 +617,7 @@ describe("Code Mode display", () => {
         createMockTui(),
         "/tmp/demo",
       );
+
       const data = result(
         [
           processTrace("done", "echo ready", "ready"),
@@ -550,6 +626,7 @@ describe("Code Mode display", () => {
         [],
         "running",
       );
+
       row.updateResult(
         { ...data, details: { ...data.details, elapsedMs: 23_400 }, isError: false },
         true,
@@ -559,9 +636,11 @@ describe("Code Mode display", () => {
       expect(text).toContain("Waiting for output · 1 finished · 1 running");
       expect(text).toContain("$ vp test");
       expect(text).toContain("#557");
+
       for (const width of [30, 40, 80, 120]) {
         expect(row.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
       }
+
       row.setExpanded(true);
       expect(stripVTControlCharacters(row.render(120).join("\n"))).toContain("#557");
       row.setExpanded(false);
@@ -576,6 +655,7 @@ describe("Code Mode display", () => {
 
   it("explains empty waits without guessing activity or output in historical records", () => {
     const tool = codeModeTool("wait");
+
     const render = (data: Parameters<typeof tool.renderResult>[0]) =>
       rows(
         tool.renderResult(data, { expanded: false, isPartial: false }, theme, {
@@ -584,6 +664,7 @@ describe("Code Mode display", () => {
         }),
         120,
       ).join("\n");
+
     const empty = result([], [], "yielded");
     expect(render({ ...empty, details: { ...empty.details, elapsedMs: 23_000 } })).toBe(
       "Wait #557 · 23s elapsed\n◌ Script still running · no new output this wait",
@@ -599,6 +680,7 @@ describe("Code Mode display", () => {
     expect(render({ ...empty, details: { ...empty.details, scriptError: "boom" } })).toContain(
       "✗ error\nboom",
     );
+
     for (const elapsedMs of [NaN, Infinity, -1]) {
       expect(render({ ...empty, details: { ...empty.details, elapsedMs } })).not.toContain(
         "elapsed",
@@ -608,6 +690,7 @@ describe("Code Mode display", () => {
 
   it("preserves notifications alongside wait timing and traces", () => {
     const tool = codeModeTool("wait");
+
     const output = rows(
       tool.renderResult(
         {
@@ -624,6 +707,7 @@ describe("Code Mode display", () => {
         context(),
       ),
     ).join("\n");
+
     expect(output).toContain("Wait · 3s elapsed");
     expect(output).toContain("Checking results");
     expect(output).toContain("echo ready");

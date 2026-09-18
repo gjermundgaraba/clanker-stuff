@@ -12,17 +12,28 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 const OPT_IN = "CODEX_FAST_LIVE_PAID";
+
 const DEFAULT_MODEL = "gpt-5.6-sol";
+
 const DEFAULT_PAIRS = 1;
+
 const DEFAULT_MAX_TOTAL_TOKENS = 40_000;
+
 const DEFAULT_MAX_COST_USD = 5;
+
 const DEFAULT_TIMEOUT_MS = 180_000;
+
 const MIN_OUTPUT_TOKENS = 32;
+
 const EXPECTED_OUTPUT_WORDS = 64;
+
 const SYSTEM_PROMPT = "Follow the user's exact reply format. Do not use tools or add explanation.";
+
 const USER_PROMPT =
   'Reply with exactly 64 repetitions of the word "SPEED", separated by single spaces.';
+
 const EXPECTED_RESPONSE = Array.from({ length: EXPECTED_OUTPUT_WORDS }, () => "SPEED").join(" ");
+
 const TIMING_KEYS = [
   "responses_duration_excl_engine_and_client_tool_time_ms",
   "engine_service_total_ms",
@@ -33,12 +44,15 @@ const TIMING_KEYS = [
 ] as const;
 
 type Mode = "off" | "on";
+
 type ResponseCreateKind = "generation" | "prewarm";
+
 type ResponseTerminalType =
   | "response.completed"
   | "response.done"
   | "response.failed"
   | "response.incomplete";
+
 type TimingMetrics = Partial<Record<(typeof TIMING_KEYS)[number], number>>;
 
 interface Invocation {
@@ -100,9 +114,11 @@ interface Sample {
 }
 
 const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
+
 type JsonRecord = Static<typeof JsonRecordSchema>;
+
 const StringSchema = Type.String();
-const NumberSchema = Type.Number();
+
 const WebSocketProbeSchema = Type.Object({
   addEventListener: Type.Function(
     [StringSchema, Type.Function([Type.Unknown()], Type.Void())],
@@ -118,7 +134,10 @@ const usageTokens = (message: AssistantMessage): number =>
   message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite;
 
 const assistantText = (message: AssistantMessage): string =>
-  message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+  message.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("");
 
 const completeSpeedWords = (text: string): number =>
   text.split(" ").filter((word) => word === "SPEED").length;
@@ -126,12 +145,14 @@ const completeSpeedWords = (text: string): number =>
 const parsePositiveInteger = (name: string, value: string): number => {
   const parsed = Number(value);
   assert(Number.isSafeInteger(parsed) && parsed > 0, `${name} must be a positive safe integer`);
+
   return parsed;
 };
 
 const parseNonnegativeNumber = (name: string, value: string): number => {
   const parsed = Number(value);
   assert(Number.isFinite(parsed) && parsed >= 0, `${name} must be a nonnegative finite number`);
+
   return parsed;
 };
 
@@ -141,6 +162,7 @@ const parseUint32 = (name: string, value: string): number => {
     Number.isInteger(parsed) && parsed >= 0 && parsed <= 0xffff_ffff,
     `${name} must be an unsigned 32-bit integer`,
   );
+
   return parsed;
 };
 
@@ -165,34 +187,43 @@ const parseInvocation = (args: readonly string[]): Invocation | undefined => {
     },
     strict: true,
   });
+
   if (values.help === true) {
     return undefined;
   }
+
   const maxCostUsd =
     values["max-cost-usd"] === undefined
       ? DEFAULT_MAX_COST_USD
       : parseNonnegativeNumber("--max-cost-usd", values["max-cost-usd"]);
+
   const maxTotalTokens =
     values["max-total-tokens"] === undefined
       ? DEFAULT_MAX_TOTAL_TOKENS
       : parsePositiveInteger("--max-total-tokens", values["max-total-tokens"]);
+
   const model = values.model ?? (process.env.CODEX_FAST_LIVE_MODEL?.trim() || undefined);
   assert(model === undefined || model.length > 0, "--model requires a value");
   assert(values.out === undefined || values.out.length > 0, "--out requires a value");
   const out = values.out === undefined ? defaultArtifactPath() : path.resolve(values.out);
+
   const pairs =
     values.pairs === undefined ? DEFAULT_PAIRS : parsePositiveInteger("--pairs", values.pairs);
+
   const seed =
     values.seed === undefined ? randomBytes(4).readUInt32LE() : parseUint32("--seed", values.seed);
+
   const timeoutMs =
     values["timeout-ms"] === undefined
       ? DEFAULT_TIMEOUT_MS
       : parsePositiveInteger("--timeout-ms", values["timeout-ms"]);
+
   assert(pairs <= 30, "--pairs is capped at 30 (60 paid generation requests)");
+
   return {
     maxCostUsd,
     maxTotalTokens,
-    model,
+    ...(model !== undefined ? { model } : {}),
     out,
     pairs,
     seed,
@@ -223,11 +254,13 @@ ID, or full header set is printed or written.`;
 
 const createRandom = (seed: number) => {
   let state = seed >>> 0;
+
   return () => {
     state += 0x6d2b_79f5;
     let value = state;
     value = Math.imul(value ^ (value >>> 15), value | 1);
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+
     return ((value ^ (value >>> 14)) >>> 0) / 0x1_0000_0000;
   };
 };
@@ -236,26 +269,35 @@ const randomizedOrders = (pairs: number, random: () => number): Mode[][] => {
   const orders = Array.from({ length: pairs }, (): Mode[] =>
     random() < 0.5 ? ["off", "on"] : ["on", "off"],
   );
+
   return orders;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The passive WebSocket probe receives native events with string, Blob, or byte payloads; decode the message without changing the transport.
 const messageText = async (event: unknown): Promise<string | undefined> => {
   const data = isRecord(event) ? event.data : undefined;
-  if (Value.Check(StringSchema, data)) {
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Passive transport probe inspects raw frames/headers independently without changing the provider payload.
+  if (typeof data === "string") {
     return data;
   }
+
   if (data instanceof ArrayBuffer) {
     return new TextDecoder().decode(data);
   }
+
   if (ArrayBuffer.isView(data)) {
     return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
   }
+
   if (data instanceof Blob) {
     return await data.text();
   }
+
   return undefined;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Timing frames are external telemetry and are validated independently so malformed metrics do not abort inference.
 const timingMetrics = (value: unknown): TimingMetrics | undefined => {
   if (
     !isRecord(value) ||
@@ -264,13 +306,18 @@ const timingMetrics = (value: unknown): TimingMetrics | undefined => {
   ) {
     return undefined;
   }
+
   const sanitized: TimingMetrics = {};
+
   for (const key of TIMING_KEYS) {
     const candidate = value.timing_metrics[key];
-    if (Value.Check(NumberSchema, candidate) && Number.isFinite(candidate) && candidate >= 0) {
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Passive transport probe inspects raw frames/headers independently without changing the provider payload.
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
       sanitized[key] = candidate;
     }
   }
+
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 };
 
@@ -279,6 +326,7 @@ export const installWebSocketProbe = () => {
   assert(NativeWebSocket !== undefined, "This live proof requires Node WebSocket support");
   const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
   const sockets = new Set<object>();
+
   let active:
     | {
         readonly handshakes: Handshake[];
@@ -294,38 +342,46 @@ export const installWebSocketProbe = () => {
         }[];
       }
     | undefined;
+
   let messageSequence = 0;
+
   const ProbedWebSocket = new Proxy(NativeWebSocket, {
     construct(target, argumentsList, newTarget) {
       assert(active !== undefined, "WebSocket constructed outside a sample");
       const observation = active;
-      const [, options] = argumentsList;
+      const options: unknown = argumentsList[1];
       const headers = isRecord(options) && isRecord(options.headers) ? options.headers : {};
+      /* oxlint-disable anti-slop/no-runtime-typeof -- Passive probe records raw handshake headers independently of production code; malformed fields stay absent. */
       observation.handshakes.push({
-        originator: Value.Check(StringSchema, headers.originator) ? headers.originator : undefined,
-        routingHint: Value.Check(StringSchema, headers["x-codex-routing-hint"])
-          ? headers["x-codex-routing-hint"]
-          : undefined,
-        timingMetricsRequested: Value.Check(
-          StringSchema,
-          headers["x-responsesapi-include-timing-metrics"],
-        )
-          ? headers["x-responsesapi-include-timing-metrics"]
-          : undefined,
+        originator: typeof headers.originator === "string" ? headers.originator : undefined,
+        routingHint:
+          typeof headers["x-codex-routing-hint"] === "string"
+            ? headers["x-codex-routing-hint"]
+            : undefined,
+        timingMetricsRequested:
+          typeof headers["x-responsesapi-include-timing-metrics"] === "string"
+            ? headers["x-responsesapi-include-timing-metrics"]
+            : undefined,
       });
+      /* oxlint-enable anti-slop/no-runtime-typeof */
+
       const socket = Value.Parse(
         WebSocketProbeSchema,
         Reflect.construct(target, argumentsList, newTarget),
       );
+
       assert(!sockets.has(socket), "A physical WebSocket was reused");
       sockets.add(socket);
       const nativeSend = socket.send;
       Object.defineProperty(socket, "send", {
         configurable: true,
+        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The probe intercepts the foreign socket send method; preserve arbitrary byte or string payloads for the native implementation.
         value(data: unknown) {
-          if (Value.Check(StringSchema, data)) {
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Passive transport probe inspects raw frames/headers independently without changing the provider payload.
+          if (typeof data === "string") {
             try {
               const payload: unknown = JSON.parse(data);
+
               if (isRecord(payload) && payload.type === "response.create") {
                 observation.responseCreateFrames.push(
                   payload.generate === false ? "prewarm" : "generation",
@@ -335,24 +391,31 @@ export const installWebSocketProbe = () => {
               // The shipped provider remains authoritative for request parsing.
             }
           }
+
           return nativeSend.call(socket, data);
         },
         writable: true,
       });
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Foreign socket events are decoded by messageText before the probe reads timing fields.
       socket.addEventListener("message", (event: unknown) => {
         messageSequence += 1;
         const currentMessageSequence = messageSequence;
+
         const pending = (async () => {
           const text = await messageText(event);
+
           if (text === undefined) {
             return;
           }
+
           try {
             const payload: unknown = JSON.parse(text);
             const metric = timingMetrics(payload);
+
             if (metric !== undefined) {
               observation.metrics.push(metric);
             }
+
             if (
               isRecord(payload) &&
               (payload.type === "response.completed" ||
@@ -361,34 +424,39 @@ export const installWebSocketProbe = () => {
                 payload.type === "response.failed") &&
               isRecord(payload.response)
             ) {
+              /* oxlint-disable anti-slop/no-runtime-typeof -- Passive probe records each terminal field independently; malformed sibling fields must not erase transport evidence. */
               observation.terminalResponses.push({
                 messageSequence: currentMessageSequence,
-                responseId: Value.Check(StringSchema, payload.response.id)
-                  ? payload.response.id
-                  : undefined,
-                serviceTier: Value.Check(StringSchema, payload.response.service_tier)
-                  ? payload.response.service_tier
-                  : "absent",
-                status: Value.Check(StringSchema, payload.response.status)
-                  ? payload.response.status
-                  : "absent",
+                responseId:
+                  typeof payload.response.id === "string" ? payload.response.id : undefined,
+                serviceTier:
+                  typeof payload.response.service_tier === "string"
+                    ? payload.response.service_tier
+                    : "absent",
+                status:
+                  typeof payload.response.status === "string" ? payload.response.status : "absent",
                 type: payload.type,
               });
+              /* oxlint-enable anti-slop/no-runtime-typeof */
             }
           } catch {
             // The shipped provider remains authoritative for response parsing.
           }
         })();
+
         observation.pending.push(pending);
       });
+
       return socket;
     },
   });
+
   Object.defineProperty(globalThis, "WebSocket", {
     configurable: true,
     value: ProbedWebSocket,
     writable: true,
   });
+
   return {
     begin() {
       assert(active === undefined, "A WebSocket sample is already active");
@@ -405,10 +473,12 @@ export const installWebSocketProbe = () => {
       const observation = active;
       await Promise.allSettled(observation.pending);
       active = undefined;
+
       return observation;
     },
     restore() {
       active = undefined;
+
       if (original === undefined) {
         Reflect.deleteProperty(globalThis, "WebSocket");
       } else {
@@ -427,6 +497,7 @@ const context: Context = {
 
 const run = async (invocation: Invocation) => {
   assert(process.env[OPT_IN] === "1", `Paid live requests are disabled. Re-run with ${OPT_IN}=1`);
+
   const [
     { createCodexModelCatalog, modelSupportsServiceTier },
     { CodexObservability },
@@ -436,14 +507,18 @@ const run = async (invocation: Invocation) => {
     import("../observability.ts"),
     import("../provider.ts"),
   ]);
+
   const agentDir = getAgentDir();
+
   const modelRuntime = await ModelRuntime.create({
     authPath: path.join(agentDir, "auth.json"),
     modelsPath: path.join(agentDir, "models.json"),
   });
+
   const authModel = modelRuntime
     .getModels("openai-codex")
     .find((candidate) => candidate.api === "openai-codex-responses");
+
   assert(authModel !== undefined, "No OpenAI Codex model is installed");
   const auth = await modelRuntime.getAuth(authModel);
   assert(auth !== undefined, "OpenAI Codex auth is unavailable");
@@ -453,25 +528,33 @@ const run = async (invocation: Invocation) => {
   const catalog = createCodexModelCatalog();
   await catalog.refreshModels({
     allowNetwork: true,
-    credential: { env: auth.env, key: apiKey, type: "api_key" },
+    credential: {
+      ...(auth.env !== undefined ? { env: auth.env } : {}),
+      key: apiKey,
+      type: "api_key",
+    },
     force: true,
     publish: async (publication) => {
       publication.update?.();
+
       return true;
     },
     signal: AbortSignal.timeout(30_000),
-    stored: undefined,
   });
+
   const priorityModels = catalog.getModels().filter((candidate) => {
     const metadata = catalog.getModelMetadata(candidate.id);
+
     return metadata !== undefined && modelSupportsServiceTier(metadata, "priority");
   });
+
   const modelId = invocation.model ?? DEFAULT_MODEL;
   const configuredModel = priorityModels.find(({ id }) => id === modelId);
   assert(
     configuredModel !== undefined,
     `Remote model ${modelId} is unavailable or does not advertise priority`,
   );
+
   const model: Model<"openai-codex-responses"> =
     auth.auth.baseUrl === undefined
       ? configuredModel
@@ -504,11 +587,12 @@ const run = async (invocation: Invocation) => {
     const started = performance.now();
     probe.begin();
     runtime.beginTurn(sessionId);
+
     try {
       const events = runtime.provider.stream(model, context, {
         apiKey,
         cacheRetention: "none",
-        env: auth.env,
+        ...(auth.env !== undefined ? { env: auth.env } : {}),
         headers: { "x-responsesapi-include-timing-metrics": "true" },
         maxRetries: 0,
         onPayload: (payload) => {
@@ -518,6 +602,7 @@ const run = async (invocation: Invocation) => {
             "Cache-disabled request contains prompt_cache_key",
           );
           assert(payload.store === false, "Final provider payload must not store");
+
           if (expectedTier === undefined) {
             assert(
               !Object.hasOwn(payload, "service_tier"),
@@ -529,6 +614,7 @@ const run = async (invocation: Invocation) => {
               "Fast ON request does not contain service_tier=priority",
             );
           }
+
           wireBodyObserved = true;
         },
         reasoningEffort: "none",
@@ -539,13 +625,16 @@ const run = async (invocation: Invocation) => {
         toolChoice: "none",
         transport: "websocket",
       });
+
       for await (const event of events) {
         const elapsed = performance.now() - started;
+
         if (event.type === "start" && firstResponse === undefined) {
           firstResponse = elapsed;
         } else if (event.type === "text_delta" && event.delta.length > 0) {
           streamedText += event.delta;
           lastText = elapsed;
+
           if (firstText === undefined) {
             firstText = elapsed;
             wordsAtFirstText = completeSpeedWords(streamedText);
@@ -560,6 +649,7 @@ const run = async (invocation: Invocation) => {
       runtime.endTurn(sessionId);
       runtime.closeSession(sessionId);
     }
+
     const total = performance.now() - started;
     const observed = await probe.finish();
     assert(wireBodyObserved, "Final provider payload was not observed");
@@ -616,18 +706,22 @@ const run = async (invocation: Invocation) => {
       handshake.originator === expectedOriginator,
       `Originator mismatch: expected ${expectedOriginator}, received ${handshake.originator ?? "absent"}`,
     );
+
     const terminalResponses = observed.terminalResponses.toSorted(
       (left, right) => left.messageSequence - right.messageSequence,
     );
+
     const generationIndex = terminalResponses.findIndex(
       ({ responseId }) => responseId === message.responseId,
     );
+
     assert(
       terminalResponses.length === 2 && generationIndex === 1,
       "Expected one prewarm terminal followed by the final generation terminal",
     );
     const [prewarmTerminal, generationTerminal] = terminalResponses;
     assert(prewarmTerminal !== undefined && generationTerminal !== undefined);
+
     for (const [label, terminal] of [
       ["Prewarm", prewarmTerminal],
       ["Generation", generationTerminal],
@@ -638,6 +732,7 @@ const run = async (invocation: Invocation) => {
         `${label} terminal was not successful: ${terminal.type} status=${terminal.status}`,
       );
     }
+
     const responseTerminalEvidence: ResponseTerminalEvidence = {
       generation: {
         serviceTier: generationTerminal.serviceTier,
@@ -650,6 +745,7 @@ const run = async (invocation: Invocation) => {
         type: prewarmTerminal.type,
       },
     };
+
     const tokens = usageTokens(message);
     const costUsd = message.usage.cost.total;
     totalTokens += tokens;
@@ -662,6 +758,7 @@ const run = async (invocation: Invocation) => {
       totalCostUsd <= invocation.maxCostUsd,
       `Completed cost $${totalCostUsd.toFixed(6)} exceeded --max-cost-usd $${invocation.maxCostUsd.toFixed(6)}`,
     );
+
     return {
       clientMs: { firstResponse, firstText, lastText, textStream, total },
       costUsd,
@@ -694,6 +791,7 @@ const run = async (invocation: Invocation) => {
         samples.push(await takeSample(pairIndex + 1, mode));
       }
     }
+
     assert(
       probe.socketCount() === samples.length,
       "Each paid sample must construct one unique physical socket",
@@ -707,6 +805,7 @@ const run = async (invocation: Invocation) => {
     const off = samples.find((sample) => sample.pair === index + 1 && sample.mode === "off");
     const on = samples.find((sample) => sample.pair === index + 1 && sample.mode === "on");
     assert(off !== undefined && on !== undefined, `Pair ${index + 1} is incomplete`);
+
     return {
       clientDifferenceMs: {
         firstResponse: off.clientMs.firstResponse - on.clientMs.firstResponse,
@@ -724,17 +823,21 @@ const run = async (invocation: Invocation) => {
       },
     };
   });
+
   const averageVisibleWordsPerSecond = (mode: Mode) =>
     samples
       .filter((sample) => sample.mode === mode)
       .reduce((total, sample) => total + sample.visibleWordsPerSecond, 0) / invocation.pairs;
+
   const standardVisibleWordsPerSecond = averageVisibleWordsPerSecond("off");
   const fastVisibleWordsPerSecond = averageVisibleWordsPerSecond("on");
+
   const throughput = {
     fastVisibleWordsPerSecond,
     speedup: fastVisibleWordsPerSecond / standardVisibleWordsPerSecond,
     standardVisibleWordsPerSecond,
   };
+
   const artifact = {
     artifact: "clanker.codex-provider/live-fast-v1",
     budgets: {
@@ -776,6 +879,7 @@ const run = async (invocation: Invocation) => {
     },
     randomizationSeed: invocation.seed,
   };
+
   await mkdir(path.dirname(invocation.out), { recursive: true });
   await writeFile(invocation.out, `${JSON.stringify(artifact, null, 2)}\n`, {
     encoding: "utf-8",
@@ -804,6 +908,7 @@ const run = async (invocation: Invocation) => {
 if (process.argv[1] === import.meta.filename) {
   try {
     const invocation = parseInvocation(process.argv.slice(2));
+
     if (invocation === undefined) {
       console.log(help);
     } else {

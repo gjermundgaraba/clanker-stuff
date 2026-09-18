@@ -8,14 +8,14 @@ import path from "node:path";
 
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
-import { Value } from "typebox/value";
 
 import { auditLocalOrder, SUPPORTED_PI_VERSION } from "../audit-local-order.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
-import { isWireRecord as isRecord, StringValueSchema } from "./wire.ts";
+import { isWireRecord as isRecord } from "./wire.ts";
 import type { WireRecord } from "./wire.ts";
 
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
+
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
 
@@ -24,10 +24,12 @@ const resolveInstalledPiCli = () => {
     .split(path.delimiter)
     .filter((entry) => !entry.endsWith(`${path.sep}node_modules${path.sep}.bin`))
     .join(path.delimiter);
+
   const executable = execFileSync("which", ["pi"], {
     encoding: "utf-8",
     env: { ...process.env, PATH: systemPath },
   }).trim();
+
   assert(executable.length > 0, "System pi was not found on PATH");
   const cliPath = realpathSync(executable);
   assert(
@@ -36,36 +38,46 @@ const resolveInstalledPiCli = () => {
       path.basename(path.dirname(path.dirname(cliPath))) === "dist",
     `System pi does not resolve to a compiled dist/bundle/cli.js: ${cliPath}`,
   );
+
   const version = execFileSync(process.execPath, [cliPath, "--version"], {
     encoding: "utf-8",
   }).trim();
+
   assert(
     version === SUPPORTED_PI_VERSION,
     `Unsupported installed Pi version ${version}; expected ${SUPPORTED_PI_VERSION}`,
   );
+
   return cliPath;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The installed-package probe reads opaque RPC events independently of the implementation being tested.
 const eventType = (event: unknown) =>
-  isRecord(event) && Value.Check(StringValueSchema, event.type) ? event.type : undefined;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
+  isRecord(event) && typeof event.type === "string" ? event.type : undefined;
 
 const waitForNotify = (client: RpcClient, messagePrefix: string, timeoutMs = 10_000) => {
   const result = Promise.withResolvers<WireRecord>();
+
   const unsubscribe = client.onEvent((event) => {
     const candidate: unknown = event;
+
     if (
       isRecord(candidate) &&
       candidate.type === "extension_ui_request" &&
       candidate.method === "notify" &&
-      Value.Check(StringValueSchema, candidate.message) &&
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
+      typeof candidate.message === "string" &&
       candidate.message.startsWith(messagePrefix)
     ) {
       result.resolve(candidate);
     }
   });
+
   const timeout = setTimeout(() => {
     result.reject(new Error(`Timed out waiting for ${messagePrefix}`));
   }, timeoutMs);
+
   return result.promise.finally(() => {
     clearTimeout(timeout);
     unsubscribe();
@@ -78,7 +90,12 @@ const toolNames = (events: readonly JsonAgentSessionEvent[]) => {
       assert(!event.isError, `${event.toolName} failed: ${JSON.stringify(event.result)}`);
     }
   }
-  return events.flatMap((event) => (event.type === "tool_execution_start" ? [event.toolName] : []));
+
+  return events
+    .values()
+    .filter((event) => event.type === "tool_execution_start")
+    .map((event) => event.toolName)
+    .toArray();
 };
 
 const isLiveModel = (
@@ -166,6 +183,7 @@ const run = async () => {
   ]);
 
   console.log(`Live installed artifacts: ${root}`);
+
   const audit = await auditLocalOrder({
     agentDir,
     cwd,
@@ -174,12 +192,15 @@ const run = async () => {
 
   const extensionErrors: unknown[] = [];
   let client = clientOptions({ agentDir, cliPath, cwd, sessionDir });
+
   const watchErrors = (event: JsonAgentSessionEvent) => {
     if (eventType(event) === "extension_error") {
       extensionErrors.push(event);
     }
   };
+
   let unsubscribe = client.onEvent(watchErrors);
+
   try {
     await client.start();
     const initialState = await client.getState();
@@ -189,14 +210,18 @@ const run = async () => {
       `Installed Pi selected ${initialState.model.provider}/${initialState.model.id} with API ${initialState.model.api}`,
     );
     const availableModels = await client.getAvailableModels();
+
     const declaredModel = availableModels.find(
       ({ id, provider }) =>
         id === initialState.model?.id && provider === initialState.model.provider,
     );
+
     assertNativeModelContext(initialState.model, declaredModel);
     requireCommands(await client.getCommands());
+
     const toolMode =
       "codexToolMode" in initialState.model ? initialState.model.codexToolMode : undefined;
+
     const codeModeRequired = toolMode === "code_mode" || toolMode === "code_mode_only";
 
     await client.promptAndWait(
@@ -220,6 +245,7 @@ const run = async () => {
       undefined,
       180_000,
     );
+
     const initialTools = toolNames(initialEvents);
     deepStrictEqual(
       initialTools,
@@ -230,7 +256,8 @@ const run = async () => {
     assert(copied.trim() === sentinel, "Initial turn did not copy the sentinel safely");
     const initialText = await client.getLastAssistantText();
     assert(
-      Value.Check(StringValueSchema, initialText) &&
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
+      typeof initialText === "string" &&
         initialText.includes("INITIAL_OK") &&
         initialText.includes("REAL-INSTALLED-PI") &&
         !initialText.includes(recallToken),
@@ -241,14 +268,17 @@ const run = async () => {
       client,
       toolMode === "direct" || codeModeRequired ? `${LIVE_MODEL} requires ` : "Code Mode enabled",
     );
+
     await client.prompt("/code-mode");
     await codeModeEnabled;
+
     if (toolMode !== "direct") {
       const codeModeEvents = await client.promptAndWait(
         `Call exec exactly once and do not call any other top-level tool. In that JavaScript call, first await tools.exec_command with command "true" and ignore its result, then await tools.apply_patch to create code-mode.txt whose only line is exactly ${sentinel}. Reply exactly CODE_MODE_OK.`,
         undefined,
         180_000,
       );
+
       deepStrictEqual(toolNames(codeModeEvents), ["exec"], "Code Mode turn did not use only exec");
       const codeModeCopy = await readFile(path.join(cwd, "code-mode.txt"), "utf-8");
       assert(
@@ -262,24 +292,30 @@ const run = async () => {
     );
     const compacted = await client.getEntries();
     const compactions = compacted.entries.filter((entry) => entry.type === "compaction");
-    assert(compactions.length === 1, "Expected exactly one manual compaction");
-    const carrier = resolveCheckpointCarrier(compactions[0]);
+    const [compaction] = compactions;
+    assert(
+      compaction !== undefined && compactions.length === 1,
+      "Expected exactly one manual compaction",
+    );
+    const carrier = resolveCheckpointCarrier(compaction);
     assert(
       carrier.kind === "checkpoint" &&
         carrier.checkpoint.version === 1 &&
         carrier.checkpoint.reason === "manual",
       "Manual compaction did not persist a strict schema-v1 checkpoint",
     );
-    const compactionIndex = compacted.entries.indexOf(compactions[0]);
+    const compactionIndex = compacted.entries.indexOf(compaction);
+
     const firstKeptIndex = compacted.entries.findIndex(
-      ({ id }) => id === compactions[0].firstKeptEntryId,
+      ({ id }) => id === compaction.firstKeptEntryId,
     );
+
     assert(
       firstKeptIndex !== -1 &&
         firstKeptIndex < compactionIndex &&
         !JSON.stringify({
           retained: compacted.entries.slice(firstKeptIndex, compactionIndex),
-          summary: compactions[0].summary,
+          summary: compaction.summary,
         }).includes(recallToken),
       "Compacted session retained the opaque recall token in plaintext",
     );
@@ -293,7 +329,8 @@ const run = async () => {
 
     const state = await client.getState();
     assert(
-      Value.Check(StringValueSchema, state.sessionFile) && state.sessionFile.length > 0,
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
+      typeof state.sessionFile === "string" && state.sessionFile.length > 0,
       "Installed canary did not create a session file",
     );
     assert(
@@ -323,17 +360,20 @@ const run = async () => {
         reopenedState.model?.contextWindow === initialState.model.contextWindow,
       "Fresh Pi process did not restore the requested native model",
     );
+
     const resumedCodeModeRequired =
       reopenedState.model !== undefined &&
       "codexToolMode" in reopenedState.model &&
       (reopenedState.model.codexToolMode === "code_mode" ||
         reopenedState.model.codexToolMode === "code_mode_only");
+
     const reopened = await client.getEntries();
     deepStrictEqual(
       reopened,
       afterStatus,
       "Fresh process did not reopen the exact checkpoint branch",
     );
+
     const resumeEvents = await client.promptAndWait(
       resumedCodeModeRequired
         ? "Without reading any file, call exec exactly once and no other top-level tool. In that JavaScript call, await tools.apply_patch exactly once to create resumed.txt containing only the assistant-generated opaque token from before compaction. Do not call another nested tool. Then reply exactly RESUME_OK."
@@ -341,6 +381,7 @@ const run = async () => {
       undefined,
       180_000,
     );
+
     const resumeTools = toolNames(resumeEvents);
     deepStrictEqual(
       resumeTools,
@@ -354,7 +395,8 @@ const run = async () => {
     );
     const resumeText = await client.getLastAssistantText();
     assert(
-      Value.Check(StringValueSchema, resumeText) && resumeText.includes("RESUME_OK"),
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
+      typeof resumeText === "string" && resumeText.includes("RESUME_OK"),
       "Fresh-process resume did not finish cleanly",
     );
     assert(extensionErrors.length === 0, "An installed extension emitted extension_error");

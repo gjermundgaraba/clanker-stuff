@@ -13,9 +13,13 @@ import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import * as packageEntry from "../index.js";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
+
 const SUBAGENTS_ROOT = path.resolve(PACKAGE_ROOT, "../subagents");
+
 const EXPECTED_ENTRY = path.join(PACKAGE_ROOT, "index.ts");
+
 const EXPECTED_SUBAGENTS_ENTRY = path.join(SUBAGENTS_ROOT, "index.ts");
+
 const SENSITIVE_HOOKS = [
   "before_agent_start",
   "context",
@@ -24,6 +28,7 @@ const SENSITIVE_HOOKS = [
   "session_before_compact",
   "session_compact_failed",
 ] as const;
+
 const CODEX_TOOLS = [
   "exec_command",
   "write_stdin",
@@ -32,6 +37,7 @@ const CODEX_TOOLS = [
   "exec",
   "wait",
 ] as const;
+
 const COLLABORATION_TOOLS = [
   "spawn_agent",
   "send_message",
@@ -40,6 +46,7 @@ const COLLABORATION_TOOLS = [
   "interrupt_agent",
   "list_agents",
 ] as const;
+
 const NPM_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
 );
@@ -48,6 +55,7 @@ const loadPackages = async (packageRoots: string[], rootDir: string) => {
   const settingsManager = SettingsManager.inMemory({
     packages: packageRoots,
   });
+
   const loader = new DefaultResourceLoader({
     agentDir: path.join(rootDir, "agent"),
     cwd: path.join(rootDir, "project"),
@@ -57,7 +65,9 @@ const loadPackages = async (packageRoots: string[], rootDir: string) => {
     noThemes: true,
     settingsManager,
   });
+
   await loader.reload();
+
   return loader.getExtensions();
 };
 
@@ -69,6 +79,7 @@ describe("codex-provider package", () => {
       rmSync(tempRoot, { force: true, recursive: true });
       tempRoot = undefined;
     }
+
     vi.unstubAllEnvs();
   });
 
@@ -110,6 +121,7 @@ describe("codex-provider package", () => {
     vi.stubEnv("PI_CODING_AGENT_DIR", path.join(tempRoot, "agent"));
     const result = await loadPackages([SUBAGENTS_ROOT, PACKAGE_ROOT], tempRoot);
     const provider = result.extensions.find(({ resolvedPath }) => resolvedPath === EXPECTED_ENTRY);
+
     const subagents = result.extensions.find(
       ({ resolvedPath }) => resolvedPath === EXPECTED_SUBAGENTS_ENTRY,
     );
@@ -135,12 +147,14 @@ describe("codex-provider package", () => {
       env: NPM_ENV,
       stdio: "pipe",
     });
+
     const entries = execFileSync("tar", ["-tzf", tarball], {
       encoding: "utf-8",
     })
       .trim()
       .split("\n")
       .toSorted();
+
     expect(entries).toStrictEqual(
       [
         "package/LICENSE",
@@ -212,13 +226,16 @@ describe("codex-provider package", () => {
     const workspace = readWorkspacePackages(repoRoot);
     const localDependencies: Record<string, string> = {};
     const pending = [PACKAGE_ROOT];
+
     while (pending.length) {
       const current = pending.pop()!;
+
       for (const [name, version] of Object.entries(
         readJson(path.join(current, "package.json")).dependencies ?? {},
       )) {
         if (!version.startsWith("workspace:") || name in localDependencies) continue;
         const dependency = workspace.find((pkg) => pkg.name === name);
+
         if (!dependency) throw new Error(`Missing workspace package: ${name}`);
         const dependencyTarball = path.join(tempRoot, `${name.replaceAll("/", "-")}.tgz`);
         execFileSync("pnpm", ["pack", "--out", dependencyTarball], {
@@ -230,6 +247,7 @@ describe("codex-provider package", () => {
         pending.push(path.join(repoRoot, dependency.dir));
       }
     }
+
     const installDir = path.join(tempRoot, "install");
     mkdirSync(installDir);
     writeFileSync(
@@ -255,12 +273,14 @@ describe("codex-provider package", () => {
       env: NPM_ENV,
       stdio: "pipe",
     });
+
     const installedPackage = path.join(
       installDir,
       "node_modules",
       "@clanker-stuff",
       "codex-provider",
     );
+
     expect(
       JSON.parse(readFileSync(path.join(installedPackage, "package.json"), "utf-8")),
     ).toMatchObject({

@@ -23,9 +23,11 @@ export const makeUsageWindow = (
     label,
     remainingPercent: clampPercent(remainingPercent),
   };
+
   if (resetsAt !== undefined) {
     usageWindow.resetsAt = resetsAt;
   }
+
   return usageWindow;
 };
 
@@ -33,10 +35,13 @@ export const parseIso = (value: string | undefined): string | undefined => {
   if (value === undefined) {
     return undefined;
   }
+
   const parsed = Date.parse(value);
+
   if (Number.isNaN(parsed)) {
     return undefined;
   }
+
   return new Date(parsed).toISOString();
 };
 
@@ -48,11 +53,14 @@ export const windowIdFromLimitSeconds = (seconds: number): UsageWindowId | undef
   if (!Number.isFinite(seconds) || seconds <= 0) {
     return undefined;
   }
+
   if (seconds <= 12 * 3600) {
     return "5h";
   }
+
   if (seconds <= 14 * 86_400) {
     return "7d";
   }
+
   return "month";
 };

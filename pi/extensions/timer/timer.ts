@@ -7,11 +7,14 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const formatElapsed = (ms: number): string => {
   const totalSeconds = ms / 1000;
+
   if (totalSeconds < 60) {
     return `${totalSeconds.toFixed(1)}s`;
   }
+
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.floor(totalSeconds % 60);
+
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 };
 
@@ -40,13 +43,16 @@ export const createTimer = () => {
     if (clockTime === undefined) {
       return;
     }
+
     const duration = elapsed();
+
     const frame =
       intervalId === undefined
         ? STATIC_BREATHING_DOT_FRAME
         : (BREATHING_DOT_FRAMES[
             Math.floor(duration / BREATHING_DOT_INTERVAL_MS) % BREATHING_DOT_FRAMES.length
           ] ?? STATIC_BREATHING_DOT_FRAME);
+
     ctx.ui.setStatus(
       "timer",
       `${ctx.ui.theme.fg(frame.color, frame.marker)} ${ctx.ui.theme.fg(
@@ -65,9 +71,8 @@ export const createTimer = () => {
   };
 
   return {
-    setAsyncPrompt(value: unknown) {
-      asyncPrompt =
-        typeof value === "object" && value !== null && "active" in value && value.active === true;
+    setAsyncPrompt(active: boolean) {
+      asyncPrompt = active;
     },
     dispose() {
       active = false;
@@ -79,9 +84,11 @@ export const createTimer = () => {
     pause(ctx: ExtensionContext) {
       if (asyncPrompt) return;
       promptActive = true;
+
       if (!active || segmentStart === undefined) {
         return;
       }
+
       elapsedMs += performance.now() - segmentStart;
       segmentStart = undefined;
       clear();
@@ -90,19 +97,23 @@ export const createTimer = () => {
     resume(ctx: ExtensionContext) {
       if (!promptActive) return;
       promptActive = false;
+
       if (!active || segmentStart !== undefined) {
         return;
       }
+
       startSegment(ctx);
     },
     start(ctx: ExtensionContext) {
       if (ctx.mode !== "tui" || active) {
         return;
       }
+
       active = true;
       elapsedMs = 0;
       segmentStart = undefined;
       clockTime = formatClock(new Date());
+
       if (promptActive) {
         updateStatus(ctx);
       } else {
@@ -113,10 +124,12 @@ export const createTimer = () => {
       if (!active) {
         return;
       }
+
       if (segmentStart !== undefined) {
         elapsedMs += performance.now() - segmentStart;
         segmentStart = undefined;
       }
+
       active = false;
       clear();
       clockTime = formatClock(new Date());

@@ -1,3 +1,4 @@
+import type { SamplingScopeRequest } from "../sampling-protocol.js";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { Context } from "@earendil-works/pi-ai";
 import type { CreateMessageRequestParams } from "@modelcontextprotocol/client";
@@ -6,10 +7,12 @@ import { sample, sumUsage } from "../sampling.js";
 import { setupMcpTest } from "./helpers.js";
 
 const model = fauxProvider().getModel();
+
 const params: CreateMessageRequestParams = {
   maxTokens: 8,
   messages: [{ role: "user", content: { type: "text", text: "hello" } }],
 };
+
 const usage = {
   input: 10,
   output: 20,
@@ -21,6 +24,7 @@ const usage = {
 
 describe("MCP sampling owner", () => {
   const t = setupMcpTest();
+
   const setup = () => {
     const host = t.createExtensionHost(() => {}, { model });
     const status = { limitReached: false, usageComplete: false, usage };
@@ -29,7 +33,8 @@ describe("MCP sampling owner", () => {
     const scopes = vi.fn();
     host.events.on("clanker-codex:sampling-scope-request", (request) => {
       // SAFETY: The real sampling owner is the only emitter in this isolated host.
-      const typed = request as { maxTokens: number; resolve: (scope: Promise<unknown>) => void };
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
+      const typed = request as SamplingScopeRequest;
       scopes(typed.maxTokens);
       typed.resolve(
         Promise.resolve({
@@ -40,20 +45,24 @@ describe("MCP sampling owner", () => {
         }),
       );
     });
+
     return { host, status, dispose, scopes, boundText };
   };
 
   it("preserves server-supplied roles while excluding Pi history and tools", async () => {
     const { host, dispose } = setup();
     let captured: Context | undefined;
+
     const ctx = host.createContext({
       modelRegistry: {
         complete: async (_model, context) => {
           captured = context;
+
           return fauxAssistantMessage("answer");
         },
       },
     });
+
     const report = vi.fn();
     await sample(
       host,
@@ -107,9 +116,11 @@ describe("MCP sampling owner", () => {
 
   it("clamps budgets to the selected model and rejects unsupported input before inference", async () => {
     const { host, scopes } = setup();
+
     const ctx = host.createContext({
       modelRegistry: { complete: async () => fauxAssistantMessage("answer") },
     });
+
     await sample(
       host,
       ctx,
@@ -152,11 +163,14 @@ describe("MCP sampling owner", () => {
     async (failure) => {
       const { host, dispose } = setup();
       const controller = new AbortController();
+
       const ctx = host.createContext({
         modelRegistry: {
           complete: async () => {
             if (failure === "provider") throw new Error("provider failed");
+
             if (failure === "cancel") controller.abort(new Error("user cancelled"));
+
             return {
               ...fauxAssistantMessage("answer"),
               content: [{ type: "thinking", thinking: "unsupported" }],
@@ -164,6 +178,7 @@ describe("MCP sampling owner", () => {
           },
         },
       });
+
       const report = vi.fn();
       await expect(sample(host, ctx, model, params, controller.signal, report)).rejects.toThrow();
       expect(dispose).toHaveBeenCalledOnce();
@@ -179,6 +194,7 @@ describe("MCP sampling owner", () => {
     const { host, dispose } = setup();
     const gate = Promise.withResolvers<void>();
     dispose.mockImplementation(() => gate.promise);
+
     const ctx = host.createContext({
       modelRegistry: {
         complete: async () => {
@@ -186,6 +202,7 @@ describe("MCP sampling owner", () => {
         },
       },
     });
+
     const report = vi.fn();
     const result = sample(host, ctx, model, params, new AbortController().signal, report);
     const rejected = expect(result).rejects.toThrow("failed");
@@ -198,9 +215,11 @@ describe("MCP sampling owner", () => {
   it("rechecks the token bound after applying server stop sequences", async () => {
     const { host, boundText } = setup();
     boundText.mockReturnValue("bounded-prefix");
+
     const ctx = host.createContext({
       modelRegistry: { complete: async () => fauxAssistantMessage("prefix STOP remainder") },
     });
+
     const result = await sample(
       host,
       ctx,
@@ -209,6 +228,7 @@ describe("MCP sampling owner", () => {
       new AbortController().signal,
       () => {},
     );
+
     expect(boundText).toHaveBeenCalledWith("prefix");
     expect(result).toMatchObject({
       content: { type: "text", text: "bounded-prefix" },
@@ -220,7 +240,8 @@ describe("MCP sampling owner", () => {
     const host = t.createExtensionHost(() => {}, { model });
     host.events.on("clanker-codex:sampling-scope-request", (request) => {
       // SAFETY: The real sample function is the sole emitter in this isolated host.
-      const typed = request as { resolve: (scope: Promise<unknown>) => void };
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
+      const typed = request as SamplingScopeRequest;
       typed.resolve(
         Promise.resolve({
           run: <T>(run: () => T) => run(),
@@ -230,9 +251,11 @@ describe("MCP sampling owner", () => {
         }),
       );
     });
+
     const ctx = host.createContext({
       modelRegistry: { complete: async () => fauxAssistantMessage("bounded") },
     });
+
     const report = vi.fn();
     await sample(host, ctx, model, params, new AbortController().signal, report);
     expect(report).toHaveBeenCalledWith({

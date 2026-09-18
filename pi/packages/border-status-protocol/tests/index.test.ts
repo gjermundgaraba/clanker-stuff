@@ -17,6 +17,7 @@ const setup = () => {
   const ready = { version: 1, scope: borderScope(ctx), instanceId: "host-1" };
   const updates = vi.fn();
   events.on(BORDER_STATUS_EVENT, updates);
+
   return { events, ctx, ready, updates };
 };
 
@@ -54,10 +55,12 @@ describe("border status producer", () => {
   it("ignores stale/unrelated readiness and clears cached state on attach", () => {
     const { events, ctx, ready, updates } = setup();
     const change = vi.fn();
+
     const client = createBorderStatusClient(
       { events },
       { owner: "questions", onAvailabilityChange: change },
     );
+
     client.attach(ctx);
     events.emit(BORDER_READY_EVENT, { ...ready, scope: "old-session" });
     expect(client.available).toBe(false);
@@ -89,6 +92,7 @@ describe("border status producer", () => {
     ]) {
       expect(Value.Check(BorderStatusSchema, status)).toBe(false);
     }
+
     expect(
       Value.Check(BorderStatusSchema, {
         text: "3",
@@ -102,13 +106,17 @@ it.each([false, true])("validates clear keys before emitting, available=%s", (av
   const { events, ctx, ready, updates } = setup();
   const client = createBorderStatusClient({ events }, { owner: "test" });
   client.attach(ctx);
+
   if (available) events.emit(BORDER_READY_EVENT, ready);
   updates.mockClear();
+
   for (const key of ["", "\n", "x".repeat(129)]) {
     expect(() => client.clear(key)).toThrow("Invalid border status key");
   }
+
   expect(updates).not.toHaveBeenCalled();
   expect(() => client.clear("absent")).not.toThrow();
+
   if (available) {
     expect(updates).toHaveBeenCalledExactlyOnceWith({
       ...ready,
@@ -119,6 +127,7 @@ it.each([false, true])("validates clear keys before emitting, available=%s", (av
   } else {
     expect(updates).not.toHaveBeenCalled();
   }
+
   client.dispose();
 });
 
@@ -127,20 +136,24 @@ it("allows joiners in display content while keeping identifiers and other contro
   const client = createBorderStatusClient({ events }, { owner: "test" });
   client.attach(ctx);
   events.emit(BORDER_READY_EVENT, ready);
+
   for (const text of ["👩‍💻", "می\u200Cروم"]) {
     const status = { text, icon: { unicode: text } };
     expect(Value.Check(BorderStatusSchema, status)).toBe(true);
     expect(() => client.set("display", status)).not.toThrow();
     expect(updates).toHaveBeenLastCalledWith(expect.objectContaining({ status }));
   }
+
   for (const control of ["\u200C", "\u200D"]) {
     expect(() => createBorderStatusClient({ events }, { owner: control })).toThrow();
     expect(() => client.set(control, { text: "valid" })).toThrow();
     expect(() => client.clear(control)).toThrow();
   }
+
   for (const control of ["\x1b", "\n", "\u2028", "\u2029", "\u202E", "\u2066", "\u200B"]) {
     expect(Value.Check(BorderStatusSchema, { text: control })).toBe(false);
     expect(Value.Check(BorderStatusSchema, { text: "x", icon: { unicode: control } })).toBe(false);
   }
+
   client.dispose();
 });

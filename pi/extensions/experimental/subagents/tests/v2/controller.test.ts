@@ -28,28 +28,35 @@ const setup = async (
   const coordinator = new TreeCoordinator();
   await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), true);
   const runtimes: FakeChildRuntime[] = [];
+
   const config = {
     ...structuredClone(DEFAULT_CONFIG),
     max_concurrent_threads_per_session: maximum,
     roles,
   };
+
   const prompts: string[] = [];
   const childHosts: ReturnType<typeof createExtensionHost>[] = [];
   const runtimeLoads: PromiseWithResolvers<FakeChildRuntime>[] = [];
+
   const createRuntime = vi.fn<ChildRuntimeFactory>(async ({ bridge, identity, prompt }) => {
     prompts.push(prompt);
+
     if (bridgeChildren) {
       const host = createExtensionHost(bridge, { sessionId: identity });
       await host.ready;
       await host.emitSessionStart();
       childHosts.push(host);
     }
+
     const pending = runtimeLoads.shift();
     const runtime = pending === undefined ? new FakeChildRuntime(identity) : await pending.promise;
     runtime.failPersistence = failPersistence;
     runtimes.push(runtime);
+
     return runtime;
   });
+
   const controller = new V2Controller({
     config,
     coordinator,
@@ -57,14 +64,18 @@ const setup = async (
     dataDir: "/tmp/subagent-test",
     id: (() => {
       let next = 0;
+
       return () => {
         next += 1;
+
         return `communication-${next}`;
       };
     })(),
     nicknames: new NicknamePool(config, () => 0),
   });
+
   controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
+
   return {
     controller,
     childHosts,
@@ -80,6 +91,7 @@ const setup = async (
 describe("V2 controller", () => {
   it("publishes task intent, accepts it, and commits terminal state with parent mail", async () => {
     const { controller, coordinator, ctx, runtimes } = await setup();
+
     const spawned = await controller.spawn(
       "/root",
       {
@@ -89,6 +101,7 @@ describe("V2 controller", () => {
       },
       ctx,
     );
+
     expect(spawned.task_name).toBe("/root/worker");
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     expect(coordinator.state).toMatchObject({
@@ -146,6 +159,7 @@ describe("V2 controller", () => {
 
   it("quarantines a transcript persistence failure instead of retrying forever", async () => {
     vi.useFakeTimers();
+
     try {
       const { controller, ctx, runtimes } = await setup();
       await controller.spawn(
@@ -238,13 +252,13 @@ describe("V2 controller", () => {
           )
         : [],
     ).toHaveLength(0);
-    expect(controller.rootDeliveries()).toStrictEqual([
-      expect.objectContaining({
-        content: expect.stringContaining("append failed"),
-        from: "/root/worker",
-        kind: "FINAL_ANSWER",
-      }),
+    expect(controller.rootDeliveries()).toMatchObject([
+      { from: "/root/worker", kind: "FINAL_ANSWER" },
     ]);
+    expect(controller.rootDeliveries()).toHaveProperty(
+      "0.content",
+      expect.stringContaining("append failed"),
+    );
     expect(createRuntime).toHaveBeenCalledOnce();
 
     await controller.followUp("/root", "worker", "retry", ctx);
@@ -323,6 +337,7 @@ describe("V2 controller", () => {
     const coordinator = new TreeCoordinator();
     const snapshot = freshSnapshot("v2", root);
     assert.equal(snapshot.protocolLatch, "v2");
+
     for (const name of ["first", "second", "third"]) {
       const pathname = `/root/${name}`;
       snapshot.nicknames.push(name);
@@ -342,32 +357,41 @@ describe("V2 controller", () => {
         to: pathname,
       });
     }
+
     await coordinator.install(createMemoryControlStore(), snapshot, true);
+
     const config = {
       ...structuredClone(DEFAULT_CONFIG),
       max_concurrent_threads_per_session: 1,
     };
+
     const runtimes: FakeChildRuntime[] = [];
     const attempts: string[] = [];
     let firstAttempts = 0;
+
     const controller = new V2Controller({
       config,
       coordinator,
       createRuntime: async ({ identity }) => {
         attempts.push(identity);
+
         if (identity === "/root/first") {
           firstAttempts += 1;
+
           if (firstAttempts === 1) {
             throw new Error("first transcript unavailable");
           }
         }
+
         const runtime = new FakeChildRuntime(identity);
         runtimes.push(runtime);
+
         return runtime;
       },
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
+
     controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
 
     await controller.restore(createChildContext());
@@ -398,25 +422,31 @@ describe("V2 controller", () => {
       tools: [],
     });
     await coordinator.install(createMemoryControlStore(), snapshot, true);
+
     const config = {
       ...structuredClone(DEFAULT_CONFIG),
       max_concurrent_threads_per_session: 1,
     };
+
     let attempts = 0;
     const runtime = new FakeChildRuntime("/root/worker");
+
     const controller = new V2Controller({
       config,
       coordinator,
       createRuntime: async () => {
         attempts += 1;
+
         if (attempts === 1) {
           throw new Error("load failed");
         }
+
         return runtime;
       },
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
+
     controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     const ctx = createChildContext();
 
@@ -431,6 +461,7 @@ describe("V2 controller", () => {
 
   it("does not retry a permanently invalid restored session", async () => {
     vi.useFakeTimers();
+
     try {
       const root = rootBinding("v2-permanent-restore-error");
       const coordinator = new TreeCoordinator();
@@ -454,6 +485,7 @@ describe("V2 controller", () => {
       });
       await coordinator.install(createMemoryControlStore(), snapshot, true);
       let attempts = 0;
+
       const controller = new V2Controller({
         config: {
           ...structuredClone(DEFAULT_CONFIG),
@@ -467,6 +499,7 @@ describe("V2 controller", () => {
         dataDir: "/tmp/subagent-test",
         nicknames: new NicknamePool(DEFAULT_CONFIG, () => 0),
       });
+
       controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
 
       await controller.restore(createChildContext());
@@ -530,11 +563,13 @@ describe("V2 controller", () => {
 
   it("rejects concurrent spawns for the same path before creating twice", async () => {
     const { controller, ctx, runtimes } = await setup();
+
     const first = controller.spawn(
       "/root",
       { forkTurns: "none", message: "first", taskName: "worker" },
       ctx,
     );
+
     await expect(
       controller.spawn("/root", { forkTurns: "none", message: "second", taskName: "worker" }, ctx),
     ).rejects.toThrow("Agent is already being created: /root/worker");
@@ -547,25 +582,31 @@ describe("V2 controller", () => {
     const root = rootBinding("v2-reservation-release");
     const coordinator = new TreeCoordinator();
     await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), true);
+
     const config = {
       ...structuredClone(DEFAULT_CONFIG),
       max_concurrent_threads_per_session: 1,
     };
+
     const runtime = new FakeChildRuntime("/root/second");
     let attempts = 0;
+
     const controller = new V2Controller({
       config,
       coordinator,
       createRuntime: async () => {
         attempts += 1;
+
         if (attempts === 1) {
           throw new Error("creation failed");
         }
+
         return runtime;
       },
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
+
     controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     const ctx = createChildContext();
 
@@ -608,11 +649,13 @@ describe("V2 controller", () => {
 
     const blockedSpawn = Promise.withResolvers<FakeChildRuntime>();
     runtimeLoads.push(blockedSpawn);
+
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "block", taskName: "blocker" },
       ctx,
     );
+
     void spawning.catch(() => {});
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(3));
     await delay(300);
@@ -638,6 +681,7 @@ describe("V2 controller", () => {
     await coordinator.install(createMemoryControlStore(), freshSnapshot("v2", root), true);
     const config = structuredClone(DEFAULT_CONFIG);
     const runtimeReady = Promise.withResolvers<FakeChildRuntime>();
+
     const controller = new V2Controller({
       config,
       coordinator,
@@ -645,14 +689,17 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
+
     controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     const abort = new AbortController();
+
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
       createChildContext(),
       abort.signal,
     );
+
     abort.abort(new Error("cancelled"));
     const runtime = new FakeChildRuntime("/root/worker");
     runtimeReady.resolve(runtime);
@@ -667,18 +714,22 @@ describe("V2 controller", () => {
     const { controller, createRuntime, ctx, runtimeLoads } = await setup();
     const pending = Promise.withResolvers<FakeChildRuntime>();
     runtimeLoads.push(pending);
+
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
       ctx,
     );
+
     void spawning.catch(() => {});
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
 
     let stopped = false;
+
     const shutdown = controller.shutdown().then(() => {
       stopped = true;
     });
+
     await Promise.resolve();
     expect(stopped).toBeFalsy();
     await expect(
@@ -698,11 +749,13 @@ describe("V2 controller", () => {
     const { controller, createRuntime, ctx, runtimeLoads } = await setup();
     const pending = Promise.withResolvers<FakeChildRuntime>();
     runtimeLoads.push(pending);
+
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
       ctx,
     );
+
     void spawning.catch(() => {});
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
 
@@ -750,9 +803,11 @@ describe("V2 controller", () => {
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
 
     let stopped = false;
+
     const shutdown = controller.shutdown().then(() => {
       stopped = true;
     });
+
     await Promise.resolve();
     expect(stopped).toBeFalsy();
 
@@ -767,6 +822,7 @@ describe("V2 controller", () => {
     const { controller, ctx, prompts, runtimes } = await setup(3, {
       reviewer: { instructions: "Review carefully." },
     });
+
     await controller.spawn(
       "/root",
       {
@@ -802,6 +858,7 @@ describe("V2 controller", () => {
       false,
       true,
     );
+
     controller.setUltra("/root", true);
     controller.setRootServiceTier("priority");
 
@@ -864,6 +921,7 @@ describe("V2 controller", () => {
     });
     await coordinator.install(createMemoryControlStore(), snapshot, true);
     const config = structuredClone(DEFAULT_CONFIG);
+
     const controller = new V2Controller({
       config,
       coordinator,
@@ -873,6 +931,7 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(config, () => 0),
     });
+
     controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
 
     await expect(controller.interrupt("/root", "worker")).resolves.toStrictEqual({
@@ -928,11 +987,13 @@ describe("V2 controller", () => {
     const { controller, createRuntime, ctx, runtimeLoads } = await setup();
     const pending = Promise.withResolvers<FakeChildRuntime>();
     runtimeLoads.push(pending);
+
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
       ctx,
     );
+
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
     const runtime = new FakeChildRuntime("/root/worker");
     runtime.acceptTurns = false;
@@ -1084,6 +1145,7 @@ describe("V2 controller", () => {
     runtime.beforeSendMessage = () => {
       runtime.streaming = false;
     };
+
     const abortRuntime = vi.spyOn(runtime, "abort");
 
     await controller.followUp("/root", "worker", "follow-up", ctx);
@@ -1131,10 +1193,12 @@ describe("V2 controller", () => {
     await coordinator.install(createMemoryControlStore(), snapshot, true);
     const firstLoad = Promise.withResolvers<FakeChildRuntime>();
     const replacement = new FakeChildRuntime("/root/worker");
+
     const createRuntime = vi
       .fn<ChildRuntimeFactory>()
       .mockReturnValueOnce(firstLoad.promise)
       .mockResolvedValueOnce(replacement);
+
     const controller = new V2Controller({
       config: structuredClone(DEFAULT_CONFIG),
       coordinator,
@@ -1142,6 +1206,7 @@ describe("V2 controller", () => {
       dataDir: "/tmp/subagent-test",
       nicknames: new NicknamePool(DEFAULT_CONFIG, () => 0),
     });
+
     controller.setRoot({ getActiveTools: () => ["read"] }, undefined, false);
     const ctx = createChildContext();
     await controller.restore(ctx);
@@ -1160,11 +1225,13 @@ describe("V2 controller", () => {
     const { controller, createRuntime, ctx, runtimeLoads } = await setup();
     const firstLoad = Promise.withResolvers<FakeChildRuntime>();
     runtimeLoads.push(firstLoad);
+
     const spawning = controller.spawn(
       "/root",
       { forkTurns: "none", message: "work", taskName: "worker" },
       ctx,
     );
+
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
     const original = new FakeChildRuntime("/root/worker");
     original.acceptTurns = false;
@@ -1199,6 +1266,7 @@ describe("V2 controller", () => {
     let staleCallback: (() => void) | undefined;
     vi.spyOn(runtime, "sendMessage").mockImplementation((_message, onEnqueued) => {
       staleCallback = onEnqueued;
+
       return { accepted: new Promise<void>(() => {}) };
     });
     await controller.sendMessage("/root", "worker", "context", ctx);
@@ -1275,6 +1343,7 @@ describe("V2 controller", () => {
 
   it("subscribes before checking mailbox activity", async () => {
     vi.useFakeTimers();
+
     try {
       const { controller } = await setup();
       controller.notify("/root");
@@ -1335,20 +1404,24 @@ describe("V2 child context boundaries", () => {
       ctx,
     );
     const host = childHosts[0]!;
+
     const model = {
       ...fauxProvider().getModel(),
       multiAgentVersion: "v2",
       name: "Original worker",
     };
+
     const child = host.createContext({
       model,
       modelRegistry: { find: () => model, getAvailable: () => [model] },
     });
+
     const prompt = {
       type: "before_agent_start" as const,
       systemPrompt: "system",
       systemPromptOptions: {},
     };
+
     await host.emit("before_agent_start", prompt, child);
     expect(host.getActiveTools()).toContain("spawn_agent");
     host.setActiveTools(host.getActiveTools().filter((name) => name !== "spawn_agent"));

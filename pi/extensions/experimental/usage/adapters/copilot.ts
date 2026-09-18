@@ -33,6 +33,7 @@ const parseQuotaWindow = (
   if (quota === undefined || quota.unlimited === true || quota.percent_remaining === undefined) {
     return undefined;
   }
+
   return makeUsageWindow("month", quota.percent_remaining, resetsAt, label);
 };
 
@@ -41,6 +42,7 @@ export const mapCopilotUsagePayload = (
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
   const resetsAt = parseIso(payload.quota_reset_date_utc);
+
   const windows = [
     parseQuotaWindow(payload.quota_snapshots?.premium_interactions, "Premium", resetsAt),
     parseQuotaWindow(payload.quota_snapshots?.chat, "Chat", resetsAt),
@@ -56,6 +58,7 @@ export const mapCopilotUsagePayload = (
 export const fetchCopilotUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, "github-copilot");
+
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }

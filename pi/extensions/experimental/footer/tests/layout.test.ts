@@ -75,6 +75,7 @@ describe("layout", () => {
       widget("two", "center", "center value"),
       widget("three", "right", "right value"),
     ];
+
     for (let width = 1; width <= 120; width += 1) {
       for (const line of layoutFooterRows([row], width, " · ").lines) {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
@@ -103,6 +104,7 @@ describe("normalization", () => {
     const rich = live("example.timer", "rich", {
       consumesStatusKeys: ["timer"],
     });
+
     const state: FooterRenderState = {
       builtins: new Map(),
       config,
@@ -112,6 +114,7 @@ describe("normalization", () => {
       ]),
       rich: new Map([[rich.snapshot.id, rich]]),
     };
+
     const result = renderFooterState(state, 80, theme);
     const rendered = result.lines.join("\n");
     expect(rendered).toContain("rich");
@@ -127,15 +130,18 @@ describe("normalization", () => {
   it("isolates a widget whose theme rendering fails", () => {
     const bad = live("example.bad", "boom");
     const good = live("example.good", "still here");
+
     const throwingTheme: FooterTheme = {
       bold: (text) => text,
       fg: (_tone, text) => {
         if (text === "boom") {
           throw new Error("bad widget");
         }
+
         return text;
       },
     };
+
     const result = renderFooterState(
       {
         builtins: new Map(),
@@ -170,9 +176,11 @@ describe("normalization", () => {
         if (text.includes("red") || text.includes("\u001B")) {
           throw new Error("native status must not use semantic styling");
         }
+
         return text;
       },
     };
+
     const rendered = renderFooterState(
       {
         builtins: new Map(),
@@ -206,6 +214,7 @@ describe("normalization", () => {
     const injected = live("example.injected", "\u001B]52;c;secret\u0007visible", {
       icon: { glyphs: "\u001B[31m!" },
     });
+
     const rendered = renderFooterState(
       {
         builtins: new Map(),

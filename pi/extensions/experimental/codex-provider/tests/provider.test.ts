@@ -27,7 +27,6 @@ import {
 } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
 
-const StringValueSchema = Type.String();
 const HeadersInitSchema = Type.Object({
   headers: Type.Optional(Type.Record(Type.String(), Type.String())),
 });
@@ -49,11 +48,14 @@ const socketEvent = (
 ) => {
   const emit = () => {
     const event = new Event(type);
+
     for (const [name, value] of Object.entries(properties ?? {})) {
       Object.defineProperty(event, name, { value });
     }
+
     socket.dispatchEvent(event);
   };
+
   if (delayed) {
     setTimeout(emit, 0);
   } else {
@@ -61,6 +63,7 @@ const socketEvent = (
   }
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The fake transport serializes valid and malformed server frames to exercise the real stream decoder.
 const socketMessage = (socket: ScriptedSocket, value: unknown) => {
   queueMicrotask(() => {
     socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) }));
@@ -78,16 +81,20 @@ const scriptedWebSocket = (script: {
     socket.close = () => {
       script.close?.(socket);
     };
+
     socket.send = (data) => {
       script.send(socket, data);
     };
+
     (script.connect ?? ((value) => socketEvent(value, "open")))(socket);
+
     return socket;
   };
 
 const recoveryObservation = (observability: CodexObservability, sessionId: string) => {
   const observation = wireRecord(observability.list(sessionId)[0]?.data);
   const transport = wireRecord(observation.transport);
+
   return {
     ...transport,
     attempts: wireRecords(transport.inferenceAttempts).map((attempt) =>
@@ -108,27 +115,34 @@ const assistantMessage = (message: Context["messages"][number]) => {
   if (message.role !== "assistant") {
     throw new TypeError("Expected an assistant message");
   }
+
   return message;
 };
 
 const defaultObservability = new CodexObservability(":memory:");
+
 const createCodexProviderRuntime = (
   observability = defaultObservability,
   isFastModeEnabled: () => boolean = () => false,
 ) => createProviderRuntime(observability, isFastModeEnabled);
+
 const expectedFallbackMultiAgentVersions = codexContractFixture.catalog.declarations;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The transport fixture serializes an arbitrary first frame before injecting a stream failure.
 const interruptedSse = (firstEvent: unknown) => {
   const bytes = new TextEncoder().encode(`data: ${JSON.stringify(firstEvent)}\n\n`);
   let sent = false;
+
   return new Response(
     new ReadableStream<Uint8Array>({
       pull(controller) {
         if (!sent) {
           sent = true;
           controller.enqueue(bytes);
+
           return;
         }
+
         controller.error(new Error("SSE interrupted after output"));
       },
     }),
@@ -139,9 +153,11 @@ const interruptedSse = (firstEvent: unknown) => {
 const incompleteResponseEvents = (id: string, text: string) => {
   const events = responseEvents(id, text);
   const terminal = events.at(-1);
+
   if (!terminal || !("response" in terminal)) {
     throw new Error("Response fixture has no terminal event");
   }
+
   return [
     ...events.slice(0, -1),
     {
@@ -192,21 +208,26 @@ const context = (messages: Context["messages"]): Context => ({
 const CODE_MODE_TOOLS: NonNullable<Context["tools"]> = new CodeModeRuntime().createTools();
 
 const readBody = (body: RequestInit["body"]) => {
-  if (Value.Check(StringValueSchema, body)) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture discriminates platform body types and open wire fields without assuming production output is valid.
+  if (typeof body === "string") {
     return wireRecord(JSON.parse(body));
   }
+
   if (body instanceof Uint8Array) {
     return wireRecord(JSON.parse(zstdDecompressSync(body).toString("utf-8")));
   }
+
   throw new Error("Unexpected request body");
 };
 
 const requestKind = (frame: WireRecord) => {
   const metadata = wireRecord(frame.client_metadata);
   const turn = wireRecord(JSON.parse(wireString(metadata["x-codex-turn-metadata"])));
+
   return wireString(turn.request_kind);
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test hook receives Pi’s opaque provider payload and uses the wire decoder before inserting a retry marker.
 const markProtocolRetryPayload = (payload: unknown) => ({
   ...wireRecord(payload),
   protocolRetryTest: true,
@@ -219,6 +240,7 @@ const FAST_MODEL = {
   name: "GPT-5.6 Sol",
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JWT fixtures serialize heterogeneous headers and claims, including malformed claims for auth rejection tests.
 const encodeJwtPart = (value: unknown): string =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
@@ -228,13 +250,18 @@ const apiKeyForAccount = (accountId: string): string =>
   })}.signature`;
 
 type ProviderRuntime = ReturnType<typeof createCodexProviderRuntime>;
+
 type RefreshContext = Parameters<NonNullable<ProviderRuntime["provider"]["refreshModels"]>>[0];
+
 type StoredModels = NonNullable<RefreshContext["stored"]>;
+
 interface FetchCatalogState {
   stored?: StoredModels;
 }
+
 const publishModelUpdate: RefreshContext["publish"] = async (publication) => {
   publication.update?.();
+
   return true;
 };
 
@@ -335,18 +362,23 @@ const fetchRemoteCatalog = async (remoteCatalog: RemoteCatalogPayload = REMOTE_C
   const runtime = createProviderRuntime(defaultObservability, () => false, catalog);
   const requests: Request[] = [];
   const state: FetchCatalogState = {};
+
   const publish: RefreshContext["publish"] = async (publication) => {
     if (publication.persist === null) {
       delete state.stored;
     } else if (publication.persist !== undefined) {
       state.stored = structuredClone(publication.persist);
     }
+
     publication.update?.();
+
     return true;
   };
+
   const { signal } = new AbortController();
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     requests.push(new Request(input, init));
+
     return requests.length === 1
       ? Response.json(remoteCatalog, {
           headers: { etag: '"catalog-1"' },
@@ -359,12 +391,15 @@ const fetchRemoteCatalog = async (remoteCatalog: RemoteCatalogPayload = REMOTE_C
     publish,
     signal,
   });
+
   const getStored = (): StoredModels => {
     if (state.stored === undefined) {
       throw new Error("Remote model catalog was not persisted");
     }
+
     return state.stored;
   };
+
   return { catalog, getStored, publish, requests, runtime, signal };
 };
 
@@ -375,11 +410,13 @@ const restoreCatalog = async (stored: StoredModels): Promise<ProviderRuntime> =>
     credential: { key: SPIKE_API_KEY, type: "api_key" },
     publish: async (publication) => {
       publication.update?.();
+
       return true;
     },
     signal: new AbortController().signal,
-    stored,
+    ...(stored !== undefined ? { stored } : {}),
   });
+
   return runtime;
 };
 
@@ -395,19 +432,24 @@ describe("Codex provider", () => {
 
   it("exposes supported Codex models and rejects unsupported model requests", async () => {
     const runtime = createCodexProviderRuntime();
+
     const unsupportedModel = {
       ...SPIKE_MODEL,
       id: "gpt-5.5",
       name: "GPT-5.5",
     };
+
     const filtered = runtime.provider.filterModels?.([SPIKE_MODEL, unsupportedModel], {
       key: SPIKE_API_KEY,
       type: "api_key",
     });
+
     const fetch = vi.fn<() => Promise<Response>>(async () =>
       sse(responseEvents("unsupported", "unexpected")),
     );
+
     vi.stubGlobal("fetch", fetch);
+
     const message = await runtime.provider
       .streamSimple(unsupportedModel, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -415,6 +457,7 @@ describe("Codex provider", () => {
         transport: "sse",
       })
       .result();
+
     await expect(
       runtime.compact({
         apiKey: SPIKE_API_KEY,
@@ -462,10 +505,13 @@ describe("Codex provider", () => {
     async ({ fast, inputTokens, expectedCost }) => {
       const runtime = createCodexProviderRuntime(defaultObservability, () => fast);
       const model = runtime.provider.getModels().find(({ id }) => id === "gpt-6-astra");
+
       if (model === undefined) {
         throw new Error("Astra fallback model is missing");
       }
+
       let request: RequestInit | undefined;
+
       const message = await runtime.provider
         .streamSimple(
           model,
@@ -477,6 +523,7 @@ describe("Codex provider", () => {
             apiKey: SPIKE_API_KEY,
             fetch: async (_input, init) => {
               request = init;
+
               return sse(
                 responseEvents("resp_astra", "done").map((event) =>
                   event.type === "response.done" && "response" in event
@@ -501,6 +548,7 @@ describe("Codex provider", () => {
           },
         )
         .result();
+
       expect(message.stopReason).toBe("stop");
       const body = readBody(request?.body);
       expect(body).toMatchObject({
@@ -548,6 +596,7 @@ describe("Codex provider", () => {
     const fetch = vi.fn<() => Promise<Response>>(async () =>
       sse(responseEvents("invalid-transformed-effort", "unexpected")),
     );
+
     const message = await createCodexProviderRuntime()
       .provider.streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -573,6 +622,7 @@ describe("Codex provider", () => {
     const refreshed = { ...selected, baseUrl: "https://catalog.invalid", codexOutputTokenLimit: 2 };
     const models = vi.spyOn(catalog, "getModels").mockReturnValue([refreshed]);
     const runtime = createProviderRuntime(defaultObservability, undefined, catalog, settings);
+
     const items = ["first", "second"].map((id) => ({
       type: "function_call",
       id: `fc_${id}`,
@@ -581,6 +631,7 @@ describe("Codex provider", () => {
       arguments: "{}",
       status: "completed",
     }));
+
     const prefix = [
       { type: "response.created", response: { id: "response-settings", status: "in_progress" } },
       ...items.flatMap((item, output_index) => [
@@ -592,6 +643,7 @@ describe("Codex provider", () => {
         { type: "response.output_item.done", item, output_index },
       ]),
     ];
+
     const completed = () =>
       sse([
         ...prefix,
@@ -605,6 +657,7 @@ describe("Codex provider", () => {
           },
         },
       ]);
+
     const fetch = vi
       .fn<FetchFunction>()
       .mockResolvedValueOnce(completed())
@@ -615,23 +668,28 @@ describe("Codex provider", () => {
           { type: "response.failed", response: { error: { code: "failed", message: "failed" } } },
         ]),
       );
+
     const options = {
       apiKey: SPIKE_API_KEY,
       fetch,
       sessionId: "tool-settings",
       transport: "sse" as const,
       reasoning: "high" as const,
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test hook receives Pi’s opaque provider payload and uses the wire decoder before changing reasoning effort.
       onPayload: async (payload: unknown) => {
         // Refresh after request capture: only the next request should see 7.
         await Promise.resolve();
         models.mockReturnValue([{ ...refreshed, codexOutputTokenLimit: 7 }]);
+
         return { ...wireRecord(payload), reasoning: { effort: "low" } };
       },
     };
+
     const message = await runtime.provider.streamSimple(selected, context([]), options).result();
     expect(message.stopReason).toBe("toolUse");
     const calls = message.content.filter((block) => block.type === "toolCall");
     expect(calls).toHaveLength(2);
+
     for (const call of calls) {
       const captured = settings.take("tool-settings", call.id);
       expect(captured).toMatchObject({
@@ -640,28 +698,35 @@ describe("Codex provider", () => {
       });
       expect(captured?.model).not.toBe(selected);
     }
+
     await runtime.provider.streamSimple(selected, context([]), options).result();
+
     for (const call of calls) {
       expect(settings.take("tool-settings", call.id)?.model).toMatchObject({
         codexOutputTokenLimit: 7,
       });
     }
+
     expect(selected.codexOutputTokenLimit).toBe(100);
     const failed = await runtime.provider.streamSimple(selected, context([]), options).result();
     expect(failed.stopReason).toBe("error");
+
     for (const call of calls) expect(settings.take("tool-settings", call.id)).toBeUndefined();
     runtime.closeSession("tool-settings");
   });
 
   it("preserves manual compaction redirects as nonretryable HTTP failures", async () => {
     const runtime = createCodexProviderRuntime();
+
     const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
       expect(init?.redirect).toBe("manual");
+
       return new Response("redirect rejected", {
         status: 302,
         headers: { location: "https://example.org/" },
       });
     });
+
     vi.stubGlobal("fetch", fetch);
     await expect(
       runtime.compact({
@@ -685,6 +750,7 @@ describe("Codex provider", () => {
     const runtime = createCodexProviderRuntime();
     const model = { ...SPIKE_MODEL, baseUrl: "https://provider-test.chatgpt.com/backend-api" };
     const cookies: (string | null)[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       cookies.push(new Headers(init?.headers).get("cookie"));
       expect(init?.redirect).toBe("error");
@@ -695,8 +761,10 @@ describe("Codex provider", () => {
           ? "__oailb=provider-route; Path=/backend-api; Secure"
           : "__oailb=; Path=/backend-api; Secure; Max-Age=0",
       );
+
       return response;
     });
+
     for (let i = 0; i < 2; i++) {
       const message = await runtime.provider
         .streamSimple(model, context([]), {
@@ -706,8 +774,10 @@ describe("Codex provider", () => {
           sessionId: "routing-cookie-test",
         })
         .result();
+
       expect(message.stopReason).toBe("stop");
     }
+
     expect(cookies).toEqual([null, "__oailb=provider-route"]);
     runtime.closeSession("routing-cookie-test");
   });
@@ -715,20 +785,25 @@ describe("Codex provider", () => {
   it("keeps request and response attribution on the captured model across async transforms", async () => {
     const runtime = createCodexProviderRuntime();
     const model = { ...structuredClone(SPIKE_MODEL), headers: { "x-suppressed": "model-default" } };
+
     const headers: ProviderHeaders = {
       "x-request-policy": "original",
       "x-suppressed": null,
       "x-deleted": "kept",
     };
+
     const sentHeaders: Headers[] = [];
     const ready = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const requests: WireRecord[] = [];
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       requests.push(readBody(init?.body));
       sentHeaders.push(new Headers(init?.headers));
+
       return sse(responseEvents("captured-model", "done"));
     });
+
     const result = runtime.provider
       .streamSimple(model, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -743,6 +818,7 @@ describe("Codex provider", () => {
         },
       })
       .result();
+
     await ready.promise;
     model.id = "different-model";
     model.cost.input = 999;
@@ -766,6 +842,7 @@ describe("Codex provider", () => {
     const payloads: unknown[] = [];
     const requests: RequestInit[] = [];
     const responses: number[] = [];
+
     const message = await runtime.provider
       .streamSimple(
         {
@@ -793,6 +870,7 @@ describe("Codex provider", () => {
           apiKey: SPIKE_API_KEY,
           fetch: async (_input, init) => {
             requests.push(init ?? {});
+
             return sse(responseEvents("resp_sse", "hello back", false));
           },
           onPayload: (payload) => {
@@ -812,9 +890,11 @@ describe("Codex provider", () => {
     const [standardMessage] = wireRecords(body.input);
     const [standardImage] = wireRecords(standardMessage?.content);
     const clientMetadata = wireRecord(body.client_metadata);
+
     const turnMetadata = wireRecord(
       JSON.parse(wireString(clientMetadata["x-codex-turn-metadata"])),
     );
+
     const requestHeaders = new Headers(requests[0]?.headers);
     expect({
       callbackCounts: [payloads.length, responses.length],
@@ -837,7 +917,6 @@ describe("Codex provider", () => {
     }).toMatchObject({
       callbackCounts: [1, 1],
       clientMetadata: {
-        context_window_id: expect.any(String),
         request_kind: "turn",
         session_id: "session-sse",
         thread_id: "session-sse",
@@ -864,6 +943,7 @@ describe("Codex provider", () => {
       windowHeader: "session-sse:0",
       windowProjection: "session-sse:0",
     });
+    expect(turnMetadata).toHaveProperty("context_window_id", expect.any(String));
     expect(clientMetadata["x-codex-turn-metadata"]).toStrictEqual(expect.any(String));
   });
 
@@ -875,6 +955,7 @@ describe("Codex provider", () => {
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       const request = init ?? {};
       requests.push(request);
+
       return requestKind(readBody(request.body)) === "compaction"
         ? sse(compactionEvents("resp_restored_compaction"))
         : sse(responseEvents("resp_restored_window", "done"));
@@ -916,9 +997,11 @@ describe("Codex provider", () => {
       header: `${sessionId}:4`,
       projection: `${sessionId}:4`,
     };
+
     expect(
       requests.map((request) => {
         const metadata = wireRecord(readBody(request.body).client_metadata);
+
         return {
           canonical: wireRecord(JSON.parse(wireString(metadata["x-codex-turn-metadata"]))),
           header: new Headers(request.headers).get("x-codex-window-id"),
@@ -932,12 +1015,14 @@ describe("Codex provider", () => {
     let fastMode = false;
     const requests: Request[] = [];
     const runtime = createCodexProviderRuntime(defaultObservability, () => fastMode);
+
     const send = async (sessionId: string) => {
       await runtime.provider
         .streamSimple(FAST_MODEL, context([]), {
           apiKey: SPIKE_API_KEY,
           fetch: async (input, init) => {
             requests.push(new Request(input, init));
+
             return sse(responseEvents(`resp_${sessionId}`, "done"));
           },
           headers: {
@@ -974,6 +1059,7 @@ describe("Codex provider", () => {
 
   it("places deferred tools using the model's supported mode", async () => {
     const toolCallId = "call_base|fc_base";
+
     const dynamicContext: Context = {
       ...context([
         {
@@ -997,6 +1083,7 @@ describe("Codex provider", () => {
       ]),
       tools: CODE_MODE_TOOLS,
     };
+
     const [additionalTools, toolSearchOnly] = await Promise.all(
       [
         { supportsAdditionalTools: true, supportsToolSearch: true },
@@ -1008,12 +1095,14 @@ describe("Codex provider", () => {
             apiKey: SPIKE_API_KEY,
             fetch: async (_input, init) => {
               body = init?.body;
+
               return sse(responseEvents(`resp_deferred_${index}`, "done"));
             },
             sessionId: `session-deferred-${index}`,
             transport: "sse",
           })
           .result();
+
         return readBody(body);
       }),
     );
@@ -1043,6 +1132,7 @@ describe("Codex provider", () => {
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       const body = readBody(init?.body);
       requests.push(body);
+
       return requestKind(body) === "compaction"
         ? sse(compactionEvents("resp_fast_compaction"))
         : sse(responseEvents("resp_fast_turn", "fast"));
@@ -1060,6 +1150,7 @@ describe("Codex provider", () => {
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
+
     const message = await runtime.provider
       .streamSimple(FAST_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -1088,6 +1179,7 @@ describe("Codex provider", () => {
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       const body = readBody(init?.body);
       requests.push(body);
+
       return requestKind(body) === "compaction"
         ? sse(compactionEvents("resp_snapshot_compaction"))
         : sse(responseEvents(`resp_snapshot_${requests.length}`, "done"));
@@ -1140,6 +1232,7 @@ describe("Codex provider", () => {
     const runtime = createCodexProviderRuntime(defaultObservability, () => true);
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       request = readBody(init?.body);
+
       return sse(compactionEvents("resp_transition_tier"));
     });
 
@@ -1166,6 +1259,7 @@ describe("Codex provider", () => {
     const runtime = createCodexProviderRuntime();
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       request = readBody(init?.body);
+
       return sse(compactionEvents("resp_effective_tier", "priority"));
     });
 
@@ -1191,11 +1285,13 @@ describe("Codex provider", () => {
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = "session-sse-created-retry";
     let dispatches = 0;
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch: async () => {
           dispatches += 1;
+
           return dispatches === 1
             ? interruptedSse({
                 response: { id: "resp_discarded", status: "in_progress" },
@@ -1295,11 +1391,12 @@ describe("Codex provider", () => {
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = `session-sse-failure-${label}`;
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch,
-        maxRetries,
+        ...(maxRetries !== undefined ? { maxRetries } : {}),
         sessionId,
         transport: "sse",
       })
@@ -1322,11 +1419,13 @@ describe("Codex provider", () => {
 
   it("caps generic HTTP 429 recovery at one replay", async () => {
     let attempts = 0;
+
     const message = await createCodexProviderRuntime()
       .provider.streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch: async () => {
           attempts += 1;
+
           return Response.json(
             { error: { code: "rate_limit", message: "rate limited" } },
             { status: 429 },
@@ -1351,11 +1450,13 @@ describe("Codex provider", () => {
 
   it("does not retry a server delay beyond the configured bound", async () => {
     let attempts = 0;
+
     const message = await createCodexProviderRuntime()
       .provider.streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch: async () => {
           attempts += 1;
+
           return Response.json(
             { error: { code: "rate_limit", message: "rate limited" } },
             {
@@ -1397,6 +1498,7 @@ describe("Codex provider", () => {
 
   it("returns incomplete responses as length stops", async () => {
     const runtime = createCodexProviderRuntime();
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -1427,6 +1529,7 @@ describe("Codex provider", () => {
     const terminal = wireRecord(events.at(-1));
     const response = wireRecord(terminal.response);
     response.incomplete_details = { reason: "content_filter" };
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -1448,12 +1551,15 @@ describe("Codex provider", () => {
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const requests: RequestInit[] = [];
+
     const websocket = vi.fn<() => never>(() => {
       throw new Error("unexpected WebSocket attempt");
     });
+
     vi.stubGlobal("WebSocket", websocket);
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       requests.push(init ?? {});
+
       return requestKind(readBody(init?.body)) === "compaction"
         ? sse(compactionEvents("resp_inline_compact"))
         : sse(responseEvents("resp_after_compact", "done"));
@@ -1482,21 +1588,20 @@ describe("Codex provider", () => {
       })
       .result();
 
-    expect({
-      compaction: observability
+    expect(
+      observability
         .list("session-inline-sse")
         .find((observation) => observation.kind === "compaction")?.data,
-      requestKinds: requests.map((request) => requestKind(readBody(request.body))),
-      websocketAttempts: websocket.mock.calls.length,
-    }).toStrictEqual({
-      compaction: expect.objectContaining({
-        attempts: 1,
-        outcome: "success",
-        transport: expect.objectContaining({ transportUsed: "sse" }),
-      }),
-      requestKinds: ["compaction", "turn"],
-      websocketAttempts: 0,
+    ).toMatchObject({
+      attempts: 1,
+      outcome: "success",
+      transport: { transportUsed: "sse" },
     });
+    expect(requests.map((request) => requestKind(readBody(request.body)))).toStrictEqual([
+      "compaction",
+      "turn",
+    ]);
+    expect(websocket).not.toHaveBeenCalled();
     observability.close();
   });
 
@@ -1505,9 +1610,11 @@ describe("Codex provider", () => {
     const firstEntered = Promise.withResolvers<null>();
     const secondEntered = Promise.withResolvers<null>();
     const releaseSecond = Promise.withResolvers<null>();
+
     const websocket = vi.fn<() => never>(() => {
       throw new Error("unexpected WebSocket attempt");
     });
+
     vi.stubGlobal("WebSocket", websocket);
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) =>
       requestKind(readBody(init?.body)) === "compaction"
@@ -1539,6 +1646,7 @@ describe("Codex provider", () => {
         transport: "sse",
       })
       .result();
+
     await firstEntered.promise;
 
     const second = runtime.provider
@@ -1582,7 +1690,9 @@ describe("Codex provider", () => {
     const persistedRemoteAfterNotModified = getStored().models.some(
       (model) => model.id === "gpt-5.6-remote",
     );
+
     const stored = getStored();
+
     const restored = await restoreCatalog({
       ...stored,
       models: stored.models.map((model) =>
@@ -1603,14 +1713,17 @@ describe("Codex provider", () => {
           : model,
       ),
     });
+
     const omitted = await restoreCatalog({
       ...stored,
       models: stored.models.filter((model) => model.id !== "gpt-5.6-luna"),
     });
+
     const restoredRemote = restored.provider
       .getModels()
       .find((model) => model.id === "gpt-5.6-remote");
 
+    expect(requests[0]?.url).toContain("/codex/models?client_version=");
     expect({
       liveCatalog: runtime.provider.getModels().map((model) => model.id),
       liveRemoteAfterRepeatedRestore: runtime.provider
@@ -1621,7 +1734,6 @@ describe("Codex provider", () => {
         .some((model) => model.id === "gpt-5.6-luna"),
       persistedRemoteAfterNotModified,
       refreshRequests: requests.length,
-      request: requests[0]?.url,
       restoredRemoteCatalog: restored.provider
         .getModels()
         .some((model) => model.id === "gpt-5.6-remote"),
@@ -1642,7 +1754,6 @@ describe("Codex provider", () => {
       omittedLunaRestored: false,
       persistedRemoteAfterNotModified: true,
       refreshRequests: 2,
-      request: expect.stringContaining("/codex/models?client_version="),
       restoredRemoteCatalog: true,
       restoredRemoteProjection: {
         reasoning: true,
@@ -1688,27 +1799,32 @@ describe("Codex provider", () => {
 
   it("bypasses the model cache when the Codex account changes", async () => {
     let stored: RefreshContext["stored"];
+
     const publish: RefreshContext["publish"] = async (publication) => {
       stored = publication.persist ?? undefined;
       publication.update?.();
+
       return true;
     };
+
     const accountChanged = vi.fn<() => void>();
     const catalog = createCodexModelCatalog(accountChanged);
     const requests: Request[] = [];
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       requests.push(new Request(input, init));
+
       return Response.json(REMOTE_CATALOG, {
         headers: { etag: '"catalog-1"' },
       });
     });
+
     const refresh = async (key: string) =>
       catalog.refreshModels({
         allowNetwork: true,
         credential: { key, type: "api_key" },
         publish,
         signal: new AbortController().signal,
-        stored,
+        ...(stored !== undefined ? { stored } : {}),
       });
 
     await refresh(SPIKE_API_KEY);
@@ -1722,11 +1838,13 @@ describe("Codex provider", () => {
 
   it("announces Codex account changes while refreshing the catalog", async () => {
     const accountChanged = vi.fn<() => void>();
+
     const runtime = createProviderRuntime(
       defaultObservability,
       () => false,
       createCodexModelCatalog(accountChanged),
     );
+
     const { signal } = new AbortController();
 
     await runtime.provider.refreshModels?.({
@@ -1754,6 +1872,7 @@ describe("Codex provider", () => {
   it("projects remote reasoning, fast-mode, and context-window metadata", async () => {
     const { catalog, runtime } = await fetchRemoteCatalog();
     const [remoteModel] = runtime.provider.getModels();
+
     if (!remoteModel) {
       throw new Error("Remote model was not projected");
     }
@@ -1797,9 +1916,11 @@ describe("Codex provider", () => {
     const nullLimitModel = runtime.provider
       .getModels()
       .find((model) => model.id === SPIKE_MODEL.id);
+
     if (!nullLimitModel) {
       throw new Error("Null-limit model was not projected");
     }
+
     expect({
       reasoning: nullLimitModel.reasoning,
       thinkingLevelMap: nullLimitModel.thinkingLevelMap,
@@ -1829,6 +1950,7 @@ describe("Codex provider", () => {
         apiKey: SPIKE_API_KEY,
         fetch: async (_input, init) => {
           defaultRequests.push(init ?? {});
+
           return sse(responseEvents("unsupported-default", "accepted"));
         },
         sessionId: "session-unsupported-default",
@@ -1849,14 +1971,18 @@ describe("Codex provider", () => {
         },
       ],
     });
+
     const [model] = runtime.provider.getModels();
+
     if (!model) {
       throw new Error("Remote model was not projected");
     }
+
     const requests: WireRecord[] = [];
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       const body = readBody(init?.body);
       requests.push(body);
+
       return requestKind(body) === "compaction"
         ? sse(compactionEvents("resp_none_compaction"))
         : sse(responseEvents("resp_none_turn", "done"));
@@ -1917,16 +2043,20 @@ describe("Codex provider", () => {
     const { getStored } = await fetchRemoteCatalog();
     const runtime = await restoreCatalog(getStored());
     const [projected] = runtime.provider.getModels();
+
     if (!projected) {
       throw new Error("Cached remote model was not restored");
     }
+
     const outputTokenLimit =
       "codexOutputTokenLimit" in projected ? projected.codexOutputTokenLimit : undefined;
+
     const remoteModel = {
       ...projected,
       compat: { supportsOpenAIGrammarTools: true },
       input: ["text", "image"],
     } satisfies typeof projected;
+
     expect({
       metadata: runtime.getModelMetadata(remoteModel.id)?.comp_hash,
       outputTokenLimit,
@@ -1966,6 +2096,7 @@ describe("Codex provider", () => {
           apiKey: SPIKE_API_KEY,
           fetch: async (_input, init) => {
             liteRequests.push(init ?? {});
+
             return sse(responseEvents("resp_lite", "lite"));
           },
           sessionId: "session-lite",
@@ -1977,9 +2108,11 @@ describe("Codex provider", () => {
     const liteHeaders = new Headers(liteRequests[0]?.headers);
     const liteInput = wireRecords(liteBody.input);
     const [litePrefix] = liteInput;
+
     if (!litePrefix) {
       throw new Error("Responses Lite prefix was not serialized");
     }
+
     const liteMessage = liteInput.at(2);
     const [liteImage] = wireRecords(liteMessage?.content);
     expect({
@@ -2014,6 +2147,7 @@ describe("Codex provider", () => {
     });
 
     const liteFrames: WireRecord[] = [];
+
     const LiteWebSocket = function LiteWebSocket() {
       const socket = mockSocket();
       socket.readyState = 1;
@@ -2021,6 +2155,7 @@ describe("Codex provider", () => {
       socket.send = (data: string) => {
         const frame = wireRecord(JSON.parse(data));
         liteFrames.push(frame);
+
         const events =
           frame.generate === false
             ? [
@@ -2030,15 +2165,19 @@ describe("Codex provider", () => {
                 },
               ]
             : responseEvents("resp_lite_ws", "lite ws");
+
         for (const event of events) {
           queueMicrotask(() =>
             socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(event) })),
           );
         }
       };
+
       queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+
       return socket;
     };
+
     vi.stubGlobal("WebSocket", LiteWebSocket);
     runtime.beginTurn("session-lite-ws");
     await runtime.provider
@@ -2085,11 +2224,13 @@ describe("Codex provider", () => {
       },
     ]);
     const ssePrefixIds = liteInput.slice(0, 2).map((item) => item.id);
+
     const websocketPrefixIds = liteFrames.map((frame) =>
       wireRecords(frame.input)
         .slice(0, 2)
         .map((item) => item.id),
     );
+
     expect(websocketPrefixIds[0]).toStrictEqual(websocketPrefixIds[1]);
     expect(websocketPrefixIds[0]).not.toStrictEqual(ssePrefixIds);
     expect(websocketPrefixIds[0]).toStrictEqual([
@@ -2102,10 +2243,13 @@ describe("Codex provider", () => {
     const { getStored } = await fetchRemoteCatalog();
     const runtime = await restoreCatalog(getStored());
     const [model] = runtime.provider.getModels();
+
     if (!model) {
       throw new Error("Cached remote model was not restored");
     }
+
     const requests: RequestInit[] = [];
+
     const run = async (sessionId: string, systemPrompt: string, tools = CODE_MODE_TOOLS) => {
       await runtime.provider
         .streamSimple(
@@ -2119,6 +2263,7 @@ describe("Codex provider", () => {
             apiKey: SPIKE_API_KEY,
             fetch: async (_input, init) => {
               requests.push(init ?? {});
+
               return sse(responseEvents(`resp_prefix_${requests.length}`, "done"));
             },
             sessionId,
@@ -2140,6 +2285,7 @@ describe("Codex provider", () => {
         .slice(0, 2)
         .map((item) => item.id),
     );
+
     expect(prefixes[0]).toStrictEqual(prefixes[1]);
     expect(prefixes[0]?.[0]).toStrictEqual(prefixes[2]?.[0]);
     expect(prefixes[0]?.[1]).not.toStrictEqual(prefixes[2]?.[1]);
@@ -2158,13 +2304,16 @@ describe("Codex provider", () => {
     const { getStored } = await fetchRemoteCatalog();
     const runtime = await restoreCatalog(getStored());
     const [projected] = runtime.provider.getModels();
+
     if (!projected) {
       throw new Error("Cached remote model was not restored");
     }
+
     const remoteModel = {
       ...projected,
       input: ["text", "image"],
     } satisfies typeof projected;
+
     const requests: RequestInit[] = [];
     const remoteImageUrl = "HtTpS://example.invalid/image.png";
 
@@ -2176,10 +2325,12 @@ describe("Codex provider", () => {
           apiKey: SPIKE_API_KEY,
           fetch: async (_input, init) => {
             requests.push(init ?? {});
+
             return sse(responseEvents("resp_lite_mixed_case_image", "lite"));
           },
           onPayload: (payload) => {
             const body = wireRecord(payload);
+
             return {
               ...body,
               input: wireRecords(body.input).map((item) =>
@@ -2225,6 +2376,7 @@ describe("Codex provider", () => {
       summary: [{ text: "reasoning summary", type: "summary_text" }],
       type: "reasoning",
     };
+
     const functionItem = {
       arguments: '{ "cell_id": "cell-1", "toString": null, "yield_time_ms": 1000 }',
       call_id: "call_function",
@@ -2234,6 +2386,7 @@ describe("Codex provider", () => {
       status: "completed",
       type: "function_call",
     };
+
     const customItem = {
       call_id: "call_custom",
       id: "ctc_custom",
@@ -2243,6 +2396,7 @@ describe("Codex provider", () => {
       status: "completed",
       type: "custom_tool_call",
     };
+
     const messageItem = {
       content: [
         {
@@ -2259,7 +2413,9 @@ describe("Codex provider", () => {
       status: "completed",
       type: "message",
     };
+
     const richOutput = [reasoningItem, functionItem, customItem, messageItem];
+
     const doneOutput = [
       {
         ...reasoningItem,
@@ -2269,6 +2425,7 @@ describe("Codex provider", () => {
       customItem,
       messageItem,
     ];
+
     const richResponseEvents = [
       {
         response: { id: "resp_ws_1", status: "in_progress" },
@@ -2299,13 +2456,16 @@ describe("Codex provider", () => {
         type: "response.done",
       },
     ];
+
     const responseEventsWithoutTerminalOutput = (id: string, text: string) => {
       const events: unknown[] = responseEvents(id, text, false);
       const terminal = wireRecord(events.at(-1));
       const response = wireRecord(terminal.response);
       delete response.output;
+
       return [...events.slice(0, -1), { ...terminal, response }];
     };
+
     const frames: WireRecord[] = [];
     const handshakeHints: string[] = [];
     const sockets: MockWebSocket[] = [];
@@ -2313,9 +2473,10 @@ describe("Codex provider", () => {
     let closes = 0;
     let fastMode = false;
     let responseNumber = 0;
+
     class MockWebSocket {
       readyState = 1;
-      private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
+      private readonly listeners = new Map<string, Set<(event: Event) => void>>();
 
       constructor(
         url: string,
@@ -2323,13 +2484,15 @@ describe("Codex provider", () => {
       ) {
         sockets.push(this);
         socketUrls.push(url);
+
         if (Value.Check(HeadersInitSchema, protocols)) {
           handshakeHints.push(protocols.headers?.["x-codex-routing-hint"] ?? "");
         }
-        queueMicrotask(() => this.emit("open", {}));
+
+        queueMicrotask(() => this.emit("open", new Event("open")));
       }
 
-      addEventListener(type: string, listener: (event: unknown) => void) {
+      addEventListener(type: string, listener: (event: Event) => void) {
         const listeners = this.listeners.get(type) ?? new Set();
         listeners.add(listener);
         this.listeners.set(type, listeners);
@@ -2341,16 +2504,18 @@ describe("Codex provider", () => {
         this.listeners.clear();
       }
 
-      removeEventListener(type: string, listener: (event: unknown) => void) {
+      removeEventListener(type: string, listener: (event: Event) => void) {
         this.listeners.get(type)?.delete(listener);
       }
 
       send(data: string) {
         const frame = wireRecord(JSON.parse(data));
         frames.push(frame);
+
         if (frame.generate !== false) {
           responseNumber += 1;
         }
+
         const events =
           frame.generate === false
             ? [
@@ -2376,41 +2541,50 @@ describe("Codex provider", () => {
                     `answer ${responseNumber}`,
                   )
                 : responseEvents(`resp_ws_${responseNumber}`, `answer ${responseNumber}`, false);
+
         for (const event of events) {
-          queueMicrotask(() => this.emit("message", { data: JSON.stringify(event) }));
+          queueMicrotask(() =>
+            this.emit("message", new MessageEvent("message", { data: JSON.stringify(event) })),
+          );
         }
       }
 
       retire() {
         this.readyState = 3;
-        this.emit("close", {});
+        this.emit("close", new Event("close"));
       }
 
-      private emit(type: string, event: unknown) {
+      private emit(type: string, event: Event) {
         for (const listener of this.listeners.get(type) ?? []) {
           listener(event);
         }
       }
     }
+
     vi.stubGlobal("WebSocket", MockWebSocket);
     const runtime = createCodexProviderRuntime(defaultObservability, () => fastMode);
     const sessionId = "session-ws";
+
     const socketModel = {
       ...FAST_MODEL,
       compat: { supportsOpenAIGrammarTools: true },
     };
+
     const socketContext = (messages: Context["messages"]): Context => ({
       ...context(messages),
       tools: CODE_MODE_TOOLS,
     });
+
     let messages: Context["messages"] = [{ content: "one", role: "user", timestamp: 1 }];
     runtime.beginTurn(sessionId);
+
     const first = await runtime.provider
       .streamSimple(socketModel, socketContext(messages), {
         apiKey: SPIKE_API_KEY,
         sessionId,
       })
       .result();
+
     expect(defaultObservability.list(sessionId)[0]?.data).toMatchObject({
       transport: {
         inferenceDispatches: 1,
@@ -2420,15 +2594,19 @@ describe("Codex provider", () => {
         websocketHandshakeFailures: 0,
       },
     });
+
     const functionCall = first.content.find(
       (block) => block.type === "toolCall" && block.name === functionItem.name,
     );
+
     const customCall = first.content.find(
       (block) => block.type === "toolCall" && block.name === customItem.name,
     );
+
     if (functionCall?.type !== "toolCall" || customCall?.type !== "toolCall") {
       throw new Error("Rich response did not produce both tool calls");
     }
+
     messages = [
       ...messages,
       assistantMessage(first),
@@ -2450,9 +2628,11 @@ describe("Codex provider", () => {
       },
       { content: "two", role: "user", timestamp: 4 },
     ];
+
     const second = await runtime.provider
       .streamSimple(socketModel, socketContext(messages), { apiKey: SPIKE_API_KEY, sessionId })
       .result();
+
     const socketCountBeforeClose = sockets.length;
     sockets[0]?.retire();
     messages = [
@@ -2461,6 +2641,7 @@ describe("Codex provider", () => {
       { content: "three", role: "user", timestamp: 5 },
     ];
     let afterClosePayload: WireRecord | undefined;
+
     const third = await runtime.provider
       .streamSimple(socketModel, socketContext(messages), {
         apiKey: SPIKE_API_KEY,
@@ -2470,6 +2651,7 @@ describe("Codex provider", () => {
         sessionId,
       })
       .result();
+
     runtime.endTurn(sessionId);
     fastMode = true;
     runtime.beginTurn(sessionId);
@@ -2478,26 +2660,32 @@ describe("Codex provider", () => {
       assistantMessage(third),
       { content: "four", role: "user", timestamp: 6 },
     ];
+
     const fourth = await runtime.provider
       .streamSimple(socketModel, socketContext(messages), { apiKey: SPIKE_API_KEY, sessionId })
       .result();
+
     messages = [
       ...messages,
       assistantMessage(fourth),
       { content: "five", role: "user", timestamp: 7 },
     ];
+
     const fifth = await runtime.provider
       .streamSimple(socketModel, socketContext(messages), { apiKey: SPIKE_API_KEY, sessionId })
       .result();
+
     const otherApiKey = apiKeyForAccount("account-other");
     messages = [
       ...messages,
       assistantMessage(fifth),
       { content: "six", role: "user", timestamp: 8 },
     ];
+
     const sixth = await runtime.provider
       .streamSimple(socketModel, socketContext(messages), { apiKey: otherApiKey, sessionId })
       .result();
+
     messages = [
       ...messages,
       assistantMessage(sixth),
@@ -2513,6 +2701,7 @@ describe("Codex provider", () => {
 
     const generated = frames.filter((frame) => frame.generate !== false);
     const prewarm = frames.find((frame) => frame.generate === false);
+
     const requestBodyFromFrame = (frame: WireRecord) => {
       const body = structuredClone(frame);
       delete body.generate;
@@ -2521,14 +2710,18 @@ describe("Codex provider", () => {
       delete metadata["x-codex-turn-state"];
       delete metadata["x-codex-ws-stream-request-start-ms"];
       body.client_metadata = metadata;
+
       return body;
     };
+
     const deltaAfterRichOutput = generated[1];
     const fullAfterClose = generated[2];
     const simplifiedDelta = generated[4];
+
     if (!deltaAfterRichOutput || !fullAfterClose || !simplifiedDelta) {
       throw new Error("Expected continuation frames were not observed");
     }
+
     expect(deltaAfterRichOutput.input).toStrictEqual([
       {
         call_id: functionItem.call_id,
@@ -2552,12 +2745,15 @@ describe("Codex provider", () => {
       },
     ]);
     const reconstructedItems = wireRecords(fullAfterClose.input);
+
     const reconstructedReasoning = reconstructedItems.find(
       (item) => item.type === "reasoning" && item.id === reasoningItem.id,
     );
+
     const reconstructedFunction = reconstructedItems.find(
       (item) => item.call_id === functionItem.call_id,
     );
+
     const reconstructedMessage = reconstructedItems.find((item) => item.id === messageItem.id);
     expect({
       body: requestBodyFromFrame(fullAfterClose),
@@ -2738,6 +2934,7 @@ describe("Codex provider", () => {
         send: (socket, data) => {
           const frame = wireRecord(JSON.parse(data));
           frames.push(frame);
+
           if (frame.generate === false) {
             socketMessage(socket, {
               response: {
@@ -2748,9 +2945,12 @@ describe("Codex provider", () => {
               },
               type: "response.done",
             });
+
             return;
           }
+
           generated += 1;
+
           const events =
             generated === 1
               ? [
@@ -2779,6 +2979,7 @@ describe("Codex provider", () => {
                   },
                 ]
               : responseEvents("resp_projection_followup", "followup");
+
           for (const event of events) {
             socketMessage(socket, event);
           }
@@ -2787,14 +2988,17 @@ describe("Codex provider", () => {
     );
     const runtime = createCodexProviderRuntime();
     const initial = { content: "one", role: "user" as const, timestamp: 1 };
+
     const first = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([initial]), {
         apiKey: SPIKE_API_KEY,
         sessionId: fixture.sessionId,
       })
       .result();
+
     const messages: Context["messages"] = [initial, assistantMessage(first)];
     const toolCall = first.content.find((block) => block.type === "toolCall");
+
     if (toolCall?.type === "toolCall") {
       messages.push({
         content: [{ text: "tool result", type: "text" }],
@@ -2805,6 +3009,7 @@ describe("Codex provider", () => {
         toolName: toolCall.name,
       });
     }
+
     messages.push({ content: "two", role: "user", timestamp: 3 });
     let finalizedRequest: WireRecord | undefined;
     await runtime.provider
@@ -2819,15 +3024,20 @@ describe("Codex provider", () => {
 
     const generatedFrames = frames.filter((frame) => frame.generate !== false);
     const followup = generatedFrames[1];
+
     if (!followup) {
       throw new Error("Projection fallback request was not observed");
     }
+
     const callId = fixture.item.call_id;
+
     const reconstructed = wireRecords(followup.input).find(
       (item) =>
-        (Value.Check(StringValueSchema, callId) && item.call_id === callId) ||
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture discriminates platform body types and open wire fields without assuming production output is valid.
+        (typeof callId === "string" && item.call_id === callId) ||
         (item.id === fixture.item.id && item.type === fixture.item.type),
     );
+
     expect({
       connections,
       input: followup.input,
@@ -2848,6 +3058,7 @@ describe("Codex provider", () => {
     let closes = 0;
     let activeSocket: EventTarget | undefined;
     const requestStarted = Promise.withResolvers<null>();
+
     const BusyWebSocket = function BusyWebSocket() {
       const socket = mockSocket();
       activeSocket = socket;
@@ -2855,8 +3066,10 @@ describe("Codex provider", () => {
       socket.close = () => {
         closes += 1;
       };
+
       socket.send = (data) => {
         const frame = wireRecord(JSON.parse(data));
+
         if (frame.generate === false) {
           queueMicrotask(() =>
             socket.dispatchEvent(
@@ -2872,18 +3085,24 @@ describe("Codex provider", () => {
           requestStarted.resolve(null);
         }
       };
+
       queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+
       return socket;
     };
+
     vi.stubGlobal("WebSocket", BusyWebSocket);
     const runtime = createCodexProviderRuntime();
+
     const firstResult = runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         sessionId: "session-concurrent",
       })
       .result();
+
     await requestStarted.promise;
+
     const second = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -2895,6 +3114,7 @@ describe("Codex provider", () => {
     for (const event of responseEvents("resp_ws", "first")) {
       activeSocket?.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(event) }));
     }
+
     const first = await firstResult;
 
     expect({
@@ -2939,6 +3159,7 @@ describe("Codex provider", () => {
       let closes = 0;
       let sockets = 0;
       const connecting = Promise.withResolvers<null>();
+
       const ConnectingWebSocket = function ConnectingWebSocket() {
         sockets += 1;
         connecting.resolve(null);
@@ -2947,14 +3168,18 @@ describe("Codex provider", () => {
         socket.close = () => {
           closes += 1;
         };
+
         socket.send = () => null;
+
         return socket;
       };
+
       vi.stubGlobal("WebSocket", ConnectingWebSocket);
       const controller = new AbortController();
       const observability = new CodexObservability(":memory:");
       const runtime = createCodexProviderRuntime(observability);
       const sessionId = `session-connect-${abort ? "abort" : "timeout"}`;
+
       const result = runtime.provider
         .streamSimple(SPIKE_MODEL, context([]), {
           apiKey: SPIKE_API_KEY,
@@ -2970,6 +3195,7 @@ describe("Codex provider", () => {
         await connecting.promise;
         controller.abort();
       }
+
       const output = await result;
       const fallbackPending = runtime.consumeTransportFallback(sessionId);
 
@@ -2999,17 +3225,23 @@ describe("Codex provider", () => {
   it("keeps one pending notice while using sticky SSE", async () => {
     const secret = "secret-token-in-websocket-error";
     let socketAttempts = 0;
+
     const FailingWebSocket = function FailingWebSocket() {
       socketAttempts += 1;
       throw new Error(secret);
     };
+
     vi.stubGlobal("WebSocket", FailingWebSocket);
     let responses = 0;
+
     const fetch = vi.fn<() => Promise<Response>>(async () => {
       responses += 1;
+
       return responses === 1 ? sse([]) : sse(responseEvents(`resp_fallback_${responses}`, "ok"));
     });
+
     const runtime = createCodexProviderRuntime();
+
     const first = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3017,6 +3249,7 @@ describe("Codex provider", () => {
         sessionId: "session-sticky-fallback",
       })
       .result();
+
     const second = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3024,6 +3257,7 @@ describe("Codex provider", () => {
         sessionId: "session-sticky-fallback",
       })
       .result();
+
     const third = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3031,6 +3265,7 @@ describe("Codex provider", () => {
         sessionId: "session-sticky-fallback",
       })
       .result();
+
     const fallbackPending = runtime.consumeTransportFallback("session-sticky-fallback");
 
     expect({
@@ -3056,6 +3291,7 @@ describe("Codex provider", () => {
       "WebSocket",
       function HeaderProbe(_url: string, init: { headers: Record<string, string> }) {
         sentHeaders.push(new Headers(init.headers));
+
         return scriptedWebSocket({
           send: () => {
             sends += 1;
@@ -3065,13 +3301,17 @@ describe("Codex provider", () => {
         })();
       },
     );
+
     const fetch = vi.fn<FetchFunction>(async (_input, init) => {
       sentHeaders.push(new Headers(init?.headers));
+
       return sse(responseEvents("resp_send_fallback", "fallback"));
     });
+
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = "session-send-throw";
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3114,6 +3354,7 @@ describe("Codex provider", () => {
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = "session-transport-dispatch-throws";
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3157,6 +3398,7 @@ describe("Codex provider", () => {
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = "session-created-abort";
+
     const stream = runtime.provider.streamSimple(SPIKE_MODEL, context([]), {
       apiKey: SPIKE_API_KEY,
       onPayload: markProtocolRetryPayload,
@@ -3164,10 +3406,13 @@ describe("Codex provider", () => {
       signal: controller.signal,
       transport: "websocket",
     });
+
     const eventTypes: string[] = [];
     let responseId: string | undefined;
+
     for await (const event of stream) {
       eventTypes.push(event.type);
+
       if (event.type === "error") {
         responseId = event.error.responseId;
       }
@@ -3208,12 +3453,15 @@ describe("Codex provider", () => {
         },
       }),
     );
+
     const fetch = vi.fn<() => Promise<Response>>(async () =>
       sse(responseEvents("resp_unsafe_retry", "must not retry")),
     );
+
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = `session-fail-closed-${label}`;
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3249,10 +3497,13 @@ describe("Codex provider", () => {
         },
         send: (socket) => {
           sends += 1;
+
           if (sends === 1) {
             socketMessage(socket, { type: 1 });
+
             return;
           }
+
           for (const event of responseEvents("resp_after_validation", "recovered")) {
             socketMessage(socket, event);
           }
@@ -3261,6 +3512,7 @@ describe("Codex provider", () => {
     );
     const fetch = vi.fn<() => Promise<Response>>();
     const runtime = createCodexProviderRuntime();
+
     const options = {
       apiKey: SPIKE_API_KEY,
       fetch,
@@ -3300,15 +3552,18 @@ describe("Codex provider", () => {
         },
       }),
     );
+
     const fetch = vi.fn<() => Promise<Response>>(async () =>
       interruptedSse({
         response: { id: "resp_sse_discarded", status: "in_progress" },
         type: "response.created",
       }),
     );
+
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = "session-shared-replay";
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3361,6 +3616,7 @@ describe("Codex provider", () => {
         },
         send: (socket, data) => {
           frames.push(wireRecord(JSON.parse(data)));
+
           if (frames.length === 1) {
             for (const event of responseEvents("resp_repair_seed", "seed")) {
               socketMessage(socket, event);
@@ -3383,12 +3639,15 @@ describe("Codex provider", () => {
         },
       }),
     );
+
     const fetch = vi.fn<() => Promise<Response>>(async () =>
       sse(responseEvents("resp_repair_sse", "fallback")),
     );
+
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = `session-continuation-${handshakeFailure}`;
+
     const options = {
       apiKey: SPIKE_API_KEY,
       fetch,
@@ -3396,9 +3655,11 @@ describe("Codex provider", () => {
       onPayload: markProtocolRetryPayload,
       sessionId,
     };
+
     const first = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([{ content: "one", role: "user", timestamp: 1 }]), options)
       .result();
+
     const second = await runtime.provider
       .streamSimple(
         SPIKE_MODEL,
@@ -3452,6 +3713,7 @@ describe("Codex provider", () => {
       scriptedWebSocket({
         send: (socket) => {
           sends += 1;
+
           if (sends === 1) {
             socketMessage(socket, { error: { code, message: "retry" }, type: "error" });
           } else {
@@ -3465,6 +3727,7 @@ describe("Codex provider", () => {
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = `session-protocol-${code}`;
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3507,6 +3770,7 @@ describe("Codex provider", () => {
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = "session-protocol-default-zero";
+
     const message = await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3561,12 +3825,15 @@ describe("Codex provider", () => {
           },
         }),
       );
+
       const fetch = vi.fn<() => Promise<Response>>(async () =>
         sse(responseEvents("resp_handshake_fallback", "fallback")),
       );
+
       const observability = new CodexObservability(":memory:");
       const runtime = createCodexProviderRuntime(observability);
       const sessionId = `session-regression-${handshakeStatus ?? closeCode}`;
+
       const message = await runtime.provider
         .streamSimple(SPIKE_MODEL, context([]), {
           apiKey: SPIKE_API_KEY,
@@ -3600,6 +3867,7 @@ describe("Codex provider", () => {
 
   it("falls back after three partial WebSocket compaction failures", async () => {
     let socketAttempts = 0;
+
     const PartialCompactionWebSocket = function PartialCompactionWebSocket() {
       socketAttempts += 1;
       const socket = mockSocket();
@@ -3621,22 +3889,29 @@ describe("Codex provider", () => {
         );
         setTimeout(() => socket.dispatchEvent(new Event("error")), 0);
       };
+
       queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+
       return socket;
     };
+
     vi.stubGlobal("WebSocket", PartialCompactionWebSocket);
     const requests: RequestInit[] = [];
+
     const fetch = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(
       async (_input: string | URL | Request, init?: RequestInit) => {
         requests.push(init ?? {});
+
         return requestKind(readBody(init?.body)) === "compaction"
           ? sse(compactionEvents("resp_compact_sse_fallback"))
           : sse(responseEvents("resp_after_compact_fallback", "done"));
       },
     );
+
     vi.stubGlobal("fetch", fetch);
     const runtime = createCodexProviderRuntime();
     const sessionId = "session-partial-compact-fallback";
+
     const result = await runtime.compact({
       apiKey: SPIKE_API_KEY,
       authoritativeInput: [],
@@ -3650,6 +3925,7 @@ describe("Codex provider", () => {
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
+
     await runtime.provider
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
@@ -3714,22 +3990,24 @@ describe("Codex provider", () => {
     const rows = observability
       .list("session-observed")
       .filter((observation) => observation.kind === "request");
+
     expect(observability.list(compactionSessionId)[0]?.data).toStrictEqual(
       expect.objectContaining({
         attempts: 0,
         outcome: "error",
       }),
     );
+
+    for (const row of rows)
+      expect(row.data).toHaveProperty("request.stableRequestHash", expect.any(String));
     expect(rows.map((row) => row.data)).toMatchObject([
       {
         outcome: "error",
-        request: { stableRequestHash: expect.any(String) },
       },
       {
         outcome: "stop",
         request: {
           cacheEnabled: false,
-          stableRequestHash: expect.any(String),
         },
       },
     ]);
@@ -3746,6 +4024,7 @@ describe("Codex provider", () => {
         apiKey: SPIKE_API_KEY,
         fetch: async (_input, init) => {
           transformedRequests.push(init ?? {});
+
           return sse(responseEvents("resp_transform", "ok"));
         },
         onPayload: () => ({ input: [], marker: true }),
@@ -3770,10 +4049,11 @@ describe("Codex provider", () => {
     let attempts = 0;
     const compactionHeaders = { "x-request-policy": "original" };
     const sentHeaders: (string | null)[] = [];
-    vi.stubGlobal("fetch", async (_input: unknown, init?: RequestInit) => {
+    vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       sentHeaders.push(new Headers(init?.headers).get("x-request-policy"));
       compactionHeaders["x-request-policy"] = "changed";
       attempts += 1;
+
       return attempts === 1
         ? Response.json(
             { error: { code: "rate_limit", message: "try again" } },
@@ -3781,6 +4061,7 @@ describe("Codex provider", () => {
           )
         : sse(compactionEvents("resp_retry"));
     });
+
     const result = await runtime.compact({
       apiKey: SPIKE_API_KEY,
       headers: compactionHeaders,
@@ -3795,6 +4076,7 @@ describe("Codex provider", () => {
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
+
     expect(sentHeaders).toStrictEqual(["original", "original"]);
     expect({ attempts, responseId: result.responseId }).toStrictEqual({
       attempts: 2,
@@ -3804,6 +4086,7 @@ describe("Codex provider", () => {
     let incompleteAttempts = 0;
     vi.stubGlobal("fetch", async () => {
       incompleteAttempts += 1;
+
       return incompleteAttempts === 1
         ? sse([{ response: { status: "incomplete" }, type: "response.incomplete" }])
         : sse(compactionEvents("resp_after_incomplete"));
@@ -3826,6 +4109,7 @@ describe("Codex provider", () => {
     let malformedAttempts = 0;
     vi.stubGlobal("fetch", async () => {
       malformedAttempts += 1;
+
       return sse(responseEvents("resp_no_compaction", "not opaque"));
     });
     await expect(
@@ -3899,6 +4183,7 @@ describe("Codex provider", () => {
       let attempts = 0;
       vi.stubGlobal("fetch", async () => {
         attempts += 1;
+
         return sse([
           {
             response: { error: { code, message } },
@@ -3907,6 +4192,7 @@ describe("Codex provider", () => {
         ]);
       });
       let failure: unknown;
+
       try {
         await runtime.compact({
           apiKey: SPIKE_API_KEY,
@@ -4045,11 +4331,14 @@ describe("Codex provider", () => {
       let attempts = 0;
       vi.stubGlobal("fetch", async () => {
         attempts += 1;
-        return Value.Check(StringValueSchema, body)
+
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture discriminates platform body types and open wire fields without assuming production output is valid.
+        return typeof body === "string"
           ? new Response(body, { status })
           : Response.json(body, { status });
       });
       let failure: unknown;
+
       try {
         await runtime.compact({
           apiKey: SPIKE_API_KEY,
@@ -4083,10 +4372,12 @@ describe("Codex provider", () => {
     const requests: RequestInit[] = [];
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       requests.push(init ?? {});
+
       return sse(compactionEvents("resp_compact"));
     });
     const runtime = createCodexProviderRuntime();
     runtime.beginTurn("session-compact");
+
     const result = await runtime.compact({
       apiKey: SPIKE_API_KEY,
       authoritativeEnvelope: { service_tier: "flex" },
@@ -4115,16 +4406,19 @@ describe("Codex provider", () => {
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
+
     const body = readBody(requests[0]?.body);
     const headers = new Headers(requests[0]?.headers);
+
     const metadata = wireRecord(
       JSON.parse(wireString(wireRecord(body.client_metadata)["x-codex-turn-metadata"])),
     );
+
+    expect(metadata).toHaveProperty("context_window_id", expect.any(String));
     const compactInput = wireRecords(body.input);
 
     expect({
       compaction: metadata.compaction,
-      contextWindowId: metadata.context_window_id,
       headerMetadata: headers.get("x-codex-turn-metadata"),
       requestKind: metadata.request_kind,
       responseId: result.responseId,
@@ -4144,7 +4438,6 @@ describe("Codex provider", () => {
         strategy: "memento",
         trigger: "auto",
       },
-      contextWindowId: expect.any(String),
       headerMetadata: JSON.stringify(metadata),
       requestKind: "compaction",
       responseId: "resp_compact",

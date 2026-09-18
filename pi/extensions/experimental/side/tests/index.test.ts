@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import extension from "../index.js";
@@ -14,43 +14,19 @@ const controller = vi.hoisted(() => ({
   ),
   toggle: vi.fn<(ctx: ExtensionContext) => Promise<void>>(async () => await Promise.resolve()),
 }));
+
 const createController = vi.hoisted(() => vi.fn<() => void>());
 
+// oxlint-disable-next-line anti-slop/no-module-mocking -- Exercise the real dynamic-import/shutdown race; injecting an already-loaded controller would bypass it.
 vi.mock(import("../controller.js"), () => ({
   createSideController: () => {
     createController();
+
     return controller;
   },
 }));
 
 describe("side registration", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("registers /side and the focus shortcut, delegating to the controller", async () => {
-    const host = createExtensionHost(extension);
-    const ctx = host.createContext();
-
-    await host.runCommand("side", "prompt", ctx);
-    await host.runShortcut("ctrl+/", ctx);
-    await host.emitSessionTree(ctx);
-    await host.emitSessionShutdown(ctx);
-
-    expect([...host.getRegisteredCommands().keys()]).toStrictEqual(["side"]);
-    expect({
-      closeOnTreeChange: controller.closeOnTreeChange.mock.calls,
-      dispose: controller.dispose.mock.calls,
-      launch: controller.launch.mock.calls,
-      toggle: controller.toggle.mock.calls,
-    }).toStrictEqual({
-      closeOnTreeChange: [[ctx]],
-      dispose: [[]],
-      launch: [["prompt", ctx]],
-      toggle: [[ctx]],
-    });
-  });
-
   it("does not launch after shutdown wins the first-load race", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();

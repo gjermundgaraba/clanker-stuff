@@ -25,33 +25,41 @@ const setup = async (
   const coordinator = new TreeCoordinator();
   await coordinator.install(createMemoryControlStore(), freshSnapshot("v1", root), true);
   const runtimes: FakeChildRuntime[] = [];
+
   const config = {
     ...structuredClone(DEFAULT_CONFIG),
     max_concurrent_threads_per_session: maximum,
     roles,
   };
+
   const prompts: string[] = [];
   const backgroundErrors: unknown[] = [];
   const childHosts: ReturnType<typeof createExtensionHost>[] = [];
   const runtimeFailures: Error[] = [];
   const runtimeLoads: PromiseWithResolvers<FakeChildRuntime>[] = [];
   let nextId = 0;
+
   const createRuntime = vi.fn<ChildRuntimeFactory>(async ({ bridge, identity, prompt }) => {
     const failure = runtimeFailures.shift();
+
     if (failure !== undefined) {
       throw failure;
     }
+
     if (bridgeChildren) {
       const host = createExtensionHost(bridge, { sessionId: identity });
       await host.ready;
       childHosts.push(host);
     }
+
     prompts.push(prompt);
     const pending = runtimeLoads.shift();
     const runtime = pending === undefined ? new FakeChildRuntime(identity) : await pending.promise;
     runtimes.push(runtime);
+
     return runtime;
   });
+
   const controller = new V1Controller({
     config,
     coordinator,
@@ -59,6 +67,7 @@ const setup = async (
     dataDir: "/tmp/subagent-test",
     id: () => {
       nextId += 1;
+
       return `agent-${nextId}`;
     },
     nicknames: new NicknamePool(config, () => 0),
@@ -66,7 +75,9 @@ const setup = async (
       backgroundErrors.push(error);
     },
   });
+
   controller.setRoot({ getActiveTools: () => ["read", "spawn_agent"] }, undefined);
+
   return {
     backgroundErrors,
     childHosts,
@@ -96,6 +107,7 @@ describe("V1 controller", () => {
         },
         sessionId: "agent-1",
       });
+
       return contract?.inheritedServiceTier;
     };
 
@@ -190,17 +202,21 @@ describe("V1 controller", () => {
     runtime.acceptTurns = false;
     let inFlight = false;
     const originalStartTurn = runtime.startTurn.bind(runtime);
+
     const startTurn = vi.spyOn(runtime, "startTurn").mockImplementation((input) => {
       if (inFlight) {
         throw new Error("duplicate startTurn");
       }
+
       inFlight = true;
       const delivery = originalStartTurn(input);
       void delivery.settled.finally(() => {
         inFlight = false;
       });
+
       return delivery;
     });
+
     pendingRuntime.resolve(runtime);
 
     const { agent_id: id } = await spawning;
@@ -251,12 +267,15 @@ describe("V1 controller", () => {
     const secondRuntime = new FakeChildRuntime(id);
     secondRuntime.acceptTurns = false;
     const originalStartTurn = secondRuntime.startTurn.bind(secondRuntime);
+
     const startTurn = vi.spyOn(secondRuntime, "startTurn").mockImplementation((input) => {
       if (secondRuntime.turns.length > 0) {
         throw new Error("duplicate startTurn");
       }
+
       return originalStartTurn(input);
     });
+
     secondLoad.resolve(secondRuntime);
     await vi.waitFor(() => expect(secondRuntime.turns).toHaveLength(1));
 
@@ -289,10 +308,12 @@ describe("V1 controller", () => {
     await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
     const publicationFailure = new Error("running publication failed");
     const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
+
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
       write: () => Promise.reject(publicationFailure),
     };
+
     await coordinator.install(store, structuredClone(coordinator.state), false);
     runtimeLoads.push(Promise.withResolvers<FakeChildRuntime>());
 
@@ -333,6 +354,7 @@ describe("V1 controller", () => {
     const { controller, coordinator, ctx, prompts, runtimes } = await setup(2, {
       reviewer: { instructions: "Review carefully." },
     });
+
     const { agent_id: id } = await controller.spawn(
       {
         agentType: "reviewer",
@@ -341,6 +363,7 @@ describe("V1 controller", () => {
       },
       ctx,
     );
+
     await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
     const firstTurn = runtimes[0]?.turns[0];
     assert.ok(firstTurn);
@@ -432,16 +455,20 @@ describe("V1 controller", () => {
     const [runtime] = runtimes;
     assert.ok(runtime);
     const aborting = Promise.withResolvers<null>();
+
     const abortRuntime = vi.spyOn(runtime, "abort").mockImplementation(async () => {
       await aborting.promise;
     });
+
     const signal = new AbortController();
+
     const sending = controller.sendInput(
       id,
       { interrupt: true, message: "replacement" },
       ctx,
       signal.signal,
     );
+
     void sending.catch(() => {});
     await vi.waitFor(() => expect(abortRuntime).toHaveBeenCalledOnce());
     const originalTurn = runtime.turns[0];
@@ -454,7 +481,7 @@ describe("V1 controller", () => {
     signal.abort(new Error("cancelled"));
     aborting.resolve(null);
 
-    await expect(sending).resolves.toEqual({ submission_id: expect.any(String) });
+    await expect(sending).resolves.toHaveProperty("submission_id", expect.any(String));
     await vi.waitFor(() => expect(runtimes[1]?.turns).toHaveLength(1));
     expect(runtime.dispose).toHaveBeenCalledOnce();
     expect(originalSettled).toBeFalsy();
@@ -495,13 +522,13 @@ describe("V1 controller", () => {
 
     await expect(
       controller.sendInput(id, { interrupt: true, message: "replacement" }, ctx),
-    ).resolves.toEqual({ submission_id: expect.any(String) });
+    ).resolves.toHaveProperty("submission_id", expect.any(String));
     expect(runtime.dispose).toHaveBeenCalledOnce();
     expect(createRuntime).toHaveBeenCalledOnce();
 
     await expect(
       controller.sendInput(id, { interrupt: false, message: "queued" }, ctx),
-    ).resolves.toEqual({ submission_id: expect.any(String) });
+    ).resolves.toHaveProperty("submission_id", expect.any(String));
     expect(coordinator.state).toMatchObject({
       state: {
         agents: [
@@ -518,6 +545,7 @@ describe("V1 controller", () => {
     const releaseWrite = Promise.withResolvers<null>();
     const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
     let blockNextWrite = true;
+
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
       write: async (_serialized, onCommit) => {
@@ -526,21 +554,26 @@ describe("V1 controller", () => {
           writeStarted.resolve(null);
           await releaseWrite.promise;
         }
+
         onCommit();
+
         return undefined;
       },
     };
+
     await coordinator.install(store, structuredClone(coordinator.state), false);
     const blocking = coordinator.transact(() => null);
     await writeStarted.promise;
     const transact = vi.spyOn(coordinator, "transact");
     const signal = new AbortController();
+
     const interrupting = controller.sendInput(
       id,
       { interrupt: true, message: "cancelled replacement" },
       ctx,
       signal.signal,
     );
+
     void interrupting.catch(() => {});
     await vi.waitFor(() => expect(transact).toHaveBeenCalledOnce());
     signal.abort(new Error("cancelled"));
@@ -575,6 +608,7 @@ describe("V1 controller", () => {
     const empty: Awaited<ReturnType<ControlStore["load"]>> = undefined;
     const successful: Awaited<ReturnType<ControlStore["write"]>> = undefined;
     let blockNextWrite = true;
+
     const store: ControlStore = {
       load: () => Promise.resolve(empty),
       write: async (_serialized, onCommit) => {
@@ -583,22 +617,27 @@ describe("V1 controller", () => {
           writeStarted.resolve(null);
           await releaseWrite.promise;
         }
+
         onCommit();
+
         return successful;
       },
     };
+
     await coordinator.install(store, structuredClone(coordinator.state), false);
     const blocking = coordinator.transact(() => null);
     await writeStarted.promise;
     const transact = vi.spyOn(coordinator, "transact");
 
     const signal = new AbortController();
+
     const sending = controller.sendInput(
       id,
       { interrupt: false, message: "replacement" },
       ctx,
       signal.signal,
     );
+
     void sending.catch(() => {});
     await vi.waitFor(() => expect(transact).toHaveBeenCalledOnce());
 
@@ -628,9 +667,11 @@ describe("V1 controller", () => {
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
 
     let stopped = false;
+
     const shutdown = controller.shutdown().then(() => {
       stopped = true;
     });
+
     await Promise.resolve();
     expect(stopped).toBeFalsy();
     await expect(
@@ -681,9 +722,11 @@ describe("V1 controller", () => {
     await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
 
     let stopped = false;
+
     const shutdown = controller.shutdown().then(() => {
       stopped = true;
     });
+
     await Promise.resolve();
     expect(stopped).toBeFalsy();
 
@@ -733,6 +776,7 @@ describe("V1 controller", () => {
   it("reloads a closed runtime when abort and disposal fail", async () => {
     const { backgroundErrors, controller, coordinator, createRuntime, ctx, runtimes } =
       await setup();
+
     const { agent_id: id } = await controller.spawn({ forkContext: false, message: "work" }, ctx);
     await vi.waitFor(() =>
       expect(

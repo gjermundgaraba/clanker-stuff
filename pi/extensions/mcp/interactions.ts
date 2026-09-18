@@ -16,13 +16,16 @@ const choices = (
       ? field.items.enum.map((value) => ({ value, label: value }))
       : field.items.anyOf.map((item) => ({ value: item.const, label: item.title ?? item.const }));
   }
+
   if ("oneOf" in field)
     return field.oneOf.map((item) => ({ value: item.const, label: item.title ?? item.const }));
+
   if ("enum" in field)
     return field.enum.map((value, index) => ({
       value,
       label: "enumNames" in field ? (field.enumNames?.[index] ?? value) : value,
     }));
+
   return undefined;
 };
 
@@ -34,19 +37,26 @@ export const elicit = async (
   completion?: AbortSignal,
 ): Promise<ElicitResult> => {
   if (!ctx.hasUI) return { action: "cancel" };
+
   return await runQueuedPrompt(ctx, signal, async (signal) => {
     const title = displayText(`MCP ${server}: ${params.message}`);
+
     if (params.mode === "url") {
       const destination = new URL(params.url);
+
       if (!["https:", "http:"].includes(destination.protocol))
         throw new Error("MCP interaction URL must use HTTP or HTTPS");
+
       const action = await ctx.ui.select(
         `${title}\n${displayText(destination.href)}`,
         ["Open URL", "Decline", "Cancel"],
         { signal },
       );
+
       if (action === "Decline") return { action: "decline" };
+
       if (action !== "Open URL") return { action: "cancel" };
+
       if (ctx.mode === "tui") openBrowser(destination.href);
       else
         ctx.ui.notify(
@@ -54,6 +64,7 @@ export const elicit = async (
           "info",
         );
       let completed: string | undefined;
+
       try {
         const waitSignal = completion ? AbortSignal.any([signal, completion]) : signal;
         waitSignal.throwIfAborted();
@@ -64,40 +75,56 @@ export const elicit = async (
         );
       } catch (error) {
         signal.throwIfAborted();
+
         if (!completion?.aborted) throw error;
         completed = "Completed";
       }
+
       signal.throwIfAborted();
+
       if (completion?.aborted) completed = "Completed";
+
       return {
         action:
           completed === "Completed" ? "accept" : completed === "Decline" ? "decline" : "cancel",
       };
     }
+
     const action = await ctx.ui.select(title, ["Fill form", "Decline", "Cancel"], { signal });
+
     if (action !== "Fill form") return { action: action === "Decline" ? "decline" : "cancel" };
     const validator = new AjvJsonSchemaValidator();
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- Object.create(null) creates an empty dictionary without inherited setters; form fields must safely preserve __proto__ and other prototype names.
     const content: Record<string, Value> = Object.create(null);
+
     for (const [name, field] of Object.entries(params.requestedSchema.properties)) {
       const label = displayText(
         `${title}\n${field.title ?? name}${field.description ? ` — ${field.description}` : ""}`,
       );
+
       if (!params.requestedSchema.required?.includes(name)) {
         const include = await ctx.ui.select(label, ["Provide value", "Skip field", "Cancel"], {
           signal,
         });
+
         if (include === "Skip field") continue;
+
         if (include !== "Provide value") return { action: "cancel" };
       }
+
       const options = choices(field);
+
       if (field.type === "array" && options) {
         const selected: string[] = [];
+
         for (;;) {
           const labels = options.map(
             (item, i) =>
               `${selected.includes(item.value) ? "✓ " : ""}${i + 1}. ${displayText(item.label)}`,
           );
+
           const answer = await ctx.ui.select(label, [...labels, "Done", "Cancel"], { signal });
+
           if (answer === "Done") {
             if (
               selected.length < (field.minItems ?? 0) ||
@@ -106,12 +133,16 @@ export const elicit = async (
               ctx.ui.notify("Select the required number of values", "warning");
               continue;
             }
+
             content[name] = selected;
             break;
           }
+
           const value = options[labels.indexOf(answer ?? "")]?.value;
+
           if (value === undefined) return { action: "cancel" };
           const index = selected.indexOf(value);
+
           if (index < 0) selected.push(value);
           else selected.splice(index, 1);
         }
@@ -119,10 +150,12 @@ export const elicit = async (
         const labels = options.map((item, i) => `${i + 1}. ${displayText(item.label)}`);
         const answer = await ctx.ui.select(label, labels, { signal });
         const value = options[labels.indexOf(answer ?? "")]?.value;
+
         if (value === undefined) return { action: "cancel" };
         content[name] = value;
       } else if (field.type === "boolean") {
         const answer = await ctx.ui.select(label, ["true", "false"], { signal });
+
         if (answer === undefined) return { action: "cancel" };
         content[name] = answer === "true";
       } else {
@@ -134,30 +167,40 @@ export const elicit = async (
               : undefined,
             { signal },
           );
+
           if (answer === undefined) return { action: "cancel" };
           const numeric = field.type === "number" || field.type === "integer";
           const value = numeric ? Number(answer) : answer;
+          // @ts-expect-error MCP's Zod field schemas permit present undefined optionals; its AJV adapter accepts these but json-schema-typed declares exact optionals.
           const checked = validator.getValidator<Value>(field)(value);
+
           if ((numeric && answer.trim() === "") || !checked.valid) {
             ctx.ui.notify(displayText(checked.errorMessage ?? "Enter a number"), "warning");
             continue;
           }
+
           content[name] = value;
           break;
         }
       }
     }
+
+    // @ts-expect-error The SDK accepts its decoded elicitation schema here; its Zod and AJV declarations disagree about undefined optional metadata.
     const validated = validator.getValidator<Record<string, Value>>(params.requestedSchema)(
       content,
     );
+
     if (!validated.valid)
       throw new Error(displayText(`Invalid MCP form response: ${validated.errorMessage}`));
+
     const submit = await ctx.ui.select(
       `${title}\n${displayText(JSON.stringify(content, null, 2))}`,
       ["Accept", "Decline", "Cancel"],
       { signal },
     );
+
     signal.throwIfAborted();
+
     return submit === "Accept"
       ? { action: "accept", content }
       : { action: submit === "Decline" ? "decline" : "cancel" };

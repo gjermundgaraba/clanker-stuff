@@ -6,7 +6,9 @@ export const IconFamilySchema = Type.Union([
   Type.Literal("unicode"),
   Type.Literal("nerd"),
 ]);
+
 export type IconFamily = Static<typeof IconFamilySchema>;
+
 export const GlyphMapSchema = Type.Object(
   {
     ascii: Type.Optional(Type.String({ maxLength: 16 })),
@@ -15,6 +17,7 @@ export const GlyphMapSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 export type GlyphMap = Static<typeof GlyphMapSchema>;
 
 /** Missing variants fall back; an explicit empty string stops fallback and omits the icon. */
@@ -25,6 +28,8 @@ export function selectGlyph(glyphs: GlyphMap | undefined, family: IconFamily): s
       : family === "unicode"
         ? ["unicode", "ascii"]
         : ["ascii"];
+
   for (const candidate of order) if (glyphs?.[candidate] !== undefined) return glyphs[candidate];
+
   return "";
 }

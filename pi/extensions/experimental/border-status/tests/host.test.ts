@@ -27,16 +27,19 @@ it.each([true, false])(
     const ctx = host.createContext();
     const a = createBorderStatusClient(host, { owner: "a" });
     const b = createBorderStatusClient(host, { owner: "b" });
+
     const publish = () => {
       a.attach(ctx);
       b.attach(ctx);
       a.set("same", { text: "A" });
       b.set("same", { text: "B" });
     };
+
     if (first) publish();
     await host.emitSessionStart(ctx);
     const editor = createEditor(host);
     editor.render(80);
+
     if (!first) publish();
     const border = () => stripTerminalSequences(editor.render(80)[0]!);
     expect(border()).toContain("A · B");
@@ -127,10 +130,12 @@ describe("host lifecycle and fonts", () => {
 
 it("keeps the inbox widget when border entries overflow", async () => {
   let inbox: ReturnType<typeof createInboxStatus> | undefined;
+
   const host = createExtensionHost((pi) => {
     extension(pi);
     inbox = createInboxStatus(pi);
   });
+
   await host.ready;
   const ctx = host.createContext();
   await host.emitSessionStart(ctx);
@@ -203,6 +208,7 @@ it("admits late high-priority entries beyond 128 statuses and reveals retained e
   editor.render(80);
   const client = createBorderStatusClient(host, { owner: "many" });
   client.attach(ctx);
+
   for (let i = 0; i < 128; i++) client.set(String(i), { text: "background", priority: -1 });
   client.set("late", { text: "retained", priority: 99 });
   client.set("inbox", { text: "attention", priority: 100 });

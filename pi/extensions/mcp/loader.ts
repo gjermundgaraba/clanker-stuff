@@ -42,12 +42,14 @@ const loadServerWithSpinner = async <T>(
         done({ error, type: "error" });
       }
     })();
+
     return loader;
   });
 
   if (result.type === "error") {
     throw result.error;
   }
+
   return result.value;
 };
 
@@ -59,6 +61,7 @@ interface McpManagerListResult {
 const listAvailableServers = async (ctx: ExtensionContext): Promise<McpManagerListResult> => {
   try {
     const configured = await listMcpServers(configOptions(ctx));
+
     return {
       names: [
         MCP_MANAGER_SERVER_NAME,
@@ -87,32 +90,42 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
     config?: Promise<McpConfig>,
   ) => {
     const cwd = ctx.cwd;
+
     const serverConfig = resolveMcpServer(
       await (config ?? loadMcpConfig(configOptions(ctx))),
       serverName,
     );
+
     const connectionFactory: McpConnectionFactory = (interactive, signal) =>
       connectToServer({
         serverConfig,
         pi,
         serverName,
-        signal,
+        ...(signal !== undefined ? { signal } : {}),
         cwd,
         getWorkspace: () => workspace,
-        onAuthorizationUrl: interactive
-          ? (url) => {
-              ctx.ui.notify(
-                `Authorize MCP server ${serverName}:\n${url.href}\nWaiting for OAuth authorization...`,
-                "info",
-              );
-              if (ctx.mode === "tui" && ctx.hasUI) openBrowser(url.href);
+        ...(interactive
+          ? {
+              onAuthorizationUrl: (url: URL) => {
+                ctx.ui.notify(
+                  `Authorize MCP server ${serverName}:\n${url.href}\nWaiting for OAuth authorization...`,
+                  "info",
+                );
+
+                if (ctx.mode === "tui" && ctx.hasUI) openBrowser(url.href);
+              },
             }
-          : undefined,
+          : {}),
       });
+
     return {
       connectionFactory,
-      heartbeatIntervalMs: serverConfig.heartbeatIntervalMs,
-      heartbeatTimeoutMs: serverConfig.heartbeatTimeoutMs,
+      ...(serverConfig.heartbeatIntervalMs !== undefined
+        ? { heartbeatIntervalMs: serverConfig.heartbeatIntervalMs }
+        : {}),
+      ...(serverConfig.heartbeatTimeoutMs !== undefined
+        ? { heartbeatTimeoutMs: serverConfig.heartbeatTimeoutMs }
+        : {}),
       serverName,
     };
   };
@@ -129,6 +142,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
   ) => {
     context = ctx;
     let toolCount: number;
+
     if (serverName === MCP_MANAGER_SERVER_NAME) {
       if (!managerRegistered) {
         registerManagerTools(pi, (executeCtx, name, reconnect, signal) =>
@@ -136,58 +150,62 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
             interactive: executeCtx.hasUI,
             persist: true,
             reconnect,
-            signal,
+            ...(signal !== undefined ? { signal } : {}),
           }),
         );
         managerRegistered = true;
       }
+
       activateTools(pi, MANAGER_TOOL_NAMES);
       toolCount = MANAGER_TOOL_NAMES.length;
     } else {
       toolCount = await serverPool.loadServer({
         ...(await resolveServerOptions(ctx, serverName)),
         interactive: options.interactive,
-        reconnect: options.reconnect,
-        signal: options.signal,
+        ...(options.reconnect !== undefined ? { reconnect: options.reconnect } : {}),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
       });
     }
 
     if (options.persist) {
       pi.appendEntry("mcp-server-loaded", { serverName });
     }
+
     return toolCount;
   };
 
   return {
-    toolResult: (id: string, details: unknown) => {
+    takeSamplingUsage: (id: string) => {
       const samples = serverPool.takeUsage(id);
+
       return samples
         ? {
             usage: sumUsage(samples),
-            details: {
-              ...detailsForUsage(details),
-              sampling: samples,
-            },
+            sampling: samples,
           }
         : undefined;
     },
     dispose: (): Promise<void> => {
       context = undefined;
       workspace = undefined;
+
       return serverPool.closeAll();
     },
     pickAndLoad: async (ctx: ExtensionCommandContext): Promise<void> => {
       workspace = ctx.cwd;
       const available = await listAvailableServers(ctx);
+
       if (available.error) {
         ctx.ui.notify(available.error, "error");
       }
 
       const branchServerNames = new Set(loadedServerNames(ctx.sessionManager.getBranch()));
+
       const serverOptions = available.names.map((name) => {
         const active =
           branchServerNames.has(name) &&
           (name === MCP_MANAGER_SERVER_NAME ? managerRegistered : serverPool.hasServer(name));
+
         return {
           label: active
             ? `● ${name} (${name === MCP_MANAGER_SERVER_NAME ? "active" : "reconnect"})`
@@ -195,11 +213,14 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
           name,
         };
       });
+
       const selected = await ctx.ui.select(
         "MCP server",
         serverOptions.map(({ label }) => label),
       );
+
       const serverName = serverOptions.find(({ label }) => label === selected)?.name;
+
       if (serverName === undefined) {
         return;
       }
@@ -210,9 +231,10 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
             interactive: ctx.hasUI,
             persist: true,
             reconnect: serverName !== MCP_MANAGER_SERVER_NAME,
-            signal,
+            ...(signal !== undefined ? { signal } : {}),
           }),
         );
+
         ctx.ui.notify(`MCP server ${serverName} was loaded with ${toolCount} tools`);
       } catch (error) {
         ctx.ui.notify(`Failed to load MCP server ${serverName}: ${errorMessage(error)}`, "error");
@@ -225,16 +247,20 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
       restoreGeneration += 1;
       const generation = restoreGeneration;
       const names = loadedServerNames(ctx.sessionManager.getBranch());
+
       if (managerRegistered && !names.includes(MCP_MANAGER_SERVER_NAME))
         pi.setActiveTools(pi.getActiveTools().filter((name) => !MANAGER_TOOL_NAMES.includes(name)));
       let config: Promise<McpConfig> | undefined;
       desiredServerNames = names;
       serverPool.reconcileActiveServers(names);
+
       for (const serverName of names) {
         if (generation !== restoreGeneration) {
           serverPool.reconcileActiveServers(desiredServerNames);
+
           return;
         }
+
         try {
           if (serverName === MCP_MANAGER_SERVER_NAME) {
             await loadNamedServer(ctx, serverName, { interactive: false, persist: false });
@@ -254,10 +280,8 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
           );
         }
       }
+
       serverPool.reconcileActiveServers(desiredServerNames);
     },
   };
 };
-
-const detailsForUsage = (details: unknown): object | undefined =>
-  typeof details === "object" && details !== null ? details : undefined;

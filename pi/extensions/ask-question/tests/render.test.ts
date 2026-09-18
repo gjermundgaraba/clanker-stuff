@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vite-plus/test";
@@ -33,17 +34,20 @@ const request = {
       question: "When should it run?",
       options: [{ id: "now", label: "Now" }],
     },
-  ],
+  ] satisfies [import("../request.js").Question, import("../request.js").Question],
 };
+
 const fresh = () => createInteraction("q_private_identifier", request, "call", "async");
+
 const theme = createIdentityTheme();
 
 describe("questionnaire presentation", () => {
   it("lists compact options with focus, selection, note excerpts and inline editors", () => {
     initTheme("dark");
     const item = fresh();
-    const q = item.request.questions[0];
-    const a = item.draft!.answers.target;
+    const q = request.questions[0];
+    const a = item.draft?.answers.target;
+    assert(a);
     a.selected = ["cloud"];
     a.notes.local = "Keep the local data\nSecond line";
     const result = optionLines(q, a, 0, 60, theme);
@@ -66,7 +70,7 @@ describe("questionnaire presentation", () => {
     expect(details).toContain("No hosting required");
     expect(details).toContain("★ Recommended: Recommendation rationale");
     expect(detailLines(q, a, 2, 60, theme).join("\n")).toContain("Enter your own response");
-    expect(detailLines(item.request.questions[1], a, 0, 60, theme)).toEqual([]);
+    expect(detailLines(request.questions[1], a, 0, 60, theme)).toEqual([]);
   });
   it("shows completion and keeps the current tab visible at narrow widths", () => {
     let item = fresh();
@@ -90,10 +94,11 @@ describe("questionnaire presentation", () => {
   });
   it("compares only changed answers and notes without hiding multiline text", () => {
     let item = fresh();
+
     for (const [question, option] of [
       ["target", "local"],
       ["timing", "now"],
-    ])
+    ] as const)
       item = transition(item, item.version, { type: "select", question, option });
     item = transition(item, item.version, { type: "submit" });
     item = transition(item, item.version, {
@@ -132,6 +137,7 @@ describe("questionnaire presentation", () => {
       scroll: 0,
       theme,
     };
+
     const body = Array.from({ length: 30 }, (_, i) => `line ${i}`);
     const first = boundedView({ ...options, body, focusLine: 0 });
     expect(first.bodyRows).toBe(11);
@@ -154,10 +160,12 @@ describe("questionnaire presentation", () => {
   it("clips long written answers and notes to one line with a single ellipsis", () => {
     initTheme("dark");
     const item = fresh();
-    const a = { ...item.draft!.answers.target, custom: "word ".repeat(80), custom_selected: true };
-    const text = displayText(
-      optionLines(item.request.questions[0], a, 2, 40, theme).lines.join("\n"),
-    );
+    const draft = item.draft?.answers.target;
+    assert(draft);
+    const a = { ...draft, custom: "word ".repeat(80), custom_selected: true };
+
+    const text = displayText(optionLines(request.questions[0], a, 2, 40, theme).lines.join("\n"));
+
     expect(text.match(/…/g)).toHaveLength(1);
     expect(text).not.toContain("...");
     expect(text.split("\n").filter((line) => line.includes("word"))).toHaveLength(1);

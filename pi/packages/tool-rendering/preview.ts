@@ -12,6 +12,7 @@ export function preview(
   let child: Component | undefined;
   let cachedWidth: number | undefined;
   let rows: string[] = [];
+
   return {
     invalidate() {
       child = undefined;
@@ -21,15 +22,18 @@ export function preview(
       if (cachedWidth === width) return rows;
       child ??= create();
       const all = child.render(width);
+
       if (expanded || all.length <= limit) rows = all;
       else {
         const tail = edge === "tail";
         const hint = `… ${all.length - limit} ${tail ? "earlier " : "more "}lines · ${keyHint("app.tools.expand", "to expand")}`;
         rows = tail ? [hint, ...all.slice(-limit)] : [...all.slice(0, limit), hint];
       }
+
       // A wide glyph can exceed a one-column Text layout. Guard only emitted rows.
       rows = rows.map((row) => truncateToWidth(row, width, ""));
       cachedWidth = width;
+
       return rows;
     },
   };

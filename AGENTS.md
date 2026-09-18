@@ -12,6 +12,12 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 - For any custom tool that mutates files, use `withFileMutationQueue()` around the full read/modify/write critical section, keyed by the resolved absolute target path, so it participates in pi's per-file mutation queue.
 - Never suggest "upstreaming a change to pi itself". If we can't do something in an extension today, we can't do it today.
 
+## Lint policy and exceptions
+
+- Follow [docs/lint-policy.md](docs/lint-policy.md). Before adding or retaining any lint exception, strongly consider a cleaner, more correct refactor that removes its cause, even when it breaks owned APIs. Update affected callers and tests directly; do not preserve avoidable debt with compatibility wrappers.
+- An exception must name the concrete boundary or invariant and explain why the check or operation remains necessary. Do not silence diagnostics with casts, magic parameter names, one-use predicate wrappers, or primitive schemas that establish no new guarantee.
+- Prefer the smallest justified exception. Existing overrides are not permission to add new violations. Preserve real persisted-state, third-party, and runtime safety requirements when considering API breaks.
+
 ## Upstream pi reference
 
 When working on pi extensions, sdk, themes or TUI, read the documentation, examples and APIs from Pi's source:

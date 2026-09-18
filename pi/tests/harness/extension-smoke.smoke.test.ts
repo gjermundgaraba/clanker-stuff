@@ -56,8 +56,12 @@ export default function (pi: ExtensionAPI) {
     activeHarness.setResponses([
       (context) => {
         const content = context.messages.findLast((message) => message.role === "user")?.content;
+
         const text = Array.isArray(content)
-          ? content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+          ? content
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("\n")
           : (content ?? "[non-string]");
 
         return fauxAssistantMessage(`seen:${text}`);

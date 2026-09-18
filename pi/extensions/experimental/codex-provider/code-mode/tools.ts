@@ -19,10 +19,13 @@ import type {
 } from "./types.js";
 
 const DEFAULT_WAIT_MS = 10_000;
+
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
+
 const strict = { additionalProperties: false } as const;
 
 const EXEC_PARAMETERS = Type.Object({ code: Type.String() }, strict);
+
 const WAIT_PARAMETERS = Type.Object(
   {
     cell_id: Type.String(),
@@ -105,7 +108,9 @@ const createCodeModeHostClient: CodeModeClientFactory = async (signal) => {
     import("./binary.js"),
     import("./host-client.js"),
   ]);
+
   const binary = await ensureCodeModeHostBinary(signal);
+
   return new CodeModeHostClient(binary);
 };
 
@@ -120,22 +125,25 @@ export class CodeModeRuntime {
   createTools(): ToolDefinition[] {
     const currentByName = () =>
       new Map(this.nestedTools().map((tool) => [tool.definition.name, tool] as const));
+
     return [
       defineTool({
         constrainedSampling: EXEC_CONSTRAINED_SAMPLING,
         description: EXEC_DESCRIPTION,
         execute: async (id, params, signal, onUpdate, ctx) => {
           const client = await this.getClient(signal);
+
           const response = await client.execute(
             params.code,
             {
               extensionContext: ctx,
-              onUpdate,
+              ...(onUpdate !== undefined ? { onUpdate } : {}),
               toolCallId: id,
             },
             signal,
             this.nestedTools(),
           );
+
           return toCodeModeToolResult(response);
         },
         label: "Exec",
@@ -147,11 +155,13 @@ export class CodeModeRuntime {
         description: WAIT_DESCRIPTION,
         execute: async (id, params, signal, onUpdate, ctx) => {
           const client = await this.getClient(signal);
+
           const executionContext = {
             extensionContext: ctx,
-            onUpdate,
+            ...(onUpdate !== undefined ? { onUpdate } : {}),
             toolCallId: id,
           };
+
           const response =
             params.terminate === true
               ? await client.terminate(params.cell_id, executionContext, signal)
@@ -161,6 +171,7 @@ export class CodeModeRuntime {
                   executionContext,
                   signal,
                 );
+
           return toCodeModeToolResult(response, params.max_tokens);
         },
         label: "Wait",
@@ -182,6 +193,7 @@ export class CodeModeRuntime {
         (tool) =>
           `### \`${tool.name}\`\n${tool.definition.description}\n\nUsage: \`${tool.usage}\``,
       );
+
     return `Tools available in exec:\n\n${lines.join("\n\n")}`;
   };
 
@@ -194,9 +206,11 @@ export class CodeModeRuntime {
   private async getClient(signal: AbortSignal | undefined): Promise<CodeModeHostClient> {
     signal?.throwIfAborted();
     const client = await raceWithAbortSignal(this.client.load(), operationSignal(signal));
+
     if (client === undefined) {
       throw new Error("Code Mode runtime is stopped");
     }
+
     return client;
   }
 
@@ -208,6 +222,7 @@ export class CodeModeRuntime {
 export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => {
   const { definition, namespace, outputSchema } = descriptor;
   const freeformProperty = freeformInputProperty(definition);
+
   const nested: NestedTool = {
     definition,
     kind: freeformProperty === undefined ? "function" : "freeform",
@@ -215,19 +230,24 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
     async invoke(input, context, signal) {
       signal.throwIfAborted();
       const argumentsValue = freeformProperty === undefined ? input : { [freeformProperty]: input };
+
       const prepared: unknown = definition.prepareArguments
         ? definition.prepareArguments(argumentsValue)
         : argumentsValue;
+
       if (!isRecord(prepared)) {
         throw new TypeError(`Invalid arguments for ${definition.name}`);
       }
+
       const validated: unknown = validateToolArguments(definition, {
         arguments: prepared,
         id: context.toolCallId ?? `code-mode-${definition.name}`,
         name: definition.name,
         type: "toolCall",
       });
+
       signal.throwIfAborted();
+
       const result = await definition.execute(
         context.toolCallId ?? `code-mode-${definition.name}`,
         validated,
@@ -237,30 +257,39 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
         },
         context.extensionContext,
       );
+
       context.captureResult?.(result);
-      return nestedResultValue(definition.name, result, outputSchema);
+
+      return nestedResultValue(definition.name, result, outputSchema !== undefined);
     },
     usage: usageFor(codeModeName(definition.name, namespace)),
   };
+
   if (freeformProperty !== undefined) {
     nested.freeformProperty = freeformProperty;
   }
+
   if (namespace !== undefined) {
     nested.namespace = namespace;
   }
+
   if (outputSchema !== undefined) {
     nested.outputSchema = outputSchema;
   }
+
   return nested;
 };
 
 const freeformInputProperty = (definition: ToolDefinition): string | undefined => {
   const grammar = resolveGrammarConstrainedSampling(definition, true);
+
   if (grammar === undefined) {
     return undefined;
   }
+
   // Code Mode passes only the freeform string, never additional optional arguments.
   const schema = definition.parameters;
+
   if (
     !isRecord(schema) ||
     !isRecord(schema.properties) ||
@@ -268,6 +297,7 @@ const freeformInputProperty = (definition: ToolDefinition): string | undefined =
   ) {
     throw new Error(`Grammar-constrained tool ${definition.name} must have one string parameter`);
   }
+
   return grammar.inputProperty;
 };
 
@@ -275,6 +305,7 @@ const codeModeName = (name: string, namespace?: string): string => {
   if (namespace === undefined || namespace === "functions") {
     return name;
   }
+
   return namespace.endsWith("_") || name.startsWith("_")
     ? `${namespace}${name}`
     : `${namespace}__${name}`;
@@ -285,42 +316,52 @@ const usageFor = (name: string) => {
     case "exec_command": {
       return "const result = await tools.exec_command({ cmd: string, workdir?: string, yield_time_ms?: number, max_output_tokens?: number }); result.output";
     }
+
     case "write_stdin": {
       return "const result = await tools.write_stdin({ session_id: number, chars?: string, yield_time_ms?: number, max_output_tokens?: number }); result.output";
     }
+
     case "apply_patch": {
       return "await tools.apply_patch(patch)";
     }
+
     case "view_image": {
       return "const result = await tools.view_image({ path: string }); image(result)";
     }
+
     default: {
       return `await tools.${name}(input)`;
     }
   }
 };
 
-const nestedResultValue = (name: string, result: RuntimeToolResult, outputSchema: unknown) => {
+const nestedResultValue = (name: string, result: RuntimeToolResult, hasOutputSchema: boolean) => {
   const image = result.content.find((item) => item.type === "image");
+
   if (image?.type === "image") {
     assertSupportedImageMimeType(image.mimeType);
+
     return {
       detail: "high",
       image_url: `data:${image.mimeType};base64,${image.data}`,
     };
   }
+
   const output = result.content
     .filter((item): item is { type: "text"; text: string } => item.type === "text")
     .map((item) => item.text)
     .join("\n");
+
   if (name === "view_image") {
     throw new Error(
       "view_image did not return a supported image. Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first.",
     );
   }
-  if (outputSchema !== undefined) {
+
+  if (hasOutputSchema) {
     try {
       const parsed: unknown = JSON.parse(output);
+
       return parsed;
     } catch (error) {
       throw new Error(`Nested tool ${name} declared structured output but returned invalid JSON`, {
@@ -328,22 +369,28 @@ const nestedResultValue = (name: string, result: RuntimeToolResult, outputSchema
       });
     }
   }
+
   if (name === "exec_command" || name === "write_stdin") {
     if (!isRecord(result.details)) {
       throw new Error(`Nested tool ${name} returned no Code Mode result`);
     }
+
     const { codeModeResult } = result.details;
+
     if (isRecord(codeModeResult)) {
       return structuredClone(codeModeResult);
     }
+
     throw new Error(`Nested tool ${name} returned no Code Mode result`);
   }
+
   return output || "(no output)";
 };
 
 const toCodeModeToolResult = (response: RuntimeResponse, maxTokens?: number) => {
   const scriptError = response.kind === "result" ? response.errorText : undefined;
   const hasScriptError = scriptError !== undefined && scriptError.length > 0;
+
   const status = hasScriptError
     ? `Script error: ${scriptError}`
     : response.kind === "yielded"
@@ -351,14 +398,17 @@ const toCodeModeToolResult = (response: RuntimeResponse, maxTokens?: number) => 
       : response.kind === "terminated"
         ? "Script terminated"
         : "Script completed";
+
   const output = response.contentItems
     .map(toPiContent)
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
   const maxChars =
     Math.min(
       MAX_CODE_MODE_OUTPUT_TOKENS,
       Math.max(1, maxTokens ?? response.maxOutputTokens ?? DEFAULT_CODE_MODE_OUTPUT_TOKENS),
     ) * 4;
+
   return {
     content: [{ text: status, type: "text" as const }, ...truncateTextContent(output, maxChars)],
     details: {
@@ -385,8 +435,10 @@ export const toPiContent = (
   if (item.type === "input_text" && item.text !== undefined) {
     return { text: item.text, type: "text" };
   }
+
   if (item.type === "input_image" && item.image_url !== undefined) {
     const match = /^data:(?<mimeType>[^;,]+);base64,(?<data>.+)$/su.exec(item.image_url);
+
     if (
       match?.groups?.mimeType !== undefined &&
       match.groups.mimeType.length > 0 &&
@@ -395,6 +447,7 @@ export const toPiContent = (
     ) {
       const mimeType = match.groups.mimeType.toLowerCase();
       assertSupportedImageMimeType(mimeType);
+
       return {
         data: match.groups.data,
         mimeType,
@@ -402,6 +455,7 @@ export const toPiContent = (
       };
     }
   }
+
   return undefined;
 };
 
@@ -420,25 +474,33 @@ const truncateTextContent = <
   maxChars: number,
 ): T[] => {
   let remaining = maxChars;
+
   return content.flatMap((item) => {
     if (item.type !== "text") {
       return [item];
     }
+
     if (remaining <= 0) {
       return [];
     }
+
     if (item.text.length <= remaining) {
       remaining -= item.text.length;
+
       return [item];
     }
+
     const truncated = {
       ...item,
       text: `${item.text.slice(0, remaining)}\n[Output truncated]`,
     };
+
     remaining = 0;
+
     return [truncated];
   });
 };
 
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Foreign tool details are open records; guard non-array objects before inspecting the declared Code Mode result.
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

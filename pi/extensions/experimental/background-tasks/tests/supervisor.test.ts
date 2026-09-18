@@ -4,30 +4,47 @@ import { Supervisor, type Task, type StartTask } from "../supervisor.js";
 import { Inbox } from "../inbox.js";
 
 const supervisors: Supervisor[] = [];
+
 afterEach(async () => {
   await Promise.all(supervisors.splice(0).map((s) => s.shutdown()));
 });
+
 function setup(concurrency = 8, history = 32) {
   const inbox = new Inbox();
   const terminal: Task[] = [];
+
   const supervisor = new Supervisor(
     {
       reserve: (id) => inbox.reserve(id),
       protected: (id) => inbox.protected(id),
       progress: (t, data, key) => {
-        inbox.add({ taskId: t.id, terminal: false, reason: "observation", data, key });
+        inbox.add({
+          taskId: t.id,
+          terminal: false,
+          reason: "observation",
+          data,
+          ...(key !== undefined ? { key } : {}),
+        });
       },
       terminal: (t, outcome) => {
         terminal.push(t);
-        inbox.add({ taskId: t.id, terminal: true, reason: outcome, data: t.result });
+        inbox.add({
+          taskId: t.id,
+          terminal: true,
+          reason: outcome,
+          ...(t.result !== undefined ? { data: t.result } : {}),
+        });
       },
       changed: () => {},
     },
     { concurrency, history, graceMs: 100, killMs: 1000 },
   );
+
   supervisors.push(supervisor);
+
   return { supervisor, inbox, terminal };
 }
+
 const spec = (code: string, extra: Partial<StartTask> = {}): StartTask => ({
   name: "synthetic",
   command: process.execPath,
@@ -37,9 +54,11 @@ const spec = (code: string, extra: Partial<StartTask> = {}): StartTask => ({
   timeoutMs: 5000,
   ...extra,
 });
+
 async function finished(task: Task) {
   await expect.poll(() => Boolean(task.cleanupPromise), { timeout: 5000 }).toBe(true);
   await task.cleanupPromise;
+
   return task;
 }
 
@@ -63,11 +82,16 @@ describe("Supervisor (real subprocesses)", () => {
     ],
   ] as const)("records %s as %s / %s", async (code, protocol, outcome) => {
     const { supervisor, terminal } = setup();
-    const task = await supervisor.start(spec(code, { protocol, timeoutMs: 300 }));
+
+    const task = await supervisor.start(
+      spec(code, { ...(protocol ? { protocol } : {}), timeoutMs: 300 }),
+    );
+
     await finished(task);
     expect(task.outcome).toBe(outcome);
     expect(task.cleanup).toBe("clean");
     expect(terminal).toHaveLength(1);
+
     if (outcome === "result") expect(task.result).toEqual({ conclusion: "failure" });
     await supervisor.stop(task.id);
     expect(terminal).toHaveLength(1);
@@ -109,21 +133,27 @@ describe("Supervisor (real subprocesses)", () => {
     "reconciles failed cleanup conservatively: %s",
     async (state) => {
       const { supervisor, inbox, terminal } = setup(1);
+
       const task = await supervisor.start(
         spec(state === "child-running" ? "setInterval(()=>{},1000)" : "setTimeout(()=>{},100)"),
       );
+
       const child = task.child!;
       const pid = child.pid!;
       const nativeKill = process.kill.bind(process);
       let probing = false;
+
       const kill = vi.spyOn(process, "kill").mockImplementation((target, signal) => {
         if (target !== -pid) return nativeKill(target, signal);
+
         if (signal !== 0) throw Object.assign(new Error("signal denied"), { code: "EPERM" });
+
         if (!probing || state === "alive") return true;
         throw Object.assign(new Error(state), {
           code: state === "permission" ? "EPERM" : "ESRCH",
         });
       });
+
       try {
         await supervisor.stop(task.id);
         expect(task.cleanup).toBe("failed");
@@ -132,6 +162,7 @@ describe("Supervisor (real subprocesses)", () => {
         const diagnostic = task.diagnostic;
         probing = true;
         kill.mockClear();
+
         if (state === "absent") {
           const next = await supervisor.start(spec("setInterval(()=>{},1000)"));
           expect(task.cleanup).toBe("clean");
@@ -144,6 +175,7 @@ describe("Supervisor (real subprocesses)", () => {
           expect(task.cleanup).toBe("failed");
           expect(supervisor.activeCount).toBe(1);
         }
+
         expect(task.outcome).toBe("cancelled");
         expect(task.diagnostic).toBe(diagnostic);
         expect(terminal).toHaveLength(1);
@@ -153,10 +185,12 @@ describe("Supervisor (real subprocesses)", () => {
         );
       } finally {
         kill.mockRestore();
+
         if (child.exitCode === null && child.signalCode === null) {
           nativeKill(-pid, "SIGKILL");
           await new Promise<void>((resolve) => child.once("exit", () => resolve()));
         }
+
         await supervisor.stop(task.id);
       }
     },
@@ -166,17 +200,23 @@ describe("Supervisor (real subprocesses)", () => {
     const task = await supervisor.start(spec("setTimeout(()=>{},100)"));
     const nativeKill = process.kill.bind(process);
     let absent = false;
+
     const kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
       if (pid !== -task.child!.pid!) return nativeKill(pid, signal);
+
       if (absent) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+
       return true;
     });
+
     const gate = Promise.withResolvers<void>();
     const close = task.logs!.close.bind(task.logs);
+
     const closeSpy = vi.spyOn(task.logs!, "close").mockImplementation(async () => {
       await gate.promise;
       await close();
     });
+
     try {
       const stopping = supervisor.stop(task.id);
       await expect.poll(() => closeSpy.mock.calls.length, { timeout: 3000 }).toBe(1);
@@ -201,16 +241,19 @@ describe("Supervisor (real subprocesses)", () => {
   });
   it("enforces admission during parallel starts", async () => {
     const { supervisor } = setup(1);
+
     const results = await Promise.allSettled([
       supervisor.start(spec("setInterval(()=>{},1000)")),
       supervisor.start(spec("setInterval(()=>{},1000)")),
     ]);
+
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(supervisor.activeCount).toBe(1);
   });
   it("escalates TERM-resistant parent and descendants as a process group", async () => {
     const { supervisor } = setup();
     const code = "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)";
+
     const task = await supervisor.start(
       spec(
         "const {spawn}=require('node:child_process');" +
@@ -221,6 +264,7 @@ describe("Supervisor (real subprocesses)", () => {
           "console.log(child.pid); setInterval(()=>{},1000)",
       ),
     );
+
     await expect.poll(() => task.logs?.read().stdout, { timeout: 2000 }).toMatch(/\d/);
     const pid = Number(task.logs!.read().stdout.trim());
     await delay(100);
@@ -230,9 +274,11 @@ describe("Supervisor (real subprocesses)", () => {
   });
   it("claims pruning victims before concurrent filesystem cleanup", async () => {
     const { supervisor, inbox } = setup(8, 2);
+
     const tasks = await Promise.all(
       Array.from({ length: 4 }, async () => finished(await supervisor.start(spec("")))),
     );
+
     inbox.acknowledge(inbox.take()!.id);
     const first = supervisor.prune();
     expect(supervisor.list()).toHaveLength(2);
@@ -259,6 +305,7 @@ describe("Supervisor (real subprocesses)", () => {
 
 it("bounds inherited-pipe drain after direct-child exit and cleans remaining descendants", async () => {
   const { supervisor } = setup();
+
   const task = await supervisor.start(
     spec(
       "const {spawn}=require('node:child_process');" +
@@ -266,6 +313,7 @@ it("bounds inherited-pipe drain after direct-child exit and cleans remaining des
         "console.log(child.pid);child.unref();",
     ),
   );
+
   await finished(task);
   expect(task.outcome).toBe("completed");
   expect(task.cleanup).toBe("clean");

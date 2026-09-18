@@ -1,9 +1,16 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { createFooterConfigStore } from "./config.js";
+import { readGitStatus } from "./git.js";
+
 import { createFooterHost } from "./host.js";
 
-export default function footerExtension(pi: ExtensionAPI): void {
-  const host = createFooterHost(pi);
+export default function footerExtension(
+  pi: ExtensionAPI,
+  configStore = createFooterConfigStore(),
+  readGit = readGitStatus,
+): void {
+  const host = createFooterHost(pi, configStore, readGit);
 
   pi.registerCommand("footer", {
     description: "Configure or inspect the cooperative footer",

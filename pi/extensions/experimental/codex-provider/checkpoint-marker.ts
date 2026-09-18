@@ -7,11 +7,11 @@ export const CHECKPOINT_CUSTOM_TYPE = "codex-provider.checkpoint";
 const MarkerDetailsSchema = Type.Object({ type: Type.String() });
 
 export const branchNeedsCodex = (branch: readonly SessionEntry[]): boolean => {
-  for (let index = branch.length - 1; index >= 0; index -= 1) {
-    const entry = branch[index];
+  for (const entry of branch.toReversed()) {
     if (entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE) {
       return true;
     }
+
     if (entry.type === "compaction") {
       return (
         Value.Check(MarkerDetailsSchema, entry.details) &&
@@ -19,5 +19,6 @@ export const branchNeedsCodex = (branch: readonly SessionEntry[]): boolean => {
       );
     }
   }
+
   return false;
 };

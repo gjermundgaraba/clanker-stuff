@@ -9,12 +9,15 @@ describe("MCP bridge", () => {
       ["x".repeat(200), "y".repeat(200)],
       ["服务器", "查询"],
     ];
+
     const names = pairs.map(([server, tool]) => toGeneratedToolName(server, tool));
     expect(new Set(names).size).toBe(pairs.length);
-    for (const [index, name] of names.entries()) {
+
+    for (const [index, pair] of pairs.entries()) {
+      const name = toGeneratedToolName(...pair);
       expect(name.length).toBeLessThanOrEqual(64);
       expect(name).toMatch(/^[a-zA-Z0-9_-]+$/u);
-      expect(name).toBe(toGeneratedToolName(...pairs[index]));
+      expect(name).toBe(names[index]);
     }
   });
   it("keeps captions and images in source order", () => {
@@ -23,16 +26,19 @@ describe("MCP bridge", () => {
       { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" },
       { type: "text" as const, text: "after" },
     ];
+
     expect(mcpResultToPiContent({ content }).content).toEqual(content);
   });
   it("does not duplicate equivalent JSON or unnecessarily spill a 30 KB result", () => {
     const structuredContent = { count: 1, result: "x".repeat(30_000) };
     const json = JSON.stringify({ result: structuredContent.result, count: 1 }, null, 2);
+
     const content = [
       { type: "text" as const, text: "caption" },
       { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" },
       { type: "text" as const, text: json },
     ];
+
     const converted = mcpResultToPiContent({ content, structuredContent });
     expect(converted.content).toEqual(content);
     expect(converted.truncated).toBe(false);
@@ -45,6 +51,7 @@ describe("MCP bridge", () => {
       { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" },
       { type: "text" as const, text: '{"count":1}' },
     ];
+
     expect(mcpResultToPiContent({ content, structuredContent: { count: 2 } }).content).toEqual([
       ...content,
       { type: "text", text: JSON.stringify({ count: 2 }, null, 2) },

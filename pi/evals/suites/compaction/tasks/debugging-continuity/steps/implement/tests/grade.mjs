@@ -3,24 +3,32 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { validateCompaction } from "./compaction.mjs";
 
+/** @type {typeof import("../solution/route.js").parseRoute} */
 let parseRoute = () => {
   throw new Error("route module did not load");
 };
+
 try {
+  // Candidate exports are intentionally tested against the reference signature; each scoring probe checks its result and treats thrown failures as zero.
   ({ parseRoute } = await import("/app/src/route.js"));
 } catch {}
 
 const tests = spawnSync("node", ["--test", "/app/test/route.test.js"], {
   encoding: "utf-8",
 });
+
 writeFileSync("/logs/verifier/tests.tap", `${tests.stdout}${tests.stderr}`);
 
+/** @type {unknown} */
 let trajectory = {};
+
 try {
   trajectory = JSON.parse(readFileSync("/logs/agent/trajectory.json", "utf-8"));
 } catch {}
+
 const validation = validateCompaction(trajectory, { expectedSegments: [7] });
 
+/** @param {()=>boolean} fn */
 const probe = (fn) => {
   try {
     return Number(fn());
@@ -28,16 +36,22 @@ const probe = (fn) => {
     return 0;
   }
 };
+
+/** @param {...unknown} inputs Deliberately malformed route cases are graded by runtime behavior. */
 const rejects = (...inputs) =>
   inputs.every((input) => {
     try {
       parseRoute(input);
+
       return false;
     } catch (error) {
       return error instanceof TypeError;
     }
   });
+
+/** @param {string} path */
 const digest = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
+
 // Checked-in fixture SHA-256 digests.
 const facts = {
   api_contract: probe(
@@ -47,6 +61,7 @@ const facts = {
   ),
   failed_attempt: probe(() => {
     const result = parseRoute(" API / EU-West-1 ");
+
     return result.region === "eu-west-1" && result.service === "api";
   }),
   hypothesis: probe(() => rejects(" /eu", "api/ ", " / ")),
@@ -59,7 +74,9 @@ const facts = {
   ),
   observed_regression: probe(() => rejects(null, 42, "api", "api/eu/extra", "api//eu")),
 };
+
 const quality = Object.values(facts).reduce((sum, value) => sum + value, 0) / 5;
+
 writeFileSync(
   "/logs/verifier/reward.json",
   JSON.stringify({

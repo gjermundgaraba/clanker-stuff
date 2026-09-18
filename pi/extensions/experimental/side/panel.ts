@@ -17,6 +17,7 @@ export type SidePanelConversation = Pick<SideConversation, "state" | "submit" | 
 
 // oxlint-disable-next-line eslint/no-control-regex -- OSC 133 uses ESC and BEL control characters.
 const PROMPT_ZONE_PATTERN = /\u001B\]133;[ABC]\u0007/gu;
+
 const stripPromptZones = (text: string): string => text.replaceAll(PROMPT_ZONE_PATTERN, "");
 
 const formatKey = (key: string): string => {
@@ -25,25 +26,32 @@ const formatKey = (key: string): string => {
     case "return": {
       return "Enter";
     }
+
     case "escape": {
       return "Esc";
     }
+
     case "pageDown": {
       return "PgDn";
     }
+
     case "pageUp": {
       return "PgUp";
     }
+
     case "space": {
       return "Space";
     }
+
     case "tab": {
       return "Tab";
     }
   }
+
   const parts = key.endsWith("+")
     ? [...key.slice(0, -1).split("+").filter(Boolean), "+"]
     : key.split("+");
+
   return parts
     .map((part) =>
       part === "+" || part.length === 1
@@ -78,7 +86,7 @@ export class SidePanel implements Focusable {
   private readonly theme: Theme;
   private readonly tui: TUI;
   private scrollOffset = 0;
-  private unsubscribe?: () => void;
+  private unsubscribe: (() => void) | undefined;
 
   constructor(
     tui: TUI,
@@ -101,11 +109,13 @@ export class SidePanel implements Focusable {
       },
       keybindings,
     );
+
     for (const item of conversation.state.transcript) {
       if (item.kind === "user") {
         this.editor.addToHistory(item.text);
       }
     }
+
     this.editor.setText(draft);
     this.editor.onEscape = actions.onDismiss;
     this.editor.onCtrlD = actions.onClose;
@@ -117,11 +127,14 @@ export class SidePanel implements Focusable {
     this.editor.onSubmit = (prompt) => {
       if (!this.conversation.submit(prompt)) {
         this.editor.setText(prompt);
+
         return;
       }
+
       this.editor.addToHistory(prompt);
       this.scrollOffset = 0;
     };
+
     this.unsubscribe = conversation.subscribe(() => {
       this.tui.requestRender();
     });
@@ -139,23 +152,31 @@ export class SidePanel implements Focusable {
   handleInput(data: string): void {
     if (matchesKey(data, Key.ctrl("/"))) {
       this.actions.onDismiss();
+
       return;
     }
+
     if (matchesKey(data, Key.alt("enter"))) {
       this.actions.onInsertLatest();
+
       return;
     }
+
     if (matchesKey(data, Key.pageUp)) {
       this.scrollOffset += Math.max(1, Math.floor(this.tui.terminal.rows / 3));
+
       return;
     }
+
     if (matchesKey(data, Key.pageDown)) {
       this.scrollOffset = Math.max(
         0,
         this.scrollOffset - Math.max(1, Math.floor(this.tui.terminal.rows / 3)),
       );
+
       return;
     }
+
     this.editor.handleInput(data);
   }
 
@@ -166,18 +187,23 @@ export class SidePanel implements Focusable {
     const borderColor = this.focused ? "borderAccent" : "borderMuted";
     const border = (text: string) => this.theme.fg(borderColor, text);
     const row = (text: string) => `${border("│")}${pad(` ${text}`, innerWidth)}${border("│")}`;
+
     const sideState = isSideActivityActive(this.conversation.state.activity)
       ? `${this.actions.getWorkingMarker()} working`
       : "· ready";
+
     const mainState = this.actions.getMainWorking() ? "working" : "idle";
+
     const editorLines = this.editor
       .render(Math.max(10, innerWidth - 2))
       .slice(-Math.max(1, Math.min(6, Math.floor(height / 4))));
+
     const { statusMessage } = this.conversation.state;
     const statusHeight = statusMessage === undefined || statusMessage.length === 0 ? 0 : 1;
     const transcriptHeight = Math.max(0, height - 7 - editorLines.length - statusHeight);
     const interruptKeys = this.keybindings.getKeys("app.interrupt").map(formatKey).join("/");
     const exitKeys = this.keybindings.getKeys("app.exit").map(formatKey).join("/");
+
     const hints = [
       `${["Ctrl+/", interruptKeys].filter(Boolean).join(" or ")} dismiss`,
       exitKeys ? `${exitKeys} close` : "",
@@ -199,12 +225,15 @@ export class SidePanel implements Focusable {
     }
 
     lines.push(border(`├${"─".repeat(innerWidth)}┤`));
+
     for (const line of editorLines) {
       lines.push(row(line));
     }
+
     if (statusMessage !== undefined && statusMessage.length > 0) {
       lines.push(row(this.theme.fg("warning", statusMessage)));
     }
+
     lines.push(row(this.theme.fg("dim", hints)), border(`╰${"─".repeat(innerWidth)}╯`));
 
     return lines.map((line) => truncateToWidth(line, safeWidth, "")).slice(0, height);
@@ -220,15 +249,19 @@ export class SidePanel implements Focusable {
 
   submitExternalPrompt(text: string): void {
     const prompt = text.trim();
+
     if (!prompt) {
       return;
     }
+
     if (this.conversation.submit(prompt)) {
       this.editor.addToHistory(prompt);
       this.scrollOffset = 0;
       this.tui.requestRender();
+
       return;
     }
+
     const current = this.editor.getExpandedText();
     this.editor.setText(current ? `${current}\n${prompt}` : prompt);
     this.tui.requestRender();
@@ -246,12 +279,15 @@ export class SidePanel implements Focusable {
           .render(width)
           .map(stripPromptZones);
       }
+
       case "assistant": {
         return renderAssistant(item.message, width);
       }
+
       case "tool": {
         let marker = "✓";
         let color: "accent" | "error" | "success" = "success";
+
         if (item.status === "running") {
           marker = "●";
           color = "accent";
@@ -259,13 +295,17 @@ export class SidePanel implements Focusable {
           marker = "✗";
           color = "error";
         }
+
         return [this.theme.fg(color, `${marker} ${item.name} ${item.status}`)];
       }
+
       case "error": {
         return [this.theme.fg("error", `Error: ${item.text}`)];
       }
+
       default: {
         item satisfies never;
+
         return [];
       }
     }
@@ -273,16 +313,21 @@ export class SidePanel implements Focusable {
 
   private transcriptLines(width: number): string[] {
     const lines: string[] = [];
+
     for (const item of this.conversation.state.transcript) {
       lines.push(...this.renderTranscriptItem(item, width), "");
     }
+
     const { activity } = this.conversation.state;
+
     if (activity.kind === "streaming") {
       lines.push(...renderAssistant(activity.message, width));
     }
+
     if (lines.at(-1) === "") {
       lines.pop();
     }
+
     return lines.length > 0
       ? lines
       : [this.theme.fg("dim", "Ask anything in this side conversation.")];
@@ -294,9 +339,11 @@ export class SidePanel implements Focusable {
     this.scrollOffset = Math.min(this.scrollOffset, maxOffset);
     const end = all.length - this.scrollOffset;
     const visible = all.slice(Math.max(0, end - height), end);
+
     while (visible.length < height) {
       visible.unshift("");
     }
+
     return visible;
   }
 }

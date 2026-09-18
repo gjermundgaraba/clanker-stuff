@@ -1,6 +1,7 @@
 import type { Batch, Inbox } from "./inbox.js";
 
 export const WAKE_TYPE = "background-tasks:wake";
+
 export interface DeliveryHooks {
   ready(): boolean;
   send(batch: Batch): void;
@@ -9,7 +10,7 @@ export interface DeliveryHooks {
 
 /** Deliver automatically, with one batch in flight until Pi observes it and settles. */
 export class Delivery {
-  private timer?: ReturnType<typeof setTimeout>;
+  private timer: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
   private awaitingCycle = false;
   constructor(
@@ -39,15 +40,20 @@ export class Delivery {
   }
   flush(): void {
     if (this.closed || this.awaitingCycle) return;
+
     if (!this.hooks.ready()) {
       // Manual compaction can become idle without an agent_settled event.
       // Keep one readiness check pending, without handing off another batch.
       this.schedule(1000);
+
       return;
     }
+
     const batch = this.inbox.take();
+
     if (!batch) return;
     this.awaitingCycle = true;
+
     try {
       this.hooks.send(batch);
     } catch {

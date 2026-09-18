@@ -9,6 +9,7 @@ import type { AdapterDeps } from "./util.js";
 import { isDefined, makeUsageWindow } from "./util.js";
 
 const MINIMAX_USAGE_URL = "https://api.minimax.io/v1/token_plan/remains";
+
 const MINIMAX_CN_USAGE_URL = "https://api.minimaxi.com/v1/token_plan/remains";
 
 const MinimaxBucketSchema = Type.Object({
@@ -51,6 +52,7 @@ const remainingWindow = (
   if (remainingPercent === undefined) {
     return undefined;
   }
+
   return makeUsageWindow(id, remainingPercent, resetsAt);
 };
 
@@ -60,15 +62,18 @@ export const mapMinimaxUsagePayload = (
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
   const statusCode = payload.base_resp?.status_code;
+
   if (statusCode !== undefined && statusCode !== 0) {
     const statusMessage =
       payload.base_resp?.status_msg !== undefined && payload.base_resp.status_msg.length > 0
         ? payload.base_resp.status_msg
         : `API ${statusCode}`;
+
     return usageFailure(statusMessage);
   }
 
   const bucket = pickBucket(payload.model_remains ?? []);
+
   const windows =
     bucket === undefined
       ? []
@@ -98,11 +103,13 @@ export const fetchMinimaxUsage = async (
 ): Promise<UsageFetchResult> => {
   const now = deps.now ?? Date.now;
   const auth = await resolveAccessToken(deps.authClient, provider);
+
   if (!auth.ok) {
     return usageFailure(auth.message, auth.kind);
   }
 
   const url = provider === "minimax-cn" ? MINIMAX_CN_USAGE_URL : MINIMAX_USAGE_URL;
+
   const response = await deps.fetchJson(url, MinimaxUsagePayloadSchema, {
     headers: {
       Authorization: `Bearer ${auth.value.accessToken}`,

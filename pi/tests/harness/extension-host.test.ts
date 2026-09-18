@@ -32,6 +32,7 @@ const setupHost = () =>
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
         await Promise.resolve();
         ctx.ui.notify(`tool:${params.value}`, "info");
+
         return {
           content: [{ text: params.value, type: "text" }],
           details: { echoed: params.value },
@@ -56,11 +57,13 @@ const setupHost = () =>
 
     pi.on("input", async (event, ctx) => {
       ctx.ui.setWidget("input", [event.text]);
+
       if (event.text === "custom") {
         const result = await ctx.ui.custom<string>((_tui, _theme, _keybindings, done) => {
           setTimeout(() => {
             done("from-done");
           }, 0);
+
           return {
             invalidate() {
               /* noop */
@@ -70,6 +73,7 @@ const setupHost = () =>
             },
           };
         });
+
         return {
           action: "transform",
           text: `${event.text}:${result}`,
@@ -92,20 +96,24 @@ describe("extension-host harness", () => {
     const seen: InputEvent[] = [];
     const images = [{ type: "image" as const, data: "original", mimeType: "image/png" }];
     const replacement = [{ type: "image" as const, data: "replacement", mimeType: "image/png" }];
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       pi.on("input", () => ({ action: "transform", text: "first" }));
       pi.on("input", (event) => {
         seen.push(event);
+
         return { action: "transform", images: replacement, text: "second" };
       });
       pi.on("input", (event) => {
         seen.push(event);
+
         return { action: "handled" };
       });
       pi.on("input", () => {
         throw new Error("handled input continued");
       });
     });
+
     const event: InputEvent = {
       images,
       source: "extension",
@@ -113,6 +121,7 @@ describe("extension-host harness", () => {
       text: "original",
       type: "input",
     };
+
     expect(await host.emitInput(event)).toStrictEqual({ action: "handled" });
     expect(seen).toStrictEqual([
       { ...event, text: "first" },
@@ -123,12 +132,14 @@ describe("extension-host harness", () => {
 
   it("rejects input handler failures without continuing the chain", async () => {
     const later = vi.fn();
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       pi.on("input", () => {
         throw new Error("input failed");
       });
       pi.on("input", later);
     });
+
     await expect(
       host.emitInput({ source: "interactive", text: "test", type: "input" }),
     ).rejects.toThrow("input failed");
@@ -158,6 +169,7 @@ describe("extension-host harness", () => {
 
   it("tracks the thinking level set through the extension API", async () => {
     let extensionApi!: ExtensionAPI;
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       extensionApi = pi;
     });
@@ -172,6 +184,7 @@ describe("extension-host harness", () => {
   it("defaults lifecycle helper reasons and preserves explicit overrides", async () => {
     const sessionStarts: SessionStartEvent[] = [];
     const sessionShutdowns: SessionShutdownEvent[] = [];
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       pi.on("session_start", (event) => {
         sessionStarts.push(event);
@@ -180,6 +193,7 @@ describe("extension-host harness", () => {
         sessionShutdowns.push(event);
       });
     });
+
     const ctx = host.createContext();
 
     await host.emitSessionStart(ctx);
@@ -218,12 +232,15 @@ describe("extension-host harness", () => {
   it("uses loaded extension registration state for renderers, providers, and flags", async () => {
     const entryRenderer = vi.fn<EntryRenderer>();
     const markdownTransformer = vi.fn<MarkdownTransformer>((markdown: string) => markdown);
+
     const nativeProvider = {
       ...fauxProvider().provider,
       id: "native-test",
     };
+
     const configuredProvider = { name: "Configured test" };
     let defaultFlag: boolean | string | undefined;
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       pi.registerEntryRenderer("test-entry", entryRenderer);
       pi.registerMarkdownTransformer(markdownTransformer);
@@ -247,15 +264,18 @@ describe("extension-host harness", () => {
 
   it("keeps post-load tool registration in the loaded extension", async () => {
     let api: ExtensionAPI | undefined;
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       api = pi;
     });
+
     await host.ready;
 
     api?.registerTool({
       description: "Late tool",
       async execute() {
         await Promise.resolve();
+
         return { content: [{ text: "late", type: "text" }], details: {} };
       },
       label: "Late tool",
@@ -282,6 +302,7 @@ describe("extension-host harness", () => {
           description: "New tool",
           async execute() {
             await Promise.resolve();
+
             return {
               content: [{ text: "ok", type: "text" }],
               details: {},
@@ -307,6 +328,7 @@ describe("extension-host harness", () => {
           description: "Known tool",
           async execute() {
             await Promise.resolve();
+
             return {
               content: [{ text: "ok", type: "text" }],
               details: {},
@@ -331,6 +353,7 @@ describe("extension-host harness", () => {
         description: "Tool for tests",
         async execute(_toolCallId, params) {
           await Promise.resolve();
+
           return {
             content: [{ text: params.value, type: "text" }],
             details: { echoed: params.value },
@@ -341,6 +364,7 @@ describe("extension-host harness", () => {
         parameters: Type.Object({ value: Type.String() }),
         prepareArguments(args) {
           const legacy = Value.Parse(LegacyToolArgumentsSchema, args);
+
           return {
             value: legacy.legacy ?? "",
           };
@@ -357,6 +381,7 @@ describe("extension-host harness", () => {
 
   it("validates tool arguments before execute", async () => {
     const execute = vi.fn();
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       pi.registerTool({
         description: "Tool for tests",
@@ -376,6 +401,7 @@ describe("extension-host harness", () => {
   it("passes explicit tool execution options through runTool", async () => {
     const { signal } = new AbortController();
     const onUpdate = vi.fn<() => void>();
+
     const host = createExtensionHost((pi: ExtensionAPI) => {
       pi.registerTool({
         description: "Tool for tests",
@@ -385,6 +411,7 @@ describe("extension-host harness", () => {
             content: [{ text: "partial", type: "text" }],
             details: {},
           });
+
           return {
             content: [{ text: params.value, type: "text" }],
             details: {
@@ -429,6 +456,7 @@ describe("extension-host harness", () => {
     await host.emitSessionStart(ctx);
     host.setLeafId("leaf-1");
     await host.emitSessionTree(ctx);
+
     const result = await host.emitInput(
       {
         source: "interactive",
@@ -437,6 +465,7 @@ describe("extension-host harness", () => {
       },
       ctx,
     );
+
     await host.emitTurnEnd(undefined, ctx);
     await host.emitSessionShutdown(ctx);
 
@@ -457,9 +486,11 @@ describe("extension-host harness", () => {
 
   it("supports explicit custom ui overrides", async () => {
     const host = setupHost();
+
     const customUi = createCustomUiDriver({
       captureRender: "after",
     });
+
     const ctx = host.createContext({
       ui: {
         custom: customUi.custom,
@@ -485,6 +516,7 @@ describe("extension-host harness", () => {
   it("does not mount a custom component after synchronous completion", async () => {
     const onComponent = vi.fn();
     const onHandle = vi.fn();
+
     const customUi = createCustomUiDriver({
       captureRender: "after",
       onComponent,
@@ -493,6 +525,7 @@ describe("extension-host harness", () => {
     await customUi.custom(
       (_tui, _theme, _keybindings, done) => {
         done(null);
+
         return {
           invalidate() {},
           render: () => ["closed"],

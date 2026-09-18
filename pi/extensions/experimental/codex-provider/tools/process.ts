@@ -56,6 +56,7 @@ export type ProcessResult =
 
 // ponytail: global cap; add per-profile limits or TTL eviction only if real workloads need them.
 const MAX_SESSIONS = 32;
+
 const PROCESS_CLOSE_GRACE_MS = 1000;
 
 const throwIfAborted = (signal: AbortSignal | undefined) => {
@@ -68,11 +69,13 @@ export const killProcessTree = (child: Pick<ChildProcessWithoutNullStreams, "kil
   if (child.pid === undefined) {
     return;
   }
+
   const killChild = () => {
     try {
       child.kill("SIGKILL");
     } catch {}
   };
+
   if (process.platform === "win32") {
     try {
       const taskkill = spawn(
@@ -84,12 +87,15 @@ export const killProcessTree = (child: Pick<ChildProcessWithoutNullStreams, "kil
           windowsHide: true,
         },
       );
+
       taskkill.once("error", killChild);
     } catch {
       killChild();
     }
+
     return;
   }
+
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch {
@@ -102,6 +108,7 @@ const createShellEnvironment = (ctx: ExtensionContext) => {
   const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
   const binDirectory = path.join(getAgentDir(), "bin");
   const pathEntries = (env[pathKey] ?? "").split(path.delimiter).filter(Boolean);
+
   if (!pathEntries.includes(binDirectory)) {
     env[pathKey] = [binDirectory, ...pathEntries].join(path.delimiter);
   }
@@ -113,16 +120,20 @@ const createShellEnvironment = (ctx: ExtensionContext) => {
   delete env.PI_REASONING_LEVEL;
   env.PI_SESSION_ID = ctx.sessionManager.getSessionId();
   const sessionFile = ctx.sessionManager.getSessionFile();
+
   if (sessionFile !== undefined && sessionFile.length > 0) {
     env.PI_SESSION_FILE = sessionFile;
   }
+
   if (ctx.model) {
     env.PI_PROVIDER = ctx.model.provider;
     env.PI_MODEL = ctx.model.id;
   }
+
   if (ctx.thinkingLevel) {
     env.PI_REASONING_LEVEL = ctx.thinkingLevel;
   }
+
   return env;
 };
 
@@ -139,9 +150,11 @@ const spawnShell = async (options: {
   }
 
   const shell = getShellConfig();
+
   if (shell.commandTransport === "stdin") {
     throw new Error("Shell stdin command transport is not supported");
   }
+
   const child = spawn(shell.shell, [...shell.args, options.command], {
     cwd: options.cwd,
     detached: process.platform !== "win32",
@@ -149,6 +162,7 @@ const spawnShell = async (options: {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
+
   child.stdin.on("error", () => {
     // The process may exit before a queued write reaches stdin.
   });
@@ -160,45 +174,55 @@ const spawnShell = async (options: {
   const completion = Promise.withResolvers<ShellResult>();
   let exitCode: number | null = null;
   let grace: ReturnType<typeof setTimeout> | undefined;
+
   const cleanup = () => {
     if (grace !== undefined) {
       clearTimeout(grace);
     }
+
     child.removeAllListeners("exit");
     child.removeAllListeners("close");
   };
+
   const finish = () => {
     if (settled) {
       return;
     }
+
     settled = true;
     cleanup();
     child.stdout.destroy();
     child.stderr.destroy();
     completion.resolve({ exitCode, reason });
   };
+
   const fail = (error: Error) => {
     if (settled) {
       return;
     }
+
     settled = true;
     cleanup();
     child.stdout.destroy();
     child.stderr.destroy();
     completion.reject(error);
   };
+
   const finishAfterGrace = () => {
     grace ??= setTimeout(() => {
       finish();
     }, PROCESS_CLOSE_GRACE_MS);
   };
+
   const kill = () => {
     if (settled) {
       return;
     }
+
     killProcessTree(child);
     finishAfterGrace();
   };
+
   child.once("error", fail);
   child.once("exit", (code) => {
     exitCode = code;
@@ -215,6 +239,7 @@ const spawnShell = async (options: {
       if (reason === "exit") {
         reason = "killed";
       }
+
       kill();
     },
     write(chars) {
@@ -232,16 +257,20 @@ const wait = async (
     session.process.kill();
     throw new Error("Operation aborted");
   }
+
   const abort = () => {
     session.process.kill();
   };
+
   signal?.addEventListener("abort", abort, { once: true });
+
   try {
     if (session.lifecycle.status === "running") {
       if (yieldMs === undefined) {
         await session.exitPromise;
       } else {
         const timeout = new AbortController();
+
         try {
           await Promise.race([
             session.exitPromise,
@@ -255,14 +284,17 @@ const wait = async (
   } finally {
     signal?.removeEventListener("abort", abort);
   }
+
   throwIfAborted(signal);
 };
 
 const drainOutput = async (session: ProcessSession, exited: boolean) => {
   const output = session.output.current;
+
   if (!exited) {
     session.output.current = new ProcessOutput();
   }
+
   return await output.snapshot();
 };
 
@@ -275,12 +307,14 @@ const formatOutput = async (
   // flush, keep the session for one final poll so no late output is dropped.
   const { lifecycle } = session;
   const snapshot = await drainOutput(session, lifecycle.status !== "running");
+
   const base: ProcessResultBase = {
     durationMs,
-    fullOutputPath: snapshot.fullOutputPath,
+    ...(snapshot.fullOutputPath !== undefined ? { fullOutputPath: snapshot.fullOutputPath } : {}),
     output: snapshot.content,
-    truncation: snapshot.truncation.truncated ? snapshot.truncation : undefined,
+    ...(snapshot.truncation.truncated ? { truncation: snapshot.truncation } : {}),
   };
+
   if (lifecycle.status === "running") {
     return {
       ...base,
@@ -290,6 +324,7 @@ const formatOutput = async (
       status: "running",
     };
   }
+
   return {
     ...base,
     exitCode: lifecycle.exitCode,
@@ -313,9 +348,11 @@ export class ProcessManager {
     if (this.disposed) {
       throw new Error("Process manager is disposed");
     }
+
     throwIfAborted(options.signal);
     const output = { current: new ProcessOutput() };
     let process: RunningShell;
+
     try {
       process = await spawnShell({
         ...options,
@@ -327,17 +364,22 @@ export class ProcessManager {
       await output.current.discard();
       throw error;
     }
+
     if (this.disposed) {
       process.kill();
+
       try {
         await process.completion;
       } catch {
         // Disposal only needs the process to settle.
       }
+
       await output.current.discard();
       throw new Error("Process manager is disposed");
     }
+
     let lifecycle: ProcessSession["lifecycle"] = { status: "running" };
+
     const exitPromise = (async () => {
       try {
         const result = await process.completion;
@@ -352,6 +394,7 @@ export class ProcessManager {
         lifecycle = { exitCode: null, status: "killed" };
       }
     })();
+
     const session: ProcessSession = {
       exitPromise,
       get lifecycle() {
@@ -360,25 +403,32 @@ export class ProcessManager {
       output,
       process,
     };
+
     const sessionId = this.nextSessionId;
     this.nextSessionId += 1;
     this.sessions.set(sessionId, session);
 
     const result = await this.poll(sessionId, session, options.yieldMs, options.signal);
+
     if (result.status !== "running") {
       return result;
     }
+
     if (this.sessions.size > MAX_SESSIONS) {
       const entries = [...this.sessions].filter(([id]) => id !== sessionId);
+
       const candidate =
         entries.find(([, storedSession]) => storedSession.lifecycle.status !== "running") ??
         entries[0];
-      const [candidateId, candidateSession] = candidate;
+
+      // More than MAX_SESSIONS exist and only the newly started session was excluded.
+      const [candidateId, candidateSession] = candidate!;
       this.sessions.delete(candidateId);
       candidateSession.process.kill();
       await candidateSession.exitPromise;
       await candidateSession.output.current.discard();
     }
+
     return result;
   }
 
@@ -391,10 +441,13 @@ export class ProcessManager {
     if (this.disposed) {
       throw new Error("Process manager is disposed");
     }
+
     const session = this.sessions.get(options.sessionId);
+
     if (!session) {
       throw new Error(`Unknown process session: ${options.sessionId}`);
     }
+
     if (options.signal?.aborted === true) {
       session.process.kill();
     } else if (options.chars !== undefined && options.chars.length > 0) {
@@ -408,9 +461,11 @@ export class ProcessManager {
     this.disposed = true;
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
+
     for (const session of sessions) {
       session.process.kill();
     }
+
     await Promise.all(
       sessions.map(async (session) => {
         await session.exitPromise;
@@ -426,6 +481,7 @@ export class ProcessManager {
     signal: AbortSignal | undefined,
   ): Promise<ProcessResult> {
     const startedAt = Date.now();
+
     try {
       await wait(session, yieldMs, signal);
     } catch (error) {
@@ -435,11 +491,14 @@ export class ProcessManager {
       await session.output.current.discard();
       throw error;
     }
+
     const durationMs = Date.now() - startedAt;
     const result = await formatOutput(session, sessionId, durationMs);
+
     if (result.status !== "running") {
       this.sessions.delete(sessionId);
     }
+
     return result;
   }
 }

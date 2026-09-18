@@ -7,6 +7,7 @@ export const cachedLines = (
 ): Component => {
   let cachedWidth: number | undefined;
   let lines: string[] = [];
+
   return {
     invalidate() {
       cachedWidth = undefined;
@@ -17,6 +18,7 @@ export const cachedLines = (
         lines = draw(width);
         cachedWidth = width;
       }
+
       return lines;
     },
   };
@@ -36,12 +38,14 @@ export const cachedBox = (box: Box): Component =>
 /** Prepare once after both renderer slots have run; resizing only lays out the retained child. */
 export const lazyComponent = (create: () => Component): Component => {
   let child: Component | undefined;
+
   return {
     invalidate() {
       child = undefined;
     },
     render(width) {
       child ??= create();
+
       return child.render(width);
     },
   };

@@ -12,6 +12,7 @@ export interface GitStatus {
 }
 
 const BRANCH_AB_PATTERN = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/u;
+
 const GIT_TIMEOUT_MS = 1000;
 
 export const parseGitStatus = (output: string): GitStatus => {
@@ -28,21 +29,26 @@ export const parseGitStatus = (output: string): GitStatus => {
       branch = head.length > 0 && head !== "(detached)" ? head : null;
       continue;
     }
+
     if (line.startsWith("# branch.ab ")) {
       const match = BRANCH_AB_PATTERN.exec(line);
       ahead = Number(match?.groups?.ahead ?? 0);
       behind = Number(match?.groups?.behind ?? 0);
       continue;
     }
+
     if (line.startsWith("? ")) {
       untracked += 1;
       continue;
     }
+
     if (line.startsWith("1 ") || line.startsWith("2 ") || line.startsWith("u ")) {
       const xy = line.slice(2, 4);
+
       if (!xy.startsWith(".")) {
         staged += 1;
       }
+
       if (!xy.endsWith(".")) {
         unstaged += 1;
       }
@@ -61,6 +67,7 @@ export const readGitStatus = async (
       cwd,
       timeout: GIT_TIMEOUT_MS,
     });
+
     return result.code === 0 ? parseGitStatus(result.stdout) : null;
   } catch {
     return null;

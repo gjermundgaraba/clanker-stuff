@@ -31,8 +31,10 @@ export const createCodexToolsController = (
   let suppressedPiNames: string[] = [];
   let suppressedAsyncNames: string[] = [];
   let tuiAvailable = false;
+
   const isQuestionnaire = (name: string) =>
     name === "request_user_input" || name === "request_user_input_async";
+
   const builtinToolNames = () =>
     new Set(
       pi
@@ -45,7 +47,9 @@ export const createCodexToolsController = (
     if (model === undefined || !isCodexToolsModel(model) || !("codexToolMode" in model)) {
       return undefined;
     }
+
     const mode = model.codexToolMode;
+
     return mode === "direct" || mode === "code_mode" || mode === "code_mode_only"
       ? mode
       : undefined;
@@ -64,10 +68,12 @@ export const createCodexToolsController = (
     const previousModel = currentModel;
     tuiAvailable = ctx.mode === "tui" && ctx.hasUI;
     modelRegistry = ctx.modelRegistry;
+
     if (refreshModel) {
       // Catalog refresh replaces registry models without replacing the session's selected object.
       currentModel = resolveModel(ctx.model);
     }
+
     const collaboration = requestCollaborationContract(pi, ctx);
     codeMode.setNestedTools([
       ...direct.nestedDefinitions.map((definition) => ({ definition })),
@@ -83,44 +89,59 @@ export const createCodexToolsController = (
     setFooterActive(active);
     const candidates = [...new Set([...pi.getActiveTools(), ...suppressedAsyncNames])];
     suppressedAsyncNames = [];
+
     // Questionnaires are external Pi tools, not native catalog capabilities.
     // This final normalizer must not restore them in unsupported answering modes.
     const activeNames = candidates.filter((name) => {
       if (isQuestionnaire(name) && !tuiAvailable) {
         suppressedAsyncNames.push(name);
+
         return false;
       }
+
       return true;
     });
+
     if (currentModel === undefined || !isCodexToolsModel(currentModel)) {
       const remainingNames = activeNames.filter((name) => !codexToolNameSet.has(name));
       pi.setActiveTools([...new Set([...suppressedPiNames, ...remainingNames])]);
       suppressedPiNames = [];
+
       return;
     }
+
     const builtinNames = builtinToolNames();
+
     if (previousModel === undefined || !isCodexToolsModel(previousModel)) {
       suppressedPiNames = activeNames.filter((name) => builtinNames.has(name));
     }
+
     const externalNames = activeNames.filter((name) => {
       if (builtinNames.has(name) || codexToolNameSet.has(name)) return false;
+
       const supported =
         currentModel !== undefined &&
         "codexSupportedTools" in currentModel &&
         Array.isArray(currentModel.codexSupportedTools)
           ? currentModel.codexSupportedTools
           : [];
+
       const available = name !== "send_message_to_user_async" || supported.includes(name);
+
       if (!available) suppressedAsyncNames.push(name);
+
       return available;
     });
+
     const mode = effectiveMode(currentModel);
+
     const names =
       mode === "code_mode"
         ? [...directNames, ...codeNames]
         : mode === "code_mode_only"
           ? codeNames
           : directNames;
+
     pi.setActiveTools([...externalNames, ...names]);
   };
 
@@ -130,7 +151,9 @@ export const createCodexToolsController = (
       if (!codeModeActive()) {
         return undefined;
       }
+
       const section = codeMode.prompt();
+
       return systemPrompt.includes(section)
         ? undefined
         : { systemPrompt: `${systemPrompt.trimEnd()}\n\n${section}` };
@@ -159,22 +182,28 @@ export const createCodexToolsController = (
           ),
         ]);
       }
+
       await codeMode.shutdown();
       await direct.dispose();
     },
     toggle(ctx: ExtensionContext): void {
       modelRegistry = ctx.modelRegistry;
       const mode = declaredMode(resolveModel(ctx.model));
+
       if (mode !== undefined) {
         apply(ctx);
+
         const label = {
           direct: "direct tools",
           code_mode: "direct tools with Code Mode",
           code_mode_only: "Code Mode",
         }[mode];
+
         ctx.ui.notify(`${ctx.model?.id} requires ${label}; /code-mode cannot change it.`, "info");
+
         return;
       }
+
       codeModeEnabled = !codeModeEnabled;
       apply(ctx);
       ctx.ui.notify(`Code Mode ${codeModeEnabled ? "enabled" : "disabled"}`, "info");

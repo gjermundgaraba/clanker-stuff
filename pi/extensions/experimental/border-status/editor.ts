@@ -11,9 +11,11 @@ export function installBorderEditor(
   decoration: BorderDecoration,
 ): (() => void) | undefined {
   const host = acquireEditorHost(ctx);
+
   if (!host) return undefined;
   const release = host.contribute("border", decoration);
   const unmount = host.onMount((editor) => decoration.mounted(() => editor.refresh()));
+
   return () => {
     unmount();
     release();

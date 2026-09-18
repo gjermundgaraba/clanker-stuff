@@ -22,9 +22,13 @@ import { Value } from "typebox/value";
 import { codeModeHostBinaryName, hostAssetUrl, resolveCodeModeHostAsset } from "./host-assets.ts";
 
 const DOWNLOAD_TIMEOUT_MS = 120_000;
+
 const INSTALL_LOCK_POLL_MS = 200;
+
 const INSTALL_LOCK_TIMEOUT_MS = 125_000;
+
 const INSTALL_LOCK_STALE_MS = 180_000;
+
 const ErrorCodeSchema = Type.Object({ code: Type.String() });
 
 export interface InstallCodeModeHostOptions {
@@ -43,33 +47,42 @@ export const installCodeModeHost = async ({
   const [assetName, expectedSha256] = resolveCodeModeHostAsset(platform, arch);
   const binaryName = codeModeHostBinaryName(platform);
   const destination = path.resolve(destinationInput);
+
   if (path.basename(destination) !== binaryName) {
     throw new Error(`Code-mode host destination must end with ${binaryName}`);
   }
+
   if (existsSync(destination)) {
     return;
   }
+
   mkdirSync(path.resolve(destination, ".."), { recursive: true });
   const lockPath = `${destination}.lock`;
+
   if (!(await acquireInstallLock(lockPath, destination, signal))) {
     return;
   }
 
   let temporary: string | undefined;
   const staged = `${destination}.${process.pid}.tmp`;
+
   try {
     temporary = mkdtempSync(path.join(tmpdir(), "pi-codex-provider-code-mode-"));
     const url = hostAssetUrl(assetName);
     let bytes: Buffer;
+
     try {
       const timeout = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
+
       const response = await fetch(url, {
         redirect: "follow",
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
+
       if (!response.ok) {
         throw new Error(`download failed: ${response.status} ${response.statusText}`);
       }
+
       bytes = Buffer.from(await response.arrayBuffer());
     } catch (error: unknown) {
       throw new Error(
@@ -77,7 +90,9 @@ export const installCodeModeHost = async ({
         { cause: error },
       );
     }
+
     const actualSha256 = hash("sha256", bytes);
+
     if (actualSha256 !== expectedSha256) {
       throw new Error(`Checksum mismatch for ${assetName}`);
     }
@@ -91,6 +106,7 @@ export const installCodeModeHost = async ({
       mkdirSync(extracted);
       const result = spawnSync("tar", ["-xzf", archive, "-C", extracted]);
       signal?.throwIfAborted();
+
       if (result.status !== 0) {
         throw new Error(
           `Failed to extract code-mode host archive${
@@ -98,25 +114,33 @@ export const installCodeModeHost = async ({
           }`,
         );
       }
+
       const candidates = walk(extracted).filter((candidatePath) =>
         path.basename(candidatePath).startsWith("codex-code-mode-host"),
       );
+
       if (candidates.length !== 1) {
         throw new Error(`Expected one code-mode host binary, found ${candidates.length}`);
       }
+
       const [candidate] = candidates;
+
       if (!candidate) {
         throw new Error("Code-mode host binary was not extracted");
       }
+
       copyFileSync(candidate, staged);
       chmodSync(staged, 0o755);
     }
+
     renameSync(staged, destination);
   } finally {
     rmSync(staged, { force: true });
+
     if (temporary !== undefined) {
       rmSync(temporary, { force: true, recursive: true });
     }
+
     rmSync(lockPath, { force: true, recursive: true });
   }
 };
@@ -127,18 +151,23 @@ const acquireInstallLock = async (
   signal: AbortSignal | undefined,
 ): Promise<boolean> => {
   const deadline = Date.now() + INSTALL_LOCK_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     signal?.throwIfAborted();
+
     if (existsSync(destination)) {
       return false;
     }
+
     try {
       mkdirSync(lockPath);
+
       return true;
     } catch (error: unknown) {
       if (!Value.Check(ErrorCodeSchema, error) || error.code !== "EEXIST") {
         throw error;
       }
+
       try {
         if (Date.now() - statSync(lockPath).mtimeMs > INSTALL_LOCK_STALE_MS) {
           rmSync(lockPath, { force: true, recursive: true });
@@ -149,17 +178,21 @@ const acquireInstallLock = async (
           throw statError;
         }
       }
+
       await delay(INSTALL_LOCK_POLL_MS, undefined, signal ? { signal } : undefined);
     }
   }
+
   if (existsSync(destination)) {
     return false;
   }
+
   throw new Error(`Timed out waiting for code-mode host install lock: ${lockPath}`);
 };
 
 const walk = (directory: string): string[] =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
+
     return entry.isDirectory() ? walk(entryPath) : [entryPath];
   });

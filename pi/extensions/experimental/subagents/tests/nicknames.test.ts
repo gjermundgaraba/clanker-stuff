@@ -12,10 +12,13 @@ describe(NicknamePool, () => {
       },
       () => 0,
     );
+
     const reserved = new Set<string>();
+
     const choose = () => {
       const nickname = pool.choose("reviewer", reserved);
       reserved.add(nickname);
+
       return nickname;
     };
 

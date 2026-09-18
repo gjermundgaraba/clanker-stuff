@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const CHECK_PACKAGE_READINESS_PATH = path.join(import.meta.dirname, "check-package-readiness.ts");
+
 const tempDirs: string[] = [];
 
 const createFixture = (
@@ -17,9 +18,11 @@ const createFixture = (
 ) => {
   const root = mkdtempSync(path.join(tmpdir(), "package-readiness-test-"));
   tempDirs.push(root);
+
   const packagePath = extension
     ? `pi/extensions/${experimental ? "experimental/" : ""}sample`
     : "pi/packages/sample";
+
   const packageDir = path.join(root, packagePath);
   mkdirSync(packageDir, { recursive: true });
 
@@ -37,39 +40,41 @@ const createFixture = (
     }),
   );
   writeFileSync(path.join(root, "LICENSE"), "fixture license\n");
-  writeFileSync(
-    path.join(packageDir, "package.json"),
-    JSON.stringify({
-      bugs:
-        valid && !packagePrivate
-          ? { url: "https://github.com/gjermundgaraba/clanker-stuff/issues" }
-          : undefined,
-      description: valid ? "Adds a sample extension." : undefined,
-      engines: { node: ">=26" },
-      exports: valid ? "./index.ts" : undefined,
-      files: valid ? ["index.ts", "README.md", "LICENSE"] : undefined,
-      homepage:
-        valid && !packagePrivate
-          ? `https://github.com/gjermundgaraba/clanker-stuff/tree/main/${packagePath}#readme`
-          : undefined,
-      keywords: valid && extension ? ["pi-package"] : undefined,
-      license: valid ? "MIT" : undefined,
-      name: "@clanker-stuff/sample",
-      pi: valid && extension ? { extensions: ["./index.ts"] } : undefined,
-      private: packagePrivate,
-      publishConfig: valid && !packagePrivate ? { access: "public" } : undefined,
-      repository:
-        valid && !packagePrivate
-          ? {
-              directory: packagePath,
-              type: "git",
-              url: "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-            }
-          : undefined,
-      version: "0.1.0",
-    }),
-  );
+
+  const packageJson = {
+    bugs:
+      valid && !packagePrivate
+        ? { url: "https://github.com/gjermundgaraba/clanker-stuff/issues" }
+        : undefined,
+    description: valid ? "Adds a sample extension." : undefined,
+    engines: { node: ">=26" },
+    exports: valid ? "./index.ts" : undefined,
+    files: valid ? ["index.ts", "README.md", "LICENSE"] : undefined,
+    homepage:
+      valid && !packagePrivate
+        ? `https://github.com/gjermundgaraba/clanker-stuff/tree/main/${packagePath}#readme`
+        : undefined,
+    keywords: valid && extension ? ["pi-package"] : undefined,
+    license: valid ? "MIT" : undefined,
+    name: "@clanker-stuff/sample",
+    pi: valid && extension ? { extensions: ["./index.ts"] } : undefined,
+    private: packagePrivate,
+    publishConfig: valid && !packagePrivate ? { access: "public" } : undefined,
+    repository:
+      valid && !packagePrivate
+        ? {
+            directory: packagePath,
+            type: "git",
+            url: "git+https://github.com/gjermundgaraba/clanker-stuff.git",
+          }
+        : undefined,
+    version: "0.1.0",
+  };
+
+  const packageJsonPath = path.join(packageDir, "package.json");
+  writeFileSync(packageJsonPath, JSON.stringify(packageJson));
   writeFileSync(path.join(packageDir, "index.ts"), "export default () => {};\n");
+
   if (valid) {
     writeFileSync(path.join(packageDir, "LICENSE"), "fixture license\n");
     writeFileSync(
@@ -77,10 +82,11 @@ const createFixture = (
       `# sample\n${includeExperimentalWarning ? "\n**Experimental:** Unstable.\n" : ""}`,
     );
   }
-  return root;
+
+  return { root, packageDir, packageJsonPath, packageJson };
 };
 
-const validateFixture = (root: string) =>
+const validateFixture = ({ root }: { root: string }) =>
   spawnSync(process.execPath, [CHECK_PACKAGE_READINESS_PATH], {
     cwd: root,
     encoding: "utf-8",
@@ -99,6 +105,7 @@ describe("package readiness", () => {
 
     expect(valid).toMatchObject({ status: 0, stderr: "" });
     expect(invalid.status).not.toBe(0);
+
     for (const message of [
       "missing description",
       "expected license MIT",
@@ -113,23 +120,41 @@ describe("package readiness", () => {
     }
   });
 
+  it("requires peers for shipped sources, not unpublished build scripts", () => {
+    const fixture = createFixture(true);
+    const scriptDir = path.join(fixture.packageDir, "scripts");
+    mkdirSync(scriptDir);
+    writeFileSync(path.join(scriptDir, "build.ts"), 'import { Type } from "typebox"; void Type;\n');
+    const pkg = { ...fixture.packageJson, devDependencies: { typebox: "1.3.14" } };
+    writeFileSync(fixture.packageJsonPath, JSON.stringify(pkg));
+    const developmentOnly = validateFixture(fixture);
+    expect(developmentOnly.status, developmentOnly.stderr).toBe(0);
+
+    // Directory name alone must not exempt a script that is actually published.
+    writeFileSync(
+      fixture.packageJsonPath,
+      JSON.stringify({ ...pkg, files: ["index.ts", "README.md", "LICENSE", "scripts"] }),
+    );
+    const published = validateFixture(fixture);
+    expect(published.status).toBe(1);
+    expect(published.stderr).toContain('imports typebox; add peerDependencies.typebox = "*"');
+  });
+
   it('requires private Pi imports to use a "*" peer', () => {
-    const root = createFixture(true);
-    const packageDir = path.join(root, "pi/extensions/experimental/sample");
-    const packageJsonPath = path.join(packageDir, "package.json");
-    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
-    pkg.peerDependencies = { "@earendil-works/pi-coding-agent": "*" };
-    writeFileSync(packageJsonPath, JSON.stringify(pkg));
+    const fixture = createFixture(true);
+    const { packageDir, packageJsonPath, packageJson: pkg } = fixture;
+    const peerDependencies = { "@earendil-works/pi-coding-agent": "*" };
+    writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, peerDependencies }));
     writeFileSync(
       path.join(packageDir, "index.ts"),
       'import { VERSION } from "@earendil-works/pi-coding-agent";\nvoid VERSION;\nexport default () => {};\n',
     );
 
-    expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
+    expect(validateFixture(fixture)).toMatchObject({ status: 0, stderr: "" });
 
-    pkg.peerDependencies["@earendil-works/pi-coding-agent"] = "0.84.4";
-    writeFileSync(packageJsonPath, JSON.stringify(pkg));
-    const invalid = validateFixture(root);
+    peerDependencies["@earendil-works/pi-coding-agent"] = "0.84.4";
+    writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, peerDependencies }));
+    const invalid = validateFixture(fixture);
     expect(invalid.stderr).toContain(
       '@earendil-works/pi-coding-agent peer dependency should use "*"',
     );
@@ -144,36 +169,45 @@ describe("package readiness", () => {
   });
 
   it("allows published shared-library subpaths and rejects unpublished targets", () => {
-    const root = createFixture(true, false);
-    const packageJsonPath = path.join(root, "pi/packages/sample/package.json");
-    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
-    pkg.exports = { "./dialog": "./index.ts" };
-    writeFileSync(packageJsonPath, JSON.stringify(pkg));
-    expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
-    pkg.files = ["README.md", "LICENSE"];
-    writeFileSync(packageJsonPath, JSON.stringify(pkg));
-    expect(validateFixture(root).stderr).toContain(
+    const fixture = createFixture(true, false);
+    const { packageJsonPath, packageJson: pkg } = fixture;
+    const exports = { "./dialog": "./index.ts" };
+    writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, exports }));
+    expect(validateFixture(fixture)).toMatchObject({ status: 0, stderr: "" });
+    writeFileSync(
+      packageJsonPath,
+      JSON.stringify({ ...pkg, exports, files: ["README.md", "LICENSE"] }),
+    );
+    expect(validateFixture(fixture).stderr).toContain(
       "must point to a published TypeScript source file",
     );
   });
 
+  it.each([null, [], 7, { types: 7 }, { types: "./index.ts", default: "./index.ts" }])(
+    "rejects unsupported export targets (%j)",
+    (target) => {
+      const fixture = createFixture(true, false);
+      const { packageJsonPath, packageJson: pkg } = fixture;
+      writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, exports: { "./bad": target } }));
+      const result = validateFixture(fixture);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("expected exports to be ./index.ts");
+    },
+  );
+
   it("allows published type-only extension protocols while retaining the entrypoint", () => {
-    const root = createFixture(true);
-    const packageDir = path.join(root, "pi/extensions/experimental/sample");
-    const packageJsonPath = path.join(packageDir, "package.json");
-    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+    const fixture = createFixture(true);
+    const { packageDir, packageJsonPath, packageJson: pkg } = fixture;
     writeFileSync(path.join(packageDir, "sampling-protocol.ts"), "export interface Scope {}\n");
-    pkg.files.push("sampling-protocol.ts");
-    pkg.exports = { ".": "./index.ts", "./sampling-protocol": { types: "./sampling-protocol.ts" } };
-    writeFileSync(packageJsonPath, JSON.stringify(pkg));
-    expect(validateFixture(root)).toMatchObject({ status: 0, stderr: "" });
-    delete pkg.exports["."];
-    writeFileSync(packageJsonPath, JSON.stringify(pkg));
-    expect(validateFixture(root).stderr).toContain("expected root export to be ./index.ts");
-    pkg.exports["."] = "./index.ts";
-    pkg.files = ["index.ts", "README.md", "LICENSE"];
-    writeFileSync(packageJsonPath, JSON.stringify(pkg));
-    expect(validateFixture(root).stderr).toContain(
+    const files = ["index.ts", "README.md", "LICENSE", "sampling-protocol.ts"];
+    const subpaths = { "./sampling-protocol": { types: "./sampling-protocol.ts" } };
+    const exports = { ".": "./index.ts", ...subpaths };
+    writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, files, exports }));
+    expect(validateFixture(fixture)).toMatchObject({ status: 0, stderr: "" });
+    writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, files, exports: subpaths }));
+    expect(validateFixture(fixture).stderr).toContain("expected root export to be ./index.ts");
+    writeFileSync(packageJsonPath, JSON.stringify({ ...pkg, exports }));
+    expect(validateFixture(fixture).stderr).toContain(
       "must point to a published TypeScript source file",
     );
   });

@@ -14,6 +14,7 @@ describe("footer config store", () => {
     if (directory) {
       await rm(directory, { force: true, recursive: true });
     }
+
     directory = undefined;
   });
 
@@ -49,6 +50,7 @@ it.each([
   { ...DEFAULT_CONFIG, widgets: { ["🦄".repeat(257)]: {} } },
 ])("enforces structural limits on load and typed save", async (config) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "footer-limits-"));
+
   try {
     const configPath = path.join(directory, "footer.json");
     const text = JSON.stringify(config);

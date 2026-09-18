@@ -8,12 +8,15 @@ describe("MCP overflow storage", () => {
   setupMcpTest();
   it("caps files without breaking UTF-8 and keeps parallel results available", async () => {
     const persist = createOutputStore();
+
     const paths = await Promise.all(
       Array.from({ length: 12 }, () => persist("😀".repeat(300_000))),
     );
+
     for (const file of paths) {
       const metadata = await stat(file);
       expect(metadata.size).toBeLessThanOrEqual(1024 * 1024);
+
       if (process.platform !== "win32") expect(metadata.mode & 0o777).toBe(0o600);
       const text = await readFile(file, "utf-8");
       expect(text).not.toContain("�");

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,10 +15,13 @@ const request = {
     { id: "q", header: "Question", question: "Choose?", options: [{ id: "yes", label: "Yes" }] },
   ],
 };
+
 const host = createExtensionHost(() => {});
+
 describe("journal persistence and recovery", () => {
   it("rejects ephemeral/unflushed/partial histories and verifies disk checkpoints", async () => {
     const dir = mkdtempSync(join(tmpdir(), "question-journal-"));
+
     try {
       expect(() =>
         persistedEntries(host.createContext({ sessionManager: SessionManager.inMemory() })),
@@ -26,6 +30,7 @@ describe("journal persistence and recovery", () => {
       const ctx = host.createContext({ sessionManager: sm });
       expect(() => persistedEntries(ctx)).toThrow("not initialized");
       sm.appendMessage(fauxAssistantMessage("Ready"));
+
       const journal = new Journal(
         {
           appendEntry: (type, data) => {
@@ -34,6 +39,7 @@ describe("journal persistence and recovery", () => {
         },
         ctx,
       );
+
       const item = createInteraction("q_test", request, "c", "async");
       await journal.checkpoint(item, () => {});
       expect(journal.replay().get(item.id)).toMatchObject({
@@ -52,10 +58,12 @@ describe("journal persistence and recovery", () => {
   });
   it("reconciles canonical blocking results on either side of a missing delivery checkpoint", async () => {
     const dir = mkdtempSync(join(tmpdir(), "question-result-"));
+
     try {
       const sm = SessionManager.create(dir, dir);
       sm.appendMessage(fauxAssistantMessage("Ready"));
       const ctx = host.createContext({ sessionManager: sm });
+
       const journal = new Journal(
         {
           appendEntry: (type, data) => {
@@ -64,11 +72,13 @@ describe("journal persistence and recovery", () => {
         },
         ctx,
       );
+
       let item = createInteraction("q_result", request, "call1", "blocking");
       item = transition(item, item.version, { type: "select", question: "q", option: "yes" });
       item = transition(item, item.version, { type: "submit" });
       await journal.checkpoint(item, () => {});
       const submission = item.submissions[0];
+      assert(submission);
       expect(isDelivered(item, submission, sm.getBranch())).toBe(false);
       const result = answerResult(item, submission);
       sm.appendMessage({
@@ -98,6 +108,7 @@ describe("journal persistence and recovery", () => {
     item = transition(item, item.version, { type: "select", question: "q", option: "yes" });
     item = transition(item, item.version, { type: "submit" });
     const submission = item.submissions[0];
+    assert(submission);
     sm.appendMessage({ role: "user", content: `Mention ${item.id} only`, timestamp: Date.now() });
     expect(isDelivered(item, submission, sm.getBranch())).toBe(false);
     sm.appendMessage({
@@ -109,6 +120,7 @@ describe("journal persistence and recovery", () => {
   });
   it("accepts initialized explicit session files without assistant messages", async () => {
     const dir = mkdtempSync(join(tmpdir(), "question-initialized-"));
+
     try {
       const file = join(dir, "explicit.jsonl");
       writeFileSync(file, "");
@@ -116,6 +128,7 @@ describe("journal persistence and recovery", () => {
       expect(
         fork.getBranch().some((e) => e.type === "message" && e.message.role === "assistant"),
       ).toBe(false);
+
       const journal = new Journal(
         {
           appendEntry: (type, data) => {
@@ -124,6 +137,7 @@ describe("journal persistence and recovery", () => {
         },
         host.createContext({ sessionManager: fork }),
       );
+
       await journal.checkpoint(
         createInteraction("q_initialized", request, "call", "async"),
         () => {},
@@ -135,9 +149,11 @@ describe("journal persistence and recovery", () => {
   });
   it("does not publish a receipt after a failed append", async () => {
     const dir = mkdtempSync(join(tmpdir(), "question-failure-"));
+
     try {
       const sm = SessionManager.create(dir, dir);
       sm.appendMessage(fauxAssistantMessage("Ready"));
+
       const journal = new Journal(
         {
           appendEntry: () => {
@@ -146,6 +162,7 @@ describe("journal persistence and recovery", () => {
         },
         host.createContext({ sessionManager: sm }),
       );
+
       await expect(
         journal.checkpoint(createInteraction("q_failure", request, "c", "async"), () => {}),
       ).rejects.toThrow("checkpoint failed");

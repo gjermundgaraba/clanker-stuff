@@ -26,12 +26,14 @@ describe("structured Node test grading", () => {
       file: "/test/one.test.js",
       success: true,
     };
+
     const cumulative = {
       ...fileSummary,
       counts: { ...fileSummary.counts, tests: 3, passed: 2, failed: 1, topLevel: 3 },
       file: undefined,
       success: false,
     };
+
     const events: TestEvent[] = [
       { type: "test:summary", data: fileSummary },
       { type: "test:summary", data: { ...fileSummary, file: "/test/two.test.js" } },
@@ -39,14 +41,17 @@ describe("structured Node test grading", () => {
     ];
 
     const output: string[] = [];
+
     for await (const chunk of summaryReporter(Readable.from(events))) {
       output.push(chunk);
     }
+
     expect(output).toStrictEqual([`${JSON.stringify(cumulative)}\n`]);
   });
 
   test("grades multiple isolated files without scraping test output", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "codex-node-grading-"));
+
     try {
       writeFileSync(
         path.join(directory, "one.test.mjs"),
@@ -89,6 +94,7 @@ describe("structured Node test grading", () => {
 
   test("does not invent a successful summary when its subprocess times out", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "codex-node-timeout-"));
+
     try {
       writeFileSync(
         path.join(directory, "slow.test.mjs"),

@@ -7,8 +7,11 @@ const repoRoot = process.cwd();
 
 const IMPORT_SPECIFIER_PATTERN =
   /(?:import|export)\s+(?:[^"'`]*?\s+from\s+)?["'](?<specifier>[^"']+)["']/gu;
+
 const DYNAMIC_IMPORT_PATTERN = /import\s*\(\s*["'](?<specifier>[^"']+)["']\s*\)/gu;
+
 const AGENT_SESSION_HARNESS = path.join("pi", "tests", "harness", "agent-session.ts");
+
 const EXTENSION_SMOKE_HARNESS = path.join("pi", "tests", "harness", "extension-smoke.ts");
 
 const packageDirs = readWorkspacePackages()
@@ -35,6 +38,7 @@ const getImportSpecifiers = (sourceText: string): string[] => {
       specifiers.push(match.groups.specifier);
     }
   }
+
   for (const match of sourceText.matchAll(DYNAMIC_IMPORT_PATTERN)) {
     if (match.groups?.specifier !== undefined) {
       specifiers.push(match.groups.specifier);
@@ -71,6 +75,7 @@ const resolveRelativeImport = (importingFile: string, specifier: string) => {
   }
 
   const existingTarget = candidates.find((candidate) => existsSync(candidate));
+
   return existingTarget === undefined ? undefined : relativeToRepo(existingTarget);
 };
 
@@ -86,11 +91,13 @@ const escapesPackageRoot = (packageRoot: string, importingFile: string, specifie
 };
 
 const errors: string[] = [];
+
 for (const harnessPath of [AGENT_SESSION_HARNESS, EXTENSION_SMOKE_HARNESS]) {
   if (!existsSync(path.join(repoRoot, harnessPath))) {
     errors.push(`${harnessPath}: missing harness policy target`);
   }
 }
+
 for (const packageName of packageDirs) {
   const packageRoot = path.join(repoRoot, packageName);
   const files = findTypeScriptFiles(packageRoot);
@@ -150,9 +157,11 @@ for (const testFile of findTypeScriptFiles(repoRoot).filter((filePath) =>
 
 if (errors.length > 0) {
   console.error("Test/boundary validation failed:\n");
+
   for (const error of errors) {
     console.error(`- ${error}`);
   }
+
   process.exit(1);
 }
 

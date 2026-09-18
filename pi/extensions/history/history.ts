@@ -39,10 +39,13 @@ type EntryWire = Static<typeof EntryWireSchema>;
 
 const textFromEntry = (entry: EntryWire): HistoryItem | undefined => {
   const { message } = entry;
+
   if (message === undefined) {
     return undefined;
   }
+
   let text: string;
+
   if (message.role === "user") {
     if (!Array.isArray(message.content)) {
       text = message.content;
@@ -56,17 +59,20 @@ const textFromEntry = (entry: EntryWire): HistoryItem | undefined => {
   }
 
   const trimmed = text.trim();
+
   if (trimmed.length === 0) {
     return undefined;
   }
 
   let timestamp = Number.NaN;
   const messageTimestamp = message.timestamp;
+
   if (messageTimestamp !== undefined) {
     timestamp = messageTimestamp;
   } else if (entry.timestamp !== undefined) {
     timestamp = Date.parse(entry.timestamp);
   }
+
   if (!Number.isFinite(timestamp)) {
     return undefined;
   }
@@ -80,21 +86,26 @@ const textFromEntry = (entry: EntryWire): HistoryItem | undefined => {
 export const historyFromEntries = (entries: readonly SessionEntry[]): HistoryItem[] =>
   entries.flatMap((entry) => {
     const item = historyItemFromEntry(entry);
+
     return item ? [item] : [];
   });
 
 export const normalizeHistory = (items: HistoryItem[]): HistoryItem[] => {
   const seen = new Set<string>();
+
   return items
     .toSorted((left, right) => right.timestamp - left.timestamp)
     .filter(({ text }) => {
       if (seen.has(text)) {
         return false;
       }
+
       seen.add(text);
+
       return true;
     });
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for session entries and imported JSONL lines.
 export const historyItemFromEntry = (entry: unknown): HistoryItem | undefined =>
   Value.Check(EntryWireSchema, entry) ? textFromEntry(entry) : undefined;

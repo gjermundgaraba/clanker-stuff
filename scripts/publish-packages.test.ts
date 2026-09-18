@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 const PUBLISH_PACKAGES_PATH = path.join(import.meta.dirname, "publish-packages.ts");
+
 const tempDirs: string[] = [];
 
 describe("package publication", () => {

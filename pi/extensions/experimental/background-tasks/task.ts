@@ -1,5 +1,5 @@
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
-import { StringEnum } from "@earendil-works/pi-ai";
+import { StringEnum, type JsonValue, type TextContent } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 import type { taskSummary } from "./supervisor.js";
@@ -32,7 +32,9 @@ export const startSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 export type StartInput = Static<typeof startSchema>;
+
 export const inspectSchema = Type.Object(
   {
     id: Type.String(),
@@ -49,31 +51,42 @@ export const inspectSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 export const idSchema = Type.Object({ id: Type.String() }, { additionalProperties: false });
+
 export const listSchema = Type.Object({}, { additionalProperties: false });
 
 export type InspectInput = Static<typeof inspectSchema>;
+
 export const MAX_TOOL_BYTES = 32000;
 
+const legacyInspectSchema = Type.Omit(inspectSchema, ["view"], { additionalProperties: false });
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi hands prepareArguments the raw persisted call; this is its schema boundary.
 export function prepareInspectArguments(args: unknown): InspectInput {
   // Persisted calls predate explicit views.
-  if (typeof args === "object" && args !== null && !("view" in args)) {
+  if (Value.Check(legacyInspectSchema, args)) {
     args = { ...args, view: "eventId" in args ? "event" : "summary" };
   }
+
   if (!Value.Check(inspectSchema, args)) throw new Error("Invalid task_inspect arguments");
+
   return args;
 }
 
-export function toolResult(data: unknown) {
-  const text = jsonText(data);
+export function toolResult<Details>(details: Details) {
+  const text = jsonText(details);
+
   if (Buffer.byteLength(text) > MAX_TOOL_BYTES)
     throw new Error("Task response exceeds byte budget");
-  return { content: [{ type: "text" as const, text }], details: undefined };
+
+  return { content: [{ type: "text", text }] satisfies [TextContent], details };
 }
 
 export function taskRow(summary: ReturnType<typeof taskSummary>) {
   const { id, name, status, cleanup, abandoned } = summary;
   const characters = Array.from(name);
+
   return {
     id,
     name: characters.slice(0, 32).join("") + (characters.length > 32 ? "…" : ""),
@@ -83,11 +96,15 @@ export function taskRow(summary: ReturnType<typeof taskSummary>) {
   };
 }
 
-export function payloadPage(data: unknown, offset = 0) {
+export function payloadPage(data: JsonValue, offset = 0) {
   const bytes = Buffer.from(jsonText(data));
-  const continuation = (index: number) => index < bytes.length && (bytes[index] & 0xc0) === 0x80;
+
+  const continuation = (index: number) =>
+    index < bytes.length && (bytes.readUInt8(index) & 0xc0) === 0x80;
+
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > bytes.length || continuation(offset))
     throw new Error("Invalid payload offset; use the returned nextOffset");
+
   const page = (end: number) => ({
     encoding: "json" as const,
     offset,
@@ -95,10 +112,14 @@ export function payloadPage(data: unknown, offset = 0) {
     nextOffset: end < bytes.length ? end : null,
     text: bytes.subarray(offset, end).toString("utf8"),
   });
+
   const full = page(bytes.length);
+
   // Reserve 2 KiB for host metadata. Measure escaping in the actual response encoding.
   if (Buffer.byteLength(jsonText(full)) <= MAX_TOOL_BYTES - 2048) return full;
   let end = Math.min(bytes.length, offset + 12000);
+
   while (continuation(end)) end--;
+
   return page(end);
 }

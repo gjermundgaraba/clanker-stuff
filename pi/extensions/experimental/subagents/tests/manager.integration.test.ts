@@ -32,22 +32,28 @@ const configuredHarness = async (
 }> => {
   const agentDir = getAgentDir();
   const configFile = path.join(agentDir, "subagents.json");
+
   const sessionDir = path.join(
     agentDir,
     `subagents-manager-test-${process.pid}-${Date.now()}-${Math.random()}`,
   );
+
   await mkdir(agentDir, { recursive: true });
   await writeFile(configFile, JSON.stringify({ protocols: { "*": protocol }, version: 1 }));
+
   const harness = await createAgentSessionHarness({
     extensionFactories: [subagents, ...extensionFactories],
-    sessionDir: persist ? sessionDir : undefined,
-    settings,
+    ...(persist ? { sessionDir } : {}),
+    ...(settings !== undefined ? { settings } : {}),
   });
+
   let shutDown = false;
+
   const shutdown = async () => {
     if (shutDown) {
       return;
     }
+
     shutDown = true;
     await harness.session.extensionRunner.emit({
       reason: "quit",
@@ -55,6 +61,7 @@ const configuredHarness = async (
     });
     harness.cleanup();
   };
+
   return {
     async cleanup() {
       await shutdown();
@@ -68,9 +75,11 @@ const configuredHarness = async (
 
 const controlStore = (harness: AgentSessionHarness) => {
   const sessionFile = harness.sessionManager.getSessionFile();
+
   if (sessionFile === undefined) {
     throw new Error("Expected a persisted root session");
   }
+
   return createControlStore(
     getExtensionStoragePaths("subagents").dataDir,
     rootBinding(harness.sessionManager.getSessionId(), sessionFile),
@@ -79,12 +88,15 @@ const controlStore = (harness: AgentSessionHarness) => {
 
 const controlFile = (harness: AgentSessionHarness) => {
   const sessionFile = harness.sessionManager.getSessionFile();
+
   if (sessionFile === undefined) {
     throw new Error("Expected a persisted root session");
   }
+
   const key = createHash("sha256")
     .update(`${path.resolve(sessionFile)}\0${harness.sessionManager.getSessionId()}`)
     .digest("hex");
+
   return path.join(getExtensionStoragePaths("subagents").dataDir, "trees", `${key}.json`);
 };
 
@@ -92,12 +104,14 @@ const waitForChildCompletion = async (harness: AgentSessionHarness) => {
   const store = controlStore(harness);
   await vi.waitFor(async () => {
     const snapshot = await store.load();
+
     const status =
       snapshot?.protocolLatch === "v2"
         ? snapshot.state.nodes.find((node) => node.path === "/root/worker")?.status
         : snapshot?.protocolLatch === "v1"
           ? snapshot.state.agents[0]?.status
           : undefined;
+
     expect(status).toBe("completed");
   });
 };
@@ -107,12 +121,14 @@ const waitForRootAcknowledgement = async (harness: AgentSessionHarness, protocol
   await vi.waitFor(async () => {
     const snapshot = await store.load();
     expect(snapshot?.protocolLatch).toBe(protocol);
+
     const pending =
       snapshot?.protocolLatch === "v2" && protocol === "v2"
         ? snapshot.state.communications.filter(({ to }) => to === "/root")
         : snapshot?.protocolLatch === "v1" && protocol === "v1"
           ? snapshot.state.notifications
           : [];
+
     expect(pending).toHaveLength(0);
   });
 };
@@ -121,6 +137,7 @@ const rootAgentEndBarrier = () => {
   const reached = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
   let rootSessionId: string | undefined;
+
   const extension: ExtensionFactory = (pi) => {
     pi.on("session_start", (_event, ctx) => {
       rootSessionId ??= ctx.sessionManager.getSessionId();
@@ -132,6 +149,7 @@ const rootAgentEndBarrier = () => {
       }
     });
   };
+
   return { extension, reached: reached.promise, release: released.resolve };
 };
 
@@ -139,6 +157,7 @@ const rootFinalBarrier = () => {
   const reached = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
   let rootSessionId: string | undefined;
+
   const extension: ExtensionFactory = (pi) => {
     pi.on("session_start", (_event, ctx) => {
       rootSessionId ??= ctx.sessionManager.getSessionId();
@@ -154,6 +173,7 @@ const rootFinalBarrier = () => {
       }
     });
   };
+
   return { extension, reached: reached.promise, release: released.resolve };
 };
 
@@ -173,13 +193,16 @@ describe("live spawn catalog", () => {
             parameters: Type.Object({}),
             execute: async () => {
               enrich("Refreshed affordable synthetic worker.");
+
               return { content: [{ type: "text", text: "refreshed" }], details: {} };
             },
           });
         },
       ]);
+
       const enrich = (description: string) => {
         const ctx = harness.session.extensionRunner.createContext();
+
         for (const model of ctx.modelRegistry.getAvailable()) {
           if (model.provider === ctx.model?.provider) {
             Object.assign(model, {
@@ -188,6 +211,7 @@ describe("live spawn catalog", () => {
           }
         }
       };
+
       try {
         harness.setResponses([
           fauxAssistantMessage(fauxToolCall("refresh_catalog", {}), { stopReason: "toolUse" }),
@@ -228,6 +252,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -247,21 +272,26 @@ describe("root subagent delivery", () => {
       expect(harness.getPendingResponseCount()).toBe(1);
       await waitForRootAcknowledgement(harness, "v2");
       const sessionFile = harness.sessionManager.getSessionFile();
+
       if (sessionFile === undefined) {
         throw new Error("Expected a persisted root session");
       }
+
       const entries = SessionManager.open(
         sessionFile,
         harness.sessionManager.getSessionDir(),
         harness.sessionManager.getCwd(),
       ).getBranch();
+
       const finalIndex = entries.findIndex(
         (entry) => entry.type === "message" && JSON.stringify(entry).includes("root final"),
       );
+
       const mailIndex = entries.findIndex(
         (entry) =>
           entry.type === "custom_message" && JSON.stringify(entry).includes("child answer"),
       );
+
       expect(finalIndex).toBeGreaterThanOrEqual(0);
       expect(mailIndex).toBeGreaterThan(finalIndex);
 
@@ -290,6 +320,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         () => {
@@ -297,6 +328,7 @@ describe("root subagent delivery", () => {
           expect(payload).toContain("<environment_context>");
           expect(payload).toContain('<agent name=\\"/root/worker\\" />');
           expect(payload.match(/<subagents>/gu)).toHaveLength(1);
+
           return fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" });
         },
         fauxAssistantMessage("integrated"),
@@ -329,6 +361,7 @@ describe("root subagent delivery", () => {
     const childRelease = Promise.withResolvers<null>();
     const rootErrorStarted = Promise.withResolvers<null>();
     const releaseRootError = Promise.withResolvers<null>();
+
     const { cleanup, harness } = await configuredHarness("v2", [], {
       retry: { baseDelayMs: 1, maxRetries: 1 },
     });
@@ -345,11 +378,13 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         async () => {
           rootErrorStarted.resolve(null);
           await releaseRootError.promise;
+
           return fauxAssistantMessage("", {
             errorMessage: "overloaded_error",
             stopReason: "error",
@@ -394,6 +429,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" }),
@@ -428,12 +464,14 @@ describe("root subagent delivery", () => {
     const childRelease = Promise.withResolvers<null>();
     const toolStarted = Promise.withResolvers<null>();
     const releaseTool = Promise.withResolvers<null>();
+
     const terminatingTool: ExtensionFactory = (pi) => {
       pi.registerTool({
         description: "Terminate after a barrier",
         async execute() {
           toolStarted.resolve(null);
           await releaseTool.promise;
+
           return {
             content: [{ text: "terminated", type: "text" }],
             details: {},
@@ -445,6 +483,7 @@ describe("root subagent delivery", () => {
         parameters: Type.Object({}),
       });
     };
+
     const { cleanup, harness } = await configuredHarness("v2", [terminatingTool]);
 
     try {
@@ -459,6 +498,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage(fauxToolCall("terminate_root", {}), { stopReason: "toolUse" }),
@@ -488,17 +528,21 @@ describe("root subagent delivery", () => {
     const childRelease = Promise.withResolvers<void>();
     const toolStarted = Promise.withResolvers<void>();
     const rootAgentEnd = rootAgentEndBarrier();
+
     const abortingTool: ExtensionFactory = (pi) => {
       pi.registerTool({
         description: "Wait until aborted",
         async execute(_toolCallId, _params, signal) {
           toolStarted.resolve();
+
           if (signal === undefined) {
             throw new Error("Tool signal is unavailable");
           }
+
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           });
+
           return {
             content: [{ text: "aborted", type: "text" }],
             details: {},
@@ -509,6 +553,7 @@ describe("root subagent delivery", () => {
         parameters: Type.Object({}),
       });
     };
+
     const { cleanup, harness } = await configuredHarness("v2", [
       abortingTool,
       rootAgentEnd.extension,
@@ -526,6 +571,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer after abort");
         },
         fauxAssistantMessage(fauxToolCall("wait_for_abort", {}), { stopReason: "toolUse" }),
@@ -541,6 +587,7 @@ describe("root subagent delivery", () => {
       await vi.waitFor(async () => {
         const snapshot = await store.load();
         expect(snapshot?.protocolLatch).toBe("v2");
+
         if (snapshot?.protocolLatch === "v2") {
           expect(snapshot.state.communications.filter(({ to }) => to === "/root")).toHaveLength(1);
         }
@@ -591,6 +638,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -630,6 +678,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -676,6 +725,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -696,9 +746,11 @@ describe("root subagent delivery", () => {
       expect(harness.getPendingResponseCount()).toBe(1);
       await waitForRootAcknowledgement(harness, "v1");
       const sessionFile = harness.sessionManager.getSessionFile();
+
       if (sessionFile === undefined) {
         throw new Error("Expected a persisted root session");
       }
+
       const notifications = SessionManager.open(
         sessionFile,
         harness.sessionManager.getSessionDir(),
@@ -708,6 +760,7 @@ describe("root subagent delivery", () => {
         .filter(
           (entry) => entry.type === "custom_message" && entry.customType === V1_NOTIFICATION_TYPE,
         );
+
       expect(notifications).toHaveLength(1);
       expect(JSON.stringify(notifications[0])).toContain("child answer");
     } finally {
@@ -720,6 +773,7 @@ describe("root subagent delivery", () => {
   it("re-appends a cleared V1 completion in an in-memory root session", async () => {
     const childRelease = Promise.withResolvers<null>();
     const rootFinal = rootFinalBarrier();
+
     const { cleanup, harness } = await configuredHarness(
       "v1",
       [rootFinal.extension],
@@ -738,6 +792,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -775,12 +830,14 @@ describe("root subagent delivery", () => {
     const rootFinal = rootFinalBarrier();
     const { cleanup, harness } = await configuredHarness("v1", [rootFinal.extension]);
     const append = harness.sessionManager.appendCustomMessageEntry.bind(harness.sessionManager);
+
     const appendSpy = vi
       .spyOn(harness.sessionManager, "appendCustomMessageEntry")
       .mockImplementation((customType, ...args) => {
         if (customType === V1_NOTIFICATION_TYPE) {
           throw new Error("simulated V1 entry creation failure");
         }
+
         return append(customType, ...args);
       });
 
@@ -795,6 +852,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -833,6 +891,7 @@ describe("root subagent delivery", () => {
       const payloadCount = harness.providerPayloads(
         Type.Object({}, { additionalProperties: true }),
       ).length;
+
       await harness.prompt("Do not duplicate the child result.");
       expect(
         harness.providerPayloads(Type.Object({}, { additionalProperties: true })),
@@ -866,6 +925,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -902,16 +962,19 @@ describe("root subagent delivery", () => {
     async (outcome) => {
       const childRelease = Promise.withResolvers<null>();
       let activeHarness: AgentSessionHarness | undefined;
+
       const publishLate: ExtensionFactory = (pi) => {
         pi.on("input", async (event) => {
           if (event.text !== "Do not start this turn.") {
             return;
           }
+
           childRelease.resolve(null);
           await vi.waitFor(async () => {
             if (activeHarness === undefined) {
               throw new Error("Harness is unavailable");
             }
+
             const snapshot = await controlStore(activeHarness).load();
             expect(
               snapshot?.protocolLatch === "v2"
@@ -919,9 +982,11 @@ describe("root subagent delivery", () => {
                 : [],
             ).toHaveLength(1);
           });
+
           return outcome === "handled" ? ({ action: "handled" } as const) : undefined;
         });
       };
+
       const { cleanup, harness } = await configuredHarness("v2", [publishLate]);
       activeHarness = harness;
 
@@ -937,6 +1002,7 @@ describe("root subagent delivery", () => {
           ),
           async () => {
             await childRelease.promise;
+
             return fauxAssistantMessage("late child answer");
           },
           fauxAssistantMessage("root final"),
@@ -944,11 +1010,14 @@ describe("root subagent delivery", () => {
         ]);
 
         await harness.prompt("Delegate this work.");
+
         if (outcome === "failed") {
           const provider = harness.session.model?.provider;
+
           if (provider === undefined) {
             throw new Error("Expected a selected model");
           }
+
           await harness.session.modelRuntime.removeRuntimeApiKey(provider);
           await expect(harness.prompt("Do not start this turn.")).rejects.toThrow(
             "No API key found",
@@ -982,12 +1051,14 @@ describe("root subagent delivery", () => {
     const { cleanup, harness, shutdown } = await configuredHarness("v2");
     let resumed: AgentSessionHarness | undefined;
     const append = harness.sessionManager.appendCustomMessageEntry.bind(harness.sessionManager);
+
     const appendSpy = vi
       .spyOn(harness.sessionManager, "appendCustomMessageEntry")
       .mockImplementation((customType, ...args) => {
         if (customType === SUBAGENT_MESSAGE_TYPE) {
           throw new Error("simulated root append failure");
         }
+
         return append(customType, ...args);
       });
 
@@ -1003,6 +1074,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -1012,6 +1084,7 @@ describe("root subagent delivery", () => {
       await harness.prompt("Delegate this work.");
       childRelease.resolve(null);
       await waitForChildCompletion(harness);
+
       const payloadCount = harness.providerPayloads(
         Type.Object({}, { additionalProperties: true }),
       ).length;
@@ -1068,6 +1141,7 @@ describe("root subagent delivery", () => {
       await waitForRootAcknowledgement(resumed, "v2");
     } finally {
       appendSpy.mockRestore();
+
       if (resumed !== undefined) {
         await resumed.session.extensionRunner.emit({
           reason: "quit",
@@ -1075,6 +1149,7 @@ describe("root subagent delivery", () => {
         });
         resumed.cleanup();
       }
+
       childRelease.resolve(null);
       await cleanup();
     }
@@ -1085,14 +1160,17 @@ describe("root subagent delivery", () => {
     const { cleanup, harness } = await configuredHarness("v2");
     const stateFile = controlFile(harness);
     const append = harness.sessionManager.appendCustomMessageEntry.bind(harness.sessionManager);
+
     const appendSpy = vi
       .spyOn(harness.sessionManager, "appendCustomMessageEntry")
       .mockImplementation((customType, ...args) => {
         const entryId = append(customType, ...args);
+
         if (customType === SUBAGENT_MESSAGE_TYPE) {
           rmSync(stateFile, { force: true });
           mkdirSync(stateFile);
         }
+
         return entryId;
       });
 
@@ -1108,6 +1186,7 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childRelease.promise;
+
           return fauxAssistantMessage("child answer");
         },
         fauxAssistantMessage("root final"),
@@ -1117,6 +1196,7 @@ describe("root subagent delivery", () => {
       await harness.prompt("Delegate this work.");
       childRelease.resolve(null);
       await waitForChildCompletion(harness);
+
       const payloadCount = harness.providerPayloads(
         Type.Object({}, { additionalProperties: true }),
       ).length;
@@ -1166,10 +1246,12 @@ describe("root subagent delivery", () => {
         ),
         async () => {
           await childOneRelease.promise;
+
           return fauxAssistantMessage("first child answer");
         },
         async () => {
           await childTwoRelease.promise;
+
           return fauxAssistantMessage("second child answer");
         },
         fauxAssistantMessage("root final"),
@@ -1184,9 +1266,11 @@ describe("root subagent delivery", () => {
       await vi.waitFor(async () => {
         const snapshot = await store.load();
         expect(snapshot?.protocolLatch).toBe("v2");
+
         if (snapshot?.protocolLatch !== "v2") {
           return;
         }
+
         expect(
           snapshot.state.nodes.filter(
             ({ path: agentPath, status }) =>

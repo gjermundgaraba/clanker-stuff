@@ -45,6 +45,7 @@ const WorkspaceInventorySchema = Type.Array(Type.Object({ path: Type.String() })
 
 export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] => {
   const workspaceRoot = realpathSync(root);
+
   const inventory: unknown = JSON.parse(
     execFileSync("pnpm", ["list", "--recursive", "--depth", "-1", "--json"], {
       cwd: workspaceRoot,
@@ -52,14 +53,17 @@ export const readWorkspacePackages = (root = process.cwd()): WorkspacePackage[] 
       stdio: ["ignore", "pipe", "pipe"],
     }),
   );
+
   if (!Value.Check(WorkspaceInventorySchema, inventory)) {
     throw new TypeError("pnpm returned an invalid workspace inventory");
   }
+
   return inventory.map((entry) => {
     const directory = realpathSync(entry.path);
     const dir = path.relative(workspaceRoot, directory) || ".";
     const packageJsonPath = path.join(dir, "package.json");
     const packageJson = readJson(path.join(directory, "package.json"));
+
     return { dir, name: packageJson.name, packageJson, packageJsonPath };
   });
 };

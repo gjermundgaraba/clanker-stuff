@@ -30,6 +30,7 @@ export type McpToolRegistry = Pick<
   ExtensionAPI,
   "getActiveTools" | "getAllTools" | "registerTool" | "setActiveTools"
 >;
+
 export interface McpToolDetails {
   overflowNoticeIndex?: number;
   outputPath?: string;
@@ -37,6 +38,7 @@ export interface McpToolDetails {
   toolName: string;
   truncated: boolean;
 }
+
 interface ServerRecord {
   connection?: McpClientConnection;
   toolNames: string[];
@@ -55,6 +57,7 @@ interface ServerRecord {
   retryDelayMs: number;
   recoveryWarned: boolean;
 }
+
 interface LoadServerOptions {
   connectionFactory: McpConnectionFactory;
   serverName: string;
@@ -65,13 +68,15 @@ interface LoadServerOptions {
   heartbeatTimeoutMs?: number;
 }
 
-const sessionExpired = (connection: McpClientConnection, error: unknown): boolean =>
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Only an actual SDK HTTP 404 on a session-bearing transport permits session recovery; other thrown values do not.
+const sessionExpired = (connection: McpClientConnection, cause: unknown): boolean =>
   connection.transport.sessionId !== undefined &&
-  SdkHttpError.isInstance(error) &&
-  error.status === 404;
+  SdkHttpError.isInstance(cause) &&
+  cause.status === 404;
 
-const authorizationRequired = (error: unknown): boolean =>
-  isAuthorizationError(error) || (SdkHttpError.isInstance(error) && error.status === 403);
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Classifies arbitrary transport rejections before deciding whether user authorization is necessary.
+const authorizationRequired = (cause: unknown): boolean =>
+  isAuthorizationError(cause) || (SdkHttpError.isInstance(cause) && cause.status === 403);
 
 export class McpServerPool {
   private readonly loads = new Map<string, Promise<number>>();
@@ -100,6 +105,7 @@ export class McpServerPool {
   ): Promise<void> {
     this.shutdown.signal.throwIfAborted();
     options.signal?.throwIfAborted();
+
     // Restoring selection must not replace a retry loop with a one-shot connection attempt.
     if (this.servers.get(options.serverName)?.recovery) return;
     await this.loadServer({ ...options, interactive: false });
@@ -109,6 +115,7 @@ export class McpServerPool {
     this.shutdown.signal.throwIfAborted();
     options.signal?.throwIfAborted();
     let server = this.servers.get(options.serverName);
+
     if (!server) {
       server = {
         toolNames: [],
@@ -122,9 +129,11 @@ export class McpServerPool {
       };
       this.servers.set(options.serverName, server);
     }
+
     // Explicit loads supersede background work, but retain the per-server load queue.
     this.stopMaintenance(server);
     server.desired = true;
+
     try {
       return await this.enqueueLoad(options);
     } finally {
@@ -137,37 +146,51 @@ export class McpServerPool {
       this.shutdown.signal,
       ...(options.signal ? [options.signal] : []),
     ]);
+
     signal.throwIfAborted();
     const pending = this.loads.get(options.serverName);
+
     const load = (async () => {
       // Failure belongs to the preceding caller, not to this requested operation.
       if (pending) await pending.catch(() => {});
       signal.throwIfAborted();
+
       return await this.load(options, signal);
     })();
+
     this.loads.set(options.serverName, load);
+
     const settled = () => {
       if (this.loads.get(options.serverName) === load) this.loads.delete(options.serverName);
     };
+
     void load.then(settled, settled);
+
     return await raceWithAbortSignal(load, signal);
   }
 
   reconcileActiveServers(names: readonly string[]): void {
     const desired = new Set(names);
+
     const managed = new Set(
       [...this.servers.values()].flatMap((server) => [...server.registeredNames]),
     );
+
     const active = this.pi.getActiveTools().filter((name) => !managed.has(name));
+
     for (const [name, server] of this.servers) {
       const wanted = desired.has(name);
+
       if (server.desired !== wanted) {
         server.desired = wanted;
         this.stopMaintenance(server);
+
         if (wanted && server.connection) this.schedulePing(server, server.connection);
       }
+
       if (desired.has(name) && server.connection) active.push(...server.toolNames);
     }
+
     this.pi.setActiveTools([...new Set(active)]);
   }
 
@@ -184,34 +207,44 @@ export class McpServerPool {
   private async load(options: LoadServerOptions, signal: AbortSignal): Promise<number> {
     const { serverName } = options;
     const server = this.servers.get(serverName);
+
     if (!server) throw new Error(`MCP server ${serverName} is not loaded`);
+
     if (server.connection && !options.reconnect) {
       if (server.desired) activateTools(this.pi, server.toolNames);
       this.schedulePing(server, server.connection);
+
       return server.toolNames.length;
     }
+
     if (server.connection) {
       const old = server.connection;
       this.disconnect(server, old);
       await old.close();
     }
+
     signal.throwIfAborted();
     const connection = await options.connectionFactory(options.interactive, signal);
+
     try {
       const { tools } = await connection.client.listTools(undefined, { signal });
       signal.throwIfAborted();
       connection.closed?.throwIfAborted();
+
       const occupied = new Set(
         this.pi
           .getAllTools()
           .map((tool) => tool.name)
           .filter((name) => !server.registeredNames.has(name)),
       );
+
       const definitions: ToolDefinition<TUnsafe<ToolArguments>, McpToolDetails>[] = tools.map(
         (tool) => {
           const name = toGeneratedToolName(serverName, tool.name);
+
           if (occupied.has(name)) throw new Error(`MCP tool name collision: ${name}`);
           occupied.add(name);
+
           return {
             name,
             label: `${serverName}: ${tool.name}`,
@@ -221,6 +254,7 @@ export class McpServerPool {
             execute: async (id, args, executeSignal, _update, ctx) => {
               const sampling: SamplingUsage[] = [];
               this.accounting.set(id, sampling);
+
               const result = await this.callTool(
                 serverName,
                 tool.name,
@@ -229,16 +263,20 @@ export class McpServerPool {
                 ctx,
                 (usage) => sampling.push(usage),
               );
+
               const converted = mcpResultToPiContent(result);
+
               const details: McpToolDetails = {
                 serverName,
                 toolName: tool.name,
                 truncated: converted.truncated,
               };
+
               if (converted.truncated) {
                 const notices = [
                   `[MCP output truncated: ${formatSize(Buffer.byteLength(converted.fullText))} total text]`,
                 ];
+
                 try {
                   details.outputPath = await this.persistOutput(converted.fullText);
                   notices.push(
@@ -249,29 +287,38 @@ export class McpServerPool {
                     "[Could not persist overflow. The remote operation has already completed; do not retry solely for this warning.]",
                   );
                 }
+
                 details.overflowNoticeIndex = converted.content.length;
                 converted.content.push({ type: "text", text: notices.join("\n") });
               }
+
               if (result.isError) {
                 throw new Error(
                   `MCP tool ${tool.name} from ${serverName} returned an error: ${converted.content.map((item) => (item.type === "text" ? item.text : `[image:${item.mimeType}]`)).join("\n")}`,
                 );
               }
+
               return { content: converted.content, details };
             },
           };
         },
       );
+
       for (const definition of definitions) {
         this.pi.registerTool(definition);
         server.registeredNames.add(definition.name);
       }
+
       server.toolNames = definitions.map((tool) => tool.name);
       server.settings = {
         serverName,
         connectionFactory: options.connectionFactory,
-        heartbeatIntervalMs: options.heartbeatIntervalMs,
-        heartbeatTimeoutMs: options.heartbeatTimeoutMs,
+        ...(options.heartbeatIntervalMs !== undefined
+          ? { heartbeatIntervalMs: options.heartbeatIntervalMs }
+          : {}),
+        ...(options.heartbeatTimeoutMs !== undefined
+          ? { heartbeatTimeoutMs: options.heartbeatTimeoutMs }
+          : {}),
       };
       server.pingSupported = true;
       server.connection = connection;
@@ -280,8 +327,10 @@ export class McpServerPool {
       connection.closed?.addEventListener("abort", () => this.recover(record, connection), {
         once: true,
       });
+
       if (server.desired) activateTools(this.pi, server.toolNames);
       this.schedulePing(server, connection);
+
       return tools.length;
     } catch (error) {
       await connection.close().catch(() => {
@@ -310,6 +359,7 @@ export class McpServerPool {
     clearTimeout(server.timer);
     delete server.timer;
     const interval = server.settings?.heartbeatIntervalMs ?? 60_000;
+
     if (!interval || !server.pingSupported || !server.desired || this.shutdown.signal.aborted)
       return;
     server.timer = setTimeout(() => {
@@ -321,12 +371,16 @@ export class McpServerPool {
 
   private async ping(server: ServerRecord, connection: McpClientConnection): Promise<void> {
     const signal = AbortSignal.any([this.shutdown.signal, server.maintenance.signal]);
+
     if (signal.aborted || !server.desired || server.connection !== connection) return;
+
     // Don't declare a busy server dead while it is performing a long tool call or interaction.
     if (server.activeCalls > 0) {
       this.schedulePing(server, connection);
+
       return;
     }
+
     try {
       await connection.client.ping({
         signal,
@@ -335,6 +389,7 @@ export class McpServerPool {
       this.recordHealth(server, connection);
     } catch (error) {
       if (signal.aborted || server.connection !== connection) return;
+
       if (
         (ProtocolError.isInstance(error) && error.code === ProtocolErrorCode.MethodNotFound) ||
         (SdkError.isInstance(error) &&
@@ -345,6 +400,7 @@ export class McpServerPool {
       } else if (authorizationRequired(error)) {
         this.disconnect(server, connection);
         await connection.close().catch(() => {});
+
         if (!signal.aborted)
           this.warn(
             `MCP server ${server.settings?.serverName} requires authorization. Reconnect with /mcp or mcp_connect.`,
@@ -372,12 +428,16 @@ export class McpServerPool {
   private recover(server: ServerRecord, connection: McpClientConnection): void {
     if (server.connection !== connection) return;
     this.disconnect(server, connection);
+
     if (this.shutdown.signal.aborted) return;
     const settings = server.settings;
     const signal = AbortSignal.any([this.shutdown.signal, server.maintenance.signal]);
+
     const work = (async () => {
       await connection.close().catch(() => {});
+
       if (!settings || !server.desired || signal.aborted) return;
+
       // Reinitialize and rediscover only. Never replay the failed tools/call.
       while (server.desired && !signal.aborted) {
         try {
@@ -390,15 +450,19 @@ export class McpServerPool {
             interactive: false,
             signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
           });
+
           return;
         } catch (error) {
           if (signal.aborted) return;
+
           if (authorizationRequired(error)) {
             this.warn(
               `MCP server ${settings.serverName} could not reconnect automatically: ${errorMessage(error)}. Use /mcp or mcp_connect to reconnect.`,
             );
+
             return;
           }
+
           if (server.retryDelayMs === 60_000 && !server.recoveryWarned) {
             server.recoveryWarned = true;
             this.warn(
@@ -408,10 +472,13 @@ export class McpServerPool {
         }
       }
     })();
+
     server.recovery = work;
+
     const settled = () => {
       if (server.recovery === work) delete server.recovery;
     };
+
     void work.then(settled, settled);
     this.track(work);
   }
@@ -424,6 +491,7 @@ export class McpServerPool {
   takeUsage(id: string): SamplingUsage[] | undefined {
     const usage = this.accounting.get(id);
     this.accounting.delete(id);
+
     return usage?.length ? usage : undefined;
   }
 
@@ -431,10 +499,13 @@ export class McpServerPool {
     if (this.shutdown.signal.aborted) return;
     this.shutdown.abort();
     this.cancelCalls();
+
     for (const server of this.servers.values()) this.stopMaintenance(server);
+
     const connections = [...this.servers.values()].flatMap((server) =>
       server.connection ? [server.connection] : [],
     );
+
     await Promise.allSettled([
       ...connections.map((connection) => connection.close()),
       ...this.loads.values(),
@@ -453,6 +524,7 @@ export class McpServerPool {
   ): Promise<CallToolResult> {
     const server = this.servers.get(serverName);
     const connection = server?.connection;
+
     if (!server || !connection)
       throw new Error(
         `MCP server ${serverName} is disconnected. ${server?.recovery ? "Automatic reconnection is in progress." : "Reconnect with /mcp or mcp_connect."}`,
@@ -465,17 +537,22 @@ export class McpServerPool {
     ]);
     const call = () => connection.client.callTool({ name: toolName, arguments: args }, { signal });
     server.activeCalls += 1;
+
     try {
       const result = await (ctx && connection.withContext
         ? connection.withContext({ ctx, model: ctx.model, signal, reportUsage }, call)
         : call());
+
       this.recordHealth(server, connection);
+
       return result;
     } catch (error) {
       signal?.throwIfAborted();
       const authorization = isAuthorizationError(error);
       const expired = sessionExpired(connection, error);
+
       if (!authorization && !expired) throw error;
+
       if (expired) {
         this.recover(server, connection);
         throw new Error(
@@ -483,6 +560,7 @@ export class McpServerPool {
           { cause: error },
         );
       }
+
       this.disconnect(server, connection);
       await connection.close().catch(() => {
         /* Preserve the request failure. */

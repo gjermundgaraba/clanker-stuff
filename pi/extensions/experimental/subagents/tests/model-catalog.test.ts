@@ -9,6 +9,7 @@ const model = (id: string, extra = {}) => ({
   ...fauxProvider({ provider: "test", models: [{ id, reasoning: true }] }).getModel(),
   ...extra,
 });
+
 const registry = (models: Model<Api>[], visible = models) => ({
   find: (provider: string, id: string) =>
     models.find((m) => m.provider === provider && m.id === id),
@@ -27,6 +28,7 @@ describe("spawn model catalog", () => {
         showInPicker: true,
       },
     });
+
     const models = registry([child]);
     expect(spawnModelsDescription(models, "test", "v2")).toBe(
       "Available model overrides (optional; inherited parent model is preferred):\n" +
@@ -39,20 +41,24 @@ describe("spawn model catalog", () => {
     const hidden = model("hidden", {
       spawnAgentMetadata: { showInPicker: false, serviceTiers: [] },
     });
+
     const disabled = model("disabled", { multiAgentVersion: "disabled" });
     const visible = Array.from({ length: 7 }, (_, n) => model(`option-${n}`));
+
     const models = registry([
       hidden,
       disabled,
       model("foreign", { provider: "other" }),
       ...visible,
     ]);
+
     expect(suggestedSpawnModels(models, "test", "v2").map((m) => m.id)).toEqual(
       visible.slice(0, 5).map((m) => m.id),
     );
     expect(parseModelOverride("option-6", models, visible[0], "v2")).toBe(visible[6]);
     expect(parseModelOverride("hidden", models, visible[0], "v2")).toBe(hidden);
     expect(parseModelOverride("disabled", models, visible[0], "v1")).toBe(disabled);
+
     for (const id of ["disabled", "foreign", "invented"]) {
       expect(() => parseModelOverride(id, models, visible[0], "v2")).toThrow(
         `Unknown model \`${id}\` for spawn_agent. Available models: option-0, option-1, option-2, option-3, option-4`,

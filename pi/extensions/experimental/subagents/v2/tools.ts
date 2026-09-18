@@ -17,6 +17,7 @@ import { publicStatus } from "../status.js";
 import type { V2Controller } from "./controller.js";
 
 const STRICT = { additionalProperties: false } as const;
+
 const ForkTurnsSchema = Type.String({
   description: V2_FORK_TURNS_DESCRIPTION,
 });
@@ -27,20 +28,27 @@ const parseForkTurns = (value: string | undefined): ForkTurns => {
   if (value === undefined) {
     return "all";
   }
+
   const normalized = value.trim().toLowerCase();
+
   if (normalized === "" || normalized === "all") {
     return "all";
   }
+
   if (normalized === "none") {
     return "none";
   }
+
   if (!/^\+?[0-9]+$/u.test(normalized)) {
     throw new Error("fork_turns must be `none`, `all`, or a positive integer string");
   }
+
   const turns = BigInt(normalized);
+
   if (turns === 0n || turns > MAX_USIZE) {
     throw new Error("fork_turns must be `none`, `all`, or a positive integer string");
   }
+
   return Number(turns > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : turns);
 };
 
@@ -52,6 +60,7 @@ interface SpawnArguments {
   reasoning_effort?: AgentThinkingLevel;
   task_name: string;
 }
+
 export type V2ToolController = Pick<
   V2Controller,
   "followUp" | "interrupt" | "list" | "sendMessage" | "spawn" | "wait"
@@ -61,6 +70,7 @@ const result = <Visible, Details>(visible: Visible, details: Details | Visible =
   content: [{ text: JSON.stringify(visible), type: "text" as const }],
   details,
 });
+
 const emptyResult = () => ({
   content: [{ text: "", type: "text" as const }],
   details: {},
@@ -90,6 +100,7 @@ export const registerV2Tools = (
             }),
           ),
         };
+
   const modelParameters = config.expose_spawn_agent_model_overrides
     ? {
         model: Type.Optional(
@@ -105,6 +116,7 @@ export const registerV2Tools = (
         }),
       }
     : {};
+
   const spawnProperties: TProperties = {};
   Object.assign(spawnProperties, roleParameter, modelParameters, {
     fork_turns: Type.Optional(ForkTurnsSchema),
@@ -127,19 +139,21 @@ export const registerV2Tools = (
       .join("\n\n"),
     execute: async (_id, params, signal, _update, ctx) => {
       beforeExecute(ctx);
+
       const spawned = await controller.spawn(
         caller,
         {
-          agentType: params.agent_type,
+          ...(params.agent_type !== undefined ? { agentType: params.agent_type } : {}),
           forkTurns: parseForkTurns(params.fork_turns),
           message: params.message,
-          model: params.model,
+          ...(params.model !== undefined ? { model: params.model } : {}),
           taskName: params.task_name,
-          thinking: params.reasoning_effort,
+          ...(params.reasoning_effort !== undefined ? { thinking: params.reasoning_effort } : {}),
         },
         ctx,
         signal,
       );
+
       return result({ task_name: spawned.task_name }, spawned);
     },
     executionMode: "parallel",
@@ -157,6 +171,7 @@ export const registerV2Tools = (
       beforeExecute(ctx);
       signal?.throwIfAborted();
       await controller.sendMessage(caller, params.target, params.message, ctx, signal);
+
       return emptyResult();
     },
     executionMode: "parallel",
@@ -186,6 +201,7 @@ export const registerV2Tools = (
       beforeExecute(ctx);
       signal?.throwIfAborted();
       await controller.followUp(caller, params.target, params.message, ctx, signal);
+
       return emptyResult();
     },
     executionMode: "parallel",
@@ -213,6 +229,7 @@ export const registerV2Tools = (
       "Wait for mailbox activity from any agent or for steered user input. Returns a summary and timeout flag, never the message content.",
     execute: async (_id, params, signal, _update, ctx) => {
       beforeExecute(ctx);
+
       return result(await controller.wait(caller, params.timeout_ms ?? 30_000, signal));
     },
     executionMode: "parallel",
@@ -238,6 +255,7 @@ export const registerV2Tools = (
     execute: async (_id, params, signal, _update, ctx) => {
       beforeExecute(ctx);
       signal?.throwIfAborted();
+
       return result(await controller.interrupt(caller, params.target, signal));
     },
     executionMode: "parallel",
@@ -253,6 +271,7 @@ export const registerV2Tools = (
       "List live agents in the current root task tree, optionally filtered by task-path prefix.",
     execute: async (_id, params, _signal, _update, ctx) => {
       beforeExecute(ctx);
+
       return result({
         agents: controller
           .list(caller, params.path_prefix)

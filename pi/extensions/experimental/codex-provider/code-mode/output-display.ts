@@ -21,8 +21,11 @@ const ProcessEnvelopeSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
 const CapturedResultSchema = Type.Object({ codeModeResult: ProcessEnvelopeSchema });
+
 type ProcessEnvelope = Static<typeof ProcessEnvelopeSchema>;
+
 interface OutputBlock {
   /** Unstyled sanitized text, for previews that apply their own color. */
   plain: string;
@@ -34,6 +37,7 @@ interface OutputBlock {
 const parseEnvelope = (text: string): ProcessEnvelope | undefined => {
   try {
     const parsed: unknown = JSON.parse(text);
+
     return Value.Check(ProcessEnvelopeSchema, parsed) ? parsed : undefined;
   } catch {
     return undefined;
@@ -48,11 +52,14 @@ export function codeModeOutput(
   expanded: boolean,
 ): OutputBlock[] {
   const blocks: OutputBlock[] = [];
+
   for (const item of items) {
     if (item.type !== "text") {
       continue;
     }
+
     const envelope = parseEnvelope(item.text);
+
     const trace =
       envelope === undefined
         ? undefined
@@ -62,19 +69,24 @@ export function codeModeOutput(
               Value.Check(CapturedResultSchema, candidate.result?.details) &&
               isDeepStrictEqual(envelope, candidate.result?.details.codeModeResult),
           );
+
     const output = displayText(
       !expanded && trace !== undefined && envelope !== undefined ? envelope.output : item.text,
     );
+
     if (output.length > 0) {
       const block: OutputBlock = {
         plain: output,
         text: highlightJsonIfPossible(output, theme),
       };
+
       if (trace !== undefined) {
         block.traceId = trace.id;
       }
+
       blocks.push(block);
     }
   }
+
   return blocks;
 }

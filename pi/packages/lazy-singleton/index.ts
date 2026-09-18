@@ -13,25 +13,31 @@ export const createLazySingleton = <T extends object>(
     if (lifetime.signal.aborted) {
       return undefined;
     }
+
     if (current !== undefined) {
       return current;
     }
 
     const attempt = (pending ??= create(lifetime.signal));
+
     try {
       const value = await attempt;
+
       if (lifetime.signal.aborted) {
         return undefined;
       }
+
       if (current === undefined) {
         current = value;
         onLoad?.(value);
       }
+
       return lifetime.signal.aborted ? undefined : current;
     } catch (error) {
       if (lifetime.signal.aborted) {
         return undefined;
       }
+
       throw error;
     } finally {
       if (pending === attempt) {
@@ -44,11 +50,13 @@ export const createLazySingleton = <T extends object>(
     if (stopping !== undefined) {
       return stopping;
     }
+
     const value = current;
     const attempt = pending;
     lifetime.abort();
     stopping = (async () => {
       let loaded = value;
+
       if (loaded === undefined && attempt !== undefined) {
         try {
           loaded = await attempt;
@@ -56,10 +64,12 @@ export const createLazySingleton = <T extends object>(
           return;
         }
       }
+
       if (loaded !== undefined) {
         await dispose?.(loaded);
       }
     })();
+
     return stopping;
   };
 

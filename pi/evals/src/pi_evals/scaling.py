@@ -52,7 +52,7 @@ def generate_task(output: Path, size: str, seed: str, replicate: int) -> Path:
         "test.sh",
     ):
         shutil.copy(ASSETS / filename, task / "tests")
-    shutil.copy(EVALS / "verifiers/tool-mode.mjs", task / "tests/tool-mode-core.mjs")
+    shutil.copy(EVALS / "verifiers/tool-mode-core.mjs", task / "tests/tool-mode-core.mjs")
     shutil.copy(EVALS / "verifiers/native-astra.mjs", task / "tests")
     shutil.copy(ASSETS / "solve.mjs", task / "solution")
     write_json(
@@ -118,7 +118,7 @@ def source_hashes():
             "pi-eval-compact.mjs",
         ),
         "profiles": ("code-mode.yaml", "native-astra.yaml"),
-        "verifiers": ("tool-mode.mjs", "native-astra.mjs"),
+        "verifiers": ("tool-mode-core.mjs", "native-astra.mjs"),
     }
     return {
         **{

@@ -18,7 +18,9 @@ import {
 } from "./renderers.js";
 
 const strict = { additionalProperties: false } as const;
+
 const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
+
 const CODE_MODE_OUTPUT_TOKEN_LIMIT = (1024 * 1024) / 4;
 
 export const CODEX_MODEL_IDS = new Set([
@@ -68,24 +70,31 @@ const rustLineCount = (value: string): number => {
   if (value === "") {
     return 0;
   }
+
   const parts = value.split(/\n/u);
+
   if (parts.at(-1) === "") {
     parts.pop();
   }
+
   return parts.length;
 };
 
 const utf8Prefix = (value: string, byteBudget: number): string => {
   let end = 0;
   let bytes = 0;
+
   for (const character of value) {
     const size = Buffer.byteLength(character);
+
     if (bytes + size > byteBudget) {
       break;
     }
+
     bytes += size;
     end += character.length;
   }
+
   return value.slice(0, end);
 };
 
@@ -93,13 +102,16 @@ const utf8Suffix = (value: string, byteBudget: number): string => {
   const target = Math.max(0, Buffer.byteLength(value) - byteBudget);
   let byteOffset = 0;
   let stringOffset = 0;
+
   for (const character of value) {
     if (byteOffset >= target) {
       return value.slice(stringOffset);
     }
+
     byteOffset += Buffer.byteLength(character);
     stringOffset += character.length;
   }
+
   return "";
 };
 
@@ -113,14 +125,17 @@ export const truncateCodexOutput = (output: string, maxTokens: number): Truncate
   const totalBytes = Buffer.byteLength(output);
   const byteBudget = maxTokens * 4;
   const originalTokenCount = approximateTokens(totalBytes);
+
   if (totalBytes <= byteBudget) {
     return { content: output, originalTokenCount, truncated: false };
   }
+
   const leftBudget = Math.floor(byteBudget / 2);
   const rightBudget = byteBudget - leftBudget;
   const prefix = utf8Prefix(output, leftBudget);
   const suffix = utf8Suffix(output, rightBudget);
   const removedTokens = approximateTokens(totalBytes - byteBudget);
+
   return {
     content: [
       `Warning: truncated output (original token count: ${originalTokenCount})`,
@@ -140,6 +155,7 @@ const readSlice = async (
 ): Promise<Buffer> => {
   const bytes = Buffer.allocUnsafe(length);
   const { bytesRead } = await file.read(bytes, 0, length, position);
+
   return bytes.subarray(0, bytesRead);
 };
 
@@ -157,18 +173,22 @@ const truncateProcessResultOutput = async (
   }
 > => {
   const source = result.truncation;
+
   if (source === undefined || result.fullOutputPath === undefined) {
     return {
       ...truncateCodexOutput(result.output, maxTokens),
       totalBytes: Buffer.byteLength(result.output),
     };
   }
+
   const info = await stat(result.fullOutputPath);
   const totalBytes = info.size;
   const decodedTotalBytes = source.totalBytes;
   const byteBudget = maxTokens * 4;
+
   if (decodedTotalBytes <= byteBudget) {
     const content = await readFile(result.fullOutputPath, "utf-8");
+
     return {
       ...truncateCodexOutput(content, maxTokens),
       totalBytes,
@@ -178,11 +198,13 @@ const truncateProcessResultOutput = async (
   const leftBudget = Math.floor(byteBudget / 2);
   const rightBudget = byteBudget - leftBudget;
   const file = await open(result.fullOutputPath, "r");
+
   try {
     const prefixBytes = await readSlice(file, 0, leftBudget + 4);
     const suffixStart = Math.max(0, totalBytes - rightBudget - 4);
     const suffixBytes = await readSlice(file, suffixStart, totalBytes - suffixStart);
     let suffixOffset = 0;
+
     if (suffixStart > 0) {
       while (
         suffixOffset < MAX_UTF8_CONTINUATION_BYTES &&
@@ -192,8 +214,10 @@ const truncateProcessResultOutput = async (
         suffixOffset += 1;
       }
     }
+
     const prefix = utf8Prefix(prefixBytes.toString("utf-8"), leftBudget);
     const suffix = utf8Suffix(suffixBytes.subarray(suffixOffset).toString("utf-8"), rightBudget);
+
     return {
       content: [
         `Warning: truncated output (original token count: ${approximateTokens(decodedTotalBytes)})`,
@@ -212,10 +236,13 @@ const truncateProcessResultOutput = async (
 
 const outputTokenPolicy = (ctx: ExtensionContext): number => {
   const { model } = captureExecutionSettings(ctx);
+
   const configured =
     model !== undefined && "codexOutputTokenLimit" in model
       ? model.codexOutputTokenLimit
       : undefined;
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Model-registry adapter checks the optional extension-owned token limit before applying its numeric policy.
   return typeof configured === "number" && Number.isSafeInteger(configured) && configured >= 0
     ? configured
     : DEFAULT_OUTPUT_TOKEN_LIMIT;
@@ -230,12 +257,15 @@ const codeModeResult = (
     output: output?.content ?? result.output,
     wall_time_seconds: result.durationMs / 1000,
   };
+
   if (output !== undefined) {
     Object.assign(formatted, { original_token_count: output.originalTokenCount });
   }
+
   if (result.sessionId !== undefined) {
     Object.assign(formatted, { session_id: result.sessionId });
   }
+
   return formatted;
 };
 
@@ -249,8 +279,10 @@ const processResult = async (
     maxOutputTokens ?? DEFAULT_OUTPUT_TOKEN_LIMIT,
     outputTokenPolicy(ctx),
   );
+
   const truncated = await truncateProcessResultOutput(result, effectiveLimit);
   let nestedOutput: ReturnType<typeof truncateCodexOutput> | undefined;
+
   if (nested) {
     if (maxOutputTokens === undefined) {
       nestedOutput = await truncateProcessResultOutput(result, CODE_MODE_OUTPUT_TOKEN_LIMIT);
@@ -262,24 +294,30 @@ const processResult = async (
           : await truncateProcessResultOutput(result, nestedLimit);
     }
   }
+
   const metadata = formatProcessMetadata(result);
   const content = truncated.content.length === 0 ? metadata : `${truncated.content}\n\n${metadata}`;
   const { output: _output, truncation, ...details } = result;
+
   const resultDetails = {
     ...details,
     effectiveMaxOutputTokens: effectiveLimit,
   };
+
   // The capture snapshot's line truncation describes the in-memory buffer. When the returned text
   // was rebuilt from the full output file it no longer describes what the model or the row sees.
   if (truncation !== undefined && result.fullOutputPath === undefined) {
     Object.assign(resultDetails, { truncation });
   }
+
   if (nested) {
     Object.assign(resultDetails, { codeModeResult: codeModeResult(result, nestedOutput) });
   }
+
   if (maxOutputTokens !== undefined) {
     Object.assign(resultDetails, { requestedMaxOutputTokens: maxOutputTokens });
   }
+
   if (truncated.truncated) {
     Object.assign(resultDetails, {
       requestedBudgetTruncation: {
@@ -289,22 +327,34 @@ const processResult = async (
       },
     });
   }
+
   return textResult(content, resultDetails);
 };
 
-export const createCodexDirectTools = () => {
-  const processes = createLazySingleton<ProcessManager>(async (signal) => {
-    const { ProcessManager } = await import("./process.js");
-    signal.throwIfAborted();
-    return new ProcessManager();
-  });
-  const processManager = async (): Promise<ProcessManager> => {
+type ProcessOperations = Pick<ProcessManager, "start" | "continue" | "dispose">;
+
+const loadProcessManager = async (signal: AbortSignal): Promise<ProcessOperations> => {
+  const { ProcessManager } = await import("./process.js");
+  signal.throwIfAborted();
+
+  return new ProcessManager();
+};
+
+export const createCodexDirectTools = (
+  loadProcesses: typeof loadProcessManager = loadProcessManager,
+) => {
+  const processes = createLazySingleton(loadProcesses);
+
+  const processManager = async (): Promise<ProcessOperations> => {
     const manager = await processes.load();
+
     if (manager === undefined) {
       throw new Error("Process manager is disposed");
     }
+
     return manager;
   };
+
   const execCommand = (nested: boolean) =>
     defineTool({
       ...execCommandRenderers,
@@ -330,12 +380,13 @@ export const createCodexDirectTools = () => {
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
         ctx = withExecutionSettings(ctx);
         const manager = await processManager();
+
         return await processResult(
           await manager.start({
             command: params.cmd,
             ctx,
             cwd: params.workdir === undefined ? ctx.cwd : resolvePath(params.workdir, ctx.cwd),
-            signal,
+            ...(signal !== undefined ? { signal } : {}),
             yieldMs: params.yield_time_ms ?? 10_000,
           }),
           params.max_output_tokens,
@@ -344,6 +395,7 @@ export const createCodexDirectTools = () => {
         );
       },
     });
+
   const writeStdin = (nested: boolean) =>
     defineTool({
       ...writeStdinRenderers,
@@ -368,11 +420,12 @@ export const createCodexDirectTools = () => {
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
         ctx = withExecutionSettings(ctx);
         const manager = await processManager();
+
         return await processResult(
           await manager.continue({
-            chars: params.chars,
+            ...(params.chars !== undefined ? { chars: params.chars } : {}),
             sessionId: params.session_id,
-            signal,
+            ...(signal !== undefined ? { signal } : {}),
             yieldMs:
               params.yield_time_ms ??
               (params.chars === undefined || params.chars.length === 0 ? 5000 : 250),
@@ -383,6 +436,7 @@ export const createCodexDirectTools = () => {
         );
       },
     });
+
   const sharedDefinitions = [
     defineTool({
       ...applyPatchRenderers,
@@ -398,6 +452,7 @@ export const createCodexDirectTools = () => {
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
         const { applyPatch } = await import("./patch.js");
         const result = await applyPatch(params.patch, ctx.cwd, signal);
+
         // Key order matters: a bounded copy of these details is cut from the end.
         return textResult(result.output, { changes: result.changes, diffs: result.diffs });
       },
@@ -419,7 +474,9 @@ export const createCodexDirectTools = () => {
       },
     }),
   ];
+
   const definitions = [execCommand(false), writeStdin(false), ...sharedDefinitions];
+
   return {
     definitions,
     dispose: () => processes.stop((manager) => manager.dispose()),

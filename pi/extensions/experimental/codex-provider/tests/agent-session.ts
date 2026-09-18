@@ -44,12 +44,14 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
     options.rootDir,
     `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+
   await mkdir(agentDir, { recursive: true });
 
   const modelRuntime = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
     modelsPath: null,
   });
+
   const apiKey = options.apiKey ?? SPIKE_API_KEY;
   const model: Model<Api> = options.model ?? SPIKE_MODEL;
   modelRuntime.registerProvider(model.provider, {
@@ -59,7 +61,7 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
     models: [
       {
         api: model.api,
-        compat: model.compat,
+        ...(model.compat !== undefined ? { compat: model.compat } : {}),
         contextWindow: model.contextWindow,
         cost: model.cost,
         id: model.id,
@@ -70,15 +72,17 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
       },
     ],
   });
+
   if (apiKey) {
     await modelRuntime.setRuntimeApiKey(model.provider, apiKey);
   }
 
   const settingsManager = SettingsManager.inMemory({
-    compaction: options.compaction,
-    retry: options.retry,
+    ...(options.compaction !== undefined ? { compaction: options.compaction } : {}),
+    ...(options.retry !== undefined ? { retry: options.retry } : {}),
     transport: options.transport ?? "sse",
   });
+
   const resourceLoader = new DefaultResourceLoader({
     agentDir,
     cwd: options.sessionManager.getCwd(),
@@ -90,6 +94,7 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
     skillsOverride: () => ({ skills: options.skills ?? [], diagnostics: [] }),
     systemPrompt: options.systemPrompt ?? "phase-zero AgentSession",
   });
+
   await resourceLoader.reload();
 
   const created = await createAgentSession({
@@ -101,10 +106,11 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
     sessionManager: options.sessionManager,
     settingsManager,
   });
+
   await created.session.bindExtensions({
-    mode: options.mode,
-    onError: options.onExtensionError,
-    uiContext: options.uiContext,
+    ...(options.mode !== undefined ? { mode: options.mode } : {}),
+    ...(options.onExtensionError !== undefined ? { onError: options.onExtensionError } : {}),
+    ...(options.uiContext !== undefined ? { uiContext: options.uiContext } : {}),
   });
 
   return created.session;

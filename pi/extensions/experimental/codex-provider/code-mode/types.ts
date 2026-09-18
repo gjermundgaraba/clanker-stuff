@@ -38,6 +38,7 @@ export interface NestedTool {
   namespace?: string;
   outputSchema?: unknown;
   usage: string;
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Heterogeneous delegated tools own their parameter/result schemas; invocation validates against the selected tool rather than a fictitious common contract.
   invoke: (input: unknown, context: ToolExecutionContext, signal: AbortSignal) => Promise<unknown>;
 }
 

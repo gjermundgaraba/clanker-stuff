@@ -38,7 +38,7 @@ export type SideActivity =
 
 export interface SideConversationState {
   activity: SideActivity;
-  statusMessage?: string;
+  statusMessage: string | undefined;
   transcript: SideTranscriptItem[];
 }
 
@@ -75,6 +75,7 @@ type SideAgentSessionFactory = (
 export const isSideActivityActive = (activity: SideActivity): boolean => activity.kind !== "idle";
 
 type ParentSession = Pick<SessionManager, "getEntries" | "getLeafId">;
+
 type SessionMessage = ReturnType<typeof buildSessionContext>["messages"][number];
 
 export const stableSnapshotMessages = (
@@ -82,10 +83,8 @@ export const stableSnapshotMessages = (
 ): ReturnType<typeof convertToLlm> => {
   const completedToolCalls = new Set(
     messages
-      .filter(
-        (message): message is Extract<SessionMessage, { role: "toolResult" }> =>
-          message.role === "toolResult",
-      )
+      .values()
+      .filter((message) => message.role === "toolResult")
       .map((message) => message.toolCallId),
   );
 
@@ -97,6 +96,7 @@ export const stableSnapshotMessages = (
 
   const stable =
     incompleteAssistantIndex === -1 ? [...messages] : messages.slice(0, incompleteAssistantIndex);
+
   return convertToLlm(structuredClone(stable));
 };
 
@@ -108,17 +108,20 @@ export const createSideSessionManager = (parent: ParentSession, cwd: string): Se
   )) {
     side.appendMessage(message);
   }
+
   side.appendMessage({
     content: SIDE_BOUNDARY,
     role: "user",
     timestamp: Date.now(),
   });
+
   return side;
 };
 
 export class SideSessionController implements SideConversation {
   readonly state: SideConversationState = {
     activity: { kind: "idle" },
+    statusMessage: undefined,
     transcript: [],
   };
 
@@ -126,7 +129,7 @@ export class SideSessionController implements SideConversation {
   private readonly session: SideAgentSession;
   private disposePromise?: Promise<void>;
   private disposed = false;
-  private unsubscribe?: () => void;
+  private unsubscribe: (() => void) | undefined;
 
   constructor(session: SideAgentSession) {
     this.session = session;
@@ -138,6 +141,7 @@ export class SideSessionController implements SideConversation {
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };
@@ -145,9 +149,11 @@ export class SideSessionController implements SideConversation {
 
   submit(text: string): boolean {
     const prompt = text.trim();
+
     if (!prompt || this.disposed) {
       return false;
     }
+
     if (isSideActivityActive(this.state.activity)) {
       return false;
     }
@@ -159,6 +165,7 @@ export class SideSessionController implements SideConversation {
     this.notify();
 
     void this.runPrompt(prompt, submission);
+
     return true;
   }
 
@@ -167,12 +174,14 @@ export class SideSessionController implements SideConversation {
       (candidate): candidate is Extract<SideTranscriptItem, { kind: "assistant" }> =>
         candidate.kind === "assistant" && contentText(candidate.message.content).trim().length > 0,
     );
+
     return item ? contentText(item.message.content).trim() : undefined;
   }
 
   dispose(): Promise<void> {
     this.disposePromise ??= (async () => {
       this.disposed = true;
+
       try {
         if (this.session.isStreaming) {
           await this.session.abort();
@@ -180,6 +189,7 @@ export class SideSessionController implements SideConversation {
       } catch {
         // Disposal must continue after an abort failure.
       }
+
       // AgentSession.dispose() does not notify extensions; without this the
       // child session's extensions never see session_shutdown and leak
       // whatever they spawned on session_start.
@@ -193,11 +203,13 @@ export class SideSessionController implements SideConversation {
       } catch {
         // Disposal must continue after a shutdown-handler failure.
       }
+
       this.unsubscribe?.();
       this.unsubscribe = undefined;
       this.listeners.clear();
       this.session.dispose();
     })();
+
     return this.disposePromise;
   }
 
@@ -221,6 +233,7 @@ export class SideSessionController implements SideConversation {
           message: event.message,
         });
         this.state.activity = { kind: "running" };
+
         if (event.message.stopReason === "error") {
           this.state.statusMessage = event.message.errorMessage ?? "Side response failed.";
         }
@@ -238,6 +251,7 @@ export class SideSessionController implements SideConversation {
         (item): item is Extract<SideTranscriptItem, { kind: "tool" }> =>
           item.kind === "tool" && item.id === event.toolCallId,
       );
+
       if (tool) {
         tool.status = event.isError ? "error" : "done";
       }
@@ -250,6 +264,7 @@ export class SideSessionController implements SideConversation {
     } else if (event.type === "compaction_end") {
       this.state.statusMessage = event.errorMessage;
     }
+
     this.notify();
   }
 
@@ -262,6 +277,7 @@ export class SideSessionController implements SideConversation {
   private async runPrompt(prompt: string, submission: SideActivity): Promise<void> {
     try {
       await this.session.prompt(prompt);
+
       if (this.state.activity === submission) {
         this.state.activity = { kind: "idle" };
         this.notify();
@@ -284,23 +300,27 @@ export const createSideConversation = async (
   const settingsManager = SettingsManager.create(ctx.cwd, getAgentDir(), {
     projectTrusted: ctx.isProjectTrusted(),
   });
+
   const resourceLoader = new DefaultResourceLoader({
     agentDir: getAgentDir(),
     appendSystemPrompt: [SIDE_SYSTEM_PROMPT],
     cwd: ctx.cwd,
     settingsManager,
   });
+
   await resourceLoader.reload();
 
   const { session } = await createSession({
     agentDir: getAgentDir(),
     cwd: ctx.cwd,
-    model: ctx.model,
+    ...(ctx.model !== undefined ? { model: ctx.model } : {}),
     resourceLoader,
     sessionManager: createSideSessionManager(ctx.sessionManager, ctx.cwd),
     settingsManager,
     thinkingLevel,
   });
+
   await session.bindExtensions({ mode: "print" });
+
   return new SideSessionController(session);
 };

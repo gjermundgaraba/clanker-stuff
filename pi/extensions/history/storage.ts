@@ -39,6 +39,7 @@ export const openHistoryDatabase = (): DatabaseSync => {
       CREATE INDEX IF NOT EXISTS history_recency
       ON history(last_used_at DESC, id DESC);
     `);
+
     return database;
   } catch (error) {
     database.close();
@@ -57,10 +58,12 @@ export const saveHistoryBatch = (database: DatabaseSync, items: HistoryItem[]): 
 
   const statement = database.prepare(UPSERT_HISTORY_SQL);
   database.exec("BEGIN IMMEDIATE");
+
   try {
     for (const item of items) {
       statement.run(item.text, item.timestamp);
     }
+
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
@@ -83,6 +86,7 @@ export const loadHistory = (database: DatabaseSync, limit = -1): HistoryItem[] =
       if (!Value.Check(HistoryRowSchema, row)) {
         throw new TypeError("SQLite returned an invalid history row");
       }
+
       return {
         text: row.text,
         timestamp: row.last_used_at,
@@ -91,9 +95,11 @@ export const loadHistory = (database: DatabaseSync, limit = -1): HistoryItem[] =
 
 export const getDataVersion = (database: DatabaseSync): number => {
   const version: unknown = database.prepare("PRAGMA data_version").get()?.data_version;
-  const NumberSchema = Type.Number();
-  if (!Value.Check(NumberSchema, version)) {
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- SQLite boundary must reject missing, nonnumeric, or non-finite PRAGMA results before returning a version.
+  if (typeof version !== "number" || !Number.isFinite(version)) {
     throw new TypeError("SQLite did not return a data version");
   }
+
   return version;
 };

@@ -57,24 +57,31 @@ const mapHistoryWindow = (
   id: UsageWindowId,
 ): UsageWindow | undefined => {
   const latest = window?.entries.at(-1);
+
   if (latest === undefined || Number.isNaN(Date.parse(latest.capturedAt))) {
     return undefined;
   }
+
   return makeUsageWindow(id, 100 - latest.usedPercent, parseIso(latest.resetsAt));
 };
 
 const latestCapturedAt = (windows: HistoryWindow[]): number | undefined => {
   let latest: number | undefined;
+
   for (const window of windows) {
     const entry = window.entries.at(-1);
+
     if (entry === undefined) {
       continue;
     }
+
     const ms = Date.parse(entry.capturedAt);
+
     if (!Number.isNaN(ms) && (latest === undefined || ms > latest)) {
       latest = ms;
     }
   }
+
   return latest;
 };
 
@@ -82,18 +89,23 @@ const resolveWindows = (data: Static<typeof CodexBarHistorySchema>): HistoryWind
   if (data.unscoped && data.unscoped.length > 0) {
     return data.unscoped;
   }
+
   const { accounts, preferredAccountKey: key } = data;
+
   if (accounts === undefined) {
     return [];
   }
+
   if (key !== undefined && accounts[key] !== undefined) {
     return accounts[key];
   }
+
   for (const windows of Object.values(accounts)) {
     if (windows.length > 0) {
       return windows;
     }
   }
+
   return [];
 };
 
@@ -102,11 +114,13 @@ export const mapCodexBarHistory = (
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
   const windows = resolveWindows(data);
+
   if (windows.length === 0) {
     return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
   }
 
   const byName = new Map<string, HistoryWindow>();
+
   for (const window of windows) {
     byName.set(window.name, window);
   }
@@ -115,9 +129,12 @@ export const mapCodexBarHistory = (
     history: byName.get(name),
     id,
   }));
+
   const mapped = renderedWindows
+    .values()
     .map(({ history, id }) => mapHistoryWindow(history, id))
-    .filter(isDefined);
+    .filter(isDefined)
+    .toArray();
 
   if (mapped.length === 0) {
     return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
@@ -126,6 +143,7 @@ export const mapCodexBarHistory = (
   const captured = latestCapturedAt(
     renderedWindows.flatMap(({ history }) => (history ? [history] : [])),
   );
+
   if (captured !== undefined && nowMs - captured > STALE_AFTER_MS) {
     return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
   }
@@ -149,6 +167,7 @@ export const runCodexBarUsage = async (
   const filePath = options.filePath ?? CODEXBAR_HISTORY_PATH;
 
   let content: string;
+
   try {
     content = await readFile(filePath, "utf-8");
   } catch {
@@ -156,6 +175,7 @@ export const runCodexBarUsage = async (
   }
 
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(content);
   } catch {
@@ -165,5 +185,6 @@ export const runCodexBarUsage = async (
   if (!Value.Check(CodexBarHistorySchema, parsed)) {
     return usageFailure("invalid CodexBar history");
   }
+
   return mapCodexBarHistory(parsed, now());
 };

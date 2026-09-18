@@ -25,13 +25,18 @@ import { CHECKPOINT_CUSTOM_TYPE, parseCheckpoint } from "../checkpoint.ts";
 import { isWireRecord as isRecord } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
+
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
+
 const LIVE_RUNNER = path.join(import.meta.dirname, "live-multi-compaction.ts");
+
 const JITI_CLI = path.join(
   path.dirname(createRequire(import.meta.url).resolve("jiti/package.json")),
   "lib/jiti-cli.mjs",
 );
+
 const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
+
 const LIVE_MODEL =
   configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
 
@@ -47,14 +52,17 @@ export const abortRpcCompaction = async (
   timeoutMs = 30_000,
 ) => {
   const started = Promise.withResolvers<void>();
+
   const unsubscribe = client.onEvent((event) => {
     if (event.type === "compaction_start" && event.reason === "manual") {
       started.resolve();
     }
   });
+
   const timeout = setTimeout(() => {
     started.reject(new Error(`RPC compaction did not start within ${timeoutMs}ms`));
   }, timeoutMs);
+
   try {
     const compacting = client.compact("aborted RPC compaction");
     await Promise.race([
@@ -63,6 +71,7 @@ export const abortRpcCompaction = async (
         throw new Error("RPC compaction completed before compaction_start");
       }),
     ]);
+
     return Promise.allSettled([compacting, client.abort()]);
   } finally {
     clearTimeout(timeout);
@@ -82,6 +91,7 @@ const runRpc = async () => {
   ]);
   const authFile = path.join(agentDir, "auth.json");
   let client: RpcClient | undefined;
+
   try {
     await copyFile(path.join(getAgentDir(), "auth.json"), authFile);
     await chmod(authFile, 0o600);
@@ -130,9 +140,11 @@ const runRpc = async () => {
       120_000,
     );
     const cancelled = await abortRpcCompaction(client);
+
     const cancelledResults = cancelled.map((result) =>
       result.status === "rejected" ? String(result.reason) : "fulfilled",
     );
+
     assert(
       cancelled[0]?.status === "rejected" &&
         String(cancelled[0].reason).includes("Compaction cancelled") &&
@@ -194,31 +206,40 @@ const findCheckpoint = async (
 > => {
   const sessionDir = path.join(root, "sessions");
   const names = await readdir(sessionDir, { recursive: true });
+
   for (const name of names) {
     if (!name.endsWith(".jsonl")) {
       continue;
     }
+
     const sessionFile = path.join(sessionDir, name);
     const contents = await readFile(sessionFile, "utf-8");
+
     const entries = contents
       .trim()
       .split("\n")
       .flatMap((line) => {
         try {
           const value: unknown = JSON.parse(line);
+
           return isRecord(value) ? [value] : [];
         } catch {
           return [];
         }
       });
+
     const checkpoints = entries.filter(
       (entry) => entry.type === "custom" && entry.customType === CHECKPOINT_CUSTOM_TYPE,
     );
+
     const latest = checkpoints.at(-1);
+
     if (latest === undefined) {
       continue;
     }
+
     const parsed = parseCheckpoint(latest.data);
+
     if (parsed.ok) {
       return {
         count: checkpoints.length,
@@ -227,6 +248,7 @@ const findCheckpoint = async (
       };
     }
   }
+
   return undefined;
 };
 
@@ -250,42 +272,52 @@ export const waitForCrashCheckpoint = async ({
   lines.on("line", (line) => {
     if (root === undefined && line.startsWith("Live artifacts: ")) {
       const candidate = line.slice("Live artifacts: ".length).trim();
+
       if (candidate.length > 0) {
         root = candidate;
       }
     }
   });
+
   const exited = once(child, "exit", { signal }).then(([, exitSignal]: readonly unknown[]) => ({
     killed: exitSignal === "SIGKILL",
-    root,
+    ...(root !== undefined ? { root } : {}),
   }));
+
   // Stop synchronously: events.once() propagates its result through later microtasks.
   const stop = () => controller.abort();
   child.once("exit", stop);
   child.once("error", stop);
+
   const poll = async () => {
     while (true) {
       await delay(pollIntervalMs, undefined, { signal });
+
       if (root !== undefined) {
         const checkpoint = await find(root);
         // An uncancellable file lookup may finish after the child has exited.
         signal.throwIfAborted();
+
         if (checkpoint !== undefined) {
           child.kill("SIGKILL");
+
           return exited;
         }
       }
     }
   };
+
   const timeout = delay(timeoutMs, undefined, { signal }).then(() => {
     throw new Error(`Crash canary did not persist a checkpoint within ${timeoutMs}ms`);
   });
+
   try {
     return await Promise.race([exited, poll(), timeout]).catch((error) => {
       // Cancellation can reach the polling loop before events.once() has settled.
       if (signal.aborted) {
         return exited;
       }
+
       throw error;
     });
   } catch (error) {
@@ -307,13 +339,16 @@ const runCrash = async () => {
     },
     stdio: ["ignore", "pipe", "inherit"],
   });
+
   assert(child.stdout !== null, "Crash child stdout is unavailable");
   child.stdout.pipe(process.stdout, { end: false });
+
   const { killed, root } = await waitForCrashCheckpoint({
     child,
     find: findCheckpoint,
     stdout: child.stdout,
   });
+
   assert(killed && root !== undefined, "Crash child was not killed after persistence");
   const persisted = await findCheckpoint(root);
   assert(persisted !== undefined, "Killed child left no durable checkpoint");
@@ -354,12 +389,15 @@ const runCrash = async () => {
 const main = async () => {
   const rpc = process.argv.includes("--rpc");
   const crash = process.argv.includes("--crash");
+
   if (process.argv.includes("--help") || (!rpc && !crash)) {
     console.log(`Usage:
   vp run @clanker-stuff/codex-provider#test:live:rpc
   vp run @clanker-stuff/codex-provider#test:live:crash`);
+
     return;
   }
+
   if (rpc) {
     await runRpc();
   } else {

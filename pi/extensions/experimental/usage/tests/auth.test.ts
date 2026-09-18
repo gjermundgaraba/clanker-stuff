@@ -13,6 +13,7 @@ describe("provider auth client", () => {
         auth: { apiKey: "copilot-api-token" },
         source: "OAuth",
       });
+
     const client = providerAuthClientFromContext({ modelRegistry: { getProviderAuth } }, () => ({
       access: "copilot-api-token",
       expires: Date.now() + 60_000,

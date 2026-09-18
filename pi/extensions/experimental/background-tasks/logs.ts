@@ -11,10 +11,10 @@ export class TaskLogs {
   private stderr = Buffer.alloc(0);
   private received = { stdout: 0, stderr: 0 };
   private dirty = false;
-  private timer?: ReturnType<typeof setTimeout>;
-  private writing?: Promise<void>;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private writing: Promise<void> | undefined;
   private closed = false;
-  error?: string;
+  error: string | undefined;
   constructor(readonly directory: string) {}
 
   append(stream: "stdout" | "stderr", chunk: Buffer): void {
@@ -34,12 +34,14 @@ export class TaskLogs {
   }
   async flush(): Promise<void> {
     if (this.writing) return this.writing;
+
     if (!this.dirty) return;
     this.dirty = false;
     const snapshots = { stdout: this.stdout, stderr: this.stderr };
     this.writing = Promise.all(
       (["stdout", "stderr"] as const).map((stream) => {
         const file = join(this.directory, `${stream}.log`);
+
         return withFileMutationQueue(file, () =>
           writeFile(file, snapshots[stream], { mode: 0o600 }),
         );
@@ -53,12 +55,15 @@ export class TaskLogs {
       })
       .finally(() => {
         this.writing = undefined;
+
         if (this.dirty) this.schedule();
       });
+
     return this.writing;
   }
   read(bytes = 6000) {
     const size = Math.max(1, Math.min(12000, bytes));
+
     return {
       stdout: safeText(this.stdout.subarray(-size).toString("utf8")),
       stderr: safeText(this.stderr.subarray(-size).toString("utf8")),

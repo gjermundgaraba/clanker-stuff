@@ -1,3 +1,4 @@
+import type { CliStarter } from "./cli.js";
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
@@ -10,7 +11,7 @@ interface PlannotatorRuntime {
   shutdown: () => Promise<void>;
 }
 
-export const createPlannotatorHost = (pi: ExtensionAPI) => {
+export const createPlannotatorHost = (pi: ExtensionAPI, starter?: CliStarter) => {
   const active = createLazySingleton<PlannotatorRuntime>(async (signal) => {
     const [command, launcher, annotate, last, review] = await Promise.all([
       import("./command-runtime.js"),
@@ -19,10 +20,13 @@ export const createPlannotatorHost = (pi: ExtensionAPI) => {
       import("./commands/last.js"),
       import("./commands/review.js"),
     ]);
+
     signal.throwIfAborted();
+
     const runtime = command.createCommandRuntime(
-      launcher.createTargetedReviewStarter(command.startPlannotatorCli),
+      launcher.createTargetedReviewStarter(starter ?? command.startPlannotatorCli),
     );
+
     return {
       annotate: annotate.createAnnotateHandler(pi, runtime),
       last: last.createLastHandler(pi, runtime),
@@ -30,6 +34,7 @@ export const createPlannotatorHost = (pi: ExtensionAPI) => {
       shutdown: runtime.shutdown,
     };
   });
+
   const run =
     (command: keyof Pick<PlannotatorRuntime, "annotate" | "last" | "review">) =>
     async (args: string, ctx: ExtensionCommandContext): Promise<void> => {

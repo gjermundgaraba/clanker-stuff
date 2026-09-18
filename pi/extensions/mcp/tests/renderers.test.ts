@@ -6,10 +6,12 @@ import { renderedRows, toolRenderContext } from "../../../tests/harness/tool-ren
 import { mcpRenderers } from "../renderers.js";
 
 const theme = createIdentityTheme();
+
 const result = (text: string) => ({
   content: [{ type: "text" as const, text }],
   details: undefined,
 });
+
 beforeAll(() => initTheme("dark"));
 
 describe("MCP presentation", () => {
@@ -18,9 +20,11 @@ describe("MCP presentation", () => {
     const args = { query: "bug", filter: { owner: "clanker" } };
     const collapsed = renderedRows(renderer(args, theme, toolRenderContext())).join("\n");
     expect(collapsed).toBe("github: search_issues\nquery: bug\nfilter: {…}");
+
     const expanded = renderedRows(
       renderer(args, theme, toolRenderContext({ expanded: true })),
     ).join("\n");
+
     expect(expanded).toContain('"owner": "clanker"');
   });
   it("never reveals manager config credentials, including in expanded calls", () => {
@@ -35,6 +39,7 @@ describe("MCP presentation", () => {
         args: ["--password=abc"],
       },
     };
+
     for (const expanded of [false, true]) {
       const text = renderedRows(
         mcpRenderers("mcp-manager", "mcp_set", true).renderCall(
@@ -43,6 +48,7 @@ describe("MCP presentation", () => {
           toolRenderContext({ expanded }),
         ),
       ).join("\n");
+
       expect(text).toBe(
         "mcp_set private\nproject · http" + (expanded ? "\nAdditional configuration hidden" : ""),
       );
@@ -67,12 +73,15 @@ describe("MCP presentation", () => {
           futureSetting: 123,
         },
       };
+
       const renderer = mcpRenderers("mcp-manager", "mcp_set", true).renderCall;
       const collapsed = renderedRows(renderer(args, theme, toolRenderContext())).join("\n");
       expect(collapsed).toBe(`mcp_set private\nproject · ${type}`);
+
       const expanded = renderedRows(
         renderer(args, theme, toolRenderContext({ expanded: true })),
       ).join("\n");
+
       expect(expanded).toContain("heartbeatIntervalMs: 0\nheartbeatTimeoutMs: 500");
       expect(expanded).toContain("oauth.callbackPort: 8765");
       expect(expanded).toContain("Additional configuration hidden");
@@ -81,12 +90,14 @@ describe("MCP presentation", () => {
   });
   it("keeps nonnumeric heartbeat fields hidden without hiding attempted numeric values", () => {
     const renderer = mcpRenderers("mcp-manager", "mcp_set", true).renderCall;
+
     for (const value of [undefined, null, "SECRET", { token: "SECRET" }, ["SECRET"], true]) {
       const args = { config: { heartbeatIntervalMs: value, heartbeatTimeoutMs: value } };
       expect(
         renderedRows(renderer(args, theme, toolRenderContext({ expanded: true }))).join("\n"),
       ).toBe("mcp_set\nAdditional configuration hidden");
     }
+
     for (const value of [0, -1, 0.5, 2_147_483_648, Infinity, NaN]) {
       const args = { config: { heartbeatIntervalMs: value, heartbeatTimeoutMs: value } };
       expect(
@@ -96,6 +107,7 @@ describe("MCP presentation", () => {
   });
   it("preserves source meaning in both previews and expanded output", () => {
     const renderer = mcpRenderers("server", "tool").renderResult;
+
     for (const text of [
       "- removed\n+ added",
       "**literal**",
@@ -106,6 +118,7 @@ describe("MCP presentation", () => {
     ]) {
       const data = result(text);
       const original = structuredClone(data);
+
       for (const expanded of [false, true]) {
         expect(
           renderedRows(
@@ -113,11 +126,13 @@ describe("MCP presentation", () => {
           ).join("\n"),
         ).toBe(text);
       }
+
       expect(data).toEqual(original);
     }
   });
   it("does not claim configuration was hidden when every field is displayed", () => {
     const renderer = mcpRenderers("mcp-manager", "mcp_set", true).renderCall;
+
     for (const callbackPort of [0, -1, 0.5, 8765]) {
       const text = renderedRows(
         renderer(
@@ -126,12 +141,15 @@ describe("MCP presentation", () => {
           toolRenderContext({ expanded: true }),
         ),
       ).join("\n");
+
       expect(text).toBe(`mcp_set\nhttp\noauth.callbackPort: ${callbackPort}`);
     }
+
     for (const oauth of [{ callbackPort: "SECRET" }, { "SECRET-key": "SECRET" }, "SECRET", null]) {
       const text = renderedRows(
         renderer({ config: { oauth } }, theme, toolRenderContext({ expanded: true })),
       ).join("\n");
+
       expect(text).toBe("mcp_set\nAdditional configuration hidden");
     }
   });
@@ -145,6 +163,7 @@ describe("MCP presentation", () => {
       ],
       details: undefined,
     };
+
     for (const expanded of [false, true]) {
       const component = mcpRenderers("server", "tool").renderResult(
         data,
@@ -152,9 +171,11 @@ describe("MCP presentation", () => {
         theme,
         toolRenderContext({ expanded: true }),
       );
+
       expect(renderedRows(component).join("\n")).toBe(
         '- removed\n+ added\n\n{"n":9007199254740993}\n   **literal**',
       );
+
       for (const width of [1, 2, 20, 80]) {
         const rows = component.render(width);
         expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
@@ -164,6 +185,7 @@ describe("MCP presentation", () => {
   });
   it("keeps output warnings visible ahead of long output and expands it on demand", () => {
     const renderer = mcpRenderers("server", "tool").renderResult;
+
     const data = {
       content: [
         ...result(Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n")).content,
@@ -174,10 +196,13 @@ describe("MCP presentation", () => {
       ],
       details: { truncated: true, outputPath: "/tmp/result.txt", overflowNoticeIndex: 1 },
     };
+
     const original = structuredClone(data);
+
     const collapsed = renderedRows(
       renderer(data, { expanded: false, isPartial: false }, theme, toolRenderContext()),
     ).join("\n");
+
     expect(collapsed).toContain("MCP output truncated");
     expect(collapsed).toContain("Persisted output: /tmp/result.txt");
     expect(collapsed).not.toContain("line 29");
@@ -194,11 +219,28 @@ describe("MCP presentation", () => {
     ).toContain("line 29");
     expect(data).toEqual(original);
   });
+  it.each(["0", 0.5, null, -1, 100])(
+    "does not hide content for an invalid overflow index (%s)",
+    (overflowNoticeIndex) => {
+      const data = { ...result("original content"), details: { overflowNoticeIndex } };
+
+      const output = mcpRenderers("server", "tool").renderResult(
+        data,
+        { expanded: true, isPartial: false },
+        theme,
+        toolRenderContext(),
+      );
+
+      expect(renderedRows(output).join("\n")).toBe("original content");
+    },
+  );
+
   it("leaves images to Pi and provides a hidden-image indicator", () => {
     const data = {
       content: [{ type: "image" as const, data: "BASE64", mimeType: "image/png" }],
       details: undefined,
     };
+
     expect(
       renderedRows(
         mcpRenderers("server", "image").renderResult(
@@ -212,11 +254,13 @@ describe("MCP presentation", () => {
   });
   it("preserves historical notices and does not recognize remote text by its wording", () => {
     const text = "[MCP output truncated: remote text]\n[Persisted output: remote text]";
+
     for (const overflowNoticeIndex of [undefined, -1, 0.5, 10, "0", null]) {
       const data = {
         ...result(text),
         details: { truncated: true, outputPath: "/old/path", overflowNoticeIndex },
       };
+
       for (const expanded of [false, true]) {
         expect(
           renderedRows(
@@ -233,17 +277,20 @@ describe("MCP presentation", () => {
   });
   it("bounds narrow layouts and removes hostile terminal controls", () => {
     const renderers = mcpRenderers("server\u001b[2J", "tool");
+
     const component = renderers.renderCall(
       { query: "x".repeat(1000) + "END" },
       theme,
       toolRenderContext(),
     );
+
     for (const width of [1, 2, 20, 80]) {
       const rows = component.render(width);
       expect(rows.length).toBeLessThanOrEqual(4);
       expect(rows.every((line) => visibleWidth(line) <= width)).toBe(true);
       expect(rows.join("\n")).not.toContain("\u001b[2J");
     }
+
     for (const isError of [false, true]) {
       const text = renderedRows(
         renderers.renderResult(
@@ -253,15 +300,18 @@ describe("MCP presentation", () => {
           toolRenderContext({ isError }),
         ),
       ).join("\n");
+
       expect(text).toContain("Danger");
       expect(text).not.toContain("[2J");
     }
+
     expect(() =>
       renderedRows(renderers.renderCall(null, theme, toolRenderContext({ isPartial: true }))),
     ).not.toThrow();
   });
   it("does not claim a partial request succeeded", () => {
     const renderer = mcpRenderers("mcp-manager", "mcp_connect", true).renderResult;
+
     const pending = renderedRows(
       renderer(
         result(""),
@@ -270,6 +320,7 @@ describe("MCP presentation", () => {
         toolRenderContext({ isPartial: true }),
       ),
     ).join("\n");
+
     expect(pending).toBe("● working");
   });
   it("refreshes cached styling after theme invalidation", () => {
@@ -277,12 +328,14 @@ describe("MCP presentation", () => {
     const changingTheme = createIdentityTheme();
     let color = "\u001b[31m";
     changingTheme.fg = (_name, text) => `${color}${text}\u001b[0m`;
+
     const component = renderer(
       result("Connected"),
       { expanded: false, isPartial: false },
       changingTheme,
       toolRenderContext(),
     );
+
     expect(component.render(80).join("\n")).toContain("\u001b[31mConnected");
     color = "\u001b[32m";
     expect(component.render(80).join("\n")).toContain("\u001b[31mConnected");

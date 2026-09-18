@@ -6,6 +6,7 @@ export function createInboxStatus(pi: ExtensionAPI) {
   let context: ExtensionContext | undefined;
   let count = 0;
   let paused = 0;
+
   const widget = () => {
     if (context?.mode !== "tui") return;
     context.ui.setWidget(
@@ -17,9 +18,11 @@ export function createInboxStatus(pi: ExtensionAPI) {
         : undefined,
     );
   };
+
   const client = createBorderStatusClient(pi, {
     owner: "ask-question",
   });
+
   return {
     attach(ctx: ExtensionContext, navigationId: string | null = null) {
       count = 0;
@@ -31,6 +34,7 @@ export function createInboxStatus(pi: ExtensionAPI) {
     update(waiting: number, pausedCount: number) {
       count = waiting;
       paused = pausedCount;
+
       if (count > 0)
         client.set("inbox", {
           icon: { nerd: "\uF0E0", unicode: "✉", ascii: "mail" },

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildTree, filterTree, flattenTree, followSelection } from "../tree.js";
@@ -26,8 +27,10 @@ describe("tree", () => {
   });
   it("matches bodies and keeps children when the group itself matches", () => {
     expect(filterTree(tree, "hello").map((node) => node.id)).toEqual(["messages"]);
-    expect(filterTree(tree, "hello")[0].children[0].body).toBe("hello world");
-    expect(filterTree(tree, "Active tools")[0].children).toEqual(tree[1].children);
+    expect(filterTree(tree, "hello")[0]?.children[0]?.body).toBe("hello world");
+    const tools = tree.find((node) => node.id === "tools");
+    assert.ok(tools);
+    expect(filterTree(tree, "Active tools")[0]?.children).toEqual(tools.children);
     expect(filterTree(tree, "nothing matches")).toEqual([]);
   });
   it.each([

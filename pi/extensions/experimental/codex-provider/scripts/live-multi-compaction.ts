@@ -40,23 +40,28 @@ import {
   fetchRequestUrl,
   FunctionValueSchema,
   isWireRecord as isRecord,
-  NumberValueSchema,
   parseCompactionRequestBody,
-  StringValueSchema,
 } from "./wire.ts";
 import type { WireRecord } from "./wire.ts";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
+
 const EXTENSION_PATH = path.join(PACKAGE_ROOT, "index.ts");
+
 const JITI_CLI = path.join(
   path.dirname(createRequire(import.meta.url).resolve("jiti/package.json")),
   "lib/jiti-cli.mjs",
 );
+
 const TRANSPORT_FALLBACK_WARNING =
   "OpenAI Codex WebSocket is unavailable; using SSE for this session.";
+
 const TRUNCATED_OUTPUT_MESSAGE = "Output exceeded the available model context and was truncated";
+
 const TIMESTAMP_CANARY_TYPE = "live-timestamp-canary";
+
 const TIMESTAMP_CANARY_SENTINEL = "MIDTURN-TIMESTAMP-CANARY-7F3A";
+
 const MAGENTA_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAA1BMVEX/AP804Oa6AAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
 
@@ -72,7 +77,8 @@ const liveUiContext = (notifications: string[]): ExtensionUIContext => {
     select: async () => await Promise.resolve(undefined),
     setStatus: () => null,
   } satisfies Pick<ExtensionUIContext, "notify" | "select" | "setStatus">;
-  // SAFETY: Codex provider canaries use only notify, select, and setStatus; all three are implemented.
+
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: This standalone live canary binds only notify, select, and setStatus, all implemented here; it does not install a TUI or exercise other UI operations.
   return Object.assign({} as ExtensionUIContext, fixture);
 };
 
@@ -80,6 +86,7 @@ const positiveInteger = (name: string, fallback: number): number => {
   const raw = process.env[name];
   const value = raw === undefined ? fallback : Number(raw);
   assert(Number.isSafeInteger(value) && value > 0, `${name} must be a positive safe integer`);
+
   return value;
 };
 
@@ -88,6 +95,7 @@ type CheckpointEntry = CompactionEntry | CustomEntry;
 const checkpointEntries = (manager: SessionManager): CheckpointEntry[] =>
   manager.getBranch().filter((entry): entry is CheckpointEntry => {
     const carrier = resolveCheckpointCarrier(entry);
+
     return carrier.kind === "checkpoint" || carrier.kind === "invalid-checkpoint";
   });
 
@@ -95,6 +103,7 @@ const contextTokens = (usage: Usage | undefined): number => {
   if (usage === undefined) {
     return 0;
   }
+
   return usage.totalTokens === 0
     ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite
     : usage.totalTokens;
@@ -104,6 +113,7 @@ const parsedCheckpoint = (entry: CheckpointEntry | undefined): Checkpoint => {
   assert(entry !== undefined, "Checkpoint missing");
   const carrier = resolveCheckpointCarrier(entry);
   assert(carrier.kind === "checkpoint", "Checkpoint invalid");
+
   return carrier.checkpoint;
 };
 
@@ -128,12 +138,14 @@ const assertCheckpoint = (
     checkpoint.phase === expectedPhase && checkpoint.reason === "threshold",
     `Round ${expectedRound}: unexpected checkpoint phase/reason`,
   );
+
   if (requireLocalThreshold) {
     assert(
       checkpoint.sourceTokens >= Math.floor(forcedContextWindow * 0.9),
       `Round ${expectedRound}: checkpoint source did not cross 90%`,
     );
   }
+
   const { usage } = checkpoint.response;
   const sideInputTokens = usage.input + usage.cacheRead + usage.cacheWrite;
   assert(
@@ -148,6 +160,7 @@ const assertCheckpoint = (
     checkpoint.runtime.currentWindowId !== checkpoint.runtime.previousWindowId,
     `Round ${expectedRound}: current and previous window IDs match`,
   );
+
   return { runtime: checkpoint.runtime, sideInputTokens };
 };
 
@@ -155,20 +168,27 @@ const lastAssistant = (session: AgentSession): AssistantMessage | undefined =>
   session.messages.findLast((message): message is AssistantMessage => message.role === "assistant");
 
 const assistantText = (message: AssistantMessage | undefined) =>
-  message?.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("") ?? "";
+  message?.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("") ?? "";
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The live probe inspects finalized provider request JSON independently, validating only the output entries it counts.
 const rewrittenTrailingOutputCount = (requestBodyValue: unknown): number => {
   assert(isRecord(requestBodyValue), "Compaction request body is invalid");
   assert(Array.isArray(requestBodyValue.input), "Compaction input is missing");
+
   return requestBodyValue.input.filter((item) => {
     if (!isRecord(item)) {
       return false;
     }
+
     if (item.type !== "function_call_output" && item.type !== "custom_tool_call_output") {
       return (
         item.type === "tool_search_output" && Array.isArray(item.tools) && item.tools.length === 0
       );
     }
+
     return isRecord(item.output)
       ? item.output.body === TRUNCATED_OUTPUT_MESSAGE
       : item.output === TRUNCATED_OUTPUT_MESSAGE;
@@ -181,7 +201,9 @@ const disposeCanarySession = async (session: AgentSession, transportMode: Transp
   if (disposedSessions.has(session)) {
     return;
   }
+
   disposedSessions.add(session);
+
   try {
     if (transportMode === "websocket") {
       await session.reload();
@@ -198,12 +220,14 @@ const syntheticHex = (bytes: number): string =>
 
 const syntheticText = (bytes: number): string => {
   const unit = "The quick brown fox jumps over the lazy dog. ";
+
   return unit.repeat(Math.ceil(bytes / unit.length)).slice(0, bytes);
 };
 
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
   assert(value !== undefined && value.length > 0, `${name} is required`);
+
   return value;
 };
 
@@ -216,22 +240,25 @@ export const installTransportProbe = (
   const failures: string[] = [];
   const responses: string[] = [];
   const requests: { readonly body?: string; readonly pathname: string }[] = [];
+
   const observeFailures = async (response: Response) => {
     try {
       for await (const value of parseSseEvents(response.clone())) {
         const responseValue = isRecord(value.response) ? value.response : undefined;
+
         if (value.type !== "response.failed") {
           continue;
         }
+
         const errorValue = isRecord(responseValue?.error) ? responseValue.error : undefined;
-        failures.push(
-          Value.Check(StringValueSchema, errorValue?.code) ? errorValue.code : "response.failed",
-        );
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Compaction canary inspects persisted/remote observations independently of producer types.
+        failures.push(typeof errorValue?.code === "string" ? errorValue.code : "response.failed");
       }
     } catch {
       // The provider owns strict response parsing; observation is best-effort.
     }
   };
+
   let sseRequests = 0;
   let streamFaults = 0;
   let websocketConstructions = 0;
@@ -242,25 +269,31 @@ export const installTransportProbe = (
     const body = await fetchRequestBody(input, init);
     const compactionRequest = parseCompactionRequestBody(body) !== undefined;
     let response = await nativeFetch(input, init);
+
     if (observed) {
       sseRequests += 1;
-      requests.push({ body, pathname });
+      requests.push({ ...(body !== undefined ? { body } : {}), pathname });
       responses.push(`${pathname}:${response.status}`);
+
       if (injectStreamFault && streamFaults === 0 && compactionRequest && response.body !== null) {
         streamFaults += 1;
         const reader = response.body.getReader();
+
         const faultBody = new ReadableStream<Uint8Array>({
           async pull(controller) {
             const first = await reader.read();
+
             if (first.done !== true) {
-              const { value } = first;
+              const value: unknown = first.value;
               assert(value instanceof Uint8Array, "Response chunk is not bytes");
               controller.enqueue(value.subarray(0, 1));
             }
+
             await reader.cancel();
             controller.error(new Error("Injected client-side stream fault"));
           },
         });
+
         response = new Response(faultBody, {
           headers: response.headers,
           status: response.status,
@@ -270,6 +303,7 @@ export const installTransportProbe = (
         failureObservations.push(observeFailures(response));
       }
     }
+
     return response;
   };
 
@@ -278,6 +312,7 @@ export const installTransportProbe = (
       websocketConstructions += 1;
       throw new Error("Injected WebSocket connection failure");
     };
+
     Object.defineProperty(globalThis, "WebSocket", {
       configurable: true,
       value: FailingWebSocket,
@@ -296,6 +331,8 @@ export const installTransportProbe = (
       value: new Proxy(NativeWebSocket, {
         construct(target, argumentsList) {
           websocketConstructions += 1;
+
+          // oxlint-disable-next-line typescript/no-unsafe-return -- The passive Proxy must preserve the native constructor, arguments, receiver, and returned socket without fabricating a replacement.
           return Reflect.construct(target, argumentsList, target);
         },
       }),
@@ -308,6 +345,7 @@ export const installTransportProbe = (
   return {
     async failures() {
       await Promise.allSettled(failureObservations);
+
       return failures;
     },
     get requests() {
@@ -354,6 +392,7 @@ const assertTransport = (
 const runFreshChild = async (invocation: ChildInvocation) => {
   const prefix =
     invocation.kind === "branch-child" ? "CODEX_COMPACTION_BRANCH" : "CODEX_COMPACTION_RESTART";
+
   const environment = (name: string) => requiredEnvironment(`${prefix}_${name}`);
   const canaryCwd = environment("CWD");
   const isolatedAgentDir = environment("AGENT_DIR");
@@ -364,14 +403,17 @@ const runFreshChild = async (invocation: ChildInvocation) => {
   const { transport: transportMode } = invocation;
   const transportProbe = installTransportProbe(transportMode);
   const realAgentDir = getAgentDir();
+
   const modelRuntime = await ModelRuntime.create({
     authPath: path.join(realAgentDir, "auth.json"),
     modelsPath: path.join(realAgentDir, "models.json"),
   });
+
   const baseModel = modelRuntime.getModel("openai-codex", modelId);
   assert(baseModel !== undefined, `Model openai-codex/${modelId} is unavailable`);
   const extensionErrors: ExtensionError[] = [];
   const notifications: string[] = [];
+
   const openSession = async (
     manager: SessionManager,
     contextWindow: number,
@@ -381,6 +423,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
       retry: { enabled: true, maxRetries: 2 },
       transport: transportMode === "sse" ? "sse" : "websocket",
     });
+
     const resourceLoader = new DefaultResourceLoader({
       additionalExtensionPaths: [EXTENSION_PATH],
       agentDir: isolatedAgentDir,
@@ -392,7 +435,9 @@ const runFreshChild = async (invocation: ChildInvocation) => {
       settingsManager,
       systemPrompt: `This is a fresh-process ${invocation.kind === "branch-child" ? "branch" : "restart"} canary. Reply with one short acknowledgement and do not use tools.`,
     });
+
     await resourceLoader.reload();
+
     const created = await createAgentSession({
       agentDir: isolatedAgentDir,
       cwd: canaryCwd,
@@ -404,27 +449,33 @@ const runFreshChild = async (invocation: ChildInvocation) => {
       settingsManager,
       thinkingLevel: "minimal",
     });
+
     await created.session.bindExtensions({
       onError: (error) => {
         extensionErrors.push(error);
       },
       uiContext: liveUiContext(notifications),
     });
+
     if (created.session.model?.contextWindow !== contextWindow) {
       await created.session.setModel({ ...baseModel, contextWindow });
     }
+
     assert(
       created.session.model?.contextWindow === contextWindow,
       `Fresh-process model window is ${created.session.model?.contextWindow ?? "missing"}; expected ${contextWindow}`,
     );
+
     return created.session;
   };
 
   let manager = SessionManager.open(sessionFile, sessionDir, canaryCwd);
+
   let session = await openSession(
     manager,
     invocation.kind === "branch-child" ? 4096 : Math.max(baseModel.contextWindow, 1_000_000),
   );
+
   try {
     if (invocation.kind === "restart-child") {
       const expectedResponseId = environment("RESPONSE");
@@ -448,6 +499,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
         "Fresh-process restart assistant did not complete",
       );
       assert(extensionErrors.length === 0, "Extension errors were emitted");
+
       if (transportMode === "fallback") {
         assert(
           notifications.filter((notification) => notification === TRANSPORT_FALLBACK_WARNING)
@@ -459,6 +511,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
           `Fresh-process fallback made ${fallbackAfterFirst} WebSocket attempt(s) on the first turn and ${transportProbe.websocketConstructions} total`,
         );
       }
+
       assertTransport(transportMode, transportProbe, 1);
       await writeFile(
         resultFile,
@@ -470,6 +523,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
           websocketConstructions: transportProbe.websocketConstructions,
         }),
       );
+
       return;
     }
 
@@ -561,6 +615,7 @@ const runFreshChild = async (invocation: ChildInvocation) => {
 const main = async (invocation: ParentInvocation) => {
   const scenario = invocation.kind;
   const { rounds, transport: transportMode } = invocation;
+
   if (invocation.showHelp) {
     console.log(`Usage:
   vp run @clanker-stuff/codex-provider#test:live [--sse|--websocket|--fallback] [--branch|--capabilities|--real-window|--mid-turn|--soak|--stream-fault|--threshold]
@@ -572,11 +627,15 @@ Environment:
   CODEX_COMPACTION_LIVE_CONTEXT_WINDOW Forced estimator window (default: 4096)
   CODEX_COMPACTION_LIVE_PAYLOAD_BYTES  Synthetic bytes per round (default: 20000)
   CODEX_COMPACTION_LIVE_DIR            Parent directory for retained artifacts`);
+
     return;
   }
+
   const configuredModel = process.env.CODEX_COMPACTION_LIVE_MODEL?.trim();
+
   const modelId =
     configuredModel !== undefined && configuredModel.length > 0 ? configuredModel : "gpt-5.6-sol";
+
   execFileSync(
     process.execPath,
     [JITI_CLI, path.join(PACKAGE_ROOT, "audit-local-order.ts"), process.cwd()],
@@ -596,10 +655,12 @@ Environment:
   ]);
 
   const realAgentDir = getAgentDir();
+
   const modelRuntime = await ModelRuntime.create({
     authPath: path.join(realAgentDir, "auth.json"),
     modelsPath: path.join(realAgentDir, "models.json"),
   });
+
   const baseModel = modelRuntime.getModel("openai-codex", modelId);
   assert(baseModel !== undefined, `Model openai-codex/${modelId} is unavailable`);
   assert(
@@ -609,9 +670,12 @@ Environment:
   const auth = await modelRuntime.getAuth(baseModel);
   assert(auth !== undefined, "OpenAI Codex auth is unavailable");
   const alternateValue = process.env.CODEX_COMPACTION_LIVE_ALT_MODEL?.trim();
+
   const configuredAlternate =
     alternateValue !== undefined && alternateValue.length > 0 ? alternateValue : undefined;
+
   const availableModels = scenario === "capabilities" ? await modelRuntime.getAvailable() : [];
+
   const alternateCandidates =
     scenario === "capabilities"
       ? availableModels.filter(
@@ -621,11 +685,13 @@ Environment:
             candidate.id !== modelId,
         )
       : [];
+
   const alternateModel =
     scenario === "capabilities"
       ? (alternateCandidates.find(({ id }) => id === (configuredAlternate ?? "gpt-5.6-terra")) ??
         (configuredAlternate === undefined ? alternateCandidates[0] : undefined))
       : undefined;
+
   if (scenario === "capabilities") {
     assert(baseModel.input.includes("image"), `Capability model ${modelId} does not accept images`);
     assert(
@@ -635,40 +701,49 @@ Environment:
         : `Alternate model openai-codex/${configuredAlternate} is unavailable`,
     );
   }
+
   const forcedContextWindow =
     usesRealWindow(scenario) || scenario === "threshold"
       ? baseModel.contextWindow
       : positiveInteger("CODEX_COMPACTION_LIVE_CONTEXT_WINDOW", 4096);
+
   let payloadBytes =
     usesRealWindow(scenario) || scenario === "threshold"
       ? 0
       : positiveInteger("CODEX_COMPACTION_LIVE_PAYLOAD_BYTES", 20_000);
+
   if (!(usesRealWindow(scenario) || scenario === "threshold")) {
     assert(
       payloadBytes >= forcedContextWindow * 0.9 * 4,
       "Synthetic payload must cross the 90% local context estimate",
     );
   }
+
   const minimumSideInputTokens = usesRealWindow(scenario)
     ? Math.floor(forcedContextWindow * (scenario === "mid-turn" ? 0.8 : 0.9))
     : 0;
 
   const extensionErrors: ExtensionError[] = [];
   const notifications: string[] = [];
+
   type TimestampCanaryState = {
     contextSeen?: boolean;
     liveTimestamp?: number;
     persistedTimestamp?: number;
     providerSeen?: boolean;
   };
+
   const timestampCanaryState: TimestampCanaryState = {};
+
   const timestampCanaryExtension: ExtensionFactory = (pi) => {
     let injected = false;
     pi.on("before_agent_start", (event) => {
       const shouldInject = !injected && event.prompt.includes("mid-turn canary round 2");
+
       if (shouldInject) {
         injected = true;
       }
+
       return shouldInject
         ? {
             message: {
@@ -688,13 +763,17 @@ Environment:
       const live = event.messages.find(
         (message) => message.role === "custom" && message.customType === TIMESTAMP_CANARY_TYPE,
       );
+
       if (live === undefined) {
         return;
       }
+
       const branch = ctx.sessionManager.getBranch();
+
       const persisted = branch.find(
         (entry) => entry.type === "custom_message" && entry.customType === TIMESTAMP_CANARY_TYPE,
       );
+
       assert(
         persisted !== undefined &&
           live.timestamp !== new Date(persisted.timestamp).getTime() &&
@@ -707,9 +786,11 @@ Environment:
     });
     pi.on("before_provider_request", (event) => {
       const payload = JSON.stringify(event.payload);
+
       if (!payload.includes(TIMESTAMP_CANARY_SENTINEL)) {
         return;
       }
+
       assert(
         payload.split(TIMESTAMP_CANARY_SENTINEL).length === 2 &&
           payload.split('"type":"compaction"').length === 2,
@@ -718,6 +799,7 @@ Environment:
       timestampCanaryState.providerSeen = true;
     });
   };
+
   const createCanarySession = async (
     sessionManager: SessionManager,
     contextWindow: number,
@@ -737,6 +819,7 @@ Environment:
       retry: { enabled: true, maxRetries: 2 },
       transport: transportMode === "sse" ? "sse" : "websocket",
     });
+
     const resourceLoader = new DefaultResourceLoader({
       additionalExtensionPaths: loadCompaction ? [EXTENSION_PATH] : [],
       agentDir: isolatedAgentDir,
@@ -754,12 +837,14 @@ Environment:
           ? "For every user request, call context_filler exactly once, then reply only MIDTURN COMPLETE. Never call the tool more than once for one request."
           : "This is a live compaction canary. Reply with one short acknowledgement and do not use tools."),
     });
+
     await resourceLoader.reload();
     const loaded = resourceLoader.getExtensions();
     assert(
       loaded.errors.length === 0,
       `Extension loading failed: ${loaded.errors.map(({ error }) => error).join("; ")}`,
     );
+
     if (loadCompaction) {
       assert(
         loaded.extensions.some(
@@ -768,6 +853,7 @@ Environment:
         "codex-provider extension was not loaded",
       );
     }
+
     const toolOptions: Pick<CreateAgentSessionOptions, "customTools" | "noTools" | "tools"> =
       customTools.length > 0
         ? {
@@ -775,6 +861,7 @@ Environment:
             tools: customTools.map((tool) => tool.name),
           }
         : { noTools: "all" };
+
     const created = await createAgentSession({
       agentDir: isolatedAgentDir,
       cwd: canaryCwd,
@@ -786,28 +873,34 @@ Environment:
       settingsManager,
       thinkingLevel: "minimal",
     });
+
     await created.session.bindExtensions({
       onError: (error) => {
         extensionErrors.push(error);
       },
       uiContext: liveUiContext(notifications),
     });
+
     if (created.session.model?.contextWindow !== contextWindow) {
       await created.session.setModel({ ...baseModel, contextWindow });
     }
+
     assert(
       created.session.model?.contextWindow === contextWindow,
       `Canary model window is ${created.session.model?.contextWindow ?? "missing"}; expected ${contextWindow}`,
     );
+
     return created.session;
   };
 
   let calibration: { bytesPerToken: number; inputTokens: number; probeBytes: number } | undefined;
+
   if (usesRealWindow(scenario)) {
     const probeBytes = 64_000;
     const syntheticPayload = scenario === "mid-turn" ? syntheticText : syntheticHex;
     const probeManager = SessionManager.inMemory(canaryCwd);
     const probe = await createCanarySession(probeManager, forcedContextWindow, false);
+
     try {
       await probe.prompt(
         `TOKEN DENSITY CALIBRATION. Reply only CALIBRATED.\n${syntheticPayload(probeBytes)}`,
@@ -826,6 +919,7 @@ Environment:
     } finally {
       probe.dispose();
     }
+
     payloadBytes = positiveInteger(
       "CODEX_COMPACTION_LIVE_PAYLOAD_BYTES",
       scenario === "mid-turn"
@@ -835,6 +929,7 @@ Environment:
           )
         : Math.ceil(minimumSideInputTokens * 1.015 * calibration.bytesPerToken),
     );
+
     if (scenario === "mid-turn") {
       assert(
         Math.ceil(payloadBytes / 4) >= Math.floor(forcedContextWindow * 0.9),
@@ -846,6 +941,7 @@ Environment:
         "Calibrated payload would trigger the local estimator before server usage",
       );
     }
+
     console.log(
       `Calibration: ${calibration.inputTokens.toLocaleString()} tokens / ${probeBytes.toLocaleString()} bytes; ${calibration.bytesPerToken.toFixed(3)} bytes/token`,
     );
@@ -856,10 +952,12 @@ Environment:
   let toolCalls = 0;
   const postCompactionToolCalls: number[] = [];
   const structuredCalls: WireRecord[] = [];
+
   const midTurnTool: ToolDefinition = {
     description: "Return the synthetic context payload. Call exactly once when instructed.",
     execute: async () => {
       toolCalls += 1;
+
       return {
         content: [
           {
@@ -878,10 +976,12 @@ Environment:
       type: "object",
     },
   };
+
   const postCompactionTool: ToolDefinition = {
     description: "Confirm tool availability after context_filler has caused compaction.",
     execute: async () => {
       postCompactionToolCalls.push(checkpointEntries(manager).length);
+
       return {
         content: [{ text: "post-compaction tool probe complete", type: "text" }],
         details: {},
@@ -895,10 +995,12 @@ Environment:
       type: "object",
     },
   };
+
   const thresholdTool: ToolDefinition = {
     description: "Return one short below-threshold probe result.",
     execute: async () => {
       toolCalls += 1;
+
       return {
         content: [{ text: "threshold probe complete", type: "text" }],
         details: {},
@@ -912,6 +1014,7 @@ Environment:
       type: "object",
     },
   };
+
   const structuredTool: ToolDefinition = {
     constrainedSampling: { strict: "require", type: "json_schema" },
     description: "Record the exact structured capability-canary payload requested by the user.",
@@ -919,11 +1022,13 @@ Environment:
       if (!isRecord(params)) {
         throw new Error("Structured canary arguments are not an object");
       }
+
       structuredCalls.push({
         label: params.label,
         ok: params.ok,
         sequence: params.sequence,
       });
+
       return {
         content: [{ text: "Structured payload recorded.", type: "text" }],
         details: {},
@@ -942,7 +1047,9 @@ Environment:
       type: "object",
     },
   };
+
   let customTools: ToolDefinition[] = [];
+
   if (scenario === "capabilities") {
     customTools = [structuredTool];
   } else if (scenario === "mid-turn") {
@@ -950,7 +1057,9 @@ Environment:
   } else if (scenario === "threshold") {
     customTools = [thresholdTool];
   }
+
   let systemPrompt: string | undefined;
+
   if (scenario === "capabilities") {
     systemPrompt =
       "This is a backend capability canary. Follow each user request exactly. Use capability_record only when explicitly requested.";
@@ -961,6 +1070,7 @@ Environment:
     systemPrompt =
       "For every user request, first call context_filler exactly once. Only after that tool completes, call post_compaction_probe exactly once, then reply only MIDTURN COMPLETE. Never call either tool more than once for one request.";
   }
+
   const session = await createCanarySession(
     manager,
     forcedContextWindow,
@@ -968,6 +1078,7 @@ Environment:
     customTools,
     systemPrompt,
   );
+
   if (scenario === "mid-turn") {
     const seed = syntheticText(Math.ceil(forcedContextWindow * 0.03 * 4));
     await session.sendCustomMessage({
@@ -981,6 +1092,7 @@ Environment:
       display: false,
     });
   }
+
   if (scenario === "threshold") {
     const provider = modelRuntime.getProvider("openai-codex");
     assert(
@@ -989,13 +1101,19 @@ Environment:
     );
     const { apiKey } = auth.auth;
     assert(apiKey !== undefined, "Threshold canary auth is unavailable");
+
     type StoreEntry = NonNullable<
       Parameters<NonNullable<typeof provider.refreshModels>>[0]["stored"]
     >;
+
     let stored: StoreEntry | undefined;
     await provider.refreshModels({
       allowNetwork: true,
-      credential: { env: auth.env, key: apiKey, type: "api_key" },
+      credential: {
+        ...(auth.env !== undefined ? { env: auth.env } : {}),
+        key: apiKey,
+        type: "api_key",
+      },
       force: true,
       publish: async (publication) => {
         if (publication.persist === null) {
@@ -1003,16 +1121,20 @@ Environment:
         } else if (publication.persist !== undefined) {
           stored = publication.persist;
         }
+
         publication.update?.();
+
         return true;
       },
       signal: AbortSignal.timeout(30_000),
-      stored,
+      ...(stored !== undefined ? { stored } : {}),
     });
   }
+
   const ids: string[] = [];
   const sideInputTokens: number[] = [];
   const windows: Checkpoint["runtime"][] = [];
+
   const estimatorEvidence: {
     readonly declaredContextWindow: number;
     readonly effectiveContextLimit: number;
@@ -1024,8 +1146,10 @@ Environment:
     readonly rewrittenTrailingOutputs: number;
     readonly round: number;
   }[] = [];
+
   try {
     console.log(`Live artifacts: ${runRoot}`);
+
     if (scenario === "threshold") {
       await session.prompt(
         "BELOW-THRESHOLD CANARY. Call threshold_probe exactly once, then give the required final reply.",
@@ -1062,8 +1186,10 @@ Environment:
           2,
         ),
       );
+
       return;
     }
+
     if (scenario === "capabilities") {
       assert(alternateModel !== undefined, "Alternate model missing");
       await session.prompt(
@@ -1107,12 +1233,14 @@ Environment:
         `CAPABILITY COMPACTION. Reply only COMPACTED.\n${syntheticHex(payloadBytes)}`,
       );
       const compacted = checkpointEntries(manager);
+
       if (compacted.length !== 1) {
         const failures = await transportProbe.failures();
         throw new Error(
           `Capability compaction expected 1 checkpoint, found ${compacted.length}; assistant=${lastAssistant(session)?.stopReason ?? "missing"}; error=${lastAssistant(session)?.errorMessage ?? "none"}; notification=${notifications.at(-1) ?? "none"}; responses=${transportProbe.responses.join(",") || "none"}; providerFailures=${failures.join(",") || "none"}; extensionErrors=${extensionErrors.map(({ error }) => error).join("; ") || "none"}`,
         );
       }
+
       const compactedCheckpoint = compacted.at(-1);
       const checked = assertCheckpoint(compactedCheckpoint, 1, forcedContextWindow, 0, true);
       assert(
@@ -1137,9 +1265,11 @@ Environment:
         switchedCheckpoints.length >= 1 && switchedCheckpoints.length <= 2,
         `Model switch produced ${switchedCheckpoints.length} checkpoints`,
       );
+
       for (const checkpoint of switchedCheckpoints) {
         parsedCheckpoint(checkpoint);
       }
+
       assert(extensionErrors.length === 0, "Capability canary emitted an extension error");
       assertTransport(transportMode, transportProbe);
       console.log(
@@ -1162,33 +1292,43 @@ Environment:
           2,
         ),
       );
+
       return;
     }
+
     let runLabel = "";
+
     if (scenario === "mid-turn") {
       runLabel = "mid-turn ";
     } else if (scenario === "soak") {
       runLabel = "soak ";
     }
+
     console.log(
       `Running ${rounds} ${runLabel}${scenario === "mid-turn" ? "host lifecycle" : "inline"} compactions with openai-codex/${modelId} (${forcedContextWindow.toLocaleString()} token window)...`,
     );
+
     for (let round = 1; round <= rounds; round += 1) {
       const requestCountBefore = transportProbe.requests.length;
+
       if (scenario === "mid-turn") {
         await session.prompt(
           `For mid-turn canary round ${round}, call context_filler exactly once, then call post_compaction_probe exactly once after it completes, then give the required final reply.`,
         );
+
         if (round === 2) {
           assert(
             timestampCanaryState.contextSeen === true &&
               timestampCanaryState.providerSeen === true &&
               timestampCanaryState.liveTimestamp === 1 &&
-              Value.Check(NumberValueSchema, timestampCanaryState.persistedTimestamp) &&
+              // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Compaction canary inspects persisted/remote observations independently of producer types.
+              typeof timestampCanaryState.persistedTimestamp === "number" &&
+              Number.isFinite(timestampCanaryState.persistedTimestamp) &&
               timestampCanaryState.persistedTimestamp !== 1,
             "Round 2: timestamp-mismatch checkpoint replay was not observed",
           );
         }
+
         assert(
           toolCalls === round,
           `Round ${round}: expected ${round} tool call(s), observed ${toolCalls}`,
@@ -1201,10 +1341,12 @@ Environment:
         assert(calibration !== undefined, "Token-density calibration missing");
         const baselineTokens = round === 1 ? 0 : contextTokens(lastAssistant(session)?.usage);
         const targetTokens = Math.ceil(minimumSideInputTokens * 1.015);
+
         const roundPayloadBytes =
           round === 1
             ? payloadBytes
             : Math.ceil(Math.max(1, targetTokens - baselineTokens) * calibration.bytesPerToken);
+
         const checkpointsBefore = checkpointEntries(manager).length;
         await session.prompt(
           `LIVE CANARY FILL ${round}. Ignore the synthetic data and reply only FILLED ${round}.\n${syntheticHex(roundPayloadBytes)}`,
@@ -1227,6 +1369,7 @@ Environment:
           `Round ${round}: filled ${fillTokens.toLocaleString()} tokens (${((fillTokens / forcedContextWindow) * 100).toFixed(1)}%) from a ${baselineTokens.toLocaleString()}-token baseline`,
         );
       }
+
       if (scenario !== "mid-turn") {
         await session.prompt(
           usesRealWindow(scenario)
@@ -1234,20 +1377,25 @@ Environment:
             : `LIVE CANARY ROUND ${round}. Reply only ACK ${round}.\n${String(round).repeat(payloadBytes)}`,
         );
       }
+
       const checkpoints = checkpointEntries(manager);
+
       if (checkpoints.length !== round) {
         const failures = await transportProbe.failures();
         throw new Error(
           `Round ${round}: expected ${round} checkpoints, found ${checkpoints.length}; assistant=${lastAssistant(session)?.stopReason ?? "missing"}; error=${lastAssistant(session)?.errorMessage ?? "none"}; notification=${notifications.at(-1) ?? "none"}; responses=${transportProbe.responses.join(",") || "none"}; providerFailures=${failures.join(",") || "none"}; extensionErrors=${extensionErrors.map(({ error }) => error).join("; ") || "none"}`,
         );
       }
+
       const checkpoint = checkpoints.at(-1);
+
       if (scenario === "mid-turn") {
         assert(
           checkpoint?.type === "compaction" && checkpoint.fromHook === true,
           `Round ${round}: mid-turn checkpoint was not installed by Pi's lifecycle`,
         );
       }
+
       const checked = assertCheckpoint(
         checkpoint,
         round,
@@ -1256,7 +1404,9 @@ Environment:
         !usesRealWindow(scenario) || scenario === "mid-turn",
         scenario === "mid-turn" ? "mid-turn" : "pre-sampling",
       );
+
       const previousWindow = windows.at(-1);
+
       if (previousWindow !== undefined) {
         assert(
           checked.runtime.windowNumber > previousWindow.windowNumber &&
@@ -1265,16 +1415,20 @@ Environment:
           `Round ${round}: window generation or ID chain did not advance monotonically`,
         );
       }
+
       windows.push(checked.runtime);
       const id = responseId(checkpoint);
       assert(!ids.includes(id), `Round ${round}: response ID was reused`);
       ids.push(id);
       sideInputTokens.push(checked.sideInputTokens);
+
       if (usesRealWindow(scenario)) {
         const bodies = transportProbe.requests.slice(requestCountBefore).flatMap(({ body }) => {
           const value = parseCompactionRequestBody(body);
+
           return value === undefined ? [] : [value];
         });
+
         assert(bodies.length > 0, `Round ${round}: captured no new structural compaction request`);
         const body = bodies.at(-1);
         assert(body !== undefined, `Round ${round}: compaction body is missing`);
@@ -1297,10 +1451,12 @@ Environment:
           round,
         });
       }
+
       assert(
         lastAssistant(session)?.stopReason === "stop",
         `Round ${round}: assistant did not complete`,
       );
+
       if (transportMode === "fallback") {
         assert(
           transportProbe.websocketConstructions === 3,
@@ -1312,6 +1468,7 @@ Environment:
           `Round ${round}: fallback warning was not emitted exactly once`,
         );
       }
+
       assertTransport(transportMode, transportProbe, transportMode === "fallback" ? 3 : 1);
       console.log(
         `Round ${round}: checkpoint ${id}; window ${checked.runtime.windowNumber} ${checked.runtime.currentWindowId}; provider input ${checked.sideInputTokens.toLocaleString()} tokens (${((checked.sideInputTokens / forcedContextWindow) * 100).toFixed(1)}%)`,
@@ -1320,9 +1477,11 @@ Environment:
 
     const entriesBeforeStatus = manager.getEntries().length;
     await session.prompt("/codex-provider");
+
     const statusReport = notifications.findLast((notification) =>
       notification.startsWith("Codex provider status\n"),
     );
+
     assert(
       statusReport?.includes(`Count: ${rounds} current branch`) === true &&
         manager.getEntries().length === entriesBeforeStatus,
@@ -1333,6 +1492,7 @@ Environment:
       const compactRequests = transportProbe.requests.filter(
         ({ body }) => parseCompactionRequestBody(body) !== undefined,
       ).length;
+
       assert(
         transportProbe.streamFaults === 1 && compactRequests >= rounds + 1,
         `Stream-fault canary injected ${transportProbe.streamFaults} fault(s) across ${compactRequests} compaction request(s)`,
@@ -1341,6 +1501,7 @@ Environment:
 
     const sessionFile = manager.getSessionFile();
     assert(sessionFile !== undefined, "Persistent session file was not created");
+
     if (scenario === "branch") {
       const checkpoints = checkpointEntries(manager);
       const [first, second] = checkpoints;
@@ -1384,8 +1545,10 @@ Environment:
           2,
         ),
       );
+
       return;
     }
+
     assert(extensionErrors.length === 0, "Extension errors were emitted");
     const latestResponseId = ids.at(-1);
     assert(latestResponseId !== undefined, "Newest checkpoint response ID missing");

@@ -3,6 +3,7 @@ import { buildSessionContext, convertToLlm, estimateTokens } from "@earendil-wor
 import type { ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 export type BodyFormat = "markdown" | "json" | "text";
+
 export type NodeTone = "text" | "accent" | "muted" | "error" | "code";
 
 export interface ContextPart {
@@ -31,7 +32,8 @@ interface SnapshotInput {
 }
 
 const messageBody = (message: Message): string => {
-  if (typeof message.content === "string") return message.content;
+  if (!Array.isArray(message.content)) return message.content;
+
   return message.content
     .map((block) => {
       switch (block.type) {
@@ -50,12 +52,14 @@ const messageBody = (message: Message): string => {
 
 const messageTone = (message: Message): NodeTone => {
   if (message.role === "toolResult") return message.isError ? "error" : "muted";
+
   return message.role === "user" ? "accent" : "text";
 };
 
 export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
   const active = new Set(input.activeTools);
   const messages = convertToLlm(buildSessionContext(input.branch).messages);
+
   return {
     modelLabel: input.modelLabel,
     usage: input.usage === undefined ? undefined : { ...input.usage },
@@ -74,6 +78,7 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
           description: tool.description,
           parameters: tool.parameters,
         };
+
         return {
           label: tool.name,
           body: JSON.stringify(definition, null, 2),

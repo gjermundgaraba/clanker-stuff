@@ -7,6 +7,7 @@ import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-codin
 import { RecapEntrySchema, RECAP_ENTRY_TYPE, RECAP_MAX_CHARS, sanitizeRecapText } from "./entry.js";
 
 export const RECAP_HISTORY_MAX_TURNS = 8;
+
 export const RECAP_PROMPT_PREFIX =
   "Write a brief catch-up for a user returning to this Pi task. " +
   "In at most 40 words and one or two plain-text sentences, explain the " +
@@ -46,20 +47,25 @@ export const conversationProgress = (entries: readonly SessionEntry[]): Conversa
   for (const entry of entries) {
     if (entry.type === "custom" && entry.customType === RECAP_ENTRY_TYPE) {
       const recap = entry.data;
+
       if (Value.Check(RecapEntrySchema, recap)) {
         lastRecappedTurns = recap.completedTurns;
       }
+
       continue;
     }
+
     if (!isConversationMessage(entry)) {
       continue;
     }
 
     sourceRevision = entry.id;
+
     if (entry.message.role === "user") {
       if (activeTurn && isCompletedTurnStopReason(finalStopReason)) {
         completedTurns += 1;
       }
+
       activeTurn = true;
       finalStopReason = undefined;
     } else if (activeTurn) {
@@ -85,9 +91,11 @@ const selectMessages = (entries: readonly SessionEntry[]): ConversationMessage[]
 
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
+
     if (entry === undefined || !isConversationMessage(entry)) {
       continue;
     }
+
     if (
       entry.message.role === "assistant" &&
       (entry.message.stopReason === "error" || entry.message.stopReason === "aborted")
@@ -96,14 +104,17 @@ const selectMessages = (entries: readonly SessionEntry[]): ConversationMessage[]
     }
 
     const text = contentText(entry.message.content).trim();
+
     if (text.length === 0) {
       continue;
     }
 
     const role = entry.message.role === "user" ? "User" : "Assistant";
     messages.push({ role, text });
+
     if (role === "User") {
       userTurns += 1;
+
       if (userTurns === RECAP_HISTORY_MAX_TURNS) {
         break;
       }
@@ -116,16 +127,20 @@ const selectMessages = (entries: readonly SessionEntry[]): ConversationMessage[]
 export const buildRecapPrompt = (entries: readonly SessionEntry[]): string | undefined => {
   const messages = selectMessages(entries);
   const history = messages.map(({ role, text }) => `${role}: ${text}`).join("\n\n");
+
   if (history.length === 0) {
     return undefined;
   }
+
   return `${RECAP_PROMPT_PREFIX}${history}`;
 };
 
 export const normalizeRecap = (value: string): string | undefined => {
   const trimmed = sanitizeRecapText(value).trim();
+
   if (trimmed.length === 0) {
     return undefined;
   }
+
   return Array.from(trimmed).slice(0, RECAP_MAX_CHARS).join("");
 };

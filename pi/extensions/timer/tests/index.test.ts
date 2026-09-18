@@ -1,35 +1,44 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
 import extension from "../index.js";
 
-const timer = vi.hoisted(() => ({
-  dispose: vi.fn<() => void>(),
-  pause: vi.fn<(ctx: ExtensionContext) => void>(),
-  resume: vi.fn<(ctx: ExtensionContext) => void>(),
-  start: vi.fn<(ctx: ExtensionContext) => void>(),
-  setAsyncPrompt: vi.fn<(value: unknown) => void>(),
-  stop: vi.fn<(ctx: ExtensionContext) => void>(),
-}));
+describe("timer lifecycle wiring", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
 
-vi.mock(import("../timer.js"), () => ({ createTimer: () => timer }));
+  it.each([true, false, "true", null, undefined])(
+    "validates async prompt events at the bus boundary (%s)",
+    async (active) => {
+      const host = createExtensionHost(extension);
+      const ctx = host.createContext();
+      await host.emit("agent_start", {}, ctx);
+      host.events.emit("clanker:async-prompt", { active });
+      await host.emit("ui_prompt_start", {}, ctx);
+      vi.advanceTimersByTime(1000);
+      await host.emit("ui_prompt_end", {}, ctx);
+      await host.emit("agent_settled", {}, ctx);
+      expect(host.getStatus("timer")).toContain(active === true ? "1.0s" : "0.0s");
+      await host.emitSessionShutdown(ctx);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 
-describe("timer registration", () => {
-  it("wires the timer lifecycle", async () => {
+  it("resumes timed work after prompts and stops all timers on shutdown", async () => {
     const host = createExtensionHost(extension);
     const ctx = host.createContext();
-
     await host.emit("agent_start", {}, ctx);
+    vi.advanceTimersByTime(500);
     await host.emit("ui_prompt_start", {}, ctx);
+    vi.advanceTimersByTime(5000);
     await host.emit("ui_prompt_end", {}, ctx);
+    vi.advanceTimersByTime(500);
     await host.emit("agent_settled", {}, ctx);
+    expect(host.getStatus("timer")).toContain("1.0s");
+    expect(vi.getTimerCount()).toBe(0);
+    await host.emit("agent_start", {}, ctx);
+    expect(vi.getTimerCount()).toBe(1);
     await host.emitSessionShutdown(ctx);
-
-    expect(timer.start).toHaveBeenCalledExactlyOnceWith(ctx);
-    expect(timer.pause).toHaveBeenCalledExactlyOnceWith(ctx);
-    expect(timer.resume).toHaveBeenCalledExactlyOnceWith(ctx);
-    expect(timer.stop).toHaveBeenCalledExactlyOnceWith(ctx);
-    expect(timer.dispose).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

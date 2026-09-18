@@ -12,17 +12,20 @@ export const createAnnotateHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     const parsed = runtime.parseArguments(args, ctx);
+
     if (parsed === undefined) {
       return;
     }
 
     let target: string | undefined;
     let tokens: string[];
+
     try {
       tokens = normalizeAnnotationArguments(parsed, new Set(["--json"]));
       target = findAnnotationTarget(tokens);
     } catch (error) {
       notifyError(ctx, "Invalid Plannotator arguments", error);
+
       return;
     }
 
@@ -31,6 +34,7 @@ export const createAnnotateHandler =
         "Usage: /plannotator-annotate <file | folder | URL> [--markdown] [--no-jina] [--gate]",
         "error",
       );
+
       return;
     }
 
@@ -38,20 +42,27 @@ export const createAnnotateHandler =
       failureLabel: "Plannotator annotation",
       onOutput(stdout) {
         const outcome = parseAnnotationOutcome(stdout);
+
         if (outcome.decision === "approved") {
           ctx.ui.notify("Plannotator annotation approved.", "info");
+
           return;
         }
+
         if (outcome.decision === "dismissed") {
           ctx.ui.notify("Plannotator annotation closed.", "info");
+
           return;
         }
 
         const feedback = outcome.feedback.trim();
+
         if (feedback.length === 0) {
           ctx.ui.notify("Plannotator annotation closed without feedback.", "info");
+
           return;
         }
+
         pi.sendUserMessage(
           `# Markdown Annotations\n\nFile: ${target}\n\n${feedback}\n\nPlease address the annotation feedback above.`,
           { deliverAs: "followUp" },

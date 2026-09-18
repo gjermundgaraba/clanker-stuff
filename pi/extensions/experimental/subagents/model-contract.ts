@@ -11,6 +11,7 @@ Payload:
 <payload text>`;
 
 const ROOT_MAILBOX = mailbox("MESSAGE | FINAL_ANSWER");
+
 const CHILD_MAILBOX = mailbox("NEW_TASK | MESSAGE | FINAL_ANSWER");
 
 const joinLayers = (...layers: (string | undefined)[]): string =>
@@ -116,7 +117,9 @@ export const configuredRoleDescription = (name: string, role: RoleConfig): strin
       ? undefined
       : `configured reasoning effort ${role.thinking} cannot be overridden`,
   ].filter((value): value is string => value !== undefined);
+
   const summary = role.description ?? `Pi role ${name}`;
+
   return `${name}: ${summary}${constraints.length === 0 ? "" : `; ${constraints.join("; ")}`}`;
 };
 

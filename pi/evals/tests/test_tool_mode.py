@@ -65,7 +65,7 @@ class ToolModeTest(unittest.TestCase):
             trajectory["agent"]["extra"]["tool_operations"],
             [{"name": "exec_command", "success": True}],
         )
-        verifier = (EVALS / "verifiers/tool-mode.mjs").as_uri()
+        verifier = (EVALS / "verifiers/tool-mode-core.mjs").as_uri()
 
         def valid(value):
             run = subprocess.run(
@@ -92,6 +92,15 @@ class ToolModeTest(unittest.TestCase):
             altered = deepcopy(trajectory)
             altered["agent"]["extra"]["tool_mode_evidence"][0].update(patch)
             self.assertEqual(valid(altered), 0)
+        for evidence in [None, {}, "invalid", [None], [evidence, {"type": "unrecognized"}]]:
+            altered = deepcopy(trajectory)
+            altered["agent"]["extra"]["tool_mode_evidence"] = evidence
+            self.assertEqual(valid(altered), 0)
+        altered = deepcopy(trajectory)
+        altered["steps"] = "invalid"
+        self.assertEqual(valid(altered), 0)
+        for malformed in [None, [], {"agent": []}, {"agent": {"extra": "invalid"}}]:
+            self.assertEqual(valid(malformed), 0)
         trajectory["agent"]["extra"]["tool_mode_evidence"].append(
             {"type": "pi_eval_compaction"}
         )

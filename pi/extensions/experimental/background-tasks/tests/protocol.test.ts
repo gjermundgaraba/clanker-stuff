@@ -5,12 +5,15 @@ describe("WatchDecoder", () => {
   it("decodes byte-fragmented UTF8, LF framing and JSON newlines", () => {
     const decoder = new WatchDecoder();
     const records: unknown[] = [];
+
     for (const byte of Buffer.from('{"v":1,"type":"event","data":"😀\\nnext"}\n')) {
       decoder.push(Buffer.from([byte]), (record) => {
         records.push(record);
+
         return true;
       });
     }
+
     decoder.finish();
     expect(records).toEqual([{ v: 1, type: "event", data: "😀\nnext" }]);
   });
@@ -38,6 +41,7 @@ describe("WatchDecoder", () => {
     const records: unknown[] = [];
     decoder.push(Buffer.from('{"v":1,"type":"result","data":1}\ninvalid\n'), (r) => {
       records.push(r);
+
       return false;
     });
     decoder.push(Buffer.from("also invalid"), () => {

@@ -18,12 +18,19 @@ import { createCodexDirectTools } from "../tools/direct.js";
 
 // Exercise the downloaded binary and real adapter without inference or installed credentials.
 const binary = await ensureCodeModeHostBinary(AbortSignal.timeout(120_000));
+
 const client = new CodeModeHostClient(binary);
+
 const direct = createCodexDirectTools();
+
 const tools = direct.nestedDefinitions.map((definition) => toNestedTool({ definition }));
+
 const rootDir = await realpath(await mkdtemp(path.join(tmpdir(), "codex-host-check-")));
+
 const context = Promise.withResolvers<ExtensionContext>();
+
 let session: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
+
 try {
   session = await createRealCodexSession({
     extensionFactories: [
@@ -35,6 +42,7 @@ try {
     sessionManager: SessionManager.inMemory(rootDir),
   });
   const ctx = { extensionContext: await context.promise };
+
   const execute = (source: string) =>
     client.execute(source, ctx, AbortSignal.timeout(15_000), tools);
 
@@ -48,6 +56,7 @@ try {
   const undefinedStore = await execute(
     'store("undefined-check", null); try { store("undefined-check", undefined); } catch (error) { text(String(error)); } text(load("undefined-check"));',
   );
+
   assert.equal(undefinedStore.kind, "result");
   assert("errorText" in undefinedStore && undefinedStore.errorText === undefined);
   assert.deepEqual(
@@ -64,6 +73,7 @@ try {
   const nested = await execute(
     'const result = await tools.exec_command({cmd:"pwd",max_output_tokens:100}); text(result.output.trim()); text(ALL_TOOLS.map(tool => tool.name));',
   );
+
   assert.equal(nested.kind, "result");
   assert(nested.contentItems.some((item) => item.text === rootDir));
   assert(nested.contentItems.some((item) => item.text?.includes("exec_command")));
@@ -74,6 +84,7 @@ try {
   const yielded = await execute(
     '// @exec: {"yield_time_ms":0}\nawait new Promise(resolve => setTimeout(resolve, 100)); text("AFTER_WAIT");',
   );
+
   assert.equal(yielded.kind, "yielded");
   const waited = await client.wait(yielded.cellId, 1_000, ctx, AbortSignal.timeout(15_000));
   assert.equal(waited.kind, "result");
@@ -82,6 +93,7 @@ try {
   const running = await execute(
     '// @exec: {"yield_time_ms":0}\nawait new Promise(resolve => setTimeout(resolve, 10000));',
   );
+
   assert.equal(running.kind, "yielded");
   const terminated = await client.terminate(running.cellId, ctx, AbortSignal.timeout(15_000));
   assert.equal(terminated.kind, "terminated");
@@ -94,6 +106,7 @@ try {
     once: true,
   });
   let execUpdates = 0;
+
   const cancelledExec = client.execute(
     "await new Promise(() => {});",
     {
@@ -106,6 +119,7 @@ try {
     AbortSignal.any([abortExec.signal, abortDeadline]),
     tools,
   );
+
   void cancelledExec.catch(() => {});
   await admitted.promise;
   abortExec.abort();
@@ -120,12 +134,14 @@ try {
     const signal = AbortSignal.timeout(15_000);
     signal.addEventListener("abort", () => started.reject(signal.reason), { once: true });
     const counts = { exec: 0, a: 0, b: 0 };
+
     const watching = (name: keyof typeof counts): ToolExecutionContext => ({
       ...ctx,
       onUpdate: () => {
         counts[name]++;
       },
     });
+
     const probe = toNestedTool({
       definition: {
         name: "observer_probe",
@@ -136,10 +152,12 @@ try {
           assert(onUpdate);
           started.resolve(onUpdate);
           await release.promise;
+
           return { content: [], details: undefined };
         },
       },
     });
+
     try {
       const cell = await client.execute(
         '// @exec: {"yield_time_ms":0}\nawait tools.observer_probe({}); text("PROBE_DONE");',
@@ -147,15 +165,18 @@ try {
         signal,
         [...tools, probe],
       );
+
       assert.equal(cell.kind, "yielded");
       const emit = await started.promise;
       const controller = new AbortController();
+
       const first = client.wait(
         cell.cellId,
         10_000,
         watching("a"),
         AbortSignal.any([signal, controller.signal]),
       );
+
       void first.catch(() => {});
       // There is no wait-accepted event; allow the host to install its first observer.
       await delay(50, undefined, { signal });
@@ -164,12 +185,15 @@ try {
         /already has an active observer/u,
       );
       const before = { ...counts };
+
       const progress = {
         content: [{ type: "text" as const, text: "progress" }],
         details: undefined,
       };
+
       emit(progress);
       assert.deepEqual(counts, { ...before, a: before.a + 1 });
+
       if (cancelWait) {
         controller.abort();
         await assert.rejects(first, { name: "AbortError" });
@@ -179,10 +203,13 @@ try {
         // Cancellation releases the native observer asynchronously.
         await delay(50, undefined, { signal });
       }
+
       release.resolve();
+
       const completed = cancelWait
         ? await client.wait(cell.cellId, 1000, ctx, signal)
         : await first;
+
       assert.equal(completed.kind, "result");
       assert(completed.contentItems.some((item) => item.text === "PROBE_DONE"));
       const settled = { ...counts };

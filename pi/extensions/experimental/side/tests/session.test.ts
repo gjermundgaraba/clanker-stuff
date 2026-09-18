@@ -26,6 +26,7 @@ const createSession = (overrides: Partial<SideAgentSession> = {}): SideAgentSess
 describe("side session", () => {
   it("returns to idle when a handled prompt emits no agent events", async () => {
     const prompt = vi.fn<(text: string) => Promise<void>>(async () => {});
+
     const controller = new SideSessionController(
       createSession({
         prompt,
@@ -47,11 +48,13 @@ describe("side session", () => {
   it("clears streaming activity when a prompt rejects after an update", async () => {
     const prompt = Promise.withResolvers<void>();
     let listener: ((event: AgentSessionEvent) => void) | undefined;
+
     const controller = new SideSessionController(
       createSession({
         prompt: () => prompt.promise,
         subscribe: (next: (event: AgentSessionEvent) => void) => {
           listener = next;
+
           return () => {};
         },
       }),
@@ -81,12 +84,14 @@ describe("side session", () => {
     const bindExtensions = vi.fn<() => Promise<void>>(() => binding.promise);
     const session = createSession({ bindExtensions });
     const createAgentSession = vi.fn(async () => ({ session }));
+
     const ctx: SideConversationContext = {
       cwd: process.cwd(),
       isProjectTrusted: () => true,
       model: undefined,
       sessionManager: SessionManager.inMemory(),
     };
+
     const conversation = createSideConversation(ctx, "off", createAgentSession);
     let returned = false;
     void conversation.then(() => {
@@ -106,10 +111,12 @@ describe("side session", () => {
 
   it("emits session_shutdown to child extensions before disposal", async () => {
     const order: string[] = [];
+
     const emit = vi.fn<() => Promise<void>>(async () => {
       order.push("emit");
       await Promise.resolve();
     });
+
     const session = createSession({
       dispose: vi.fn<() => void>(() => {
         order.push("dispose");

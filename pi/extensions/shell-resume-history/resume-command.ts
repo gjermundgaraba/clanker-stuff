@@ -15,6 +15,7 @@ const quoteShellArgument = (value: string): string => {
   if (value.length > 0 && !/[^a-zA-Z0-9_\-./~:@]/u.test(value)) {
     return value;
   }
+
   return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 };
 
@@ -23,6 +24,7 @@ const getDefaultSessionDirectory = (cwd: string): string => {
     .resolve(cwd)
     .replace(/^[/\\]/u, "")
     .replaceAll(/[/\\:]/gu, "-")}--`;
+
   return path.join(path.resolve(getAgentDir()), "sessions", safePath);
 };
 
@@ -33,23 +35,28 @@ export const formatResumeCommand = (
   sessionManager: ExtensionContext["sessionManager"],
 ): string | undefined => {
   const sessionFile = sessionManager.getSessionFile();
+
   if (sessionFile === undefined || sessionFile.length === 0 || !existsSync(sessionFile)) {
     return undefined;
   }
 
   const sessionId = sessionManager.getSessionId();
+
   if (!canResumeById(sessionId)) {
     return `pi --session ${quoteShellArgument(path.resolve(sessionFile))}`;
   }
 
   const args = ["pi"];
+
   if (
     path.resolve(sessionManager.getSessionDir()) !==
     getDefaultSessionDirectory(sessionManager.getCwd())
   ) {
     args.push("--session-dir", quoteShellArgument(sessionManager.getSessionDir()));
   }
+
   args.push("--session", sessionId);
+
   return args.join(" ");
 };
 
@@ -70,6 +77,7 @@ export const enqueueResumeCommand = async (
     flag: "wx",
     mode: 0o600,
   });
+
   try {
     await rename(temporaryPath, finalPath);
   } catch (error) {
@@ -87,6 +95,7 @@ export const recordResumeCommand = async (
   }
 
   const command = formatResumeCommand(ctx.sessionManager);
+
   if (command === undefined) {
     return;
   }

@@ -7,21 +7,27 @@ import type { RuntimeToolResult, RuntimeToolTrace } from "../../code-mode/types.
 import { stripVTControlCharacters } from "node:util";
 
 const theme = createIdentityTheme();
+
 const exited = {
   exit_code: 1,
   original_token_count: 4,
   output: "first\nsecond\n",
   wall_time_seconds: 0.2,
 };
+
 const running = {
   exit_code: null,
   output: "still running\n",
   session_id: 12,
   wall_time_seconds: 0.1,
 };
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Display tests serialize arbitrary captured results, including malformed values, to exercise rendering boundaries.
 const items = (value: unknown): RuntimeToolResult["content"] => [
   { text: JSON.stringify(value), type: "text" },
 ];
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Trace fixtures retain arbitrary delegated results so the display tests cover unknown and malformed envelopes.
 const trace = (value: unknown, name = "exec_command"): RuntimeToolTrace => ({
   id: "trace-1",
   input: {},
@@ -29,6 +35,7 @@ const trace = (value: unknown, name = "exec_command"): RuntimeToolTrace => ({
   result: { content: [], details: { codeModeResult: value } },
   status: "done",
 });
+
 const render = (
   content: RuntimeToolResult["content"],
   traces: readonly RuntimeToolTrace[] = [],
@@ -61,6 +68,7 @@ describe("Code Mode script output display", () => {
       original_token_count: 4,
       exit_code: 1,
     };
+
     expect(render(items(reordered), [trace(exited)])).toEqual([
       { text: "first\nsecond\n", traceId: "trace-1" },
     ]);
@@ -68,9 +76,11 @@ describe("Code Mode script output display", () => {
 
   it("retains arbitrary JSON and unmatched native-looking envelopes", () => {
     const values = [{ output: "user data" }, exited, { ...exited, application: "data" }];
+
     for (const value of values) {
       expect(render(items(value))).toEqual([{ text: JSON.stringify(value, null, 2) }]);
     }
+
     const changed = { ...exited, wall_time_seconds: 2 };
     expect(render(items(changed), [trace(exited)])).toEqual([
       { text: JSON.stringify(changed, null, 2) },
@@ -87,6 +97,7 @@ describe("Code Mode script output display", () => {
       { id: "missing", input: {}, name: "exec_command", status: "running" },
       { ...trace(exited), result: { content: [], details: { output: exited.output } } },
     ];
+
     expect(render(items(exited), traces)).toEqual([{ text: JSON.stringify(exited, null, 2) }]);
   });
 
@@ -121,6 +132,7 @@ describe("Code Mode script output display", () => {
       ...items(["a", "b"]),
       { data: "image", mimeType: "image/png", type: "image" },
     ];
+
     expect(render(content, [trace(exited)])).toEqual([
       { text: "first\nsecond\n", traceId: "trace-1" },
       { text: "Error: script failed\n  at line 2" },

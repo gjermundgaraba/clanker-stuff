@@ -46,6 +46,7 @@ import { vi } from "vite-plus/test";
 import { createIdentityTheme } from "./tui.js";
 
 type ExtensionEventName = string;
+
 type ContextOverrides = Omit<
   Partial<ExtensionCommandContext>,
   "modelRegistry" | "sessionManager" | "ui"
@@ -54,10 +55,15 @@ type ContextOverrides = Omit<
   sessionManager?: Partial<ExtensionContext["sessionManager"]>;
   ui?: Partial<ExtensionCommandContext["ui"]>;
 };
+
 type ToolExecute = NonNullable<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>;
+
 type EditorFactory = Parameters<ExtensionCommandContext["ui"]["setEditorComponent"]>[0];
+
 type MessageRenderer = Parameters<ExtensionAPI["registerMessageRenderer"]>[1];
+
 type NativeProvider = Provider;
+
 interface RunToolOptions {
   ctx?: ExtensionCommandContext;
   signal?: Parameters<ToolExecute>[2];
@@ -83,6 +89,7 @@ const TEST_SOURCE_INFO = createSyntheticSourceInfo("<test>", {
   scope: "project",
   source: "test",
 });
+
 let nextHostId = 0;
 
 const InputEventResultSchema = Type.Union([
@@ -102,17 +109,22 @@ const InputEventResultSchema = Type.Union([
   }),
   Type.Object({ action: Type.Literal("handled") }),
 ]);
+
 const ToolArgumentsSchema = Type.Record(Type.String(), Type.Unknown());
+
 type ToolArguments = Static<typeof ToolArgumentsSchema>;
-interface IncompleteTarget {}
 
 // SAFETY: This test-only proxy exposes only implemented members and fails immediately for every other Pi API call.
-const incomplete = <T>(value: IncompleteTarget): T =>
+const incomplete = <T extends object>(value: Partial<T>): T =>
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The harness deliberately implements a partial Pi API; unimplemented access throws rather than silently succeeding.
   new Proxy(value, {
-    get(target, property) {
+    // oxlint-disable-next-line anti-slop/no-unknown-returns -- A proxy forwards arbitrary Pi property types; the supplied partial API is checked at construction.
+    get(target, property, receiver): unknown {
       if (Reflect.has(target, property)) {
-        return Object.getOwnPropertyDescriptor(target, property)?.value;
+        // oxlint-disable-next-line anti-slop/no-reflect-get -- Forward the actual getter/receiver semantics of implemented Pi members.
+        return Reflect.get(target, property, receiver);
       }
+
       throw new Error(`Extension host does not implement ${String(property)}`);
     },
   }) as T;
@@ -144,14 +156,17 @@ export const createExtensionHost = (
   const registeredProviderConfigs = new Map<string, ProviderConfig>();
   const entries = [...(options.entries ?? [])];
   const appendedEntries: SessionEntry[] = [];
+
   const sentUserMessages: {
     content: Parameters<ExtensionAPI["sendUserMessage"]>[0];
     options: Parameters<ExtensionAPI["sendUserMessage"]>[1];
   }[] = [];
+
   const sentMessages: {
     message: Parameters<ExtensionAPI["sendMessage"]>[0];
     options: Parameters<ExtensionAPI["sendMessage"]>[1];
   }[] = [];
+
   const notifications: { message: string; type?: string }[] = [];
   const autocompleteProviderFactories: AutocompleteProviderFactory[] = [];
   const widgetState = new Map<string, string | undefined>();
@@ -166,14 +181,14 @@ export const createExtensionHost = (
   let thinkingLevel: ReturnType<ExtensionAPI["getThinkingLevel"]> = "off";
   let activeTools = [...(options.activeTools ?? ["read", "bash", "edit", "write"])];
   const externalToolNames = new Set(options.externalTools);
+
   const baseToolInfos = (options.allTools ?? ["read", "bash", "edit", "write"]).map((name) =>
     createToolInfo(name, externalToolNames.has(name)),
   );
+
   const knownToolNames = new Set(baseToolInfos.map(({ name }) => name));
   let allToolInfos = [...baseToolInfos];
   let editorText = "";
-
-  const getHandlers = () => extension?.handlers ?? new Map();
 
   const syncRegisteredTools = () => {
     if (!extension) {
@@ -188,7 +203,9 @@ export const createExtensionHost = (
         description: definition.description,
         name: definition.name,
         parameters: definition.parameters,
-        promptGuidelines: definition.promptGuidelines,
+        ...(definition.promptGuidelines === undefined
+          ? {}
+          : { promptGuidelines: definition.promptGuidelines }),
         sourceInfo,
       })),
     ];
@@ -196,6 +213,7 @@ export const createExtensionHost = (
     for (const { definition } of extensionTools) {
       if (!knownToolNames.has(definition.name)) {
         knownToolNames.add(definition.name);
+
         if (!activeTools.includes(definition.name)) {
           activeTools.push(definition.name);
         }
@@ -207,6 +225,7 @@ export const createExtensionHost = (
 
   const getBranch = (fromId?: string) => {
     const targetId = fromId ?? leafId;
+
     if (!targetId) {
       return [];
     }
@@ -216,6 +235,7 @@ export const createExtensionHost = (
 
     while (currentId) {
       const entry = getEntry(currentId);
+
       if (!entry) {
         break;
       }
@@ -232,23 +252,26 @@ export const createExtensionHost = (
     event: TEvent,
     ctx: ExtensionContext,
   ) => {
-    const eventHandlers = getHandlers().get(eventName) ?? [];
+    const eventHandlers = extension?.handlers.get(eventName) ?? [];
     const results: unknown[] = [];
+
     for (const handler of eventHandlers) {
       results.push(await handler(event, ctx));
     }
+
     return results;
   };
 
   const buildContext = (overrides: ContextOverrides = {}) => {
     const notify = vi.fn<ExtensionCommandContext["ui"]["notify"]>((message, type) => {
-      notifications.push({ message, type });
+      notifications.push({ message, ...(type === undefined ? {} : { type }) });
     });
 
     type WidgetFactory = Exclude<
       Parameters<ExtensionCommandContext["ui"]["setWidget"]>[1],
       undefined
     >;
+
     function setWidget(key: string, content: string[] | undefined): void;
     function setWidget(key: string, content: WidgetFactory | undefined): void;
     function setWidget(key: string, content: string[] | WidgetFactory | undefined): void {
@@ -257,6 +280,7 @@ export const createExtensionHost = (
 
     const onTerminalInput = vi.fn<ExtensionCommandContext["ui"]["onTerminalInput"]>((handler) => {
       terminalInputHandlers.add(handler);
+
       return () => {
         terminalInputHandlers.delete(handler);
       };
@@ -273,7 +297,7 @@ export const createExtensionHost = (
           autocompleteProviderFactories.push(factory);
         },
       ),
-      custom: vi.fn<ExtensionCommandContext["ui"]["custom"]>(custom),
+      custom,
       getEditorComponent: vi.fn<ExtensionCommandContext["ui"]["getEditorComponent"]>(
         () => editorFactory,
       ),
@@ -282,6 +306,7 @@ export const createExtensionHost = (
       onTerminalInput,
       select: vi.fn<ExtensionCommandContext["ui"]["select"]>(async () => {
         await Promise.resolve();
+
         return undefined;
       }),
       setEditorComponent: vi.fn<ExtensionCommandContext["ui"]["setEditorComponent"]>((factory) => {
@@ -299,6 +324,7 @@ export const createExtensionHost = (
     });
 
     const sessionManagerOverrides = overrides.sessionManager;
+
     const defaultSessionManager = incomplete<ExtensionContext["sessionManager"]>({
       buildContextEntries:
         sessionManagerOverrides?.buildContextEntries?.bind(sessionManagerOverrides) ?? getBranch,
@@ -316,6 +342,7 @@ export const createExtensionHost = (
       getSessionId:
         sessionManagerOverrides?.getSessionId?.bind(sessionManagerOverrides) ?? (() => sessionId),
     });
+
     Object.assign(defaultSessionManager, sessionManagerOverrides);
 
     const modelRegistry = incomplete<ExtensionContext["modelRegistry"]>({
@@ -329,6 +356,7 @@ export const createExtensionHost = (
         errors: new Map(),
       })),
     });
+
     Object.assign(modelRegistry, overrides.modelRegistry);
 
     const baseContext = incomplete<ExtensionCommandContext>({
@@ -366,6 +394,7 @@ export const createExtensionHost = (
       timestamp: new Date().toISOString(),
       type: "custom",
     };
+
     entries.push(entry);
     appendedEntries.push(entry);
     nextAppendedEntryId += 1;
@@ -412,14 +441,17 @@ export const createExtensionHost = (
       noThemes: true,
       settingsManager: SettingsManager.inMemory(),
     });
+
     await resourceLoader.reload();
 
     const loaded = resourceLoader.getExtensions();
+
     if (loaded.errors.length > 0) {
       throw new Error(loaded.errors.map(({ error, path }) => `${path}: ${error}`).join("\n"));
     }
 
     [extension] = loaded.extensions;
+
     if (!extension) {
       throw new Error("Inline test extension did not load");
     }
@@ -432,6 +464,7 @@ export const createExtensionHost = (
       credentials: new InMemoryCredentialStore(),
       modelsPath: null,
     });
+
     const runner = new ExtensionRunner(
       loaded.extensions,
       loaded.runtime,
@@ -439,6 +472,7 @@ export const createExtensionHost = (
       SessionManager.inMemory(process.cwd()),
       new ModelRegistry(runnerModelRuntime),
     );
+
     const contextActions: ExtensionContextActions = {
       abort: vi.fn<ExtensionContextActions["abort"]>(),
       compact: vi.fn<ExtensionContextActions["compact"]>(),
@@ -452,6 +486,7 @@ export const createExtensionHost = (
       isProjectTrusted: () => true,
       shutdown: vi.fn<ExtensionContextActions["shutdown"]>(),
     };
+
     runner.bindCore(actions, contextActions, {
       registerNativeProvider(provider) {
         registeredNativeProviders.set(provider.id, provider);
@@ -473,6 +508,7 @@ export const createExtensionHost = (
     ctx = buildContext(),
   ) => {
     await ready;
+
     return await emitHandlers(eventName, event, ctx);
   };
 
@@ -485,6 +521,7 @@ export const createExtensionHost = (
       reason,
       type: "session_start",
     };
+
     if (previousSessionFile !== undefined) {
       event.previousSessionFile = previousSessionFile;
     }
@@ -510,17 +547,23 @@ export const createExtensionHost = (
 
   const emitInput = async (event: InputEvent, ctx = buildContext()): Promise<InputEventResult> => {
     await ready;
-    const inputHandlers = getHandlers().get("input") ?? [];
+    const inputHandlers = extension?.handlers.get("input") ?? [];
 
     let currentEvent = event;
+
+    // oxlint-disable-next-line oxc/no-accumulating-spread -- Handlers can retain prior input events; fresh fixed-size snapshots preserve their text and image references.
     for (const handler of inputHandlers) {
       const rawResult = await handler(currentEvent, ctx);
+
       const result =
         rawResult === undefined ? undefined : Value.Parse(InputEventResultSchema, rawResult);
+
       if (!result || result.action === "continue") continue;
+
       if (result.action === "handled") return result;
 
       currentEvent = { ...currentEvent, text: result.text };
+
       if (result.images !== undefined) {
         currentEvent.images = result.images;
       }
@@ -531,9 +574,11 @@ export const createExtensionHost = (
         action: "transform",
         text: currentEvent.text,
       };
+
       if (currentEvent.images !== undefined) {
         Object.assign(transformed, { images: currentEvent.images });
       }
+
       return transformed;
     }
 
@@ -547,6 +592,7 @@ export const createExtensionHost = (
   const runCommand = async (name: string, args = "", ctx = buildContext()) => {
     await ready;
     const command = extension?.commands.get(name);
+
     if (!command) {
       throw new Error(`Extension command not registered: ${name}`);
     }
@@ -562,6 +608,7 @@ export const createExtensionHost = (
   ) => {
     await ready;
     const tool = extension?.tools.get(name);
+
     if (!tool) {
       throw new Error(`Extension tool not registered: ${name}`);
     }
@@ -575,11 +622,14 @@ export const createExtensionHost = (
         : ctxOrOptions;
 
     const rawParams = Value.Parse(ToolArgumentsSchema, params);
+
     const preparedParams = tool.definition.prepareArguments
       ? tool.definition.prepareArguments(rawParams)
       : rawParams;
+
     const preparedRecord = Value.Parse(ToolArgumentsSchema, preparedParams);
-    const validatedParams = validateToolArguments(
+
+    const validatedParams: unknown = validateToolArguments(
       {
         description: tool.definition.description,
         name: tool.definition.name,
@@ -592,7 +642,8 @@ export const createExtensionHost = (
         type: "toolCall",
       },
     );
-    const parsedParams = Value.Parse(tool.definition.parameters, validatedParams);
+
+    const parsedParams: unknown = Value.Parse(tool.definition.parameters, validatedParams);
 
     return await tool.definition.execute(
       runOptions.toolCallId ?? name,
@@ -605,9 +656,11 @@ export const createExtensionHost = (
 
   const runShortcut = async (name: string, ctx = buildContext()) => {
     await ready;
+
     const shortcut = [...(extension?.shortcuts.values() ?? [])].find(
       (candidate) => candidate.shortcut === name,
     );
+
     if (!shortcut) {
       throw new Error(`Extension shortcut not registered: ${name}`);
     }
@@ -632,9 +685,11 @@ export const createExtensionHost = (
     },
     getAutocompleteProvider(base: AutocompleteProvider) {
       let current = base;
+
       for (const factory of autocompleteProviderFactories) {
         current = factory(current);
       }
+
       return current;
     },
     getEditorFactory() {
@@ -697,6 +752,7 @@ export const createExtensionHost = (
     },
     terminalInput(data: string) {
       const results = [...terminalInputHandlers].map((handler) => handler(data));
+
       return {
         consumed: results.some((result) => result?.consume),
         results,
@@ -706,4 +762,5 @@ export const createExtensionHost = (
 };
 
 export type ExtensionHost = ReturnType<typeof createExtensionHost>;
+
 export type { ContextOverrides };

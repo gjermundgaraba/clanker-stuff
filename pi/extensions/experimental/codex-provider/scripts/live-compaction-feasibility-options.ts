@@ -2,12 +2,19 @@ import { ok as assert } from "node:assert/strict";
 import { parseArgs } from "node:util";
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
+
 export const FEASIBILITY_ACKNOWLEDGEMENT = "I_ACCEPT_UP_TO_5_LIVE_COMPACTIONS";
+
 export const FEASIBILITY_ACKNOWLEDGEMENT_ENV = "CODEX_COMPACTION_FEASIBILITY_ACK";
+
 export const MAX_COMPACTION_REQUESTS = 5;
+
 export const MAX_CONTROL_PERCENT = 115;
+
 export const MAX_LOCAL_CANDIDATE_TOKENS = 325_000;
+
 export const MAX_REQUEST_TIMEOUT_MS = 600_000;
+
 export const OBSERVED_PROVIDER_TOKENS = 282_952;
 
 export interface FeasibilityInvocation {
@@ -84,6 +91,7 @@ export const assertCandidateWithinControlBounds = ({
 const positiveInteger = (value: string | undefined, fallback: number, name: string): number => {
   const parsed = value === undefined ? fallback : Number(value);
   assert(Number.isSafeInteger(parsed) && parsed > 0, `${name} must be a positive safe integer`);
+
   return parsed;
 };
 
@@ -103,14 +111,17 @@ export const parseFeasibilityInvocation = (
     },
     strict: true,
   });
+
   const showHelp = values.help === true;
   const execute = values.execute === true;
   const alternateModel = values["alternate-model"] ?? "";
+
   const candidateTokens = positiveInteger(
     values["candidate-tokens"],
     OBSERVED_PROVIDER_TOKENS + 1,
     "--candidate-tokens",
   );
+
   const timeoutMs = positiveInteger(
     values["timeout-ms"],
     DEFAULT_REQUEST_TIMEOUT_MS,

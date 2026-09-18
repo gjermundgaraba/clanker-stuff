@@ -1,5 +1,12 @@
+import assert from "node:assert/strict";
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
-import { collectAnswers, createInteraction, transition } from "../interaction.js";
+import {
+  collectAnswers,
+  createInteraction,
+  transition,
+  InteractionSchema,
+} from "../interaction.js";
 import type { Action } from "../interaction.js";
 import { validateRequest } from "../request.js";
 
@@ -14,32 +21,37 @@ const request = {
         { id: "remote", label: "Remote" },
       ],
     },
-  ],
+  ] satisfies [import("../request.js").Question],
 };
+
 describe("questionnaire transitions", () => {
   it("requires explicit selection, retains deselected notes, and snapshots only selected answers", () => {
     let item = createInteraction("question_test", request, "call1", "blocking");
+
     const apply = (a: Action) => {
       item = transition(item, item.version, a);
     };
+
     expect(() => collectAnswers(item)).toThrow("Answer required");
     apply({ type: "select", question: "target", option: "local" });
     apply({ type: "note", question: "target", option: "local", text: "my local note" });
     apply({ type: "select", question: "target", option: "remote" });
-    expect(item.draft?.answers.target.notes.local).toBe("my local note");
+    expect(item.draft?.answers.target?.notes.local).toBe("my local note");
     apply({ type: "note", text: "overall" });
     apply({ type: "submit" });
-    expect(item.submissions[0].answers.target.selections).toEqual([
+    expect(item.submissions[0]?.answers.target?.selections).toEqual([
       { option_id: "remote", label: "Remote" },
     ]);
-    expect(item.submissions[0].note).toBe("overall");
+    expect(item.submissions[0]?.note).toBe("overall");
     expect(() => apply({ type: "submit" })).toThrow("No editable draft");
   });
   it("reopens immutable revisions and rejects stale callbacks and concurrent reopens", () => {
     let item = createInteraction("question_test", request, "call1", "async");
+
     const apply = (a: Action) => {
       item = transition(item, item.version, a);
     };
+
     apply({ type: "select", question: "target", option: "local" });
     apply({ type: "submit" });
     const original = structuredClone(item.submissions[0]);
@@ -65,6 +77,36 @@ describe("questionnaire transitions", () => {
       origin: "user",
     });
   });
+  it("rejects a persisted draft missing the question's answer record without mutating it", () => {
+    const item = createInteraction("question_test", request, "call1", "async");
+    assert.ok(item.draft);
+    delete item.draft.answers.target;
+    expect(Value.Check(InteractionSchema, item)).toBe(true);
+    const before = structuredClone(item);
+    expect(() =>
+      transition(item, item.version, { type: "select", question: "target", option: "local" }),
+    ).toThrow("Missing draft answer: target");
+    expect(item).toEqual(before);
+  });
+  it("rejects reopening a persisted submission missing a question's answer record", () => {
+    let item = createInteraction("question_test", request, "call1", "async");
+    item = transition(item, item.version, { type: "select", question: "target", option: "local" });
+    item = transition(item, item.version, { type: "submit" });
+    const [submission] = item.submissions;
+    assert.ok(submission);
+    delete submission.answers.target;
+    expect(Value.Check(InteractionSchema, item)).toBe(true);
+    const before = structuredClone(item);
+    expect(() =>
+      transition(item, item.version, {
+        type: "reopen",
+        base: 1,
+        initiated_by: "user",
+        mode: "async",
+      }),
+    ).toThrow("Missing submitted answer: target");
+    expect(item).toEqual(before);
+  });
   it("keeps custom text separate from notes and allows multi-select combinations", () => {
     let item = createInteraction(
       "question_test",
@@ -72,6 +114,7 @@ describe("questionnaire transitions", () => {
       "c",
       "async",
     );
+
     for (const action of [
       { type: "select", question: "target", option: "local" },
       { type: "custom", question: "target", text: "also a third" },
@@ -99,13 +142,14 @@ describe("questionnaire transitions", () => {
       "c",
       "blocking",
     );
+
     item = transition(item, item.version, {
       type: "select",
       question: "constructor",
       option: "toString",
     });
     item = transition(item, item.version, { type: "submit" });
-    expect(Object.values(item.submissions[0].answers)[0].selections).toEqual([
+    expect(Object.values(item.submissions[0]?.answers ?? {})[0]?.selections).toEqual([
       { option_id: "toString", label: "Safe" },
     ]);
   });

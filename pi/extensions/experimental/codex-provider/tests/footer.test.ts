@@ -12,10 +12,12 @@ import { createToolsModel } from "./fixtures.js";
 describe("Codex footer widgets", () => {
   it("publishes rich Fast and Code Mode widgets", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
+
     const host = createExtensionHost(extension, {
       flags: { fast: true },
       model,
     });
+
     await host.ready;
     const messages: unknown[] = [];
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {

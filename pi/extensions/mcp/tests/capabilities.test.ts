@@ -1,3 +1,4 @@
+import type { SamplingScopeRequest } from "../sampling-protocol.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -15,12 +16,14 @@ describe("MCP SDK input continuations", () => {
   it.each(["modern", "legacy"])("preserves all form field names on the %s wire", async (era) => {
     const answers = ["prototype answer", "constructor answer", "string answer", "ordinary answer"];
     const selections = ["Fill form", "Accept"];
+
     const ctx = host().createContext({
       ui: {
         select: vi.fn(async () => selections.shift()),
         input: vi.fn(async () => answers.shift()),
       },
     });
+
     const connection = await connectToServer({
       serverConfig: {
         type: "stdio",
@@ -28,12 +31,15 @@ describe("MCP SDK input continuations", () => {
         args: [fileURLToPath(new URL("./fixtures/elicitation-peer.ts", import.meta.url)), era],
       },
     });
+
     const signal = new AbortController().signal;
+
     try {
       const result = await connection.withContext!(
         { ctx, model, signal, reportUsage: () => {} },
         () => connection.client.callTool({ name: "interact" }, { signal }),
       );
+
       expect(result.content).toEqual([
         {
           type: "text",
@@ -47,6 +53,7 @@ describe("MCP SDK input continuations", () => {
   });
   it("serves legacy roots after initialization and while idle, with current-session and call ownership", async () => {
     let workspace: string | undefined = "/tmp/initial workspace";
+
     const connection = await connectToServer({
       serverConfig: {
         type: "stdio",
@@ -59,6 +66,7 @@ describe("MCP SDK input continuations", () => {
       },
       getWorkspace: () => workspace,
     });
+
     const expected = (cwd: string | undefined) => [
       {
         type: "text",
@@ -67,6 +75,7 @@ describe("MCP SDK input continuations", () => {
         }),
       },
     ];
+
     try {
       expect((await connection.client.callTool({ name: "startup-roots" })).content).toEqual(
         expected(workspace),
@@ -80,10 +89,12 @@ describe("MCP SDK input continuations", () => {
       );
       const ctx = host().createContext({ cwd: "/tmp/originating workspace" });
       const signal = new AbortController().signal;
+
       const result = await connection.withContext!(
         { ctx, model, signal, reportUsage: () => {} },
         () => connection.client.callTool({ name: "interact" }, { signal }),
       );
+
       expect(result.content).toEqual(expected(ctx.cwd));
       expect((await connection.client.callTool({ name: "interact" })).content).toEqual(
         expected(workspace),
@@ -101,6 +112,7 @@ describe("MCP SDK input continuations", () => {
     "still rejects unsolicited legacy %s requests",
     async (scenario) => {
       const h = host();
+
       const connection = await connectToServer({
         serverConfig: {
           type: "stdio",
@@ -113,13 +125,15 @@ describe("MCP SDK input continuations", () => {
         },
         pi: h,
       });
+
       try {
-        expect((await connection.client.callTool({ name: "interact" })).content).toEqual([
-          {
-            type: "text",
-            text: expect.stringContaining("no unambiguous originating tool call"),
-          },
-        ]);
+        const result = await connection.client.callTool({ name: "interact" });
+        expect(result.content).toHaveLength(1);
+        expect(result.content).toHaveProperty("0.type", "text");
+        expect(result.content).toHaveProperty(
+          "0.text",
+          expect.stringContaining("no unambiguous originating tool call"),
+        );
       } finally {
         await connection.close();
       }
@@ -131,22 +145,26 @@ describe("MCP SDK input continuations", () => {
     ctx: ExtensionContext,
     options: {
       http?: boolean;
-      args?: Record<string, unknown>;
+      args?: { rounds: number };
       signal?: AbortSignal;
       pi?: Pick<ExtensionAPI, "events">;
     } = {},
   ) => {
     const fixture = options.http ? await t.startHttpFixture({ scenario }) : undefined;
+
     const connection = await connectToServer({
       serverConfig: fixture ? { type: "http", url: fixture.url } : fixtureServer(scenario),
       serverName: "fixture",
-      pi: options.pi,
+      ...(options.pi !== undefined ? { pi: options.pi } : {}),
     });
+
     const signal = AbortSignal.any([
       options.signal ?? new AbortController().signal,
       connection.closed!,
     ]);
+
     const usage: SamplingUsage[] = [];
+
     try {
       const result = await connection.withContext!(
         { ctx, model: ctx.model, signal, reportUsage: (sample) => usage.push(sample) },
@@ -156,6 +174,7 @@ describe("MCP SDK input continuations", () => {
             { signal },
           ),
       );
+
       return { result, usage, fixture };
     } finally {
       await connection.close();
@@ -168,6 +187,7 @@ describe("MCP SDK input continuations", () => {
     expect(
       JSON.parse(result.content[0]!.type === "text" ? result.content[0]!.text : ""),
     ).toMatchObject({ roots: { roots: [{ uri: pathToFileURL(ctx.cwd).href }] } });
+
     if (fixture) expect(fixture.state.operations).toBe(1);
   });
 
@@ -185,13 +205,16 @@ describe("MCP SDK input continuations", () => {
       "Done",
       "Accept",
     ];
+
     const inputs = ["Ada", "3", "Grace", "4"];
+
     const ctx = host().createContext({
       ui: {
         select: vi.fn(async () => selections.shift()),
         input: vi.fn(async () => inputs.shift()),
       },
     });
+
     const { result, fixture } = await invoke("rounds", ctx, { http: true, args: { rounds: 2 } });
     expect(result.content).toEqual([
       {
@@ -219,19 +242,23 @@ describe("MCP SDK input continuations", () => {
   it("keeps overlapping HTTP calls bound to their own workspaces", async () => {
     const fixture = await t.startHttpFixture({ scenario: "roots" });
     const connection = await connectToServer({ serverConfig: { type: "http", url: fixture.url } });
+
     const contexts = [
       host().createContext({ cwd: "/tmp/first" }),
       host().createContext({ cwd: "/tmp/second" }),
     ];
+
     try {
       const results = await Promise.all(
         contexts.map((ctx) => {
           const signal = new AbortController().signal;
+
           return connection.withContext!({ ctx, model, signal, reportUsage: () => {} }, () =>
             connection.client.callTool({ name: "interact" }, { signal }),
           );
         }),
       );
+
       for (const [index, result] of results.entries())
         expect(result.content).toEqual([
           {
@@ -252,11 +279,14 @@ describe("MCP SDK input continuations", () => {
   it("uses session roots when a modern request has no origin among overlapping calls", async () => {
     const fixture = await t.startHttpFixture({ scenario: "roots" });
     const workspace = "/tmp/session workspace";
+
     const connection = await connectToServer({
       serverConfig: { type: "http", url: fixture.url },
       getWorkspace: () => workspace,
     });
+
     const gate = Promise.withResolvers<void>();
+
     const active = ["first", "second"].map((name) =>
       connection.withContext!(
         {
@@ -268,6 +298,7 @@ describe("MCP SDK input continuations", () => {
         () => gate.promise,
       ),
     );
+
     try {
       const result = await connection.client.callTool({ name: "interact" });
       expect(result.content).toEqual([
@@ -290,6 +321,7 @@ describe("MCP SDK input continuations", () => {
       .fn<ExtensionContext["ui"]["select"]>()
       .mockResolvedValueOnce("Open URL")
       .mockResolvedValueOnce("Completed");
+
     const ctx = host().createContext({ mode: "rpc", ui: { select } });
     const { result } = await invoke("url", ctx, { http: true });
     expect(select.mock.calls[0]![0]).toContain("MCP fixture");
@@ -303,10 +335,13 @@ describe("MCP SDK input continuations", () => {
     "releases active and queued prompts when calls %s",
     async (action) => {
       const fixture = await t.startHttpFixture({ scenario: "form" });
+
       const connection = await connectToServer({
         serverConfig: { type: "http", url: fixture.url },
       });
+
       const controller = new AbortController();
+
       const select = vi.fn<ExtensionContext["ui"]["select"]>(
         (_title, _choices, options) =>
           new Promise((_resolve, reject) =>
@@ -315,15 +350,20 @@ describe("MCP SDK input continuations", () => {
             }),
           ),
       );
+
       const ctx = host().createContext({ ui: { select } });
+
       const calls = [1, 2].map(() => {
         const signal = AbortSignal.any([controller.signal, connection.closed!]);
+
         return connection.withContext!({ ctx, model, signal, reportUsage: () => {} }, () =>
           connection.client.callTool({ name: "interact" }, { signal }),
         );
       });
+
       const settled = Promise.allSettled(calls);
       await expect.poll(() => select.mock.calls.length).toBe(1);
+
       if (action === "abort") controller.abort();
       else await connection.close();
       expect((await settled).every((result) => result.status === "rejected")).toBe(true);
@@ -338,7 +378,8 @@ describe("MCP SDK input continuations", () => {
     const dispose = vi.fn(async () => {});
     h.events.on("clanker-codex:sampling-scope-request", (request) => {
       // SAFETY: This listener receives only the sampling request emitted by sample() in this test.
-      const typed = request as { maxTokens: number; resolve: (scope: Promise<unknown>) => void };
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
+      const typed = request as SamplingScopeRequest;
       expect(typed.maxTokens).toBe(8);
       typed.resolve(
         Promise.resolve({
@@ -349,6 +390,7 @@ describe("MCP SDK input continuations", () => {
         }),
       );
     });
+
     const response = {
       ...fauxAssistantMessage("one two"),
       stopReason: "length" as const,
@@ -361,15 +403,19 @@ describe("MCP SDK input continuations", () => {
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
     };
+
     const complete = vi.fn<ExtensionContext["modelRegistry"]["complete"]>(async () => response);
+
     const ctx = h.createContext({
       modelRegistry: { complete: (model, context, options) => complete(model, context, options) },
     });
+
     const { result, usage, fixture } = await invoke("sampling", ctx, {
       pi: h,
       http: true,
       args: { rounds: 2 },
     });
+
     expect(complete).toHaveBeenCalledTimes(2);
     expect(complete.mock.calls[0]![0]).toBe(model);
     expect(complete.mock.calls[0]![1]).toMatchObject({
@@ -380,25 +426,30 @@ describe("MCP SDK input continuations", () => {
     expect(complete.mock.calls[0]![2]).toMatchObject({ maxTokens: 8, maxRetries: 0 });
     expect(usage.map((item) => item.usage!.totalTokens)).toEqual([20, 20]);
     expect(dispose).toHaveBeenCalledTimes(2);
-    expect(result.content[0]).toMatchObject({
-      text: expect.stringContaining('"stopReason":"maxTokens"'),
-    });
+    expect(result.content[0]).toHaveProperty(
+      "text",
+      expect.stringContaining('"stopReason":"maxTokens"'),
+    );
     expect(fixture!.state.operations).toBe(1);
   });
   it("cancels a queued legacy call immediately without starting it", async () => {
     const client = new ContextClient();
     const ctx = host().createContext();
     const gate = Promise.withResolvers<void>();
+
     const first = client.withContext(
       { ctx, model, signal: new AbortController().signal, reportUsage: () => {} },
       () => gate.promise,
     );
+
     const controller = new AbortController();
     const run = vi.fn(async () => "unexpected");
+
     const second = client.withContext(
       { ctx, model, signal: controller.signal, reportUsage: () => {} },
       run,
     );
+
     const rejected = expect(second).rejects.toThrow("cancel queued");
     controller.abort(new Error("cancel queued"));
     await rejected;
@@ -411,6 +462,7 @@ describe("MCP SDK input continuations", () => {
   it("cancels a legacy form on SDK timeout and releases the next call without caller abort", async () => {
     const controller = new AbortController();
     const cancelled = vi.fn();
+
     const select = vi.fn<ExtensionContext["ui"]["select"]>(
       (_title, _choices, options) =>
         new Promise((_resolve, reject) => {
@@ -420,7 +472,9 @@ describe("MCP SDK input continuations", () => {
           });
         }),
     );
+
     const ctx = host().createContext({ ui: { select } });
+
     const connection = await connectToServer({
       serverConfig: {
         type: "stdio",
@@ -428,29 +482,36 @@ describe("MCP SDK input continuations", () => {
         args: [fileURLToPath(new URL("./fixtures/elicitation-peer.ts", import.meta.url)), "legacy"],
       },
     });
+
     const owned = { ctx, model, signal: controller.signal, reportUsage: () => {} };
     let parentError: unknown;
-    const first = connection.withContext!(owned, () =>
-      connection.client
-        .callTool({ name: "interact" }, { signal: owned.signal, timeout: 100 })
-        .catch((error: unknown) => {
-          parentError = error;
-          throw error;
-        }),
-    ).catch((error: unknown) => error);
+
+    const first = connection.withContext!(
+      owned,
+      () =>
+        connection.client
+          .callTool({ name: "interact" }, { signal: owned.signal, timeout: 100 })
+          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Capture arbitrary MCP transport rejections to verify cancellation ownership.
+          .catch((cause: unknown) => {
+            parentError = cause;
+            throw cause;
+          }),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Observe the original promise rejection without changing its identity or assuming an Error type.
+    ).catch((cause: unknown) => cause);
+
     const next = vi.fn(() =>
       connection.client.callTool({ name: "ping" }, { signal: owned.signal }),
     );
+
     const second = connection.withContext!(owned, next);
+
     try {
       await expect.poll(() => select.mock.calls.length).toBe(1);
       expect(next).not.toHaveBeenCalled();
       await expect.poll(() => cancelled.mock.calls.length).toBe(1);
       expect(await first).toBe(parentError);
-      expect(parentError).toMatchObject({
-        code: "REQUEST_TIMEOUT",
-        message: expect.stringContaining("timed out"),
-      });
+      expect(parentError).toHaveProperty("code", "REQUEST_TIMEOUT");
+      expect(parentError).toHaveProperty("message", expect.stringContaining("timed out"));
       expect((await second).content).toEqual([{ type: "text", text: '"pong"' }]);
       expect(controller.signal.aborted).toBe(false);
     } finally {
@@ -468,7 +529,8 @@ describe("MCP SDK input continuations", () => {
     const usage = { ...fauxAssistantMessage("partial").usage, output: 3, totalTokens: 3 };
     h.events.on("clanker-codex:sampling-scope-request", (request) => {
       // SAFETY: Only sample() emits this event in this test.
-      const typed = request as { resolve: (scope: Promise<unknown>) => void };
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
+      const typed = request as SamplingScopeRequest;
       typed.resolve(
         Promise.resolve({
           run: <T>(run: () => T) => run(),
@@ -478,16 +540,20 @@ describe("MCP SDK input continuations", () => {
         }),
       );
     });
+
     const complete = vi.fn<ExtensionContext["modelRegistry"]["complete"]>(
       (_model, _context, options) =>
         new Promise((_resolve, reject) => {
           options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason));
         }),
     );
+
     const ctx = h.createContext({
       modelRegistry: { complete: (model, context, options) => complete(model, context, options) },
     });
+
     const reportUsage = vi.fn<(sample: SamplingUsage) => void>();
+
     const connection = await connectToServer({
       serverConfig: {
         type: "stdio",
@@ -500,21 +566,27 @@ describe("MCP SDK input continuations", () => {
       },
       pi: h,
     });
+
     let settled = false;
     let parentError: unknown;
+
     const call = connection.withContext!(
       { ctx, model, signal: controller.signal, reportUsage },
       () =>
         connection.client
           .callTool({ name: "interact" }, { signal: controller.signal, timeout: 100 })
-          .catch((error: unknown) => {
-            parentError = error;
-            throw error;
+          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Capture arbitrary MCP transport rejections to verify cancellation ownership.
+          .catch((cause: unknown) => {
+            parentError = cause;
+            throw cause;
           }),
-    ).catch((error: unknown) => {
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Observe the original promise rejection without changing its identity or assuming an Error type.
+    ).catch((cause: unknown) => {
       settled = true;
-      return error;
+
+      return cause;
     });
+
     try {
       await expect.poll(() => dispose.mock.calls.length).toBe(1);
       expect(complete).toHaveBeenCalledOnce();
@@ -524,10 +596,8 @@ describe("MCP SDK input continuations", () => {
       expect(reportUsage).not.toHaveBeenCalled();
       disposal.resolve();
       expect(await call).toBe(parentError);
-      expect(parentError).toMatchObject({
-        code: "REQUEST_TIMEOUT",
-        message: expect.stringContaining("timed out"),
-      });
+      expect(parentError).toHaveProperty("code", "REQUEST_TIMEOUT");
+      expect(parentError).toHaveProperty("message", expect.stringContaining("timed out"));
       expect(reportUsage).toHaveBeenCalledExactlyOnceWith({
         model: `${model.provider}/${model.id}`,
         usage,
@@ -547,6 +617,7 @@ describe("MCP SDK input continuations", () => {
     const answer = Promise.withResolvers<string>();
     const failed = Promise.withResolvers<never>();
     const cancelled = [vi.fn(), vi.fn()];
+
     const selections = cancelled.map((cancelled) =>
       vi.fn<ExtensionContext["ui"]["select"]>(
         (_title, _options, options) =>
@@ -559,17 +630,23 @@ describe("MCP SDK input continuations", () => {
           }),
       ),
     );
+
     const controllers = [new AbortController(), new AbortController()];
     const contexts = selections.map((select) => host().createContext({ ui: { select } }));
+
     const calls = contexts.map((ctx, index) => {
       const signal = controllers[index]!.signal;
+
       return connection.withContext!({ ctx, model, signal, reportUsage: () => {} }, () => {
         const call = connection.client.callTool({ name: "interact" }, { signal });
+
         return index === 0 ? Promise.race([call, failed.promise]) : call;
       });
     });
+
     const failure = new Error("parent failed");
     const first = expect(calls[0]).rejects.toBe(failure);
+
     try {
       await expect.poll(() => selections.map((select) => select.mock.calls.length)).toEqual([1, 1]);
       failed.reject(failure);

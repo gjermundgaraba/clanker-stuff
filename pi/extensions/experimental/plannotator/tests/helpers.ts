@@ -1,12 +1,9 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 import type { Mock } from "vite-plus/test";
 import { expect, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import type { CliCompletion, CliStarter, CliStartOptions } from "../cli.js";
-import { startPlannotatorCli } from "../command-runtime.js";
 import extension from "../index.js";
 
 export interface PendingProcess {
@@ -18,15 +15,13 @@ export interface PendingProcess {
   signal: AbortSignal;
 }
 
-const TestStringSchema = Type.String();
-
-export const expectString = (value: unknown): string => Value.Parse(TestStringSchema, value);
-
 export const createStarter = () => {
   const pending: PendingProcess[] = [];
+
   const starter = vi.fn<CliStarter>((args, options) => {
     const { promise: completion, reject, resolve } = Promise.withResolvers<CliCompletion>();
     const controller = new AbortController();
+
     const process = {
       args: [...args],
       cancel: vi.fn<() => void>(() => {
@@ -37,23 +32,24 @@ export const createStarter = () => {
       resolve,
       signal: controller.signal,
     };
+
     pending.push(process);
+
     return {
       cancel: process.cancel,
       completion,
       signal: controller.signal,
     };
   });
+
   return { pending, starter };
 };
 
-// Requires the calling test file to have run
-// `vi.mock(import("../command-runtime.js"), { spy: true })`.
 export const setup = (entries: SessionEntry[] = [], leafId: string | null = null) => {
   const { pending, starter } = createStarter();
-  vi.mocked(startPlannotatorCli).mockImplementation(starter);
-  const host = createExtensionHost(extension, { entries, leafId });
+  const host = createExtensionHost((pi) => extension(pi, starter), { entries, leafId });
   const ctx = host.createContext({ cwd: "/work/project" });
+
   return { ctx, host, pending, starter };
 };
 

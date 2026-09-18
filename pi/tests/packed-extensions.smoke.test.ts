@@ -13,9 +13,11 @@ import { createExtensionSmokeHarness } from "./harness/extension-smoke.js";
 import type { ExtensionSmokeHarness } from "./harness/extension-smoke.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
+
 const RootPackageSchema = Type.Object({
   devDependencies: Type.Record(Type.String(), Type.String()),
 });
+
 const PackageDependenciesSchema = Type.Object(
   {
     dependencies: Type.Optional(Type.Record(Type.String(), Type.String())),
@@ -25,16 +27,19 @@ const PackageDependenciesSchema = Type.Object(
   },
   { additionalProperties: true },
 );
+
 const ROOT_DEV_DEPENDENCIES = Value.Parse(
   RootPackageSchema,
   JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8")),
 ).devDependencies;
+
 const CONSUMER_DEPENDENCIES = [
   "@earendil-works/pi-ai",
   "@earendil-works/pi-coding-agent",
   "@earendil-works/pi-tui",
   "typebox",
 ] as const;
+
 const DEPENDENCY_FIELDS = [
   "dependencies",
   "devDependencies",
@@ -44,23 +49,30 @@ const DEPENDENCY_FIELDS = [
 
 const consumerDependencyVersion = (name: (typeof CONSUMER_DEPENDENCIES)[number]): string => {
   const version = ROOT_DEV_DEPENDENCIES[name];
+
   if (version === undefined) {
     throw new Error(`Missing root dependency ${name}`);
   }
+
   return version === "catalog:" ? VERSION : version;
 };
 
 const PUBLISHABLE_PACKAGES = publishableWorkspacePackages(REPO_ROOT);
+
 const EXTENSION_PACKAGE_DIR = /^pi[\\/]extensions[\\/]/u;
+
 const EXTENSION_PACKAGES = PUBLISHABLE_PACKAGES.flatMap(({ dir, name, packageJson }) => {
   if (!EXTENSION_PACKAGE_DIR.test(dir)) {
     return [];
   }
+
   if (!Array.isArray(packageJson.pi?.extensions) || packageJson.pi.extensions.length === 0) {
     throw new Error(`${name} must declare non-empty pi.extensions`);
   }
+
   return [{ dir, entries: packageJson.pi.extensions, name }];
 });
+
 const SHARED_PACKAGES = PUBLISHABLE_PACKAGES.filter(({ dir }) => !EXTENSION_PACKAGE_DIR.test(dir));
 
 const packPackage = (tempRoot: string, packageName: string, dir: string) => {
@@ -71,16 +83,21 @@ const packPackage = (tempRoot: string, packageName: string, dir: string) => {
     stdio: "pipe",
   });
   const tarballs = readdirSync(packDir).filter((file) => file.endsWith(".tgz"));
-  if (tarballs.length !== 1) {
+
+  const [tarball, ...extraTarballs] = tarballs;
+
+  if (tarball === undefined || extraTarballs.length > 0) {
     throw new Error(`Expected one tarball for ${packageName}, found ${tarballs.length}`);
   }
-  return path.join(packDir, tarballs[0]);
+
+  return path.join(packDir, tarball);
 };
 
 const inspectTarball = (packageName: string, tarball: string) => {
   const entries = execFileSync("tar", ["-tzf", tarball], {
     encoding: "utf-8",
   }).split("\n");
+
   expect(entries, `${packageName} packed files`).toContain("package/LICENSE");
 
   const packageJson = Value.Parse(
@@ -91,11 +108,13 @@ const inspectTarball = (packageName: string, tarball: string) => {
       }),
     ),
   );
+
   const workspaceDependencies = DEPENDENCY_FIELDS.flatMap((field) =>
     Object.entries(packageJson[field] ?? {}).flatMap(([name, version]) =>
       version.startsWith("workspace:") ? [`${field}.${name}=${version}`] : [],
     ),
   );
+
   expect(workspaceDependencies, `${packageName} dependencies`).toStrictEqual([]);
 };
 
@@ -106,6 +125,7 @@ describe("packed extension packages", () => {
   afterEach(() => {
     harness?.cleanup();
     harness = undefined;
+
     if (tempRoot !== undefined) {
       rmSync(tempRoot, { force: true, recursive: true });
       tempRoot = undefined;
@@ -114,16 +134,21 @@ describe("packed extension packages", () => {
 
   it("installs and loads every packed npm artifact", async () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), "packed-extensions-smoke-"));
+
     const sharedTarballs = SHARED_PACKAGES.map(({ dir, name }) => {
       const tarball = packPackage(tempRoot ?? "", name, dir);
       inspectTarball(name, tarball);
+
       return { name, tarball };
     });
+
     const tarballs = EXTENSION_PACKAGES.map(({ dir, name }) => {
       const tarball = packPackage(tempRoot ?? "", name, dir);
       inspectTarball(name, tarball);
+
       return { name, tarball };
     });
+
     const installDir = path.join(tempRoot, "install");
     mkdirSync(installDir);
     writeFileSync(
@@ -131,11 +156,12 @@ describe("packed extension packages", () => {
       `${JSON.stringify(
         {
           dependencies: Object.fromEntries([
-            ...CONSUMER_DEPENDENCIES.map((name) => [name, consumerDependencyVersion(name)]),
-            ...[...sharedTarballs, ...tarballs].map(({ name, tarball }) => [
-              name,
-              `file:${tarball}`,
-            ]),
+            ...CONSUMER_DEPENDENCIES.map(
+              (name) => [name, consumerDependencyVersion(name)] as const,
+            ),
+            ...[...sharedTarballs, ...tarballs].map(
+              ({ name, tarball }) => [name, `file:${tarball}`] as const,
+            ),
           ]),
           private: true,
         },
@@ -143,9 +169,11 @@ describe("packed extension packages", () => {
         2,
       )}\n`,
     );
+
     const npmEnv = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_config_")),
     );
+
     const emptyGlobalConfig = path.join(tempRoot, "empty-global.npmrc");
     const emptyUserConfig = path.join(tempRoot, "empty-user.npmrc");
     writeFileSync(emptyGlobalConfig, "");
@@ -167,15 +195,18 @@ describe("packed extension packages", () => {
     harness = await createExtensionSmokeHarness({ packages: packageDirs });
     expect(harness.extensionsResult.errors).toStrictEqual([]);
 
-    for (const [index, expected] of EXTENSION_PACKAGES.entries()) {
+    for (const expected of EXTENSION_PACKAGES) {
       for (const entry of expected.entries) {
-        const expectedEntryPath = path.resolve(packageDirs[index], entry);
+        const expectedEntryPath = path.resolve(installDir, "node_modules", expected.name, entry);
+
         const extension = harness.extensionsResult.extensions.find(
           ({ resolvedPath }) => resolvedPath === expectedEntryPath,
         );
+
         if (extension === undefined) {
           throw new Error(`Packed extension did not load: ${expected.name}`);
         }
+
         expect(
           [
             extension.commands,

@@ -111,28 +111,37 @@ export class ContextOverlay implements Component, Focusable {
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (event.type !== "wheel" && !(event.type === "press" && event.button === "left")) return;
     const layout = this.layout;
+
     if (!layout || this.editing) return { handled: true };
     const row = event.y - layout.bodyTop;
+
     if (event.x < 1 || event.x >= layout.width - 1 || row < 0 || row >= layout.bodyHeight)
       return { handled: true };
     const inPreview = this.detail || (layout.previewWidth > 0 && event.x > layout.treeWidth + 1);
+
     if (event.type === "wheel") {
       const delta = event.wheelDelta ?? 0;
+
       if (inPreview) this.scrollPreview(delta);
       else this.select(this.selected + delta);
     } else {
       if (!this.detail) this.previewFocused = inPreview;
+
       if (!inPreview && this.scroll + row < this.rows.length) this.select(this.scroll + row);
     }
+
     this.tui.requestRender();
+
     return { handled: true, focus: true };
   }
 
   private rebuildRows(expandMatches = false, targetId = this.rows[this.selected]?.node.id): void {
     const filtered = filterTree(this.tree, this.search.getValue());
+
     if (expandMatches && this.search.getValue().trim()) {
       for (const node of filtered) this.expanded.add(node.id);
     }
+
     this.rows = flattenTree(filtered, this.expanded);
     this.countWidth = countColumnWidth(this.rows);
     this.select(
@@ -151,6 +160,7 @@ export class ContextOverlay implements Component, Focusable {
 
   private createPreview(node: TreeNode | undefined): Component {
     const body = displayText(node?.body || "(empty)");
+
     switch (node?.format) {
       case "markdown":
         return new Markdown(body, 0, 0, this.markdownTheme);
@@ -163,25 +173,33 @@ export class ContextOverlay implements Component, Focusable {
 
   private fold(expand: boolean): void {
     const row = this.rows[this.selected];
+
     if (!row) return;
     // Resolve the target first so the rebuild selects (and builds a preview) exactly once.
     let target = row.node.id;
+
     if (expand && row.node.children.length > 0) {
       if (row.expanded) target = this.rows[this.selected + 1]?.node.id ?? target;
       else this.expanded.add(row.node.id);
     } else if (!expand && row.depth > 0) {
-      let parent = this.selected - 1;
-      while (parent > 0 && this.rows[parent].depth >= row.depth) parent -= 1;
-      target = this.rows[parent].node.id;
+      // flattenTree emits every parent before its descendants; a non-root row has an ancestor.
+      const parent = this.rows
+        .slice(0, this.selected)
+        .findLast((candidate) => candidate.depth < row.depth)!;
+
+      target = parent.node.id;
     } else if (!expand) {
       this.expanded.delete(row.node.id);
     }
+
     this.rebuildRows(false, target);
   }
 
   private async copy(): Promise<void> {
     const node = this.rows[this.selected]?.node;
+
     if (!node) return;
+
     try {
       await copyToClipboard(node.body);
       this.ui.notify(`Copied ${displayText(node.label)}`, "info");
@@ -209,6 +227,7 @@ export class ContextOverlay implements Component, Focusable {
     } else {
       this.search.handleInput(data);
     }
+
     this.search.focused = this.hasFocus && this.editing;
     this.rebuildRows(true);
   }
@@ -216,17 +235,23 @@ export class ContextOverlay implements Component, Focusable {
   handleInput(data: string): void {
     if (this.mouseHandle && data.startsWith("\u001B[<")) {
       const event = parseMouseInput(data, this.mouseHandle.getBounds());
+
       if (event) this.handleMouse(event);
+
       return;
     }
+
     if (this.editing) {
       this.handleSearchInput(data);
       this.tui.requestRender();
+
       return;
     }
+
     const key = (id: KeyId) => matchesKey(data, id);
     const action = (id: Keybinding) => this.keybindings.matches(data, id);
     const treeMode = !this.detail && !this.previewFocused;
+
     // First matching binding wins. Configured Pi actions come before the fixed keys and vim-style
     // aliases so a user's remapping is never shadowed by a built-in.
     const bindings: Array<[boolean, () => void]> = [
@@ -262,6 +287,7 @@ export class ContextOverlay implements Component, Focusable {
       [key("j"), () => this.move(1)],
       [key("k"), () => this.move(-1)],
     ];
+
     bindings.find(([matched]) => matched)?.[1]();
     this.tui.requestRender();
   }
@@ -272,8 +298,7 @@ export class ContextOverlay implements Component, Focusable {
     this.search.invalidate();
   }
 
-  private renderPreview(paneWidth: number, layout: Layout) {
-    const row = this.rows[this.selected];
+  private renderPreview(row: FlatRow, paneWidth: number, layout: Layout) {
     const contentWidth = Math.max(1, paneWidth - PREVIEW_GUTTER);
     const viewport = Math.max(1, layout.bodyHeight - layout.previewHeaderRows);
     const lines = this.preview.render(contentWidth);
@@ -283,12 +308,14 @@ export class ContextOverlay implements Component, Focusable {
     const end = Math.min(offset + viewport, lines.length);
     const scrollbar = renderScrollbar(this.theme, viewport, offset, lines.length);
     const position = `${offset + 1}-${end} / ${lines.length}`;
+
     const header = [
       this.theme.bold(displayText(row.node.label)),
       this.theme.fg("muted", `  ~${row.node.estimatedTokens.toLocaleString("en-US")}`),
       this.theme.fg("dim", " · "),
       this.theme.fg("muted", position),
     ].join("");
+
     return {
       position,
       lines: [
@@ -309,7 +336,9 @@ export class ContextOverlay implements Component, Focusable {
     const layout = layoutOverlay(width, overlayHeight(this.tui.terminal.rows), this.detail);
     this.layout = layout;
     const { innerWidth, treeWidth, previewWidth, bodyHeight } = layout;
+
     if (layout.tooSmall) return renderOverlay(this.theme, this.snapshot, layout, [], "");
+
     // The preview pane disappears below the split width; do not leave keyboard focus on it.
     if (previewWidth === 0) this.previewFocused = false;
     this.pageSize = Math.max(
@@ -317,6 +346,7 @@ export class ContextOverlay implements Component, Focusable {
       bodyHeight - (this.detail || this.previewFocused ? layout.previewHeaderRows : 0),
     );
     this.scroll = followSelection(this.selected, this.scroll, bodyHeight, this.rows.length);
+
     const body =
       this.rows.length === 0
         ? [`${PAD}${this.theme.fg("muted", "No matches")}`]
@@ -327,23 +357,34 @@ export class ContextOverlay implements Component, Focusable {
             treeWidth,
             this.countWidth,
           );
+
     let position = "";
-    const showPreview = (this.detail || previewWidth > 0) && this.rows.length > 0;
+    const selectedRow = this.rows[this.selected];
+    const showPreview = (this.detail || previewWidth > 0) && selectedRow !== undefined;
+
     if (showPreview) {
-      const preview = this.renderPreview(this.detail ? innerWidth : previewWidth, layout);
+      const preview = this.renderPreview(
+        selectedRow,
+        this.detail ? innerWidth : previewWidth,
+        layout,
+      );
+
       if (this.detail) {
         body.splice(0, body.length, ...preview.lines);
         position = preview.position;
       } else {
         const divider = this.theme.fg(this.previewFocused ? "borderAccent" : "borderMuted", "│");
+
         for (let index = 0; index < bodyHeight; index += 1) {
           body[index] =
             `${fit(body[index] ?? "", treeWidth)}${divider}${preview.lines[index] ?? ""}`;
         }
       }
     }
+
     const confirm = this.keybindings.getKeys("tui.select.confirm").join("/");
     const cancel = this.keybindings.getKeys("tui.select.cancel").join("/");
+
     const keys = [
       { key: "j/k", label: "scroll", show: this.detail },
       {
@@ -356,11 +397,14 @@ export class ContextOverlay implements Component, Focusable {
       { key: "/", label: "search", show: !this.detail },
       { key: cancel, label: "back", show: true },
     ].filter((item) => item.show);
+
     const query = this.search.getValue();
     const right = this.detail ? position : query ? `/${query}` : "";
+
     const footer = this.editing
-      ? this.search.render(innerWidth - PAD.length)[0]
+      ? this.search.render(innerWidth - PAD.length).join("")
       : renderFooter(this.theme, keys, right, innerWidth - 2 * PAD.length);
+
     return renderOverlay(
       this.theme,
       this.snapshot,

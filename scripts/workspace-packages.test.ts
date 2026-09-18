@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { publishableWorkspacePackages, readWorkspacePackages } from "./workspace-packages.ts";
 
 const tempDirs: string[] = [];
+
 const rootManifest = { name: "workspace-test", packageManager: "pnpm@12.3.4", private: true };
+
 const fixture = (patterns = ['"packages/*"']) => {
   const root = mkdtempSync(path.join(tmpdir(), "workspace-packages-test-"));
   tempDirs.push(root);
@@ -16,8 +18,10 @@ const fixture = (patterns = ['"packages/*"']) => {
     path.join(root, "pnpm-workspace.yaml"),
     `packages:\n${patterns.map((pattern) => `  - ${pattern}`).join("\n")}\n`,
   );
+
   return root;
 };
+
 const addPackage = (root: string, name: string, privateValue?: boolean) => {
   const directory = path.join(root, "packages", name);
   mkdirSync(directory, { recursive: true });
@@ -30,6 +34,7 @@ const addPackage = (root: string, name: string, privateValue?: boolean) => {
 describe("workspace package discovery", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+
     for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true });
   });
 
@@ -62,6 +67,7 @@ describe("workspace package discovery", () => {
       '"!packages/exclude"',
       '"!packages/unrelated"',
     ]);
+
     for (const name of ["keep", "exclude", "unrelated"]) addPackage(root, name);
     writeFileSync(
       path.join(root, "pnpm-workspace.yaml"),

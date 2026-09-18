@@ -10,9 +10,11 @@ import { createInboxStatus } from "../status.js";
 
 it("keeps the widget alongside the mail count, clears zero, and isolates branch state", async () => {
   let status: ReturnType<typeof createInboxStatus> | undefined;
+
   const host = createExtensionHost((pi) => {
     status = createInboxStatus(pi);
   });
+
   await host.ready;
   const ctx = host.createContext();
   const updates = vi.fn();
@@ -58,9 +60,7 @@ it("keeps the widget alongside the mail count, clears zero, and isolates branch 
     instanceId: "next-host",
     scope: borderScope(ctx, "other"),
   });
-  expect(updates).toHaveBeenLastCalledWith(
-    expect.objectContaining({ type: "set", status: expect.objectContaining({ text: "2" }) }),
-  );
+  expect(updates.mock.lastCall?.[0]).toMatchObject({ type: "set", status: { text: "2" } });
   expect(host.getWidget("questionnaires")).toBe("2 questionnaires awaiting you · /answers");
   status!.dispose();
   expect(host.getWidget("questionnaires")).toBeUndefined();
@@ -69,9 +69,11 @@ it("keeps the widget alongside the mail count, clears zero, and isolates branch 
 describe("non-TUI status", () => {
   it("does not show widgets outside the terminal", async () => {
     let status: ReturnType<typeof createInboxStatus> | undefined;
+
     const host = createExtensionHost((pi) => {
       status = createInboxStatus(pi);
     });
+
     await host.ready;
     status!.attach(host.createContext({ mode: "rpc" }));
     status!.update(1, 0);

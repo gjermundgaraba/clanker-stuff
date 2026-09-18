@@ -174,9 +174,11 @@ describe("codexbar history parsing", () => {
     const result = mapCodexBarHistory(sampleHistory({ weekly: [] }), NOW);
 
     expect(result.ok).toBeTruthy();
+
     if (!result.ok) {
       return;
     }
+
     expect(result.snapshot.windows.map((w) => w.id)).toStrictEqual(["5h", "month"]);
   });
 
@@ -202,9 +204,11 @@ describe("codexbar history parsing", () => {
     );
 
     expect(result.ok).toBeTruthy();
+
     if (!result.ok) {
       return;
     }
+
     expect(result.snapshot.windows).toHaveLength(2);
     expect(result.snapshot.windows.at(0)?.remainingPercent).toBe(70);
     expect(result.snapshot.windows.at(1)?.remainingPercent).toBe(40);
@@ -227,9 +231,11 @@ describe("codexbar history parsing", () => {
     );
 
     expect(result.ok).toBeTruthy();
+
     if (!result.ok) {
       return;
     }
+
     expect(result.snapshot.windows.at(0)?.remainingPercent).toBe(90);
   });
 
@@ -246,14 +252,17 @@ describe("codexbar history parsing", () => {
   it("returns unavailable when no windows have entries", () => {
     const result = mapCodexBarHistory({ unscoped: [] }, NOW);
     expect(result.ok).toBeFalsy();
+
     if (result.ok) {
       return;
     }
+
     expect(result.error.kind).toBe("unavailable");
   });
 
   it("returns unavailable when rendered timestamps are invalid", () => {
     const invalid = { capturedAt: "not-a-date", usedPercent: 10 };
+
     const result = mapCodexBarHistory(
       sampleHistory({
         monthly: [invalid],
@@ -272,6 +281,7 @@ describe("codexbar history parsing", () => {
   it("returns unavailable when capturedAt is older than 2 hours", () => {
     const stale = Date.parse("2026-08-06T22:00:00Z");
     const now = stale + 3 * 60 * 60_000;
+
     const result = mapCodexBarHistory(
       sampleHistory({
         session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
@@ -280,15 +290,18 @@ describe("codexbar history parsing", () => {
     );
 
     expect(result.ok).toBeFalsy();
+
     if (result.ok) {
       return;
     }
+
     expect(result.error.kind).toBe("unavailable");
   });
 
   it("accepts data captured within the staleness threshold", () => {
     const captured = Date.parse("2026-08-06T22:00:00Z");
     const now = captured + 90 * 60_000;
+
     const result = mapCodexBarHistory(
       sampleHistory({
         session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
@@ -352,9 +365,11 @@ describe("reading codexbar history from disk", () => {
     const result = await runCodexBarUsage({ filePath, now: () => NOW });
 
     expect(result.ok).toBeTruthy();
+
     if (!result.ok) {
       return;
     }
+
     expect(result.snapshot.provider).toBe("opencode-go");
     expect(result.snapshot.windows).toHaveLength(3);
     expect(result.snapshot.windows.at(1)?.remainingPercent).toBe(0);

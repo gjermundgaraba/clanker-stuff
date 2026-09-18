@@ -10,6 +10,7 @@ import { inspect } from "node:util";
 import { evalConfig, rpcMessage, startedThreadId, startedTurnId } from "../runtime/codex-eval.mjs";
 
 const requiredConfig = { instructionPath: "/tmp/instruction", model: "test-model" };
+
 const defaultConfig = {
   compactBefore: false,
   compactedAfterSegment: -1,
@@ -19,6 +20,7 @@ const defaultConfig = {
 };
 
 const invalidObjects = [null, false, 1, "value", []];
+
 const invalidStrings = [null, false, 1, "", [], {}];
 
 void describe("Codex config validation", () => {
@@ -67,6 +69,7 @@ void describe("Codex config validation", () => {
       [undefined, false, 1, [], {}].map((value) => ({ ...requiredConfig, [key]: value })),
     ),
   ];
+
   for (const value of malformed) {
     void it(`rejects ${inspect(value)} without coercion`, () => {
       assert.throws(() => evalConfig(value), TypeError);
@@ -77,15 +80,11 @@ void describe("Codex config validation", () => {
 void describe("Codex JSON-RPC validation", () => {
   void it("keeps missing, null and falsy result/error payloads distinct", () => {
     assert.deepStrictEqual(rpcMessage({}), {
-      error: undefined,
       hasError: false,
       hasResult: false,
-      id: undefined,
-      method: undefined,
-      params: undefined,
-      result: undefined,
     });
-    for (const key of ["error", "result"]) {
+
+    for (const key of /** @type {const} */ (["error", "result"])) {
       for (const value of [null, false, 0, "", {}, [], undefined]) {
         const message = rpcMessage({ id: 1, [key]: value });
         assert.strictEqual(message.hasError, key === "error");
@@ -93,6 +92,7 @@ void describe("Codex JSON-RPC validation", () => {
         assert.strictEqual(message[key], value);
       }
     }
+
     assert.partialDeepStrictEqual(rpcMessage({ id: "", result: null, error: null }), {
       hasError: true,
       hasResult: true,
@@ -105,6 +105,7 @@ void describe("Codex JSON-RPC validation", () => {
     const turn = Object.freeze({ id: "turn", status: "future-status", items: [item] });
     const args = Object.freeze({ query: "needle" });
     const usage = Object.freeze({ futureCounter: 42 });
+
     const params = Object.freeze({
       arguments: args,
       callId: "call",
@@ -114,6 +115,7 @@ void describe("Codex JSON-RPC validation", () => {
       turn,
       usage,
     });
+
     const input = Object.freeze({ method: "item/tool/call", params, extra: "ignored" });
     const message = rpcMessage(input);
     assert.equal("extra" in message, false);
@@ -131,7 +133,9 @@ void describe("Codex JSON-RPC validation", () => {
   const malformed = [
     ...invalidObjects,
     ...[null, true, [], {}, NaN, 1.5].map((id) => ({ id })),
-    ...["1e400", "-1e400"].map((literal) => JSON.parse(`{"id":${literal}}`)),
+    ...["1e400", "-1e400"].map(
+      /** @returns {unknown} */ (literal) => JSON.parse(`{"id":${literal}}`),
+    ),
     ...invalidStrings.map((method) => ({ method })),
     ...invalidObjects.map((params) => ({ params })),
     ...["responseId", "threadId", "turnId"].flatMap((key) =>
@@ -150,6 +154,7 @@ void describe("Codex JSON-RPC validation", () => {
       })),
     ),
   ];
+
   for (const value of malformed) {
     void it(`rejects ${inspect(value)} without coercion`, () => {
       assert.throws(() => rpcMessage(value), TypeError);
@@ -172,6 +177,7 @@ for (const { key, parse } of [
       ...invalidObjects.map((value) => ({ [key]: value })),
       ...[...invalidStrings, undefined].map((id) => ({ [key]: { id } })),
     ];
+
     for (const value of malformed) {
       void it(`rejects ${inspect(value)}`, () => {
         assert.throws(() => parse(value), TypeError);
@@ -183,6 +189,7 @@ for (const { key, parse } of [
 void it("runs the CLI through a symlink beside dependencies without losing entrypoint detection", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "codex-eval-test-"));
   const executable = path.join(directory, "codex-eval");
+
   try {
     symlinkSync(path.resolve(import.meta.dirname, "../runtime/codex-eval.mjs"), executable);
     execFileSync(process.execPath, [executable, "--self-test"]);

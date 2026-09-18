@@ -7,11 +7,13 @@ import type { FetchJson } from "../../http.js";
 
 const makeJwt = (accountId: string): string => {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
+
   const body = Buffer.from(
     JSON.stringify({
       "https://api.openai.com/auth": { chatgpt_account_id: accountId },
     }),
   ).toString("base64url");
+
   return `${header}.${body}.sig`;
 };
 
@@ -84,6 +86,24 @@ describe("codex payload parsing", () => {
       },
     });
   });
+
+  it.each([null, undefined, "", "  ", "invalid", Infinity, NaN, "Infinity"])(
+    "omits an unavailable credit balance (%s)",
+    (balance) => {
+      const result = mapCodexUsagePayload(
+        {
+          credits: { has_credits: true, ...(balance !== undefined ? { balance } : {}) },
+          rate_limit: { primary_window: { used_percent: 0 } },
+        },
+        0,
+      );
+
+      expect(result).toMatchObject({ ok: true });
+
+      if (!result.ok) throw new Error("Expected usage snapshot");
+      expect(result.snapshot).not.toHaveProperty("creditsRemaining");
+    },
+  );
 
   it("accepts a null credit balance", () => {
     const result = mapCodexUsagePayload(
@@ -162,10 +182,13 @@ describe("codex payload parsing", () => {
       },
       now,
     );
+
     expect(result.ok).toBeTruthy();
+
     if (!result.ok) {
       return;
     }
+
     expect(result.snapshot.windows.map((window) => window.id)).toStrictEqual(["5h", "7d"]);
     expect(result.snapshot.windows.map((window) => window.remainingPercent)).toStrictEqual([
       60, 75,
@@ -177,6 +200,7 @@ describe("codex fetch", () => {
   it("rejects OAuth tokens without a ChatGPT account id", async () => {
     const client = { fetchJson: okFetch(undefined) } satisfies { fetchJson: FetchJson };
     const fetchJson = vi.spyOn(client, "fetchJson");
+
     const result = await fetchCodexUsage({
       authClient: {
         getProviderAuth: async () => ({
@@ -200,12 +224,14 @@ describe("codex fetch", () => {
 
   it("sends bearer and account id headers", async () => {
     const token = makeJwt("acct_abc");
+
     const authClient: ProviderAuthClient = {
       getProviderAuth: async () => ({
         auth: { apiKey: token },
         source: "OAuth",
       }),
     };
+
     const client = {
       fetchJson: okFetch({
         rate_limit: {
@@ -213,6 +239,7 @@ describe("codex fetch", () => {
         },
       }),
     } satisfies { fetchJson: FetchJson };
+
     const fetchJson = vi.spyOn(client, "fetchJson");
 
     const result = await fetchCodexUsage({
@@ -278,6 +305,7 @@ describe("Codex ordinary limits", () => {
       }),
       now: () => 1000,
     });
+
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
@@ -308,6 +336,7 @@ describe("Codex ordinary limits", () => {
       }),
       now: () => 1000,
     });
+
     expect(result).toStrictEqual({
       ok: false,
       error: { kind: "failure", message: "no usage windows in response" },

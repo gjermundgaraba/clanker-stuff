@@ -23,10 +23,12 @@ const SOURCE_INFO = createSyntheticSourceInfo("<test>", {
   scope: "project",
   source: "test",
 });
+
 const renderOptions = (expanded: boolean) => ({
   expanded,
   outputPad: 0,
 });
+
 const InjectedSkillResultSchema = Type.Object({
   message: Type.Object({ content: Type.String() }),
 });
@@ -85,10 +87,12 @@ describe("skill mentions", () => {
 
       const host = createMentionHost();
       const ctx = host.createContext();
+
       if (foreign)
         ctx.ui.setEditorComponent((tui, theme, keys) => new CustomEditor(tui, theme, keys));
       await host.emitSessionStart(ctx);
       const content = `<skill name="alpha" location="${alphaPath}">\nReferences are relative to ${directory}.\n\nAlpha instructions.\n</skill>\n\n<skill name="beta" location="${betaPath}">\nReferences are relative to ${directory}.\n\nBeta instructions.\n</skill>\n\n<skill name="plugin:deploy" location="${pluginPath}">\nReferences are relative to ${directory}.\n\nPlugin deploy instructions.\n</skill>`;
+
       const details = {
         skills: [
           { body: "Alpha instructions.", name: "alpha", path: alphaPath },
@@ -100,6 +104,7 @@ describe("skill mentions", () => {
           },
         ],
       };
+
       const [result] = await host.emit(
         "before_agent_start",
         {
@@ -157,9 +162,11 @@ describe("skill mentions", () => {
       });
 
       const renderer = host.getMessageRenderer("codex-skills");
+
       if (!renderer) {
         throw new Error("Expected a skill message renderer");
       }
+
       const message = {
         content,
         customType: "codex-skills",
@@ -168,13 +175,16 @@ describe("skill mentions", () => {
         role: "custom" as const,
         timestamp: 0,
       };
+
       expect(
         renderComponent(renderer(message, renderOptions(false), createIdentityTheme())),
       ).toContain("◆ Skills injected: $alpha, $beta, $plugin:deploy");
+
       const expanded = renderComponent(
         renderer(message, renderOptions(true), createIdentityTheme()),
         200,
       );
+
       expect(expanded).toContain(alphaPath);
       expect(expanded).toContain("Alpha instructions.");
       expect(expanded).toContain("Plugin deploy instructions.");
@@ -184,12 +194,15 @@ describe("skill mentions", () => {
   it.each([false, true])("completes loaded skill names, foreign editor=%s", async (foreign) => {
     const host = createSkillHost();
     const ctx = host.createContext();
+
     if (foreign)
       ctx.ui.setEditorComponent((tui, theme, keys) => new CustomEditor(tui, theme, keys));
     await host.emitSessionStart(ctx);
+
     const provider = host.getAutocompleteProvider(
       new CombinedAutocompleteProvider([], process.cwd()),
     );
+
     const [suggestions, namespacedSuggestions, shellSuggestions] = await Promise.all([
       provider.getSuggestions(["Use $alp"], 0, 8, {
         signal: new AbortController().signal,
@@ -230,6 +243,7 @@ describe("skill mentions", () => {
     onTestFinished(() => rm(directory, { force: true, recursive: true }));
     const filePath = path.join(directory, "alpha.md");
     await writeFile(filePath, "---\nname: alpha\n---\nAlpha instructions.\n");
+
     const skill = {
       baseDir: directory,
       description: "alpha",
@@ -238,6 +252,7 @@ describe("skill mentions", () => {
       name: "alpha",
       sourceInfo: SOURCE_INFO,
     };
+
     const host = createMentionHost();
     const ctx = host.createContext();
     await host.emit(
@@ -264,16 +279,17 @@ describe("skill mentions", () => {
         ),
       ),
     );
+
     for (const result of results) {
-      expect(result).toMatchObject({
-        action: "transform",
-        text: expect.stringContaining(
-          `References are relative to ${directory}.\n\nAlpha instructions.`,
-        ),
-      });
-      expect(result).toMatchObject({
-        text: expect.stringMatching(/<\/skill>\n\nUse \$alpha now$/u),
-      });
+      expect(result).toMatchObject({ action: "transform" });
+      expect(result).toHaveProperty(
+        "text",
+        expect.stringContaining(`References are relative to ${directory}.\n\nAlpha instructions.`),
+      );
+      expect(result).toHaveProperty(
+        "text",
+        expect.stringMatching(/<\/skill>\n\nUse \$alpha now$/u),
+      );
     }
   });
 
@@ -283,6 +299,7 @@ describe("skill mentions", () => {
     const filePath = path.join(directory, 'alpha"&<.md');
     await writeFile(filePath, "Alpha instructions.\n");
     const host = createMentionHost();
+
     const [result] = await host.emit(
       "before_agent_start",
       {
@@ -305,12 +322,12 @@ describe("skill mentions", () => {
       } satisfies BeforeAgentStartEvent,
       host.createContext(),
     );
+
     const content = Value.Parse(InjectedSkillResultSchema, result).message.content;
 
-    expect(parseSkillBlock(content)).toMatchObject({
-      content: expect.stringContaining("Alpha instructions."),
-      userMessage: undefined,
-    });
+    const parsed = parseSkillBlock(content);
+    expect(parsed?.content).toContain("Alpha instructions.");
+    expect(parsed?.userMessage).toBeUndefined();
     expect(content).toContain("&quot;");
   });
 });

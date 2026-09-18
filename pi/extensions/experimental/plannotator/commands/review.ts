@@ -8,6 +8,7 @@ export const createReviewHandler =
   (pi: ExtensionAPI, runtime: CommandRuntime) =>
   async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     const tokens = runtime.parseArguments(args, ctx);
+
     if (tokens === undefined) {
       return;
     }
@@ -16,10 +17,13 @@ export const createReviewHandler =
       failureLabel: "Plannotator code review",
       onOutput(stdout) {
         const output = stdout.trim();
+
         if (output.length === 0 || output === REVIEW_CLOSED_SENTINEL) {
           ctx.ui.notify("Plannotator code review closed without feedback.", "info");
+
           return;
         }
+
         pi.sendUserMessage(output, { deliverAs: "followUp" });
       },
       openedMessage: "Plannotator code review opened.",

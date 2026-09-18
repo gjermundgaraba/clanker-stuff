@@ -173,7 +173,7 @@ def main():
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="shape-spinner-build-") as tmp:
         rendered_path = Path(tmp) / "rendered.json"
-        subprocess.run(["node", str(HERE / "render.mjs"), str(rendered_path)], check=True)
+        subprocess.run(["node", str(HERE / "render.ts"), str(rendered_path)], check=True)
         rendered = json.loads(rendered_path.read_text())
     font, metadata = build(rendered)
     if args.check:

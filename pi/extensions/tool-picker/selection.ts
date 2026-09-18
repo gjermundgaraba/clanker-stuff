@@ -4,8 +4,11 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 const STATE_TYPE = "tool-picker-config";
+
 const BASELINE_TYPE = "tool-picker-baseline";
+
 const ToolStatesSchema = Type.Record(Type.String(), Type.Boolean());
+
 export type ToolStates = Static<typeof ToolStatesSchema>;
 
 const savedStates = (
@@ -15,6 +18,7 @@ const savedStates = (
   const entry = entries.findLast(
     (candidate) => candidate.type === "custom" && candidate.customType === customType,
   );
+
   return entry?.type === "custom" && Value.Check(ToolStatesSchema, entry.data)
     ? entry.data
     : undefined;
@@ -23,21 +27,27 @@ const savedStates = (
 export const createToolSelection = (pi: ExtensionAPI) => {
   let baseline: ToolStates = {};
   let baselineSaved = false;
+
   const snapshot = (): ToolStates => {
     const active = new Set(pi.getActiveTools());
+
     return Object.fromEntries(pi.getAllTools().map(({ name }) => [name, active.has(name)]));
   };
+
   const saveBaseline = (): void => {
     if (!baselineSaved) {
       pi.appendEntry<ToolStates>(BASELINE_TYPE, baseline);
       baselineSaved = true;
     }
   };
+
   const restore = (ctx: ExtensionContext): ToolStates => {
     const states = savedStates(ctx.sessionManager.getBranch(), STATE_TYPE);
+
     if (states !== undefined) {
       saveBaseline();
     }
+
     return { ...baseline, ...states };
   };
 
@@ -58,6 +68,7 @@ export const createToolSelection = (pi: ExtensionAPI) => {
         savedBaseline !== undefined &&
         Object.keys(initial).every((name) => Object.hasOwn(savedBaseline, name));
       baseline = { ...initial, ...savedBaseline };
+
       return restore(ctx);
     },
   };

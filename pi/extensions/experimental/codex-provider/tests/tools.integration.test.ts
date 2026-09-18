@@ -16,10 +16,11 @@ import toolPickerExtension from "../../../tool-picker/index.js";
 import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
 import codexProviderExtension from "../index.js";
 import { createRealCodexSession } from "./agent-session.js";
-import { createToolsModel, wireArray, wireRecord, wireString } from "./fixtures.js";
+import { createToolsModel, mockUiContext, wireArray, wireRecord, wireString } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
 
 const DIRECT_NAMES = ["exec_command", "write_stdin", "apply_patch", "view_image"];
+
 const CODE_NAMES = ["exec", "wait"];
 
 describe("Codex tools with a real AgentSession", () => {
@@ -37,6 +38,7 @@ describe("Codex tools with a real AgentSession", () => {
     const requests: WireRecord[] = [];
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input);
+
       if (new URL(url).pathname.endsWith("/models")) {
         return Response.json({
           models: [
@@ -54,11 +56,14 @@ describe("Codex tools with a real AgentSession", () => {
           ],
         });
       }
+
       const body = init?.body;
+
       const bytes =
         body instanceof Uint8Array && new Headers(init?.headers).get("content-encoding") === "zstd"
           ? zstdDecompressSync(body)
           : body;
+
       requests.push(
         wireRecord(
           JSON.parse(
@@ -67,6 +72,7 @@ describe("Codex tools with a real AgentSession", () => {
         ),
       );
       const id = `resp_${requests.length}`;
+
       return new Response(
         [
           { type: "response.created", response: { id, status: "in_progress" } },
@@ -87,6 +93,7 @@ describe("Codex tools with a real AgentSession", () => {
         },
       );
     });
+
     const session = await createRealCodexSession({
       extensionFactories: [toolPickerExtension, codexProviderExtension],
       model: createToolsModel("gpt-5.6-sol", true),
@@ -103,9 +110,11 @@ describe("Codex tools with a real AgentSession", () => {
         },
       ],
     });
+
     try {
       const selected = session.model;
       expect(session.getActiveToolNames()).toStrictEqual(DIRECT_NAMES);
+
       for (const [policy, names, loader] of [
         ["code_mode_only", CODE_NAMES, "exec"],
         ["direct", DIRECT_NAMES, "exec_command"],
@@ -113,11 +122,13 @@ describe("Codex tools with a real AgentSession", () => {
         [undefined, DIRECT_NAMES, "exec_command"],
       ] as const) {
         mode = policy;
+
         const refreshed = await session.modelRuntime.refresh({
           allowNetwork: true,
           force: true,
           providers: ["openai-codex"],
         });
+
         expect([...refreshed.errors]).toStrictEqual([]);
         expect(session.model).toBe(selected);
         await session.prompt("Reply briefly without tools.");
@@ -147,6 +158,7 @@ describe("Codex tools with a real AgentSession", () => {
     const cwd = path.join(rootDir, "project");
     await mkdir(cwd, { recursive: true });
     vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
+
     const session = await createRealCodexSession({
       extensionFactories: [codexProviderExtension],
       model: createToolsModel("gpt-5.6-sol", true),
@@ -181,7 +193,8 @@ describe("Codex tools with a real AgentSession", () => {
       const onExtensionError = vi.fn();
       const captureTools = vi.fn<(tools: string[] | undefined) => void>();
       // SAFETY: These extensions use only custom, notify, and setStatus from the UI context.
-      const uiContext = Object.assign({} as ExtensionUIContext, { notify, setStatus: () => {} });
+      const uiContext = await mockUiContext({ notify, setStatus: () => {} });
+
       const session = await createRealCodexSession({
         extensionFactories: [
           toolPickerExtension,
@@ -212,6 +225,7 @@ describe("Codex tools with a real AgentSession", () => {
           },
         ],
       });
+
       const stream = vi.fn<typeof session.agent.streamFunction>((model) => {
         const result = createAssistantMessageEventStream();
         result.push({
@@ -224,17 +238,21 @@ describe("Codex tools with a real AgentSession", () => {
             provider: model.provider,
           },
         });
+
         return result;
       });
+
       session.agent.streamFunction = stream;
 
       try {
         if (mode === "Code Mode") await session.prompt("/code-mode");
         const index = session.getAllTools().findIndex(({ name }) => name === toolName);
         expect(index).toBeGreaterThanOrEqual(0);
+
         const ui = createCustomUiDriver({
           keys: [...Array<string>(index).fill("\u001B[B"), " ", "\u001B"],
         });
+
         uiContext.custom = ui.custom;
         await session.prompt("/tools");
         expect(session.getActiveToolNames().includes(toolName)).toBe(toolName === "read");
@@ -270,6 +288,7 @@ describe("Codex tools with a real AgentSession", () => {
       const cwd = path.join(rootDir, "project");
       await mkdir(cwd, { recursive: true });
       vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
+
       const session = await createRealCodexSession({
         extensionFactories: [...extensionFactories],
         model: createToolsModel("gpt-5.6-sol", true),

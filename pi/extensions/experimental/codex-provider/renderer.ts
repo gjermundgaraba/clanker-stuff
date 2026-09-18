@@ -24,22 +24,29 @@ const formatSizeChange = (before: number, after: number) => {
   if (before === after) {
     return "unchanged";
   }
+
   if (before === 0) {
     return "larger";
   }
+
   const percent = Math.abs(1 - after / before) * 100;
   const absolute = formatNumber(Math.abs(before - after));
+
   return `~${absolute} ${after < before ? "fewer" : "more"} (${percent.toLocaleString("en-US", { maximumFractionDigits: 1 })}% ${after < before ? "smaller" : "larger"})`;
 };
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi supplies opaque persisted custom-entry data; parseCheckpoint validates it before presentation.
 export const formatCheckpointEntry = (data: unknown, expanded = false): string | undefined => {
   const parsed = parseCheckpoint(data);
+
   if (!parsed.ok) {
     return undefined;
   }
+
   const { checkpoint } = parsed;
   const replacementTokens = estimateModelVisibleTokens("", checkpoint.replacement);
   const { usage } = checkpoint.response;
+
   const lines = [
     `✓ Context compacted successfully · Model: ${checkpoint.identity.model}`,
     `Estimated context size: ~${formatNumber(checkpoint.sourceTokens)} → ~${formatNumber(replacementTokens)} tokens · ${formatSizeChange(checkpoint.sourceTokens, replacementTokens)}`,
@@ -48,11 +55,14 @@ export const formatCheckpointEntry = (data: unknown, expanded = false): string |
     `Usage breakdown: ${formatNumber(usage.input)} uncached input · ${formatNumber(usage.cacheRead)} cached input · ${formatNumber(usage.output)} output · ${formatNumber(usage.cacheWrite)} cache write`,
     `Checkpoint: saved and validated · Provider window: ${formatNumber(checkpoint.runtime.windowNumber)}`,
   ];
+
   if (expanded) {
     const retainedUsers = checkpoint.replacement.filter((item) => item.type === "message").length;
+
     const retainedAgents = checkpoint.replacement.filter(
       (item) => item.type === "agent_message",
     ).length;
+
     lines.push(
       "Checkpoint details:",
       `Response ID: ${checkpoint.response.id}`,
@@ -64,12 +74,14 @@ export const formatCheckpointEntry = (data: unknown, expanded = false): string |
       `Replacement: ${formatNumber(checkpoint.replacement.length)} items · 1 compaction · ${formatNumber(retainedUsers)} user · ${formatNumber(retainedAgents)} agent`,
     );
   }
+
   return lines.join("\n");
 };
 
 export const registerCheckpointRenderer = (pi: ExtensionAPI) => {
   pi.registerEntryRenderer(CHECKPOINT_CUSTOM_TYPE, (entry, options, theme) => {
     const text = formatCheckpointEntry(entry.data, options.expanded);
+
     return text === undefined ? undefined : new Text(theme.fg("accent", text), 1, 0);
   });
 };

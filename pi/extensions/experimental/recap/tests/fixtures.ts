@@ -12,11 +12,14 @@ import type { Mock } from "vite-plus/test";
 import type { RecapConfig } from "../config.js";
 
 type CompleteModel = ExtensionContext["modelRegistry"]["complete"];
+
 type CompletionMock = CompleteModel & Mock<CompleteModel>;
 
 export const completionMock = (implementation: CompleteModel): CompletionMock => {
   const mock = vi.fn<CompleteModel>(implementation);
+
   // SAFETY: Vitest forwards calls unchanged; Mock only loses the generic model/options correlation in its callable type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Vitest erases the model/options generic relationship; the supplied native CompleteModel implementation is checked and forwarded unchanged.
   return mock as CompletionMock;
 };
 
@@ -34,7 +37,7 @@ export const appendTurn = (
   session.appendMessage(userMessage(`request ${number}`));
   session.appendMessage(
     fauxAssistantMessage(`answer ${number}`, {
-      errorMessage: stopReason === "error" || stopReason === "aborted" ? "failed" : undefined,
+      ...(stopReason === "error" || stopReason === "aborted" ? { errorMessage: "failed" } : {}),
       stopReason,
     }),
   );
@@ -42,9 +45,11 @@ export const appendTurn = (
 
 export const sessionWithTurns = (count: number): SessionManager => {
   const session = SessionManager.inMemory();
+
   for (let number = 1; number <= count; number += 1) {
     appendTurn(session, number);
   }
+
   return session;
 };
 
@@ -58,6 +63,7 @@ export const createRecapConfigFile = async (
   onTestFinished(() => rm(directory, { force: true, recursive: true }));
   const configPath = path.join(directory, "recap.json");
   await writeFile(configPath, JSON.stringify(config), "utf-8");
+
   return { configPath, directory };
 };
 

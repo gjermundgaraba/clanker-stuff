@@ -35,9 +35,14 @@ const HarnessPayloadSchema = Type.Intersect([
 
 const lastUserText = (context: Context): string => {
   const content = context.messages.findLast((message) => message.role === "user")?.content;
+
   if (Array.isArray(content)) {
-    return content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+    return content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
   }
+
   return content ?? "[non-string]";
 };
 
@@ -46,6 +51,7 @@ const createPayloadExtension =
   (pi: ExtensionAPI): void => {
     pi.on("before_provider_request", (event) => {
       const payload = Value.Parse(TestProviderPayloadSchema, event.payload);
+
       return {
         ...payload,
         metadata: { harness: marker },
@@ -99,14 +105,17 @@ describe("agent-session harness", () => {
           pi.on("before_provider_request", (event) => {
             const payload = Value.Parse(TestProviderPayloadSchema, event.payload);
             const messages = [...payload.messages];
+
             const lastUserMessageIndex = messages.findLastIndex(
               (message) => message.role === "user",
             );
 
             const lastUserMessage = messages[lastUserMessageIndex];
+
             if (lastUserMessage === undefined) {
               return payload;
             }
+
             messages[lastUserMessageIndex] = {
               ...lastUserMessage,
               content: "[wrapped] question",
@@ -164,6 +173,7 @@ describe("agent-session harness", () => {
         }),
       ]),
     );
+
     expect(payload.temperature).toBe(0);
     expect(payload.headers).toStrictEqual({ "x-test": "1" });
     expect(payload.metadata).toStrictEqual({ harness: true });
@@ -199,9 +209,11 @@ describe("agent-session harness", () => {
     const firstRelease = Promise.withResolvers<null>();
     const secondStarted = Promise.withResolvers<null>();
     const secondRelease = Promise.withResolvers<null>();
+
     const first = await createAgentSessionHarness({
       extensionFactories: [createPayloadExtension("first")],
     });
+
     const second = await createAgentSessionHarness({
       extensionFactories: [createPayloadExtension("second")],
     });
@@ -211,6 +223,7 @@ describe("agent-session harness", () => {
         async (context) => {
           firstStarted.resolve(null);
           await firstRelease.promise;
+
           return fauxAssistantMessage(
             `first:${context.systemPrompt}:${JSON.stringify(context.messages)}`,
           );
@@ -220,6 +233,7 @@ describe("agent-session harness", () => {
         async (context) => {
           secondStarted.resolve(null);
           await secondRelease.promise;
+
           return fauxAssistantMessage(
             `second:${context.systemPrompt}:${JSON.stringify(context.messages)}`,
           );
@@ -312,9 +326,11 @@ describe("agent-session harness", () => {
       { messages: [] },
       { deferred: true },
     );
+
     if (!deferred.deferred) {
       throw new Error("Expected faux provider to return a deferred handle");
     }
+
     const completed = await harness.session.modelRuntime.fetchDeferred(model, deferred.deferred);
 
     harness.setResponses([
@@ -322,6 +338,7 @@ describe("agent-session harness", () => {
         throw new Error("scripted failure");
       },
     ]);
+
     const failed = await harness.session.modelRuntime.completeSimple(model, {
       messages: [],
     });

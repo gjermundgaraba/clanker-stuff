@@ -15,25 +15,30 @@ const controller = (overrides: Partial<V1ToolController> = {}): V1ToolController
   wait: () => Promise.resolve({ status: {}, timed_out: false }),
   ...overrides,
 });
+
 const PropertiesSchema = Type.Object(
   {
     properties: Type.Record(Type.String(), Type.Unknown()),
   },
   { additionalProperties: true },
 );
+
 const properties = <T>(schema: T) => {
   if (!Value.Check(PropertiesSchema, schema)) {
     throw new Error("Expected object schema properties");
   }
+
   return schema.properties;
 };
 
 describe("V1 model contract", () => {
   it.each([true, false])("gates catalog guidance with overrides: %s", async (enabled) => {
     const config = { ...DEFAULT_CONFIG, expose_spawn_agent_model_overrides: enabled };
+
     const host = createExtensionHost((pi) => {
       registerV1Tools(pi, controller(), () => {}, config, "Available model overrides: synthetic");
     });
+
     await host.ready;
     const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
     expect(spawn?.description.includes("Available model overrides: synthetic")).toBe(enabled);
@@ -51,23 +56,30 @@ describe("V1 model contract", () => {
           timed_out: false,
         }),
     });
+
     const host = createExtensionHost((pi) => {
       registerV1Tools(pi, tools, () => {});
     });
+
     await host.ready;
+
     for (const { definition } of host.getRegisteredTools().values()) {
       expect(definition.renderCall).toBeTypeOf("function");
       expect(definition.renderResult).toBeTypeOf("function");
     }
 
     const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
+
     if (!spawn) {
       throw new Error("Expected spawn_agent");
     }
+
     const schemaProperties = properties(spawn.parameters);
+    expect(JSON.stringify(schemaProperties.reasoning_effort)).toContain(
+      "Reasoning effort override",
+    );
+    expect(spawn.description).toContain("Delegate non-blocking work with a clear, disjoint scope.");
     expect({
-      description: spawn.description,
-      reasoning: JSON.stringify(schemaProperties.reasoning_effort),
       schemaAcceptsAgentType: Value.Check(spawn.parameters, {
         agent_type: "reviewer",
         message: "work",
@@ -75,10 +87,6 @@ describe("V1 model contract", () => {
       schemaAcceptsMessage: Value.Check(spawn.parameters, { message: "work" }),
       schemaNames: Object.keys(schemaProperties).toSorted(),
     }).toStrictEqual({
-      description: expect.stringContaining(
-        "Delegate non-blocking work with a clear, disjoint scope.",
-      ),
-      reasoning: expect.stringContaining("Reasoning effort override"),
       schemaAcceptsAgentType: false,
       schemaAcceptsMessage: true,
       schemaNames: ["fork_context", "items", "message", "model", "reasoning_effort"],
@@ -104,8 +112,10 @@ describe("V1 model contract", () => {
     const host = createExtensionHost((pi) => {
       registerV1Tools(pi, controller(), () => {});
     });
+
     await host.ready;
     const wait = host.getRegisteredTools().get("wait_agent")?.definition;
+
     if (wait === undefined) {
       throw new Error("Expected wait_agent");
     }
@@ -126,6 +136,7 @@ describe("V1 model contract", () => {
     const host = createExtensionHost((pi) => {
       registerV1Tools(pi, controller(), () => {});
     });
+
     await host.ready;
 
     for (const name of ["spawn_agent", "send_input"]) {
@@ -140,9 +151,11 @@ describe("V1 model contract", () => {
 
     const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
     const send = host.getRegisteredTools().get("send_input")?.definition;
+
     if (spawn === undefined || send === undefined) {
       throw new Error("Expected V1 input tools");
     }
+
     expect({
       sendBoth: Value.Check(send.parameters, {
         items: [{ text: "item", type: "text" }],
@@ -174,12 +187,19 @@ describe("V1 model contract", () => {
         },
       });
     });
+
     await host.ready;
     const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
+
     if (!spawn) {
       throw new Error("Expected spawn_agent");
     }
+
     const schemaProperties = properties(spawn.parameters);
+    expect(JSON.stringify(schemaProperties.reasoning_effort)).toContain(
+      "Reasoning effort override",
+    );
+    expect(spawn.description).toContain("Delegate non-blocking work with a clear, disjoint scope.");
 
     expect(Object.keys(schemaProperties)).toContain("agent_type");
     expect(JSON.stringify(schemaProperties.agent_type)).toContain(
@@ -194,11 +214,14 @@ describe("V1 model contract", () => {
         expose_spawn_agent_model_overrides: false,
       });
     });
+
     await host.ready;
     const definition = host.getRegisteredTools().get("spawn_agent")?.definition;
+
     if (!definition) {
       throw new Error("Expected spawn_agent");
     }
+
     const schemaProperties = properties(definition.parameters);
 
     expect(Object.keys(schemaProperties).toSorted()).toStrictEqual([
@@ -219,9 +242,11 @@ describe("V1 model contract", () => {
       agent_id: "agent-id",
       nickname: "Atlas",
     }));
+
     const tools = controller({
       spawn,
     });
+
     const host = createExtensionHost((pi) => {
       registerV1Tools(pi, tools, () => {}, {
         ...structuredClone(DEFAULT_CONFIG),
@@ -229,11 +254,14 @@ describe("V1 model contract", () => {
         roles: { reviewer: { description: "Review changes." } },
       });
     });
+
     await host.ready;
     const definition = host.getRegisteredTools().get("spawn_agent")?.definition;
+
     if (!definition) {
       throw new Error("Expected spawn_agent");
     }
+
     const schemaProperties = properties(definition.parameters);
 
     expect(Object.keys(schemaProperties).toSorted()).toStrictEqual([

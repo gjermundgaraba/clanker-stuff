@@ -26,6 +26,7 @@ export const PatchChangeSchema = Type.Object(
   },
   strict,
 );
+
 export type PatchChange = Static<typeof PatchChangeSchema>;
 
 /** `diff` precedes `index` so a diff cut mid-string leaves an entry the schema rejects. */
@@ -38,12 +39,17 @@ export const PatchDiffSchema = Type.Object(
   },
   strict,
 );
+
 export type PatchDiff = Static<typeof PatchDiffSchema>;
 
 const ADD_HEADER = "*** Add File: ";
+
 const DELETE_HEADER = "*** Delete File: ";
+
 const UPDATE_HEADER = "*** Update File: ";
+
 const MOVE_HEADER = "*** Move to: ";
+
 const END_PATCH = "*** End Patch";
 
 /** Appended in place of a display diff's cut tail. */
@@ -53,6 +59,7 @@ export const DIFF_TRUNCATED_LINE = "... [diff truncated for display]";
 export const truncateDiff = (diff: string, maxChars: number): string => {
   if (diff.length <= maxChars) return diff;
   const head = diff.slice(0, maxChars);
+
   return `${head.slice(0, Math.max(0, head.lastIndexOf("\n")))}\n${DIFF_TRUNCATED_LINE}`;
 };
 
@@ -64,10 +71,12 @@ export const summarizePatchText = (patch: string): PatchChange[] => {
   const changes: PatchChange[] = [];
   // Counts are always known while summarizing text, so the running change requires them.
   let current: (PatchChange & { lines: NonNullable<PatchChange["lines"]> }) | undefined;
+
   const start = (kind: PatchChange["kind"], path: string) => {
     current = { kind, path, changed: kind !== "update", lines: { added: 0, removed: 0 } };
     changes.push(current);
   };
+
   // Mirror parsePatch(): CRLF patches must produce the same paths the applied changes report.
   for (const line of patch.replaceAll("\r\n", "\n").split("\n")) {
     if (line.startsWith(ADD_HEADER)) {
@@ -95,5 +104,6 @@ export const summarizePatchText = (patch: string): PatchChange[] => {
       }
     }
   }
+
   return changes;
 };

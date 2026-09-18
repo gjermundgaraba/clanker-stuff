@@ -35,6 +35,7 @@ const createHarness = async (
     entries,
     leafId: entries.at(-1)?.id ?? null,
   });
+
   const ctx = host.createContext();
   Object.assign(ctx.sessionManager, {
     getSessionDir: () => sessionDirectory,
@@ -43,6 +44,7 @@ const createHarness = async (
   await host.emitSessionStart(ctx);
   shutdowns.push(() => host.emitSessionShutdown(ctx));
   const widgets = createWidgetHarness(host, ctx);
+
   return { ctx, host: { ...host, terminalInput: widgets.terminalInput } };
 };
 
@@ -96,6 +98,7 @@ describe("history runtime", () => {
       getSessionDir: () => path.join(agentDir, "sessions"),
       getHeader: () => undefined,
     });
+
     const foreign = () => ({
       getText: () => "foreign draft",
       setText() {},
@@ -103,6 +106,7 @@ describe("history runtime", () => {
       render: () => ["foreign draft"],
       invalidate() {},
     });
+
     ctx.ui.setEditorComponent(foreign);
     await host.emitSessionStart(ctx);
     shutdowns.push(() => host.emitSessionShutdown(ctx));
@@ -114,6 +118,7 @@ describe("history runtime", () => {
     expect(ctx.ui.getEditorComponent()).toBe(foreign);
     expect(host.getWidget(WIDGET_KEY)).toBeUndefined();
     const database = openHistoryDatabase();
+
     try {
       expect(loadHistory(database).map((item) => item.text)).toContain("saved with foreign editor");
     } finally {
@@ -256,6 +261,7 @@ describe("history runtime", () => {
     await host.runShortcut("ctrl+r", ctx);
     host.terminalInput("\u001B");
     const writer = openHistoryDatabase();
+
     try {
       saveHistoryBatch(writer, [
         { text: "alpha older", timestamp: 100 },
@@ -266,6 +272,7 @@ describe("history runtime", () => {
     } finally {
       writer.close();
     }
+
     await host.runShortcut("ctrl+r", ctx);
     host.terminalInput("alpha");
     expect(ctx.ui.getEditorText()).toBe("alpha second tie");
@@ -289,6 +296,7 @@ describe("history runtime", () => {
         WHEN NEW.text = 'unsaved prompt'
         BEGIN SELECT RAISE(FAIL, 'write unavailable'); END;`);
       await host.emitInput({ source: "interactive", text: "unsaved prompt", type: "input" }, ctx);
+
       if (operation === "external refresh") {
         saveHistoryBatch(writer, [{ text: "external prompt", timestamp: 100 }]);
       } else {
@@ -304,6 +312,7 @@ describe("history runtime", () => {
         );
         await host.runCommand("history-import", "", ctx);
       }
+
       writer.close();
       await host.runShortcut("ctrl+r", ctx);
       host.terminalInput("unsaved");
@@ -340,18 +349,24 @@ describe("history runtime", () => {
     );
     writer.close();
     const all = vi.spyOn(StatementSync.prototype, "all");
+
     const { host, ctx } = await createHarness(
       populated ? [userEntry("current", null, "session prompt", 200)] : [],
     );
+
     expect(all.mock.calls).toEqual(populated ? [] : [[100]]);
+
     if (!populated) {
       const editor = createEditor(host);
+
       for (let index = 0; index < 105; index++) {
         editor.handleInput("\u001B[A");
         editor.render(80);
       }
+
       expect(editor.getText()).toBe("saved prompt 5");
     }
+
     await host.runShortcut("ctrl+r", ctx);
     host.terminalInput("saved prompt 0");
     expect(ctx.ui.getEditorText()).toBe("saved prompt 0");
@@ -366,6 +381,7 @@ describe("history runtime", () => {
     const sessionDirectory = path.join(agentDir, "sessions", "project");
     const sessionPath = path.join(sessionDirectory, "legacy.jsonl");
     await mkdir(sessionDirectory, { recursive: true });
+
     const original = [
       JSON.stringify({
         cwd: "/project",
@@ -391,6 +407,7 @@ describe("history runtime", () => {
       }),
       ...nonPromptEntries("bash", 400).map((entry) => JSON.stringify(entry)),
     ].join("\n");
+
     await writeFile(sessionPath, original, "utf-8");
 
     const { ctx, host } = await createHarness();
@@ -419,10 +436,12 @@ describe("history runtime", () => {
     const firstDirectory = path.join(agentDir, "custom-a");
     const secondDirectory = path.join(agentDir, "custom-b");
     await Promise.all(
-      [
-        [firstDirectory, "first.jsonl", "prompt from directory a"],
-        [secondDirectory, "second.jsonl", "prompt from directory b"],
-      ].map(async ([directory, file, text], index) => {
+      (
+        [
+          [firstDirectory, "first.jsonl", "prompt from directory a"],
+          [secondDirectory, "second.jsonl", "prompt from directory b"],
+        ] as const
+      ).map(async ([directory, file, text], index) => {
         await mkdir(directory, { recursive: true });
         await writeFile(
           path.join(directory, file),
@@ -485,10 +504,15 @@ describe("history runtime", () => {
     blocker.close();
 
     await host.runCommand("history-import", "", ctx);
-    expect(host.getNotifications()).toContainEqual({
-      message: expect.stringContaining("Session history import failed: blocked import write"),
-      type: "error",
-    });
+    expect(
+      host
+        .getNotifications()
+        .some(
+          ({ message, type }) =>
+            message.includes("Session history import failed: blocked import write") &&
+            type === "error",
+        ),
+    ).toBe(true);
   });
 
   it("reconciles files committed before a later import failure", async () => {
@@ -524,10 +548,15 @@ describe("history runtime", () => {
     blocker.close();
 
     await host.runCommand("history-import", "", ctx);
-    expect(host.getNotifications()).toContainEqual({
-      message: expect.stringContaining("Session history import failed: blocked later import write"),
-      type: "error",
-    });
+    expect(
+      host
+        .getNotifications()
+        .some(
+          ({ message, type }) =>
+            message.includes("Session history import failed: blocked later import write") &&
+            type === "error",
+        ),
+    ).toBe(true);
 
     await host.runShortcut("ctrl+r", ctx);
     host.terminalInput("committed before");
@@ -539,21 +568,26 @@ describe("history runtime", () => {
     const writer = openHistoryDatabase();
     let injectedWrite = false;
     let allSpy = vi.spyOn(StatementSync.prototype, "all");
+
     const allWithConcurrentWrite = function allWithConcurrentWrite(
       this: StatementSync,
       ...args: Parameters<StatementSync["all"]>
     ) {
       allSpy.mockRestore();
       const rows = this.all(...args);
+
       if (!injectedWrite && this.sourceSQL.includes("SELECT text, last_used_at")) {
         injectedWrite = true;
         writer
           .prepare("INSERT INTO history (text, last_used_at) VALUES (?, ?)")
           .run("concurrent snapshot prompt", 100);
       }
+
       allSpy = vi.spyOn(StatementSync.prototype, "all").mockImplementation(allWithConcurrentWrite);
+
       return rows;
     };
+
     allSpy.mockImplementation(allWithConcurrentWrite);
 
     await host.runCommand("history-import", "", ctx);
@@ -576,9 +610,13 @@ describe("history runtime", () => {
     host.terminalInput("current");
 
     expect(ctx.ui.getEditorText()).toBe("current prompt");
-    expect(host.getNotifications()).toContainEqual({
-      message: expect.stringContaining("Prompt history persistence is unavailable"),
-      type: "warning",
-    });
+    expect(
+      host
+        .getNotifications()
+        .some(
+          ({ message, type }) =>
+            message.includes("Prompt history persistence is unavailable") && type === "warning",
+        ),
+    ).toBe(true);
   });
 });

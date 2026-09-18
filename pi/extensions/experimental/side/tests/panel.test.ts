@@ -11,12 +11,13 @@ import { SidePanel } from "../panel.js";
 describe("side panel", () => {
   it("preserves the editor draft when the side is already running", () => {
     const submit = vi.fn<(text: string) => boolean>(() => false);
+
     const panel = new SidePanel(
       createMockTui(),
       createIdentityTheme(),
       createKeybindings(),
       {
-        state: { activity: { kind: "running" }, transcript: [] },
+        state: { statusMessage: undefined, activity: { kind: "running" }, transcript: [] },
         submit,
         subscribe: () => vi.fn<() => void>(),
       },
@@ -32,6 +33,7 @@ describe("side panel", () => {
     for (const character of "draft") {
       panel.handleInput(character);
     }
+
     panel.handleInput("\r");
 
     expect(submit).toHaveBeenCalledWith("draft");
@@ -41,18 +43,21 @@ describe("side panel", () => {
 
   it("copies an active manual fullscreen selection", () => {
     const copyActiveSelectionToClipboard = vi.fn<() => Promise<boolean>>(async () => true);
+
     const tui = Object.assign(createMockTui(), {
       copyActiveSelectionToClipboard,
       getCopyOnSelect: () => false,
       hasActiveSelection: () => true,
     });
+
     Object.setPrototypeOf(tui, TuiAltScreen.prototype);
+
     const panel = new SidePanel(
       tui,
       createIdentityTheme(),
-      createKeybindings({ "app.message.copy": ["\u0018"] }),
+      createKeybindings({ "app.message.copy": ["ctrl+x"] }),
       {
-        state: { activity: { kind: "idle" }, transcript: [] },
+        state: { statusMessage: undefined, activity: { kind: "idle" }, transcript: [] },
         submit: () => true,
         subscribe: () => vi.fn<() => void>(),
       },
@@ -78,6 +83,7 @@ describe("side panel", () => {
       createKeybindings(),
       {
         state: {
+          statusMessage: undefined,
           activity: { kind: "idle" },
           transcript: [
             { kind: "user", text: "first prompt" },
@@ -107,12 +113,13 @@ describe("side panel", () => {
       .fn<(text: string) => boolean>()
       .mockReturnValueOnce(true)
       .mockReturnValue(false);
+
     const panel = new SidePanel(
       createMockTui(),
       createIdentityTheme(),
       createKeybindings(),
       {
-        state: { activity: { kind: "idle" }, transcript: [] },
+        state: { statusMessage: undefined, activity: { kind: "idle" }, transcript: [] },
         submit,
         subscribe: () => vi.fn<() => void>(),
       },
@@ -125,6 +132,7 @@ describe("side panel", () => {
       },
       "existing draft\n",
     );
+
     const paste = Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\n");
     panel.handleInput(`\u001B[200~${paste}\u001B[201~`);
     panel.submitExternalPrompt("external prompt");
@@ -141,14 +149,16 @@ describe("side panel", () => {
       "app.exit": ["ctrl+q"],
       "app.interrupt": ["ctrl+x"],
     });
+
     const onClose = vi.fn<() => void>();
     const onDismiss = vi.fn<() => void>();
+
     const panel = new SidePanel(
       createMockTui(),
       createIdentityTheme(),
       keybindings,
       {
-        state: { activity: { kind: "idle" }, transcript: [] },
+        state: { statusMessage: undefined, activity: { kind: "idle" }, transcript: [] },
         submit: () => true,
         subscribe: () => vi.fn<() => void>(),
       },

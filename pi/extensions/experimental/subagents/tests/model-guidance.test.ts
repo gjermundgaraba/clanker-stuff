@@ -28,9 +28,12 @@ const trace = (order: readonly (keyof typeof calls)[]): EvaluationTrace => ({
 });
 
 const valid = () => trace(["spawn1", "spawn2", "send1", "send2", "wait"]);
+
 const validate = (value: EvaluationTrace): string[] => {
   const scenario = scenarios.find(({ id }) => id === "addressing-and-waiting");
+
   if (scenario === undefined) throw new Error("Missing addressing scenario");
+
   return scenario.validate(value);
 };
 

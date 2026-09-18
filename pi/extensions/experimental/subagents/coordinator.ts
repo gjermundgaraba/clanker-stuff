@@ -1,15 +1,19 @@
+import type { JsonValue } from "@earendil-works/pi-ai";
 import { createMemoryControlStore, serializeSnapshot } from "./snapshot.js";
 import type { ControlStore, RootBinding, SubagentsSnapshot } from "./snapshot.js";
 
 type Listener = (state: SubagentsSnapshot) => void;
 
-const freeze = <T>(value: T): T => {
-  if (!Object.isFrozen(value)) {
+const freeze = <T extends JsonValue | undefined>(value: T): T => {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Recursively freezing a JSON snapshot distinguishes its declared object/array variants from scalar leaves.
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
-    for (const child of Object.values(Object(value))) {
+
+    for (const child of Object.values<JsonValue | undefined>(value)) {
       freeze(child);
     }
   }
+
   return value;
 };
 
@@ -41,6 +45,7 @@ export class TreeCoordinator {
 
   subscribe(listener: Listener): () => void {
     this.#listeners.add(listener);
+
     return () => {
       this.#listeners.delete(listener);
     };
@@ -51,11 +56,14 @@ export class TreeCoordinator {
       this.#store = store;
       this.#error = undefined;
       const next = freeze(structuredClone(state));
+
       if (!persist) {
         this.#state = next;
         this.#emit();
+
         return;
       }
+
       await this.#write(next, false);
     });
   }
@@ -72,6 +80,7 @@ export class TreeCoordinator {
       activate();
       this.#state = next;
       this.#emit();
+
       return Promise.resolve();
     });
   }
@@ -91,6 +100,7 @@ export class TreeCoordinator {
       draft.revision += 1;
       await this.#write(freeze(draft), options.reserveTerminalHeadroom ?? false, options.onCommit);
     });
+
     return result;
   }
 
@@ -99,8 +109,10 @@ export class TreeCoordinator {
     await this.#enqueue(() => {
       this.#assertHealthy();
       result = command();
+
       return Promise.resolve();
     });
+
     return result;
   }
 
@@ -120,14 +132,17 @@ export class TreeCoordinator {
     onCommit?: () => void,
   ): Promise<void> {
     const serialized = serializeSnapshot(next, reserveTerminalHeadroom);
+
     try {
       const durabilityError = await this.#store.write(serialized, () => {
         this.#state = next;
         onCommit?.();
       });
+
       if (durabilityError !== undefined) {
         this.#error = durabilityError;
       }
+
       this.#emit();
     } catch (error) {
       this.#error = error instanceof Error ? error : new Error(String(error));
@@ -143,10 +158,12 @@ export class TreeCoordinator {
 
   async #enqueue(operation: () => Promise<void>): Promise<void> {
     const previous = this.#tail;
+
     const current = (async () => {
       await previous;
       await operation();
     })();
+
     this.#tail = (async () => {
       try {
         await current;

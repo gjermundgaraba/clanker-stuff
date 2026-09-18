@@ -17,10 +17,12 @@ export const createUsageRuntime = (
 ) => {
   let pendingStart: ExtensionContext | undefined;
   let startupLoad: ReturnType<typeof setImmediate> | undefined;
+
   const usage = createLazySingleton<UsageController>(
     async (signal) => {
       const { createUsageController } = await import("./controller.js");
       signal.throwIfAborted();
+
       return createUsageController(pi, dependencies);
     },
     (controller) => {
@@ -31,6 +33,7 @@ export const createUsageRuntime = (
       }
     },
   );
+
   const loadStartup = async (ctx: ExtensionContext): Promise<void> => {
     try {
       await usage.load();
@@ -51,17 +54,23 @@ export const createUsageRuntime = (
     },
     sessionStart: (ctx: ExtensionContext): void => {
       const controller = usage.get();
+
       if (controller !== undefined) {
         controller.start(ctx);
+
         return;
       }
+
       pendingStart = ctx;
+
       if (ctx.mode !== "tui") {
         return;
       }
+
       if (startupLoad !== undefined) {
         clearImmediate(startupLoad);
       }
+
       startupLoad = setImmediate(() => {
         startupLoad = undefined;
         void loadStartup(ctx);
@@ -69,10 +78,12 @@ export const createUsageRuntime = (
     },
     shutdown: async (): Promise<void> => {
       pendingStart = undefined;
+
       if (startupLoad !== undefined) {
         clearImmediate(startupLoad);
         startupLoad = undefined;
       }
+
       await usage.stop((controller) => {
         controller.dispose();
       });

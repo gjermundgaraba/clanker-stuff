@@ -6,21 +6,28 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 export const BORDER_STATUS_EVENT = "clanker-border-status:update";
+
 export const BORDER_READY_EVENT = "clanker-border-status:ready";
+
 export const BORDER_READY_REQUEST_EVENT = "clanker-border-status:ready-request";
+
 export const BORDER_UNAVAILABLE_EVENT = "clanker-border-status:unavailable";
+
 const strict = { additionalProperties: false } as const;
+
 const id = Type.String({
   minLength: 1,
   maxLength: 128,
   pattern: "^[^\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]*$",
 });
+
 // Joining characters are valid display content, but remain forbidden in identifiers.
 const displayText = (maxLength: number) =>
   Type.String({
     maxLength,
     pattern: "^(?:[^\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]|[\\u200C\\u200D])*$",
   });
+
 export const BorderStatusSchema = Type.Object(
   {
     text: displayText(256),
@@ -32,7 +39,9 @@ export const BorderStatusSchema = Type.Object(
   },
   strict,
 );
+
 export type BorderStatus = Static<typeof BorderStatusSchema>;
+
 export const BorderReadySchema = Type.Object(
   {
     version: Type.Literal(1),
@@ -41,8 +50,11 @@ export const BorderReadySchema = Type.Object(
   },
   strict,
 );
+
 export type BorderReady = Static<typeof BorderReadySchema>;
+
 const envelope = { ...BorderReadySchema.properties, owner: id };
+
 export const BorderUpdateSchema = Type.Union([
   Type.Object(
     { ...envelope, type: Type.Literal("set"), key: id, status: BorderStatusSchema },
@@ -51,6 +63,7 @@ export const BorderUpdateSchema = Type.Union([
   Type.Object({ ...envelope, type: Type.Literal("clear"), key: id }, strict),
   Type.Object({ ...envelope, type: Type.Literal("clear-owner") }, strict),
 ]);
+
 export const BorderReadyRequestSchema = Type.Object({ version: Type.Literal(1) }, strict);
 
 /** Use null on session_start and event.newLeafId on session_tree, never the mutable current leaf. */
@@ -72,11 +85,14 @@ export function createBorderStatusClient(
   let scope: string | undefined;
   let ready: BorderReady | undefined;
   let unsubscribe: (() => void)[] = [];
+
   const available = (next: BorderReady | undefined) => {
     const changed = !!ready !== !!next;
     ready = next;
+
     if (changed) options.onAvailabilityChange?.(!!ready);
   };
+
   const publish = (key: string, status: BorderStatus) => {
     if (ready)
       pi.events.emit(BORDER_STATUS_EVENT, {
@@ -87,11 +103,14 @@ export function createBorderStatusClient(
         status,
       });
   };
+
   const clearAll = () => {
     desired.clear();
+
     if (ready)
       pi.events.emit(BORDER_STATUS_EVENT, { ...ready, owner: options.owner, type: "clear-owner" });
   };
+
   const listen = () => {
     if (unsubscribe.length) return;
     unsubscribe = [
@@ -100,7 +119,9 @@ export function createBorderStatusClient(
         // Publish before switching consumers from their fallback UI.
         const wasAvailable = ready !== undefined;
         ready = value;
+
         for (const [key, status] of desired) publish(key, status);
+
         if (!wasAvailable) options.onAvailabilityChange?.(true);
       }),
       pi.events.on(BORDER_UNAVAILABLE_EVENT, (value) => {
@@ -109,12 +130,14 @@ export function createBorderStatusClient(
       }),
     ];
   };
+
   return {
     attach(ctx: ExtensionContext, navigationId: string | null = null) {
       clearAll();
       available(undefined);
       scope = ctx.mode === "tui" ? borderScope(ctx, navigationId) : undefined;
       listen();
+
       if (scope !== undefined) pi.events.emit(BORDER_READY_REQUEST_EVENT, { version: 1 });
     },
     set(key: string, status: BorderStatus) {
@@ -127,6 +150,7 @@ export function createBorderStatusClient(
     clear(key: string) {
       if (!Value.Check(id, key)) throw new Error("Invalid border status key");
       desired.delete(key);
+
       if (ready)
         pi.events.emit(BORDER_STATUS_EVENT, { ...ready, owner: options.owner, type: "clear", key });
     },
@@ -138,6 +162,7 @@ export function createBorderStatusClient(
       clearAll();
       available(undefined);
       scope = undefined;
+
       for (const stop of unsubscribe) stop();
       unsubscribe = [];
     },

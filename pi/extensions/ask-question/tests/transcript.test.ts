@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
@@ -5,6 +6,7 @@ import { createIdentityTheme } from "../../../tests/harness/tui.js";
 import { createInteraction, transition } from "../interaction.js";
 import { answerMessage, answerResult, isDelivered } from "../delivery.js";
 import { createAnswerMarkdownTransformer, renderCall, renderResult } from "../transcript.js";
+
 const request = {
   title: "Synthetic request",
   questions: [
@@ -16,7 +18,9 @@ const request = {
     },
   ],
 };
+
 const theme = createIdentityTheme();
+
 const context = {
   args: request,
   toolCallId: "test",
@@ -31,6 +35,7 @@ const context = {
   showImages: false,
   isError: false,
 };
+
 describe("compact questionnaire transcript", () => {
   it("projects only exact known user answers, preserving notes, revisions and canonical delivery", () => {
     let item = createInteraction("q_display", request, "call", "async");
@@ -64,16 +69,21 @@ describe("compact questionnaire transcript", () => {
     const transform = createAnswerMarkdownTransformer(read);
     const ctx = { messageType: "user" as const, isStreaming: false, availableWidth: 80 };
     const submission = item.submissions[1];
+    assert(submission);
     const wire = answerMessage(item, submission);
     const before = JSON.stringify(item);
     const projected = transform(wire, ctx);
     expect(projected).not.toContain('"type":"questionnaire_answer"');
     expect(projected).not.toContain(item.id);
     expect(projected).not.toContain("Option note"); // Deselected option notes stay private.
-    expect(transform(answerMessage(item, item.submissions[0]), ctx)).toContain("Option note");
+    const first = item.submissions[0];
+    assert(first);
+    expect(transform(answerMessage(item, first), ctx)).toContain("Option note");
     initTheme("dark");
+
     const render = (markdown: string) =>
       new Markdown(markdown, 0, 0, getMarkdownTheme()).render(80).join("\n");
+
     const rendered = render(projected);
     expect(rendered).toContain("supersedes revision 1");
     expect(rendered).toContain("Written-answer note");
@@ -100,6 +110,7 @@ describe("compact questionnaire transcript", () => {
         },
       ]),
     ).toBe(true);
+
     for (const untouched of [
       wire + "\nUnrelated queued text",
       "Quoted answer:\n" + wire,
@@ -133,6 +144,7 @@ describe("compact questionnaire transcript", () => {
         .render(100)
         .join("\n"),
     ).toContain("Pending · not answered yet");
+
     for (const [status, label] of [
       ["cancelled", "Cancelled by the user"],
       ["delivery_paused", "draft kept"],
@@ -167,11 +179,15 @@ describe("compact questionnaire transcript", () => {
     item = transition(item, item.version, { type: "select", question: "q", option: "a" });
     item = transition(item, item.version, { type: "note", text: "x".repeat(900) + "END_NOTE" });
     item = transition(item, item.version, { type: "submit" });
-    const result = answerResult(item, item.submissions[0]);
+    const submission = item.submissions[0];
+    assert(submission);
+    const result = answerResult(item, submission);
     const before = JSON.stringify(result);
+
     const collapsed = renderResult(result, { expanded: false, isPartial: false }, theme, context)
       .render(100)
       .join("\n");
+
     expect(collapsed).toContain("Answered · revision 1");
     expect(collapsed).toContain("Q");
     expect(collapsed).toContain("✓ A");
@@ -190,32 +206,52 @@ describe("compact questionnaire transcript", () => {
     const changing = createIdentityTheme();
     let color = "\x1b[31m";
     changing.fg = (_name, value) => color + value + "\x1b[0m";
+
     const component = renderCall(
       { ...request, title: "中文".repeat(100) + hostile },
       changing,
       context,
       "async",
     );
+
     const result = renderResult(
       { content: [{ type: "text", text: "中文".repeat(100) + hostile }], details: {} },
       { expanded: false, isPartial: false },
       theme,
       context,
     );
+
     for (const view of [component, result])
       for (const width of [1, 2, 20, 80]) {
         const rows = view.render(width);
         expect(rows.length).toBeLessThanOrEqual(6);
         expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+
         for (const control of ["\x1b[2J", "\u061c", "\u200e", "\u200f", "\u202e", "\u2066"])
           expect(rows.join("\n")).not.toContain(control);
       }
+
     expect(component.render(80).join("\n")).toContain("\x1b[31m");
     color = "\x1b[32m";
     component.invalidate();
     expect(component.render(80).join("\n")).toContain("\x1b[32m");
     expect(component.render(80).join("\n")).not.toContain("\x1b[31m");
   });
+  it.each([{ accepted: "false", status: "pending" }, { status: { hidden: "value" } }])(
+    "keeps malformed receipts as literal output",
+    (receipt) => {
+      const text = JSON.stringify(receipt);
+      const result = { content: [{ type: "text" as const, text }], details: undefined };
+
+      const rendered = renderResult(result, { expanded: true, isPartial: false }, theme, context)
+        .render(2000)
+        .join("\n");
+
+      expect(rendered).toContain(text);
+      expect(rendered).not.toContain("Pending ·");
+    },
+  );
+
   it("does not interpret partial or failed acceptance as pending success", () => {
     for (const isPartial of [false, true]) {
       const text = renderResult(
@@ -226,6 +262,7 @@ describe("compact questionnaire transcript", () => {
       )
         .render(80)
         .join("\n");
+
       expect(text).not.toContain("Pending");
       expect(text).toContain('{"accepted":true}');
     }
