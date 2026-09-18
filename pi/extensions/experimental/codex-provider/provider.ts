@@ -1,3 +1,5 @@
+import type { ExecutionSettings, ToolExecutionSettings } from "./tools/execution-context.js";
+import { fetchCodexHttp } from "@clanker-stuff/codex-http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
@@ -46,6 +48,7 @@ import {
   createCodexModelCatalog,
   extractAccountId,
   isCodexWireReasoningEffort,
+  piReasoningLevel,
   isSupportedCodexModelId,
   modelSupportsServiceTier,
   resolveCodexResponsesUrl,
@@ -417,18 +420,21 @@ export interface CodexCompactionResult {
 
 const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
-const validateRequestReasoningEffort = (body: JsonRecord): void => {
+const requestThinkingLevel = (body: JsonRecord): ModelThinkingLevel => {
   const { reasoning } = body;
   if (reasoning === undefined) {
-    return;
+    return "off";
   }
   if (!isRecord(reasoning)) {
     throw new TypeError("Codex payload reasoning must be an object");
   }
   const { effort } = reasoning;
-  if (effort !== undefined && !isCodexWireReasoningEffort(effort)) {
+  if (effort === undefined) return "off";
+  const level = typeof effort === "string" ? piReasoningLevel(effort) : undefined;
+  if (level === undefined) {
     throw new Error(`Unsupported Codex Responses reasoning effort: ${JSON.stringify(effort)}`);
   }
+  return level;
 };
 
 const toCodexReasoningEffort = (
@@ -1587,7 +1593,7 @@ const sseEvents = async function* sseEvents(
         };
         dispatchFailed = true;
         const responsePromise = dispatchInference(recovery, () =>
-          fetch(resolveCodexResponsesUrl(model.baseUrl), requestInit),
+          fetchCodexHttp(resolveCodexResponsesUrl(model.baseUrl), requestInit, fetch),
         );
         trace.transportUsed = "sse";
         dispatchFailed = false;
@@ -1908,6 +1914,7 @@ export const createCodexProviderRuntime = (
   observability: CodexObservability,
   isFastModeEnabled: () => boolean = () => false,
   catalog: CodexModelCatalog = createCodexModelCatalog(),
+  executionSettings?: ToolExecutionSettings,
 ) => {
   const { base } = catalog;
   const sessions = new Map<string, SessionRuntime>();
@@ -2032,6 +2039,7 @@ export const createCodexProviderRuntime = (
   };
 
   const compact = async (request: CodexCompactionRequest): Promise<CodexCompactionResult> => {
+    request = { ...request, model: cloneJson(request.model) };
     const standalone = request.phase === "standalone";
     const runtimeSessionId = standalone
       ? `${request.sessionId}:compaction:${uuidv7()}`
@@ -2049,7 +2057,7 @@ export const createCodexProviderRuntime = (
     const options: OpenAICodexResponsesOptions = {
       apiKey: request.apiKey,
       env: request.env,
-      headers: request.headers,
+      headers: request.headers === undefined ? undefined : { ...request.headers },
       maxRetries: 0,
       reasoningEffort: toCodexReasoningEffort(request.model, request.thinkingLevel),
       serviceTier:
@@ -2124,7 +2132,7 @@ export const createCodexProviderRuntime = (
       if (built.responsesLite) {
         body = prepareLiteRequest(body);
       }
-      validateRequestReasoningEffort(body);
+      requestThinkingLevel(body);
       observedBody = body;
       const requestId = promptCacheKey(request.sessionId);
       const configuredWebsocketTransport =
@@ -2322,6 +2330,28 @@ export const createCodexProviderRuntime = (
     context,
     options,
   ) => {
+    // Pi snapshots model selection per step, but registry objects and caller
+    // options remain mutable. Later catalog/settings changes must not relabel
+    // this response, change pricing, or alter a retry's request settings.
+    model = cloneJson(model);
+    // The selected model can outlive a registry/catalog refresh. Capture current
+    // catalog-owned tool policy now without replacing request identity or pricing.
+    const catalogModel = catalog
+      .getModels()
+      .find((candidate) => candidate.provider === model.provider && candidate.id === model.id);
+    const toolModel =
+      catalogModel === undefined
+        ? model
+        : { ...model, codexOutputTokenLimit: catalogModel.codexOutputTokenLimit };
+    // Header values are request data; detach them before payload hooks or retries.
+    // Signals, callbacks, and injected transports intentionally keep their identity.
+    options =
+      options === undefined
+        ? undefined
+        : {
+            ...options,
+            headers: options.headers === undefined ? undefined : { ...options.headers },
+          };
     const operation = samplingOperation.getStore();
     if (operation?.disposed) throw new Error("Sampling scope is disposed");
     if (operation?.started) throw new Error("Sampling scope permits exactly one provider request");
@@ -2370,6 +2400,7 @@ export const createCodexProviderRuntime = (
       options?.sessionId !== undefined && options.sessionId.length > 0
         ? options.sessionId
         : uuidv7();
+    const publishToolSettings = operation ? undefined : executionSettings?.beginResponse(sessionId);
     if (operation) {
       if (sessions.has(sessionId)) {
         operation.controller = undefined;
@@ -2461,7 +2492,10 @@ export const createCodexProviderRuntime = (
             body = prepareLiteTransformedRequest(body);
           }
         }
-        validateRequestReasoningEffort(body);
+        const toolSettings: ExecutionSettings = {
+          model: toolModel,
+          thinkingLevel: requestThinkingLevel(body),
+        };
         observedBody = body;
         const requestId = promptCacheKey(sessionId);
         const prewarmCompatible =
@@ -2549,6 +2583,10 @@ export const createCodexProviderRuntime = (
             };
           }
         }
+        publishToolSettings?.(
+          output.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : [])),
+          toolSettings,
+        );
         events.push({
           message: output,
           reason: output.stopReason,

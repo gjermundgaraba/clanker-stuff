@@ -194,6 +194,7 @@ describe("codex-provider package", () => {
         "package/status.ts",
         "package/tools/controller.ts",
         "package/tools/direct.ts",
+        "package/tools/execution-context.ts",
         "package/tools/patch-summary.ts",
         "package/tools/patch.ts",
         "package/tools/path.ts",
@@ -264,6 +265,7 @@ describe("codex-provider package", () => {
       JSON.parse(readFileSync(path.join(installedPackage, "package.json"), "utf-8")),
     ).toMatchObject({
       dependencies: {
+        "@clanker-stuff/codex-http": "^0.1.0",
         "@clanker-stuff/footer-protocol": "^0.1.0",
         "@clanker-stuff/lazy-singleton": "^0.1.0",
         "@clanker-stuff/pi-extension-paths": "^0.1.0",

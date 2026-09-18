@@ -88,6 +88,7 @@
     "verify:provider": "vp run -w ready && vp run test:live:marathon && vp run eval:agents --repetitions 3 && vp run eval:agents --task compaction-resume"
   },
   "dependencies": {
+    "@clanker-stuff/codex-http": "workspace:^",
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",

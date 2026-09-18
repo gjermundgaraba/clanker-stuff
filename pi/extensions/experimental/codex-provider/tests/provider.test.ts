@@ -1,6 +1,6 @@
 import { zstdDecompressSync } from "node:zlib";
 
-import type { Context, Credential } from "@earendil-works/pi-ai";
+import type { Context, Credential, FetchFunction, ProviderHeaders } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -9,6 +9,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { codexContractFixture } from "../../subagents/docs/fixtures/codex-contract.generated.js";
 import { REMOTE_USER_IMAGE_PLACEHOLDER } from "../checkpoint.js";
 import { CodeModeRuntime } from "../code-mode/tools.js";
+import { ToolExecutionSettings } from "../tools/execution-context.js";
 import { createCodexModelCatalog } from "../model-catalog.js";
 import { CodexObservability } from "../observability.js";
 import {
@@ -562,6 +563,202 @@ describe("Codex provider", () => {
 
     expect(message).toMatchObject({ errorMessage, stopReason: "error" });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("binds completed tool IDs to final request effort without publishing failed responses", async () => {
+    const settings = new ToolExecutionSettings();
+    settings.reset("tool-settings");
+    const catalog = createCodexModelCatalog();
+    const selected = { ...SPIKE_MODEL, codexOutputTokenLimit: 100 };
+    const refreshed = { ...selected, baseUrl: "https://catalog.invalid", codexOutputTokenLimit: 2 };
+    const models = vi.spyOn(catalog, "getModels").mockReturnValue([refreshed]);
+    const runtime = createProviderRuntime(defaultObservability, undefined, catalog, settings);
+    const items = ["first", "second"].map((id) => ({
+      type: "function_call",
+      id: `fc_${id}`,
+      call_id: `call_${id}`,
+      name: "exec_command",
+      arguments: "{}",
+      status: "completed",
+    }));
+    const prefix = [
+      { type: "response.created", response: { id: "response-settings", status: "in_progress" } },
+      ...items.flatMap((item, output_index) => [
+        {
+          type: "response.output_item.added",
+          item: { ...item, status: "in_progress" },
+          output_index,
+        },
+        { type: "response.output_item.done", item, output_index },
+      ]),
+    ];
+    const completed = () =>
+      sse([
+        ...prefix,
+        {
+          type: "response.completed",
+          response: {
+            id: "response-settings",
+            status: "completed",
+            output: items,
+            usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20 },
+          },
+        },
+      ]);
+    const fetch = vi
+      .fn<FetchFunction>()
+      .mockResolvedValueOnce(completed())
+      .mockResolvedValueOnce(completed())
+      .mockResolvedValueOnce(
+        sse([
+          ...prefix,
+          { type: "response.failed", response: { error: { code: "failed", message: "failed" } } },
+        ]),
+      );
+    const options = {
+      apiKey: SPIKE_API_KEY,
+      fetch,
+      sessionId: "tool-settings",
+      transport: "sse" as const,
+      reasoning: "high" as const,
+      onPayload: async (payload: unknown) => {
+        // Refresh after request capture: only the next request should see 7.
+        await Promise.resolve();
+        models.mockReturnValue([{ ...refreshed, codexOutputTokenLimit: 7 }]);
+        return { ...wireRecord(payload), reasoning: { effort: "low" } };
+      },
+    };
+    const message = await runtime.provider.streamSimple(selected, context([]), options).result();
+    expect(message.stopReason).toBe("toolUse");
+    const calls = message.content.filter((block) => block.type === "toolCall");
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      const captured = settings.take("tool-settings", call.id);
+      expect(captured).toMatchObject({
+        model: { id: selected.id, baseUrl: selected.baseUrl, codexOutputTokenLimit: 2 },
+        thinkingLevel: "low",
+      });
+      expect(captured?.model).not.toBe(selected);
+    }
+    await runtime.provider.streamSimple(selected, context([]), options).result();
+    for (const call of calls) {
+      expect(settings.take("tool-settings", call.id)?.model).toMatchObject({
+        codexOutputTokenLimit: 7,
+      });
+    }
+    expect(selected.codexOutputTokenLimit).toBe(100);
+    const failed = await runtime.provider.streamSimple(selected, context([]), options).result();
+    expect(failed.stopReason).toBe("error");
+    for (const call of calls) expect(settings.take("tool-settings", call.id)).toBeUndefined();
+    runtime.closeSession("tool-settings");
+  });
+
+  it("preserves manual compaction redirects as nonretryable HTTP failures", async () => {
+    const runtime = createCodexProviderRuntime();
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      expect(init?.redirect).toBe("manual");
+      return new Response("redirect rejected", {
+        status: 302,
+        headers: { location: "https://example.org/" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      runtime.compact({
+        apiKey: SPIKE_API_KEY,
+        authoritativeInput: [],
+        context: context([]),
+        effectiveTokenLimit: 1000,
+        inputPrefix: [],
+        model: { ...SPIKE_MODEL, baseUrl: "https://chatgpt.com/backend-api" },
+        phase: "pre-sampling",
+        reason: "manual",
+        sessionId: "manual-redirect",
+        signal: new AbortController().signal,
+        thinkingLevel: "medium",
+      }),
+    ).rejects.toMatchObject({ status: 302, retryable: false });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("replays scoped routing cookies on actual provider HTTP requests", async () => {
+    const runtime = createCodexProviderRuntime();
+    const model = { ...SPIKE_MODEL, baseUrl: "https://provider-test.chatgpt.com/backend-api" };
+    const cookies: (string | null)[] = [];
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      cookies.push(new Headers(init?.headers).get("cookie"));
+      expect(init?.redirect).toBe("error");
+      const response = sse(responseEvents(`cookie-${cookies.length}`, "done"));
+      response.headers.append(
+        "set-cookie",
+        cookies.length === 1
+          ? "__oailb=provider-route; Path=/backend-api; Secure"
+          : "__oailb=; Path=/backend-api; Secure; Max-Age=0",
+      );
+      return response;
+    });
+    for (let i = 0; i < 2; i++) {
+      const message = await runtime.provider
+        .streamSimple(model, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch,
+          transport: "sse",
+          sessionId: "routing-cookie-test",
+        })
+        .result();
+      expect(message.stopReason).toBe("stop");
+    }
+    expect(cookies).toEqual([null, "__oailb=provider-route"]);
+    runtime.closeSession("routing-cookie-test");
+  });
+
+  it("keeps request and response attribution on the captured model across async transforms", async () => {
+    const runtime = createCodexProviderRuntime();
+    const model = { ...structuredClone(SPIKE_MODEL), headers: { "x-suppressed": "model-default" } };
+    const headers: ProviderHeaders = {
+      "x-request-policy": "original",
+      "x-suppressed": null,
+      "x-deleted": "kept",
+    };
+    const sentHeaders: Headers[] = [];
+    const ready = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const requests: WireRecord[] = [];
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      requests.push(readBody(init?.body));
+      sentHeaders.push(new Headers(init?.headers));
+      return sse(responseEvents("captured-model", "done"));
+    });
+    const result = runtime.provider
+      .streamSimple(model, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        headers,
+        reasoning: "low",
+        transport: "sse",
+        sessionId: "captured-model",
+        onPayload: async () => {
+          ready.resolve();
+          await release.promise;
+        },
+      })
+      .result();
+    await ready.promise;
+    model.id = "different-model";
+    model.cost.input = 999;
+    headers["x-request-policy"] = "changed";
+    headers["x-suppressed"] = "changed";
+    headers["x-added"] = "changed";
+    delete headers["x-deleted"];
+    release.resolve();
+    const message = await result;
+    expect(message).toMatchObject({ model: SPIKE_MODEL.id, stopReason: "stop" });
+    expect(requests[0]).toMatchObject({ model: SPIKE_MODEL.id, reasoning: { effort: "low" } });
+    expect(sentHeaders[0]?.get("x-request-policy")).toBe("original");
+    expect(sentHeaders[0]?.has("x-suppressed")).toBe(false);
+    expect(sentHeaders[0]?.has("x-added")).toBe(false);
+    expect(sentHeaders[0]?.get("x-deleted")).toBe("kept");
+    runtime.closeSession("captured-model");
   });
 
   it("preserves Pi callbacks and builds a complete SSE request", async () => {
@@ -2853,18 +3050,25 @@ describe("Codex provider", () => {
 
   it("does not count a WebSocket send throw as an inference dispatch", async () => {
     let sends = 0;
+    const headers = { "x-request-policy": "original" };
+    const sentHeaders: Headers[] = [];
     vi.stubGlobal(
       "WebSocket",
-      scriptedWebSocket({
-        send: () => {
-          sends += 1;
-          throw new Error("send failed before dispatch");
-        },
-      }),
+      function HeaderProbe(_url: string, init: { headers: Record<string, string> }) {
+        sentHeaders.push(new Headers(init.headers));
+        return scriptedWebSocket({
+          send: () => {
+            sends += 1;
+            headers["x-request-policy"] = "changed";
+            throw new Error("send failed before dispatch");
+          },
+        })();
+      },
     );
-    const fetch = vi.fn<() => Promise<Response>>(async () =>
-      sse(responseEvents("resp_send_fallback", "fallback")),
-    );
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      sentHeaders.push(new Headers(init?.headers));
+      return sse(responseEvents("resp_send_fallback", "fallback"));
+    });
     const observability = new CodexObservability(":memory:");
     const runtime = createCodexProviderRuntime(observability);
     const sessionId = "session-send-throw";
@@ -2872,6 +3076,7 @@ describe("Codex provider", () => {
       .streamSimple(SPIKE_MODEL, context([]), {
         apiKey: SPIKE_API_KEY,
         fetch,
+        headers,
         onPayload: markProtocolRetryPayload,
         sessionId,
         transport: "websocket",
@@ -2890,6 +3095,10 @@ describe("Codex provider", () => {
       websocketHandshakeAttempts: 1,
       websocketHandshakeFailures: 0,
     });
+    expect(sentHeaders.map((value) => value.get("x-request-policy"))).toStrictEqual([
+      "original",
+      "original",
+    ]);
     observability.close();
   });
 
@@ -3559,7 +3768,11 @@ describe("Codex provider", () => {
       })
       .result();
     let attempts = 0;
-    vi.stubGlobal("fetch", async () => {
+    const compactionHeaders = { "x-request-policy": "original" };
+    const sentHeaders: (string | null)[] = [];
+    vi.stubGlobal("fetch", async (_input: unknown, init?: RequestInit) => {
+      sentHeaders.push(new Headers(init?.headers).get("x-request-policy"));
+      compactionHeaders["x-request-policy"] = "changed";
       attempts += 1;
       return attempts === 1
         ? Response.json(
@@ -3570,6 +3783,7 @@ describe("Codex provider", () => {
     });
     const result = await runtime.compact({
       apiKey: SPIKE_API_KEY,
+      headers: compactionHeaders,
       authoritativeInput: [],
       context: context([]),
       effectiveTokenLimit: 1000,
@@ -3581,6 +3795,7 @@ describe("Codex provider", () => {
       signal: new AbortController().signal,
       thinkingLevel: "medium",
     });
+    expect(sentHeaders).toStrictEqual(["original", "original"]);
     expect({ attempts, responseId: result.responseId }).toStrictEqual({
       attempts: 2,
       responseId: "resp_retry",

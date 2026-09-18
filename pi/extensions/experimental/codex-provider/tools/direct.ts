@@ -1,3 +1,4 @@
+import { captureExecutionSettings, withExecutionSettings } from "./execution-context.js";
 // Tool schemas and descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ../NOTICE and ../UPSTREAM.
 import { open, readFile, stat } from "node:fs/promises";
 
@@ -209,11 +210,8 @@ const truncateProcessResultOutput = async (
   }
 };
 
-const outputTokenPolicy = (ctx: Pick<ExtensionContext, "model" | "modelRegistry">): number => {
-  const selected = ctx.model;
-  const current =
-    selected === undefined ? undefined : ctx.modelRegistry.find(selected.provider, selected.id);
-  const model = current ?? selected;
+const outputTokenPolicy = (ctx: ExtensionContext): number => {
+  const { model } = captureExecutionSettings(ctx);
   const configured =
     model !== undefined && "codexOutputTokenLimit" in model
       ? model.codexOutputTokenLimit
@@ -244,7 +242,7 @@ const codeModeResult = (
 const processResult = async (
   result: ProcessResult,
   maxOutputTokens: number | undefined,
-  ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
+  ctx: ExtensionContext,
   nested: boolean,
 ): Promise<AgentToolResult<unknown>> => {
   const effectiveLimit = Math.min(
@@ -330,6 +328,7 @@ export const createCodexDirectTools = () => {
         strict,
       ),
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+        ctx = withExecutionSettings(ctx);
         const manager = await processManager();
         return await processResult(
           await manager.start({
@@ -367,6 +366,7 @@ export const createCodexDirectTools = () => {
         strict,
       ),
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+        ctx = withExecutionSettings(ctx);
         const manager = await processManager();
         return await processResult(
           await manager.continue({

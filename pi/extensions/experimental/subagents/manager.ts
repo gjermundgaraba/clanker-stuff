@@ -415,7 +415,12 @@ export class SubagentManager {
       }
       return;
     }
-    if (selected === this.#sessionPhase.protocol) {
+    // A synchronous provider-contract refresh can update the selected protocol
+    // before this hook runs, without installing its authoritative control state.
+    if (
+      selected === this.#sessionPhase.protocol &&
+      selected === this.#coordinator.state.protocolLatch
+    ) {
       this.#refreshProtocol({ model: event.model, modelRegistry: ctx.modelRegistry });
       return;
     }

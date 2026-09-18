@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { ToolExecutionSettings } from "./tools/execution-context.js";
+
 import { createCodexFooter } from "./footer.js";
 import { createLazyCodexProvider } from "./lazy-provider.js";
 import { registerCheckpointRenderer } from "./renderer.js";
@@ -10,10 +12,11 @@ import { registerCodexUltra } from "./ultra/index.js";
 /** Register provider lifecycle and transport, optionally composing tool policy. */
 export function registerCodexProvider(
   pi: ExtensionAPI,
-  registerTools?: (setCodeMode: (active: boolean) => void) => void,
+  registerTools?: (setCodeMode: (active: boolean) => void, settings: ToolExecutionSettings) => void,
 ): void {
   const footer = createCodexFooter(pi);
-  const runtime = createCodexRuntime(pi, footer.setFastMode);
+  const settings = new ToolExecutionSettings();
+  const runtime = createCodexRuntime(pi, footer.setFastMode, settings);
 
   pi.registerFlag("fast", {
     description: "Start with OpenAI Codex fast mode enabled",
@@ -22,7 +25,7 @@ export function registerCodexProvider(
 
   pi.registerProvider(createLazyCodexProvider(runtime.catalog, runtime.loadProvider));
   registerCheckpointRenderer(pi);
-  registerTools?.(footer.setCodeMode);
+  registerTools?.(footer.setCodeMode, settings);
   registerCodexUltra(pi, runtime.catalog);
 
   pi.registerCommand("fast", {

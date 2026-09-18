@@ -1,3 +1,4 @@
+import type { ToolExecutionSettings } from "./tools/execution-context.js";
 import path from "node:path";
 
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
@@ -32,6 +33,7 @@ const isCodexModel = (model: Model<string> | undefined): boolean =>
 export const createCodexRuntime = (
   pi: ExtensionAPI,
   setFastFooterActive: (active: boolean) => void,
+  executionSettings?: ToolExecutionSettings,
 ) => {
   const storage = getExtensionStoragePaths("codex-provider");
   const catalog = createCodexModelCatalog(() => {
@@ -78,6 +80,7 @@ export const createCodexRuntime = (
         new CodexObservability(path.join(storage.dataDir, "codex-provider.sqlite")),
         isFastModeEnabled,
         catalog,
+        executionSettings,
       );
     },
     (loaded) => {

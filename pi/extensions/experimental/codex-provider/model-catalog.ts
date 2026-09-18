@@ -1,3 +1,4 @@
+import { fetchCodexHttp } from "@clanker-stuff/codex-http";
 import { arch, platform, release } from "node:os";
 
 import { uuidv7 } from "@earendil-works/pi-ai";
@@ -392,7 +393,7 @@ const reasoningLevels = (metadata: CodexModelMetadata) =>
     return value?.effort === undefined ? [] : [value.effort];
   });
 
-const piReasoningLevel = (effort: string): ModelThinkingLevel | undefined =>
+export const piReasoningLevel = (effort: string): ModelThinkingLevel | undefined =>
   CODEX_PI_REASONING_LEVELS.get(effort);
 
 const ultraSettings = (
@@ -830,7 +831,7 @@ export const createCodexModelCatalog = (onAccountChanged?: () => void) => {
     ) {
       headers.set("if-none-match", stored.etag);
     }
-    const response = await fetch(resolveModelsUrl(base.baseUrl), {
+    const response = await fetchCodexHttp(resolveModelsUrl(base.baseUrl), {
       headers,
       signal: context.signal,
     });

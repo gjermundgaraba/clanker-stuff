@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCodexDirectTools, truncateCodexOutput } from "../tools/direct.js";
+import { ToolExecutionSettings } from "../tools/execution-context.js";
+import { registerCodexTools } from "../tools/register.js";
 import { ProcessOutput } from "../tools/process-output.js";
 import type { ProcessManager, ProcessResult } from "../tools/process.js";
 import { createToolsModel, wireRecord } from "./fixtures.js";
@@ -57,6 +59,75 @@ describe("Codex direct tools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  it("executes with the originating step settings after a model/effort change", async () => {
+    const settings = new ToolExecutionSettings();
+    const host = createExtensionHost((pi) =>
+      registerCodexTools(pi, undefined, undefined, settings),
+    );
+    const original = createPolicyModel(2);
+    const ctx = host.createContext({ model: original, thinkingLevel: "low" });
+    await host.emitSessionStart(ctx);
+    settings.beginResponse(ctx.sessionManager.getSessionId())(["exec_command"], {
+      model: structuredClone(original),
+      thinkingLevel: "low",
+    });
+    original.codexOutputTokenLimit = 0;
+    const changed = host.createContext({ model: createPolicyModel(0), thinkingLevel: "high" });
+    processManager.start.mockResolvedValueOnce({
+      durationMs: 0,
+      exitCode: 0,
+      output: "abcdefghijklmnop",
+      running: false,
+      status: "exited",
+    });
+    const result = await host.runTool(
+      "exec_command",
+      { cmd: "captured", max_output_tokens: 100 },
+      changed,
+    );
+    expect(result.details).toMatchObject({ effectiveMaxOutputTokens: 2 });
+    const invocation = processManager.start.mock.calls.at(-1)?.[0];
+    expect(invocation?.ctx.thinkingLevel).toBe("low");
+    expect(invocation?.ctx.model).toMatchObject({ codexOutputTokenLimit: 2 });
+    await host.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, changed);
+  });
+
+  it.each(["exec_command", "write_stdin"])(
+    "captures %s output policy before awaiting the process",
+    async (name) => {
+      const direct = createCodexDirectTools();
+      const host = createExtensionHost((pi) => {
+        for (const definition of direct.definitions) pi.registerTool(definition);
+      });
+      let model = createPolicyModel(2);
+      const ctx = host.createContext({ model, modelRegistry: { find: () => model } });
+      const ready = Promise.withResolvers<void>();
+      const complete = Promise.withResolvers<ProcessResult>();
+      const method = name === "exec_command" ? processManager.start : processManager.continue;
+      method.mockImplementationOnce(() => {
+        ready.resolve();
+        return complete.promise;
+      });
+      const pending = host.runTool(
+        name,
+        name === "exec_command" ? { cmd: "held" } : { session_id: 1 },
+        ctx,
+      );
+      await ready.promise;
+      model = createPolicyModel(0);
+      complete.resolve({
+        durationMs: 0,
+        exitCode: 0,
+        output: "abcdefghijklmnop",
+        running: false,
+        status: "exited",
+      });
+      const result = await pending;
+      expect(result.details).toMatchObject({ effectiveMaxOutputTokens: 2 });
+      await direct.dispose();
+    },
+  );
 
   it("retries process manager construction after failure", async () => {
     processManager.construct.mockImplementationOnce(() => {

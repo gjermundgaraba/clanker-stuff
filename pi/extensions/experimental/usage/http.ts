@@ -1,3 +1,4 @@
+import { fetchCodexHttp } from "@clanker-stuff/codex-http";
 import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 
@@ -33,7 +34,7 @@ export const defaultFetchJson: FetchJson = async (url, schema, options) => {
   const signal = AbortSignal.timeout(options.timeoutMs);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchCodexHttp(url, {
       body: options.body,
       headers: options.headers,
       method: options.method ?? "GET",

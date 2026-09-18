@@ -43,6 +43,24 @@ try {
   assert("errorText" in simple && simple.errorText === undefined);
   assert(simple.contentItems.some((item) => item.text === "42"));
 
+  // 0.155.0 fixes undefined handling before V8 JSON serialization. A rejected
+  // store must preserve the previous value, including across execution cells.
+  const undefinedStore = await execute(
+    'store("undefined-check", null); try { store("undefined-check", undefined); } catch (error) { text(String(error)); } text(load("undefined-check"));',
+  );
+  assert.equal(undefinedStore.kind, "result");
+  assert("errorText" in undefinedStore && undefinedStore.errorText === undefined);
+  assert.deepEqual(
+    undefinedStore.contentItems.map((item) => item.text),
+    ['Unable to store "undefined-check". Only plain serializable objects can be stored.', "null"],
+  );
+  const stored = await execute('text(load("undefined-check"));');
+  assert.equal(stored.kind, "result");
+  assert.deepEqual(
+    stored.contentItems.map((item) => item.text),
+    ["null"],
+  );
+
   const nested = await execute(
     'const result = await tools.exec_command({cmd:"pwd",max_output_tokens:100}); text(result.output.trim()); text(ALL_TOOLS.map(tool => tool.name));',
   );

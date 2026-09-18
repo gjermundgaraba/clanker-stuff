@@ -7,6 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { COLLABORATION_CONTRACT_REQUEST } from "../contract.js";
 import { DEFAULT_CONFIG } from "../config.js";
 import type { SubagentsConfig } from "../config.js";
 import { SubagentManager } from "../manager.js";
@@ -166,6 +167,51 @@ describe("subagents extension selection", () => {
       type: "info",
     });
   });
+
+  it.each(["v2", "disabled"] as const)(
+    "accepts first input after a contract refresh switches %s to an undeclared model",
+    async (initial) => {
+      const previous = model(initial);
+      const next = model();
+      const host = createExtensionHost(
+        (pi) => {
+          // An earlier extension can request the new contract before our model hook.
+          pi.on("model_select", (_event, ctx) => {
+            pi.events.emit(COLLABORATION_CONTRACT_REQUEST, {
+              context: ctx,
+              sessionId: ctx.sessionManager.getSessionId(),
+              provide: () => {},
+            });
+          });
+          const manager = new SubagentManager(pi, {
+            config: structuredClone(DEFAULT_CONFIG),
+            dataDir: "/tmp/subagents-model-switch-test",
+          });
+          pi.on("session_start", manager.start.bind(manager));
+          pi.on("model_select", manager.modelSelect.bind(manager));
+          pi.on("input", manager.input.bind(manager));
+        },
+        { model: previous },
+      );
+      await host.ready;
+      await host.emitSessionStart(host.createContext({ model: previous }));
+      const ctx = host.createContext({ model: next });
+      await host.emit(
+        "model_select",
+        {
+          type: "model_select",
+          model: next,
+          previousModel: previous,
+          source: "set",
+        },
+        ctx,
+      );
+      expect(
+        await host.emitInput({ type: "input", text: "hello", source: "interactive" }, ctx),
+      ).toStrictEqual({ action: "continue" });
+      expect(host.getNotifications()).toStrictEqual([]);
+    },
+  );
 
   it("consumes a pending restore before invoking its controller", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "subagents-manager-"));

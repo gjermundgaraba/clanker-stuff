@@ -220,9 +220,9 @@ const compactResponse = (id = "compact") => {
   );
 };
 
-const toolCallResponse = (id = "tool", name = "large_result", inputTokens = 100) => {
+const toolCallResponse = (id = "tool", name = "large_result", inputTokens = 100, args = {}) => {
   const item = {
-    arguments: "{}",
+    arguments: JSON.stringify(args),
     call_id: `call_${id}`,
     id: `fc_${id}`,
     name,
@@ -636,6 +636,61 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
+
+  it.each(["turn_start", "context"] as const)(
+    "keeps tools on request effort when an earlier %s handler changes live effort",
+    async (boundary) => {
+      const paths = await workspace("codex-request-settings-");
+      const requests: WireRecord[] = [];
+      const errors: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<FetchFunction>(async (_input, init) => {
+          requests.push(requestJson(init?.body, new Headers(init?.headers)));
+          return requests.length === 1
+            ? toolCallResponse("settings", "exec_command", 10, {
+                cmd: "printf ORIGIN_EFFORT=%s $PI_REASONING_LEVEL",
+                max_output_tokens: 100,
+              })
+            : assistantResponse("settings-done");
+        }),
+      );
+      const session = await createRealCodexSession({
+        compaction: { enabled: false },
+        model: createToolsModel("gpt-5.6-sol", true),
+        extensionFactories: [
+          (pi) => {
+            let changed = false;
+            const change = async () => {
+              if (changed) return;
+              changed = true;
+              await Promise.resolve();
+              pi.setThinkingLevel("high");
+            };
+            if (boundary === "turn_start") pi.on("turn_start", change);
+            else pi.on("context", change);
+          },
+          codexCompactionExtension,
+        ],
+        rootDir: paths.rootDir,
+        sessionManager: SessionManager.inMemory(paths.cwd),
+        onExtensionError: (error) => errors.push(error.error),
+      });
+      try {
+        session.setThinkingLevel("low");
+        await session.prompt("check originating effort");
+        expect(errors).toStrictEqual([]);
+        expect(requests).toHaveLength(2);
+        expect(wireRecord(requests[0]!.reasoning).effort).toBe("low");
+        expect(session.thinkingLevel).toBe("high");
+        expect(wireRecord(requests[1]!.reasoning).effort).toBe("high");
+        expect(JSON.stringify(requests[1]!.input)).toContain("ORIGIN_EFFORT=low");
+      } finally {
+        session.dispose();
+        await rm(paths.rootDir, { force: true, recursive: true });
+      }
+    },
+  );
 
   it("shows Codex provider status without changing the session", async () => {
     const paths = await workspace("codex-provider-status-");
@@ -2187,6 +2242,48 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       }
     },
   );
+
+  it("persists an accepted prompt exactly once when pre-sampling compaction fails", async () => {
+    const paths = await workspace("codex-failed-pre-sampling-");
+    const model = { ...SPIKE_MODEL, contextWindow: 4000, maxTokens: 1000 };
+    const prompt = `accepted-before-compaction ${"x".repeat(15_000)}`;
+    const requests: WireRecord[] = [];
+    const fetch = vi.fn<FetchFunction>(async (_input, init) => {
+      const request = requestJson(init?.body, new Headers(init?.headers));
+      requests.push(request);
+      return malformedCompactResponse();
+    });
+    vi.stubGlobal("fetch", fetch);
+    const manager = SessionManager.create(paths.cwd, paths.sessionDir);
+    const session = await createRealCodexSession({
+      compaction: { enabled: false },
+      extensionFactories: [codexCompactionExtension],
+      model,
+      rootDir: paths.rootDir,
+      sessionManager: manager,
+      systemPrompt: "short",
+    });
+    try {
+      await session.prompt(prompt);
+      expect(requests).toHaveLength(1);
+      expect(inputItemTypes(requests[0]?.input)).toContain("compaction_trigger");
+      expect(resolveActiveCheckpointBoundary(manager.getBranch()).kind).toBe("none");
+      const file = manager.getSessionFile();
+      expect(file).toBeDefined();
+      if (!file) throw new Error("Missing durable session");
+      const restored = SessionManager.open(file, paths.sessionDir);
+      for (const branch of [manager.getBranch(), restored.getBranch()]) {
+        const users = branch.flatMap((entry) =>
+          entry.type === "message" && entry.message.role === "user" ? [entry.message] : [],
+        );
+        expect(users).toHaveLength(1);
+        expect(users[0]?.content).toEqual([{ type: "text", text: prompt }]);
+      }
+    } finally {
+      session.dispose();
+      await rm(paths.rootDir, { force: true, recursive: true });
+    }
+  });
 
   it("compacts inline before pre-sampling and continues the pending request", async () => {
     const paths = await workspace("codex-inline-pre-sampling-");

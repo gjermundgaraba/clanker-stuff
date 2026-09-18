@@ -5,6 +5,7 @@ import { createExtensionHost } from "../../../../../tests/harness/extension-host
 import { CodeModeDelegateRuntime } from "../../code-mode/delegate-runtime.js";
 import { nestedToolKey } from "../../code-mode/protocol.js";
 import { CodeModeTraceStore } from "../../code-mode/trace-store.js";
+import { createToolsModel } from "../fixtures.js";
 import type {
   NestedTool,
   RuntimeResponse,
@@ -25,6 +26,64 @@ afterEach(() => {
 });
 
 describe("Code Mode wait snapshots", () => {
+  it("keeps each cell's originating model and effort across waits", async () => {
+    const host = createExtensionHost(() => {});
+    const sent = Promise.withResolvers<void>();
+    const runtime = new CodeModeDelegateRuntime(() => sent.resolve());
+    const contexts: ToolExecutionContext[] = [];
+    const tool: NestedTool = {
+      name: "probe",
+      kind: "function",
+      usage: "probe()",
+      definition: {
+        name: "probe",
+        label: "Probe",
+        description: "Probe",
+        parameters: Type.Object({}),
+        execute: async () => ({ content: [], details: undefined }),
+      },
+      invoke: async (_input, ctx) => {
+        contexts.push(ctx);
+        return "ok";
+      },
+    };
+    const tools = new Map([[nestedToolKey({ name: "probe" }), tool]]);
+    const original = host.createContext({
+      model: createToolsModel("gpt-5.6-sol", true),
+      thinkingLevel: "low",
+    });
+    const later = host.createContext({
+      model: createToolsModel("gpt-6-astra", true),
+      thinkingLevel: "high",
+      cwd: "/new-wait-context",
+    });
+    runtime.bindCell("a", original, tools);
+    runtime.bindCell("b", later, tools);
+    runtime.bindCell("a", later);
+    for (const [index, cell] of ["a", "b"].entries()) {
+      runtime.handleRequest({
+        id: index + 1,
+        request: {
+          type: "tool/invoke",
+          invocation: {
+            cell_id: cell,
+            runtime_tool_call_id: cell,
+            tool_name: { name: "probe", namespace: null },
+            input: {},
+          },
+        },
+      });
+    }
+    await sent.promise;
+    expect(
+      contexts.map(({ extensionContext: ctx }) => [ctx.model?.id, ctx.thinkingLevel, ctx.cwd]),
+    ).toEqual([
+      ["gpt-5.6-sol", "low", "/new-wait-context"],
+      ["gpt-6-astra", "high", "/new-wait-context"],
+    ]);
+    runtime.clear();
+  });
+
   it.each([1, 2])(
     "ending observer %s leaves the other observer and cell context intact",
     (ended) => {

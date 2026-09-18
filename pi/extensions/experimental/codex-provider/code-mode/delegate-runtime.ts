@@ -1,6 +1,8 @@
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+import { captureExecutionSettings, withExecutionSettings } from "../tools/execution-context.js";
+
 import { nestedToolKey } from "./protocol.js";
 import type { DelegateRequestMessage, DelegateResponse } from "./protocol.js";
 import { CodeModeTraceStore } from "./trace-store.js";
@@ -33,7 +35,11 @@ export class CodeModeDelegateRuntime {
 
   bindCell(cellId: string, context: ExtensionContext, tools?: Map<string, NestedTool>): void {
     this.traces.startCell(cellId);
-    this.cellContexts.set(cellId, context);
+    const previous = this.cellContexts.get(cellId);
+    this.cellContexts.set(
+      cellId,
+      withExecutionSettings(context, captureExecutionSettings(previous ?? context)),
+    );
     if (tools) {
       this.cellTools.set(cellId, tools);
     }

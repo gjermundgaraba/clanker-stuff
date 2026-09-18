@@ -2,17 +2,21 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   SessionShutdownEvent,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
 import { CodeModeRuntime } from "../code-mode/tools.js";
 import { PI_SUBAGENTS_NAMESPACE, requestCollaborationContract } from "../collaboration.js";
 import { CODE_MODE_STATUS_KEY } from "../footer.js";
+import { withExecutionSettings } from "./execution-context.js";
+import type { ToolExecutionSettings } from "./execution-context.js";
 import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
 
 export const createCodexToolsController = (
   pi: ExtensionAPI,
   setFooterActive: (active: boolean) => void,
   evaluationToolMode?: "direct" | "code_mode_only",
+  executionSettings?: ToolExecutionSettings,
 ) => {
   const direct = createCodexDirectTools();
   const codeMode = new CodeModeRuntime();
@@ -131,7 +135,20 @@ export const createCodexToolsController = (
         ? undefined
         : { systemPrompt: `${systemPrompt.trimEnd()}\n\n${section}` };
     },
-    definitions: [...directDefinitions, ...codeDefinitions],
+    definitions: [...directDefinitions, ...codeDefinitions].map((definition): ToolDefinition => ({
+      ...definition,
+      execute: (id, args, signal, onUpdate, ctx) =>
+        definition.execute(
+          id,
+          args,
+          signal,
+          onUpdate,
+          withExecutionSettings(
+            ctx,
+            executionSettings?.take(ctx.sessionManager.getSessionId(), id),
+          ),
+        ),
+    })),
     async shutdown(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (reason === "reload") {
         pi.setActiveTools([
