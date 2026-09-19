@@ -1,6 +1,6 @@
 FROM node:26.8.2-bookworm-slim AS extension
 
-RUN npm install --global pnpm@12.4.1
+RUN npm install --global pnpm@12.5.1
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY pi/extensions/experimental/codex-provider ./pi/extensions/experimental/codex-provider

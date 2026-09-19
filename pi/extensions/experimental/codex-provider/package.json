@@ -93,7 +93,7 @@
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
-    "eventsource-parser": "4.1.0",
+    "eventsource-parser": "4.1.1",
     "js-tiktoken": "1.0.21",
     "safe-stable-stringify": "catalog:",
     "uuid": "14.0.2"
