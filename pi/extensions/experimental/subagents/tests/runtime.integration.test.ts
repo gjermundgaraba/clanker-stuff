@@ -53,15 +53,16 @@ const blockNextTranscriptVerification = () => {
   const started = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
 
-  const spy = vi
-    .spyOn(TranscriptCursor.prototype, "verify")
-    .mockImplementation(async function (this: TranscriptCursor, expectedId) {
-      spy.mockRestore();
-      started.resolve(undefined);
-      await release.promise;
+  const spy = vi.spyOn(TranscriptCursor.prototype, "verify").mockImplementation(async function (
+    this: TranscriptCursor,
+    expectedId,
+  ) {
+    spy.mockRestore();
+    started.resolve(undefined);
+    await release.promise;
 
-      return this.verify(expectedId);
-    });
+    return this.verify(expectedId);
+  });
 
   return { release, spy, started };
 };
