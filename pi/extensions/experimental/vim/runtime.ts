@@ -259,7 +259,9 @@ export function mountVim(host: EditorHost, publish: (mode: Mode) => void): () =>
           editor.document.move(exitInsert(view()));
           mode("normal");
 
-          return true;
+          // On blank drafts, Pi owns Escape: cancel running work or count it
+          // toward the native double-Escape action after leaving Insert.
+          return editor.getText().trim().length > 0;
         }
 
         if (state.mode !== "normal") {

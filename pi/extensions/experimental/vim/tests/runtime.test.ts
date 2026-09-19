@@ -121,6 +121,8 @@ describe("native modal editing", () => {
 
 it("Escape dismisses completion before leaving Insert, then preserves Pi Escape", async () => {
   const { editor, keys, mode } = setup();
+  const escape = vi.fn();
+  editor.onEscape = escape;
   editor.setAutocompleteProvider({
     getSuggestions: async () => ({
       prefix: "",
@@ -140,8 +142,10 @@ it("Escape dismisses completion before leaving Insert, then preserves Pi Escape"
   keys("\x1b");
   expect(mode()).toBe("insert");
   expect(editor.isShowingAutocomplete()).toBe(false);
+  expect(escape).not.toHaveBeenCalled();
   keys("\x1b");
   expect(mode()).toBe("normal");
+  expect(escape).toHaveBeenCalledTimes(1);
 });
 
 it("Ctrl+R reaches extension shortcuts only in Insert", () => {
@@ -173,13 +177,34 @@ it("accepted history starts a new undo/repeat boundary", () => {
 });
 
 it("Normal Escape delegates to Pi without double invocation", () => {
-  const { editor, keys } = setup();
+  const { editor, keys } = setup("draft");
   const escape = vi.fn();
   editor.onEscape = escape;
   keys("\x1b");
   expect(escape).not.toHaveBeenCalled();
   keys("\x1b");
   expect(escape).toHaveBeenCalledTimes(1);
+});
+
+it.each(["", " \n "])("both Escapes reach Pi from a blank draft %j", (text) => {
+  const { editor, keys, mode } = setup(text);
+  const escape = vi.fn(() => expect(mode()).toBe("normal"));
+  editor.onEscape = escape;
+  keys("\x1b");
+  expect(escape).toHaveBeenCalledTimes(1);
+  keys("\x1b");
+  expect(escape).toHaveBeenCalledTimes(2);
+  expect(editor.getText()).toBe(text);
+});
+
+it("leaving Visual still consumes Escape on an empty editor", () => {
+  const { editor, keys, normal, mode } = setup();
+  normal();
+  const escape = vi.fn();
+  editor.onEscape = escape;
+  keys("v", "\x1b");
+  expect(mode()).toBe("normal");
+  expect(escape).not.toHaveBeenCalled();
 });
 
 it("image-paste shortcuts remain native and dot never invokes them", () => {

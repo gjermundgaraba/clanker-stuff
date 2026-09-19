@@ -4,7 +4,7 @@
 
 This is a prompt editor, not a terminal running Vim. Pi owns completion, submission, images, history navigation, and application shortcuts. The modal engine operates on one native Pi document. There is no second mutable text buffer, subprocess backend, public plugin API, configuration file, or legacy compatibility path.
 
-Start in Insert. Escape dismisses completion first, then leaves Insert or Visual; Escape in Normal delegates to Pi. Configured submit/newline bindings remain native. Ctrl+R means history search in Insert, redo in Normal/Visual, and result cycling while the history widget has focus. The unnamed register is internal, with no automatic system clipboard reads or writes.
+Start in Insert. Escape dismisses completion first, then leaves Insert or Visual; Escape in Normal delegates to Pi. On a blank draft (including whitespace-only), leaving Insert also delegates that Escape to Pi for native application handling: it can cancel a running agent or user shell command, or count toward the configured double-Escape action when idle. With a nonblank draft, Escape only leaves Insert. Leaving Visual only switches to Normal. Configured submit/newline bindings remain native. Ctrl+R means history search in Insert, redo in Normal/Visual, and result cycling while the history widget has focus. The unnamed register is internal, with no automatic system clipboard reads or writes.
 
 ## Commands
 
