@@ -30,8 +30,8 @@ catalog:
   "@earendil-works/pi-tui": 0.85.0
   "@types/node": 26.2.0
   typescript: 7.0.2
-  vite: npm:@voidzero-dev/vite-plus-core@0.3.1
-  vite-plus: 0.3.1
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.3
+  vite-plus: 0.3.3
   "@oxlint/plugins": 1.78.0
   safe-stable-stringify: 2.5.0
 peerDependencyRules:

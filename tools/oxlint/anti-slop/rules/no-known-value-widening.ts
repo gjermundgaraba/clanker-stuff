@@ -1,4 +1,4 @@
-import { defineRule } from "@oxlint/plugins";
+import { defineRule } from "vite-plus/lint/plugins";
 
 import {
 	classifyWideningTarget,
@@ -9,7 +9,7 @@ import {
 } from "../shared/dictionary-types.ts";
 import { resolveVariable } from "../shared/scope.ts";
 
-import type { ESTree, SourceCode, Variable } from "@oxlint/plugins";
+import type { ESTree, SourceCode, Variable } from "vite-plus/lint/plugins";
 
 type FunctionExpression = ESTree.ArrowFunctionExpression | ESTree.Function;
 
