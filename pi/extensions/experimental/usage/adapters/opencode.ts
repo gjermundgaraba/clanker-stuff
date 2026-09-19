@@ -1,190 +1,74 @@
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import path from "node:path";
-
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
-import type { UsageFetchResult, UsageWindow, UsageWindowId } from "../providers.js";
+import { resolveAccessToken } from "../auth.js";
+import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
+import type { UsageFetchResult, UsageWindow } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
+import type { AdapterDeps } from "./util.js";
 import { isDefined, makeUsageWindow, parseIso } from "./util.js";
 
-const CODEXBAR_HISTORY_PATH = path.join(
-  homedir(),
-  "Library",
-  "Application Support",
-  "com.steipete.codexbar",
-  "history",
-  "opencodego.json",
-);
+const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
-const CODEXBAR_MISSING_MESSAGE =
-  "CodexBar history not found (open CodexBar so it can fetch usage from the web)";
-
-const STALE_AFTER_MS = 2 * 60 * 60_000;
-
-const HISTORY_WINDOW_MAP: {
-  id: UsageWindowId;
-  name: "session" | "weekly" | "monthly";
-}[] = [
-  { id: "5h", name: "session" },
-  { id: "7d", name: "weekly" },
-  { id: "month", name: "monthly" },
-];
-
-const HistoryEntrySchema = Type.Object({
-  capturedAt: Type.String(),
+const OpenCodeGoWindowSchema = Type.Object({
+  percent: Type.Number({ maximum: 100, minimum: 0 }),
   resetsAt: Type.Optional(Type.String()),
-  usedPercent: Type.Number(),
 });
 
-const HistoryWindowSchema = Type.Object({
-  entries: Type.Array(HistoryEntrySchema),
-  name: Type.String(),
+const OpenCodeGoUsagePayloadSchema = Type.Object({
+  usage: Type.Object({
+    monthly: Type.Optional(OpenCodeGoWindowSchema),
+    rolling: Type.Optional(OpenCodeGoWindowSchema),
+    weekly: Type.Optional(OpenCodeGoWindowSchema),
+  }),
 });
 
-export const CodexBarHistorySchema = Type.Object({
-  accounts: Type.Optional(Type.Record(Type.String(), Type.Array(HistoryWindowSchema))),
-  preferredAccountKey: Type.Optional(Type.String()),
-  unscoped: Type.Optional(Type.Array(HistoryWindowSchema)),
-});
-
-type HistoryWindow = Static<typeof HistoryWindowSchema>;
-
-const mapHistoryWindow = (
-  window: HistoryWindow | undefined,
-  id: UsageWindowId,
+const parseWindow = (
+  raw: Static<typeof OpenCodeGoWindowSchema> | undefined,
+  id: UsageWindow["id"],
 ): UsageWindow | undefined => {
-  const latest = window?.entries.at(-1);
-
-  if (latest === undefined || Number.isNaN(Date.parse(latest.capturedAt))) {
+  if (raw === undefined) {
     return undefined;
   }
 
-  return makeUsageWindow(id, 100 - latest.usedPercent, parseIso(latest.resetsAt));
+  return makeUsageWindow(id, 100 - raw.percent, parseIso(raw.resetsAt));
 };
 
-const latestCapturedAt = (windows: HistoryWindow[]): number | undefined => {
-  let latest: number | undefined;
-
-  for (const window of windows) {
-    const entry = window.entries.at(-1);
-
-    if (entry === undefined) {
-      continue;
-    }
-
-    const ms = Date.parse(entry.capturedAt);
-
-    if (!Number.isNaN(ms) && (latest === undefined || ms > latest)) {
-      latest = ms;
-    }
-  }
-
-  return latest;
-};
-
-const resolveWindows = (data: Static<typeof CodexBarHistorySchema>): HistoryWindow[] => {
-  if (data.unscoped && data.unscoped.length > 0) {
-    return data.unscoped;
-  }
-
-  const { accounts, preferredAccountKey: key } = data;
-
-  if (accounts === undefined) {
-    return [];
-  }
-
-  if (key !== undefined && accounts[key] !== undefined) {
-    return accounts[key];
-  }
-
-  for (const windows of Object.values(accounts)) {
-    if (windows.length > 0) {
-      return windows;
-    }
-  }
-
-  return [];
-};
-
-export const mapCodexBarHistory = (
-  data: Static<typeof CodexBarHistorySchema>,
+export const mapOpenCodeGoUsagePayload = (
+  payload: Static<typeof OpenCodeGoUsagePayloadSchema>,
   nowMs: number = Date.now(),
 ): UsageFetchResult => {
-  const windows = resolveWindows(data);
-
-  if (windows.length === 0) {
-    return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
-  }
-
-  const byName = new Map<string, HistoryWindow>();
-
-  for (const window of windows) {
-    byName.set(window.name, window);
-  }
-
-  const renderedWindows = HISTORY_WINDOW_MAP.map(({ name, id }) => ({
-    history: byName.get(name),
-    id,
-  }));
-
-  const mapped = renderedWindows
-    .values()
-    .map(({ history, id }) => mapHistoryWindow(history, id))
-    .filter(isDefined)
-    .toArray();
-
-  if (mapped.length === 0) {
-    return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
-  }
-
-  const captured = latestCapturedAt(
-    renderedWindows.flatMap(({ history }) => (history ? [history] : [])),
-  );
-
-  if (captured !== undefined && nowMs - captured > STALE_AFTER_MS) {
-    return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
-  }
+  const windows = [
+    parseWindow(payload.usage.rolling, "5h"),
+    parseWindow(payload.usage.weekly, "7d"),
+    parseWindow(payload.usage.monthly, "month"),
+  ].filter(isDefined);
 
   return usageResult({
     fetchedAt: nowMs,
     provider: "opencode-go",
-    windows: mapped,
+    windows,
   });
 };
 
-export interface RunCodexBarUsageOptions {
-  filePath?: string;
-  now?: () => number;
-}
+export const fetchOpenCodeGoUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
+  const now = deps.now ?? Date.now;
+  const auth = await resolveAccessToken(deps.authClient, "opencode-go");
 
-export const runCodexBarUsage = async (
-  options: RunCodexBarUsageOptions = {},
-): Promise<UsageFetchResult> => {
-  const now = options.now ?? Date.now;
-  const filePath = options.filePath ?? CODEXBAR_HISTORY_PATH;
-
-  let content: string;
-
-  try {
-    content = await readFile(filePath, "utf-8");
-  } catch {
-    return usageFailure(CODEXBAR_MISSING_MESSAGE, "unavailable");
+  if (!auth.ok) {
+    return usageFailure(auth.message, auth.kind);
   }
 
-  let parsed: unknown;
+  const response = await deps.fetchJson(OPENCODE_GO_USAGE_URL, OpenCodeGoUsagePayloadSchema, {
+    headers: {
+      Authorization: `Bearer ${auth.value.accessToken}`,
+    },
+    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
+  });
 
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return usageFailure("invalid CodexBar history");
+  if (response.ok) {
+    return mapOpenCodeGoUsagePayload(response.json, now());
   }
 
-  if (!Value.Check(CodexBarHistorySchema, parsed)) {
-    return usageFailure("invalid CodexBar history");
-  }
-
-  return mapCodexBarHistory(parsed, now());
+  return usageFailure(response.message, response.status === 403 ? "unavailable" : "failure");
 };

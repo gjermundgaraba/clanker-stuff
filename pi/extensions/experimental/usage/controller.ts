@@ -33,11 +33,7 @@ import type { UsagePresentation } from "./widgets.js";
 const REFRESH_INTERVAL_MS = 5 * 60_000;
 
 const NO_AVAILABLE_PROVIDERS_MESSAGE =
-  "usage: no supported providers are available (log in to a supported provider; opencode-go also requires CodexBar to be running)";
-
-type UsageFetcher = (ctx: ExtensionContext) => Promise<UsageFetchResult>;
-
-type HttpUsageFetcher = (deps: AdapterDeps) => Promise<UsageFetchResult>;
+  "usage: no supported providers are available (log in to a supported provider)";
 
 export interface UsageControllerDependencies {
   fetchJson: typeof defaultFetchJson;
@@ -72,62 +68,43 @@ export const createUsageController = (
   const { fetchJson, now, providerAuthClient } = dependencies;
   let cache = new UsageCache({ now });
 
-  const fromHttpAdapter =
-    (fetcher: HttpUsageFetcher): UsageFetcher =>
-    (ctx) =>
-      fetcher({
-        authClient: providerAuthClient(ctx),
-        fetchJson,
-        now,
-      });
-
   const usageFetchers = {
-    anthropic: fromHttpAdapter(async (deps) => {
+    anthropic: async (deps: AdapterDeps) => {
       const { fetchClaudeUsage } = await import("./adapters/claude.js");
 
       return await fetchClaudeUsage(deps);
-    }),
-    "github-copilot": fromHttpAdapter(async (deps) => {
+    },
+    "github-copilot": async (deps: AdapterDeps) => {
       const { fetchCopilotUsage } = await import("./adapters/copilot.js");
 
       return await fetchCopilotUsage(deps);
-    }),
-    "kimi-coding": fromHttpAdapter(async (deps) => {
+    },
+    "kimi-coding": async (deps: AdapterDeps) => {
       const { fetchKimiUsage } = await import("./adapters/kimi.js");
 
       return await fetchKimiUsage(deps);
-    }),
-    minimax: fromHttpAdapter(async (deps) => {
-      const { fetchMinimaxUsage } = await import("./adapters/minimax.js");
-
-      return await fetchMinimaxUsage(deps, "minimax");
-    }),
-    "minimax-cn": fromHttpAdapter(async (deps) => {
-      const { fetchMinimaxUsage } = await import("./adapters/minimax.js");
-
-      return await fetchMinimaxUsage(deps, "minimax-cn");
-    }),
-    "openai-codex": fromHttpAdapter(async (deps) => {
+    },
+    "openai-codex": async (deps: AdapterDeps) => {
       const { fetchCodexUsage } = await import("./adapters/codex.js");
 
       return await fetchCodexUsage(deps);
-    }),
-    "opencode-go": async () => {
-      const { runCodexBarUsage } = await import("./adapters/opencode.js");
-
-      return await runCodexBarUsage({ now });
     },
-    xai: fromHttpAdapter(async (deps) => {
+    "opencode-go": async (deps: AdapterDeps) => {
+      const { fetchOpenCodeGoUsage } = await import("./adapters/opencode.js");
+
+      return await fetchOpenCodeGoUsage(deps);
+    },
+    xai: async (deps: AdapterDeps) => {
       const { fetchXaiUsage } = await import("./adapters/xai.js");
 
       return await fetchXaiUsage(deps);
-    }),
-    zai: fromHttpAdapter(async (deps) => {
+    },
+    zai: async (deps: AdapterDeps) => {
       const { fetchZaiUsage } = await import("./adapters/zai.js");
 
       return await fetchZaiUsage(deps);
-    }),
-  } satisfies Record<SupportedProvider, UsageFetcher>;
+    },
+  } satisfies Record<SupportedProvider, (deps: AdapterDeps) => Promise<UsageFetchResult>>;
 
   let generation = 0;
   let current: { context: ExtensionContext; presentation: UsagePresentation } | undefined;
@@ -206,7 +183,13 @@ export const createUsageController = (
     ctx: ExtensionContext,
     force: boolean,
   ): Promise<UsageFetchResult> =>
-    cache.getOrFetch(provider, force, () => usageFetchers[provider](ctx));
+    cache.getOrFetch(provider, force, () =>
+      usageFetchers[provider]({
+        authClient: providerAuthClient(ctx),
+        fetchJson,
+        now,
+      }),
+    );
 
   const refresh = (
     ctx: ExtensionContext,

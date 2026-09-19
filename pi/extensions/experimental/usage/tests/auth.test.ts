@@ -47,7 +47,7 @@ describe("access token resolution", () => {
   it("reports not logged in when auth is missing", async () => {
     const client: ProviderAuthClient = { getProviderAuth: absent };
 
-    await expect(resolveAccessToken(client, "minimax")).resolves.toStrictEqual({
+    await expect(resolveAccessToken(client, "kimi-coding")).resolves.toStrictEqual({
       kind: "unavailable",
       message: "not logged in",
       ok: false,

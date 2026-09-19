@@ -1,87 +1,33 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { okFetch } from "./helpers.js";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { describe, expect, it, onTestFinished } from "vite-plus/test";
+import { fetchOpenCodeGoUsage, mapOpenCodeGoUsagePayload } from "../../adapters/opencode.js";
+import type { FetchJson } from "../../http.js";
+import { NOW, tokenAuthClient } from "./helpers.js";
 
-import {
-  CodexBarHistorySchema,
-  mapCodexBarHistory,
-  runCodexBarUsage,
-} from "../../adapters/opencode.js";
-import { Value } from "typebox/value";
+describe("opencode go usage", () => {
+  const payload = {
+    usage: {
+      monthly: {
+        percent: 56,
+        resetsAt: "2026-08-21T12:00:00.000Z",
+        status: "ok",
+      },
+      rolling: {
+        percent: 12,
+        resetsAt: "2026-07-21T17:00:00.000Z",
+        status: "ok",
+      },
+      weekly: {
+        percent: 34,
+        resetsAt: "2026-07-28T00:00:00.000Z",
+        status: "ok",
+      },
+    },
+  };
 
-interface HistoryEntryFixture {
-  capturedAt: string;
-  resetsAt?: string;
-  usedPercent: number;
-}
-
-interface HistoryWindowFixture {
-  entries: HistoryEntryFixture[];
-  name: string;
-}
-
-const window = (name: string, entries: HistoryEntryFixture[]): HistoryWindowFixture => ({
-  entries,
-  name,
-});
-
-const sampleHistory = (overrides?: {
-  monthly?: HistoryEntryFixture[];
-  session?: HistoryEntryFixture[];
-  weekly?: HistoryEntryFixture[];
-}) => ({
-  unscoped: [
-    window(
-      "session",
-      overrides?.session ?? [
-        {
-          capturedAt: "2026-08-06T22:11:01Z",
-          resetsAt: "2026-08-07T03:11:00Z",
-          usedPercent: 0,
-        },
-      ],
-    ),
-    window(
-      "weekly",
-      overrides?.weekly ?? [
-        {
-          capturedAt: "2026-08-06T22:11:01Z",
-          resetsAt: "2026-08-10T00:00:00Z",
-          usedPercent: 100,
-        },
-      ],
-    ),
-    window(
-      "monthly",
-      overrides?.monthly ?? [
-        {
-          capturedAt: "2026-08-06T22:11:01Z",
-          resetsAt: "2026-08-27T21:13:10Z",
-          usedPercent: 80,
-        },
-      ],
-    ),
-  ],
-});
-
-const accountsHistory = (
-  accountKey: string,
-  windows: HistoryWindowFixture[],
-  preferred?: string,
-) => ({
-  accounts: { [accountKey]: windows },
-  preferredAccountKey: preferred ?? accountKey,
-  unscoped: [],
-});
-
-const NOW = Date.parse("2026-08-06T22:30:00Z");
-
-describe("codexbar history parsing", () => {
-  it("maps session, weekly, and monthly windows from latest entries", () => {
-    const result = mapCodexBarHistory(sampleHistory(), NOW);
-
+  it("maps rolling, weekly, and monthly used percents", () => {
+    const result = mapOpenCodeGoUsagePayload(payload, NOW);
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
@@ -91,53 +37,29 @@ describe("codexbar history parsing", () => {
           {
             id: "5h",
             label: "5h",
-            remainingPercent: 100,
-            resetsAt: "2026-08-07T03:11:00.000Z",
+            remainingPercent: 88,
+            resetsAt: "2026-07-21T17:00:00.000Z",
           },
           {
             id: "7d",
             label: "7d",
-            remainingPercent: 0,
-            resetsAt: "2026-08-10T00:00:00.000Z",
+            remainingPercent: 66,
+            resetsAt: "2026-07-28T00:00:00.000Z",
           },
           {
             id: "month",
             label: "month",
-            remainingPercent: 20,
-            resetsAt: "2026-08-27T21:13:10.000Z",
+            remainingPercent: 44,
+            resetsAt: "2026-08-21T12:00:00.000Z",
           },
         ],
       },
     });
   });
 
-  it("takes only the latest entry from each window", () => {
-    const result = mapCodexBarHistory(
-      sampleHistory({
-        monthly: [
-          {
-            capturedAt: "2026-08-06T22:11:01Z",
-            resetsAt: "2026-08-27T21:13:10Z",
-            usedPercent: 80,
-          },
-        ],
-        session: [
-          { capturedAt: "2026-08-06T20:00:00Z", usedPercent: 50 },
-          { capturedAt: "2026-08-06T21:00:00Z", usedPercent: 75 },
-          {
-            capturedAt: "2026-08-06T22:11:01Z",
-            resetsAt: "2026-08-07T03:11:00Z",
-            usedPercent: 90,
-          },
-        ],
-        weekly: [
-          {
-            capturedAt: "2026-08-06T22:11:01Z",
-            resetsAt: "2026-08-10T00:00:00Z",
-            usedPercent: 100,
-          },
-        ],
-      }),
+  it("omits windows the payload does not include", () => {
+    const result = mapOpenCodeGoUsagePayload(
+      { usage: { rolling: { percent: 25, resetsAt: "2026-07-21T17:00:00.000Z" } } },
       NOW,
     );
 
@@ -150,252 +72,91 @@ describe("codexbar history parsing", () => {
           {
             id: "5h",
             label: "5h",
-            remainingPercent: 10,
-            resetsAt: "2026-08-07T03:11:00.000Z",
-          },
-          {
-            id: "7d",
-            label: "7d",
-            remainingPercent: 0,
-            resetsAt: "2026-08-10T00:00:00.000Z",
-          },
-          {
-            id: "month",
-            label: "month",
-            remainingPercent: 20,
-            resetsAt: "2026-08-27T21:13:10.000Z",
+            remainingPercent: 75,
+            resetsAt: "2026-07-21T17:00:00.000Z",
           },
         ],
       },
     });
   });
 
-  it("ignores windows with no entries", () => {
-    const result = mapCodexBarHistory(sampleHistory({ weekly: [] }), NOW);
-
-    expect(result.ok).toBeTruthy();
-
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.snapshot.windows.map((w) => w.id)).toStrictEqual(["5h", "month"]);
-  });
-
-  it("reads windows from accounts when unscoped is empty", () => {
-    const result = mapCodexBarHistory(
-      accountsHistory("acct-1", [
-        window("session", [
-          {
-            capturedAt: "2026-08-06T22:11:01Z",
-            resetsAt: "2026-08-07T03:11:00Z",
-            usedPercent: 30,
-          },
-        ]),
-        window("weekly", [
-          {
-            capturedAt: "2026-08-06T22:11:01Z",
-            resetsAt: "2026-08-10T00:00:00Z",
-            usedPercent: 60,
-          },
-        ]),
-      ]),
-      NOW,
-    );
-
-    expect(result.ok).toBeTruthy();
-
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.snapshot.windows).toHaveLength(2);
-    expect(result.snapshot.windows.at(0)?.remainingPercent).toBe(70);
-    expect(result.snapshot.windows.at(1)?.remainingPercent).toBe(40);
-  });
-
-  it("uses preferredAccountKey to select among multiple accounts", () => {
-    const result = mapCodexBarHistory(
-      {
-        accounts: {
-          "acct-first": [
-            window("session", [{ capturedAt: "2026-08-06T22:11:01Z", usedPercent: 80 }]),
-          ],
-          "acct-preferred": [
-            window("session", [{ capturedAt: "2026-08-06T22:11:01Z", usedPercent: 10 }]),
-          ],
-        },
-        preferredAccountKey: "acct-preferred",
-      },
-      NOW,
-    );
-
-    expect(result.ok).toBeTruthy();
-
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.snapshot.windows.at(0)?.remainingPercent).toBe(90);
-  });
-
-  it("rejects malformed history structure", () => {
-    expect(Value.Check(CodexBarHistorySchema, { unscoped: "not-an-array" })).toBe(false);
-  });
-
-  it("rejects non-object input", () => {
-    const malformed = "not json";
-    expect(Value.Check(CodexBarHistorySchema, malformed)).toBe(false);
-    expect(Value.Check(CodexBarHistorySchema, null)).toBe(false);
-  });
-
-  it("returns unavailable when no windows have entries", () => {
-    const result = mapCodexBarHistory({ unscoped: [] }, NOW);
-    expect(result.ok).toBeFalsy();
-
-    if (result.ok) {
-      return;
-    }
-
-    expect(result.error.kind).toBe("unavailable");
-  });
-
-  it("returns unavailable when rendered timestamps are invalid", () => {
-    const invalid = { capturedAt: "not-a-date", usedPercent: 10 };
-
-    const result = mapCodexBarHistory(
-      sampleHistory({
-        monthly: [invalid],
-        session: [invalid],
-        weekly: [invalid],
-      }),
-      NOW,
-    );
-
-    expect(result).toMatchObject({
-      error: { kind: "unavailable" },
+  it("fails when a valid payload has no windows", () => {
+    expect(mapOpenCodeGoUsagePayload({ usage: {} }, NOW)).toStrictEqual({
       ok: false,
+      error: { kind: "failure", message: "no usage windows in response" },
     });
   });
 
-  it("returns unavailable when capturedAt is older than 2 hours", () => {
-    const stale = Date.parse("2026-08-06T22:00:00Z");
-    const now = stale + 3 * 60 * 60_000;
-
-    const result = mapCodexBarHistory(
-      sampleHistory({
-        session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
+  it.each([-1, 101])("rejects out-of-range percent %s at ingress", async (percent) => {
+    await expect(
+      fetchOpenCodeGoUsage({
+        authClient: tokenAuthClient("token"),
+        fetchJson: okFetch({ usage: { rolling: { percent } } }),
+        now: () => NOW,
       }),
-      now,
-    );
-
-    expect(result.ok).toBeFalsy();
-
-    if (result.ok) {
-      return;
-    }
-
-    expect(result.error.kind).toBe("unavailable");
-  });
-
-  it("accepts data captured within the staleness threshold", () => {
-    const captured = Date.parse("2026-08-06T22:00:00Z");
-    const now = captured + 90 * 60_000;
-
-    const result = mapCodexBarHistory(
-      sampleHistory({
-        session: [{ capturedAt: "2026-08-06T22:00:00Z", usedPercent: 0 }],
-      }),
-      now,
-    );
-
-    expect(result.ok).toBeTruthy();
-  });
-
-  it("does not use an unrendered window to make rendered data look fresh", () => {
-    const result = mapCodexBarHistory(
-      {
-        unscoped: [
-          window("session", [
-            {
-              capturedAt: "2026-08-06T18:00:00Z",
-              usedPercent: 25,
-            },
-          ]),
-          window("unrendered", [
-            {
-              capturedAt: "2026-08-06T22:29:00Z",
-              usedPercent: 1,
-            },
-          ]),
-        ],
-      },
-      NOW,
-    );
-
-    expect(result).toMatchObject({
-      error: { kind: "unavailable" },
+    ).resolves.toStrictEqual({
       ok: false,
+      error: { kind: "failure", message: "invalid usage payload" },
     });
   });
-});
 
-describe("reading codexbar history from disk", () => {
-  it("returns unavailable when history file is missing", async () => {
-    const result = await runCodexBarUsage({
-      filePath: "/definitely/missing/opencodego.json",
+  it("requests Go usage with a bearer API key", async () => {
+    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
+    const fetchJson = vi.spyOn(client, "fetchJson");
+
+    const result = await fetchOpenCodeGoUsage({
+      authClient: {
+        getProviderAuth: async () => ({
+          auth: { apiKey: "opencode-key" },
+          source: "OPENCODE_API_KEY",
+        }),
+      },
+      fetchJson: client.fetchJson,
       now: () => NOW,
     });
 
-    expect(result).toStrictEqual({
+    const [url, , options] = fetchJson.mock.calls[0] ?? [];
+    expect(url).toBe("https://opencode.ai/zen/go/v1/usage");
+    expect(options?.headers?.Authorization).toBe("Bearer opencode-key");
+    expect(result.ok).toBeTruthy();
+  });
+
+  it("treats a 403 as missing Go rather than broken auth", async () => {
+    await expect(
+      fetchOpenCodeGoUsage({
+        authClient: tokenAuthClient("token"),
+        fetchJson: async () => ({
+          kind: "response",
+          message: "OpenCode Go subscription required.",
+          ok: false,
+          status: 403,
+        }),
+        now: () => NOW,
+      }),
+    ).resolves.toStrictEqual({
+      ok: false,
       error: {
         kind: "unavailable",
-        message: "CodexBar history not found (open CodexBar so it can fetch usage from the web)",
+        message: "OpenCode Go subscription required.",
       },
-      ok: false,
     });
   });
 
-  it("reads and parses a history file", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "codexbar-history-"));
-    onTestFinished(() => rm(dir, { recursive: true, force: true }));
-    const filePath = path.join(dir, "opencodego.json");
-    await writeFile(filePath, JSON.stringify(sampleHistory()), "utf-8");
-
-    const result = await runCodexBarUsage({ filePath, now: () => NOW });
-
-    expect(result.ok).toBeTruthy();
-
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.snapshot.provider).toBe("opencode-go");
-    expect(result.snapshot.windows).toHaveLength(3);
-    expect(result.snapshot.windows.at(1)?.remainingPercent).toBe(0);
-  });
-
-  it.each([null, { unscoped: "not-an-array" }])(
-    "rejects invalid history at the file boundary",
-    async (payload) => {
-      const dir = await mkdtemp(path.join(tmpdir(), "codexbar-history-"));
-      onTestFinished(() => rm(dir, { recursive: true, force: true }));
-      const filePath = path.join(dir, "opencodego.json");
-      await writeFile(filePath, JSON.stringify(payload), "utf-8");
-      await expect(runCodexBarUsage({ filePath, now: () => NOW })).resolves.toStrictEqual({
-        ok: false,
-        error: { kind: "failure", message: "invalid CodexBar history" },
-      });
-    },
-  );
-
-  it("returns failure for corrupt JSON", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "codexbar-history-"));
-    onTestFinished(() => rm(dir, { recursive: true, force: true }));
-    const filePath = path.join(dir, "opencodego.json");
-    await writeFile(filePath, "{ not valid json", "utf-8");
-
-    const result = await runCodexBarUsage({ filePath, now: () => NOW });
-    expect(result.ok).toBeFalsy();
+  it("treats a 401 as a failed request", async () => {
+    await expect(
+      fetchOpenCodeGoUsage({
+        authClient: tokenAuthClient("token"),
+        fetchJson: async () => ({
+          kind: "response",
+          message: "Unauthorized",
+          ok: false,
+          status: 401,
+        }),
+        now: () => NOW,
+      }),
+    ).resolves.toStrictEqual({
+      ok: false,
+      error: { kind: "failure", message: "Unauthorized" },
+    });
   });
 });

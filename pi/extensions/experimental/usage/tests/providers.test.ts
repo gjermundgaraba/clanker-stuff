@@ -16,8 +16,6 @@ describe("providers", () => {
       "Claude",
       "Codex",
       "Copilot",
-      "MiniMax",
-      "MiniMax CN",
       "Kimi",
       "Grok",
       "GLM",

@@ -34,9 +34,23 @@ describe("usage HTTP boundaries", () => {
     {
       body: '{"remaining":5}',
       status: 401,
-      result: { ok: false, kind: "response", message: "auth rejected by usage API" },
+      result: { ok: false, kind: "response", message: "HTTP 401", status: 401 },
     },
-    { body: "{}", status: 503, result: { ok: false, kind: "response", message: "HTTP 503" } },
+    {
+      body: '{"error":{"message":"OpenCode Go subscription required."}}',
+      status: 403,
+      result: {
+        ok: false,
+        kind: "response",
+        message: "OpenCode Go subscription required.",
+        status: 403,
+      },
+    },
+    {
+      body: "{}",
+      status: 503,
+      result: { ok: false, kind: "response", message: "HTTP 503", status: 503 },
+    },
     {
       body: "{broken",
       status: 200,

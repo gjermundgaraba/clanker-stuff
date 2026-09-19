@@ -1,5 +1,6 @@
 import { fetchCodexHttp } from "@clanker-stuff/codex-http";
 import type { Static, TSchema } from "typebox";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 export const USAGE_HTTP_TIMEOUT_MS = 12_000;
@@ -13,6 +14,7 @@ export interface FetchJsonFailure {
   ok: false;
   kind: "response" | "payload";
   message: string;
+  status?: number;
 }
 
 export type FetchJsonResult<T> = FetchJsonSuccess<T> | FetchJsonFailure;
@@ -30,6 +32,26 @@ export type FetchJson = <S extends TSchema>(
   options: FetchJsonOptions,
 ) => Promise<FetchJsonResult<Static<S>>>;
 
+const HttpErrorMessageSchema = Type.Object({
+  error: Type.Object({
+    message: Type.String({ minLength: 1 }),
+  }),
+});
+
+const messageFromErrorBody = (text: string): string | undefined => {
+  if (text.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const json: unknown = JSON.parse(text);
+
+    return Value.Check(HttpErrorMessageSchema, json) ? json.error.message : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export const defaultFetchJson: FetchJson = async (url, schema, options) => {
   const signal = AbortSignal.timeout(options.timeoutMs);
 
@@ -44,19 +66,12 @@ export const defaultFetchJson: FetchJson = async (url, schema, options) => {
 
     const text = await response.text();
 
-    if (response.status === 401 || response.status === 403) {
-      return {
-        message: "auth rejected by usage API",
-        kind: "response",
-        ok: false,
-      };
-    }
-
     if (!response.ok) {
       return {
-        message: `HTTP ${response.status}`,
         kind: "response",
+        message: messageFromErrorBody(text) ?? `HTTP ${response.status}`,
         ok: false,
+        status: response.status,
       };
     }
 
@@ -68,8 +83,8 @@ export const defaultFetchJson: FetchJson = async (url, schema, options) => {
         : { kind: "payload", message: "invalid usage payload", ok: false };
     } catch {
       return {
-        message: "invalid JSON response",
         kind: "response",
+        message: "invalid JSON response",
         ok: false,
       };
     }
