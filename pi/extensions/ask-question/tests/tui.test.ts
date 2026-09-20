@@ -112,7 +112,7 @@ function setup(
 }
 
 describe("bounded questionnaire TUI", () => {
-  it("shows context inline and advertises previews while navigating with h/l", async () => {
+  it("shows context with compact detail markers while navigating with h/l", async () => {
     const e = setup(false, false, undefined, {
       questions: [
         { ...question, multi_select: false },
@@ -132,15 +132,16 @@ describe("bounded questionnaire TUI", () => {
       expect(screen.indexOf("Unicode:")).toBeLessThan(screen.indexOf(question.question));
       expect(screen).not.toContain("Context available");
       expect(screen).not.toContain("c Context");
-      expect(screen).toContain("1. First\u00a0★  ▸ preview (p)");
-      expect(screen).toContain("▸ Markdown preview available · p");
-      expect(screen).toContain("★ Recommended: Synthetic suggestion");
+      expect(screen).toContain("1. First\u00a0★  ▸ details (p)");
+      expect(screen).not.toContain("Synthetic suggestion");
       expect(screen).toContain("x Cancel");
       expect(screen).toContain("h/l Questions");
       expect(screen).not.toContain("Help");
       expect(screen).not.toContain("const value");
       await e.press("p");
-      expect(displayText(e.view.render(100).join("\n"))).toContain("const value");
+      const details = displayText(e.view.render(100).join("\n"));
+      expect(details).toContain("Synthetic suggestion");
+      expect(details).toContain("const value");
       await e.press("\u001b", "l");
       screen = displayText(e.view.render(100).join("\n"));
       expect(screen).toContain("> ( ) 1. A");
@@ -214,7 +215,7 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("scrolls long inline context and reveals options and editors without changing answers", async () => {
+  it("scrolls long context while keeping options and editors visible without changing answers", async () => {
     const e = setup(true, false, undefined, {
       context: Array.from({ length: 40 }, (_, i) => `Context line ${i} 日本語 👩🏽‍💻`).join("\n\n"),
       questions: [{ ...question, multi_select: true }],
@@ -223,11 +224,15 @@ describe("bounded questionnaire TUI", () => {
     try {
       const initial = displayText(e.view.render(80).join("\n"));
       expect(initial).toContain("Context line 0");
-      expect(initial).not.toContain("1. First");
+      expect(initial).toContain("> [ ] 1. First");
       await e.press("pageDown");
-      expect(displayText(e.view.render(80).join("\n"))).not.toContain("Context line 0");
+      let screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).not.toContain("Context line 0");
+      expect(screen).toContain("> [ ] 1. First");
       await e.press("pageUp");
-      expect(displayText(e.view.render(80).join("\n"))).toContain("Context line 0");
+      screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain("Context line 0");
+      expect(screen).toContain("> [ ] 1. First");
       await e.press("j");
       expect(displayText(e.view.render(80).join("\n"))).toContain("> [ ] 2. Second");
 
@@ -240,9 +245,10 @@ describe("bounded questionnaire TUI", () => {
         Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
         const lines = e.view.render(width);
         expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-        expect(lines.length).toBeLessThanOrEqual(Math.max(3, Math.floor(rows * 0.6)));
+        expect(lines.length).toBeLessThanOrEqual(rows);
 
-        if (width >= 40) expect(displayText(lines.join("\n"))).toContain("> [ ] 2. Second");
+        if (width >= 40 && rows >= 20)
+          expect(displayText(lines.join("\n"))).toContain("> [ ] 2. Second");
       }
 
       expect(e.item.version).toBe(1);
@@ -255,68 +261,93 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it.each([14, 15, 18, 19, 20, 30])(
-    "pages through every context line in both directions at %i terminal rows",
-    async (rows) => {
-      const expected = Array.from({ length: 15 }, (_, i) => i);
+  it("scrolls context with normalized fullscreen wheel events and leaves pinned answers visible", () => {
+    const e = setup(true, false, undefined, {
+      context: Array.from({ length: 40 }, (_, i) => `Mouse context ${i}`).join("\n\n"),
+      questions: [{ ...question, multi_select: true }],
+    });
 
-      const e = setup(false, false, undefined, {
-        context: expected.map((i) => `Context entry ${i}`).join("\n\n"),
-        questions: [question],
-      });
-
-      try {
-        Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
-
-        for (const key of ["pageDown", "pageUp"]) {
-          const seen = new Set<number>();
-          let screen = displayText(e.view.render(80).join("\n"));
-
-          for (let page = 0; page < 100; page++) {
-            for (const match of screen.matchAll(/Context entry (\d+)/g)) seen.add(Number(match[1]));
-            await e.press(key);
-            const next = displayText(e.view.render(80).join("\n"));
-
-            if (next === screen) break;
-            screen = next;
-          }
-
-          expect([...seen].sort((a, b) => a - b)).toEqual(expected);
-        }
-
-        expect(e.item.version).toBe(1);
-      } finally {
-        e.view.dispose();
-      }
-    },
-  );
-  it("uses the resized body height when paging back through context", async () => {
-    const expected = Array.from({ length: 15 }, (_, i) => i);
-
+    try {
+      let screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain("Mouse context 0");
+      expect(screen).toContain("> [ ] 1. First");
+      expect(
+        e.view.handleMouse({
+          type: "wheel",
+          button: "none",
+          x: 4,
+          y: 4,
+          screenX: 4,
+          screenY: 4,
+          width: 80,
+          height: 30,
+          shift: false,
+          alt: false,
+          ctrl: false,
+          wheelDelta: 3,
+        }),
+      ).toEqual({ handled: true });
+      screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).not.toContain("Mouse context 0");
+      expect(screen).toContain("> [ ] 1. First");
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it.each([
+    [20, "Context 1–1 / 33"],
+    [30, "Context 1–5 / 33"],
+  ])("pages directly between context endpoints at %i terminal rows", async (rows, firstRange) => {
     const e = setup(false, false, undefined, {
-      context: expected.map((i) => `Context entry ${i}`).join("\n\n"),
+      context: Array.from({ length: 15 }, (_, i) => `Context entry ${i}`).join("\n\n"),
+      questions: [question],
+    });
+
+    try {
+      Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
+      let screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain(firstRange);
+      expect(screen).toContain("Context entry 0");
+      expect(screen).toContain("> ( ) 1. First");
+
+      await e.press(...Array.from({ length: 40 }, () => "pageDown"));
+      screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain(rows === 20 ? "Context 33–33 / 33" : "Context 29–33 / 33");
+      expect(screen).toContain("Unicode:");
+      expect(screen).toContain("> ( ) 1. First");
+
+      await e.press(...Array.from({ length: 40 }, () => "pageUp"));
+      screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain(firstRange);
+      expect(screen).toContain("Context entry 0");
+      expect(e.item.version).toBe(1);
+    } finally {
+      e.view.dispose();
+    }
+  });
+  it("uses the resized context viewport when paging", async () => {
+    const e = setup(false, false, undefined, {
+      context: Array.from({ length: 15 }, (_, i) => `Context entry ${i}`).join("\n\n"),
       questions: [question],
     });
 
     try {
       e.view.render(80);
-      await e.press("j");
-      e.view.render(80);
+      await e.press("j", ...Array.from({ length: 40 }, () => "pageDown"));
+      expect(displayText(e.view.render(80).join("\n"))).toContain("Context 29–33 / 33");
+
       Object.defineProperty(e.tui.terminal, "rows", { value: 18, configurable: true });
       let screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain("Context 29–29 / 33");
+      expect(screen).toContain("Context entry 14");
       expect(screen).toContain("> ( ) 2. Second");
-      const seen = new Set<number>();
 
-      for (let page = 0; page < 100; page++) {
-        for (const match of screen.matchAll(/Context entry (\d+)/g)) seen.add(Number(match[1]));
-        await e.press("pageUp");
-        const next = displayText(e.view.render(80).join("\n"));
-
-        if (next === screen) break;
-        screen = next;
-      }
-
-      expect([...seen].sort((a, b) => a - b)).toEqual(expected);
+      await e.press("pageDown", "pageDown", "pageDown", "pageDown");
+      expect(displayText(e.view.render(80).join("\n"))).toContain("Context 33–33 / 33");
+      await e.press("pageUp", "pageUp");
+      screen = displayText(e.view.render(80).join("\n"));
+      expect(screen).toContain("Context 31–31 / 33");
+      expect(screen).toContain("> ( ) 2. Second");
       expect(e.item.version).toBe(1);
     } finally {
       e.view.dispose();
@@ -334,7 +365,7 @@ describe("bounded questionnaire TUI", () => {
 
       for (const width of [40, 80, 120]) {
         const screen = displayText(e.view.render(width).join("\n"));
-        expect(screen).toContain(`${up}/${down} Scroll`);
+        expect(screen).toContain(`${up}/${down} Context`);
       }
 
       await e.press(up);
@@ -392,7 +423,7 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("keeps the frame height stable between questions and views", async () => {
+  it("sizes each question and auxiliary view to its current content", async () => {
     const e = setup(false, false, undefined, {
       questions: [
         { ...question, multi_select: false },
@@ -409,11 +440,14 @@ describe("bounded questionnaire TUI", () => {
       Object.defineProperty(e.tui.terminal, "rows", { value: 60, configurable: true });
       const first = e.view.render(100).length;
       await e.press("l");
-      expect(`l:${e.view.render(100).length}`).toBe(`l:${first}`);
+      const second = e.view.render(100).length;
       await e.press("1");
-      expect(`review:${e.view.render(100).length}`).toBe(`review:${first}`);
+      const review = e.view.render(100).length;
       await e.press("i");
-      expect(`detail:${e.view.render(100).length}`).toBe(`detail:${first}`);
+      const detail = e.view.render(100).length;
+
+      expect(new Set([first, second, review, detail]).size).toBeGreaterThan(1);
+      expect(Math.max(first, second, review, detail)).toBeLessThanOrEqual(36);
     } finally {
       e.view.dispose();
     }
@@ -440,13 +474,17 @@ describe("bounded questionnaire TUI", () => {
       await e.press("5");
       let screen = displayText(e.view.render(80).join("\n"));
       expect(screen).toContain("> [x] 5. Choice 4");
-      expect(screen).toContain("日本語 details");
+      expect(screen).not.toContain("日本語 details");
+      await e.press("p");
+      expect(displayText(e.view.render(80).join("\n"))).toContain("日本語 details");
+      await e.press("\u001b");
       Object.defineProperty(e.tui.terminal, "rows", { value: 20, configurable: true });
       const lines = e.view.render(40);
       screen = displayText(lines.join("\n"));
       expect(screen).toContain("> [x] 5. Choice 4");
+      expect(screen).not.toContain("Terminal too small");
       expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
-      expect(lines.length).toBeLessThanOrEqual(12);
+      expect(lines.length).toBeLessThanOrEqual(20);
       expect(e.item.draft?.answers.choice?.selected).toEqual(["o4"]);
     } finally {
       e.view.dispose();
@@ -665,7 +703,7 @@ describe("bounded questionnaire TUI", () => {
       ] as const) {
         Object.defineProperty(e.tui.terminal, "rows", { value: rows, configurable: true });
         const lines = e.view.render(width);
-        expect(lines.length).toBeLessThanOrEqual(Math.max(3, Math.floor(rows * 0.6)));
+        expect(lines.length).toBeLessThanOrEqual(rows);
         expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
       }
 
@@ -706,18 +744,17 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("edits notes and written answers inline, keeping the option list visible", async () => {
+  it("edits notes and written answers in a focused editor view", async () => {
     const e = setup();
 
     try {
       await e.press("j", "n", "inline note");
-      const lines = displayText(e.view.render(80).join("\n")).split("\n");
-      const option = lines.findIndex((line) => line.includes("> ( ) 2. Second"));
-      expect(option).toBeGreaterThan(0);
-      expect(lines.slice(option + 1, option + 4).join("\n")).toContain("inline note");
-      expect(lines.join("\n")).toContain("( ) 1. First");
-      expect(lines.join("\n")).toContain("11/1000");
-      expect(lines.join("\n")).toContain("Save");
+      const editor = displayText(e.view.render(80).join("\n"));
+      expect(editor).toContain("Note · Second");
+      expect(editor).toContain("inline note");
+      expect(editor).not.toContain("( ) 1. First");
+      expect(editor).toContain("11/1000");
+      expect(editor).toContain("Save");
       await e.press("\r");
       expect(e.item.draft?.answers.choice?.notes.second).toBe("inline note");
       expect(displayText(e.view.render(80).join("\n"))).toContain("Note: inline note");

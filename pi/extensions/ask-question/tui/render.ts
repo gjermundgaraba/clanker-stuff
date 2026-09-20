@@ -117,20 +117,24 @@ export function textLines(text: string, width: number): string[] {
   return wrapTextWithAnsi(displayText(text), Math.max(1, width));
 }
 
-export interface InlineEditor {
-  /** Choice index the editor belongs to: an option index, the custom row, or -1 for the questionnaire note. */
-  choice: number;
-  lines: string[];
-}
-
 const excerpt = (label: string, text: string, width: number): string => {
   const [first, ...rest] = displayText(text).split("\n");
 
   return truncateToWidth(`${label}${first}${rest.length ? " …" : ""}`, width, "…");
 };
 
-/** Appended to options that carry a Markdown preview, so `p` is discoverable. */
-export const PREVIEW_MARK = "  ▸ preview (p)";
+/** Appended to options with auxiliary details, so `p` is discoverable. */
+export const DETAILS_MARK = "  ▸ details (p)";
+
+const hasOptionDetails = (q: Question, index: number): boolean => {
+  const option = q.options?.[index];
+
+  return !!(
+    option?.description ||
+    option?.preview ||
+    (option && q.recommendation?.option_ids.includes(option.id))
+  );
+};
 
 export function optionLines(
   q: Question,
@@ -138,11 +142,8 @@ export function optionLines(
   highlight: number,
   width: number,
   theme: Theme,
-  inline?: InlineEditor,
 ) {
   const lines: string[] = [];
-  let focusLine = 0;
-  let focusEnd = 0;
 
   const choices = [
     ...(q.options ?? []).map((o, index) => ({
@@ -150,14 +151,14 @@ export function optionLines(
       text: "",
       selected: a.selected.includes(o.id),
       note: a.notes[o.id],
-      preview: !!o.preview,
+      details: hasOptionDetails(q, index),
     })),
     {
       label: q.options?.length ? "Write another answer" : "Write your answer",
       text: a.custom,
       selected: a.custom_selected,
       note: a.custom_note,
-      preview: false,
+      details: false,
     },
   ];
 
@@ -166,12 +167,11 @@ export function optionLines(
   for (const [index, o] of choices.entries()) {
     const focused = index === highlight;
 
-    if (focused) focusLine = lines.length;
     const marker = q.multi_select ? (o.selected ? "[x]" : "[ ]") : o.selected ? "(•)" : "( )";
     const rows = textLines(`${focused ? ">" : " "} ${marker} ${o.label}`, width);
 
     for (const [i, row] of rows.entries()) {
-      const suffix = o.preview && i === rows.length - 1 ? PREVIEW_MARK : "";
+      const suffix = o.details && i === rows.length - 1 ? DETAILS_MARK : "";
       const styled = theme.fg(o.selected ? "success" : "text", row) + theme.fg("accent", suffix);
       const used = visibleWidth(row) + visibleWidth(suffix);
       lines.push(
@@ -179,131 +179,187 @@ export function optionLines(
       );
     }
 
-    if (inline?.choice === index) lines.push(...inline.lines.map((line) => `    ${line}`));
-    else {
-      if (o.text) lines.push(theme.fg("muted", `    ${excerpt("", o.text, inner)}`));
+    if (o.text) lines.push(theme.fg("muted", `    ${excerpt("", o.text, inner)}`));
 
-      if (o.note) lines.push(theme.fg("muted", `    ${excerpt("Note: ", o.note, inner)}`));
-    }
-
-    if (focused) focusEnd = lines.length - 1;
+    if (o.note) lines.push(theme.fg("muted", `    ${excerpt("Note: ", o.note, inner)}`));
   }
 
-  return { lines, focusLine, focusEnd };
+  return lines;
 }
 
-/** What the highlighted choice means: its description, recommendation or written text. */
-export function detailLines(
-  q: Question,
-  a: Draft["answers"][string],
-  highlight: number,
-  width: number,
-  theme: Theme,
-): string[] {
+/** Full auxiliary content for the highlighted option. */
+export function optionDetailText(q: Question, highlight: number): string | undefined {
   const option = q.options?.[highlight];
 
-  const parts = option
-    ? [
-        option.description,
-        q.recommendation?.option_ids.includes(option.id)
-          ? `★ Recommended: ${q.recommendation.reason}`
-          : undefined,
-      ]
-    : [a.custom || "Enter your own response"];
+  if (!option || !hasOptionDetails(q, highlight)) return;
+  const sections: string[] = [];
 
-  const text = parts.filter(Boolean).join("\n");
+  if (option.description) sections.push(`## Description\n\n${option.description}`);
 
-  if (!text && !option?.preview) return [];
+  if (q.recommendation?.option_ids.includes(option.id))
+    sections.push(`## Recommendation\n\n★ ${q.recommendation.reason}`);
 
-  return [
-    "",
-    theme.bold("Details"),
-    ...textLines(text, width).map((l) => theme.fg("muted", l)),
-    ...(option?.preview ? [theme.fg("accent", "▸ Markdown preview available · p")] : []),
-  ];
+  if (option.preview) sections.push(`## Preview\n\n${option.preview}`);
+
+  return sections.join("\n\n");
 }
 
-/**
- * A full-width frame between two accent rules, at most ~60% of the terminal high.
- * `minBody` keeps the height stable across views that are shorter than the tallest one.
- */
-export function boundedView(options: {
+interface FrameOptions {
   title: string;
   header: string;
-  body: string[];
   footer: string;
   closeKey: string;
   hint: string;
   rows: number;
   width: number;
   scroll: number;
-  minBody?: number;
-  focusLine?: number;
-  focusEnd?: number;
   theme: Theme;
-}) {
+}
+
+interface FrameResult {
+  lines: string[];
+  scroll: number;
+  viewport: { top: number; rows: number };
+}
+
+const frameChrome = (options: FrameOptions) => {
   const { width, theme } = options;
 
-  const rule = (label = "") => {
+  const rule = (label = "", tone: "borderAccent" | "borderMuted" = "borderAccent") => {
     const text = label ? truncateToWidth(`─ ${oneLine(label)} `, width, "… ") : "";
 
-    return theme.fg("borderAccent", text + "─".repeat(Math.max(0, width - visibleWidth(text))));
+    return theme.fg(tone, text + "─".repeat(Math.max(0, width - visibleWidth(text))));
   };
 
-  const budget = Math.max(3, Math.min(Math.floor(options.rows * 0.6), options.rows - 2));
-
-  if (width < 24 || budget < 8)
-    return {
-      scroll: options.scroll,
-      bodyRows: 0,
-      lines: textLines(
-        `Terminal too small for the questionnaire · ${options.closeKey} closes and keeps the draft`,
-        width,
-      ).slice(0, budget),
-    };
-
-  // Always two truncated footer lines, so the frame height never depends on the view.
   const footer = [...options.footer.split("\n"), ""]
     .slice(0, 2)
     .map((line) => truncateToWidth(displayText(line), width, "…"));
 
-  const size = Math.max(
-    1,
-    Math.min(budget - footer.length - 5, Math.max(options.body.length, options.minBody ?? 0)),
-  );
+  const maxBudget = Math.max(3, options.rows - 2);
+  const normalBudget = Math.max(8, Math.min(Math.floor(options.rows * 0.6), maxBudget));
 
-  let scroll = options.scroll;
+  return { footer, maxBudget, normalBudget, rule };
+};
 
-  if (options.focusLine !== undefined) {
-    if (options.focusLine < scroll) scroll = options.focusLine;
-    else {
-      const end = Math.min(options.focusEnd ?? options.focusLine, options.focusLine + size - 1);
+const tooSmall = (options: FrameOptions): FrameResult => ({
+  scroll: options.scroll,
+  viewport: { top: 0, rows: 0 },
+  lines: textLines(
+    `Terminal too small for the questionnaire · ${options.closeKey} closes and keeps the draft`,
+    options.width,
+  ).slice(0, Math.max(3, options.rows - 2)),
+});
 
-      if (end >= scroll + size) scroll = end - size + 1;
-    }
-  }
-
-  scroll = Math.max(0, Math.min(scroll, Math.max(0, options.body.length - size)));
-  const body = options.body.slice(scroll, scroll + size);
-
-  const hint =
-    options.hint ||
-    (options.body.length > size
-      ? `${scroll + 1}–${Math.min(scroll + size, options.body.length)} / ${options.body.length} · scroll`
-      : "");
+const finishFrame = (
+  options: FrameOptions,
+  body: string[],
+  scroll: number,
+  viewportRows: number,
+  hint: string,
+): FrameResult => {
+  const { footer, rule } = frameChrome(options);
 
   return {
     scroll,
-    bodyRows: size,
+    viewport: { top: 3, rows: viewportRows },
     lines: [
       rule(options.title),
       options.header,
       "",
       ...body,
-      ...Array.from({ length: size - body.length }, () => ""),
-      theme.fg(options.hint ? "warning" : "dim", truncateToWidth(displayText(hint), width)),
-      ...footer.map((line) => theme.fg("dim", line)),
+      options.theme.fg(
+        options.hint ? "warning" : "dim",
+        truncateToWidth(displayText(hint), options.width),
+      ),
+      ...footer.map((line) => options.theme.fg("dim", line)),
       rule(),
-    ].map((line) => truncateToWidth(line, width)),
+    ].map((line) => truncateToWidth(line, options.width)),
   };
+};
+
+/** Render scrollable context above compact, always-visible answer controls. */
+export function renderQuestionView(
+  options: FrameOptions & { context: string[]; answers: string[] },
+): FrameResult {
+  const { footer, maxBudget, normalBudget, rule } = frameChrome(options);
+
+  if (options.width < 24 || maxBudget < 8) return tooSmall(options);
+  const chromeRows = footer.length + 5;
+  const dividerRows = options.context.length > 0 ? 1 : 0;
+  const minimumContextRows = options.context.length > 0 ? 1 : 0;
+  const required = chromeRows + options.answers.length + dividerRows + minimumContextRows;
+
+  if (required > maxBudget) return tooSmall(options);
+  const normalContextRows = normalBudget - chromeRows - options.answers.length - dividerRows;
+
+  const contextRows = Math.min(
+    options.context.length,
+    Math.max(minimumContextRows, normalContextRows),
+    8,
+  );
+
+  const scroll = Math.max(
+    0,
+    Math.min(options.scroll, Math.max(0, options.context.length - contextRows)),
+  );
+
+  const visibleContext = options.context.slice(scroll, scroll + contextRows);
+
+  const divider =
+    options.context.length > 0
+      ? [
+          rule(
+            options.context.length > contextRows
+              ? `Context ${scroll + 1}–${Math.min(scroll + contextRows, options.context.length)} / ${options.context.length}`
+              : "Context",
+            "borderMuted",
+          ),
+        ]
+      : [];
+
+  const hint =
+    options.hint ||
+    (options.context.length > contextRows ? "Scroll context with PageUp/PageDown" : "");
+
+  return finishFrame(
+    options,
+    [...visibleContext, ...divider, ...options.answers],
+    scroll,
+    contextRows,
+    hint,
+  );
+}
+
+/** Render Review, editors, previews and metadata as conventional scrolling pages. */
+export function renderScrollablePage(
+  options: FrameOptions & { body: string[]; focusLine?: number },
+): FrameResult {
+  const { footer, normalBudget } = frameChrome(options);
+
+  if (options.width < 24 || normalBudget < 8) return tooSmall(options);
+  const capacity = normalBudget - footer.length - 5;
+
+  if (capacity < 1) return tooSmall(options);
+  const viewportRows = Math.max(1, Math.min(capacity, options.body.length || 1));
+
+  let scroll = Math.max(
+    0,
+    Math.min(options.scroll, Math.max(0, options.body.length - viewportRows)),
+  );
+
+  if (options.focusLine !== undefined) {
+    if (options.focusLine < scroll) scroll = options.focusLine;
+    else if (options.focusLine >= scroll + viewportRows)
+      scroll = options.focusLine - viewportRows + 1;
+  }
+
+  const visible = options.body.slice(scroll, scroll + viewportRows);
+
+  const hint =
+    options.hint ||
+    (options.body.length > viewportRows
+      ? `${scroll + 1}–${Math.min(scroll + viewportRows, options.body.length)} / ${options.body.length} · scroll`
+      : "");
+
+  return finishFrame(options, visible, scroll, viewportRows, hint);
 }

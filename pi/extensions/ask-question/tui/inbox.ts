@@ -3,7 +3,13 @@ import { runQueuedPrompt } from "@clanker-stuff/pi-user-input/queue";
 import type { Coordinator } from "../coordinator.js";
 import type { Interaction } from "../interaction.js";
 import { awaitingUser } from "../interaction.js";
-import { boundedView, deliveryLabel, inboxLabel, reviewText, textLines } from "./render.js";
+import {
+  deliveryLabel,
+  inboxLabel,
+  renderScrollablePage,
+  reviewText,
+  textLines,
+} from "./render.js";
 import { intent, keyLabel } from "./input.js";
 
 type ReviewAction = { type: "reopen" | "send"; revision: number } | undefined;
@@ -21,6 +27,8 @@ async function inspectSubmission(
       return await ctx.ui.custom<ReviewAction>((tui, theme, keys, done) => {
         let index = item.submissions.length - 1;
         let scroll = 0;
+        let pageSize = 1;
+        let viewport = { top: 0, rows: 0 };
         let details = false;
         const close = () => done(undefined);
         activeSignal.addEventListener("abort", close, { once: true });
@@ -34,7 +42,7 @@ async function inspectSubmission(
             const submission = item.submissions[index];
             const status = item.deliveries.find((d) => d.revision === submission?.revision)?.status;
 
-            const view = boundedView({
+            const view = renderScrollablePage({
               title: item.request.title ?? "Questionnaire",
               header: theme.fg(
                 "accent",
@@ -62,8 +70,23 @@ async function inspectSubmission(
             });
 
             scroll = view.scroll;
+            pageSize = Math.max(1, view.viewport.rows - 1);
+            viewport = view.viewport;
 
             return view.lines.map((line) => " ".repeat(padding) + line);
+          },
+          handleMouse(event) {
+            if (event.type !== "wheel" || !event.wheelDelta) return;
+
+            if (
+              viewport.rows === 0 ||
+              event.y < viewport.top ||
+              event.y >= viewport.top + viewport.rows
+            )
+              return;
+            scroll += event.wheelDelta;
+
+            return { handled: true };
           },
           handleInput(data) {
             const key = intent(keys, data, true);
@@ -78,8 +101,8 @@ async function inspectSubmission(
               details = !details;
               scroll = 0;
             } else if (key === "up" || key === "page_up")
-              scroll = Math.max(0, scroll - (key === "up" ? 1 : 5));
-            else if (key === "down" || key === "page_down") scroll += key === "down" ? 1 : 5;
+              scroll = Math.max(0, scroll - (key === "up" ? 1 : pageSize));
+            else if (key === "down" || key === "page_down") scroll += key === "down" ? 1 : pageSize;
             else if (key === "back" || key === "next") {
               index = Math.max(
                 0,

@@ -6,12 +6,13 @@ import { createIdentityTheme } from "../../../tests/harness/tui.js";
 import { createInteraction, transition } from "../interaction.js";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import {
-  boundedView,
-  detailLines,
   diffText,
   inboxLabel,
+  optionDetailText,
   optionLines,
   progressLine,
+  renderQuestionView,
+  renderScrollablePage,
   reviewText,
 } from "../tui/render.js";
 
@@ -42,7 +43,7 @@ const fresh = () => createInteraction("q_private_identifier", request, "call", "
 const theme = createIdentityTheme();
 
 describe("questionnaire presentation", () => {
-  it("lists compact options with focus, selection, note excerpts and inline editors", () => {
+  it("lists compact options with focus, selection, note excerpts and detail markers", () => {
     initTheme("dark");
     const item = fresh();
     const q = request.questions[0];
@@ -51,26 +52,22 @@ describe("questionnaire presentation", () => {
     a.selected = ["cloud"];
     a.notes.local = "Keep the local data\nSecond line";
     const result = optionLines(q, a, 0, 60, theme);
-    const text = displayText(result.lines.join("\n"));
+    const text = displayText(result.join("\n"));
     expect(text).toContain("> ( ) 1. Local\u00a0★");
     expect(text).toContain("  (•) 2. Cloud");
     expect(text).toContain("Note: Keep the local data …");
     expect(text).not.toContain("Second line");
     expect(text).not.toContain("No hosting required"); // Descriptions live in Details.
-    expect(result.focusLine).toBe(0);
-    expect(result.focusEnd).toBe(1);
-    expect(optionLines({ ...q, multi_select: true }, a, 1, 60, theme).lines.join("\n")).toContain(
+    expect(optionLines({ ...q, multi_select: true }, a, 1, 60, theme).join("\n")).toContain(
       "[x] 2. Cloud",
     );
-    const inline = optionLines(q, a, 0, 60, theme, { choice: 0, lines: ["EDITOR"] }).lines;
-    expect(inline[1]).toBe("    EDITOR");
-    expect(inline.join("\n")).not.toContain("Note:");
-    const details = displayText(detailLines(q, a, 0, 60, theme).join("\n"));
-    expect(details).toContain("Details");
-    expect(details).toContain("No hosting required");
-    expect(details).toContain("★ Recommended: Recommendation rationale");
-    expect(detailLines(q, a, 2, 60, theme).join("\n")).toContain("Enter your own response");
-    expect(detailLines(request.questions[1], a, 0, 60, theme)).toEqual([]);
+    expect(text).toContain("▸ details (p)");
+    const details = optionDetailText(q, 0);
+
+    expect(details).toContain("## Description\n\nNo hosting required");
+    expect(details).toContain("## Recommendation\n\n★ Recommendation rationale");
+    expect(optionDetailText(q, 2)).toBeUndefined();
+    expect(optionDetailText(request.questions[1], 0)).toBeUndefined();
   });
   it("shows completion and keeps the current tab visible at narrow widths", () => {
     let item = fresh();
@@ -125,7 +122,7 @@ describe("questionnaire presentation", () => {
     expect(inboxLabel(item, 0)).not.toContain(item.id);
     expect(inboxLabel(item, 1)).not.toBe(inboxLabel(item, 0));
   });
-  it("sizes the frame to its content within the budget and scrolls only to reveal focus", () => {
+  it("keeps compact answers below a naturally sized context viewport", () => {
     const options = {
       title: "Title",
       header: "Choose one",
@@ -138,24 +135,49 @@ describe("questionnaire presentation", () => {
       theme,
     };
 
-    const body = Array.from({ length: 30 }, (_, i) => `line ${i}`);
-    const first = boundedView({ ...options, body, focusLine: 0 });
-    expect(first.bodyRows).toBe(11);
-    const short = boundedView({ ...options, body: ["Short"] });
-    expect(short.bodyRows).toBe(1);
-    expect(boundedView({ ...options, body, rows: 18 }).bodyRows).toBe(3);
-    expect(boundedView({ ...options, body, rows: 8 }).bodyRows).toBe(0);
-    expect(short.lines.length).toBeLessThan(first.lines.length);
-    expect(short.lines.filter((line) => line === "")).toHaveLength(2);
-    expect(short.lines[0]).toContain("─ Title ─");
-    expect(short.lines.at(-1)).toMatch(/^─+$/);
-    expect(short.lines[1]).toBe("Choose one");
-    expect(boundedView({ ...options, body, focusLine: 2 }).scroll).toBe(0);
-    const last = boundedView({ ...options, body, focusLine: 28 });
-    expect(last.lines.join("\n")).toContain("line 28");
+    const context = Array.from({ length: 30 }, (_, i) => `context ${i}`);
+    const answers = ["Question?", "", "> ( ) Answer"];
+    const first = renderQuestionView({ ...options, context, answers });
+
+    expect(first.viewport.rows).toBe(7);
+    expect(first.lines.join("\n")).toContain("context 0");
+    expect(first.lines.join("\n")).toContain("> ( ) Answer");
+    expect(first.lines.length).toBeLessThan(30);
+    const last = renderQuestionView({ ...options, context, answers, scroll: 100 });
+    expect(last.scroll).toBe(23);
+    expect(last.lines.join("\n")).toContain("context 29");
+    expect(last.lines.join("\n")).toContain("> ( ) Answer");
     expect(last.lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
-    expect(last.lines.length).toBeLessThanOrEqual(18);
-    expect(boundedView({ ...options, width: 20, body }).lines.join("\n")).toContain("too small");
+    expect(
+      renderQuestionView({ ...options, rows: 10, context, answers }).lines.join("\n"),
+    ).toContain("too small");
+    expect(
+      renderQuestionView({ ...options, width: 20, context, answers }).lines.join("\n"),
+    ).toContain("too small");
+  });
+  it("sizes conventional pages to content up to the normal cap", () => {
+    const options = {
+      title: "Title",
+      header: "Details",
+      footer: "escape Back\npageUp/pageDown Scroll",
+      closeKey: "escape",
+      hint: "",
+      rows: 30,
+      width: 40,
+      scroll: 0,
+      theme,
+    };
+
+    const short = renderScrollablePage({ ...options, body: ["one", "two"] });
+
+    const long = renderScrollablePage({
+      ...options,
+      body: Array.from({ length: 30 }, (_, index) => `line ${index}`),
+    });
+
+    expect(short.lines.length).toBeLessThan(long.lines.length);
+    expect(long.lines.length).toBeLessThanOrEqual(Math.floor(options.rows * 0.6));
+    expect(long.viewport.rows).toBeGreaterThan(short.viewport.rows);
   });
   it("clips long written answers and notes to one line with a single ellipsis", () => {
     initTheme("dark");
@@ -164,7 +186,7 @@ describe("questionnaire presentation", () => {
     assert(draft);
     const a = { ...draft, custom: "word ".repeat(80), custom_selected: true };
 
-    const text = displayText(optionLines(request.questions[0], a, 2, 40, theme).lines.join("\n"));
+    const text = displayText(optionLines(request.questions[0], a, 2, 40, theme).join("\n"));
 
     expect(text.match(/…/g)).toHaveLength(1);
     expect(text).not.toContain("...");
