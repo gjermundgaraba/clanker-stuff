@@ -436,6 +436,75 @@ describe("V1 controller", () => {
     await expect(waiting).resolves.toMatchObject({ timed_out: false });
   });
 
+  it("reports an observed completion whose queued follow-up is immediately promoted", async () => {
+    const { controller, coordinator, ctx, runtimes } = await setup();
+    const { agent_id: id } = await controller.spawn({ forkContext: false, message: "first" }, ctx);
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    const waiting = controller.wait([id], 10_000);
+    await coordinator.barrier();
+    await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+
+    runtimes[0]?.turns[0]?.settled.resolve({ status: "completed", text: "one" });
+
+    await expect(waiting).resolves.toEqual({
+      status: { [id]: { completed: "one" } },
+      timed_out: false,
+    });
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(2));
+  });
+
+  it("reports an observed error whose queued follow-up is immediately promoted", async () => {
+    const { controller, coordinator, ctx, runtimes } = await setup();
+    const { agent_id: id } = await controller.spawn({ forkContext: false, message: "first" }, ctx);
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    const waiting = controller.wait([id], 10_000);
+    await coordinator.barrier();
+    await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+
+    runtimes[0]?.turns[0]?.settled.reject(new Error("first failed"));
+
+    await expect(waiting).resolves.toEqual({
+      status: { [id]: { errored: "first failed" } },
+      timed_out: false,
+    });
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(2));
+  });
+
+  it("keeps a registered wait through a transient interrupted status", async () => {
+    const { controller, coordinator, ctx, runtimes } = await setup();
+    const { agent_id: id } = await controller.spawn({ forkContext: false, message: "work" }, ctx);
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    const waiting = controller.wait([id], 10_000);
+    await coordinator.barrier();
+
+    await controller.sendInput(id, { interrupt: true, message: "replacement" }, ctx);
+    await vi.waitFor(() => expect(runtimes[1]?.turns).toHaveLength(1));
+    runtimes[1]?.turns[0]?.settled.resolve({ status: "completed", text: "done" });
+
+    await expect(waiting).resolves.toEqual({
+      status: { [id]: { completed: "done" } },
+      timed_out: false,
+    });
+  });
+
+  it("does not report an earlier turn's completion to a later wait", async () => {
+    const { controller, coordinator, ctx, runtimes } = await setup();
+    const { agent_id: id } = await controller.spawn({ forkContext: false, message: "first" }, ctx);
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+    await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+    runtimes[0]?.turns[0]?.settled.resolve({ status: "completed", text: "one" });
+    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(2));
+
+    const waiting = controller.wait([id], 10_000);
+    await coordinator.barrier();
+    runtimes[0]?.turns[1]?.settled.resolve({ status: "completed", text: "two" });
+
+    await expect(waiting).resolves.toEqual({
+      status: { [id]: { completed: "two" } },
+      timed_out: false,
+    });
+  });
+
   it("observes aborts while registering a wait", async () => {
     const { controller, ctx } = await setup();
     const { agent_id: id } = await controller.spawn({ forkContext: false, message: "work" }, ctx);

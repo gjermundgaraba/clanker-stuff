@@ -241,7 +241,7 @@ export const registerV1Tools = (
     }),
     defineTool({
       description:
-        "Send input to an existing open agent. Use interrupt=true to redirect work immediately. Reuse an agent when new work depends on its prior context. Provide exactly one of message or items.",
+        "Send input to an existing open agent. Queued input runs only after the agent finishes its current task and all earlier queued work; use interrupt=true to stop current work and handle this input immediately. Reuse an agent when new work depends on its prior context. Provide exactly one of message or items.",
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
         signal?.throwIfAborted();

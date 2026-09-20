@@ -56,6 +56,11 @@ interface RuntimeOwner {
   state: RuntimeState;
 }
 
+/** Wake for a registered wait; a final status carries the observation from the
+ * committing transaction, an undefined wake re-reads the live state (close, or a
+ * controller reset). */
+type WaiterWake = (status?: PublicAgentStatus) => void;
+
 export interface V1ControllerDependencies {
   config: SubagentsConfig;
   coordinator: TreeCoordinator;
@@ -237,7 +242,7 @@ export class V1Controller {
   readonly #provisionalSpawns = new Set<Promise<null>>();
   readonly #queue = new KeyedSerialQueue();
   readonly #runtimeOwners = new Map<string, RuntimeOwner>();
-  readonly #waiters = new Map<string, Set<() => void>>();
+  readonly #waiters = new Map<string, Set<WaiterWake>>();
   #closing = false;
   #promptOptions: BuildSystemPromptOptions | undefined;
   #rootApi: ToolEndpoint | undefined;
@@ -716,14 +721,30 @@ export class V1Controller {
       return { status: immediate, timed_out: false };
     }
 
-    const settled = Promise.withResolvers<"aborted" | "status" | "timeout">();
+    // A turn settled in the same transaction that promotes its queued follow-up
+    // leaves the live state non-final, so its observed final is carried here — by
+    // a wake, or by the pre-registration command read when the final can be
+    // promoted before the post-wake read (for example by a send_input queuing a
+    // new turn). The post-wake merge only fills ids whose live state is no
+    // longer final; a live final stays authoritative.
+    const received = new Map<string, PublicAgentStatus>();
+    const gate = Promise.withResolvers<"aborted" | "status" | "timeout">();
+    const registered = new Map<string, WaiterWake>();
 
-    const wake = () => {
-      settled.resolve("status");
-    };
+    for (const id of targets) {
+      const wake: WaiterWake = (status) => {
+        if (status !== undefined) {
+          received.set(id, status);
+        }
+
+        gate.resolve("status");
+      };
+
+      registered.set(id, wake);
+    }
 
     const abort = () => {
-      settled.resolve("aborted");
+      gate.resolve("aborted");
     };
 
     signal?.addEventListener("abort", abort, { once: true });
@@ -734,22 +755,28 @@ export class V1Controller {
         const status = collect();
 
         if (Object.keys(status).length > 0) {
-          settled.resolve("status");
+          for (const [id, observed] of Object.entries(status)) {
+            received.set(id, observed);
+          }
+
+          gate.resolve("status");
 
           return;
         }
 
-        for (const id of targets) {
-          const set = this.#waiters.get(id) ?? new Set();
+        for (const [id, wake] of registered) {
+          const set = this.#waiters.get(id) ?? new Set<WaiterWake>();
           set.add(wake);
           this.#waiters.set(id, set);
         }
       });
       signal?.throwIfAborted();
+
       timer = setTimeout(() => {
-        settled.resolve("timeout");
+        gate.resolve("timeout");
       }, effective);
-      const outcome = await settled.promise;
+
+      const outcome = await gate.promise;
 
       if (outcome === "aborted") {
         signal?.throwIfAborted();
@@ -757,6 +784,12 @@ export class V1Controller {
       }
 
       const status = collect();
+
+      for (const [id, observed] of received) {
+        if (!Object.hasOwn(status, id)) {
+          status[id] = observed;
+        }
+      }
 
       return {
         status,
@@ -769,7 +802,7 @@ export class V1Controller {
 
       signal?.removeEventListener("abort", abort);
 
-      for (const id of targets) {
+      for (const [id, wake] of registered) {
         this.#waiters.get(id)?.delete(wake);
       }
     }
@@ -1027,6 +1060,7 @@ export class V1Controller {
     epoch: symbol,
   ): Promise<void> {
     let hasNext = false;
+    let observed: PublicAgentStatus | undefined;
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
 
@@ -1052,6 +1086,7 @@ export class V1Controller {
         };
 
         draft.state.notifications.push(notification);
+        observed = publicStatus(settled);
       }
 
       if (next !== undefined) {
@@ -1061,7 +1096,10 @@ export class V1Controller {
 
       draft.state.agents[index] = settled;
     });
-    this.#notifyWaiters(id);
+
+    if (observed !== undefined) {
+      this.#notifyWaiters(id, observed);
+    }
 
     if (hasNext) {
       this.#scheduleDeliveryFromLastContext(id);
@@ -1352,6 +1390,7 @@ export class V1Controller {
     epoch: symbol,
   ): Promise<void> {
     let hasNext = false;
+    let observed: PublicAgentStatus | undefined;
     await this.#coordinator.transact((draft) => {
       this.#assertEpoch(epoch);
 
@@ -1387,6 +1426,7 @@ export class V1Controller {
       });
       const [next, ...queue] = agent.queue;
       const failed = erroredAgent(agent, queue, message, true);
+      observed = publicStatus(failed);
 
       if (next === undefined) {
         draft.state.agents[index] = failed;
@@ -1395,16 +1435,19 @@ export class V1Controller {
         hasNext = true;
       }
     });
-    this.#notifyWaiters(id);
+
+    if (observed !== undefined) {
+      this.#notifyWaiters(id, observed);
+    }
 
     if (hasNext) {
       this.#scheduleDeliveryFromLastContext(id);
     }
   }
 
-  #notifyWaiters(id: string): void {
+  #notifyWaiters(id: string, observed?: PublicAgentStatus): void {
     for (const wake of this.#waiters.get(id) ?? []) {
-      wake();
+      wake(observed);
     }
   }
 
