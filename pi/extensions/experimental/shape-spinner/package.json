@@ -18,6 +18,7 @@
   },
   "files": [
     "index.ts",
+    "settings.ts",
     "spinner.ts",
     "assets",
     "README.md",

@@ -10,9 +10,8 @@ Install the bundled font using the [setup instructions](docs/setup.md), then run
 
 ## Usage
 
-- An orb animates while Pi works; retries, compaction, and branch summaries get their own shapes in the editor border. Use `/shape-spinner preview` to check the font.
-- Switch the working spinner with `/shape-spinner cube` or `/shape-spinner purple`; target another spinner with `/shape-spinner retry cube`.
-- Use `/shape-spinner static` for reduced motion or `/shape-spinner off` to restore Pi's spinners.
+- An orb animates while Pi works; retries, compaction, and branch summaries get their own shapes in the editor border.
+- Run `/shape-spinner` to open the settings dialog: pick shapes, colors, playback, and background per spinner, with animated previews that apply live and also verify the font.
 
 ## Requirements
 

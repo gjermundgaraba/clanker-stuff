@@ -5,6 +5,9 @@ import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { StatusKind, StatusStyle } from "@clanker-stuff/editor";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+import { openSettings } from "./settings.js";
+import type { SettingsModel } from "./settings.js";
+
 const shapes = ["rubik", "orb", "cube", "octahedron", "tetrahedron"] as const;
 
 const colors = [
@@ -70,9 +73,6 @@ const loops = [
 
 const codepoints = loops.flatMap((animation) => [...animation.frames, animation.still]);
 
-const animationFor = (shape: Shape, color: Color, background: Background): Animation =>
-  shape === "rubik" ? manifest.rubik : manifest.animations[shape][color][background];
-
 const range = [Math.min(...codepoints), Math.max(...codepoints)]
   .map((cp) => `U+${cp.toString(16).toUpperCase()}`)
   .join("-");
@@ -81,12 +81,40 @@ const mapping = `font-codepoint-map = ${range}=${manifest.family}`;
 
 const fontPath = fileURLToPath(new URL("./assets/ShapeSpinner.ttf", import.meta.url));
 
-const usage = `/shape-spinner ${[...shapes, ...colors, ...backgrounds, ...modes, "preview"].join("|")} or /shape-spinner ${kinds.join("|")} ${[...shapes, ...colors, ...toggles].join("|")}`;
+const frameIntervalMs = 1000 / manifest.fps;
 
-const oneOf = <T extends string>(options: readonly T[], value: string): value is T =>
-  options.some((option) => option === value);
+/** Advance one step in a nonempty cycle; the options head covers an impossible miss. */
+const advance = <T>(options: readonly [T, ...T[]], current: T): T =>
+  options[(options.indexOf(current) + 1) % options.length] ?? options[0];
 
-const describeLook = (look: Look) => (look.enabled ? `${look.shape} ${look.color}` : "off");
+const capitalize = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+const animationFor = (shape: Shape, color: Color, background: Background): Animation =>
+  shape === "rubik" ? manifest.rubik : manifest.animations[shape][color][background];
+
+const descriptions = {
+  background:
+    "Wireframe ink tuned for dark or light terminals; the puzzle keeps its sticker colors.",
+  color: "Ink for the wireframe; the colored puzzle keeps its sticker colors.",
+  enabled: "Off falls back to Pi's own indicator for this status.",
+  playback:
+    "on animates, static rests on the closing pose, off restores Pi's own spinners everywhere. Returning to on re-enables every spinner.",
+  shape:
+    "rubik is the colored puzzle; the others are wireframes that take their color and background ink.",
+} as const;
+
+/**
+ * One dialog row. SettingsList only cycles forward through `values`, so the row
+ * advances its own state rather than trusting a value it was just handed back.
+ */
+interface Row {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly values: string[];
+  readonly currentValue: () => string;
+  readonly cycle: () => void;
+}
 
 export function createSpinner() {
   const looks = defaultLooks();
@@ -98,11 +126,12 @@ export function createSpinner() {
     const look = looks[kind];
 
     if (mode === "off" || !look.enabled) return undefined;
+
     const animation = animationFor(look.shape, look.color, background);
 
     return {
       frames: (mode === "static" ? [animation.still] : animation.frames).map(glyph),
-      intervalMs: 1000 / manifest.fps,
+      intervalMs: frameIntervalMs,
     };
   };
 
@@ -120,94 +149,118 @@ export function createSpinner() {
     release = undefined;
   };
 
-  const choices = () => {
-    const working = looks.working;
+  const spinnerRows = (kind: Kind): Row[] => {
+    const look = looks[kind];
 
-    return `Shape spinner: ${working.shape}, ${working.color}, ${background} background, ${mode}. Retry: ${describeLook(looks.retry)}. Compaction: ${describeLook(looks.compaction)}. Summary: ${describeLook(looks.summary)}.`;
+    return [
+      {
+        currentValue: () => look.shape,
+        cycle: () => {
+          look.shape = advance(shapes, look.shape);
+        },
+        description: descriptions.shape,
+        id: `${kind}-shape`,
+        label: `${capitalize(kind)} shape`,
+        values: [...shapes],
+      },
+      {
+        currentValue: () => look.color,
+        cycle: () => {
+          look.color = advance(colors, look.color);
+        },
+        description: descriptions.color,
+        id: `${kind}-color`,
+        label: `${capitalize(kind)} color`,
+        values: [...colors],
+      },
+      {
+        currentValue: () => (look.enabled ? "on" : "off"),
+        cycle: () => {
+          look.enabled = !look.enabled;
+        },
+        description: descriptions.enabled,
+        id: `${kind}-enabled`,
+        label: `${capitalize(kind)} enabled`,
+        values: [...toggles],
+      },
+    ];
   };
 
-  const command = (args: string, ctx: ExtensionContext): void => {
-    if (ctx.mode !== "tui") return;
-    const [first = "", second, ...rest] = args.trim().toLowerCase().split(/\s+/);
+  const rows = (): Row[] => [
+    {
+      currentValue: () => mode,
+      cycle: () => {
+        mode = advance(modes, mode);
 
-    if (!first) {
-      ctx.ui.notify(
-        `${choices()} ${usage}\nChoices are runtime-only; reload resets every spinner to its default look with dark-background ink.`,
-        "info",
-      );
+        // Global playback `on` brings back spinners turned off individually.
+        if (mode === "on") for (const look of Object.values(looks)) look.enabled = true;
+      },
+      description: descriptions.playback,
+      id: "playback",
+      label: "Playback",
+      values: [...modes],
+    },
+    {
+      currentValue: () => background,
+      cycle: () => {
+        background = advance(backgrounds, background);
+      },
+      description: descriptions.background,
+      id: "background",
+      label: "Background",
+      values: [...backgrounds],
+    },
+    ...kinds.flatMap(spinnerRows),
+  ];
 
-      return;
-    }
+  const settings = (ctx: ExtensionContext): SettingsModel => ({
+    footer: [
+      `Ghostty: ${mapping}`,
+      `Font: ${fontPath}`,
+      "Boxes or stray symbols mean the Shape Spinner font is missing on this machine; see docs/setup.md.",
+      "Previews play even while playback is off.",
+      "Choices are runtime-only; reload resets every spinner to its default look with dark-background ink.",
+    ],
+    intervalMs: frameIntervalMs,
+    items: rows().map((row) => ({
+      currentValue: row.currentValue(),
+      description: row.description,
+      id: row.id,
+      label: row.label,
+      values: row.values,
+    })),
+    preview: () =>
+      kinds.map((kind) => {
+        const look = looks[kind];
+        const animation = animationFor(look.shape, look.color, background);
 
-    if (first === "preview" && second === undefined) {
-      const { shape, color } = looks.working;
-      ctx.ui.notify(
-        [
-          ...shapes.map((name) => {
-            const animation = animationFor(name, color, background);
-
-            // Bundled loops are nonempty (checked by the builder and asset tests); each fraction is in [0, 1).
-            return `${name}: ${glyph(animation.still)} ${[0, 0.25, 0.5, 0.75].map((fraction) => glyph(animation.frames[Math.floor(fraction * animation.frames.length)]!)).join(" ")}`;
-          }),
-          `Colors (${shape === "rubik" ? "orb" : shape}): ${colors.map((name) => `${name} ${glyph(animationFor(shape === "rubik" ? "orb" : shape, name, background).still)}`).join("  ")}`,
-          `Color: ${color}. Background: ${background}. Font: ${manifest.family}`,
-          `Font file: ${fontPath}`,
-          `Ghostty: ${mapping}`,
-          "Install the font on the display machine and configure your terminal. Boxes or unrelated symbols mean the font is not ready.",
-          "rubik is the colored puzzle; cube is the wireframe. Color and dark/light only change wireframes; Rubik keeps its sticker colors.",
-          "Use /shape-spinner off to restore Pi's default.",
-        ].join("\n"),
-        "info",
-      );
-
-      return;
-    }
-
-    if (second !== undefined) {
-      const look = oneOf(kinds, first) && rest.length === 0 ? looks[first] : undefined;
-
-      if (look === undefined) {
-        ctx.ui.notify(`Usage: ${usage}`, "error");
-
-        return;
-      }
-
-      if (oneOf(shapes, second)) look.shape = second;
-      else if (oneOf(colors, second)) look.color = second;
-      else if (oneOf(toggles, second)) look.enabled = second === "on";
-      else {
-        ctx.ui.notify(`Usage: ${usage}`, "error");
-
-        return;
-      }
-
+        return {
+          frameAt: look.enabled
+            ? (tick: number) =>
+                glyph(
+                  mode === "static"
+                    ? animation.still
+                    : // Bundled loops are nonempty (checked by the builder and asset tests).
+                      animation.frames[tick % animation.frames.length]!,
+                )
+            : () => undefined,
+          label: capitalize(kind),
+          meta: `${look.shape} · ${look.color}`,
+        };
+      }),
+    update: (id) => {
+      rows()
+        .find((row) => row.id === id)
+        ?.cycle();
       apply(ctx);
-      ctx.ui.notify(`Shape spinner ${first}: ${describeLook(look)}.`, "info");
+    },
+    values: () => Object.fromEntries(rows().map((row) => [row.id, row.currentValue()])),
+  });
 
-      return;
-    }
+  const command = async (_args: string, ctx: ExtensionContext): Promise<void> => {
+    if (ctx.mode !== "tui") return;
 
-    if (oneOf(shapes, first)) looks.working.shape = first;
-    else if (oneOf(colors, first)) looks.working.color = first;
-    else if (oneOf(backgrounds, first)) background = first;
-    else if (oneOf(modes, first)) {
-      mode = first;
-
-      // Global playback applies to every spinner, including ones turned off individually.
-      if (first === "on") for (const look of Object.values(looks)) look.enabled = true;
-    } else {
-      ctx.ui.notify(`Usage: ${usage}`, "error");
-
-      return;
-    }
-
-    apply(ctx);
-    ctx.ui.notify(
-      mode === "off"
-        ? "Shape spinner off: restored Pi's default spinners."
-        : `Shape spinner: ${looks.working.shape}, ${looks.working.color}, ${background} background, ${mode}.`,
-      "info",
-    );
+    await openSettings(ctx, settings(ctx));
   };
 
   return { apply, command, dispose };
