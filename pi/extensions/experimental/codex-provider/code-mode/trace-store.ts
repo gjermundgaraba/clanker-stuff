@@ -1,3 +1,4 @@
+import type { JsonValue } from "@earendil-works/pi-ai";
 import { boundRuntimeToolResult, sanitizeTraceInput } from "./trace-values.js";
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
 import type { RuntimeResponse, RuntimeToolResult, RuntimeToolTrace } from "./types.js";
@@ -36,8 +37,7 @@ export class CodeModeTraceStore {
     this.cells.delete(cellId);
   }
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Trace capture accepts arbitrary delegated arguments; sanitizeTraceInput bounds and normalizes them before storage.
-  start(cellId: string, id: string, name: string, input: unknown): RuntimeToolTrace {
+  start(cellId: string, id: string, name: string, input: JsonValue | undefined): RuntimeToolTrace {
     const cell = this.cells.get(cellId);
 
     if (!cell) throw new Error(`Code-mode cell trace is unavailable: ${cellId}`);
