@@ -12,7 +12,8 @@ describe("providers", () => {
     expect(SUPPORTED_PROVIDERS.map((provider) => getActiveProvider({ provider }))).toStrictEqual(
       SUPPORTED_PROVIDERS,
     );
-    expect(getActiveProvider({ provider: "openrouter" })).toBeUndefined();
+    expect(getActiveProvider({ provider: "openrouter" })).toBe("openrouter");
+    expect(getActiveProvider({ provider: "unknown" })).toBeUndefined();
     expect(getActiveProvider(null)).toBeUndefined();
   });
 
@@ -20,6 +21,7 @@ describe("providers", () => {
     expect(SUPPORTED_PROVIDERS.map(providerDisplayName)).toStrictEqual([
       "Claude",
       "Codex",
+      "OpenRouter",
       "Copilot",
       "Kimi",
       "Radius",

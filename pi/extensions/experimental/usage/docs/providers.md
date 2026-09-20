@@ -25,6 +25,10 @@ The reader is passive: it sends only a usage GET with bearer and account headers
 
 Source contract: [usage client](https://github.com/openai/codex/blob/36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564/codex-rs/backend-client/src/client/rate_limit_resets.rs).
 
+## OpenRouter credits
+
+OpenRouter reads the account credit summary from `https://openrouter.ai/api/v1/credits` with the configured API key. The active footer shows the remaining credit balance (total credits minus total usage); the balance can go negative on pay-as-you-go accounts that overspend. OpenRouter exposes no time-boxed quota windows on this endpoint, so `/usage` shows only the credit balance.
+
 ## Radius accounting
 
 Radius reads the effective `radius` provider's live `/v1/billing` summary with either its OAuth credential or `RADIUS_API_KEY`. The active footer shows available USD balance; optional details show total balance, reserved funds, and finalized current-month spend. Reservations settle asynchronously, so available balance can change as reserved capacity becomes an actual charge and can temporarily be negative.

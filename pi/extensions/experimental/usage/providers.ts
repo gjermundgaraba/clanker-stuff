@@ -1,6 +1,7 @@
 export const SUPPORTED_PROVIDERS = [
   "anthropic",
   "openai-codex",
+  "openrouter",
   "github-copilot",
   "kimi-coding",
   "radius",
@@ -79,6 +80,7 @@ const PROVIDER_DISPLAY_NAMES = {
   "github-copilot": "Copilot",
   "kimi-coding": "Kimi",
   "openai-codex": "Codex",
+  openrouter: "OpenRouter",
   "opencode-go": "OpenCode Go",
   radius: "Radius",
   xai: "Grok",

@@ -136,6 +136,11 @@ export const createUsageController = (
 
       return await fetchOpenCodeGoUsage(deps);
     },
+    openrouter: async (deps: AdapterDeps) => {
+      const { fetchOpenRouterUsage } = await import("./adapters/openrouter.js");
+
+      return await fetchOpenRouterUsage(deps);
+    },
     radius: async (deps: AdapterDeps, ctx: ExtensionContext) => {
       const billingUrl = radiusBillingUrl(ctx);
 
