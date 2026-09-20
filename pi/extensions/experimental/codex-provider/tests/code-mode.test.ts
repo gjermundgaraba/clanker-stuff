@@ -6,7 +6,10 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import {
+  createExtensionHost,
+  normalizedSystemPromptOptions,
+} from "../../../../tests/harness/extension-host.js";
 import { createIdentityTheme, renderComponent } from "../../../../tests/harness/tui.js";
 import { CodeModeHostClient } from "../code-mode/host-client.js";
 import {
@@ -22,8 +25,6 @@ import { sanitizeTraceInput } from "../code-mode/trace-values.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel, wireRecord } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
-
-const PromptResultSchema = Type.Object({ systemPrompt: Type.String() });
 
 const TEST_EXTENSION_CONTEXT = createExtensionHost(() => {}).createContext();
 
@@ -397,38 +398,21 @@ describe("Codex code mode", () => {
     await host.emitSessionStart(ctx);
     await host.runCommand("code-mode", "", ctx);
 
+    const options = normalizedSystemPromptOptions({ cwd: "/tmp" });
+
     const [prompt] = await host.emit(
       "before_agent_start",
       {
         prompt: "test",
         systemPrompt: "Base prompt\nCurrent working directory: /tmp",
-        systemPromptOptions: {},
+        systemPromptOptions: options,
         type: "before_agent_start",
       },
       ctx,
     );
 
-    expect(prompt).toHaveProperty(
-      "systemPrompt",
-      expect.stringContaining("Tools available in exec:"),
-    );
-    const augmentedPrompt = Value.Check(PromptResultSchema, prompt) ? prompt.systemPrompt : "";
-    expect(augmentedPrompt).toContain(
-      "Current working directory: /tmp\n\nTools available in exec:",
-    );
-
-    const [duplicate] = await host.emit(
-      "before_agent_start",
-      {
-        prompt: "test",
-        systemPrompt: augmentedPrompt,
-        systemPromptOptions: {},
-        type: "before_agent_start",
-      },
-      ctx,
-    );
-
-    expect(duplicate).toBeUndefined();
+    expect(prompt).toBeUndefined();
+    expect(options.sections.code_mode_tools).toContain("Tools available in exec:");
   });
 
   it("validates nested calls before invoking their definition", async () => {

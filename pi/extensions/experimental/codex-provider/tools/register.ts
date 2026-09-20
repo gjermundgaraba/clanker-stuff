@@ -48,7 +48,9 @@ export const registerCodexTools = (
   pi.on("turn_end", () => executionSettings?.clear());
   pi.on("agent_end", () => executionSettings?.clear());
   pi.on("session_shutdown", () => executionSettings?.reset());
-  pi.on("before_agent_start", (event) => tools.beforeAgentStart(event.systemPrompt));
+  pi.on("before_agent_start", (event) => {
+    tools.beforeAgentStart(event.systemPromptOptions);
+  });
   pi.on("session_before_compact", (_event, ctx) => {
     // A refresh during a running turn takes effect on the next idle input.
     tools.apply(ctx, ctx.isIdle());

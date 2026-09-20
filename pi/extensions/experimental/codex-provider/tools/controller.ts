@@ -1,6 +1,7 @@
 import type {
   ExtensionAPI,
   ExtensionContext,
+  NormalizedBuildSystemPromptOptions,
   SessionShutdownEvent,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -11,6 +12,8 @@ import { CODE_MODE_STATUS_KEY } from "../footer.js";
 import { withExecutionSettings } from "./execution-context.js";
 import type { ToolExecutionSettings } from "./execution-context.js";
 import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
+
+const CODE_MODE_TOOLS_SECTION = "code_mode_tools";
 
 export const createCodexToolsController = (
   pi: ExtensionAPI,
@@ -147,16 +150,11 @@ export const createCodexToolsController = (
 
   return {
     apply,
-    beforeAgentStart(systemPrompt: string): { systemPrompt: string } | undefined {
-      if (!codeModeActive()) {
-        return undefined;
+    /** Code Mode's nested-tool guidance rides along as a prompt section while it is active. */
+    beforeAgentStart(options: NormalizedBuildSystemPromptOptions): void {
+      if (codeModeActive()) {
+        options.sections[CODE_MODE_TOOLS_SECTION] = codeMode.prompt();
       }
-
-      const section = codeMode.prompt();
-
-      return systemPrompt.includes(section)
-        ? undefined
-        : { systemPrompt: `${systemPrompt.trimEnd()}\n\n${section}` };
     },
     definitions: [...directDefinitions, ...codeDefinitions].map((definition): ToolDefinition => ({
       ...definition,

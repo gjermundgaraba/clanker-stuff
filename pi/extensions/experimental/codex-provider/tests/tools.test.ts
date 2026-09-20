@@ -3,7 +3,10 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import {
+  createExtensionHost,
+  normalizedSystemPromptOptions,
+} from "../../../../tests/harness/extension-host.js";
 import { createCustomUiDriver } from "../../../../tests/harness/tui.js";
 import attentionExtension from "../../user-attention/index.js";
 import questionExtension from "../../../ask-question/index.js";
@@ -22,8 +25,6 @@ const ContractRequestSchema = Type.Object({
   provide: Type.Function([Type.Unknown()], Type.Void()),
   sessionId: Type.String(),
 });
-
-const PromptResultSchema = Type.Object({ systemPrompt: Type.String() });
 
 const withCollaborationContract =
   (protocol: "v1" | "v2") => (pi: Parameters<typeof registerCodexTools>[0]) => {
@@ -80,14 +81,16 @@ describe("Codex tools", () => {
     await host.emitSessionStart();
     expect(host.getActiveTools()).toStrictEqual(["request_user_input_async", ...CODE_NAMES]);
 
-    const results = await host.emit("before_agent_start", {
+    const options = normalizedSystemPromptOptions({ cwd: "/tmp" });
+    await host.emit("before_agent_start", {
       type: "before_agent_start",
       prompt: "task",
       systemPrompt: "base",
+      systemPromptOptions: options,
     });
 
-    expect(JSON.stringify(results)).not.toContain("tools.request_user_input_async");
-    expect(JSON.stringify(results)).not.toContain("tools.send_message_to_user_async");
+    expect(JSON.stringify(options.sections)).not.toContain("tools.request_user_input_async");
+    expect(JSON.stringify(options.sections)).not.toContain("tools.send_message_to_user_async");
     const supported = { ...model, codexSupportedTools: [...asyncNames] };
     await selectModel(host, model, supported);
     expect(host.getActiveTools()).toEqual(expect.arrayContaining(asyncNames));
@@ -109,13 +112,15 @@ describe("Codex tools", () => {
       await host.emitSessionStart();
       expect(host.getActiveTools()).toStrictEqual(mode === "direct" ? DIRECT_NAMES : CODE_NAMES);
 
-      const result = await host.emit("before_agent_start", {
+      const options = normalizedSystemPromptOptions({ cwd: "/tmp" });
+      await host.emit("before_agent_start", {
         type: "before_agent_start",
         prompt: "task",
         systemPrompt: "base",
+        systemPromptOptions: options,
       });
 
-      expect(JSON.stringify(result).includes("base")).toBe(mode !== "direct");
+      expect("code_mode_tools" in options.sections).toBe(mode !== "direct");
       await host.runCommand("code-mode", "", host.createContext({ model }));
       expect(host.getActiveTools()).toStrictEqual(mode === "direct" ? DIRECT_NAMES : CODE_NAMES);
     },
@@ -346,7 +351,7 @@ describe("Codex tools", () => {
     await host.emit("before_agent_start", {
       prompt: "test",
       systemPrompt: "Base",
-      systemPromptOptions: { selectedTools: selected },
+      systemPromptOptions: normalizedSystemPromptOptions({ cwd: "/tmp", selectedTools: selected }),
       type: "before_agent_start",
     });
 
@@ -465,20 +470,19 @@ describe("Codex tools", () => {
         await host.runCommand("code-mode", "", ctx);
       }
 
-      const [prompt] = await host.emit(
+      const options = normalizedSystemPromptOptions({ cwd: "/tmp" });
+      await host.emit(
         "before_agent_start",
         {
           prompt: "test",
           systemPrompt: "Base",
-          systemPromptOptions: {},
+          systemPromptOptions: options,
           type: "before_agent_start",
         },
         ctx,
       );
 
-      const systemPrompt = Value.Check(PromptResultSchema, prompt)
-        ? Value.Parse(PromptResultSchema, prompt).systemPrompt
-        : "";
+      const systemPrompt = options.sections.code_mode_tools ?? "";
 
       expect(systemPrompt.includes("pi_subagents__spawn_agent")).toBe(nested);
       expect(host.getActiveTools()).toStrictEqual(["spawn_agent", ...CODE_NAMES]);

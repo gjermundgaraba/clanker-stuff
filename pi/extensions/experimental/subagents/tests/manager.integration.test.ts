@@ -4,7 +4,13 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  getCurrentSystemPrompt,
+  getCurrentTools,
+} from "@earendil-works/pi-ai";
+import type { Message, Tool } from "@earendil-works/pi-ai";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -180,6 +186,30 @@ const rootFinalBarrier = () => {
 const lastProviderPayloadText = (harness: AgentSessionHarness) =>
   JSON.stringify(harness.lastProviderPayload(Type.Object({}, { additionalProperties: true })));
 
+const ProviderStateSchema = Type.Object(
+  {
+    messages: Type.Optional(Type.Unsafe<Message[]>({ type: "array" })),
+    systemPrompt: Type.Optional(Type.String()),
+    tools: Type.Optional(Type.Unsafe<Tool[]>({ type: "array" })),
+  },
+  { additionalProperties: true },
+);
+
+/**
+ * The prompt and tools in effect for the last request. Earlier section patches and
+ * tool declarations stay in the transcript as history, so the raw payload is not
+ * a statement of the current state.
+ */
+const lastProviderStateText = (harness: AgentSessionHarness) => {
+  const payload = harness.lastProviderPayload(ProviderStateSchema);
+  const messages = payload.messages ?? [];
+
+  return JSON.stringify({
+    prompt: payload.systemPrompt ?? getCurrentSystemPrompt(messages),
+    tools: payload.tools ?? getCurrentTools(messages),
+  });
+};
+
 describe("live spawn catalog", () => {
   it.each(["v1", "v2"] as const)(
     "keeps %s guidance stable through tool turns and refreshes the next prompt",
@@ -221,12 +251,9 @@ describe("live spawn catalog", () => {
         ]);
         enrich("Initial affordable synthetic worker.");
         await harness.prompt("First task");
-        expect(lastProviderPayloadText(harness)).toContain("Initial affordable synthetic worker.");
+        expect(lastProviderStateText(harness)).toContain("Initial affordable synthetic worker.");
         await harness.prompt("Next task");
-        expect(lastProviderPayloadText(harness)).toContain(
-          "Refreshed affordable synthetic worker.",
-        );
-        expect(lastProviderPayloadText(harness)).not.toContain("Initial affordable");
+        expect(lastProviderStateText(harness)).toContain("Refreshed affordable synthetic worker.");
       } finally {
         await cleanup();
       }

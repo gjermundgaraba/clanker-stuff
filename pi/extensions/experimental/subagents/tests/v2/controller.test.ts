@@ -5,7 +5,10 @@ import { fauxProvider } from "@earendil-works/pi-ai";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
+import {
+  createExtensionHost,
+  normalizedSystemPromptOptions,
+} from "../../../../../tests/harness/extension-host.js";
 import { DEFAULT_CONFIG } from "../../config.js";
 import type { RoleConfig } from "../../config.js";
 import { COLLABORATION_CONTRACT_REQUEST } from "../../contract.js";
@@ -1419,7 +1422,7 @@ describe("V2 child context boundaries", () => {
     const prompt = {
       type: "before_agent_start" as const,
       systemPrompt: "system",
-      systemPromptOptions: {},
+      systemPromptOptions: normalizedSystemPromptOptions({ cwd: "/tmp" }),
     };
 
     await host.emit("before_agent_start", prompt, child);

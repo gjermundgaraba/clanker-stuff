@@ -4,16 +4,16 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 
 ## Pi extensions
 
-| Extension                                                                   | Description                                                                                         |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| [`@clanker-stuff/ask-question`](pi/extensions/ask-question)                 | Lets pi ask blocking or asynchronous questionnaires with reviewed, revisable answers.               |
-| [`@clanker-stuff/dollah-skills`](pi/extensions/dollah-skills)               | Adds Codex-style skill mentions that complete, highlight, and inject loaded skills into the prompt. |
-| [`@clanker-stuff/history`](pi/extensions/history)                           | Adds persistent prompt history with native ↑/↓ recall and Ctrl+R search to pi's editor.             |
-| [`@clanker-stuff/mcp`](pi/extensions/mcp)                                   | Connects selected MCP servers to pi and registers their tools.                                      |
-| [`@clanker-stuff/shell-resume-history`](pi/extensions/shell-resume-history) | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits.                 |
-| [`@clanker-stuff/stash`](pi/extensions/stash)                               | Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text.               |
-| [`@clanker-stuff/timer`](pi/extensions/timer)                               | Tracks agent execution time and displays a live running timer in the status bar.                    |
-| [`@clanker-stuff/tool-picker`](pi/extensions/tool-picker)                   | Adds /tools for choosing active tools, with selections saved per session branch.                    |
+| Extension                                                                   | Description                                                                                |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [`@clanker-stuff/ask-question`](pi/extensions/ask-question)                 | Lets pi ask blocking or asynchronous questionnaires with reviewed, revisable answers.      |
+| [`@clanker-stuff/dollah-skills`](pi/extensions/dollah-skills)               | Adds Codex-style skill mentions that complete, highlight, and load skills into the prompt. |
+| [`@clanker-stuff/history`](pi/extensions/history)                           | Adds persistent prompt history with native ↑/↓ recall and Ctrl+R search to pi's editor.    |
+| [`@clanker-stuff/mcp`](pi/extensions/mcp)                                   | Connects selected MCP servers to pi and registers their tools.                             |
+| [`@clanker-stuff/shell-resume-history`](pi/extensions/shell-resume-history) | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits.        |
+| [`@clanker-stuff/stash`](pi/extensions/stash)                               | Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text.      |
+| [`@clanker-stuff/timer`](pi/extensions/timer)                               | Tracks agent execution time and displays a live running timer in the status bar.           |
+| [`@clanker-stuff/tool-picker`](pi/extensions/tool-picker)                   | Adds /tools for choosing active tools, with selections saved per session branch.           |
 
 ## Experimental pi extensions
 

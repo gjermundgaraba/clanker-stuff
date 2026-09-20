@@ -2,18 +2,19 @@ import { readFile } from "node:fs/promises";
 
 import type {
   BeforeAgentStartEvent,
-  BeforeAgentStartEventResult,
   BuildSystemPromptOptions,
   ExtensionAPI,
   ExtensionContext,
   InputEvent,
   InputEventResult,
-  MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
-import { getMarkdownTheme, stripFrontmatter } from "@earendil-works/pi-coding-agent";
-import { Box, fuzzyFilter, Markdown, Text } from "@earendil-works/pi-tui";
+import { stripFrontmatter } from "@earendil-works/pi-coding-agent";
+import { fuzzyFilter } from "@earendil-works/pi-tui";
 
 import { installSkillMentionEditor } from "./editor.js";
+
+/** System prompt section holding this turn's loaded skill files; Pi wraps it in `<loaded_skills>`. */
+export const LOADED_SKILLS_SECTION = "loaded_skills";
 
 const SKILL_MENTION = /\$(?<name>[A-Za-z0-9_:-]+)/gu;
 
@@ -21,23 +22,16 @@ const SKILL_COMPLETION = /(?:^|[ \t])\$(?<query>[A-Za-z0-9_:-]*)$/u;
 
 const SKILL_NAME = /^[A-Za-z0-9_:-]+$/u;
 
-const DEFINITE_SHELL_PARAMETER = /^(?:\d+|[-_])$/u;
-
 const SKILL_COMMAND_PREFIX = "skill:";
 
-const COMMON_ENV_VARS = new Set([
-  "HOME",
-  "LANG",
-  "PATH",
-  "PWD",
-  "SHELL",
-  "TEMP",
-  "TERM",
-  "TMP",
-  "TMPDIR",
-  "USER",
-  "XDG_CONFIG_HOME",
-]);
+type Skill = NonNullable<BuildSystemPromptOptions["skills"]>[number];
+
+interface LoadedSkill {
+  baseDir: string;
+  body: string;
+  name: string;
+  path: string;
+}
 
 const escapeSkillText = (value: string): string =>
   value
@@ -50,42 +44,10 @@ const escapeSkillText = (value: string): string =>
 const escapeSkillAttribute = (value: string): string =>
   escapeSkillText(value).replaceAll('"', "&quot;");
 
-export interface InjectedSkillsDetails {
-  skills: { body: string; name: string; path: string }[];
-}
+const skillBlock = (skill: LoadedSkill): string =>
+  `<skill name="${skill.name}" location="${escapeSkillAttribute(skill.path)}">\nReferences are relative to ${escapeSkillText(skill.baseDir)}.\n\n${skill.body}\n</skill>`;
 
-type Skill = NonNullable<BuildSystemPromptOptions["skills"]>[number];
-
-const renderInjectedSkills: MessageRenderer<InjectedSkillsDetails> = (
-  message,
-  { expanded, outputPad },
-  theme,
-) => {
-  const skills = message.details?.skills ?? [];
-
-  const header = theme.fg(
-    "accent",
-    `◆ Skills injected: ${skills.map((skill) => `$${skill.name}`).join(", ")}`,
-  );
-
-  const bg = (content: string) => theme.bg("customMessageBg", content);
-
-  if (!expanded) {
-    return new Text(header, outputPad, 1, bg);
-  }
-
-  const box = new Box(outputPad, 1, bg);
-  box.addChild(new Text(header, 0, 0));
-
-  for (const skill of skills) {
-    box.addChild(
-      new Text(`${theme.fg("accent", `$${skill.name}`)}\n${theme.fg("muted", skill.path)}`, 0, 0),
-    );
-    box.addChild(new Markdown(skill.body, 0, 0, getMarkdownTheme()));
-  }
-
-  return box;
-};
+const skillBlocks = (skills: readonly LoadedSkill[]): string => skills.map(skillBlock).join("\n\n");
 
 export const createSkillMentions = (pi: ExtensionAPI) => {
   let activeSkills: Skill[] = [];
@@ -98,7 +60,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
         description: command.description,
         name: command.name.slice(SKILL_COMMAND_PREFIX.length),
       }))
-      .filter((skill) => SKILL_NAME.test(skill.name) && !COMMON_ENV_VARS.has(skill.name));
+      .filter((skill) => SKILL_NAME.test(skill.name));
 
   const install = (ctx: ExtensionContext): void => {
     installSkillMentionEditor(ctx, () => getSkills().map((skill) => skill.name));
@@ -112,10 +74,6 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
 
         if (query === undefined) {
           return await current.getSuggestions(lines, cursorLine, cursorCol, options);
-        }
-
-        if (DEFINITE_SHELL_PARAMETER.test(query)) {
-          return null;
         }
 
         const items = fuzzyFilter(getSkills(), query, (skill) => skill.name).map((skill) => {
@@ -142,7 +100,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     for (const match of text.matchAll(SKILL_MENTION)) {
       const { name } = match.groups ?? {};
 
-      if (name && !COMMON_ENV_VARS.has(name)) {
+      if (name) {
         mentionedNames.add(name);
       }
     }
@@ -151,14 +109,13 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       return [];
     }
 
-    const loadSkill = async (skill: Skill) => {
+    const loadSkill = async (skill: Skill): Promise<LoadedSkill | null> => {
       try {
         const contents = await readFile(skill.filePath, "utf-8");
-        const body = stripFrontmatter(contents).trim();
 
         return {
-          body,
-          content: `<skill name="${skill.name}" location="${escapeSkillAttribute(skill.filePath)}">\nReferences are relative to ${escapeSkillText(skill.baseDir)}.\n\n${body}\n</skill>`,
+          baseDir: skill.baseDir,
+          body: stripFrontmatter(contents).trim(),
           name: skill.name,
           path: skill.filePath,
         };
@@ -172,41 +129,27 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       }
     };
 
-    const loadedBlocks = await Promise.all(
+    const loaded = await Promise.all(
       skills
         .values()
         .filter((skill) => mentionedNames.has(skill.name))
         .map(loadSkill),
     );
 
-    return loadedBlocks.filter((block) => block !== null);
+    return loaded.filter((skill) => skill !== null);
   };
 
-  const inject = async (
-    event: BeforeAgentStartEvent,
-    ctx: ExtensionContext,
-  ): Promise<BeforeAgentStartEventResult | undefined> => {
+  // A mention loads the skill for this turn's request. Pi records the section
+  // patch in the transcript and replays it on models that accept mid-conversation
+  // system messages; other models fold it into the prompt for this turn only.
+  const inject = async (event: BeforeAgentStartEvent, ctx: ExtensionContext): Promise<void> => {
     activeSkills = event.systemPromptOptions.skills;
-    const blocks = await loadMentionedSkills(event.prompt, activeSkills, ctx);
+    const loaded = await loadMentionedSkills(event.prompt, activeSkills, ctx);
 
-    if (blocks.length === 0) {
-      return undefined;
+    if (loaded.length > 0) {
+      event.systemPromptOptions.sections[LOADED_SKILLS_SECTION] = skillBlocks(loaded);
+      ctx.ui.notify(`Loaded skills: ${loaded.map((skill) => `$${skill.name}`).join(", ")}`, "info");
     }
-
-    return {
-      message: {
-        content: blocks.map((block) => block.content).join("\n\n"),
-        customType: "codex-skills",
-        details: {
-          skills: blocks.map(({ body, name, path }) => ({
-            body,
-            name,
-            path,
-          })),
-        } satisfies InjectedSkillsDetails,
-        display: true,
-      },
-    };
   };
 
   const injectStreaming = async (
@@ -217,16 +160,17 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
       return undefined;
     }
 
-    const blocks = await loadMentionedSkills(event.text, activeSkills, ctx);
+    // Prompt sections cannot change during a run, so queued input carries the files inline.
+    const loaded = await loadMentionedSkills(event.text, activeSkills, ctx);
 
-    return blocks.length === 0
+    return loaded.length === 0
       ? undefined
       : {
           action: "transform",
           ...(event.images !== undefined ? { images: event.images } : {}),
-          text: `${blocks.map((block) => block.content).join("\n\n")}\n\n${event.text}`,
+          text: `${skillBlocks(loaded)}\n\n${event.text}`,
         };
   };
 
-  return { inject, injectStreaming, install, render: renderInjectedSkills };
+  return { inject, injectStreaming, install };
 };

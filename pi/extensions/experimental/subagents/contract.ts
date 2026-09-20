@@ -100,3 +100,6 @@ export const registerContractResponder = (
       value.provide({ ...prepared, version: 1 });
     }
   });
+
+/** System prompt section carrying collaboration guidance; Pi wraps it in `<collaboration>`. */
+export const COLLABORATION_SECTION = "collaboration";

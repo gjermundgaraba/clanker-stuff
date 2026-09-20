@@ -61,7 +61,16 @@ export default defineConfig({
       typeAware: true,
       typeCheck: true,
     },
+    overrides: [
+      {
+        // Scripts, evals, tooling, and tests own their stdout; extension runtimes do not.
+        files: ["**/scripts/**", "**/tests/**", "pi/evals/**", "scripts/**", "tools/**"],
+        rules: { "no-console": "off" },
+      },
+    ],
     rules: {
+      // Stdout is Pi's JSON and RPC transport; extension code must not write to it.
+      "no-console": ["error", { allow: ["error", "warn"] }],
       "oxc/no-accumulating-spread": "error",
       // Pipeline spelling does not establish performance or preserve callback semantics.
       "anti-slop/no-array-filter-map": "off",

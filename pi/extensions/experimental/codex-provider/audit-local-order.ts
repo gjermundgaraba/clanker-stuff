@@ -112,6 +112,7 @@ const isMain =
   pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 
 if (isMain) {
+  /* oxlint-disable no-console -- CLI entry: this block runs only when the audit is invoked directly and reports to the operator's terminal, never inside a Pi session. */
   try {
     const cwd = process.argv[2];
     const result = await auditLocalOrder(cwd !== undefined ? { cwd } : {});
@@ -123,4 +124,5 @@ if (isMain) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
+  /* oxlint-enable no-console */
 }

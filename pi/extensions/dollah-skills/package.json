@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/dollah-skills",
   "version": "0.1.0",
   "private": false,
-  "description": "Adds Codex-style skill mentions that complete, highlight, and inject loaded skills into the prompt.",
+  "description": "Adds Codex-style skill mentions that complete, highlight, and load skills into the prompt.",
   "keywords": [
     "pi-package"
   ],
@@ -32,7 +32,6 @@
     "@clanker-stuff/editor": "workspace:^"
   },
   "devDependencies": {
-    "typebox": "1.3.34",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

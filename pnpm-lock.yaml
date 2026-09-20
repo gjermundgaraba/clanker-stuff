@@ -276,9 +276,6 @@ importers:
         specifier: 0.86.0
         version: 0.86.0
     devDependencies:
-      typebox:
-        specifier: 1.3.14
-        version: 1.3.14
       vite:
         specifier: 'catalog:'
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'

@@ -6,7 +6,10 @@ import { fauxProvider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import {
+  createExtensionHost,
+  normalizedSystemPromptOptions,
+} from "../../../../tests/harness/extension-host.js";
 import { COLLABORATION_CONTRACT_REQUEST } from "../contract.js";
 import { DEFAULT_CONFIG } from "../config.js";
 import type { SubagentsConfig } from "../config.js";
@@ -116,7 +119,7 @@ describe("subagents extension selection", () => {
       "before_agent_start",
       {
         systemPrompt: "system",
-        systemPromptOptions: {},
+        systemPromptOptions: normalizedSystemPromptOptions({ cwd: "/tmp" }),
         type: "before_agent_start",
       },
       ctx,
@@ -170,7 +173,7 @@ describe("subagents extension selection", () => {
       "before_agent_start",
       {
         systemPrompt: "system",
-        systemPromptOptions: {},
+        systemPromptOptions: normalizedSystemPromptOptions({ cwd: "/tmp" }),
         type: "before_agent_start",
       },
       v2Context,
@@ -270,7 +273,7 @@ describe("subagents extension selection", () => {
 
       const event = {
         systemPrompt: "system",
-        systemPromptOptions: {},
+        systemPromptOptions: normalizedSystemPromptOptions({ cwd: "/tmp" }),
         type: "before_agent_start" as const,
       };
 

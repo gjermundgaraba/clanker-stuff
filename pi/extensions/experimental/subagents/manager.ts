@@ -22,7 +22,11 @@ import { Value } from "typebox/value";
 
 import type { SubagentsConfig } from "./config.js";
 import { spawnModelsDescription } from "./model-catalog.js";
-import { registerContractResponder, TerminatingToolResultSchema } from "./contract.js";
+import {
+  COLLABORATION_SECTION,
+  TerminatingToolResultSchema,
+  registerContractResponder,
+} from "./contract.js";
 import type { NestedToolContract } from "./contract.js";
 import { TreeCoordinator } from "./coordinator.js";
 import { NicknamePool } from "./nicknames.js";
@@ -334,7 +338,9 @@ export class SubagentManager {
       prompt = this.#v2.rootPrompt();
     }
 
-    return prompt === "" ? undefined : { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
+    if (prompt !== "") {
+      event.systemPromptOptions.sections[COLLABORATION_SECTION] = prompt;
+    }
   }
 
   agentStart(): void {

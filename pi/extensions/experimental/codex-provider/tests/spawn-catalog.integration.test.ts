@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -10,7 +11,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import subagents from "../../subagents/index.js";
 import codexProvider from "../index.js";
 import { createRealCodexSession } from "./agent-session.js";
-import { responseEvents, createToolsModel, sse, wireRecord, wireRecords } from "./fixtures.js";
+import { createToolsModel, responseEvents, sse, wireRecord, wireRecords } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
 
 describe("spawn catalog provider payload", () => {
@@ -123,9 +124,13 @@ describe("spawn catalog provider payload", () => {
         description = "Updated affordable synthetic worker.";
         await context.modelRegistry.refresh({ force: true, allowNetwork: true });
         await session.prompt("Describe your current tools.");
-        const refreshed = JSON.stringify(requests.at(-1));
-        expect(refreshed).toContain(description);
-        expect(refreshed).not.toContain("Fast and affordable synthetic worker.");
+        expect(JSON.stringify(requests.at(-1))).toContain(description);
+        expect(
+          JSON.stringify({
+            prompt: getCurrentSystemPrompt(session.messages),
+            tools: getCurrentTools(session.messages),
+          }),
+        ).toContain(description);
         const spawn = session.getToolDefinition("spawn_agent");
 
         if (spawn === undefined) throw new Error("Missing spawn definition");

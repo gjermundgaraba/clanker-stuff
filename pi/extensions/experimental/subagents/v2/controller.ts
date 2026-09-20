@@ -9,7 +9,7 @@ import type {
 
 import type { AgentThinkingLevel, SubagentsConfig } from "../config.js";
 import { resolveChildSettings, roleInstructions } from "../config.js";
-import { registerContractResponder } from "../contract.js";
+import { COLLABORATION_SECTION, registerContractResponder } from "../contract.js";
 import type { RootServiceTier } from "../contract.js";
 import type { TreeCoordinator } from "../coordinator.js";
 import { forkHistory } from "../history.js";
@@ -299,20 +299,14 @@ export class V2Controller {
     };
 
     api.on("before_agent_start", (event, ctx) => {
-      let response: { systemPrompt: string } | undefined;
-
       if (owns()) {
         applyEligibility(ctx.model, ctx.modelRegistry);
-        response = {
-          systemPrompt: `${event.systemPrompt}\n\n${v2ChildCapabilityPrompt(
-            this.#config,
-            collaborationEnabled === true,
-            !this.#ultraAgents.has(pathname),
-          )}`,
-        };
+        event.systemPromptOptions.sections[COLLABORATION_SECTION] = v2ChildCapabilityPrompt(
+          this.#config,
+          collaborationEnabled === true,
+          !this.#ultraAgents.has(pathname),
+        );
       }
-
-      return response;
     });
     api.on("input", () => {
       if (owns()) {

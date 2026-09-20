@@ -54,39 +54,48 @@ describe("Codex skill catalog", () => {
     (loader) => {
       const event = createEvent([loader === "exec" ? "exec_command" : "exec"]);
 
-      expect(exposeSkillsWithoutRead(event, createContext(), [loader])?.systemPrompt).toContain(
+      exposeSkillsWithoutRead(event, createContext(), [loader]);
+
+      const catalog = event.systemPromptOptions.sections.skills;
+      expect(catalog).toContain(
         `Use the \`${loader}\` tool to load a skill's file when the task matches its description.`,
       );
-      expect(exposeSkillsWithoutRead(event, createContext(), [loader])?.systemPrompt).toContain(
+      expect(catalog).toContain(
         "<available_skills>\n  <skill>\n    <name>example</name>\n    <description>Example &amp; verification</description>\n    <location>/tmp/example/SKILL.md</location>",
       );
+      expect(catalog).not.toMatch(/^\s|\s$/u);
     },
   );
 
   it("defers to Pi's catalog when read is active", () => {
     const event = createEvent(["read"]);
 
-    expect(exposeSkillsWithoutRead(event, createContext(), ["read"])).toBeUndefined();
+    exposeSkillsWithoutRead(event, createContext(), ["read"]);
+
+    expect(event.systemPromptOptions.sections).not.toHaveProperty("skills");
   });
 
   it("does not expose a catalog outside the applicable Codex tool path", () => {
     const disabled = { ...SKILL, disableModelInvocation: true };
 
-    expect(
-      exposeSkillsWithoutRead(createEvent(["exec_command"]), createContext("anthropic"), [
-        "exec_command",
-      ]),
-    ).toBeUndefined();
-    expect(
-      exposeSkillsWithoutRead(createEvent(["bash"]), createContext(), ["bash"]),
-    ).toBeUndefined();
-    expect(
-      exposeSkillsWithoutRead(createEvent(["apply_patch"]), createContext(), ["apply_patch"]),
-    ).toBeUndefined();
-    expect(
-      exposeSkillsWithoutRead(createEvent(["exec_command"], [disabled]), createContext(), [
-        "exec_command",
-      ]),
-    ).toBeUndefined();
+    const cases = [
+      {
+        context: createContext("anthropic"),
+        event: createEvent(["exec_command"]),
+        tools: ["exec_command"],
+      },
+      { context: createContext(), event: createEvent(["bash"]), tools: ["bash"] },
+      { context: createContext(), event: createEvent(["apply_patch"]), tools: ["apply_patch"] },
+      {
+        context: createContext(),
+        event: createEvent(["exec_command"], [disabled]),
+        tools: ["exec_command"],
+      },
+    ];
+
+    for (const { context, event, tools } of cases) {
+      exposeSkillsWithoutRead(event, context, tools);
+      expect(event.systemPromptOptions.sections).not.toHaveProperty("skills");
+    }
   });
 });

@@ -145,12 +145,14 @@ describe("Codex tools with a real AgentSession", () => {
         expect(
           wireArray(requests.at(-1)?.tools).map((tool) => wireRecord(tool).name),
         ).toStrictEqual(names);
-        const request = JSON.stringify(requests.at(-1));
-        expect(request.match(/Use the `[^`]+` tool to load a skill's file/g)).toStrictEqual([
-          `Use the \`${loader}\` tool to load a skill's file`,
-        ]);
-        expect(request.match(/<available_skills>/g)).toHaveLength(1);
-        expect(request).toContain("<name>example</name>");
+        // Pi's replay over the transcript is the current prompt; the wire request
+        // may also carry earlier catalogs as cached developer patches.
+        const current = getCurrentSystemPrompt(session.messages);
+        const guidance = `Use the \`${loader}\` tool to load a skill's file`;
+        expect(current).toContain(guidance);
+        expect(current.match(/<available_skills>/g)).toHaveLength(1);
+        expect(current).toContain("<name>example</name>");
+        expect(JSON.stringify(requests.at(-1))).toContain(guidance);
       }
     } finally {
       session.dispose();
@@ -204,9 +206,9 @@ describe("Codex tools with a real AgentSession", () => {
         extensionFactories: [
           toolPickerExtension,
           (pi) =>
-            pi.on("before_agent_start", (event) => ({
-              systemPrompt: `${event.systemPrompt}\nEarlier extension guidance.`,
-            })),
+            pi.on("before_agent_start", (event) => {
+              event.systemPromptOptions.sections.guidance = "Earlier extension guidance.";
+            }),
           codexProviderExtension,
           (pi) =>
             pi.on("before_agent_start", (event) =>
