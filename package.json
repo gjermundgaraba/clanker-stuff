@@ -4,16 +4,11 @@
   "type": "module",
   "scripts": {
     "build:plannotator-review": "node ./scripts/build-plannotator-review.ts",
-    "check:packages": "node ./scripts/check-package-readiness.ts",
-    "check:plannotator-review": "node ./scripts/build-plannotator-review.ts --check",
-    "check:readmes": "node ./scripts/check-readmes.ts",
-    "check:tests": "node ./scripts/check-tests.ts",
     "eval:frontier": "uv run --project pi/evals python -m pi_evals.frontier",
     "eval:scaling": "uv run --project pi/evals python -m pi_evals.scaling",
     "prepare": "vp config --no-agent",
     "publish:dry-run": "node ./scripts/publish-packages.ts --dry-run",
-    "publish:packages": "node ./scripts/publish-packages.ts",
-    "ready": "vp check && vp run check:packages && vp run check:plannotator-review && vp run check:readmes && vp run check:tests && vp test"
+    "publish:packages": "node ./scripts/publish-packages.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "catalog:",

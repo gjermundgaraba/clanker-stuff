@@ -24,6 +24,30 @@ const ignorePatterns = [
 
 export default defineConfig({
   fmt: { ignorePatterns },
+  run: {
+    tasks: {
+      // Static checks cache on the files they read; `ready` fans them out, then tests.
+      "check:packages": { command: "node ./scripts/check-package-readiness.ts", output: [] },
+      "check:plannotator-review": {
+        command: "node ./scripts/build-plannotator-review.ts --check",
+        output: [],
+      },
+      "check:readmes": { command: "node ./scripts/check-readmes.ts", output: [] },
+      "check:static": { command: "vp check", output: [] },
+      "check:tests": { command: "node ./scripts/check-tests.ts", output: [] },
+      ready: {
+        cache: false,
+        command: "vp test",
+        dependsOn: [
+          "check:static",
+          "check:packages",
+          "check:plannotator-review",
+          "check:readmes",
+          "check:tests",
+        ],
+      },
+    },
+  },
   lint: {
     ignorePatterns,
     jsPlugins: [
@@ -89,7 +113,6 @@ export default defineConfig({
       {
         extends: true,
         test: {
-          fileParallelism: false,
           include: ["**/*.integration.test.ts"],
           name: "integration",
         },
