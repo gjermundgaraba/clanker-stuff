@@ -33,7 +33,7 @@ export const v1RootPrompt = (config: SubagentsConfig, maxOpenAgents: number): st
     "You are the root of a V1 collaboration tree. V1 children are UUID-addressed, do not receive collaboration tools, and report their final status to this session. All agents share the same cwd and filesystem, so edits are immediately visible.",
     usageLayer(
       config.prompts.v1?.root,
-      `Use spawn_agent for concrete, bounded sidecar work with a disjoint write scope. Keep immediate blockers local, do not duplicate delegated work, and continue non-overlapping work while children run. At most ${maxOpenAgents} agents can be open; close_agent releases their slots. Reuse open agents with send_input and prefer longer wait_agent calls over busy polling. To redirect a running agent now, send_input with interrupt=true; without it, input queues behind the agent's current task.`,
+      `Use spawn_agent for concrete, bounded sidecar work with a disjoint write scope. Keep immediate blockers local, do not duplicate delegated work, and continue non-overlapping work while children run. At most ${maxOpenAgents} agents can be open; close_agent releases their slots. Reuse open agents with send_input and prefer longer wait_agent calls over busy polling.`,
     ),
     delegationPolicy(config),
     "There is no shared rollout token budget.",

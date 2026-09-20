@@ -56,10 +56,7 @@ interface RuntimeOwner {
   state: RuntimeState;
 }
 
-/** Wake for a registered wait; a final status carries the observation from the
- * committing transaction, an undefined wake re-reads the live state (close, or a
- * controller reset). */
-type WaiterWake = (status?: PublicAgentStatus) => void;
+type WaitStatus = Record<string, PublicAgentStatus>;
 
 export interface V1ControllerDependencies {
   config: SubagentsConfig;
@@ -104,16 +101,12 @@ const agentIdentity = (agent: V1PersistedAgent) => {
   };
 };
 
-const retainedAnswer = (agent: V1PersistedAgent) =>
-  agent.lastAnswer === undefined ? {} : { lastAnswer: agent.lastAnswer };
-
 const pendingAgent = (
   agent: V1PersistedAgent,
   active: V1Turn,
   queue: V1Turn[],
 ): Extract<V1PersistedAgent, { status: "pending" }> => ({
   ...agentIdentity(agent),
-  ...retainedAnswer(agent),
   active: { ...active, phase: "pending" },
   edge: "open",
   queue,
@@ -126,7 +119,6 @@ const runningAgent = (
   queue: V1Turn[],
 ): Extract<V1PersistedAgent, { status: "running" }> => ({
   ...agentIdentity(agent),
-  ...retainedAnswer(agent),
   active: { ...active, phase: "running" },
   edge: "open",
   queue,
@@ -136,18 +128,12 @@ const runningAgent = (
 const interruptedAgent = (
   agent: V1PersistedAgent,
   queue: V1Turn[],
-  keepAnswer = true,
-): Extract<V1PersistedAgent, { status: "interrupted" }> => {
-  const answer = keepAnswer ? retainedAnswer(agent) : {};
-
-  return {
-    ...agentIdentity(agent),
-    ...answer,
-    edge: "open",
-    queue,
-    status: "interrupted",
-  };
-};
+): Extract<V1PersistedAgent, { status: "interrupted" }> => ({
+  ...agentIdentity(agent),
+  edge: "open",
+  queue,
+  status: "interrupted",
+});
 
 const completedAgent = (
   agent: V1PersistedAgent,
@@ -169,25 +155,18 @@ const erroredAgent = (
   agent: V1PersistedAgent,
   queue: V1Turn[],
   error: string,
-  keepAnswer: boolean,
-): Extract<V1PersistedAgent, { status: "errored" }> => {
-  const answer = keepAnswer ? retainedAnswer(agent) : {};
-
-  return {
-    ...agentIdentity(agent),
-    ...answer,
-    edge: "open",
-    error: bound(error, MAX_ERROR_LENGTH),
-    queue,
-    status: "errored",
-  };
-};
+): Extract<V1PersistedAgent, { status: "errored" }> => ({
+  ...agentIdentity(agent),
+  edge: "open",
+  error: bound(error, MAX_ERROR_LENGTH),
+  queue,
+  status: "errored",
+});
 
 const shutdownAgent = (
   agent: V1PersistedAgent,
 ): Extract<V1PersistedAgent, { status: "shutdown" }> => ({
   ...agentIdentity(agent),
-  ...retainedAnswer(agent),
   edge: "closed",
   queue: [],
   status: "shutdown",
@@ -196,11 +175,11 @@ const shutdownAgent = (
 const applyFinal = (agent: OpenAgent, final: ChildTurnOutcome, queue: V1Turn[]): OpenAgent => {
   switch (final.status) {
     case "errored": {
-      return erroredAgent(agent, queue, final.error, false);
+      return erroredAgent(agent, queue, final.error);
     }
 
     case "interrupted": {
-      return interruptedAgent(agent, queue, false);
+      return interruptedAgent(agent, queue);
     }
 
     case "completed": {
@@ -242,7 +221,7 @@ export class V1Controller {
   readonly #provisionalSpawns = new Set<Promise<null>>();
   readonly #queue = new KeyedSerialQueue();
   readonly #runtimeOwners = new Map<string, RuntimeOwner>();
-  readonly #waiters = new Map<string, Set<WaiterWake>>();
+  readonly #waiters = new Map<string, Set<(status: WaitStatus) => void>>();
   #closing = false;
   #promptOptions: BuildSystemPromptOptions | undefined;
   #rootApi: ToolEndpoint | undefined;
@@ -677,7 +656,7 @@ export class V1Controller {
           }
         }
 
-        this.#notifyWaiters(target);
+        this.#notifyWaiters(target, "shutdown");
 
         return { previous_status: previous };
       },
@@ -703,107 +682,51 @@ export class V1Controller {
 
     const effective = Math.min(3_600_000, Math.max(10_000, timeoutMs));
     signal?.throwIfAborted();
+    const epoch = this.#epoch;
+    const waiter = Promise.withResolvers<WaitStatus>();
 
-    const collect = () =>
-      Object.fromEntries(
-        targets.flatMap((id) => {
-          const agent = this.#agent(id);
-
-          return agent === undefined || isFinalStatus(agent.status)
-            ? [[id, publicStatus(agent)] as const]
-            : [];
-        }),
-      );
-
-    const immediate = collect();
-
-    if (Object.keys(immediate).length > 0) {
-      return { status: immediate, timed_out: false };
-    }
-
-    // A turn settled in the same transaction that promotes its queued follow-up
-    // leaves the live state non-final, so its observed final is carried here — by
-    // a wake, or by the pre-registration command read when the final can be
-    // promoted before the post-wake read (for example by a send_input queuing a
-    // new turn). The post-wake merge only fills ids whose live state is no
-    // longer final; a live final stays authoritative.
-    const received = new Map<string, PublicAgentStatus>();
-    const gate = Promise.withResolvers<"aborted" | "status" | "timeout">();
-    const registered = new Map<string, WaiterWake>();
-
-    for (const id of targets) {
-      const wake: WaiterWake = (status) => {
-        if (status !== undefined) {
-          received.set(id, status);
-        }
-
-        gate.resolve("status");
-      };
-
-      registered.set(id, wake);
-    }
-
-    const abort = () => {
-      gate.resolve("aborted");
+    const expire = () => {
+      waiter.resolve({});
     };
 
-    signal?.addEventListener("abort", abort, { once: true });
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    signal?.addEventListener("abort", expire, { once: true });
+    const timer = setTimeout(expire, effective);
 
     try {
       await this.#coordinator.command(() => {
-        const status = collect();
+        const status = Object.fromEntries(
+          targets.flatMap((id) => {
+            const agent = this.#agent(id);
+
+            return agent === undefined || isFinalStatus(agent.status)
+              ? [[id, publicStatus(agent)] as const]
+              : [];
+          }),
+        );
 
         if (Object.keys(status).length > 0) {
-          for (const [id, observed] of Object.entries(status)) {
-            received.set(id, observed);
-          }
-
-          gate.resolve("status");
+          waiter.resolve(status);
 
           return;
         }
 
-        for (const [id, wake] of registered) {
-          const set = this.#waiters.get(id) ?? new Set<WaiterWake>();
-          set.add(wake);
+        for (const id of targets) {
+          const set = this.#waiters.get(id) ?? new Set();
+          set.add(waiter.resolve);
           this.#waiters.set(id, set);
         }
       });
+      const status = await waiter.promise;
       signal?.throwIfAborted();
+      this.#assertEpoch(epoch);
 
-      timer = setTimeout(() => {
-        gate.resolve("timeout");
-      }, effective);
-
-      const outcome = await gate.promise;
-
-      if (outcome === "aborted") {
-        signal?.throwIfAborted();
-        throw new Error("Wait aborted");
-      }
-
-      const status = collect();
-
-      for (const [id, observed] of received) {
-        if (!Object.hasOwn(status, id)) {
-          status[id] = observed;
-        }
-      }
-
-      return {
-        status,
-        timed_out: outcome === "timeout" && Object.keys(status).length === 0,
-      };
+      return { status, timed_out: Object.keys(status).length === 0 };
     } finally {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", expire);
 
-      signal?.removeEventListener("abort", abort);
-
-      for (const [id, wake] of registered) {
-        this.#waiters.get(id)?.delete(wake);
+      for (const id of targets) {
+        this.#waiters.get(id)?.delete(waiter.resolve);
       }
     }
   }
@@ -1053,10 +976,10 @@ export class V1Controller {
     void this.#observeDelivery(id, started, epoch);
   }
 
-  async #finish(
+  async #settle(
     id: string,
-    attemptId: string,
-    final: ChildTurnOutcome,
+    attemptId: string | undefined,
+    outcome: ChildTurnOutcome,
     epoch: symbol,
   ): Promise<void> {
     let hasNext = false;
@@ -1071,30 +994,33 @@ export class V1Controller {
       const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
       const agent = draft.state.agents[index];
 
-      if (agent === undefined || agent.edge !== "open" || agent.active?.id !== attemptId) {
+      if (agent === undefined || agent.edge !== "open") {
+        return;
+      }
+
+      // Without an attempt the failure belongs to the agent itself, so only a
+      // repeated error is stale.
+      const stale =
+        attemptId === undefined ? agent.status === "errored" : agent.active?.id !== attemptId;
+
+      if (stale) {
         return;
       }
 
       const [next, ...queue] = agent.queue;
-      let settled = applyFinal(agent, final, queue);
+      const settled = applyFinal(agent, outcome, queue);
 
       if (settled.status !== "interrupted") {
-        const notification: V1Notification = {
-          agentId: id,
-          content: `<subagent_notification>\n${JSON.stringify({ agent_path: id, status: publicStatus(settled) })}\n</subagent_notification>`,
-          id: attemptId,
-        };
-
-        draft.state.notifications.push(notification);
         observed = publicStatus(settled);
+        draft.state.notifications.push({
+          agentId: id,
+          content: `<subagent_notification>\n${JSON.stringify({ agent_path: id, status: observed })}\n</subagent_notification>`,
+          id: attemptId ?? agent.active?.id ?? this.#id(),
+        });
       }
 
-      if (next !== undefined) {
-        settled = pendingAgent(settled, next, queue);
-        hasNext = true;
-      }
-
-      draft.state.agents[index] = settled;
+      hasNext = next !== undefined;
+      draft.state.agents[index] = next === undefined ? settled : pendingAgent(settled, next, queue);
     });
 
     if (observed !== undefined) {
@@ -1265,7 +1191,7 @@ export class V1Controller {
         id,
         async () => {
           try {
-            await this.#finish(id, active.attemptId, final, epoch);
+            await this.#settle(id, active.attemptId, final, epoch);
           } catch (error) {
             await this.#retire(id);
             throw error;
@@ -1389,72 +1315,24 @@ export class V1Controller {
     attemptId: string | undefined,
     epoch: symbol,
   ): Promise<void> {
-    let hasNext = false;
-    let observed: PublicAgentStatus | undefined;
-    await this.#coordinator.transact((draft) => {
-      this.#assertEpoch(epoch);
-
-      if (draft.protocolLatch !== "v1") {
-        return;
-      }
-
-      const index = draft.state.agents.findIndex((candidate) => candidate.id === id);
-      const agent = draft.state.agents[index];
-
-      if (
-        agent === undefined ||
-        agent.edge === "closed" ||
-        (attemptId !== undefined && agent.active?.id !== attemptId)
-      ) {
-        return;
-      }
-
-      if (agent.status === "errored") {
-        return;
-      }
-
-      const message = bound(
-        cause instanceof Error ? cause.message : String(cause),
-        MAX_ERROR_LENGTH,
-      );
-
-      const notificationId = attemptId ?? agent.active?.id ?? this.#id();
-      draft.state.notifications.push({
-        agentId: id,
-        content: `<subagent_notification>\n${JSON.stringify({ agent_path: id, status: { errored: message } })}\n</subagent_notification>`,
-        id: notificationId,
-      });
-      const [next, ...queue] = agent.queue;
-      const failed = erroredAgent(agent, queue, message, true);
-      observed = publicStatus(failed);
-
-      if (next === undefined) {
-        draft.state.agents[index] = failed;
-      } else {
-        draft.state.agents[index] = pendingAgent(failed, next, queue);
-        hasNext = true;
-      }
-    });
-
-    if (observed !== undefined) {
-      this.#notifyWaiters(id, observed);
-    }
-
-    if (hasNext) {
-      this.#scheduleDeliveryFromLastContext(id);
-    }
+    await this.#settle(
+      id,
+      attemptId,
+      { error: cause instanceof Error ? cause.message : String(cause), status: "errored" },
+      epoch,
+    );
   }
 
-  #notifyWaiters(id: string, observed?: PublicAgentStatus): void {
+  #notifyWaiters(id: string, status: PublicAgentStatus): void {
     for (const wake of this.#waiters.get(id) ?? []) {
-      wake(observed);
+      wake({ [id]: status });
     }
   }
 
   #cancelWaiters(): void {
     for (const waiters of this.#waiters.values()) {
       for (const wake of waiters) {
-        wake();
+        wake({});
       }
     }
 

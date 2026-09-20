@@ -15,6 +15,7 @@ import type { ControlStore } from "../../snapshot.js";
 import { freshSnapshot, createMemoryControlStore, rootBinding } from "../../snapshot.js";
 import { V1Controller } from "../../v1/controller.js";
 import { createChildContext, FakeChildRuntime } from "../fixtures/child-runtime.js";
+import type { FakeTurn } from "../fixtures/child-runtime.js";
 
 const setup = async (
   maximum = 2,
@@ -433,42 +434,54 @@ describe("V1 controller", () => {
 
     await controller.reset();
 
-    await expect(waiting).resolves.toMatchObject({ timed_out: false });
+    await expect(waiting).rejects.toThrow("Stale V1 controller operation");
   });
 
-  it("reports an observed completion whose queued follow-up is immediately promoted", async () => {
-    const { controller, coordinator, ctx, runtimes } = await setup();
-    const { agent_id: id } = await controller.spawn({ forkContext: false, message: "first" }, ctx);
-    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
-    const waiting = controller.wait([id], 10_000);
-    await coordinator.barrier();
-    await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+  it.each([
+    {
+      expected: { completed: "one" },
+      name: "completion",
+      settle: (turn: FakeTurn) => {
+        turn.settled.resolve({ status: "completed", text: "one" });
+      },
+    },
+    {
+      expected: { errored: "first failed" },
+      name: "errored outcome",
+      settle: (turn: FakeTurn) => {
+        turn.settled.resolve({ error: "first failed", status: "errored" });
+      },
+    },
+    {
+      expected: { errored: "first failed" },
+      name: "rejection",
+      settle: (turn: FakeTurn) => {
+        turn.settled.reject(new Error("first failed"));
+      },
+    },
+  ])(
+    "reports an observed $name whose queued follow-up is immediately promoted",
+    async ({ expected, settle }) => {
+      const { controller, coordinator, ctx, runtimes } = await setup();
 
-    runtimes[0]?.turns[0]?.settled.resolve({ status: "completed", text: "one" });
+      const { agent_id: id } = await controller.spawn(
+        { forkContext: false, message: "first" },
+        ctx,
+      );
 
-    await expect(waiting).resolves.toEqual({
-      status: { [id]: { completed: "one" } },
-      timed_out: false,
-    });
-    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(2));
-  });
+      await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
+      const waiting = controller.wait([id], 10_000);
+      await coordinator.barrier();
+      await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+      const [turn] = runtimes[0]?.turns ?? [];
+      assert.ok(turn);
 
-  it("reports an observed error whose queued follow-up is immediately promoted", async () => {
-    const { controller, coordinator, ctx, runtimes } = await setup();
-    const { agent_id: id } = await controller.spawn({ forkContext: false, message: "first" }, ctx);
-    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(1));
-    const waiting = controller.wait([id], 10_000);
-    await coordinator.barrier();
-    await controller.sendInput(id, { interrupt: false, message: "second" }, ctx);
+      settle(turn);
 
-    runtimes[0]?.turns[0]?.settled.reject(new Error("first failed"));
-
-    await expect(waiting).resolves.toEqual({
-      status: { [id]: { errored: "first failed" } },
-      timed_out: false,
-    });
-    await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(2));
-  });
+      await expect(waiting).resolves.toEqual({ status: { [id]: expected }, timed_out: false });
+      await vi.waitFor(() => expect(runtimes[0]?.turns).toHaveLength(2));
+    },
+  );
 
   it("keeps a registered wait through a transient interrupted status", async () => {
     const { controller, coordinator, ctx, runtimes } = await setup();
