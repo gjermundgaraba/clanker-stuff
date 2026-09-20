@@ -13,6 +13,10 @@ const ScopeSchema = StringEnum(["global", "project"] as const);
 
 const NameSchema = Type.String({ minLength: 1 });
 
+// Lookup tools keep purely structural schemas so strict sampling can represent
+// them on every provider; an unknown or empty name simply matches no server.
+const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
+
 const textResult = (text: string) => ({
   content: [{ type: "text" as const, text }],
   details: undefined,
@@ -59,9 +63,10 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
     description:
       "Remove an MCP server from configuration; already absent is success. Does not unload already active tools.",
     parameters: Type.Object(
-      { name: NameSchema, scope: ScopeSchema },
+      { name: Type.String(), scope: ScopeSchema },
       { additionalProperties: false },
     ),
+    constrainedSampling: STRICT_PREFERRED,
     async execute(_id, args, signal, _update, ctx) {
       await removeMcpServer(args.name, args.scope, configOptions(ctx), signal);
 
@@ -75,6 +80,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
     description:
       "List configured MCP servers and validation diagnostics without exposing configuration or secrets.",
     parameters: Type.Object({}, { additionalProperties: false }),
+    constrainedSampling: STRICT_PREFERRED,
     async execute(_id, _args, signal, _update, ctx) {
       signal?.throwIfAborted();
       const servers = await listMcpServers(configOptions(ctx));
@@ -96,9 +102,10 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
     description:
       "Connect an MCP server and activate its tools. Set reconnect to replace a broken connection, reauthorize, or refresh tools/configuration. Never retry an uncertain mutating tool call automatically.",
     parameters: Type.Object(
-      { name: NameSchema, reconnect: Type.Optional(Type.Boolean()) },
+      { name: Type.String(), reconnect: Type.Optional(Type.Boolean()) },
       { additionalProperties: false },
     ),
+    constrainedSampling: STRICT_PREFERRED,
     async execute(_id, args, signal, _update, ctx) {
       const count = await connect(ctx, args.name, args.reconnect ?? false, signal);
 

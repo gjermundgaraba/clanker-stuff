@@ -1,13 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { taskRenderers } from "./renderers.js";
 import { TaskRuntime, renderWake } from "./runtime.js";
-import {
-  startSchema,
-  inspectSchema,
-  prepareInspectArguments,
-  idSchema,
-  listSchema,
-} from "./task.js";
+import { idSchema, inspectParameters, listSchema, startParameters } from "./task.js";
+
+const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
 
 export default function backgroundTasks(pi: ExtensionAPI): void {
   const runtime = new TaskRuntime(pi);
@@ -23,7 +19,8 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
       "After task_start, continue useful work or end the turn; do not block or repeatedly poll task_list while waiting.",
       "Use task_start with protocol events-v1 only for scripts emitting {v:1,type:'event',data:...} or terminal {v:1,type:'result',data:...} JSON records followed by LF. Keep external detection logic in the script.",
     ],
-    parameters: startSchema,
+    parameters: startParameters,
+    constrainedSampling: STRICT_PREFERRED,
     execute: (_id, params, signal, _update, ctx) => runtime.start(params, ctx, signal),
   });
   pi.registerTool({
@@ -33,6 +30,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
     description:
       "List task status and pending notification count; does not fetch logs or wake the model.",
     parameters: listSchema,
+    constrainedSampling: STRICT_PREFERRED,
     execute: async () => runtime.list(),
   });
   pi.registerTool({
@@ -41,8 +39,8 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
     label: "Inspect task",
     description:
       "Pull untrusted task data. view summary returns status, all retained event IDs and log tails (up to 6000 bytes/stream by default, 12000 requested max). view result or event returns JSON text in payload.text; event requires eventId. Concatenate pages using payload.nextOffset as offset until null, then parse JSON. Total response capped at 32000 bytes; history may be evicted.",
-    parameters: inspectSchema,
-    prepareArguments: prepareInspectArguments,
+    parameters: inspectParameters,
+    constrainedSampling: STRICT_PREFERRED,
     execute: async (_id, params) => runtime.inspect(params),
   });
   pi.registerTool({
@@ -52,6 +50,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
     description:
       "Cancel an owned task, await bounded process-group cleanup, and report the actual outcome. Does not cancel independent observed jobs.",
     parameters: idSchema,
+    constrainedSampling: STRICT_PREFERRED,
     execute: (_id, params) => runtime.stop(params.id),
   });
   pi.registerCommand("tasks", {

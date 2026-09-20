@@ -7,14 +7,13 @@ import {
   idSchema,
   listSchema,
   toolResult,
-  prepareInspectArguments,
   payloadPage,
   taskRow,
   MAX_TOOL_BYTES,
 } from "../task.js";
 
 describe("task contracts", () => {
-  it("keeps public schemas strict and bounded, migrating persisted inspection calls", () => {
+  it("keeps schemas closed and bounded", () => {
     const start = { name: "test", command: "node" };
     expect(Value.Check(startSchema, start)).toBe(true);
     expect(Value.Check(startSchema, { ...start, args: [] })).toBe(true);
@@ -30,26 +29,16 @@ describe("task contracts", () => {
     ])
       expect(Value.Check(startSchema, { ...start, ...extra })).toBe(false);
     expect(Value.Check(inspectSchema, { id: "a" })).toBe(false);
-    expect(prepareInspectArguments({ id: "a", tailBytes: 5 })).toEqual({
-      id: "a",
-      view: "summary",
-      tailBytes: 5,
-    });
-    expect(prepareInspectArguments({ id: "a", eventId: "e" })).toEqual({
-      id: "a",
-      view: "event",
-      eventId: "e",
-    });
 
     for (const invalid of [
       null,
       [],
       { id: "a", view: null },
-      { id: "a", offset: -1 },
-      { id: "a", other: 1 },
-      { id: "a", tailBytes: 12001 },
+      { id: "a", view: "summary", offset: -1 },
+      { id: "a", view: "summary", other: 1 },
+      { id: "a", view: "summary", tailBytes: 12001 },
     ])
-      expect(() => prepareInspectArguments(invalid)).toThrow();
+      expect(Value.Check(inspectSchema, invalid)).toBe(false);
     expect(Value.Check(idSchema, { id: "a", other: 1 })).toBe(false);
     expect(Value.Check(listSchema, { other: 1 })).toBe(false);
   });

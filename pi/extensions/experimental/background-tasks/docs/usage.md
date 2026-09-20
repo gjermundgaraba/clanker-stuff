@@ -81,8 +81,6 @@ Notifications are always enabled, with no approval, wake credits, or total deliv
 
 The inbox, event history, and logs remain bounded to limit memory use. They are session-owned, not a durable outbox: reload stops tasks and clears live notification state. Old attention checkpoints have no effect.
 
-Old inspection calls persisted without a view are prepared as summary views, or event views when they contain an event ID; the public schema requires an explicit view.
-
 ## Ownership
 
 All tasks belong to the current extension instance. Quit, reload, new, resume, fork, and clone stop **every** task, including dev servers. There is no detach flag. Forked/resumed historical records are not live process handles and never cause PID reconnection or restarts.

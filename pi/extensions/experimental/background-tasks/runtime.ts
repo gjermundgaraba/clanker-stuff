@@ -1,5 +1,6 @@
 import { createBorderStatusClient } from "@clanker-stuff/border-status-protocol";
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
+import { invalidArguments } from "@clanker-stuff/pi-tool-schema";
 import { Text } from "@earendil-works/pi-tui";
 import type { MessageRenderer } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
@@ -22,6 +23,8 @@ import {
   taskRow,
   payloadPage,
   MAX_TOOL_BYTES,
+  inspectSchema,
+  startSchema,
   type StartInput,
   type InspectInput,
 } from "./task.js";
@@ -220,6 +223,9 @@ export class TaskRuntime {
     this.statusTimer.unref();
   }
   async start(params: StartInput, ctx: ExtensionContext, signal?: AbortSignal) {
+    if (!Value.Check(startSchema, params))
+      throw invalidArguments(startSchema, params, "task_start");
+
     if (ctx.mode === "print" || ctx.mode === "json")
       throw new Error(
         "Background tasks require a live TUI or RPC session; print mode exits when its prompt ends.",
@@ -264,7 +270,11 @@ export class TaskRuntime {
         "Session-owned; reload, quit and session replacement stop all tasks. Historical records are not live processes.",
     });
   }
-  inspect({ id, view, eventId, offset, tailBytes }: InspectInput) {
+  inspect(params: InspectInput) {
+    if (!Value.Check(inspectSchema, params))
+      throw invalidArguments(inspectSchema, params, "task_inspect");
+
+    const { id, view, eventId, offset, tailBytes } = params;
     const task = this.supervisor.get(id);
 
     if (view === "event") {

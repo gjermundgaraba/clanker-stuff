@@ -38,7 +38,8 @@
   },
   "dependencies": {
     "@clanker-stuff/border-status-protocol": "workspace:^",
-    "@clanker-stuff/pi-tool-rendering": "workspace:^"
+    "@clanker-stuff/pi-tool-rendering": "workspace:^",
+    "@clanker-stuff/pi-tool-schema": "workspace:^"
   },
   "devDependencies": {
     "vite": "catalog:",

@@ -1,7 +1,7 @@
 import { jsonText } from "@clanker-stuff/pi-tool-rendering/text";
+import { structuralSchema } from "@clanker-stuff/pi-tool-schema";
 import { StringEnum, type JsonValue, type TextContent } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
-import { Value } from "typebox/value";
 import type { taskSummary } from "./supervisor.js";
 
 export const startSchema = Type.Object(
@@ -60,19 +60,11 @@ export type InspectInput = Static<typeof inspectSchema>;
 
 export const MAX_TOOL_BYTES = 32000;
 
-const legacyInspectSchema = Type.Omit(inspectSchema, ["view"], { additionalProperties: false });
+// Tools publish the structural shape so every provider's strict sampling subset
+// can represent it; the runtime checks calls against the bounded schemas above.
+export const startParameters = structuralSchema(startSchema);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi hands prepareArguments the raw persisted call; this is its schema boundary.
-export function prepareInspectArguments(args: unknown): InspectInput {
-  // Persisted calls predate explicit views.
-  if (Value.Check(legacyInspectSchema, args)) {
-    args = { ...args, view: "eventId" in args ? "event" : "summary" };
-  }
-
-  if (!Value.Check(inspectSchema, args)) throw new Error("Invalid task_inspect arguments");
-
-  return args;
-}
+export const inspectParameters = structuralSchema(inspectSchema);
 
 export function toolResult<Details>(details: Details) {
   const text = jsonText(details);
