@@ -8,7 +8,8 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 - When creating or restructuring an extension package, follow the layout in `docs/extension-structure.md`.
 - When choosing or changing any terminal color, follow `docs/color.md` and take tones from `@clanker-stuff/pi-tones`.
 - Keep tests in the smallest layer that proves the behavior: unit by default, integration only for real `AgentSession` behavior, smoke only for discovery, runtime wiring and high-level verification when needed.
-- For session-persisted tool schemas such as `ask_question`, keep `parameters` strict. When the schema evolves, add `prepareArguments(args)` to migrate old persisted calls instead of adding deprecated compatibility fields to the public schema.
+- Keep tool `parameters` closed and current. Pi renders stored tool calls but never re-executes them, so do not add `prepareArguments(args)` migrations or deprecated compatibility fields for retired argument shapes; renderers must tolerate stored calls that no longer match the schema.
+- A tool that sets `constrainedSampling` publishes a structural schema: build it with `structuralSchema()` from `@clanker-stuff/pi-tool-schema` and check value limits against the constrained schema inside `execute`. Provider strict subsets reject some value constraints, and `strict: "prefer"` otherwise falls back silently.
 - For any custom tool that mutates files, use `withFileMutationQueue()` around the full read/modify/write critical section, keyed by the resolved absolute target path, so it participates in pi's per-file mutation queue.
 - Never suggest "upstreaming a change to pi itself". If we can't do something in an extension today, we can't do it today.
 

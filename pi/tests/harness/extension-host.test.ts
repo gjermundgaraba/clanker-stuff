@@ -211,6 +211,26 @@ describe("extension-host harness", () => {
     ]);
   });
 
+  it("rejects strict sampling on a schema Pi cannot make strict", async () => {
+    const host = createExtensionHost((pi: ExtensionAPI) => {
+      pi.registerTool({
+        name: "union_tool",
+        label: "Union",
+        description: "Accepts one of two object shapes",
+        parameters: Type.Union([
+          Type.Object({ left: Type.String() }),
+          Type.Object({ right: Type.String() }),
+        ]),
+        constrainedSampling: { type: "json_schema", strict: "prefer" },
+        execute: async () => ({ content: [], details: undefined }),
+      });
+    });
+
+    await expect(host.ready).rejects.toThrow(
+      "Tool union_tool requests strict sampling with an unrepresentable schema",
+    );
+  });
+
   it("registers commands and tools and can run them", async () => {
     const host = setupHost();
     await host.ready;

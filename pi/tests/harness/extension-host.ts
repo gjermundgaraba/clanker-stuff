@@ -5,6 +5,7 @@ import {
   validateToolArguments,
 } from "@earendil-works/pi-ai";
 import type { JsonObject, Provider } from "@earendil-works/pi-ai";
+import { makeStrictJsonSchema } from "@earendil-works/pi-ai/api/constrained-sampling";
 import type {
   AutocompleteProviderFactory,
   BuildSystemPromptOptions,
@@ -160,6 +161,22 @@ const createToolInfo = (name: string, external: boolean): ToolInfo => ({
     ? TEST_SOURCE_INFO
     : createSyntheticSourceInfo(`<builtin:${name}>`, { source: "builtin" }),
 });
+
+// `strict: "prefer"` falls back silently, so a tool that asks for JSON-schema
+// sampling with a schema Pi cannot make strict would never actually get it.
+const assertStrictRepresentable = (
+  tool: Pick<RegisteredTool["definition"], "constrainedSampling" | "name" | "parameters">,
+) => {
+  if (!tool.constrainedSampling || tool.constrainedSampling.type !== "json_schema") return;
+
+  try {
+    makeStrictJsonSchema(tool.parameters);
+  } catch (error) {
+    throw new Error(`Tool ${tool.name} requests strict sampling with an unrepresentable schema`, {
+      cause: error,
+    });
+  }
+};
 
 export const createExtensionHost = (
   extensionFactory: (pi: ExtensionAPI) => void | Promise<void>,
@@ -472,6 +489,8 @@ export const createExtensionHost = (
       throw new Error("Inline test extension did not load");
     }
 
+    for (const { definition } of extension.tools.values()) assertStrictRepresentable(definition);
+
     for (const [name, value] of Object.entries(options.flags ?? {})) {
       loaded.runtime.flagValues.set(name, value);
     }
@@ -628,6 +647,8 @@ export const createExtensionHost = (
     if (!tool) {
       throw new Error(`Extension tool not registered: ${name}`);
     }
+
+    assertStrictRepresentable(tool.definition);
 
     const runOptions =
       ctxOrOptions && "ui" in ctxOrOptions
