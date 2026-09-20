@@ -16,6 +16,7 @@ describe("questionnaire discovery", () => {
       expect([...extension.tools.keys()]).toEqual([
         "request_user_input",
         "request_user_input_async",
+        "revise_user_input",
       ]);
       expect(extension.commands.has("answers")).toBe(true);
       expect(extension.markdownTransformer).toBeTypeOf("function");

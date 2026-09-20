@@ -5,12 +5,16 @@ import { Journal } from "./journal.js";
 import { awaitingUser, createInteraction, transition } from "./interaction.js";
 import type { Action, Draft, Interaction, Mode } from "./interaction.js";
 import { answerMessage, answerResult, isDelivered } from "./delivery.js";
-import type { Request } from "./request.js";
+import type { Questionnaire, Revision } from "./request.js";
 import { showQuestionnaire } from "./tui/controller.js";
 import { createInboxStatus } from "./status.js";
 import { showInbox } from "./tui/inbox.js";
 
-export const QUESTION_TOOLS = new Set(["request_user_input", "request_user_input_async"]);
+export const QUESTION_TOOLS = new Set([
+  "request_user_input",
+  "request_user_input_async",
+  "revise_user_input",
+]);
 
 export class Coordinator {
   private ctx: ExtensionContext | undefined;
@@ -96,7 +100,10 @@ export class Coordinator {
   get(id: string): Interaction {
     const item = this.items.get(id);
 
-    if (!item) throw new Error("Unknown interaction on this branch");
+    if (!item)
+      throw new Error(
+        `Unknown interaction_id ${id}: it must name a questionnaire already asked in this session`,
+      );
 
     return structuredClone(item);
   }
@@ -213,62 +220,82 @@ export class Coordinator {
       this.update();
     });
   }
-  async request(
+  async ask(
     toolCallId: string,
-    request: Request,
+    request: Questionnaire,
     signal: AbortSignal | undefined,
     ctx: ExtensionContext,
     mode: Mode,
   ) {
+    const epoch = this.begin(ctx, signal);
+
+    const item = await this.queue(async () => {
+      this.owner(ctx, epoch);
+      signal?.throwIfAborted();
+
+      if (request.linked_interaction_id) this.get(request.linked_interaction_id);
+      const created = createInteraction(`q_${randomUUID()}`, request, toolCallId, mode);
+      await this.journal!.checkpoint(created, () => this.owner(ctx, epoch));
+      this.items.set(created.id, created);
+
+      if (signal?.aborted) {
+        this.stopped.add(created.id);
+        const paused = transition(created, created.version, { type: "pause" });
+        await this.journal!.checkpoint(paused, () => this.owner(ctx, epoch));
+        this.items.set(created.id, paused);
+      }
+
+      this.update();
+
+      return this.get(created.id);
+    });
+
+    return this.deliver(item, mode, "New questionnaire", signal, ctx, epoch);
+  }
+  async revise(
+    toolCallId: string,
+    revision: Revision,
+    signal: AbortSignal | undefined,
+    ctx: ExtensionContext,
+  ) {
+    const epoch = this.begin(ctx, signal);
+    const prior = this.get(revision.interaction_id);
+    // A revision reopens the questionnaire the way it was last asked.
+    const mode = prior.submissions.at(-1)?.mode ?? prior.draft?.mode ?? "blocking";
+
+    const item = await this.mutate(
+      prior.id,
+      prior.version,
+      {
+        type: "reopen",
+        base: revision.base_revision,
+        initiated_by: "agent",
+        mode,
+        tool_call_id: toolCallId,
+        reason: revision.reason,
+      },
+      ctx,
+    );
+
+    return this.deliver(item, mode, "Revision requested", signal, ctx, epoch);
+  }
+  private begin(ctx: ExtensionContext, signal: AbortSignal | undefined) {
     this.channel(ctx);
     signal?.throwIfAborted();
     this.observeRun(ctx);
-    const epoch = this.epoch;
-    let item: Interaction;
 
-    if ("revise" in request) {
-      const prior = this.get(request.revise.interaction_id);
-      item = await this.mutate(
-        prior.id,
-        prior.version,
-        {
-          type: "reopen",
-          base: request.revise.base_revision,
-          initiated_by: "agent",
-          mode,
-          tool_call_id: toolCallId,
-          reason: request.revise.reason,
-        },
-        ctx,
-      );
-    } else {
-      item = await this.queue(async () => {
-        this.owner(ctx, epoch);
-        signal?.throwIfAborted();
-
-        if (request.linked_interaction_id) this.get(request.linked_interaction_id);
-        const created = createInteraction(`q_${randomUUID()}`, request, toolCallId, mode);
-        await this.journal!.checkpoint(created, () => this.owner(ctx, epoch));
-        this.items.set(created.id, created);
-
-        if (signal?.aborted) {
-          this.stopped.add(created.id);
-          const paused = transition(created, created.version, { type: "pause" });
-          await this.journal!.checkpoint(paused, () => this.owner(ctx, epoch));
-          this.items.set(created.id, paused);
-        }
-
-        this.update();
-
-        return this.get(created.id);
-      });
-    }
-
+    return this.epoch;
+  }
+  private async deliver(
+    item: Interaction,
+    mode: Mode,
+    notice: string,
+    signal: AbortSignal | undefined,
+    ctx: ExtensionContext,
+    epoch: number,
+  ) {
     if (mode === "async") {
-      ctx.ui.notify(
-        `${"revise" in request ? "Revision requested" : "New questionnaire"} · ${item.request.title ?? item.id} · /answers to review`,
-        "info",
-      );
+      ctx.ui.notify(`${notice} · ${item.request.title ?? item.id} · /answers to review`, "info");
       const details = { accepted: true, status: "pending", interaction_id: item.id };
 
       return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };

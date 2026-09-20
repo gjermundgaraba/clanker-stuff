@@ -8,7 +8,7 @@ import {
   InteractionSchema,
 } from "../interaction.js";
 import type { Action } from "../interaction.js";
-import { validateRequest } from "../request.js";
+import { validateQuestionnaire } from "../request.js";
 
 const request = {
   questions: [
@@ -153,23 +153,17 @@ describe("questionnaire transitions", () => {
       { option_id: "toString", label: "Safe" },
     ]);
   });
-  it("rejects invalid IDs/recommendations and mixed schema branches", () => {
-    expect(() => validateRequest({ ...request, retired: true })).toThrow();
+  it("rejects unknown fields, invalid recommendations and duplicate questions", () => {
+    expect(() => validateQuestionnaire({ ...request, retired: true })).toThrow();
     expect(() =>
-      validateRequest({
-        ...request,
-        revise: { interaction_id: "x", base_revision: 1, reason: "why" },
-      }),
-    ).toThrow();
-    expect(() =>
-      validateRequest({
+      validateQuestionnaire({
         questions: [
           { ...request.questions[0], recommendation: { option_ids: ["missing"], reason: "why" } },
         ],
       }),
     ).toThrow("recommendation");
     expect(() =>
-      validateRequest({ questions: [request.questions[0], request.questions[0]] }),
+      validateQuestionnaire({ questions: [request.questions[0], request.questions[0]] }),
     ).toThrow("Duplicate question");
   });
 });

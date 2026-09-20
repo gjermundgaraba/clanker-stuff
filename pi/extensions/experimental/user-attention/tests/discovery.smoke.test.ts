@@ -16,7 +16,12 @@ describe("user-attention discovery", () => {
       const tools = harness.extensionsResult.extensions.flatMap((e) => [...e.tools.keys()]);
       expect(tools.toSorted()).toEqual(
         withQuestions
-          ? ["request_user_input", "request_user_input_async", "send_message_to_user_async"]
+          ? [
+              "request_user_input",
+              "request_user_input_async",
+              "revise_user_input",
+              "send_message_to_user_async",
+            ]
           : ["send_message_to_user_async"],
       );
     } finally {

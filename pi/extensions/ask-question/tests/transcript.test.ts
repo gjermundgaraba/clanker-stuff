@@ -5,7 +5,12 @@ import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 import { createIdentityTheme } from "../../../tests/harness/tui.js";
 import { createInteraction, transition } from "../interaction.js";
 import { answerMessage, answerResult, isDelivered } from "../delivery.js";
-import { createAnswerMarkdownTransformer, renderCall, renderResult } from "../transcript.js";
+import {
+  createAnswerMarkdownTransformer,
+  renderCall,
+  renderResult,
+  renderReviseCall,
+} from "../transcript.js";
 
 const request = {
   title: "Synthetic request",
@@ -163,16 +168,15 @@ describe("compact questionnaire transcript", () => {
           .join("\n"),
       ).toContain(label);
     expect(
-      renderCall(
-        { revise: { interaction_id: "q_known", base_revision: 1, reason: "Why" } },
+      renderReviseCall(
+        { interaction_id: "q_known", base_revision: 1, reason: "Why" },
         theme,
         context,
-        "blocking",
         (id) => (id === "q_known" ? "Known title" : undefined),
       )
         .render(100)
         .join("\n"),
-    ).toContain("Known title · blocking · revision request");
+    ).toContain("Known title · revision request");
   });
   it("renders a short answer summary without truncating the submitted notes", () => {
     let item = createInteraction("q_test", request, "call", "blocking");

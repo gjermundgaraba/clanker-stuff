@@ -6,7 +6,7 @@ import type { MarkdownTransformer, ToolDefinition } from "@earendil-works/pi-cod
 import type { Interaction, Submission } from "./interaction.js";
 import { Text } from "@earendil-works/pi-tui";
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
-import type { RequestSchema } from "./request.js";
+import type { QuestionnaireSchema, RevisionSchema } from "./request.js";
 import {
   escapeMarkdown,
   interactionRows,
@@ -43,33 +43,52 @@ export function createAnswerMarkdownTransformer(
   };
 }
 
-type CallRenderer = NonNullable<ToolDefinition<typeof RequestSchema>["renderCall"]>;
+type CallRenderer = NonNullable<ToolDefinition<typeof QuestionnaireSchema>["renderCall"]>;
 
+type ReviseCallRenderer = NonNullable<ToolDefinition<typeof RevisionSchema>["renderCall"]>;
+
+const callHeading = (
+  heading: string,
+  argsJson: string,
+  theme: Parameters<CallRenderer>[1],
+  context: { readonly expanded: boolean },
+) => {
+  const expanded = context.expanded ? `\n${argsJson}` : "";
+  const line = displayText(heading).replaceAll(/\s+/g, " ");
+
+  return preview(
+    () => new Text(theme.fg("toolTitle", `${line}${displayText(expanded)}`), 0, 0),
+    context.expanded,
+  );
+};
+
+// Stored calls are rendered as written, so both renderers tolerate partial arguments.
 export function renderCall(
   args: Parameters<CallRenderer>[0],
   theme: Parameters<CallRenderer>[1],
   context: Parameters<CallRenderer>[2],
   mode: "blocking" | "async",
-  titleOf: (interactionId: string) => string | undefined = () => undefined,
 ) {
-  const revise = "revise" in args && args.revise ? args.revise : undefined;
-  const questions = "questions" in args && Array.isArray(args.questions) ? args.questions : [];
+  const count = Array.isArray(args.questions) ? args.questions.length : 0;
+  const title = args.title ?? "Questionnaire";
 
-  const title =
-    (revise ? titleOf(revise.interaction_id) : "title" in args ? args.title : undefined) ??
-    "Questionnaire";
-
-  const suffix = revise
-    ? " · revision request"
-    : ` · ${questions.length} question${questions.length === 1 ? "" : "s"}`;
-
-  const expanded = context.expanded ? `\n${JSON.stringify(args, null, 2)}` : "";
-  const heading = displayText(`${title} · ${mode}${suffix}`).replaceAll(/\s+/g, " ");
-
-  return preview(
-    () => new Text(theme.fg("toolTitle", `${heading}${displayText(expanded)}`), 0, 0),
-    context.expanded,
+  return callHeading(
+    `${title} · ${mode} · ${count} question${count === 1 ? "" : "s"}`,
+    JSON.stringify(args, null, 2),
+    theme,
+    context,
   );
+}
+
+export function renderReviseCall(
+  args: Parameters<ReviseCallRenderer>[0],
+  theme: Parameters<ReviseCallRenderer>[1],
+  context: { readonly expanded: boolean },
+  titleOf: (interactionId: string) => string | undefined,
+) {
+  const title = titleOf(args.interaction_id) ?? "Questionnaire";
+
+  return callHeading(`${title} · revision request`, JSON.stringify(args, null, 2), theme, context);
 }
 
 const ReceiptDisplaySchema = Type.Object({
@@ -83,12 +102,9 @@ const STATUS_LABELS = new Map([
   ["pending", "Pending · not answered yet · /answers to answer"],
 ]);
 
-export const renderResult: NonNullable<ToolDefinition<typeof RequestSchema>["renderResult"]> = (
-  result,
-  options,
-  theme,
-  context,
-) => {
+export const renderResult: NonNullable<
+  ToolDefinition<typeof QuestionnaireSchema | typeof RevisionSchema>["renderResult"]
+> = (result, options, theme, context) => {
   const text = result.content
     .filter((c) => c.type === "text")
     .map((c) => c.text)

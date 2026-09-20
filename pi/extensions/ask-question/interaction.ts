@@ -2,7 +2,7 @@ import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
-import { Id, MAX_NOTE, MAX_TEXT, QuestionnaireSchema, validateRequest } from "./request.js";
+import { Id, MAX_NOTE, MAX_TEXT, QuestionnaireSchema, validateQuestionnaire } from "./request.js";
 import type { Questionnaire } from "./request.js";
 
 const record = <T extends import("typebox").TSchema>(schema: T) =>
@@ -131,7 +131,7 @@ export function createInteraction(
   mode: Mode,
   now = new Date().toISOString(),
 ): Interaction {
-  validateRequest(request);
+  validateQuestionnaire(request);
 
   return {
     id,

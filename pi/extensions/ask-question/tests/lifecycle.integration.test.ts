@@ -420,12 +420,10 @@ describe("durable questionnaires in AgentSession", () => {
       const oldView = env.component;
       env.harness.setResponses([
         fauxAssistantMessage(
-          fauxToolCall("request_user_input", {
-            revise: {
-              interaction_id: original.interaction_id,
-              base_revision: 1,
-              reason: "Synthetic reconsideration",
-            },
+          fauxToolCall("revise_user_input", {
+            interaction_id: original.interaction_id,
+            base_revision: 1,
+            reason: "Synthetic reconsideration",
           }),
           { stopReason: "toolUse" },
         ),

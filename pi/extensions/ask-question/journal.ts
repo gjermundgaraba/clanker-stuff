@@ -5,7 +5,7 @@ import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { InteractionSchema } from "./interaction.js";
-import { validateRequest } from "./request.js";
+import { validateQuestionnaire } from "./request.js";
 import type { Interaction } from "./interaction.js";
 
 export const JOURNAL_TYPE = "questionnaire.snapshot";
@@ -115,7 +115,7 @@ export class Journal {
       if (!Value.Check(SnapshotSchema, entry.data))
         throw new Error("Invalid questionnaire journal; recovery blocked");
       const item = structuredClone(entry.data.interaction);
-      validateRequest(item.request);
+      validateQuestionnaire(item.request);
       const prior = state.get(item.id);
 
       if (
