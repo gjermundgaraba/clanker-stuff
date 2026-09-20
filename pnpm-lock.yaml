@@ -511,9 +511,15 @@ importers:
       '@clanker-stuff/editor':
         specifier: workspace:^
         version: link:../../../packages/editor
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../../packages/extension-paths
       '@earendil-works/pi-coding-agent':
         specifier: 0.86.1
         version: 0.86.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.86.1
+        version: 0.86.1
     devDependencies:
       typebox:
         specifier: 1.3.14

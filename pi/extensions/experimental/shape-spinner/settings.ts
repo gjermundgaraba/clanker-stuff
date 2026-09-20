@@ -3,24 +3,20 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, SettingsList, Spacer, Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { Component, SettingItem, TuiMouseEvent } from "@earendil-works/pi-tui";
 
-/** One spinner's preview: the frame to show at each tick, or nothing when its look is off. */
-export interface PreviewRow {
+/** One spinner's preview loop, or no frames when its look is off. */
+export interface Preview {
   readonly label: string;
   readonly meta: string;
-  readonly frameAt: (tick: number) => string | undefined;
+  readonly frames: readonly string[] | undefined;
 }
 
-/** The spinner state surface the settings dialog reads and edits. */
-export interface SettingsModel {
+export interface SettingsView {
   /** Frame interval shared by every preview row. */
   readonly intervalMs: number;
   readonly footer: readonly string[];
   readonly items: SettingItem[];
-  readonly preview: () => readonly PreviewRow[];
-  /** Advance the setting one step and restyle the real spinners immediately. */
-  readonly update: (id: string) => void;
-  /** Current value for every item id, kept in sync with cascading changes. */
-  readonly values: () => Readonly<Record<string, string>>;
+  readonly onChange: (id: string, value: string) => void;
+  readonly previews: () => readonly Preview[];
 }
 
 const MAX_VISIBLE = 10;
@@ -31,7 +27,8 @@ class SpinnerPreview implements Component {
   private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(
-    private readonly model: SettingsModel,
+    public previews: readonly Preview[],
+    intervalMs: number,
     private readonly accent: (text: string) => string,
     private readonly dim: (text: string) => string,
     requestRender: () => void,
@@ -39,7 +36,7 @@ class SpinnerPreview implements Component {
     this.timer = setInterval(() => {
       this.tick += 1;
       requestRender();
-    }, model.intervalMs);
+    }, intervalMs);
   }
 
   dispose(): void {
@@ -51,16 +48,13 @@ class SpinnerPreview implements Component {
   }
 
   render(): string[] {
-    const rows = this.model.preview();
-    const labelWidth = Math.max(...rows.map((row) => visibleWidth(row.label)));
+    const labelWidth = Math.max(...this.previews.map((row) => visibleWidth(row.label)));
 
-    return rows.map((row) => {
+    return this.previews.map((row) => {
       const label = this.accent(row.label.padEnd(labelWidth + 2));
-      const frame = row.frameAt(this.tick);
+      const frame = row.frames?.[this.tick % row.frames.length];
 
-      if (frame === undefined) return ` ${label}${this.dim("off")}`;
-
-      return ` ${label}${frame} ${row.meta}`;
+      return frame === undefined ? ` ${label}${this.dim("off")}` : ` ${label}${frame} ${row.meta}`;
     });
   }
 }
@@ -69,31 +63,27 @@ class SpinnerPreview implements Component {
  * Opens the shape spinner settings as an overlay, so the live editor with its
  * restyled border spinners stays visible around the dialog while editing.
  */
-export const openSettings = async (ctx: ExtensionContext, model: SettingsModel): Promise<void> => {
+export const openSettings = async (ctx: ExtensionContext, view: SettingsView): Promise<void> => {
   await ctx.ui.custom<null>(
     (tui, theme, _keybindings, done) => {
-      const list = new SettingsList(
-        model.items,
-        MAX_VISIBLE,
-        getSettingsListTheme(),
-        (id) => {
-          model.update(id);
-
-          // Playback `on` re-enables every spinner; resync all rows with the state.
-          for (const [itemId, current] of Object.entries(model.values())) {
-            list.updateValue(itemId, current);
-          }
-
-          tui.requestRender();
-        },
-        () => done(null),
-      );
-
+      // The preview timer re-renders every frame, so edits need no render request of their own.
       const preview = new SpinnerPreview(
-        model,
+        view.previews(),
+        view.intervalMs,
         (text) => theme.fg("accent", text),
         (text) => theme.fg("dim", text),
         () => tui.requestRender(),
+      );
+
+      const list = new SettingsList(
+        view.items,
+        MAX_VISIBLE,
+        getSettingsListTheme(),
+        (id, value) => {
+          view.onChange(id, value);
+          preview.previews = view.previews();
+        },
+        () => done(null),
       );
 
       const container = new Container();
@@ -102,14 +92,11 @@ export const openSettings = async (ctx: ExtensionContext, model: SettingsModel):
       container.addChild(new Spacer());
       container.addChild(list);
 
-      for (const line of model.footer) container.addChild(new Text(theme.fg("dim", line), 1, 0));
+      for (const line of view.footer) container.addChild(new Text(theme.fg("dim", line), 1, 0));
 
       return {
         dispose: () => preview.dispose(),
-        handleInput: (data: string) => {
-          list.handleInput(data);
-          tui.requestRender();
-        },
+        handleInput: (data: string) => list.handleInput(data),
         handleMouse: (event: TuiMouseEvent) => container.handleMouse(event),
         invalidate: () => container.invalidate(),
         render: (width: number) => container.render(width),

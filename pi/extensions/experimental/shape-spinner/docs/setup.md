@@ -21,17 +21,17 @@ The family name contains a font-content revision. After an update, run `/reload`
 
 Run `/shape-spinner` to open the settings dialog. It previews every spinner with its own animation at the real frame rate, updating as you change settings, and applies each change to the live spinners immediately:
 
-| Row                                                     | Effect                                                                                     |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `Playback`                                              | `on` animates, `static` rests on the closing pose, `off` restores Pi's default indicators. |
-| `Background`                                            | Wireframe ink for a dark or light terminal; the puzzle keeps its sticker colors.           |
-| `<spinner> shape` (working, retry, compaction, summary) | Pick the colored puzzle or a wireframe for that status.                                    |
-| `<spinner> color`                                       | Pick the wireframe ink for that status.                                                    |
-| `<spinner> enabled`                                     | `off` falls back to Pi's own indicator for that status alone.                              |
+| Row                                                     | Effect                                                                            |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `Motion`                                                | `animated` plays the loop; `static` rests on the closing pose (solved for Rubik). |
+| `Background`                                            | Wireframe ink for a dark or light terminal; the puzzle keeps its sticker colors.  |
+| `<spinner> shape` (working, retry, compaction, summary) | Pick the colored puzzle or a wireframe for that status.                           |
+| `<spinner> color`                                       | Pick the wireframe ink for that status.                                           |
+| `<spinner> enabled`                                     | `off` falls back to Pi's own indicator for that status alone.                     |
 
-Playback returning to `on` also brings back spinners turned off individually. Rubik keeps its stickers but remembers the color for the next wireframe. Previews play even while playback is off; the live editor stays visible around the dialog.
+Rubik keeps its stickers but remembers the color for the next wireframe. A disabled spinner previews as `off`; the live editor stays visible around the dialog.
 
-All choices are runtime-only; a fresh load resets to an animated cyan orb for working, an orange tetrahedron for retries, a purple cube for compaction, and a blue octahedron for branch summaries, all with dark-background ink. Disable the extension in `pi config` for a persistent opt-out.
+Choices are saved to `shape-spinner.json` in Pi's agent directory when the dialog closes and restored on the next start. The defaults are an animated cyan orb for working, an orange tetrahedron for retries, a purple cube for compaction, and a blue octahedron for branch summaries, all with dark-background ink. Disable every spinner, or the extension itself in `pi config`, to opt out.
 
 ## Lifecycle and compatibility
 
@@ -41,6 +41,6 @@ Normal completion and Escape remove the indicator immediately. Amp's startup pha
 
 Each frame is one private-use color glyph plus an ordinary space. This reserves two terminal columns and allows Ghostty to display the whole shape without independently fitting two halves. Transparent `sbix` bitmaps preserve depth shading and composite against the real background. Colors are baked, not ANSI-tinted by Pi's theme. The puzzle has fixed multicolor stickers. One deterministic orb seed and all nine named Amp web colors, each with dark/light variants, are bundled; arbitrary colors or seeds require rebuilding.
 
-Ghostty on macOS with color-font rendering is the supported target, not a guarantee for all terminal versions. There is no monochrome artwork fallback. Pi cannot detect whether your terminal has selected the font. Set Playback to `off` in the dialog if the result is clipped, missing, or unreadable.
+Ghostty on macOS with color-font rendering is the supported target, not a guarantee for all terminal versions. There is no monochrome artwork fallback. Pi cannot detect whether your terminal has selected the font. Turn the spinners' `enabled` rows off in the dialog if the result is clipped, missing, or unreadable.
 
 Wireframes have intentionally faint rear edges, but the completed icon does not fade or shrink. Check both ink choices at your actual font size. The wireframe geometry is reconstructed from Amp, but the terminal's tiny raster, cell fitting, and font cache still need visual approval. See [font generation and fidelity](font.md).

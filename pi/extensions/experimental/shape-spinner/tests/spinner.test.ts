@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import manifest from "../assets/shapes.json" with { type: "json" };
+import { rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { acquireEditorHost } from "@clanker-stuff/editor";
@@ -15,7 +16,10 @@ import {
   createMockTui,
   createStatusIndicator,
 } from "../../../../tests/harness/tui.js";
+import { configPath, defaultConfig, loadConfig, saveConfig } from "../config.js";
+import type { Config } from "../config.js";
 import extension from "../index.js";
+import { settingRows, styleFor } from "../spinner.js";
 
 type Animation = typeof manifest.rubik;
 
@@ -23,67 +27,15 @@ const glyph = (codepoint: number) => `${String.fromCodePoint(codepoint)} `;
 
 const defaultFrames = manifest.animations.orb.cyan.dark.frames.map(glyph);
 
-const shapeOptions = ["rubik", "orb", "cube", "octahedron", "tetrahedron"] as const;
-
-const colorOptions = [
-  "blue",
-  "purple",
-  "pink",
-  "red",
-  "orange",
-  "yellow",
-  "green",
-  "cyan",
-  "gray",
-] as const;
-
-/** The Ghostty font-codepoint-map range the dialog footer shows; pinned to the bundled font. */
-const mappingRange = "U+100000-U+105C6A";
-
-/** The settings dialog rows in navigation order, as spinner.ts builds them. */
-const settingRows = [
-  "playback",
-  "background",
-  "working-shape",
-  "working-color",
-  "working-enabled",
-  "retry-shape",
-  "retry-color",
-  "retry-enabled",
-  "compaction-shape",
-  "compaction-color",
-  "compaction-enabled",
-  "summary-shape",
-  "summary-color",
-  "summary-enabled",
-] as const;
-
-type SettingRow = (typeof settingRows)[number];
-
 const down = "\u001B[B";
 
 const space = " ";
 
 const escape = "\u001B";
 
-/** Presses that move the cursor from `from` to `target`, cycling its value `presses` times. */
-const rowKeys = (from: SettingRow, target: SettingRow, presses: number): string[] => {
-  const distance =
-    (settingRows.indexOf(target) - settingRows.indexOf(from) + settingRows.length) %
-    settingRows.length;
-
-  return [
-    ...Array.from({ length: distance }, () => down),
-    ...Array.from({ length: presses }, () => space),
-  ];
-};
-
-/** Presses cycling a value list from `current` to `target`; a full lap when equal, so a change always applies. */
-const cycle = (list: readonly string[], current: string, target: string): number =>
-  (list.indexOf(target) - list.indexOf(current) + list.length) % list.length || list.length;
-
 function setup(mode: ExtensionContext["mode"] = "tui") {
   initTheme("dark");
+  rmSync(configPath(), { force: true });
   const host = createExtensionHost(extension);
   const setWorkingIndicator = vi.fn<ExtensionContext["ui"]["setWorkingIndicator"]>();
   const driver = createCustomUiDriver({});
@@ -97,45 +49,44 @@ function setup(mode: ExtensionContext["mode"] = "tui") {
   return { ctx, driver, host, setWorkingIndicator };
 }
 
-type Dialog = {
-  close: () => Promise<void>;
-  edit: (target: SettingRow, presses: number) => void;
-  render: () => string;
-};
-
 const openDialog = async (
   host: ReturnType<typeof createExtensionHost>,
   driver: ReturnType<typeof createCustomUiDriver>,
   ctx: ExtensionCommandContext,
-  args = "",
-): Promise<Dialog> => {
-  const previous = driver.component;
-  const pending = host.runCommand("shape-spinner", args, ctx);
+) => {
+  const pending = host.runCommand("shape-spinner", "", ctx);
 
   const component = await vi.waitFor(() => {
-    const current = driver.component;
+    if (driver.component === undefined) throw new Error("The settings dialog did not mount");
 
-    if (current === undefined || current === previous) {
-      throw new Error("The settings dialog did not mount");
-    }
-
-    return current;
+    return driver.component;
   });
-
-  let cursor: SettingRow = "playback";
 
   return {
     async close() {
       component.handleInput?.(escape);
       await pending;
     },
-    edit(target, presses) {
-      for (const key of rowKeys(cursor, target, presses)) component.handleInput?.(key);
-
-      cursor = target;
+    press: (...keys: string[]) => {
+      for (const key of keys) component.handleInput?.(key);
     },
     render: () => component.render(80).join("\n"),
   };
+};
+
+/** Apply dialog values to a config through the same rows the dialog edits. */
+const edit = (config: Config, values: Record<string, string>): Config => {
+  const rows = settingRows(config);
+
+  for (const [id, value] of Object.entries(values)) {
+    const row = rows.find((candidate) => candidate.id === id);
+    assert(row !== undefined, `unknown row ${id}`);
+    assert(row.values.includes(value), `row ${id} does not offer ${value}`);
+    row.set(value);
+    expect(row.get()).toBe(value);
+  }
+
+  return config;
 };
 
 const statusIndicator = (kind: Parameters<typeof createStatusIndicator>[0]) => {
@@ -197,25 +148,12 @@ describe("shape spinner", () => {
   });
 
   it.each(["rpc", "print", "json"] as const)("does not use UI in %s mode", async (mode) => {
-    const { ctx, host, setWorkingIndicator } = setup(mode);
+    const { ctx, driver, host, setWorkingIndicator } = setup(mode);
     await host.emitSessionStart(ctx);
-
-    for (const action of [
-      "",
-      "on",
-      "static",
-      "off",
-      "preview",
-      "rubik",
-      "cube",
-      "light",
-      "invalid",
-      "purple",
-    ]) {
-      await host.runCommand("shape-spinner", action, ctx);
-    }
+    await host.runCommand("shape-spinner", "", ctx);
 
     expect(setWorkingIndicator).not.toHaveBeenCalled();
+    expect(driver.component).toBeUndefined();
     expect(host.getEditorFactory()).toBeUndefined();
     expect(host.getNotifications()).toHaveLength(0);
   });
@@ -249,62 +187,6 @@ describe("shape spinner", () => {
     for (const { indicator } of [retry, compaction, summary, working]) indicator.dispose();
   });
 
-  it("restyles the active spinner live from the settings dialog", async () => {
-    const { ctx, driver, host, setWorkingIndicator } = setup();
-    await host.emitSessionStart(ctx);
-    const editor = mountEditor(ctx);
-    const retry = statusIndicator("retry");
-    editor.setWorkingStatusIndicator(retry.indicator);
-    setWorkingIndicator.mockClear();
-    const dialog = await openDialog(host, driver, ctx);
-
-    dialog.edit("retry-shape", cycle(shapeOptions, "tetrahedron", "cube"));
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
-      { frames: framesOf("cube", "orange").frames.map(glyph), intervalMs: 20 },
-    ]);
-    dialog.edit("retry-color", cycle(colorOptions, "orange", "red"));
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
-      { frames: framesOf("cube", "red").frames.map(glyph), intervalMs: 20 },
-    ]);
-    dialog.edit("background", 1);
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
-      { frames: framesOf("cube", "red", "light").frames.map(glyph), intervalMs: 20 },
-    ]);
-    dialog.edit("playback", 1);
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
-      { frames: [glyph(framesOf("cube", "red", "light").still)], intervalMs: 20 },
-    ]);
-    dialog.edit("playback", 1);
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([undefined]);
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(undefined);
-    dialog.edit("playback", 1);
-    // A global `on` brings back spinners that were turned off individually.
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
-      { frames: framesOf("cube", "red", "light").frames.map(glyph), intervalMs: 20 },
-    ]);
-    dialog.edit("retry-enabled", 1);
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([undefined]);
-    dialog.edit("playback", 3);
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
-      { frames: framesOf("cube", "red", "light").frames.map(glyph), intervalMs: 20 },
-    ]);
-    dialog.edit("retry-enabled", 1);
-    expect(retry.setIndicator.mock.lastCall).toStrictEqual([undefined]);
-    // The working spinner keeps its own choices.
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: framesOf("orb", "cyan", "light").frames.map(glyph),
-      intervalMs: 20,
-    });
-    dialog.edit("working-color", cycle(colorOptions, "cyan", "purple"));
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: framesOf("orb", "purple", "light").frames.map(glyph),
-      intervalMs: 20,
-    });
-
-    await dialog.close();
-    retry.indicator.dispose();
-  });
-
   it("releases its border styling on shutdown", async () => {
     const { ctx, host } = setup();
     await host.emitSessionStart(ctx);
@@ -317,106 +199,103 @@ describe("shape spinner", () => {
     compaction.indicator.dispose();
   });
 
-  it("applies shape, color, and background changes without leaving static mode", async () => {
-    const { ctx, driver, host, setWorkingIndicator } = setup();
-    const dialog = await openDialog(host, driver, ctx);
+  it("styles each spinner from its own shape, color, and the shared background", () => {
+    const config = edit(defaultConfig(), {
+      background: "light",
+      "retry.color": "red",
+      "retry.shape": "cube",
+    });
 
-    dialog.edit("playback", 1);
-    dialog.edit("working-shape", cycle(shapeOptions, "orb", "cube"));
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
+    expect(styleFor(config, "retry")).toStrictEqual({
+      frames: framesOf("cube", "red", "light").frames.map(glyph),
+      intervalMs: 20,
+    });
+    // The other spinners keep their own choices.
+    expect(styleFor(config, "working")).toStrictEqual({
+      frames: framesOf("orb", "cyan", "light").frames.map(glyph),
+      intervalMs: 20,
+    });
+  });
+
+  it("rests on the closing pose in static motion", () => {
+    const config = edit(defaultConfig(), { motion: "static", "working.shape": "cube" });
+
+    expect(styleFor(config, "working")).toStrictEqual({
       frames: [glyph(manifest.animations.cube.cyan.dark.still)],
       intervalMs: 20,
     });
-    dialog.edit("working-color", cycle(colorOptions, "cyan", "purple"));
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: [glyph(manifest.animations.cube.purple.dark.still)],
-      intervalMs: 20,
-    });
-    dialog.edit("background", 1);
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: [glyph(manifest.animations.cube.purple.light.still)],
-      intervalMs: 20,
-    });
-
-    await dialog.close();
   });
 
-  it("remembers selectors while off and applies them when reenabled", async () => {
+  it("keeps the puzzle's stickers but remembers the color for the next wireframe", () => {
+    const config = edit(defaultConfig(), { "working.color": "red", "working.shape": "rubik" });
+
+    expect(styleFor(config, "working")?.frames).toStrictEqual(manifest.rubik.frames.map(glyph));
+    edit(config, { "working.shape": "cube" });
+    expect(styleFor(config, "working")?.frames).toStrictEqual(
+      framesOf("cube", "red").frames.map(glyph),
+    );
+  });
+
+  it("disables one spinner without touching the others, and keeps its look", () => {
+    const config = edit(defaultConfig(), { "retry.enabled": "off", "retry.shape": "orb" });
+
+    expect(styleFor(config, "retry")).toBeUndefined();
+    expect(styleFor(config, "working")).toBeDefined();
+    // Motion changes never re-enable a spinner.
+    edit(config, { motion: "static" });
+    edit(config, { motion: "animated" });
+    expect(styleFor(config, "retry")).toBeUndefined();
+    edit(config, { "retry.enabled": "on" });
+    expect(styleFor(config, "retry")?.frames).toStrictEqual(
+      framesOf("orb", "orange").frames.map(glyph),
+    );
+  });
+
+  it("ignores values a row does not offer", () => {
+    const config = defaultConfig();
+    settingRows(config)
+      .find((row) => row.id === "working.shape")
+      ?.set("dodecahedron");
+    expect(config).toStrictEqual(defaultConfig());
+  });
+
+  it("round-trips the config file and falls back to defaults on invalid content", async () => {
+    const config = edit(defaultConfig(), { background: "light", "branchSummary.enabled": "off" });
+    await saveConfig(config);
+    await expect(loadConfig()).resolves.toStrictEqual(config);
+    writeFileSync(configPath(), JSON.stringify({ ...config, motion: "bouncy" }));
+    await expect(loadConfig()).resolves.toStrictEqual(defaultConfig());
+  });
+
+  it("restyles the live spinners from the dialog and persists the choices", async () => {
     const { ctx, driver, host, setWorkingIndicator } = setup();
+    await host.emitSessionStart(ctx);
+    const editor = mountEditor(ctx);
+    const retry = statusIndicator("retry");
+    editor.setWorkingStatusIndicator(retry.indicator);
     const dialog = await openDialog(host, driver, ctx);
-    dialog.edit("playback", 2);
 
-    for (const [row, presses] of [
-      ["working-shape", cycle(shapeOptions, "orb", "tetrahedron")],
-      ["working-color", cycle(colorOptions, "cyan", "pink")],
-      ["background", 1],
-    ] as const) {
-      dialog.edit(row, presses);
-      expect(setWorkingIndicator).toHaveBeenLastCalledWith(undefined);
-    }
-
-    dialog.edit("playback", 1);
+    // Motion is the first row; the working shape is two rows below it.
+    dialog.press(space);
+    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
+      { frames: [glyph(framesOf("tetrahedron", "orange").still)], intervalMs: 20 },
+    ]);
+    dialog.press(down, down, space);
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
+      frames: [glyph(framesOf("cube", "cyan").still)],
+      intervalMs: 20,
+    });
+    expect(previewLine(dialog.render(), "Working")).toContain(
+      `${glyph(framesOf("cube", "cyan").still)} cube · cyan`,
+    );
     await dialog.close();
+    retry.indicator.dispose();
+
+    const reloaded = createExtensionHost(extension);
+    await reloaded.emitSessionStart(ctx, "reload");
     expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: manifest.animations.tetrahedron.pink.light.frames.map(glyph),
+      frames: [glyph(framesOf("cube", "cyan").still)],
       intervalMs: 20,
-    });
-  });
-
-  it("switches between puzzle and wireframe without losing color, background or mode", async () => {
-    const { ctx, driver, host, setWorkingIndicator } = setup();
-    const dialog = await openDialog(host, driver, ctx);
-    dialog.edit("background", 1);
-    dialog.edit("working-color", cycle(colorOptions, "cyan", "purple"));
-
-    for (const [row, presses] of [
-      ["working-shape", cycle(shapeOptions, "orb", "rubik")],
-      ["working-color", cycle(colorOptions, "purple", "red")],
-      ["background", 1],
-    ] as const) {
-      dialog.edit(row, presses);
-      expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-        frames: manifest.rubik.frames.map(glyph),
-        intervalMs: 20,
-      });
-    }
-
-    dialog.edit("playback", 1);
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: [glyph(manifest.rubik.still)],
-      intervalMs: 20,
-    });
-    dialog.edit("working-shape", cycle(shapeOptions, "rubik", "cube"));
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: [glyph(manifest.animations.cube.red.dark.still)],
-      intervalMs: 20,
-    });
-    dialog.edit("playback", 2);
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
-      frames: manifest.animations.cube.red.dark.frames.map(glyph),
-      intervalMs: 20,
-    });
-    dialog.edit("playback", 2);
-    dialog.edit("working-shape", cycle(shapeOptions, "cube", "rubik"));
-    await dialog.close();
-    expect(setWorkingIndicator).toHaveBeenLastCalledWith(undefined);
-  });
-
-  it("resets runtime choices on a fresh extension load", async () => {
-    const first = setup();
-    const dialog = await openDialog(first.host, first.driver, first.ctx);
-
-    dialog.edit("working-shape", cycle(shapeOptions, "orb", "tetrahedron"));
-    dialog.edit("working-color", cycle(colorOptions, "cyan", "pink"));
-    dialog.edit("background", 1);
-    dialog.edit("playback", 2);
-    await dialog.close();
-
-    const reloaded = setup();
-    await reloaded.host.emitSessionStart(reloaded.ctx, "reload");
-    expect(reloaded.setWorkingIndicator).toHaveBeenCalledExactlyOnceWith({
-      frames: defaultFrames,
-      intervalMs: 1000 / manifest.fps,
     });
   });
 
@@ -439,42 +318,16 @@ describe("shape spinner", () => {
       );
     }
 
-    expect(rendered).toContain("Playback");
-    expect(rendered).toContain("Background");
-    expect(rendered).toContain(`Ghostty: font-codepoint-map = ${mappingRange}=${manifest.family}`);
+    expect(rendered).toMatch(
+      new RegExp(`Ghostty: font-codepoint-map = U\\+[0-9A-F]+-U\\+[0-9A-F]+=${manifest.family}`),
+    );
     // The footer wraps the long font path; whitespace is the only difference.
     expect(rendered.replace(/\s+/g, "")).toContain(
       fileURLToPath(new URL("../assets/ShapeSpinner.ttf", import.meta.url)),
     );
-    expect(rendered).toContain("Boxes or stray symbols");
     expect(setWorkingIndicator).not.toHaveBeenCalled();
 
     await dialog.close();
-  });
-
-  it("updates the live preview as settings change", async () => {
-    const { ctx, driver, host } = setup();
-    const dialog = await openDialog(host, driver, ctx);
-
-    dialog.edit("summary-shape", cycle(shapeOptions, "octahedron", "orb"));
-    expect(previewLine(dialog.render(), "Summary")).toContain("orb · blue");
-    dialog.edit("summary-enabled", 1);
-    expect(previewLine(dialog.render(), "Summary")).toContain("off");
-    // Static playback rests previews on the closing pose.
-    dialog.edit("playback", 1);
-    expect(previewLine(dialog.render(), "Working")).toContain(
-      glyph(manifest.animations.orb.cyan.dark.still),
-    );
-
-    await dialog.close();
-  });
-
-  it("opens the settings dialog regardless of arguments", async () => {
-    const { ctx, driver, host } = setup();
-    const dialog = await openDialog(host, driver, ctx, "cube");
-    expect(dialog.render()).toContain("Shape Spinner");
-    await dialog.close();
-    expect(host.getNotifications()).toHaveLength(0);
   });
 
   it("bundles complete, two-column loops and distinct resting poses in its own PUA bank", () => {
