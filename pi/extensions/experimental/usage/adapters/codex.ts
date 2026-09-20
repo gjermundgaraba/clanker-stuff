@@ -105,21 +105,21 @@ export const mapCodexUsagePayload = (
   ].filter(isDefined);
 
   const planLabel = payload.plan_type;
-  let creditsRemaining: number | undefined = undefined;
+  let creditBalance: number | undefined = undefined;
 
   if (payload.credits?.has_credits === true) {
     const balance = payload.credits.balance;
 
     if (balance !== null && balance !== undefined && String(balance).trim() !== "") {
       const converted = Number(balance);
-      creditsRemaining = Number.isFinite(converted) ? converted : undefined;
+      creditBalance = Number.isFinite(converted) ? converted : undefined;
     }
   }
 
   const snapshot: UsageSnapshot = {
     fetchedAt: nowMs,
     provider: "openai-codex",
-    windows,
+    quotaWindows: windows,
   };
 
   if (payload.rate_limit?.allowed !== undefined) {
@@ -130,8 +130,8 @@ export const mapCodexUsagePayload = (
     snapshot.planLabel = planLabel;
   }
 
-  if (creditsRemaining !== undefined) {
-    snapshot.creditsRemaining = creditsRemaining;
+  if (creditBalance !== undefined) {
+    snapshot.accounting = { available: creditBalance, kind: "credit-balance" };
   }
 
   return usageResult(snapshot);

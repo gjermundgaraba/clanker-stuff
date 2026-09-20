@@ -3,6 +3,7 @@ export const SUPPORTED_PROVIDERS = [
   "openai-codex",
   "github-copilot",
   "kimi-coding",
+  "radius",
   "xai",
   "zai",
   "opencode-go",
@@ -19,12 +20,23 @@ export interface UsageWindow {
   resetsAt?: string;
 }
 
+export type UsageAccounting =
+  | { kind: "credit-balance"; available: number }
+  | {
+      kind: "radius-billing";
+      available: number;
+      balance: number;
+      reserved: number;
+      currentMonthSpend: number;
+      periodEndsAt: string;
+    };
+
 export interface UsageSnapshot {
   provider: SupportedProvider;
   planLabel?: string;
-  windows: UsageWindow[];
+  quotaWindows: UsageWindow[];
+  accounting?: UsageAccounting;
   ordinaryUsageAllowed?: boolean;
-  creditsRemaining?: number;
   fetchedAt: number;
 }
 
@@ -42,19 +54,12 @@ export const usageFailure = (
   kind: UsageFetchError["kind"] = "failure",
 ): UsageFetchResult => ({ error: { kind, message }, ok: false });
 
-const NO_WINDOWS_MESSAGE = "no usage windows in response";
-
-export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult => {
-  if (
-    snapshot.windows.length === 0 &&
-    snapshot.ordinaryUsageAllowed === undefined &&
-    snapshot.creditsRemaining === undefined
-  ) {
-    return usageFailure(NO_WINDOWS_MESSAGE);
-  }
-
-  return { ok: true, snapshot };
-};
+export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
+  snapshot.quotaWindows.length > 0 ||
+  snapshot.accounting !== undefined ||
+  snapshot.ordinaryUsageAllowed !== undefined
+    ? { ok: true, snapshot }
+    : usageFailure("no usage data in response");
 
 const SUPPORTED_PROVIDER_IDS = new Set<string>(SUPPORTED_PROVIDERS);
 
@@ -75,6 +80,7 @@ const PROVIDER_DISPLAY_NAMES = {
   "kimi-coding": "Kimi",
   "openai-codex": "Codex",
   "opencode-go": "OpenCode Go",
+  radius: "Radius",
   xai: "Grok",
   zai: "GLM",
 } satisfies Record<SupportedProvider, string>;

@@ -86,7 +86,7 @@ describe("zai usage", () => {
         fetchedAt: NOW,
         planLabel: "Pro",
         provider: "zai",
-        windows: [
+        quotaWindows: [
           {
             id: "5h",
             label: "5h",
@@ -112,7 +112,7 @@ describe("zai usage", () => {
         fetchedAt: NOW,
         planLabel: "Lite",
         provider: "zai",
-        windows: [
+        quotaWindows: [
           {
             id: "5h",
             label: "5h",
@@ -147,7 +147,7 @@ describe("zai usage", () => {
       NOW,
     );
 
-    expect(result.ok && result.snapshot.windows[0]?.remainingPercent).toBe(70);
+    expect(result.ok && result.snapshot.quotaWindows[0]?.remainingPercent).toBe(70);
   });
 
   it("surfaces the error envelope returned with HTTP 200", () => {
@@ -173,7 +173,7 @@ describe("zai usage", () => {
       NOW,
     );
 
-    expect(result.ok && result.snapshot.windows).toStrictEqual([
+    expect(result.ok && result.snapshot.quotaWindows).toStrictEqual([
       {
         id: "5h",
         label: "5h",
@@ -201,7 +201,7 @@ describe("zai usage", () => {
   it("fails when no usable limits are present", () => {
     const result = mapZaiQuotaPayload({ code: 200, data: { limits: [] } }, NOW);
     expect(result).toStrictEqual({
-      error: { kind: "failure", message: "no usage windows in response" },
+      error: { kind: "failure", message: "no usage data in response" },
       ok: false,
     });
   });

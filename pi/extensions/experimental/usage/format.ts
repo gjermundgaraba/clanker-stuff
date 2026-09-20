@@ -1,5 +1,11 @@
 import { providerDisplayName } from "./providers.js";
-import type { SupportedProvider, UsageSnapshot, UsageWindow, UsageWindowId } from "./providers.js";
+import type {
+  SupportedProvider,
+  UsageAccounting,
+  UsageSnapshot,
+  UsageWindow,
+  UsageWindowId,
+} from "./providers.js";
 
 const WINDOW_ORDER = {
   "5h": 0,
@@ -8,6 +14,13 @@ const WINDOW_ORDER = {
   month: 4,
   week: 3,
 } satisfies Record<UsageWindowId, number>;
+
+const USD_FORMAT = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  style: "currency",
+});
+
+const CREDIT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 const orderWindows = (windows: UsageWindow[]): UsageWindow[] =>
   windows.toSorted((left, right) => WINDOW_ORDER[left.id] - WINDOW_ORDER[right.id]);
@@ -46,42 +59,33 @@ export const formatResetDuration = (resetsAt: string, nowMs: number = Date.now()
 const formatAge = (fetchedAt: number, nowMs: number = Date.now()): string => {
   const ageMs = Math.max(0, nowMs - fetchedAt);
 
-  if (ageMs < 1000) {
-    return "just now";
-  }
-
+  if (ageMs < 1000) return "just now";
   const seconds = Math.floor(ageMs / 1000);
 
-  if (seconds < 60) {
-    return `${seconds}s ago`;
-  }
-
+  if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
 
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
 
-  if (hours < 48) {
-    return `${hours}h ago`;
-  }
+  if (hours < 48) return `${hours}h ago`;
 
-  const days = Math.floor(hours / 24);
-
-  return `${days}d ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 };
 
-const formatCreditsAmount = (value: number): string => {
-  if (Number.isInteger(value)) {
-    return String(value);
-  }
+export const formatUsd = (value: number): string => USD_FORMAT.format(value);
 
-  const rounded = Math.round(value * 100) / 100;
+export const formatCredits = (value: number): string => CREDIT_FORMAT.format(value);
 
-  return String(rounded);
-};
+const accountingLines = (accounting: UsageAccounting, nowMs: number): string[] =>
+  accounting.kind === "credit-balance"
+    ? [`credits  ${formatCredits(accounting.available)}`]
+    : [
+        `available  ${formatUsd(accounting.available)}`,
+        `balance  ${formatUsd(accounting.balance)}`,
+        `reserved  ${formatUsd(accounting.reserved)}`,
+        `month spend  ${formatUsd(accounting.currentMonthSpend)}  ends in ${formatResetDuration(accounting.periodEndsAt, nowMs)}`,
+      ];
 
 export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()): string => {
   const lines: string[] = [];
@@ -98,7 +102,7 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
     lines.push(`ordinary usage  ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`);
   }
 
-  for (const window of orderWindows(snapshot.windows)) {
+  for (const window of orderWindows(snapshot.quotaWindows)) {
     const reset =
       window.resetsAt === undefined || window.resetsAt.length === 0
         ? "resets unknown"
@@ -109,8 +113,8 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
     );
   }
 
-  if (snapshot.creditsRemaining !== undefined) {
-    lines.push(`credits  ${formatCreditsAmount(snapshot.creditsRemaining)}`);
+  if (snapshot.accounting !== undefined) {
+    lines.push(...accountingLines(snapshot.accounting, nowMs));
   }
 
   return lines.join("\n");

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { getActiveProvider, providerDisplayName, SUPPORTED_PROVIDERS } from "../providers.js";
+import {
+  getActiveProvider,
+  providerDisplayName,
+  SUPPORTED_PROVIDERS,
+  usageResult,
+} from "../providers.js";
 
 describe("providers", () => {
   it("recognizes exactly the supported providers", () => {
@@ -17,9 +22,24 @@ describe("providers", () => {
       "Codex",
       "Copilot",
       "Kimi",
+      "Radius",
       "Grok",
       "GLM",
       "OpenCode Go",
     ]);
+  });
+
+  it("requires quota, accounting, or explicit eligibility", () => {
+    expect(usageResult({ fetchedAt: 1, provider: "radius", quotaWindows: [] })).toMatchObject({
+      ok: false,
+    });
+    expect(
+      usageResult({
+        accounting: { available: 0, kind: "credit-balance" },
+        fetchedAt: 1,
+        provider: "openai-codex",
+        quotaWindows: [],
+      }),
+    ).toMatchObject({ ok: true });
   });
 });

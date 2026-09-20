@@ -6,8 +6,10 @@ import {
   FOOTER_READY_EVENT,
   FOOTER_READY_REQUEST_EVENT,
   FOOTER_WIDGET_EVENT,
+  FooterContentSchema,
   FooterReadyMessageSchema,
   FooterReadyRequestMessageSchema,
+  MAX_FOOTER_CONTENT_SPANS,
 } from "../index.js";
 
 describe("footer protocol", () => {
@@ -43,5 +45,22 @@ describe("footer protocol", () => {
         type: "ready",
       }),
     ).toBeFalsy();
+  });
+
+  it("shares the content span limit with producers", () => {
+    const span = { text: "usage" };
+
+    expect(
+      Value.Check(
+        FooterContentSchema,
+        Array.from({ length: MAX_FOOTER_CONTENT_SPANS }, () => span),
+      ),
+    ).toBe(true);
+    expect(
+      Value.Check(
+        FooterContentSchema,
+        Array.from({ length: MAX_FOOTER_CONTENT_SPANS + 1 }, () => span),
+      ),
+    ).toBe(false);
   });
 });

@@ -100,7 +100,7 @@ describe("xai combined payloads", () => {
       snapshot: {
         fetchedAt: 1000,
         provider: "xai",
-        windows: [{ id: "month", label: "month", remainingPercent: 50 }],
+        quotaWindows: [{ id: "month", label: "month", remainingPercent: 50 }],
       },
     });
   });
@@ -132,10 +132,10 @@ describe("xai combined payloads", () => {
       return;
     }
 
-    expect(result.snapshot.creditsRemaining).toBe(1084);
-    expect(result.snapshot.windows.find((window) => window.id === "week")?.remainingPercent).toBe(
-      0,
-    );
+    expect(result.snapshot.accounting?.available).toBe(1084);
+    expect(
+      result.snapshot.quotaWindows.find((window) => window.id === "week")?.remainingPercent,
+    ).toBe(0);
   });
 });
 
@@ -201,7 +201,7 @@ describe("xai fetch", () => {
       snapshot: {
         fetchedAt: 9,
         provider: "xai",
-        windows: [{ id: "month", label: "month", remainingPercent: 75 }],
+        quotaWindows: [{ id: "month", label: "month", remainingPercent: 75 }],
       },
     });
   });
@@ -289,10 +289,10 @@ describe("xai optional payload boundaries", () => {
         expect(result).toStrictEqual({
           ok: true,
           snapshot: {
-            creditsRemaining: 10,
+            accounting: { available: 10, kind: "credit-balance" },
             fetchedAt: 1,
             provider: "xai",
-            windows: [{ id: "week", label: "week", remainingPercent: 80 }],
+            quotaWindows: [{ id: "week", label: "week", remainingPercent: 80 }],
           },
         });
       } finally {
@@ -317,7 +317,7 @@ describe("xai optional payload boundaries", () => {
 
     expect(result.ok).toBe(true);
 
-    if (result.ok) expect(result.snapshot.windows.map(({ id }) => id)).toStrictEqual(ids);
+    if (result.ok) expect(result.snapshot.quotaWindows.map(({ id }) => id)).toStrictEqual(ids);
   });
 
   it("observes weekly rejection even when the monthly request rejects", async () => {
@@ -353,7 +353,7 @@ describe("xai optional payload boundaries", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      snapshot: { windows: [{ id: "month", remainingPercent: 100 }] },
+      snapshot: { quotaWindows: [{ id: "month", remainingPercent: 100 }] },
     });
   });
 });

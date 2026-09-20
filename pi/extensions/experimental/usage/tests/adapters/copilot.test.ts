@@ -21,7 +21,7 @@ describe("copilot usage", () => {
       snapshot: {
         fetchedAt: NOW,
         provider: "github-copilot",
-        windows: [
+        quotaWindows: [
           {
             id: "month",
             label: "Premium",

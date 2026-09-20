@@ -9,6 +9,7 @@ The usage extension reads credentials already configured for pi and uses them on
 | Kimi           | Moonshot usage API        |
 | OpenAI Codex   | OpenAI usage API          |
 | OpenCode Go    | OpenCode Go usage API     |
+| Radius         | Radius live billing API   |
 | xAI            | xAI management API        |
 | Z.ai           | Z.ai monitor usage API    |
 
@@ -23,3 +24,9 @@ The active footer shows the most-used ordinary window and marks ordinary usage u
 The reader is passive: it sends only a usage GET with bearer and account headers. It does not send the Luna Reserve opt-in header, activate Reserve, or consume Reserve/reset credits. Account changes clear cached usage and fence in-flight responses; ordinary same-account refreshes retain useful cached results on transient failures. The in-memory snapshot requires no migration.
 
 Source contract: [usage client](https://github.com/openai/codex/blob/36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564/codex-rs/backend-client/src/client/rate_limit_resets.rs).
+
+## Radius accounting
+
+Radius reads the effective `radius` provider's live `/v1/billing` summary with either its OAuth credential or `RADIUS_API_KEY`. The active footer shows available USD balance; optional details show total balance, reserved funds, and finalized current-month spend. Reservations settle asynchronously, so available balance can change as reserved capacity becomes an actual charge and can temporarily be negative.
+
+The integration accepts one unambiguous HTTP(S) gateway from the provider's model catalog. It sends no billing request when the gateway cannot be determined safely. Providers registered under IDs other than `radius` are not discovered. Radius usage does not query delayed analytics exports or turn organization budgets into percentage quotas.

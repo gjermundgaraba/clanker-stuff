@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCodexRuntime } from "../../codex-provider/runtime.js";
 import type { ProviderAuthClient } from "../auth.js";
+import { resolveRadiusBillingUrl } from "../controller.js";
 import type { FetchJson } from "../http.js";
 import { createUsageExtension } from "../index.js";
 
@@ -48,6 +49,13 @@ const claudeModel: Model<Api> = {
   provider: "anthropic",
 };
 
+const radiusModel: Model<Api> = {
+  ...codexModel,
+  id: "balanced",
+  name: "Balanced",
+  provider: "radius",
+};
+
 const authClient: ProviderAuthClient = {
   getProviderAuth: async () => ({
     auth: { apiKey: makeJwt() },
@@ -68,7 +76,10 @@ let fetchJson = vi.spyOn(client, "fetchJson");
 
 const publishModels: RefreshModelsContext["publish"] = () => Promise.resolve(true);
 
-const stubDependencies = (nowRef: { value: number }) => {
+const stubDependencies = (
+  nowRef: { value: number },
+  radiusBillingUrl: string | null = "https://radius.pi.dev/v1/billing",
+) => {
   fetchJson = vi.spyOn(client, "fetchJson");
   fetchJson.mockReset();
   fetchJson.mockImplementation(successfulFetchJson);
@@ -77,10 +88,25 @@ const stubDependencies = (nowRef: { value: number }) => {
     fetchJson: client.fetchJson,
     now: () => nowRef.value,
     providerAuthClient: () => authClient,
+    radiusBillingUrl: () => radiusBillingUrl ?? undefined,
   });
 };
 
 describe("usage controller", () => {
+  it("resolves one effective Radius gateway and rejects ambiguity", () => {
+    expect(
+      resolveRadiusBillingUrl([
+        undefined,
+        "https://gateway.example/v1",
+        "https://gateway.example/v1/",
+      ]),
+    ).toBe("https://gateway.example/v1/billing");
+    expect(
+      resolveRadiusBillingUrl(["https://gateway.example/v1", "https://other.example/v1"]),
+    ).toBeUndefined();
+    expect(resolveRadiusBillingUrl(["not a URL"])).toBeUndefined();
+  });
+
   it("keeps a native fallback and publishes rich snapshots when a host is ready", async () => {
     const extension = stubDependencies({ value: 1000 });
     const host = createExtensionHost(extension, { model: codexModel });
@@ -128,6 +154,43 @@ describe("usage controller", () => {
     expect(
       messages.filter((message) => "type" in message && message.type === "remove"),
     ).toHaveLength(2);
+  });
+
+  it("renders Radius balance usage from the effective gateway", async () => {
+    const extension = stubDependencies({ value: 1000 }, "https://gateway.example/v1/billing");
+    fetchJson.mockImplementation(
+      okFetch({
+        balance: { available: 43.26, credit_balance: 46.51, reserved: 3.25 },
+        currency: "USD",
+        current_period: {
+          actual_charged: 33.48,
+          ends_at: "2026-10-01T00:00:00.000Z",
+        },
+        ok: true,
+      }),
+    );
+    const host = createExtensionHost(extension, { model: radiusModel });
+    const context = host.createContext({ model: radiusModel });
+
+    await host.emitSessionStart(context);
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toBe("usage Radius $43.26 available");
+    });
+    expect(fetchJson.mock.calls[0]?.[0]).toBe("https://gateway.example/v1/billing");
+    await host.emitSessionShutdown(context);
+  });
+
+  it("does not send a Radius credential without an unambiguous gateway", async () => {
+    const extension = stubDependencies({ value: 1000 }, null);
+    const host = createExtensionHost(extension, { model: radiusModel });
+    const context = host.createContext({ model: radiusModel });
+
+    await host.emitSessionStart(context);
+    await vi.waitFor(() => {
+      expect(host.getStatus("usage")).toBe("usage unavailable");
+    });
+    expect(fetchJson).not.toHaveBeenCalled();
+    await host.emitSessionShutdown(context);
   });
 
   it("works without a rich footer host", async () => {

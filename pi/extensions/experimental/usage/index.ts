@@ -8,7 +8,7 @@ export const createUsageExtension = (dependencies?: UsageControllerDependencies)
     const runtime = createUsageRuntime(pi, dependencies);
 
     pi.registerCommand("usage", {
-      description: "Show subscription usage for supported providers",
+      description: "Show account usage for supported providers",
       handler: (args, ctx) => runtime.runCommand(args, ctx),
     });
 

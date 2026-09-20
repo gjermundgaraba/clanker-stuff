@@ -101,14 +101,17 @@ export const mapXaiUsagePayloads = (
     weeklyPayload === undefined ? undefined : mapXaiWeeklyPayload(weeklyPayload),
   ].filter(isDefined);
 
-  const creditsRemaining =
+  const prepaidBalance =
     weeklyPayload === undefined ? undefined : mapXaiPrepaidBalance(weeklyPayload);
 
-  return usageResult(
-    creditsRemaining === undefined
-      ? { fetchedAt: nowMs, provider: "xai", windows }
-      : { creditsRemaining, fetchedAt: nowMs, provider: "xai", windows },
-  );
+  return usageResult({
+    ...(prepaidBalance === undefined
+      ? {}
+      : { accounting: { available: prepaidBalance, kind: "credit-balance" as const } }),
+    fetchedAt: nowMs,
+    provider: "xai",
+    quotaWindows: windows,
+  });
 };
 
 export const fetchXaiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {

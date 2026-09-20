@@ -1,9 +1,20 @@
-import type { FooterWidgetHealthState, FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
+import {
+  MAX_FOOTER_CONTENT_SPANS,
+  type FooterContent,
+  type FooterSpan,
+  type FooterWidgetHealthState,
+  type FooterWidgetSnapshot,
+} from "@clanker-stuff/footer-protocol";
 import { percentTone } from "@clanker-stuff/pi-tones";
 
-import { formatResetDuration } from "./format.js";
+import { formatCredits, formatResetDuration, formatUsd } from "./format.js";
 import { providerDisplayName } from "./providers.js";
-import type { SupportedProvider, UsageSnapshot, UsageWindow } from "./providers.js";
+import type {
+  SupportedProvider,
+  UsageAccounting,
+  UsageSnapshot,
+  UsageWindow,
+} from "./providers.js";
 
 const ACTIVE_WIDGET_ID = "clanker.usage.active";
 
@@ -23,10 +34,7 @@ const richText = (value: string, maximum: number): string => {
   let length = 0;
 
   for (const char of value) {
-    if (length >= maximum) {
-      break;
-    }
-
+    if (length >= maximum) break;
     const code = char.codePointAt(0) ?? 0;
     result += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : char;
     length += 1;
@@ -38,13 +46,11 @@ const richText = (value: string, maximum: number): string => {
 const usedPercent = (window: UsageWindow): number =>
   Math.min(100, Math.max(0, 100 - window.remainingPercent));
 
-const selectActiveWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => {
+const selectQuotaWindow = (snapshot: UsageSnapshot): UsageWindow | undefined => {
   let selected: UsageWindow | undefined;
 
-  for (const window of snapshot.windows) {
-    if (selected === undefined || usedPercent(window) > usedPercent(selected)) {
-      selected = window;
-    }
+  for (const window of snapshot.quotaWindows) {
+    if (selected === undefined || usedPercent(window) > usedPercent(selected)) selected = window;
   }
 
   return selected;
@@ -59,15 +65,11 @@ const health = (
   state: FooterWidgetHealthState,
   now: number,
   message?: string,
-): FooterWidgetSnapshot["health"] => {
-  const health: FooterWidgetSnapshot["health"] = { state, updatedAt: now };
-
-  if (message !== undefined && message.length > 0) {
-    health.message = richText(message, 512);
-  }
-
-  return health;
-};
+): NonNullable<FooterWidgetSnapshot["health"]> => ({
+  ...(message !== undefined && message.length > 0 ? { message: richText(message, 512) } : {}),
+  state,
+  updatedAt: now,
+});
 
 const snapshotFor = (presentation: UsagePresentation): UsageSnapshot | undefined =>
   presentation.kind === "ready" || presentation.kind === "stale"
@@ -101,23 +103,134 @@ export const presentationProvider = (
 ): SupportedProvider | undefined => {
   switch (presentation.kind) {
     case "loading":
-    case "error": {
+    case "error":
       return presentation.provider;
-    }
-
     case "ready":
-    case "stale": {
+    case "stale":
       return presentation.snapshot.provider;
-    }
-
-    case "unsupported": {
+    case "unsupported":
       return undefined;
-    }
-
-    default: {
+    default:
       return unreachablePresentation(presentation);
-    }
   }
+};
+
+const accountingText = (accounting: UsageAccounting): string =>
+  accounting.kind === "credit-balance"
+    ? `${formatCredits(accounting.available)} credits`
+    : `${formatUsd(accounting.available)} available`;
+
+const accountingMetric = (accounting: UsageAccounting): FooterSpan => ({
+  text: accountingText(accounting),
+  tone: accounting.kind === "radius-billing" && accounting.available <= 0 ? "warning" : "text",
+});
+
+const unavailableWarning = (snapshot: UsageSnapshot): FooterSpan[] =>
+  snapshot.ordinaryUsageAllowed === false
+    ? [{ text: " · ordinary usage unavailable", tone: "warning" }]
+    : [];
+
+const activeContent = (snapshot: UsageSnapshot, now: number): FooterContent => {
+  const window = selectQuotaWindow(snapshot);
+
+  if (window !== undefined) {
+    const percent = usedPercent(window);
+    const filled = Math.round((percent / 100) * 10);
+
+    const reset =
+      window.resetsAt === undefined ? "" : ` · ${formatResetDuration(window.resetsAt, now)}`;
+
+    return [
+      { text: `${providerLabel(snapshot)} ${richText(window.label, 80)} `, tone: "muted" },
+      { text: "━".repeat(filled), tone: percentTone(percent) },
+      { text: "─".repeat(10 - filled), tone: "dim" },
+      { text: ` ${Math.round(percent)}%${reset}`, tone: percentTone(percent) },
+      ...unavailableWarning(snapshot),
+    ];
+  }
+
+  if (snapshot.accounting !== undefined) {
+    return [
+      { text: `${providerLabel(snapshot)} `, tone: "muted" },
+      accountingMetric(snapshot.accounting),
+      ...unavailableWarning(snapshot),
+    ];
+  }
+
+  if (snapshot.ordinaryUsageAllowed !== undefined) {
+    return [
+      {
+        text: `${providerLabel(snapshot)} ordinary usage ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`,
+        tone: snapshot.ordinaryUsageAllowed ? "text" : "warning",
+      },
+    ];
+  }
+
+  return [];
+};
+
+const accountingDetails = (accounting: UsageAccounting): FooterSpan[] =>
+  accounting.kind === "credit-balance"
+    ? []
+    : [
+        { text: `${formatUsd(accounting.balance)} balance`, tone: "muted" },
+        { text: `${formatUsd(accounting.reserved)} reserved`, tone: "muted" },
+        { text: `${formatUsd(accounting.currentMonthSpend)} month spend`, tone: "muted" },
+      ];
+
+const withSeparators = (segments: FooterSpan[]): FooterContent =>
+  segments.slice(0, MAX_FOOTER_CONTENT_SPANS).map((segment, index) => ({
+    ...segment,
+    text: `${index === 0 ? "" : " · "}${segment.text}`,
+  }));
+
+const detailsContent = (snapshot: UsageSnapshot, now: number): FooterContent => {
+  const selected = selectQuotaWindow(snapshot);
+  const segments: FooterSpan[] = [];
+
+  for (const window of snapshot.quotaWindows) {
+    if (window === selected) continue;
+
+    const reset =
+      window.resetsAt === undefined ? "" : ` ${formatResetDuration(window.resetsAt, now)}`;
+
+    const percent = usedPercent(window);
+    segments.push({
+      text: `${richText(window.label, 80)} ${Math.round(percent)}%${reset}`,
+      tone: percentTone(percent),
+    });
+  }
+
+  if (snapshot.accounting !== undefined) {
+    if (selected !== undefined) segments.push(accountingMetric(snapshot.accounting));
+    segments.push(...accountingDetails(snapshot.accounting));
+  }
+
+  return withSeparators(segments);
+};
+
+const fallbackContent = (snapshot: UsageSnapshot): string => {
+  const label = providerDisplayName(snapshot.provider);
+  const window = selectQuotaWindow(snapshot);
+  let metric: string;
+
+  if (window !== undefined) {
+    metric = `${window.label} ${Math.round(usedPercent(window))}%`;
+  } else if (snapshot.accounting !== undefined) {
+    metric = accountingText(snapshot.accounting);
+  } else if (snapshot.ordinaryUsageAllowed !== undefined) {
+    metric = `ordinary usage ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`;
+  } else {
+    return "usage unavailable";
+  }
+
+  const warning =
+    snapshot.ordinaryUsageAllowed === false &&
+    (window !== undefined || snapshot.accounting !== undefined)
+      ? " ordinary unavailable"
+      : "";
+
+  return richText(`usage ${label} ${metric}${warning}`, 240);
 };
 
 export const activeSnapshot = (
@@ -126,46 +239,17 @@ export const activeSnapshot = (
 ): FooterWidgetSnapshot => {
   const snapshot = snapshotFor(presentation);
   const { message, state } = healthFor(presentation);
-  const status = health(state, now, message);
-  const window = snapshot ? selectActiveWindow(snapshot) : undefined;
-  const percent = window ? usedPercent(window) : 0;
-  const rounded = `${Math.round(percent)}%`;
-
-  const reset =
-    window?.resetsAt === undefined ? "" : ` · ${formatResetDuration(window.resetsAt, now)}`;
-
-  const filled = Math.round((percent / 100) * 10);
-
-  const full =
-    snapshot && window
-      ? [
-          {
-            text: `${providerLabel(snapshot)} ${richText(window.label, 80)} `,
-            tone: "muted" as const,
-          },
-          { text: "━".repeat(filled), tone: percentTone(percent) },
-          { text: "─".repeat(10 - filled), tone: "dim" as const },
-          { text: ` ${rounded}${reset}`, tone: percentTone(percent) },
-        ]
-      : snapshot?.ordinaryUsageAllowed !== undefined
-        ? [
-            {
-              text: `${providerLabel(snapshot)} ordinary usage ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`,
-              tone: snapshot.ordinaryUsageAllowed ? ("text" as const) : ("warning" as const),
-            },
-          ]
-        : state === "loading"
-          ? [{ text: "loading usage", tone: "dim" as const }]
-          : [];
 
   return {
     consumesStatusKeys: [STATUS_KEY],
     content:
-      snapshot?.ordinaryUsageAllowed === false && window
-        ? [...full, { text: " · ordinary usage unavailable", tone: "warning" }]
-        : full,
+      snapshot === undefined
+        ? state === "loading"
+          ? [{ text: "loading usage", tone: "dim" }]
+          : []
+        : activeContent(snapshot, now),
     defaults: { enabled: true },
-    ...(status !== undefined ? { health: status } : {}),
+    health: health(state, now, message),
     icon: {
       glyphs: { ascii: "usage", nerd: "󰓅", unicode: "◴" },
       tone: "dim",
@@ -182,28 +266,12 @@ export const detailsSnapshot = (
 ): FooterWidgetSnapshot => {
   const snapshot = snapshotFor(presentation);
   const { message, state } = healthFor(presentation);
-  const status = health(state, now, message);
-  const active = snapshot ? selectActiveWindow(snapshot) : undefined;
-
-  // ponytail: eight rich detail windows stay within protocol text bounds; /usage still shows all.
-  const windows = snapshot
-    ? snapshot.windows.filter((window) => window !== active).slice(0, 8)
-    : [];
-
-  const full = windows.map((window, index) => ({
-    text: `${index === 0 ? "" : " · "}${richText(window.label, 80)} ${Math.round(usedPercent(window))}%${
-      window.resetsAt !== undefined && window.resetsAt.length > 0
-        ? ` ${formatResetDuration(window.resetsAt, now)}`
-        : ""
-    }`,
-    tone: percentTone(usedPercent(window)),
-  }));
 
   return {
     consumesStatusKeys: [STATUS_KEY],
-    content: full,
+    content: snapshot === undefined ? [] : detailsContent(snapshot, now),
     defaults: { enabled: false },
-    ...(status !== undefined ? { health: status } : {}),
+    health: health(state, now, message),
     id: DETAILS_WIDGET_ID,
     label: "Provider usage details",
   };
@@ -211,20 +279,10 @@ export const detailsSnapshot = (
 
 export const fallbackText = (presentation: UsagePresentation): string => {
   const snapshot = snapshotFor(presentation);
-  const window = snapshot ? selectActiveWindow(snapshot) : undefined;
 
-  if (snapshot && window) {
-    const marker = presentation.kind === "stale" ? " !" : "";
-
-    return richText(
-      `usage ${providerDisplayName(snapshot.provider)} ${window.label} ${Math.round(usedPercent(window))}%${snapshot.ordinaryUsageAllowed === false ? " ordinary unavailable" : ""}${marker}`,
-      240,
-    );
+  if (snapshot === undefined) {
+    return presentation.kind === "loading" ? "usage loading" : "usage unavailable";
   }
 
-  if (snapshot?.ordinaryUsageAllowed !== undefined) {
-    return `usage ${providerDisplayName(snapshot.provider)} ordinary ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`;
-  }
-
-  return presentation.kind === "loading" ? "usage loading" : "usage unavailable";
+  return `${fallbackContent(snapshot)}${presentation.kind === "stale" ? " !" : ""}`;
 };

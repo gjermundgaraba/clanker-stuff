@@ -33,7 +33,7 @@ describe("opencode go usage", () => {
       snapshot: {
         fetchedAt: NOW,
         provider: "opencode-go",
-        windows: [
+        quotaWindows: [
           {
             id: "5h",
             label: "5h",
@@ -68,7 +68,7 @@ describe("opencode go usage", () => {
       snapshot: {
         fetchedAt: NOW,
         provider: "opencode-go",
-        windows: [
+        quotaWindows: [
           {
             id: "5h",
             label: "5h",
@@ -83,7 +83,7 @@ describe("opencode go usage", () => {
   it("fails when a valid payload has no windows", () => {
     expect(mapOpenCodeGoUsagePayload({ usage: {} }, NOW)).toStrictEqual({
       ok: false,
-      error: { kind: "failure", message: "no usage windows in response" },
+      error: { kind: "failure", message: "no usage data in response" },
     });
   });
 

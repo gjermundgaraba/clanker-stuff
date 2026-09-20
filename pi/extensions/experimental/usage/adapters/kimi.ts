@@ -74,11 +74,7 @@ export const mapKimiUsagePayload = (
       : makeUsageWindow("week", weeklyPercent, parseIso(usage?.resetTime)),
   ].filter(isDefined);
 
-  return usageResult({
-    fetchedAt: nowMs,
-    provider: "kimi-coding",
-    windows,
-  });
+  return usageResult({ fetchedAt: nowMs, provider: "kimi-coding", quotaWindows: windows });
 };
 
 export const fetchKimiUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {

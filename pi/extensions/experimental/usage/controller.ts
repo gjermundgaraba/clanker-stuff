@@ -21,6 +21,7 @@ import { formatDetail, formatProviderError, formatRefreshFailed } from "./format
 import { defaultFetchJson } from "./http.js";
 import { getActiveProvider, SUPPORTED_PROVIDERS } from "./providers.js";
 import type { SupportedProvider, UsageFetchResult } from "./providers.js";
+import { usageFailure } from "./providers.js";
 import {
   activeSnapshot,
   detailsSnapshot,
@@ -39,7 +40,47 @@ export interface UsageControllerDependencies {
   fetchJson: typeof defaultFetchJson;
   now: () => number;
   providerAuthClient: (ctx: ExtensionContext) => ProviderAuthClient;
+  radiusBillingUrl?: (ctx: ExtensionContext) => string | undefined;
 }
+
+export const resolveRadiusBillingUrl = (
+  baseUrls: readonly (string | undefined)[],
+): string | undefined => {
+  const candidates = baseUrls.filter((value): value is string => value !== undefined);
+
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  const normalized = candidates.map((value) => {
+    try {
+      const url = new URL("/v1/billing", value);
+
+      return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+
+  if (normalized.some((value) => value === undefined)) {
+    return undefined;
+  }
+
+  const distinct = new Set(normalized);
+
+  return distinct.size === 1 ? distinct.values().next().value : undefined;
+};
+
+const radiusBillingUrlFromContext = (ctx: ExtensionContext): string | undefined => {
+  const provider = ctx.modelRegistry.getProvider("radius");
+
+  return provider === undefined
+    ? undefined
+    : resolveRadiusBillingUrl([
+        provider.baseUrl,
+        ...provider.getModels().map((model) => model.baseUrl),
+      ]);
+};
 
 const defaultDependencies: UsageControllerDependencies = {
   fetchJson: defaultFetchJson,
@@ -66,6 +107,7 @@ export const createUsageController = (
   dependencies: UsageControllerDependencies = defaultDependencies,
 ) => {
   const { fetchJson, now, providerAuthClient } = dependencies;
+  const radiusBillingUrl = dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
   let cache = new UsageCache({ now });
 
   const usageFetchers = {
@@ -94,6 +136,17 @@ export const createUsageController = (
 
       return await fetchOpenCodeGoUsage(deps);
     },
+    radius: async (deps: AdapterDeps, ctx: ExtensionContext) => {
+      const billingUrl = radiusBillingUrl(ctx);
+
+      if (billingUrl === undefined) {
+        return usageFailure("could not determine Radius gateway", "unavailable");
+      }
+
+      const { fetchRadiusUsage } = await import("./adapters/radius.js");
+
+      return await fetchRadiusUsage(deps, billingUrl);
+    },
     xai: async (deps: AdapterDeps) => {
       const { fetchXaiUsage } = await import("./adapters/xai.js");
 
@@ -104,7 +157,10 @@ export const createUsageController = (
 
       return await fetchZaiUsage(deps);
     },
-  } satisfies Record<SupportedProvider, (deps: AdapterDeps) => Promise<UsageFetchResult>>;
+  } satisfies Record<
+    SupportedProvider,
+    (deps: AdapterDeps, ctx: ExtensionContext) => Promise<UsageFetchResult>
+  >;
 
   let generation = 0;
   let current: { context: ExtensionContext; presentation: UsagePresentation } | undefined;
@@ -184,11 +240,14 @@ export const createUsageController = (
     force: boolean,
   ): Promise<UsageFetchResult> =>
     cache.getOrFetch(provider, force, () =>
-      usageFetchers[provider]({
-        authClient: providerAuthClient(ctx),
-        fetchJson,
-        now,
-      }),
+      usageFetchers[provider](
+        {
+          authClient: providerAuthClient(ctx),
+          fetchJson,
+          now,
+        },
+        ctx,
+      ),
     );
 
   const refresh = (

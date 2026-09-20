@@ -36,7 +36,7 @@ type ZaiLimit = Static<typeof ZaiLimitSchema>;
  * Quota windows are TOKENS_LIMIT/CREDIT_LIMIT (seen across plan
  * generations); TIME_LIMIT is the monthly web-search count. Unknown types
  * are dropped rather than guessed by unit — a rejected new type surfaces as
- * a visible "no usage windows" error instead of a wrong quota (cf. CodexBar
+ * a visible "no usage data" error instead of a wrong quota (cf. CodexBar
  * issue #2724). Unit is an opaque enum: 3 marks the sub-daily window, 6 the
  * multi-day one; `number` is ignored because its meaning flipped between
  * plan generations (7 vs 1 for weekly).
@@ -110,8 +110,8 @@ export const mapZaiQuotaPayload = (
 
   return usageResult(
     planLabel === undefined
-      ? { fetchedAt: nowMs, provider: "zai", windows }
-      : { fetchedAt: nowMs, planLabel, provider: "zai", windows },
+      ? { fetchedAt: nowMs, provider: "zai", quotaWindows: windows }
+      : { fetchedAt: nowMs, planLabel, provider: "zai", quotaWindows: windows },
   );
 };
 

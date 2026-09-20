@@ -44,11 +44,7 @@ export const mapOpenCodeGoUsagePayload = (
     parseWindow(payload.usage.monthly, "month"),
   ].filter(isDefined);
 
-  return usageResult({
-    fetchedAt: nowMs,
-    provider: "opencode-go",
-    windows,
-  });
+  return usageResult({ fetchedAt: nowMs, provider: "opencode-go", quotaWindows: windows });
 };
 
 export const fetchOpenCodeGoUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {

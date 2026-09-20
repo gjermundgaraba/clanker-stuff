@@ -40,11 +40,7 @@ export const mapClaudeUsagePayload = (
     parseWindow(payload.seven_day, "week"),
   ].filter(isDefined);
 
-  return usageResult({
-    fetchedAt: nowMs,
-    provider: "anthropic",
-    windows,
-  });
+  return usageResult({ fetchedAt: nowMs, provider: "anthropic", quotaWindows: windows });
 };
 
 export const fetchClaudeUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {

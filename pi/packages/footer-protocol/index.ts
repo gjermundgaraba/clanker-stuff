@@ -24,7 +24,11 @@ export const FooterSpanSchema = Type.Object(
 
 export type FooterSpan = Static<typeof FooterSpanSchema>;
 
-export const FooterContentSchema = Type.Array(FooterSpanSchema, { maxItems: 32 });
+export const MAX_FOOTER_CONTENT_SPANS = 32;
+
+export const FooterContentSchema = Type.Array(FooterSpanSchema, {
+  maxItems: MAX_FOOTER_CONTENT_SPANS,
+});
 
 export type FooterContent = Static<typeof FooterContentSchema>;
 

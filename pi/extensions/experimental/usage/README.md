@@ -1,6 +1,6 @@
 # usage
 
-Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.
+Shows account usage for supported providers and contributes usage widgets to cooperative footers.
 
 > [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
 

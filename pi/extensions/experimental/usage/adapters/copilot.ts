@@ -48,11 +48,7 @@ export const mapCopilotUsagePayload = (
     parseQuotaWindow(payload.quota_snapshots?.chat, "Chat", resetsAt),
   ].filter(isDefined);
 
-  return usageResult({
-    fetchedAt: nowMs,
-    provider: "github-copilot",
-    windows,
-  });
+  return usageResult({ fetchedAt: nowMs, provider: "github-copilot", quotaWindows: windows });
 };
 
 export const fetchCopilotUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {

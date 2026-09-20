@@ -31,7 +31,7 @@ describe("kimi usage", () => {
       snapshot: {
         fetchedAt: NOW,
         provider: "kimi-coding",
-        windows: [
+        quotaWindows: [
           {
             id: "5h",
             label: "5h",

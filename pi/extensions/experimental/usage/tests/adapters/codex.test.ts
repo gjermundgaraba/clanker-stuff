@@ -42,11 +42,11 @@ describe("codex payload parsing", () => {
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
-        creditsRemaining: 12.5,
+        accounting: { available: 12.5, kind: "credit-balance" },
         fetchedAt: now,
         planLabel: "plus",
         provider: "openai-codex",
-        windows: [
+        quotaWindows: [
           {
             id: "5h",
             label: "5h",
@@ -79,10 +79,10 @@ describe("codex payload parsing", () => {
     expect(result).toStrictEqual({
       ok: true,
       snapshot: {
-        creditsRemaining: 12.5,
+        accounting: { available: 12.5, kind: "credit-balance" },
         fetchedAt: now,
         provider: "openai-codex",
-        windows: [{ id: "5h", label: "5h", remainingPercent: 68 }],
+        quotaWindows: [{ id: "5h", label: "5h", remainingPercent: 68 }],
       },
     });
   });
@@ -101,7 +101,7 @@ describe("codex payload parsing", () => {
       expect(result).toMatchObject({ ok: true });
 
       if (!result.ok) throw new Error("Expected usage snapshot");
-      expect(result.snapshot).not.toHaveProperty("creditsRemaining");
+      expect(result.snapshot).not.toHaveProperty("accounting");
     },
   );
 
@@ -122,7 +122,7 @@ describe("codex payload parsing", () => {
       snapshot: {
         fetchedAt: now,
         provider: "openai-codex",
-        windows: [{ id: "5h", label: "5h", remainingPercent: 68 }],
+        quotaWindows: [{ id: "5h", label: "5h", remainingPercent: 68 }],
       },
     });
   });
@@ -154,7 +154,7 @@ describe("codex payload parsing", () => {
         fetchedAt: now,
         planLabel: "team",
         provider: "openai-codex",
-        windows: [
+        quotaWindows: [
           {
             id: "7d",
             label: "7d",
@@ -189,8 +189,8 @@ describe("codex payload parsing", () => {
       return;
     }
 
-    expect(result.snapshot.windows.map((window) => window.id)).toStrictEqual(["5h", "7d"]);
-    expect(result.snapshot.windows.map((window) => window.remainingPercent)).toStrictEqual([
+    expect(result.snapshot.quotaWindows.map((window) => window.id)).toStrictEqual(["5h", "7d"]);
+    expect(result.snapshot.quotaWindows.map((window) => window.remainingPercent)).toStrictEqual([
       60, 75,
     ]);
   });
@@ -268,7 +268,7 @@ describe("Codex ordinary limits", () => {
         fetchedAt: 1000,
         provider: "openai-codex",
         ordinaryUsageAllowed: false,
-        windows: [],
+        quotaWindows: [],
       },
     });
     expect(mapCodexUsagePayload({ credits: null, rate_limit: null }, 1000).ok).toBe(false);
@@ -312,8 +312,8 @@ describe("Codex ordinary limits", () => {
         fetchedAt: 1000,
         provider: "openai-codex",
         ordinaryUsageAllowed: false,
-        creditsRemaining: 12.5,
-        windows: [
+        accounting: { available: 12.5, kind: "credit-balance" },
+        quotaWindows: [
           { id: "5h", label: "5h", remainingPercent: 0 },
           { id: "7d", label: "7d", remainingPercent: 50 },
         ],
@@ -339,7 +339,7 @@ describe("Codex ordinary limits", () => {
 
     expect(result).toStrictEqual({
       ok: false,
-      error: { kind: "failure", message: "no usage windows in response" },
+      error: { kind: "failure", message: "no usage data in response" },
     });
   });
 });

@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/usage",
   "version": "0.1.0",
   "private": true,
-  "description": "Shows subscription usage for supported providers and contributes quota widgets to cooperative footers.",
+  "description": "Shows account usage for supported providers and contributes usage widgets to cooperative footers.",
   "keywords": [
     "pi-package"
   ],

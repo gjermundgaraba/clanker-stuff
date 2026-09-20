@@ -24,7 +24,7 @@ describe("claude usage", () => {
       snapshot: {
         fetchedAt: NOW,
         provider: "anthropic",
-        windows: [
+        quotaWindows: [
           {
             id: "5h",
             label: "5h",
@@ -45,7 +45,7 @@ describe("claude usage", () => {
   it("fails when a valid payload has no windows", () => {
     expect(mapClaudeUsagePayload({}, NOW)).toStrictEqual({
       ok: false,
-      error: { kind: "failure", message: "no usage windows in response" },
+      error: { kind: "failure", message: "no usage data in response" },
     });
   });
 
