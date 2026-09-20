@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import manifest from "../assets/shapes.json" with { type: "json" };
 import { fileURLToPath } from "node:url";
 
+import { acquireEditorHost } from "@clanker-stuff/editor";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import {
+  createKeybindings,
+  createMockTui,
+  createStatusIndicator,
+} from "../../../../tests/harness/tui.js";
 import extension from "../index.js";
 
 type Animation = typeof manifest.rubik;
@@ -28,6 +34,39 @@ function setup(mode: ExtensionContext["mode"] = "tui") {
   return { ctx, host, setWorkingIndicator };
 }
 
+const statusIndicator = (kind: Parameters<typeof createStatusIndicator>[0]) => {
+  const indicator = createStatusIndicator(kind);
+
+  return { indicator, setIndicator: vi.spyOn(indicator, "setIndicator") };
+};
+
+const identity = (text: string) => text;
+
+const editorTheme = {
+  borderColor: identity,
+  selectList: {
+    selectedPrefix: identity,
+    selectedText: identity,
+    description: identity,
+    scrollInfo: identity,
+    noMatch: identity,
+  },
+};
+
+const mountEditor = (ctx: ExtensionContext) => {
+  const editorHost = acquireEditorHost(ctx);
+
+  if (editorHost === undefined) throw new Error("The shape spinner did not join the shared editor");
+
+  return editorHost.create(createMockTui(), editorTheme, createKeybindings());
+};
+
+const framesOf = (
+  shape: keyof typeof manifest.animations,
+  color: keyof typeof manifest.animations.orb,
+  background: keyof typeof manifest.animations.orb.cyan = "dark",
+) => manifest.animations[shape][color][background];
+
 describe("shape spinner", () => {
   it("registers one command and delegates playback to Pi once at startup", async () => {
     const { ctx, host, setWorkingIndicator } = setup();
@@ -44,7 +83,7 @@ describe("shape spinner", () => {
     }
 
     expect(setWorkingIndicator).toHaveBeenCalledTimes(1);
-    expect(host.getEditorFactory()).toBeUndefined();
+    expect(host.getEditorFactory()).toBeTypeOf("function");
     expect(host.getNotifications()).toHaveLength(0);
     expect(host.getSentMessages()).toHaveLength(0);
     expect(host.getAppendedEntries()).toHaveLength(0);
@@ -70,7 +109,113 @@ describe("shape spinner", () => {
     }
 
     expect(setWorkingIndicator).not.toHaveBeenCalled();
+    expect(host.getEditorFactory()).toBeUndefined();
     expect(host.getNotifications()).toHaveLength(0);
+  });
+
+  it("styles Pi's retry, compaction, and summary spinners with their default looks", async () => {
+    const { ctx, host } = setup();
+    await host.emitSessionStart(ctx);
+    const editor = mountEditor(ctx);
+    const retry = statusIndicator("retry");
+    const compaction = statusIndicator("compaction");
+    const summary = statusIndicator("branchSummary");
+    const working = statusIndicator("working");
+
+    for (const { indicator } of [retry, compaction, summary, working]) {
+      editor.setWorkingStatusIndicator(indicator);
+    }
+
+    expect({
+      compaction: compaction.setIndicator.mock.calls,
+      retry: retry.setIndicator.mock.calls,
+      summary: summary.setIndicator.mock.calls,
+      working: working.setIndicator.mock.calls,
+    }).toStrictEqual({
+      compaction: [[{ frames: framesOf("cube", "purple").frames.map(glyph), intervalMs: 20 }]],
+      retry: [[{ frames: framesOf("tetrahedron", "orange").frames.map(glyph), intervalMs: 20 }]],
+      summary: [[{ frames: framesOf("octahedron", "blue").frames.map(glyph), intervalMs: 20 }]],
+      working: [],
+    });
+    expect(ctx.ui.setStatus).not.toHaveBeenCalledWith("shared-editor", expect.any(String));
+
+    for (const { indicator } of [retry, compaction, summary, working]) indicator.dispose();
+  });
+
+  it("restyles the active spinner when a kind changes and follows global mode", async () => {
+    const { ctx, host, setWorkingIndicator } = setup();
+    await host.emitSessionStart(ctx);
+    const editor = mountEditor(ctx);
+    const retry = statusIndicator("retry");
+    editor.setWorkingStatusIndicator(retry.indicator);
+    setWorkingIndicator.mockClear();
+
+    await host.runCommand("shape-spinner", " Retry  cube ", ctx);
+    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
+      { frames: framesOf("cube", "orange").frames.map(glyph), intervalMs: 20 },
+    ]);
+    expect(host.getNotifications().at(-1)?.message).toBe("Shape spinner retry: cube orange.");
+    await host.runCommand("shape-spinner", "retry red", ctx);
+    await host.runCommand("shape-spinner", "light", ctx);
+    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
+      { frames: framesOf("cube", "red", "light").frames.map(glyph), intervalMs: 20 },
+    ]);
+    await host.runCommand("shape-spinner", "static", ctx);
+    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
+      { frames: [glyph(framesOf("cube", "red", "light").still)], intervalMs: 20 },
+    ]);
+    await host.runCommand("shape-spinner", "off", ctx);
+    expect(retry.setIndicator.mock.lastCall).toStrictEqual([undefined]);
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith(undefined);
+    await host.runCommand("shape-spinner", "on", ctx);
+    await host.runCommand("shape-spinner", "retry off", ctx);
+    expect(retry.setIndicator.mock.lastCall).toStrictEqual([undefined]);
+    expect(host.getNotifications().at(-1)?.message).toBe("Shape spinner retry: off.");
+    // A global `on` brings back spinners that were turned off individually.
+    await host.runCommand("shape-spinner", "on", ctx);
+    expect(retry.setIndicator.mock.lastCall).toStrictEqual([
+      { frames: framesOf("cube", "red", "light").frames.map(glyph), intervalMs: 20 },
+    ]);
+    await host.runCommand("shape-spinner", "retry off", ctx);
+    // The working spinner keeps its own choices.
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
+      frames: framesOf("orb", "cyan", "light").frames.map(glyph),
+      intervalMs: 20,
+    });
+    await host.runCommand("shape-spinner", "working purple", ctx);
+    expect(setWorkingIndicator).toHaveBeenLastCalledWith({
+      frames: framesOf("orb", "purple", "light").frames.map(glyph),
+      intervalMs: 20,
+    });
+    await host.runCommand("shape-spinner", "", ctx);
+    expect(host.getNotifications().at(-1)?.message).toContain(
+      "orb, purple, light background, on. Retry: off. Compaction: cube purple. Summary: octahedron blue.",
+    );
+
+    for (const invalid of [
+      "retry",
+      "retry sphere",
+      "sphere cube",
+      "retry cube red",
+      "preview cube",
+    ]) {
+      await host.runCommand("shape-spinner", invalid, ctx);
+      expect(host.getNotifications().at(-1)?.type).toBe("error");
+    }
+
+    retry.indicator.dispose();
+  });
+
+  it("releases its border styling on shutdown", async () => {
+    const { ctx, host } = setup();
+    await host.emitSessionStart(ctx);
+    const editor = mountEditor(ctx);
+    const compaction = statusIndicator("compaction");
+    editor.setWorkingStatusIndicator(compaction.indicator);
+    expect(compaction.setIndicator).toHaveBeenCalledTimes(1);
+    await host.emit("session_shutdown", { reason: "quit", type: "session_shutdown" }, ctx);
+    expect(compaction.setIndicator.mock.lastCall).toStrictEqual([undefined]);
+    compaction.indicator.dispose();
   });
 
   it.each(["rubik", "orb", "cube", "octahedron", "tetrahedron"] as const)(
@@ -201,7 +346,7 @@ describe("shape spinner", () => {
     await host.runCommand("shape-spinner", "", ctx);
     expect(host.getNotifications().at(-1)?.message).toContain("orb, cyan, dark background, off");
 
-    for (const invalid of ["sphere", "cube light", "indigo", "#ff0000"]) {
+    for (const invalid of ["sphere", "cube light", "indigo", "#ff0000", "retry cube light"]) {
       await host.runCommand("shape-spinner", invalid, ctx);
       expect(host.getNotifications().at(-1)?.type).toBe("error");
     }

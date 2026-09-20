@@ -5,7 +5,12 @@ import type {
   KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import {
+  truncateToWidth,
+  type EditorTheme,
+  type LoaderIndicatorOptions,
+  type TUI,
+} from "@earendil-works/pi-tui";
 import { connect, type Draft, type DocumentView, type DocumentAdapter } from "./adapter.js";
 import { decorateRows, type Decoration } from "./render.js";
 
@@ -26,10 +31,19 @@ export interface Border {
   render(line: string, width: number, color: (text: string) => string): string;
 }
 
+type StatusIndicator = NonNullable<Parameters<CustomEditor["setWorkingStatusIndicator"]>[0]>;
+
+/** Pi's border-embedded status spinners. The working spinner stays with `ctx.ui.setWorkingIndicator()`. */
+export type StatusKind = Exclude<StatusIndicator["kind"], "working">;
+
+/** Frames and interval for one status spinner; undefined keeps Pi's default animation. */
+export type StatusStyle = LoaderIndicatorOptions;
+
 interface Contributions {
   editing?: Editing;
   foreground?: (text: string) => Decoration[];
   border?: Border;
+  status?: (kind: StatusKind) => StatusStyle | undefined;
 }
 
 class SharedEditor extends CustomEditor {
@@ -37,6 +51,8 @@ class SharedEditor extends CustomEditor {
   readonly keys: KeybindingsManager;
   private kind: Kind = "input";
   private before: DocumentView | undefined;
+  private status: StatusIndicator | undefined;
+  private statusStyled = false;
 
   constructor(
     tui: TUI,
@@ -137,6 +153,25 @@ class SharedEditor extends CustomEditor {
   refresh() {
     this.tui.requestRender();
   }
+  override setWorkingStatusIndicator(indicator: StatusIndicator | undefined) {
+    this.status = indicator;
+    this.statusStyled = false;
+    this.restyleStatus();
+    super.setWorkingStatusIndicator(indicator);
+  }
+  /** Apply the status contribution to the embedded spinner. Pi keeps styling the working one. */
+  restyleStatus() {
+    const indicator = this.status;
+
+    if (!indicator || indicator.kind === "working") return;
+    const style = this.contributions.status?.(indicator.kind);
+
+    // Pi constructs these spinners with its defaults; restyling restarts the loop, so
+    // only touch an indicator that has a style or was styled before.
+    if (style === undefined && !this.statusStyled) return;
+    indicator.setIndicator(style);
+    this.statusStyled = style !== undefined;
+  }
   override render(width: number) {
     const native = super.render(width);
     const text = this.document.text();
@@ -194,13 +229,17 @@ export class EditorHost {
   /** One owner per slot; the release leaves a later owner's contribution in place. */
   contribute<K extends keyof Contributions>(slot: K, value: NonNullable<Contributions[K]>) {
     this.contributions[slot] = value;
-    this.editor?.refresh();
+    this.changed(slot);
 
     return () => {
       if (this.contributions[slot] !== value) return;
       delete this.contributions[slot];
-      this.editor?.refresh();
+      this.changed(slot);
     };
+  }
+  private changed(slot: keyof Contributions) {
+    if (slot === "status") this.editor?.restyleStatus();
+    this.editor?.refresh();
   }
   onMount(mounted: (editor: SharedEditor) => void) {
     this.mounts.add(mounted);

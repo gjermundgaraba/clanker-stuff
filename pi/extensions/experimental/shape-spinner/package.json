@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/shape-spinner",
   "version": "0.1.0",
   "private": true,
-  "description": "Replaces Pi's working spinner with a selectable Rubik's cube or wireframe shape animation.",
+  "description": "Replaces Pi's working, retry, compaction, and branch-summary spinners with selectable Rubik's cube or wireframe shape animations.",
   "keywords": [
     "pi-package"
   ],
@@ -26,6 +26,9 @@
   ],
   "type": "module",
   "exports": "./index.ts",
+  "dependencies": {
+    "@clanker-stuff/editor": "workspace:^"
+  },
   "devDependencies": {
     "typebox": "1.3.34",
     "vite": "catalog:",

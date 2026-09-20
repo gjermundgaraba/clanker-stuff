@@ -4,6 +4,7 @@ import {
   createIdentityTheme,
   createKeybindings,
   createMockTui,
+  createStatusIndicator,
 } from "../../../tests/harness/tui.js";
 import { acquireEditorHost, EditorHost } from "../index.js";
 import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
@@ -89,6 +90,45 @@ describe("shared editor ownership and snapshots", () => {
     host.contribute("border", border("second"));
     first();
     expect(editor.render(20)[0]).toBe("second");
+  });
+  it("styles Pi's border spinners through the status slot and restores defaults", () => {
+    const { host, editor } = setup();
+    const retry = createStatusIndicator("retry");
+    const compaction = createStatusIndicator("compaction");
+    const working = createStatusIndicator("working");
+
+    const spies = [retry, compaction, working].map((indicator) =>
+      vi.spyOn(indicator, "setIndicator"),
+    );
+
+    const style = vi.fn((kind: "retry" | "compaction" | "branchSummary") =>
+      kind === "retry" ? { frames: ["r"], intervalMs: 50 } : undefined,
+    );
+
+    const release = host.contribute("status", style);
+    editor.setWorkingStatusIndicator(retry);
+    editor.setWorkingStatusIndicator(compaction);
+    editor.setWorkingStatusIndicator(working);
+    expect(spies.map((spy) => spy.mock.calls)).toStrictEqual([
+      [[{ frames: ["r"], intervalMs: 50 }]],
+      [],
+      [],
+    ]);
+    // Pi already styles the working spinner through ctx.ui.setWorkingIndicator().
+    expect(style).not.toHaveBeenCalledWith("working");
+
+    editor.setWorkingStatusIndicator(retry);
+    host.contribute("status", () => ({ frames: ["x"] }));
+    expect(spies[0]?.mock.lastCall).toStrictEqual([{ frames: ["x"] }]);
+    // The earlier owner's release leaves the later contribution in place.
+    release();
+    expect(spies[0]).toHaveBeenCalledTimes(3);
+
+    host.contribute("status", () => undefined)();
+    expect(spies[0]?.mock.lastCall).toStrictEqual([undefined]);
+    expect(spies[0]).toHaveBeenCalledTimes(4);
+
+    for (const indicator of [retry, compaction, working]) indicator.dispose();
   });
   it("treats Pi's getText/setText round trip as no replacement", () => {
     const { editor } = setup();

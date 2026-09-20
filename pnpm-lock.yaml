@@ -511,6 +511,9 @@ importers:
 
   pi/extensions/experimental/shape-spinner:
     dependencies:
+      '@clanker-stuff/editor':
+        specifier: workspace:^
+        version: link:../../../packages/editor
       '@earendil-works/pi-coding-agent':
         specifier: 0.86.0
         version: 0.86.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)

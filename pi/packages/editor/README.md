@@ -10,7 +10,7 @@ npm install @clanker-stuff/editor
 
 ## Usage
 
-Use `acquireEditorHost(ctx)` from cooperating extensions; it installs or joins the shared native editor and returns its host, or `undefined` when another editor owns the session or Pi's editor internals are unsupported. Register with `host.contribute(slot, value)`, which returns a release.
+Use `acquireEditorHost(ctx)` from cooperating extensions; it installs or joins the shared native editor and returns its host, or `undefined` when another editor owns the session or Pi's editor internals are unsupported. Register with `host.contribute(slot, value)` for the `editing`, `foreground`, `border`, or `status` slot, which returns a release.
 
 ## Requirements
 

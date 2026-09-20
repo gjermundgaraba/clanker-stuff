@@ -1,9 +1,11 @@
 import type {
+  CustomEditor,
   ExtensionUIContext,
   KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
+  Loader,
   matchesKey,
   type Component,
   type KeyId,
@@ -14,6 +16,21 @@ import {
 } from "@earendil-works/pi-tui";
 
 type CustomUiComponent = Component & { dispose?: () => void };
+
+type StatusIndicator = NonNullable<Parameters<CustomEditor["setWorkingStatusIndicator"]>[0]>;
+
+/** Pi's border status spinner: a Loader with a kind and border renderers, as Pi hands it to custom editors. */
+export const createStatusIndicator = (kind: StatusIndicator["kind"]): StatusIndicator => {
+  const identity = (text: string) => text;
+  const loader = new Loader(createMockTui(), identity, identity, "status");
+
+  return Object.assign(loader, {
+    dispose: () => loader.stop(),
+    kind,
+    renderInBorder: () => "",
+    renderSpinnerInBorder: () => "",
+  });
+};
 
 type TestKeybindings = Pick<KeybindingsManager, "matches" | "getKeys">;
 

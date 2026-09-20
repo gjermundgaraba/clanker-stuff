@@ -1,6 +1,6 @@
 # shape-spinner
 
-Replaces Pi's working spinner with a selectable Rubik's cube or wireframe shape animation.
+Replaces Pi's working, retry, compaction, and branch-summary spinners with selectable Rubik's cube or wireframe shape animations.
 
 > [!CAUTION] **Experimental:** This is not a stable daily driver. Breaking changes may happen without notice, and the extension may be removed.
 
@@ -10,10 +10,10 @@ Install the bundled font using the [setup instructions](docs/setup.md), then run
 
 ## Usage
 
-- An orb animates automatically while Pi works; use `/shape-spinner preview` to check the font.
-- Switch with `/shape-spinner rubik`, `orb`, `cube`, `octahedron`, or `tetrahedron`; choose an Amp color with `/shape-spinner purple`.
-- Use `/shape-spinner static` for reduced motion or `/shape-spinner off` to restore Pi's spinner.
+- An orb animates while Pi works; retries, compaction, and branch summaries get their own shapes in the editor border. Use `/shape-spinner preview` to check the font.
+- Switch the working spinner with `/shape-spinner cube` or `/shape-spinner purple`; target another spinner with `/shape-spinner retry cube`.
+- Use `/shape-spinner static` for reduced motion or `/shape-spinner off` to restore Pi's spinners.
 
 ## Requirements
 
-Pi 0.85 or newer, Ghostty on macOS, and the bundled color font installed on the display machine; disable other working-spinner extensions. See [setup and compatibility](docs/setup.md).
+Pi 0.86 or newer, Ghostty on macOS, and the bundled color font installed on the display machine; disable other working-spinner extensions. Border spinners need the shared editor, so another custom editor limits changes to the working spinner. See [setup and compatibility](docs/setup.md).

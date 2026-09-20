@@ -1,6 +1,8 @@
 import { fileURLToPath } from "node:url";
 import manifest from "./assets/shapes.json" with { type: "json" };
 
+import { acquireEditorHost } from "@clanker-stuff/editor";
+import type { StatusKind, StatusStyle } from "@clanker-stuff/editor";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const shapes = ["rubik", "orb", "cube", "octahedron", "tetrahedron"] as const;
@@ -21,13 +23,40 @@ const backgrounds = ["dark", "light"] as const;
 
 const modes = ["on", "static", "off"] as const;
 
+/** Pi's border spinners by command name; `summary` is the branch-summary indicator. */
+const kinds = ["working", "retry", "compaction", "summary"] as const;
+
+const toggles = ["on", "off"] as const;
+
 type Shape = (typeof shapes)[number];
 
 type Color = (typeof colors)[number];
 
 type Background = (typeof backgrounds)[number];
 
+type Kind = (typeof kinds)[number];
+
 type Animation = typeof manifest.rubik;
+
+interface Look {
+  color: Color;
+  enabled: boolean;
+  shape: Shape;
+}
+
+const statusKinds: Record<StatusKind, Exclude<Kind, "working">> = {
+  branchSummary: "summary",
+  compaction: "compaction",
+  retry: "retry",
+};
+
+// Shape signals the kind of work; color follows its severity.
+const defaultLooks = (): Record<Kind, Look> => ({
+  compaction: { color: "purple", enabled: true, shape: "cube" },
+  retry: { color: "orange", enabled: true, shape: "tetrahedron" },
+  summary: { color: "blue", enabled: true, shape: "octahedron" },
+  working: { color: "cyan", enabled: true, shape: "orb" },
+});
 
 // The unmapped space reserves a second terminal column for the square artwork.
 const glyph = (codepoint: number): string => `${String.fromCodePoint(codepoint)} `;
@@ -52,44 +81,66 @@ const mapping = `font-codepoint-map = ${range}=${manifest.family}`;
 
 const fontPath = fileURLToPath(new URL("./assets/ShapeSpinner.ttf", import.meta.url));
 
-const usage = `/shape-spinner ${[...shapes, ...colors, ...backgrounds, ...modes, "preview"].join("|")}`;
+const usage = `/shape-spinner ${[...shapes, ...colors, ...backgrounds, ...modes, "preview"].join("|")} or /shape-spinner ${kinds.join("|")} ${[...shapes, ...colors, ...toggles].join("|")}`;
 
 const oneOf = <T extends string>(options: readonly T[], value: string): value is T =>
   options.some((option) => option === value);
 
+const describeLook = (look: Look) => (look.enabled ? `${look.shape} ${look.color}` : "off");
+
 export function createSpinner() {
-  let shape: Shape = "orb";
+  const looks = defaultLooks();
   let background: Background = "dark";
-  let color: Color = "cyan";
   let mode: (typeof modes)[number] = "on";
+  let release: (() => void) | undefined;
+
+  const style = (kind: Kind): StatusStyle | undefined => {
+    const look = looks[kind];
+
+    if (mode === "off" || !look.enabled) return undefined;
+    const animation = animationFor(look.shape, look.color, background);
+
+    return {
+      frames: (mode === "static" ? [animation.still] : animation.frames).map(glyph),
+      intervalMs: 1000 / manifest.fps,
+    };
+  };
+
+  const status = (kind: StatusKind) => style(statusKinds[kind]);
 
   const apply = (ctx: ExtensionContext): void => {
     if (ctx.mode !== "tui") return;
-    const animation = animationFor(shape, color, background);
-    ctx.ui.setWorkingIndicator(
-      mode === "off"
-        ? undefined
-        : {
-            frames: (mode === "static" ? [animation.still] : animation.frames).map(glyph),
-            intervalMs: 1000 / manifest.fps,
-          },
-    );
+    ctx.ui.setWorkingIndicator(style("working"));
+    // Border spinners belong to the shared editor; without it only the working spinner changes.
+    release = acquireEditorHost(ctx)?.contribute("status", status);
+  };
+
+  const dispose = (): void => {
+    release?.();
+    release = undefined;
+  };
+
+  const choices = () => {
+    const working = looks.working;
+
+    return `Shape spinner: ${working.shape}, ${working.color}, ${background} background, ${mode}. Retry: ${describeLook(looks.retry)}. Compaction: ${describeLook(looks.compaction)}. Summary: ${describeLook(looks.summary)}.`;
   };
 
   const command = (args: string, ctx: ExtensionContext): void => {
     if (ctx.mode !== "tui") return;
-    const action = args.trim().toLowerCase();
+    const [first = "", second, ...rest] = args.trim().toLowerCase().split(/\s+/);
 
-    if (!action) {
+    if (!first) {
       ctx.ui.notify(
-        `Shape spinner: ${shape}, ${color}, ${background} background, ${mode}. ${usage}\nChoices are runtime-only; reload resets to animated cyan orb with dark-background ink.`,
+        `${choices()} ${usage}\nChoices are runtime-only; reload resets every spinner to its default look with dark-background ink.`,
         "info",
       );
 
       return;
     }
 
-    if (action === "preview") {
+    if (first === "preview" && second === undefined) {
+      const { shape, color } = looks.working;
       ctx.ui.notify(
         [
           ...shapes.map((name) => {
@@ -112,11 +163,39 @@ export function createSpinner() {
       return;
     }
 
-    if (oneOf(shapes, action)) shape = action;
-    else if (oneOf(colors, action)) color = action;
-    else if (oneOf(backgrounds, action)) background = action;
-    else if (oneOf(modes, action)) mode = action;
-    else {
+    if (second !== undefined) {
+      const look = oneOf(kinds, first) && rest.length === 0 ? looks[first] : undefined;
+
+      if (look === undefined) {
+        ctx.ui.notify(`Usage: ${usage}`, "error");
+
+        return;
+      }
+
+      if (oneOf(shapes, second)) look.shape = second;
+      else if (oneOf(colors, second)) look.color = second;
+      else if (oneOf(toggles, second)) look.enabled = second === "on";
+      else {
+        ctx.ui.notify(`Usage: ${usage}`, "error");
+
+        return;
+      }
+
+      apply(ctx);
+      ctx.ui.notify(`Shape spinner ${first}: ${describeLook(look)}.`, "info");
+
+      return;
+    }
+
+    if (oneOf(shapes, first)) looks.working.shape = first;
+    else if (oneOf(colors, first)) looks.working.color = first;
+    else if (oneOf(backgrounds, first)) background = first;
+    else if (oneOf(modes, first)) {
+      mode = first;
+
+      // Global playback applies to every spinner, including ones turned off individually.
+      if (first === "on") for (const look of Object.values(looks)) look.enabled = true;
+    } else {
       ctx.ui.notify(`Usage: ${usage}`, "error");
 
       return;
@@ -125,11 +204,11 @@ export function createSpinner() {
     apply(ctx);
     ctx.ui.notify(
       mode === "off"
-        ? "Shape spinner off: restored Pi's default spinner."
-        : `Shape spinner: ${shape}, ${color}, ${background} background, ${mode}.`,
+        ? "Shape spinner off: restored Pi's default spinners."
+        : `Shape spinner: ${looks.working.shape}, ${looks.working.color}, ${background} background, ${mode}.`,
       "info",
     );
   };
 
-  return { apply, command };
+  return { apply, command, dispose };
 }
