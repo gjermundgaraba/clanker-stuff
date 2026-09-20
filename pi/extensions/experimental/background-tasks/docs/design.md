@@ -1,6 +1,6 @@
 # Background tasks design
 
-Implemented by the experimental [background-tasks extension](../). Pi API baseline: v0.86.0.
+Implemented by the experimental [background-tasks extension](../). Pi API baseline: v0.86.1.
 [Usage](usage.md) is authoritative for tools, commands, protocol, and limits; [validation](validation.md) records demonstrated behavior and verification limits.
 
 ## Scope
@@ -121,7 +121,7 @@ These are architectural inspirations, not dependencies or guarantees copied whol
 - [channels.tools wake component at e180364](https://github.com/schuettc/pi-extensions/blob/e180364/packages/channels.tools/src/wake.ts): independent busy-gated delivery.
 - [pi-wake at ac01632](https://github.com/Jasperxjy/pi-wake/blob/ac01632/extensions/pi-wake/index.ts): handoff versus observed delivery; its durable daemon machinery is outside v1.
 - [dannote background manager at 73fe052](https://github.com/dannote/dot-pi/blob/73fe052/extensions/background.ts): named jobs and inspectable logs, not the v1 ownership model.
-- [Pi v0.86.0 extension documentation](https://github.com/earendil-works/pi/blob/v0.86.0/packages/coding-agent/docs/extensions.md): lifecycle, provenance fields, custom messages, and session state.
-- [Pi v0.86.0 AgentSession](https://github.com/earendil-works/pi/blob/v0.86.0/packages/coding-agent/src/core/agent-session.ts): `sendCustomMessage`, `_appendCustomMessage`, `_handleAgentEvent`, and prompt dispatch.
+- [Pi v0.86.1 extension documentation](https://github.com/earendil-works/pi/blob/v0.86.1/packages/coding-agent/docs/extensions.md): lifecycle, provenance fields, custom messages, and session state.
+- [Pi v0.86.1 AgentSession](https://github.com/earendil-works/pi/blob/v0.86.1/packages/coding-agent/src/core/agent-session.ts): `sendCustomMessage`, `_appendCustomMessage`, `_handleAgentEvent`, and prompt dispatch.
 
 Source inspection informed this design. The implementation has unit, real-subprocess, AgentSession integration, discovery, and manually driven Herdr/Pi validation; limitations are recorded in the linked validation document.

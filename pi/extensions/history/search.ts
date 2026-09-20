@@ -82,7 +82,7 @@ export const createSearch = (getHistory: () => readonly HistoryItem[]) => {
 
   const createWidget = (active: SearchSession, tui: TUI) => {
     const { ui, input } = active;
-    // SAFETY: Pi v0.86.0 supplies one of these two concrete renderers. Both
+    // SAFETY: Pi v0.86.1 supplies one of these two concrete renderers. Both
     // expose this public getter, omitted from their shared TUI interface.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The pinned Pi renderers expose this focus getter, but their shared TUI declaration omits it; no private renderer state is accessed.
     const renderer = tui as TUI & Pick<TuiMainScreen, "getFocusedComponent">;

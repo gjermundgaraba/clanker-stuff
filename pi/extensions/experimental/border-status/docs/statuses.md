@@ -26,6 +26,6 @@ There is no entry-count admission limit; priority-based display overflow does no
 
 ## Compatibility and lifecycle
 
-Tested with Pi 0.86.0. Contributes to the shared native editor alongside history, dollah-skills, and Vim, independent of registration order. With another editor installed, attachment is skipped and a shared status label explains the conflict. Availability follows mounting and session lifecycle, not terminal width or whether an entry fits. Rendering preserves the native border when there is insufficient space. Extensions that later replace the shared editor are unsupported.
+Tested with Pi 0.86.1. Contributes to the shared native editor alongside history, dollah-skills, and Vim, independent of registration order. With another editor installed, attachment is skipped and a shared status label explains the conflict. Availability follows mounting and session lifecycle, not terminal width or whether an entry fits. Rendering preserves the native border when there is insufficient space. Extensions that later replace the shared editor are unsupported.
 
 Ask-question publishes `ask-question/inbox` for drafts (including paused drafts) and pending/uncertain deliveries. Sent or cancelled questionnaires do not count. Opening `/answers` or pressing Alt+I does not itself clear the indicator. The questionnaire widget remains visible independently while attention is required; the border count is supplementary, so both can appear at once.

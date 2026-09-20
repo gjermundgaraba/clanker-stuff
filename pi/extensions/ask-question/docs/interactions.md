@@ -4,7 +4,7 @@
 
 ## Requirements
 
-Questionnaires require Pi v0.86.0 APIs, an interactive TUI, and an initialized file-backed session. Both question tools are disabled in RPC, print and JSON modes; stale invocations fail explicitly. `--no-session` is unsupported, including for blocking questions: recoverable drafts and revisable submissions require persistence. Attention messaging has no questionnaire persistence requirement.
+Questionnaires require Pi v0.86.1 APIs, an interactive TUI, and an initialized file-backed session. Both question tools are disabled in RPC, print and JSON modes; stale invocations fail explicitly. `--no-session` is unsupported, including for blocking questions: recoverable drafts and revisable submissions require persistence. Attention messaging has no questionnaire persistence requirement.
 
 ## Authoring
 
@@ -44,7 +44,7 @@ Both question tools accept this strict, extension-owned contract:
 
 Limits: title/option labels 256 characters, question headers 64, question prompts 1,000, descriptions/recommendation or revision reasons 2,000, each context/preview 12,000. Written answers allow 4,000 UTF-16 code units and each note 1,000; combined serialized answers and the questionnaire note are limited to 40,000 UTF-8 bytes. Editors retain over-limit text for correction rather than silently clipping it.
 
-Schemas reject unknown properties and mixing `questions` with `revise`. Runtime validation remains strict. Pi v0.86.0's constrained-sampling converter cannot represent this structured union: `strict: "prefer"` falls back to ordinary sampling. It is not a promise of provider-constrained generation.
+Schemas reject unknown properties and mixing `questions` with `revise`. Runtime validation remains strict. Pi v0.86.1's constrained-sampling converter cannot represent this structured union: `strict: "prefer"` falls back to ordinary sampling. It is not a promise of provider-constrained generation.
 
 These tools are **not native Codex wire-compatible implementations**. The Codex provider preserves them as external, direct tools, including in Code Mode, independently of native question catalog markers. Its native catalog gate still applies to attention messaging. Ordinary delegated subagents exclude the root-only async questionnaire and attention tools; blocking questionnaires are separate.
 

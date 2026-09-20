@@ -8,7 +8,7 @@ The automatic-notification revision, including the manual-compaction readiness f
 
 The package has unit tests for strict framing, inbox reservations/coalescing/eviction, automatic delivery and retry, bounded logs, schemas and tool output. Real subprocess tests cover spawn/exit failures, missing results, record floods, cancellation, deadlines, concurrency, inherited-pipe drain, TERM-resistant descendants, and history pruning.
 
-Real Pi 0.86.0 sessions verify:
+Real Pi 0.86.1 sessions verify:
 
 - Spawn handoff before completion, idle triggered notices, metadata-only delivery and pull inspection.
 - Busy buffering and a competing extension starting a run between the readiness check and send; the follow-up is queued without interrupting that run.

@@ -5,7 +5,7 @@ Reference research and implementation contract for the experimental Pi extension
 ## Reference snapshots
 
 - Codex: `openai/codex` `origin/main` at `389dd5645944891b65e4ca584125bbb0c852d352`, inspected 2026-09-03.
-- Pi: `earendil-works/pi` tag `v0.86.0` at `ecac0a9c4edad3dac5d9f8b40e0c7db7a56471fc`.
+- Pi: `earendil-works/pi` tag `v0.86.1` at `13cbf77df2396303013a41646bcfa77b4271ae56`.
 
 Codex introduced the feature in three commits:
 
@@ -306,7 +306,7 @@ The extension remains separate from compaction while respecting its resulting co
 
 ### Remaining Pi differences
 
-Pi v0.86.0 has no supported extension event or context field for terminal-window focus changes. `ctx.ui.onTerminalInput()` is not an equivalent:
+Pi v0.86.1 has no supported extension event or context field for terminal-window focus changes. `ctx.ui.onTerminalInput()` is not an equivalent:
 
 - regular-screen Pi does not enable terminal focus reporting; and
 - fullscreen Pi enables focus reporting as part of its mouse mode, but its viewport listener consumes `ESC [ I` and `ESC [ O` before extension input listeners receive them.

@@ -14,4 +14,4 @@ Use `acquireEditorHost(ctx)` from cooperating extensions; it installs or joins t
 
 ## Requirements
 
-Pi 0.86.0. Editor conflicts and unsupported Pi versions appear as one shared status label and leave a working prompt; callers skip editor-dependent features.
+Pi 0.86.1. Editor conflicts and unsupported Pi versions appear as one shared status label and leave a working prompt; callers skip editor-dependent features.
