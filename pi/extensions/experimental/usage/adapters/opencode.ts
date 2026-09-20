@@ -1,12 +1,10 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { resolveAccessToken } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult, UsageWindow } from "../providers.js";
-import { usageFailure, usageResult } from "../providers.js";
+import { usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { isDefined, makeUsageWindow, parseIso } from "./util.js";
+import { fetchBearerUsage, isDefined, makeUsageWindow, parseIso } from "./util.js";
 
 const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
@@ -47,24 +45,11 @@ export const mapOpenCodeGoUsagePayload = (
   return usageResult({ fetchedAt: nowMs, provider: "opencode-go", quotaWindows: windows });
 };
 
-export const fetchOpenCodeGoUsage = async (deps: AdapterDeps): Promise<UsageFetchResult> => {
-  const now = deps.now ?? Date.now;
-  const auth = await resolveAccessToken(deps.authClient, "opencode-go");
-
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
-
-  const response = await deps.fetchJson(OPENCODE_GO_USAGE_URL, OpenCodeGoUsagePayloadSchema, {
-    headers: {
-      Authorization: `Bearer ${auth.value.accessToken}`,
-    },
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
-
-  if (response.ok) {
-    return mapOpenCodeGoUsagePayload(response.json, now());
-  }
-
-  return usageFailure(response.message, response.status === 403 ? "unavailable" : "failure");
-};
+export const fetchOpenCodeGoUsage = (deps: AdapterDeps): Promise<UsageFetchResult> =>
+  fetchBearerUsage(
+    deps,
+    "opencode-go",
+    OPENCODE_GO_USAGE_URL,
+    OpenCodeGoUsagePayloadSchema,
+    mapOpenCodeGoUsagePayload,
+  );

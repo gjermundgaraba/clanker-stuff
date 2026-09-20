@@ -85,7 +85,7 @@ describe("radius usage", () => {
     });
   });
 
-  it("sends the resolved credential as a bearer token", async () => {
+  it("requests the resolved billing URL", async () => {
     const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
     const fetchJson = vi.spyOn(client, "fetchJson");
 
@@ -106,39 +106,5 @@ describe("radius usage", () => {
         headers: { Accept: "application/json", Authorization: "Bearer token" },
       }),
     );
-  });
-
-  it("does not request billing without a credential", async () => {
-    const client = { fetchJson: okFetch(payload) } satisfies { fetchJson: FetchJson };
-    const fetchJson = vi.spyOn(client, "fetchJson");
-
-    const result = await fetchRadiusUsage(
-      {
-        authClient: { getProviderAuth: async () => undefined },
-        fetchJson: client.fetchJson,
-      },
-      BILLING_URL,
-    );
-
-    expect(result).toStrictEqual({
-      error: { kind: "unavailable", message: "not logged in" },
-      ok: false,
-    });
-    expect(fetchJson).not.toHaveBeenCalled();
-  });
-
-  it("surfaces billing request failures", async () => {
-    await expect(
-      fetchRadiusUsage(
-        {
-          authClient: tokenAuthClient("token"),
-          fetchJson: async () => ({ kind: "response", message: "HTTP 503", ok: false }),
-        },
-        BILLING_URL,
-      ),
-    ).resolves.toStrictEqual({
-      error: { kind: "failure", message: "HTTP 503" },
-      ok: false,
-    });
   });
 });

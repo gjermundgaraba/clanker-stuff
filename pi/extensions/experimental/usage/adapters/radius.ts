@@ -1,12 +1,10 @@
 import { Type } from "typebox";
 import type { Static } from "typebox";
 
-import { resolveAccessToken } from "../auth.js";
-import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { UsageFetchResult } from "../providers.js";
 import { usageFailure, usageResult } from "../providers.js";
 import type { AdapterDeps } from "./util.js";
-import { parseIso } from "./util.js";
+import { fetchBearerUsage, parseIso } from "./util.js";
 
 const RadiusBillingPayloadSchema = Type.Object({
   balance: Type.Object({
@@ -49,26 +47,8 @@ export const mapRadiusBillingPayload = (
   });
 };
 
-export const fetchRadiusUsage = async (
+export const fetchRadiusUsage = (
   deps: AdapterDeps,
   billingUrl: string,
-): Promise<UsageFetchResult> => {
-  const now = deps.now ?? Date.now;
-  const auth = await resolveAccessToken(deps.authClient, "radius");
-
-  if (!auth.ok) {
-    return usageFailure(auth.message, auth.kind);
-  }
-
-  const response = await deps.fetchJson(billingUrl, RadiusBillingPayloadSchema, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${auth.value.accessToken}`,
-    },
-    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
-  });
-
-  return response.ok
-    ? mapRadiusBillingPayload(response.json, now())
-    : usageFailure(response.message);
-};
+): Promise<UsageFetchResult> =>
+  fetchBearerUsage(deps, "radius", billingUrl, RadiusBillingPayloadSchema, mapRadiusBillingPayload);

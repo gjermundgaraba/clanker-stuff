@@ -13,7 +13,16 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
+import { fetchClaudeUsage } from "./adapters/claude.js";
+import { fetchCodexUsage } from "./adapters/codex.js";
+import { fetchCopilotUsage } from "./adapters/copilot.js";
+import { fetchKimiUsage } from "./adapters/kimi.js";
+import { fetchOpenCodeGoUsage } from "./adapters/opencode.js";
+import { fetchOpenRouterUsage } from "./adapters/openrouter.js";
+import { fetchRadiusUsage } from "./adapters/radius.js";
 import type { AdapterDeps } from "./adapters/util.js";
+import { fetchXaiUsage } from "./adapters/xai.js";
+import { fetchZaiUsage } from "./adapters/zai.js";
 import { providerAuthClientFromContext } from "./auth.js";
 import type { ProviderAuthClient } from "./auth.js";
 import { UsageCache } from "./cache.js";
@@ -111,57 +120,21 @@ export const createUsageController = (
   let cache = new UsageCache({ now });
 
   const usageFetchers = {
-    anthropic: async (deps: AdapterDeps) => {
-      const { fetchClaudeUsage } = await import("./adapters/claude.js");
-
-      return await fetchClaudeUsage(deps);
-    },
-    "github-copilot": async (deps: AdapterDeps) => {
-      const { fetchCopilotUsage } = await import("./adapters/copilot.js");
-
-      return await fetchCopilotUsage(deps);
-    },
-    "kimi-coding": async (deps: AdapterDeps) => {
-      const { fetchKimiUsage } = await import("./adapters/kimi.js");
-
-      return await fetchKimiUsage(deps);
-    },
-    "openai-codex": async (deps: AdapterDeps) => {
-      const { fetchCodexUsage } = await import("./adapters/codex.js");
-
-      return await fetchCodexUsage(deps);
-    },
-    "opencode-go": async (deps: AdapterDeps) => {
-      const { fetchOpenCodeGoUsage } = await import("./adapters/opencode.js");
-
-      return await fetchOpenCodeGoUsage(deps);
-    },
-    openrouter: async (deps: AdapterDeps) => {
-      const { fetchOpenRouterUsage } = await import("./adapters/openrouter.js");
-
-      return await fetchOpenRouterUsage(deps);
-    },
+    anthropic: fetchClaudeUsage,
+    "github-copilot": fetchCopilotUsage,
+    "kimi-coding": fetchKimiUsage,
+    "openai-codex": fetchCodexUsage,
+    "opencode-go": fetchOpenCodeGoUsage,
+    openrouter: fetchOpenRouterUsage,
     radius: async (deps: AdapterDeps, ctx: ExtensionContext) => {
       const billingUrl = radiusBillingUrl(ctx);
 
-      if (billingUrl === undefined) {
-        return usageFailure("could not determine Radius gateway", "unavailable");
-      }
-
-      const { fetchRadiusUsage } = await import("./adapters/radius.js");
-
-      return await fetchRadiusUsage(deps, billingUrl);
+      return billingUrl === undefined
+        ? usageFailure("could not determine Radius gateway", "unavailable")
+        : await fetchRadiusUsage(deps, billingUrl);
     },
-    xai: async (deps: AdapterDeps) => {
-      const { fetchXaiUsage } = await import("./adapters/xai.js");
-
-      return await fetchXaiUsage(deps);
-    },
-    zai: async (deps: AdapterDeps) => {
-      const { fetchZaiUsage } = await import("./adapters/zai.js");
-
-      return await fetchZaiUsage(deps);
-    },
+    xai: fetchXaiUsage,
+    zai: fetchZaiUsage,
   } satisfies Record<
     SupportedProvider,
     (deps: AdapterDeps, ctx: ExtensionContext) => Promise<UsageFetchResult>

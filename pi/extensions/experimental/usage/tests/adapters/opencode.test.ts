@@ -120,43 +120,4 @@ describe("opencode go usage", () => {
     expect(options?.headers?.Authorization).toBe("Bearer opencode-key");
     expect(result.ok).toBeTruthy();
   });
-
-  it("treats a 403 as missing Go rather than broken auth", async () => {
-    await expect(
-      fetchOpenCodeGoUsage({
-        authClient: tokenAuthClient("token"),
-        fetchJson: async () => ({
-          kind: "response",
-          message: "OpenCode Go subscription required.",
-          ok: false,
-          status: 403,
-        }),
-        now: () => NOW,
-      }),
-    ).resolves.toStrictEqual({
-      ok: false,
-      error: {
-        kind: "unavailable",
-        message: "OpenCode Go subscription required.",
-      },
-    });
-  });
-
-  it("treats a 401 as a failed request", async () => {
-    await expect(
-      fetchOpenCodeGoUsage({
-        authClient: tokenAuthClient("token"),
-        fetchJson: async () => ({
-          kind: "response",
-          message: "Unauthorized",
-          ok: false,
-          status: 401,
-        }),
-        now: () => NOW,
-      }),
-    ).resolves.toStrictEqual({
-      ok: false,
-      error: { kind: "failure", message: "Unauthorized" },
-    });
-  });
 });

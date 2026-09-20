@@ -1,12 +1,55 @@
+import type { Static, TSchema } from "typebox";
+
+import { resolveAccessToken } from "../auth.js";
 import type { ProviderAuthClient } from "../auth.js";
+import { USAGE_HTTP_TIMEOUT_MS } from "../http.js";
 import type { FetchJson } from "../http.js";
-import type { UsageWindow, UsageWindowId } from "../providers.js";
+import { usageFailure } from "../providers.js";
+import type {
+  SupportedProvider,
+  UsageFetchResult,
+  UsageWindow,
+  UsageWindowId,
+} from "../providers.js";
 
 export interface AdapterDeps {
   authClient: ProviderAuthClient;
   fetchJson: FetchJson;
   now?: () => number;
 }
+
+/**
+ * GET a bearer-authenticated usage endpoint and map its checked payload. A 403
+ * means the credential lacks this entitlement, so the provider is unavailable
+ * rather than broken.
+ */
+export const fetchBearerUsage = async <S extends TSchema>(
+  deps: AdapterDeps,
+  provider: SupportedProvider,
+  url: string,
+  schema: S,
+  map: (payload: Static<S>, nowMs: number) => UsageFetchResult,
+): Promise<UsageFetchResult> => {
+  const auth = await resolveAccessToken(deps.authClient, provider);
+
+  if (!auth.ok) {
+    return usageFailure(auth.message, auth.kind);
+  }
+
+  const response = await deps.fetchJson(url, schema, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${auth.value.accessToken}`,
+    },
+    timeoutMs: USAGE_HTTP_TIMEOUT_MS,
+  });
+
+  if (response.ok) {
+    return map(response.json, (deps.now ?? Date.now)());
+  }
+
+  return usageFailure(response.message, response.status === 403 ? "unavailable" : "failure");
+};
 
 export const isDefined = <T>(value: T | undefined): value is T => value !== undefined;
 

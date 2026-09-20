@@ -9,6 +9,7 @@ The usage extension reads credentials already configured for pi and uses them on
 | Kimi           | Moonshot usage API        |
 | OpenAI Codex   | OpenAI usage API          |
 | OpenCode Go    | OpenCode Go usage API     |
+| OpenRouter     | OpenRouter credits API    |
 | Radius         | Radius live billing API   |
 | xAI            | xAI management API        |
 | Z.ai           | Z.ai monitor usage API    |
@@ -27,7 +28,7 @@ Source contract: [usage client](https://github.com/openai/codex/blob/36f0dbe796d
 
 ## OpenRouter credits
 
-OpenRouter reads the account credit summary from `https://openrouter.ai/api/v1/credits` with the configured API key. The active footer shows the remaining credit balance (total credits minus total usage); the balance can go negative on pay-as-you-go accounts that overspend. OpenRouter exposes no time-boxed quota windows on this endpoint, so `/usage` shows only the credit balance.
+OpenRouter reads the account credit summary from `https://openrouter.ai/api/v1/credits` with the configured API key. The active footer shows the remaining credit balance (total credits minus total usage); the balance can go negative on pay-as-you-go accounts that overspend. OpenRouter exposes no time-boxed quota windows on this endpoint, so `/usage` shows only the credit balance. OpenRouter documents this endpoint as requiring a management key; with a key it rejects (HTTP 403), OpenRouter is reported as unavailable rather than failed.
 
 ## Radius accounting
 
