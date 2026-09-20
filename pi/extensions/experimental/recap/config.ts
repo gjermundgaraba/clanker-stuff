@@ -24,7 +24,13 @@ const RecapConfigSchema = Type.Object(
   STRICT,
 );
 
-export type RecapConfig = Static<typeof RecapConfigSchema>;
+type RecapConfigFile = Static<typeof RecapConfigSchema>;
+
+export interface RecapConfig {
+  model: RecapConfigFile["model"];
+  /** Requested thinking level; an omitted file value means `off`. */
+  thinking: NonNullable<RecapConfigFile["thinking"]>;
+}
 
 export const getRecapConfigPath = (): string => getExtensionStoragePaths("recap").configFile;
 
@@ -43,13 +49,7 @@ export const parseRecapConfig = (value: unknown): RecapConfig => {
     throw new Error("model.provider and model.id must be non-empty");
   }
 
-  const config: RecapConfig = { model: { id, provider } };
-
-  if (value.thinking !== undefined) {
-    config.thinking = value.thinking;
-  }
-
-  return config;
+  return { model: { id, provider }, thinking: value.thinking ?? "off" };
 };
 
 export const loadRecapConfig = async (configPath = getRecapConfigPath()): Promise<RecapConfig> => {

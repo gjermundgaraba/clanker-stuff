@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import { normalizeContext } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -589,7 +590,7 @@ const run = async (invocation: Invocation) => {
     runtime.beginTurn(sessionId);
 
     try {
-      const events = runtime.provider.stream(model, context, {
+      const events = runtime.provider.stream(model, normalizeContext(context), {
         apiKey,
         cacheRetention: "none",
         ...(auth.env !== undefined ? { env: auth.env } : {}),

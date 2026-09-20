@@ -268,7 +268,10 @@ const createMaterializedSession = (request: ChildRuntimeRequest, sessionDir: str
   }
 };
 
-export const finalFromMessages = (messages: readonly unknown[]): ChildTurnOutcome => {
+export const finalFromMessages = (
+  messages: readonly unknown[],
+  options: { readonly cancelled?: boolean } = {},
+): ChildTurnOutcome => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index];
 
@@ -295,6 +298,12 @@ export const finalFromMessages = (messages: readonly unknown[]): ChildTurnOutcom
       return { status: "interrupted" };
     }
 
+    // A cancelled run ends after overflow compaction without the retry Pi would
+    // otherwise start, so the truncated response is not a completed answer.
+    if (candidate.stopReason === "length" && options.cancelled === true) {
+      return { status: "interrupted" };
+    }
+
     const completed: Extract<ChildTurnOutcome, { status: "completed" }> = {
       status: "completed",
     };
@@ -306,7 +315,9 @@ export const finalFromMessages = (messages: readonly unknown[]): ChildTurnOutcom
     return completed;
   }
 
-  return { status: "completed" };
+  // Compaction can summarize away the truncated response before a cancelled run
+  // ends, leaving no assistant message to settle the turn.
+  return options.cancelled === true ? { status: "interrupted" } : { status: "completed" };
 };
 
 export const cloneModelRuntime = async (
@@ -868,7 +879,9 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           const { messages } = session.state;
           const index = boundary === undefined ? -1 : messages.lastIndexOf(boundary);
 
-          return finalFromMessages(messages.slice(index + 1));
+          return finalFromMessages(messages.slice(index + 1), {
+            cancelled: attempt.cancellationError !== undefined,
+          });
         } catch (error) {
           accepted.reject(error);
           throw error;

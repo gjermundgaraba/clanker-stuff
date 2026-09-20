@@ -2,7 +2,7 @@
 
 ## Scope and provenance
 
-The reusable checkout at `~/.cache/checkouts/github.com/openai/codex` was clean and fast-forwarded from `02a8f038b87ad34d4a1dc5058eda26972ed7aa6c` to [`36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564`](https://github.com/openai/codex/tree/36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564), committed 2026-09-13 13:06:40 UTC. Review covered relevant changes across the 547 commits since the September 2 behavior baseline, `389dd5645944891b65e4ca584125bbb0c852d352`, and catalog changes since `f1aac1e885f676a1129f2da0c46a3dba86392fc6`. Pi remains pinned to `v0.85.0`.
+The reusable checkout at `~/.cache/checkouts/github.com/openai/codex` was clean and fast-forwarded from `02a8f038b87ad34d4a1dc5058eda26972ed7aa6c` to [`36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564`](https://github.com/openai/codex/tree/36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564), committed 2026-09-13 13:06:40 UTC. Review covered relevant changes across the 547 commits since the September 2 behavior baseline, `389dd5645944891b65e4ca584125bbb0c852d352`, and catalog changes since `f1aac1e885f676a1129f2da0c46a3dba86392fc6`. Pi remains pinned to `v0.86.0`.
 
 This is a source-diff review, not proof of complete parity with current Codex. The older [provider baseline](codex-baseline.md), [collaboration contract](../../subagents/docs/codex-model-facing-contract.md), and [application reference](../../subagents/docs/codex-reference.md) retain their historical source links. The findings below describe the pre-implementation audit. The dated implementation notes distinguish later changes from that historical evidence; they do not advance the complete behavior baseline.
 

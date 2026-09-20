@@ -69,6 +69,42 @@ describe("snapshot", () => {
     ).toContain("BRANCH SUMMARY");
   });
 
+  it("keeps persisted system messages out of the conversation", () => {
+    const session = SessionManager.inMemory();
+    const read = { name: "read", description: "read", parameters: Type.Object({}) };
+    session.appendMessage({
+      role: "system",
+      content: "",
+      sections: { preamble: "You are pi.", tools: "<tools>read</tools>" },
+      toolsAdded: [read],
+      timestamp: 0,
+    });
+    session.appendMessage(user("first message"));
+    session.appendMessage({
+      role: "system",
+      content: "",
+      sections: { skills: "<skills>alpha</skills>", tools: null },
+      toolsRemoved: [{ name: "read" }],
+      timestamp: 0,
+    });
+    const kept = session.appendMessage(user("retained message"));
+    session.appendCompaction("COMPACTED SUMMARY", kept, 1000);
+    session.appendMessage(user("latest message"));
+
+    const snapshot = fixtureSnapshot({ prompt: "EFFECTIVE PROMPT", branch: session.getBranch() });
+
+    expect(snapshot.system.body).toBe("EFFECTIVE PROMPT");
+    expect(snapshot.messages.map((part) => part.label.replace(/^\d+\. /, ""))).toEqual([
+      "user",
+      "user",
+      "user",
+    ]);
+    expect(snapshot.messages.map((part) => part.body).slice(1)).toEqual([
+      "retained message",
+      "latest message",
+    ]);
+  });
+
   it("uses Pi's conversion for custom messages and excludes !! executions", () => {
     const session = SessionManager.inMemory();
     session.appendCustomMessageEntry("test", "custom content", false);

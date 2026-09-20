@@ -13,7 +13,10 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../tests/harness/extension-host.js";
+import {
+  createExtensionHost,
+  normalizedSystemPromptOptions,
+} from "../../../tests/harness/extension-host.js";
 import type { ExtensionHostOptions } from "../../../tests/harness/extension-host.js";
 import { createIdentityTheme, renderComponent } from "../../../tests/harness/tui.js";
 import extension from "../index.js";
@@ -110,7 +113,7 @@ describe("skill mentions", () => {
         {
           prompt: "Use $beta, then $alpha twice: $alpha, and $plugin:deploy. Ignore $PATH.",
           systemPrompt: "",
-          systemPromptOptions: {
+          systemPromptOptions: normalizedSystemPromptOptions({
             cwd: directory,
             skills: [
               {
@@ -146,7 +149,7 @@ describe("skill mentions", () => {
                 sourceInfo: SOURCE_INFO,
               },
             ],
-          },
+          }),
           type: "before_agent_start",
         } satisfies BeforeAgentStartEvent,
         ctx,
@@ -260,7 +263,7 @@ describe("skill mentions", () => {
       {
         prompt: "initial prompt",
         systemPrompt: "",
-        systemPromptOptions: { cwd: directory, skills: [skill] },
+        systemPromptOptions: normalizedSystemPromptOptions({ cwd: directory, skills: [skill] }),
         type: "before_agent_start",
       } satisfies BeforeAgentStartEvent,
       ctx,
@@ -305,7 +308,7 @@ describe("skill mentions", () => {
       {
         prompt: "Use $alpha",
         systemPrompt: "",
-        systemPromptOptions: {
+        systemPromptOptions: normalizedSystemPromptOptions({
           cwd: directory,
           skills: [
             {
@@ -317,7 +320,7 @@ describe("skill mentions", () => {
               sourceInfo: SOURCE_INFO,
             },
           ],
-        },
+        }),
         type: "before_agent_start",
       } satisfies BeforeAgentStartEvent,
       host.createContext(),

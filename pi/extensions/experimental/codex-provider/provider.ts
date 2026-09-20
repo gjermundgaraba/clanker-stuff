@@ -8,11 +8,18 @@ import {
   calculateCost,
   clampThinkingLevel,
   createAssistantMessageEventStream,
+  getCurrentSystemPrompt,
+  getCurrentTools,
+  getDeclaredTools,
+  getInitialSystemMessage,
+  getSystemMessageText,
+  normalizeContext,
+  resolveTranscript,
+  resolveTranscriptTools,
   uuidv7,
 } from "@earendil-works/pi-ai";
 import type {
   AssistantMessage,
-  Context,
   Model,
   ModelThinkingLevel,
   OpenAICodexResponsesOptions,
@@ -20,6 +27,7 @@ import type {
   ProviderEnv,
   ProviderHeaders,
   StreamFunction,
+  TranscriptContext,
   Usage,
 } from "@earendil-works/pi-ai";
 import { v5 as uuidV5 } from "uuid";
@@ -28,7 +36,6 @@ import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import { createGrammarToolInputProperties } from "#pi-constrained-sampling";
-import { splitDeferredTools } from "#pi-deferred-tools";
 import {
   convertResponsesMessages,
   convertResponsesTools,
@@ -442,7 +449,7 @@ export interface CodexCompactionRequest {
   readonly apiKey: string;
   readonly authoritativeEnvelope?: Readonly<JsonRecord>;
   readonly authoritativeInput?: readonly ResponsesInputItem[];
-  readonly context: Context;
+  readonly context: TranscriptContext;
   readonly codexReason?: "comp_hash_changed" | "model_downshift";
   readonly effectiveTokenLimit: number;
   readonly env?: ProviderEnv;
@@ -681,7 +688,7 @@ const compactionMetadata = (request: CodexCompactionRequest) => ({
 
 const buildRequestBody = (
   model: SupportedModel,
-  context: Context,
+  context: TranscriptContext,
   options: OpenAICodexResponsesOptions | undefined,
   metadata: CodexModelMetadata | undefined,
   sessionId: string,
@@ -692,22 +699,23 @@ const buildRequestBody = (
     throw new Error(`Unsupported Codex provider model: ${model.id}`);
   }
 
+  const supportsMidConvoSystemMessages = model.compat?.supportsMidConvoSystemMessages === true;
+  const transcript = resolveTranscript(context, supportsMidConvoSystemMessages);
+
   const grammarToolInputProperties = createGrammarToolInputProperties(
-    context.tools,
+    getDeclaredTools(transcript.messages),
     model.compat?.supportsOpenAIGrammarTools ?? false,
   );
 
   const supportsStrictMode = model.compat?.supportsStrictMode ?? true;
   const supportsOpenAIGrammarTools = model.compat?.supportsOpenAIGrammarTools ?? false;
+  const supportsAdditionalTools = model.compat?.supportsAdditionalTools === true;
+  const supportsToolSearch = model.compat?.supportsToolSearch === true;
 
-  const deferredToolsMode =
-    model.compat?.supportsAdditionalTools === true
-      ? "additional-tools"
-      : model.compat?.supportsToolSearch === true
-        ? "tool-search"
-        : undefined;
-
-  const placement = splitDeferredTools(context, deferredToolsMode !== undefined);
+  const transcriptTools = resolveTranscriptTools(
+    transcript.messages,
+    supportsAdditionalTools || supportsToolSearch,
+  );
 
   const toolOptions = {
     strict: null,
@@ -717,23 +725,29 @@ const buildRequestBody = (
 
   let input: ResponsesInputItem[] = convertResponsesMessages(
     model,
-    context,
+    transcript,
     ALLOWED_TOOL_CALL_PROVIDERS,
     {
-      deferredTools: placement.deferred,
-      ...(deferredToolsMode !== undefined ? { deferredToolsMode } : {}),
       grammarToolInputProperties,
       includeSystemPrompt: false,
+      supportsAdditionalTools,
+      supportsMidConvoSystemMessages,
+      supportsToolSearch,
       toolOptions,
     },
   ).map((item) => ({ ...item }));
 
   const tools =
-    placement.immediate.length > 0
-      ? convertResponsesTools(placement.immediate, toolOptions).map((tool) => ({
+    transcriptTools.requestTools.length > 0
+      ? convertResponsesTools(transcriptTools.requestTools, toolOptions).map((tool) => ({
           ...tool,
         }))
       : undefined;
+
+  const initialSystemMessage = getInitialSystemMessage(transcript.messages);
+
+  const systemPrompt =
+    initialSystemMessage === undefined ? "" : getSystemMessageText(initialSystemMessage);
 
   const lite = metadata?.use_responses_lite === true;
 
@@ -750,10 +764,10 @@ const buildRequestBody = (
       },
     ];
 
-    if (context.systemPrompt !== undefined && context.systemPrompt.length > 0) {
+    if (systemPrompt.length > 0) {
       prefix.push({
-        content: [{ text: context.systemPrompt, type: "input_text" }],
-        id: `msg_${uuidV5(Buffer.from(context.systemPrompt, "utf8"), prefixNamespace)}`,
+        content: [{ text: systemPrompt, type: "input_text" }],
+        id: `msg_${uuidV5(Buffer.from(systemPrompt, "utf8"), prefixNamespace)}`,
         role: "developer",
         type: "message",
       });
@@ -768,8 +782,8 @@ const buildRequestBody = (
     input,
     instructions: lite
       ? ""
-      : context.systemPrompt !== undefined && context.systemPrompt.length > 0
-        ? context.systemPrompt
+      : systemPrompt.length > 0
+        ? systemPrompt
         : "You are a helpful assistant.",
     model: model.id,
     parallel_tool_calls: !lite && metadata?.supports_parallel_tool_calls !== false,
@@ -842,7 +856,7 @@ const buildRequestBody = (
     body.reasoning = reasoning;
   }
 
-  return { body, grammarToolInputProperties, responsesLite: lite };
+  return { body, grammarToolInputProperties, responsesLite: lite, systemPrompt };
 };
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Continuation equality compares heterogeneous wire values after JSON serialization, omitting transport metadata at any depth.
@@ -2491,7 +2505,7 @@ export const createCodexProviderRuntime = (
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
         typeof envelope.instructions === "string"
           ? envelope.instructions
-          : (request.context.systemPrompt ?? "");
+          : getCurrentSystemPrompt(request.context.messages);
 
       const normalized = normalizeToolHistory(
         omitUnsupportedUserImages(source, request.model.input.includes("image")),
@@ -2793,10 +2807,12 @@ export const createCodexProviderRuntime = (
 
     if (
       operation &&
-      (context.tools?.length ||
+      (getCurrentTools(context.messages).length > 0 ||
         context.messages.some(
           (message) =>
-            (message.role !== "user" && message.role !== "assistant") ||
+            (message.role !== "user" &&
+              message.role !== "assistant" &&
+              message.role !== "system") ||
             // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pi user/assistant content is a string/block union; discriminate it before checking for non-text blocks.
             (typeof message.content !== "string" &&
               message.content.some((block) => block.type !== "text")),
@@ -2917,8 +2933,7 @@ export const createCodexProviderRuntime = (
           }
 
           if (
-            context.systemPrompt !== undefined &&
-            context.systemPrompt.length > 0 &&
+            built.systemPrompt.length > 0 &&
             built.body.input[litePrefixLength]?.type === "message" &&
             built.body.input[litePrefixLength]?.role === "developer"
           ) {
@@ -3045,7 +3060,7 @@ export const createCodexProviderRuntime = (
         ) {
           const responseItems = convertResponsesMessages(
             model,
-            { messages: [output] },
+            normalizeContext({ messages: [output] }),
             ALLOWED_TOOL_CALL_PROVIDERS,
             {
               grammarToolInputProperties: built.grammarToolInputProperties,

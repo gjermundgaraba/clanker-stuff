@@ -139,17 +139,29 @@ interface TraceString {
   replace: (text: string) => void;
 }
 
+// A freshly parsed JSON tree that budget reduction mutates in place before it
+// becomes the shared, readonly JsonValue.
+type MutableJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | MutableJsonValue[]
+  | { [key: string]: MutableJsonValue };
+
+const isJsonArray = (value: MutableJsonValue): value is MutableJsonValue[] => Array.isArray(value);
+
 // Reduction touches only detached JSON. Each string is considered at most once,
 // longest encoded string first; stable sorting breaks ties in traversal order.
-function fitSnapshot(value: JsonValue, size: number, maxChars: number): JsonValue {
+function fitSnapshot(value: MutableJsonValue, size: number, maxChars: number): JsonValue {
   const root = { value };
   const strings: TraceString[] = [];
 
-  const collect = (entry: JsonValue, replace: (text: string) => void): void => {
+  const collect = (entry: MutableJsonValue, replace: (text: string) => void): void => {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Budget reduction traverses an already-detached JsonValue union; preserve structured values while shortening strings.
     if (typeof entry === "string") {
       strings.push({ text: entry, encodedLength: JSON.stringify(entry).length, replace });
-    } else if (Array.isArray(entry)) {
+    } else if (isJsonArray(entry)) {
       entry.forEach((item, index) =>
         collect(item, (text) => {
           entry[index] = text;
@@ -216,7 +228,7 @@ export function sanitizeTraceInput(value: unknown, maxChars: number): JsonValue 
     if (serialized === undefined) return null;
 
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: JSON.parse without a reviver returns only JSON values; the input is serialized JSON and parsing failures are contained here.
-    const snapshot = JSON.parse(serialized) as JsonValue;
+    const snapshot = JSON.parse(serialized) as MutableJsonValue;
 
     return serialized.length <= maxChars
       ? snapshot

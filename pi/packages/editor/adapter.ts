@@ -82,7 +82,7 @@ interface NativeEditor extends NativeSnapshot {
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Version boundary: validates Pi internals that no public type describes.
 function nativeEditor(instance: unknown): NativeEditor {
-  // SAFETY: This single boundary targets Pi 0.85.0's Editor; validate required internals before use.
+  // SAFETY: This single boundary targets Pi 0.86.0's Editor; validate required internals before use.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exposes no public document/undo adapter; the pinned private layout is checked below and covered by native editor contract tests.
   const native = instance as NativeEditor;
 
@@ -99,7 +99,7 @@ function nativeEditor(instance: unknown): NativeEditor {
     typeof native.buildVisualLineMap !== "function"
     /* oxlint-enable anti-slop/no-runtime-typeof */
   ) {
-    throw new Error("The shared editor requires Pi 0.85.0 Editor internals");
+    throw new Error("The shared editor requires Pi 0.86.0 Editor internals");
   }
 
   return native;

@@ -5,7 +5,8 @@ import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import { RECAP_ENTRY_TYPE } from "../entry.js";
 import extension from "../index.js";
-import { completionMock, createRecapConfigFile, sessionWithTurns } from "./fixtures.js";
+import { queuedStream, createRecapConfigFile, sessionWithTurns } from "./fixtures.js";
+import type { ResponseStep } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 
 const terminalControls = Array.from({ length: 0xa0 }, (_, code) =>
@@ -43,7 +44,7 @@ describe("recap extension", () => {
       provider: "cheap",
     }).getModel();
 
-    const completion = completionMock(async (_model, _context, options) => {
+    const respond: ResponseStep = async (_context, options) => {
       const signal = options?.signal;
 
       if (signal === undefined) {
@@ -64,7 +65,9 @@ describe("recap extension", () => {
           { once: true },
         );
       });
-    });
+    };
+
+    const stream = queuedStream(respond, respond, respond);
 
     const host = createExtensionHost(extension, {
       entries: branch,
@@ -73,7 +76,7 @@ describe("recap extension", () => {
 
     const ctx = host.createContext({
       modelRegistry: {
-        complete: completion,
+        streamSimple: stream,
         find: () => model,
         getApiKeyAndHeaders: async () => ({ ok: true }),
       },
@@ -81,22 +84,22 @@ describe("recap extension", () => {
 
     await host.emitSessionStart(ctx);
     await host.emit("agent_settled", { type: "agent_settled" }, ctx);
-    expect(completion.mock.calls).toHaveLength(1);
+    expect(stream.mock.calls).toHaveLength(1);
 
     await host.emit("agent_start", { type: "agent_start" }, ctx);
-    expect(completion.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
+    expect(stream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
 
     await host.emit("agent_settled", { type: "agent_settled" }, ctx);
-    expect(completion.mock.calls).toHaveLength(2);
+    expect(stream.mock.calls).toHaveLength(2);
 
     await host.emitSessionTree(ctx);
-    expect(completion.mock.calls[1]?.[2]?.signal?.aborted).toBe(true);
+    expect(stream.mock.calls[1]?.[2]?.signal?.aborted).toBe(true);
 
     await host.emit("agent_settled", { type: "agent_settled" }, ctx);
-    expect(completion.mock.calls).toHaveLength(3);
+    expect(stream.mock.calls).toHaveLength(3);
 
     await host.emitSessionShutdown(ctx);
-    expect(completion.mock.calls[2]?.[2]?.signal?.aborted).toBe(true);
+    expect(stream.mock.calls[2]?.[2]?.signal?.aborted).toBe(true);
     expect(host.getAppendedEntries()).toHaveLength(0);
   });
 

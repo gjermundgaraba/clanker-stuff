@@ -18,8 +18,7 @@ const isData = (value: unknown): value is Data =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 /* oxlint-disable anti-slop/no-runtime-typeof -- Generic MCP display intentionally accepts arbitrary/partial JSON; field-level rendering must not impose a remote tool schema. */
-const record = (value: JsonValue | undefined): Data =>
-  value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+const record = (value: JsonValue | undefined): Data => (isData(value) ? value : {});
 
 const inline = (value: JsonValue | undefined) =>
   typeof value === "string" ? inlineText(value) : "";

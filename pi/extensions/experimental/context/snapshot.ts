@@ -23,6 +23,7 @@ export interface ContextSnapshot {
 }
 
 interface SnapshotInput {
+  /** The effective prompt for the next request, from `ctx.getSystemPrompt()`. */
   prompt: string;
   tools: readonly ToolInfo[];
   activeTools: readonly string[];
@@ -58,17 +59,24 @@ const messageTone = (message: Message): NodeTone => {
 
 export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
   const active = new Set(input.activeTools);
-  const messages = convertToLlm(buildSessionContext(input.branch).messages);
+
+  // System messages are persisted prompt state, not conversation; the prompt
+  // leaf already shows the effective prompt.
+  const messages = convertToLlm(buildSessionContext(input.branch).messages).filter(
+    (message) => message.role !== "system",
+  );
+
+  const { prompt } = input;
 
   return {
     modelLabel: input.modelLabel,
     usage: input.usage === undefined ? undefined : { ...input.usage },
     system: {
       label: "System prompt",
-      body: input.prompt,
+      body: prompt,
       format: "markdown",
       tone: "text",
-      estimatedTokens: Math.ceil(input.prompt.length / 4),
+      estimatedTokens: Math.ceil(prompt.length / 4),
     },
     tools: input.tools
       .filter((tool) => active.has(tool.name))

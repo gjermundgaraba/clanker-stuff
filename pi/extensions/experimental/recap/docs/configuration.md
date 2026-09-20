@@ -14,7 +14,7 @@ Recap requires a global config file at `<agent-dir>/recap.json`, normally `~/.pi
 
 Use a model already available to Pi with working provider authentication. The format is strict: both strings must be non-empty and unknown fields are rejected.
 
-`thinking` is optional and accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. Omit it to preserve the native model/provider defaults; it never inherits the active session's thinking level. When set, Pi clamps the requested level to the recap model's supported levels and the registered provider translates it to its native thinking options. `off` requests no reasoning where the model supports it; models that require thinking may clamp it upward. Non-reasoning models use `off`.
+`thinking` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` and defaults to `off` when omitted; it never inherits the active session's thinking level. Pi clamps the requested level to the recap model's supported levels and the provider translates it to its native thinking options. `off` requests no reasoning where the model supports it; models that require thinking may clamp it upward. Non-reasoning models use `off`.
 
 Higher thinking can increase latency and token usage. The hard 30-second deadline still applies. Recap does not specify an output-token limit; model/provider defaults apply. A low level is usually sufficient for these short recaps.
 

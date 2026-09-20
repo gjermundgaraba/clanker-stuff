@@ -4,9 +4,10 @@ import {
   fauxAssistantMessage,
   validateToolArguments,
 } from "@earendil-works/pi-ai";
-import type { Provider } from "@earendil-works/pi-ai";
+import type { JsonObject, Provider } from "@earendil-works/pi-ai";
 import type {
   AutocompleteProviderFactory,
+  BuildSystemPromptOptions,
   EntryRenderer,
   Extension,
   ExtensionAPI,
@@ -15,6 +16,7 @@ import type {
   ExtensionContext,
   ExtensionContextActions,
   MarkdownTransformer,
+  NormalizedBuildSystemPromptOptions,
   ProviderConfig,
   InputEvent,
   InputEventResult,
@@ -39,7 +41,6 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
-import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import { vi } from "vite-plus/test";
 
@@ -110,9 +111,24 @@ const InputEventResultSchema = Type.Union([
   Type.Object({ action: Type.Literal("handled") }),
 ]);
 
-const ToolArgumentsSchema = Type.Record(Type.String(), Type.Unknown());
-
-type ToolArguments = Static<typeof ToolArgumentsSchema>;
+/** Complete prompt options in the shape Pi hands to before_agent_start handlers. */
+export const normalizedSystemPromptOptions = (
+  input: BuildSystemPromptOptions,
+): NormalizedBuildSystemPromptOptions => ({
+  ...(input.customPrompt === undefined ? {} : { customPrompt: input.customPrompt }),
+  ...(input.forceSystemPrompt === undefined ? {} : { forceSystemPrompt: input.forceSystemPrompt }),
+  appendSystemPrompt: input.appendSystemPrompt ?? "",
+  contextFiles: (input.contextFiles ?? []).map((file) => ({ ...file })),
+  cwd: input.cwd,
+  promptGuidelines: [...(input.promptGuidelines ?? [])],
+  sections: { ...input.sections },
+  selectedTools: [...(input.selectedTools ?? ["read", "bash", "edit", "write"])],
+  skills: (input.skills ?? []).map((skill) => ({ ...skill })),
+  toolGuidelines: Object.fromEntries(
+    Object.entries(input.toolGuidelines ?? {}).map(([name, guidelines]) => [name, [...guidelines]]),
+  ),
+  toolSnippets: { ...input.toolSnippets },
+});
 
 // SAFETY: This test-only proxy exposes only implemented members and fails immediately for every other Pi API call.
 const incomplete = <T extends object>(value: Partial<T>): T =>
@@ -602,7 +618,7 @@ export const createExtensionHost = (
 
   const runTool = async (
     name: string,
-    params: ToolArguments,
+    params: JsonObject,
     ctxOrOptions: ExtensionCommandContext | RunToolOptions = buildContext(),
     toolRunOptions: RunToolOptions = {},
   ) => {
@@ -621,13 +637,13 @@ export const createExtensionHost = (
           }
         : ctxOrOptions;
 
-    const rawParams = Value.Parse(ToolArgumentsSchema, params);
-
+    // SAFETY: Pi's agent loop hands prepareArguments output to validation as the
+    // call's arguments; ToolDefinition documents that it returns an object
+    // conforming to the tool's parameters. The harness mirrors that contract.
     const preparedParams = tool.definition.prepareArguments
-      ? tool.definition.prepareArguments(rawParams)
-      : rawParams;
-
-    const preparedRecord = Value.Parse(ToolArgumentsSchema, preparedParams);
+      ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Mirrors Pi's prepareArguments contract (agent-loop prepareToolCallArguments); tests exercise the same trust the runtime applies.
+        (tool.definition.prepareArguments(params) as JsonObject)
+      : params;
 
     const validatedParams: unknown = validateToolArguments(
       {
@@ -636,7 +652,7 @@ export const createExtensionHost = (
         parameters: tool.definition.parameters,
       },
       {
-        arguments: preparedRecord,
+        arguments: preparedParams,
         id: runOptions.toolCallId ?? name,
         name,
         type: "toolCall",

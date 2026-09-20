@@ -1,4 +1,4 @@
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, normalizeContext } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Provider, RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -75,7 +75,7 @@ describe("lazy Codex provider", () => {
     const loaded = { ...catalog.base, stream } satisfies CodexProvider;
     const load = vi.fn<() => Promise<CodexProvider>>(async () => loaded);
     const provider = createLazyCodexProvider(catalog, load);
-    const context = { messages: [] };
+    const context = normalizeContext({ messages: [] });
 
     await provider.stream(SPIKE_MODEL, context).result();
 

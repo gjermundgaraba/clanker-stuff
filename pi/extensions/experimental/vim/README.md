@@ -16,4 +16,4 @@ Start typing in Insert mode; press Escape for Normal mode, then `i` to resume ty
 
 ## Requirements
 
-Pi 0.85.0 is the tested host. See [commands and boundaries](docs/design.md) before use; Vim is skipped when another custom editor owns the session.
+Pi 0.86.0 is the tested host. See [commands and boundaries](docs/design.md) before use; Vim is skipped when another custom editor owns the session.

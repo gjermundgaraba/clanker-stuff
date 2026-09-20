@@ -1,13 +1,15 @@
 import { createSyntheticSourceInfo } from "@earendil-works/pi-coding-agent";
 import type {
   BeforeAgentStartEvent,
-  BuildSystemPromptOptions,
   ExtensionContext,
   Skill,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import {
+  createExtensionHost,
+  normalizedSystemPromptOptions,
+} from "../../../../tests/harness/extension-host.js";
 import { exposeSkillsWithoutRead } from "../skill-catalog.js";
 import { createToolsModel } from "./fixtures.js";
 
@@ -27,11 +29,11 @@ const SKILL = {
 } satisfies Skill;
 
 const createEvent = (selectedTools: string[], skills: Skill[] = [SKILL]): BeforeAgentStartEvent => {
-  const systemPromptOptions = {
+  const systemPromptOptions = normalizedSystemPromptOptions({
     cwd: "/tmp/project",
     selectedTools,
     skills,
-  } satisfies BuildSystemPromptOptions;
+  });
 
   return {
     prompt: "Do the work",

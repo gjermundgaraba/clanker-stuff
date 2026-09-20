@@ -1,9 +1,28 @@
 // Protocol adapter derived from @howaboua/pi-codex-conversion 3.0.4 (MIT).
+import type { JsonValue } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import type { NestedTool, RuntimeContentItem, RuntimeResponse } from "./types.js";
+
+// Delegated tool calls cross the Code Mode JSON transport, and Pi validates
+// JSON-only tool arguments; this is the one definition of that boundary.
+export const JsonValueSchema = Type.Cyclic(
+  {
+    Json: Type.Union([
+      Type.Null(),
+      Type.Boolean(),
+      Type.Number(),
+      Type.String(),
+      Type.Array(Type.Ref("Json")),
+      Type.Record(Type.String(), Type.Ref("Json")),
+    ]),
+  },
+  "Json",
+);
+
+export const JsonObjectSchema = Type.Record(Type.String(), JsonValueSchema);
 
 export const MAX_CODE_MODE_OUTPUT_TOKENS = 100_000;
 
@@ -221,7 +240,7 @@ export interface DelegateRequestMessage {
         type: "tool/invoke";
         invocation: {
           cell_id: string;
-          input?: unknown;
+          input?: JsonValue;
           runtime_tool_call_id: string;
           tool_name: { name: string; namespace: null | string };
         };
@@ -284,7 +303,7 @@ const DelegateNotificationSchema = Type.Object({
 const DelegateToolInvokeSchema = Type.Object({
   invocation: Type.Object({
     cell_id: Type.String(),
-    input: Type.Optional(Type.Unknown()),
+    input: Type.Optional(JsonValueSchema),
     runtime_tool_call_id: Type.String(),
     tool_name: Type.Object({
       name: Type.String(),

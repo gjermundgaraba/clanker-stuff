@@ -2,8 +2,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { Message, StopReason } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type {
+  AssistantMessage,
+  Message,
+  SimpleStreamOptions,
+  StopReason,
+} from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { onTestFinished, vi } from "vite-plus/test";
@@ -11,17 +16,44 @@ import type { Mock } from "vite-plus/test";
 
 import type { RecapConfig } from "../config.js";
 
-type CompleteModel = ExtensionContext["modelRegistry"]["complete"];
+type StreamModel = ExtensionContext["modelRegistry"]["streamSimple"];
 
-type CompletionMock = CompleteModel & Mock<CompleteModel>;
+export type ResponseStep = (
+  context: Parameters<StreamModel>[1],
+  options: SimpleStreamOptions | undefined,
+) => AssistantMessage | Promise<AssistantMessage>;
 
-export const completionMock = (implementation: CompleteModel): CompletionMock => {
-  const mock = vi.fn<CompleteModel>(implementation);
+/**
+ * Mocks registry streaming with queued responses, one per request. Recap only
+ * awaits `.result()`, so each step settles the stream's result directly. Unlike
+ * the faux provider it keeps each message's usage and settles within a few
+ * microtasks, which the overflow and cancellation tests rely on. A thrown error
+ * becomes an error result.
+ */
+export const queuedStream = (...responses: ResponseStep[]): Mock<StreamModel> =>
+  vi.fn<StreamModel>((_model, context, options) => {
+    const stream = createAssistantMessageEventStream();
+    const step = responses.shift();
 
-  // SAFETY: Vitest forwards calls unchanged; Mock only loses the generic model/options correlation in its callable type.
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Vitest erases the model/options generic relationship; the supplied native CompleteModel implementation is checked and forwarded unchanged.
-  return mock as CompletionMock;
-};
+    void (async () => {
+      try {
+        if (step === undefined) {
+          throw new Error("No more test responses queued");
+        }
+
+        stream.end(await step(context, options));
+      } catch (error) {
+        stream.end(
+          fauxAssistantMessage("", {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            stopReason: "error",
+          }),
+        );
+      }
+    })();
+
+    return stream;
+  });
 
 export const userMessage = (content: string): Message => ({
   content,
@@ -54,7 +86,9 @@ export const sessionWithTurns = (count: number): SessionManager => {
 };
 
 export const createRecapConfigFile = async (
-  config: RecapConfig = { model: { id: "small", provider: "cheap" } },
+  config: { model: RecapConfig["model"]; thinking?: RecapConfig["thinking"] } = {
+    model: { id: "small", provider: "cheap" },
+  },
 ): Promise<{
   configPath: string;
   directory: string;

@@ -492,13 +492,17 @@ describe("profile execution", () => {
       yield_time_ms: 0,
     });
 
-    const details = Value.Parse(SessionDetailsSchema, started.details);
-    expect(details.sessionId).toBeTypeOf("number");
-    expect(textContent(started)).toContain(`Session ID: ${details.sessionId}`);
+    const { sessionId } = Value.Parse(SessionDetailsSchema, started.details);
+
+    if (sessionId === undefined) {
+      throw new Error("exec_command did not report a session ID");
+    }
+
+    expect(textContent(started)).toContain(`Session ID: ${sessionId}`);
 
     const finished = await host.runTool("write_stdin", {
       chars: "hello\n",
-      session_id: details.sessionId,
+      session_id: sessionId,
       yield_time_ms: 1000,
     });
 

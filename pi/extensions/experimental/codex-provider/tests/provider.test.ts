@@ -1,7 +1,13 @@
 import { zstdDecompressSync } from "node:zlib";
 
-import type { Context, Credential, FetchFunction, ProviderHeaders } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import type {
+  Context,
+  Credential,
+  FetchFunction,
+  ProviderHeaders,
+  TranscriptContext,
+} from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, normalizeContext } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -200,10 +206,15 @@ const compactionEvents = (id: string, serviceTier?: string) => [
   },
 ];
 
-const context = (messages: Context["messages"]): Context => ({
-  messages,
-  systemPrompt: "System truth",
-});
+const context = (
+  messages: Context["messages"],
+  options: { systemPrompt?: string; tools?: Context["tools"] } = {},
+): TranscriptContext =>
+  normalizeContext({
+    messages,
+    systemPrompt: options.systemPrompt ?? "System truth",
+    ...(options.tools === undefined ? {} : { tools: options.tools }),
+  });
 
 const CODE_MODE_TOOLS: NonNullable<Context["tools"]> = new CodeModeRuntime().createTools();
 
@@ -513,40 +524,33 @@ describe("Codex provider", () => {
       let request: RequestInit | undefined;
 
       const message = await runtime.provider
-        .streamSimple(
-          model,
-          {
-            ...context([]),
-            tools: CODE_MODE_TOOLS,
-          },
-          {
-            apiKey: SPIKE_API_KEY,
-            fetch: async (_input, init) => {
-              request = init;
+        .streamSimple(model, context([], { tools: CODE_MODE_TOOLS }), {
+          apiKey: SPIKE_API_KEY,
+          fetch: async (_input, init) => {
+            request = init;
 
-              return sse(
-                responseEvents("resp_astra", "done").map((event) =>
-                  event.type === "response.done" && "response" in event
-                    ? {
-                        ...event,
-                        response: {
-                          ...event.response,
-                          usage: {
-                            input_tokens: inputTokens,
-                            input_tokens_details: { cached_tokens: 0 },
-                            output_tokens: 2,
-                            total_tokens: inputTokens + 2,
-                          },
+            return sse(
+              responseEvents("resp_astra", "done").map((event) =>
+                event.type === "response.done" && "response" in event
+                  ? {
+                      ...event,
+                      response: {
+                        ...event.response,
+                        usage: {
+                          input_tokens: inputTokens,
+                          input_tokens_details: { cached_tokens: 0 },
+                          output_tokens: 2,
+                          total_tokens: inputTokens + 2,
                         },
-                      }
-                    : event,
-                ),
-              );
-            },
-            sessionId: "session-astra",
-            transport: "sse",
+                      },
+                    }
+                  : event,
+              ),
+            );
           },
-        )
+          sessionId: "session-astra",
+          transport: "sse",
+        })
         .result();
 
       expect(message.stopReason).toBe("stop");
@@ -850,8 +854,8 @@ describe("Codex provider", () => {
           compat: { supportsOpenAIGrammarTools: true },
           input: ["text", "image"],
         },
-        {
-          ...context([
+        context(
+          [
             {
               content: [
                 {
@@ -863,9 +867,9 @@ describe("Codex provider", () => {
               role: "user",
               timestamp: 1,
             },
-          ]),
-          tools: CODE_MODE_TOOLS,
-        },
+          ],
+          { tools: CODE_MODE_TOOLS },
+        ),
         {
           apiKey: SPIKE_API_KEY,
           fetch: async (_input, init) => {
@@ -1057,11 +1061,17 @@ describe("Codex provider", () => {
     ]);
   });
 
-  it("places deferred tools using the model's supported mode", async () => {
+  it("places transcript tool additions using the model's supported mode", async () => {
     const toolCallId = "call_base|fc_base";
+    const execTool = CODE_MODE_TOOLS.find((tool) => tool.name === "exec");
+    const waitTool = CODE_MODE_TOOLS.find((tool) => tool.name === "wait");
 
-    const dynamicContext: Context = {
-      ...context([
+    if (execTool === undefined || waitTool === undefined) {
+      throw new Error("Code Mode fixture tools are missing");
+    }
+
+    const dynamicContext = context(
+      [
         {
           ...fauxAssistantMessage(fauxToolCall("exec", {}, { id: toolCallId }), {
             stopReason: "toolUse",
@@ -1072,7 +1082,6 @@ describe("Codex provider", () => {
           provider: SPIKE_MODEL.provider,
         },
         {
-          addedToolNames: ["wait"],
           content: [{ text: "loaded", type: "text" }],
           isError: false,
           role: "toolResult",
@@ -1080,14 +1089,19 @@ describe("Codex provider", () => {
           toolCallId,
           toolName: "exec",
         },
-      ]),
-      tools: CODE_MODE_TOOLS,
-    };
+        { content: "", role: "system", timestamp: 3, toolsAdded: [waitTool] },
+      ],
+      { tools: [execTool] },
+    );
 
     const [additionalTools, toolSearchOnly] = await Promise.all(
       [
-        { supportsAdditionalTools: true, supportsToolSearch: true },
-        { supportsToolSearch: true },
+        {
+          supportsAdditionalTools: true,
+          supportsMidConvoSystemMessages: true,
+          supportsToolSearch: true,
+        },
+        { supportsMidConvoSystemMessages: true, supportsToolSearch: true },
       ].map(async (compat, index) => {
         let body: RequestInit["body"];
         await createCodexProviderRuntime()
@@ -2076,8 +2090,8 @@ describe("Codex provider", () => {
     await runtime.provider
       .streamSimple(
         remoteModel,
-        {
-          ...context([
+        context(
+          [
             {
               content: [
                 {
@@ -2089,9 +2103,9 @@ describe("Codex provider", () => {
               role: "user",
               timestamp: 1,
             },
-          ]),
-          tools: CODE_MODE_TOOLS,
-        },
+          ],
+          { tools: CODE_MODE_TOOLS },
+        ),
         {
           apiKey: SPIKE_API_KEY,
           fetch: async (_input, init) => {
@@ -2183,8 +2197,8 @@ describe("Codex provider", () => {
     await runtime.provider
       .streamSimple(
         remoteModel,
-        {
-          ...context([
+        context(
+          [
             {
               content: [
                 {
@@ -2196,9 +2210,9 @@ describe("Codex provider", () => {
               role: "user",
               timestamp: 1,
             },
-          ]),
-          tools: CODE_MODE_TOOLS,
-        },
+          ],
+          { tools: CODE_MODE_TOOLS },
+        ),
         { apiKey: SPIKE_API_KEY, sessionId: "session-lite-ws" },
       )
       .result();
@@ -2252,24 +2266,16 @@ describe("Codex provider", () => {
 
     const run = async (sessionId: string, systemPrompt: string, tools = CODE_MODE_TOOLS) => {
       await runtime.provider
-        .streamSimple(
-          model,
-          {
-            ...context([]),
-            systemPrompt,
-            tools,
-          },
-          {
-            apiKey: SPIKE_API_KEY,
-            fetch: async (_input, init) => {
-              requests.push(init ?? {});
+        .streamSimple(model, context([], { systemPrompt, tools }), {
+          apiKey: SPIKE_API_KEY,
+          fetch: async (_input, init) => {
+            requests.push(init ?? {});
 
-              return sse(responseEvents(`resp_prefix_${requests.length}`, "done"));
-            },
-            sessionId,
-            transport: "sse",
+            return sse(responseEvents(`resp_prefix_${requests.length}`, "done"));
           },
-        )
+          sessionId,
+          transport: "sse",
+        })
         .result();
     };
 
@@ -2570,10 +2576,8 @@ describe("Codex provider", () => {
       compat: { supportsOpenAIGrammarTools: true },
     };
 
-    const socketContext = (messages: Context["messages"]): Context => ({
-      ...context(messages),
-      tools: CODE_MODE_TOOLS,
-    });
+    const socketContext = (messages: Context["messages"]) =>
+      context(messages, { tools: CODE_MODE_TOOLS });
 
     let messages: Context["messages"] = [{ content: "one", role: "user", timestamp: 1 }];
     runtime.beginTurn(sessionId);

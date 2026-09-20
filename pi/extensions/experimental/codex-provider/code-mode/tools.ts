@@ -1,15 +1,21 @@
 // Tool descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import { validateToolArguments } from "@earendil-works/pi-ai";
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 import { operationSignal, raceWithAbortSignal } from "#pi-abort";
 import { resolveGrammarConstrainedSampling } from "#pi-constrained-sampling";
 
 import type { CodeModeHostClient } from "./host-client.js";
-import { DEFAULT_CODE_MODE_OUTPUT_TOKENS, MAX_CODE_MODE_OUTPUT_TOKENS } from "./protocol.js";
+import {
+  DEFAULT_CODE_MODE_OUTPUT_TOKENS,
+  JsonObjectSchema,
+  MAX_CODE_MODE_OUTPUT_TOKENS,
+} from "./protocol.js";
 import { codeModeRenderers } from "./renderers.js";
 import type {
   NestedTool,
@@ -219,6 +225,16 @@ export class CodeModeRuntime {
   }
 }
 
+// A function tool's transport input must be a JSON object; anything else is a
+// protocol violation rather than a schema validation failure.
+const functionArguments = (name: string, input: JsonValue | undefined): JsonObject => {
+  if (!Value.Check(JsonObjectSchema, input)) {
+    throw new TypeError(`Invalid arguments for ${name}`);
+  }
+
+  return input;
+};
+
 export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => {
   const { definition, namespace, outputSchema } = descriptor;
   const freeformProperty = freeformInputProperty(definition);
@@ -229,15 +245,24 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
     name: codeModeName(definition.name, namespace),
     async invoke(input, context, signal) {
       signal.throwIfAborted();
-      const argumentsValue = freeformProperty === undefined ? input : { [freeformProperty]: input };
 
-      const prepared: unknown = definition.prepareArguments
-        ? definition.prepareArguments(argumentsValue)
+      // The transport delivers JSON: function tools receive the argument object,
+      // freeform tools wrap their raw input. Preparation output is trusted the way
+      // Pi's own agent loop trusts it, and Pi's validator checks the shape next.
+      const argumentsValue: JsonObject =
+        freeformProperty === undefined
+          ? functionArguments(definition.name, input)
+          : input === undefined
+            ? {}
+            : { [freeformProperty]: input };
+
+      // SAFETY: Pi's agent loop hands prepareArguments output to validation as the
+      // call's arguments; ToolDefinition documents that it returns an object
+      // conforming to the tool's parameters, and validateToolArguments checks it next.
+      const prepared = definition.prepareArguments
+        ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Mirrors Pi's prepareArguments contract (agent-loop prepareToolCallArguments); Code Mode applies the same trust as the runtime.
+          (definition.prepareArguments(argumentsValue) as JsonObject)
         : argumentsValue;
-
-      if (!isRecord(prepared)) {
-        throw new TypeError(`Invalid arguments for ${definition.name}`);
-      }
 
       const validated: unknown = validateToolArguments(definition, {
         arguments: prepared,

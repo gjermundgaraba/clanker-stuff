@@ -1,6 +1,6 @@
 import type { ToolExecutionSettings } from "./tools/execution-context.js";
-import { uuidv7 } from "@earendil-works/pi-ai";
-import type { Context, Model, ProviderHeaders, Usage } from "@earendil-works/pi-ai";
+import { getCurrentSystemMessage, normalizeContext, uuidv7 } from "@earendil-works/pi-ai";
+import type { Message, Model, ProviderHeaders, Usage } from "@earendil-works/pi-ai";
 import {
   buildContextEntries,
   buildSessionContext,
@@ -19,6 +19,7 @@ import type {
   ExtensionFactory,
   MessageEndEvent,
   SessionBeforeCompactEvent,
+  SessionBeforeCompactResult,
   SessionCompactEvent,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
@@ -124,14 +125,9 @@ type SupportedModel = Model<"openai-codex-responses">;
 
 type SerializedResponseItem = ReturnType<typeof convertResponsesMessages>[number];
 
-interface SessionBeforeCompactResult {
-  readonly cancel?: boolean;
-  readonly compaction?: CompactionResult;
-}
-
 export interface LifecycleSource {
   readonly branchSha256: string;
-  readonly contextMessages: Context["messages"];
+  readonly contextMessages: Message[];
   readonly ignoredInlineCheckpoint: boolean;
   readonly inputPrefix: readonly ResponsesInputItem[];
   readonly retainedItems: readonly (CheckpointAgentMessageItem | RealUserInputItem)[];
@@ -286,6 +282,12 @@ const hashJsonClone = (value: unknown) => {
 
 const branchSha256 = (branch: readonly SessionEntry[]) => hashJsonClone(branch);
 
+// Session transcripts persist prompt and tool loadouts as system messages. They
+// are prompt state, not conversation: the lifecycle snapshot replays that state
+// itself, so sources carry conversation messages only.
+const conversationMessages = (messages: Parameters<typeof convertToLlm>[0]): Message[] =>
+  convertToLlm(messages).filter((message) => message.role !== "system");
+
 const serializeRealUserEntries = (entries: readonly SessionEntry[], model: SupportedModel) => {
   const users: RealUserInputItem[] = [];
 
@@ -296,7 +298,7 @@ const serializeRealUserEntries = (entries: readonly SessionEntry[], model: Suppo
 
     const input = convertResponsesMessages(
       model,
-      { messages: convertToLlm([entry.message]) },
+      normalizeContext({ messages: convertToLlm([entry.message]) }),
       ALLOWED_TOOL_CALL_PROVIDERS,
       { includeSystemPrompt: false },
     );
@@ -475,7 +477,7 @@ export const buildLifecycleSource = (
 
       return {
         branchSha256: branchSha256(branch),
-        contextMessages: convertToLlm(boundary.tail.flatMap(sessionEntryToContextMessages)),
+        contextMessages: conversationMessages(boundary.tail.flatMap(sessionEntryToContextMessages)),
         ignoredInlineCheckpoint: false,
         inputPrefix,
         retainedItems: [...safePreviousItems, ...tailUsers],
@@ -489,7 +491,7 @@ export const buildLifecycleSource = (
 
   return {
     branchSha256: branchSha256(branch),
-    contextMessages: convertToLlm(buildSessionContext([...branch]).messages),
+    contextMessages: conversationMessages(buildSessionContext([...branch]).messages),
     ignoredInlineCheckpoint: canUseLocalHistory,
     inputPrefix: [],
     retainedItems,
@@ -771,6 +773,17 @@ const snapshotLifecycleRequestState = (
   };
 };
 
+type LifecycleRequestSnapshot = ReturnType<typeof snapshotLifecycleRequestState>;
+
+// The snapshot holds the replayed prompt and tool state, so it becomes the
+// single leading system message of every compaction request.
+const compactionContext = (messages: readonly Message[], snapshot: LifecycleRequestSnapshot) =>
+  normalizeContext({
+    messages: [...messages],
+    systemPrompt: snapshot.systemPrompt,
+    tools: snapshot.tools,
+  });
+
 /** UI calls must not throw after reload invalidates ctx. */
 const withUi = (run: () => void): void => {
   try {
@@ -894,7 +907,7 @@ const runLifecycleHook = async (
   let source: LifecycleSource;
   let sourceSha256: string;
   let operationKey: string;
-  let requestSnapshot: ReturnType<typeof snapshotLifecycleRequestState>;
+  let requestSnapshot: LifecycleRequestSnapshot;
 
   try {
     normalizeBaseUrl(model.baseUrl);
@@ -1043,11 +1056,7 @@ const runLifecycleHook = async (
 
       const execution = await runEffectiveProviderCompaction(providerRuntime, {
         apiKey: auth.apiKey,
-        context: {
-          messages: source.contextMessages,
-          systemPrompt: requestSnapshot.systemPrompt,
-          tools: requestSnapshot.tools,
-        },
+        context: compactionContext(source.contextMessages, requestSnapshot),
         ...(auth.env !== undefined ? { env: auth.env } : {}),
         ...(auth.headers !== undefined ? { headers: auth.headers } : {}),
         inputPrefix: source.inputPrefix,
@@ -1217,6 +1226,8 @@ const replayBoundaryDecision = (
     ? { kind: "fallback" }
     : { kind: "blocked" };
 };
+
+const isConversationMessage = (message: { readonly role: string }) => message.role !== "system";
 
 const contextSourceMessages = (
   branch: readonly SessionEntry[],
@@ -1622,12 +1633,20 @@ const runContextHook = (
     return undefined;
   }
 
-  const baseline = buildSessionContext([...branch]).messages;
-  const framedSegment = contextSourceMessages(branch, activeCheckpoint);
+  // System messages are prompt state, not conversation: Pi replays them into the
+  // compaction checkpoint and later deltas. Framing compares conversation
+  // messages only, and the replayed prompt state leads the request instead.
+  const conversationMessages = event.messages.filter(isConversationMessage);
+  const baseline = buildSessionContext([...branch]).messages.filter(isConversationMessage);
+
+  const framedSegment = contextSourceMessages(branch, activeCheckpoint).filter(
+    isConversationMessage,
+  );
+
   const nonce = uuidv7();
 
   const framed = frameContiguousBaseline(
-    event.messages,
+    conversationMessages,
     baseline,
     framedSegment,
     sentinelMessage("start", nonce),
@@ -1680,16 +1699,16 @@ const runContextHook = (
 
   const markerfulInput = convertResponsesMessages(
     model,
-    { messages: convertToLlm([...framed.messages]) },
+    normalizeContext({ messages: convertToLlm([...framed.messages]) }),
     ALLOWED_TOOL_CALL_PROVIDERS,
     { includeSystemPrompt: false },
   );
 
   const logicalInput = convertResponsesMessages(
     model,
-    {
+    normalizeContext({
       messages: convertToLlm([...framed.prefix, ...framed.framed, ...framed.suffix]),
-    },
+    }),
     ALLOWED_TOOL_CALL_PROVIDERS,
     { includeSystemPrompt: false },
   );
@@ -1735,7 +1754,9 @@ const runContextHook = (
     requestStateSha256: requestSnapshot.hash,
   };
 
-  return { messages: [...framed.messages] };
+  const promptState = getCurrentSystemMessage(event.messages);
+
+  return { messages: promptState ? [promptState, ...framed.messages] : [...framed.messages] };
 };
 
 export type FinalizedResponsesEnvelope = Static<typeof FinalizedResponsesEnvelopeSchema>;
@@ -2045,11 +2066,7 @@ const runInlineCompactionOperation = async (
         authoritativeEnvelope,
         authoritativeInput,
         ...(codexReason !== undefined ? { codexReason } : {}),
-        context: {
-          messages: [],
-          systemPrompt: requestSnapshot.systemPrompt,
-          tools: requestSnapshot.tools,
-        },
+        context: compactionContext([], requestSnapshot),
         ...(auth.env !== undefined ? { env: auth.env } : {}),
         ...(headers !== undefined ? { headers } : {}),
         inputPrefix: [],

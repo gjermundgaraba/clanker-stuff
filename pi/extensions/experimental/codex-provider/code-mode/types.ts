@@ -1,3 +1,4 @@
+import type { JsonValue } from "@earendil-works/pi-ai";
 import type {
   AgentToolResult,
   ExtensionContext,
@@ -38,8 +39,12 @@ export interface NestedTool {
   namespace?: string;
   outputSchema?: unknown;
   usage: string;
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Heterogeneous delegated tools own their parameter/result schemas; invocation validates against the selected tool rather than a fictitious common contract.
-  invoke: (input: unknown, context: ToolExecutionContext, signal: AbortSignal) => Promise<unknown>;
+  invoke: (
+    input: JsonValue | undefined,
+    context: ToolExecutionContext,
+    signal: AbortSignal,
+    // oxlint-disable-next-line anti-slop/no-unknown-returns -- Heterogeneous delegated tools own their result schemas; structured results are parsed JSON the calling cell interprets.
+  ) => Promise<unknown>;
 }
 
 export interface ToolExecutionContext {

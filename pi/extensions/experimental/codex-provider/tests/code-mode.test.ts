@@ -470,6 +470,64 @@ describe("Codex code mode", () => {
     ).resolves.toBe("ok");
   });
 
+  it("trusts prepared arguments the way Pi's agent loop does", async () => {
+    const execute = vi.fn<
+      (
+        id: string,
+        params: { limit?: number; path: string },
+      ) => Promise<{
+        content: { text: string; type: "text" }[];
+        details: Record<string, never>;
+      }>
+    >(async (_id, params) => ({
+      content: [{ text: `${params.path}:${String(params.limit)}`, type: "text" }],
+      details: {},
+    }));
+
+    const nested = toNestedTool({
+      definition: {
+        description: "test",
+        execute,
+        label: "test",
+        name: "test",
+        parameters: Type.Object(
+          { limit: Type.Optional(Type.Number()), path: Type.String() },
+          { additionalProperties: false },
+        ),
+        // Pi accepts an undefined optional from a preparer; a JSON gate would reject it.
+        prepareArguments: () => ({ limit: undefined, path: "file" }),
+      },
+    });
+
+    await expect(
+      nested.invoke(
+        { path: "ignored" },
+        { extensionContext: TEST_EXTENSION_CONTEXT },
+        new AbortController().signal,
+      ),
+    ).resolves.toBe("file:undefined");
+  });
+
+  it("rejects function-tool input that is not a JSON object", async () => {
+    const nested = toNestedTool({
+      definition: {
+        description: "test",
+        execute: async () => ({ content: [], details: {} }),
+        label: "test",
+        name: "test",
+        parameters: Type.Object({}, { additionalProperties: false }),
+      },
+    });
+
+    await expect(
+      nested.invoke(
+        "text",
+        { extensionContext: TEST_EXTENSION_CONTEXT },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("Invalid arguments for test");
+  });
+
   it("returns declared structured nested results as values", async () => {
     const nested = toNestedTool({
       definition: {

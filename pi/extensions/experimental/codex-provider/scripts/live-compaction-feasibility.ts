@@ -2,7 +2,8 @@ import { ok as assert } from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 
-import type { AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -41,7 +42,7 @@ const OUTPUT_CHUNKS = 32;
 
 const MAX_PROVIDER_CASE_TOKENS = 325_000;
 
-const EMPTY_CONTEXT: Context = { messages: [], tools: [] };
+const EMPTY_CONTEXT = normalizeContext({ messages: [], tools: [] });
 
 const TRAMPOLINE_STOP = "compaction feasibility trampoline complete";
 

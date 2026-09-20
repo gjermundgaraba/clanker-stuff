@@ -186,7 +186,7 @@ export const createSkillMentions = (pi: ExtensionAPI) => {
     event: BeforeAgentStartEvent,
     ctx: ExtensionContext,
   ): Promise<BeforeAgentStartEventResult | undefined> => {
-    activeSkills = event.systemPromptOptions.skills ?? [];
+    activeSkills = event.systemPromptOptions.skills;
     const blocks = await loadMentionedSkills(event.prompt, activeSkills, ctx);
 
     if (blocks.length === 0) {

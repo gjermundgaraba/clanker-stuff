@@ -21,6 +21,7 @@ describe("recap config", () => {
       }),
     ).toStrictEqual({
       model: { id: "small", provider: "cheap" },
+      thinking: "off",
     });
   });
 

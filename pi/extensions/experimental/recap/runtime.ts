@@ -27,46 +27,10 @@ interface RecapSnapshot {
 
 interface RecapSessionState {
   inFlight: AbortController | undefined;
-  model?: Model<Api>;
   lastUnsuccessful?: RecapSnapshot;
   sessionId: string;
-  thinking?: RecapConfig["thinking"];
+  target?: { model: Model<Api>; thinking: RecapConfig["thinking"] };
 }
-
-// ModelRegistry.complete takes native API options, not provider-neutral reasoning.
-// Use the registered provider's simple adapter when thinking is explicitly configured.
-const completeWithThinking = async (
-  ctx: ExtensionContext,
-  model: Model<Api>,
-  context: Context,
-  options: SimpleStreamOptions,
-  thinking: NonNullable<RecapConfig["thinking"]>,
-) => {
-  const provider = ctx.modelRegistry.getProvider(model.provider);
-
-  if (provider === undefined) {
-    throw new Error(`Provider ${model.provider} was not found by Pi`);
-  }
-
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-
-  if (!auth.ok) {
-    throw new Error(auth.error);
-  }
-
-  options.signal?.throwIfAborted();
-  const level = clampThinkingLevel(model, thinking);
-
-  return await provider
-    .streamSimple(auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model, context, {
-      ...options,
-      ...(auth.apiKey !== undefined ? { apiKey: auth.apiKey } : {}),
-      ...(auth.env !== undefined ? { env: auth.env } : {}),
-      ...(auth.headers !== undefined ? { headers: auth.headers } : {}),
-      ...(level !== "off" ? { reasoning: level } : {}),
-    })
-    .result();
-};
 
 const safeNotification = (prefix: string, message: string): string =>
   sanitizeRecapText(`${prefix}: ${message}`).trim();
@@ -106,8 +70,7 @@ class RecapRuntime {
         return;
       }
 
-      state.model = model;
-      state.thinking = config.thinking;
+      state.target = { model, thinking: config.thinking };
     } catch (error) {
       if (this.#state !== state || ctx.sessionManager.getSessionId() !== sessionId) {
         return;
@@ -139,7 +102,7 @@ class RecapRuntime {
     const state = this.#state;
 
     if (
-      state?.model === undefined ||
+      state?.target === undefined ||
       state.inFlight !== undefined ||
       state.sessionId !== ctx.sessionManager.getSessionId() ||
       !ctx.isIdle()
@@ -193,14 +156,13 @@ class RecapRuntime {
   async #generate(ctx: ExtensionContext, snapshot: RecapSnapshot): Promise<void> {
     const state = this.#state;
 
-    if (state?.model === undefined) {
+    if (state?.target === undefined) {
       return;
     }
 
     const controller = new AbortController();
     state.inFlight = controller;
-    const model = state.model;
-    const thinking = state.thinking;
+    const { model, thinking } = state.target;
 
     const timeout = setTimeout(() => {
       controller.abort(new Error("Recap request timed out"));
@@ -231,10 +193,17 @@ class RecapRuntime {
         timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
       };
 
+      // The registry resolves provider auth and maps the provider-neutral level;
+      // "off" sends no reasoning option.
+      const level = clampThinkingLevel(model, thinking);
+
       const response = await raceWithAbortSignal(
-        thinking === undefined
-          ? ctx.modelRegistry.complete(model, context, options)
-          : completeWithThinking(ctx, model, context, options, thinking),
+        ctx.modelRegistry
+          .streamSimple(model, context, {
+            ...options,
+            ...(level === "off" ? {} : { reasoning: level }),
+          })
+          .result(),
         controller.signal,
       );
 

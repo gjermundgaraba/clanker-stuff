@@ -13,12 +13,14 @@ import type {
   Provider,
   SimpleStreamOptions,
   StreamOptions,
+  TranscriptContext,
 } from "@earendil-works/pi-ai";
 import {
   InMemoryCredentialStore,
   createAssistantMessageEventStream,
   fauxAssistantMessage,
   fauxProvider,
+  normalizeContext,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { Static, TSchema as TypeBoxSchema } from "typebox";
@@ -70,37 +72,16 @@ interface AgentSessionHarnessOptions {
   withConfiguredAuth?: boolean;
 }
 
+// The captured payload is the provider transcript: the prompt and tool loadout
+// live in its system messages exactly where Pi placed them.
 const CapturedProviderPayloadSchema = Type.Object(
   {
     messages: Type.Optional(Type.Unsafe<Context["messages"]>({ type: "array" })),
-    systemPrompt: Type.Optional(Type.String()),
-    tools: Type.Optional(Type.Unsafe<Context["tools"]>({ type: "array" })),
   },
   { additionalProperties: true },
 );
 
 type CapturedProviderPayload = Static<typeof CapturedProviderPayloadSchema>;
-
-const applyCapturedPayloadToContext = (
-  context: Context,
-  candidate: CapturedProviderPayload,
-): Context => {
-  const merged: Context = { ...context };
-
-  if (candidate.systemPrompt !== undefined) {
-    merged.systemPrompt = candidate.systemPrompt;
-  }
-
-  if (candidate.messages !== undefined) {
-    merged.messages = candidate.messages;
-  }
-
-  if (candidate.tools !== undefined) {
-    merged.tools = candidate.tools;
-  }
-
-  return merged;
-};
 
 /**
  * Test-only wrapper for the faux provider used by createAgentSessionHarness().
@@ -121,20 +102,20 @@ const wrapFauxProviderPayloadHooks = (
     (
       delegate: (
         model: Model<Api>,
-        context: Context,
+        context: TranscriptContext,
         options?: StreamOptions | SimpleStreamOptions,
       ) => AssistantMessageEventStream,
     ) =>
-    (model: Model<Api>, context: Context, streamOptions?: StreamOptions | SimpleStreamOptions) => {
+    (
+      model: Model<Api>,
+      context: TranscriptContext,
+      streamOptions?: StreamOptions | SimpleStreamOptions,
+    ) => {
       const outer = createAssistantMessageEventStream();
 
       queueMicrotask(async () => {
         try {
-          const syntheticPayload = {
-            messages: context.messages,
-            systemPrompt: context.systemPrompt,
-            tools: context.tools,
-          };
+          const syntheticPayload = { messages: context.messages };
 
           const nextPayload = await streamOptions?.onPayload?.(syntheticPayload, model);
 
@@ -145,7 +126,9 @@ const wrapFauxProviderPayloadHooks = (
 
           hookOptions?.onFinalPayload?.(finalPayload);
 
-          const nextContext = applyCapturedPayloadToContext(context, finalPayload);
+          const nextContext = normalizeContext({
+            messages: finalPayload.messages ?? syntheticPayload.messages,
+          });
 
           const delegateOptions: StreamOptions | SimpleStreamOptions = { ...streamOptions };
           delete delegateOptions.onPayload;

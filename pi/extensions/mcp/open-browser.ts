@@ -1,4 +1,4 @@
-// Copied from earendil-works/pi v0.85.0, packages/coding-agent/src/utils/open-browser.ts.
+// Copied from earendil-works/pi v0.86.0, packages/coding-agent/src/utils/open-browser.ts.
 // Copyright (c) 2025 Mario Zechner. MIT licensed; the permission notice is in LICENSE.
 import { spawn } from "node:child_process";
 

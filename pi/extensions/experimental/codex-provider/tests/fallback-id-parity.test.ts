@@ -1,3 +1,4 @@
+import { normalizeContext } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Message, Usage } from "@earendil-works/pi-ai";
 import { convertResponsesMessages } from "@earendil-works/pi-ai/api/openai-responses-shared";
 import { Type } from "typebox";
@@ -68,7 +69,7 @@ const serialize = (messages: readonly Message[]): ResponsesInputItem[] =>
     structuredClone(
       convertResponsesMessages(
         SPIKE_MODEL,
-        { messages: [...messages] },
+        normalizeContext({ messages: [...messages] }),
         ALLOWED_TOOL_CALL_PROVIDERS,
         { includeSystemPrompt: false },
       ),

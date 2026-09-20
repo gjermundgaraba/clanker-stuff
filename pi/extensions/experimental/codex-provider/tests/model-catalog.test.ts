@@ -164,6 +164,7 @@ describe("Codex model catalog", () => {
       codexSupportedTools: ["send_user_message_async", "clock"],
       compat: {
         supportsAdditionalTools: true,
+        supportsMidConvoSystemMessages: true,
         supportsOpenAIGrammarTools: true,
         supportsToolSearch: true,
       },

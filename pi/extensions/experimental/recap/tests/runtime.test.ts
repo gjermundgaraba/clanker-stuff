@@ -8,12 +8,11 @@ import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { RecapConfig } from "../config.js";
 import { buildRecapPrompt } from "../conversation.js";
 import { RecapEntrySchema, RECAP_ENTRY_TYPE } from "../entry.js";
 import { createRecapRuntime, RECAP_REQUEST_TIMEOUT_MS } from "../runtime.js";
 import {
-  completionMock,
+  queuedStream,
   createRecapConfigFile,
   flushPromises,
   sessionWithTurns,
@@ -21,15 +20,15 @@ import {
 } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 
-type CompleteModel = ExtensionContext["modelRegistry"]["complete"];
+type StreamModel = ExtensionContext["modelRegistry"]["streamSimple"];
 
 interface SetupOptions {
-  config?: RecapConfig;
+  config?: Parameters<typeof createRecapConfigFile>[0];
   model?: Partial<Model<Api>>;
   registry?: Partial<ExtensionContext["modelRegistry"]>;
 }
 
-const setup = async (complete: CompleteModel, options: SetupOptions = {}) => {
+const setup = async (streamSimple: StreamModel, options: SetupOptions = {}) => {
   const { configPath } = await createRecapConfigFile(options.config);
   const session = sessionWithTurns(3);
   const branch = session.getBranch();
@@ -67,9 +66,9 @@ const setup = async (complete: CompleteModel, options: SetupOptions = {}) => {
 
   const ctx = host.createContext({
     modelRegistry: {
-      complete,
       find: () => model,
       getApiKeyAndHeaders: async () => ({ ok: true }),
+      streamSimple,
       ...options.registry,
     },
   });
@@ -85,8 +84,8 @@ afterEach(() => {
 
 describe("recap runtime", () => {
   it("does not duplicate a recap on repeated settled events or reload", async () => {
-    const completion = completionMock(async () => fauxAssistantMessage("Recap"));
-    const { ctx, host, runtime } = await setup(completion);
+    const stream = queuedStream(() => fauxAssistantMessage("Recap"));
+    const { ctx, host, runtime } = await setup(stream);
 
     runtime.settled(ctx);
     await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
@@ -95,53 +94,30 @@ describe("recap runtime", () => {
     runtime.settled(ctx);
     await flushPromises();
 
-    expect(completion).toHaveBeenCalledTimes(1);
+    expect(stream).toHaveBeenCalledTimes(1);
     expect(host.getAppendedEntries()).toHaveLength(1);
   });
 
   it.each(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const)(
-    "sends configured %s thinking through the registered provider with fresh auth",
+    "sends configured %s thinking as provider-neutral reasoning",
     async (thinking) => {
-      const completion = completionMock(async () => fauxAssistantMessage("unused"));
-      const { provider, setResponses } = fauxProvider({ provider: "cheap" });
-      setResponses([fauxAssistantMessage("Recap")]);
-      const stream = vi.spyOn(provider, "streamSimple");
+      const stream = queuedStream(() => fauxAssistantMessage("Recap"));
 
-      const getAuth = vi
-        .fn<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>()
-        .mockResolvedValueOnce({ ok: true, apiKey: "startup-key" })
-        .mockResolvedValue({
-          ok: true,
-          apiKey: "fresh-key",
-          baseUrl: "https://recap.example.test",
-          env: { RECAP_AUTH: "ambient" },
-          headers: { "x-recap": "test" },
-        });
-
-      const { ctx, host, model, runtime } = await setup(completion, {
+      const { ctx, host, model, runtime } = await setup(stream, {
         config: { model: { id: "small", provider: "cheap" }, thinking },
         model: { reasoning: true, thinkingLevelMap: { max: "max", xhigh: "xhigh" } },
-        registry: { getApiKeyAndHeaders: getAuth, getProvider: () => provider },
       });
 
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
 
-      expect(completion).not.toHaveBeenCalled();
-      expect(getAuth).toHaveBeenCalledTimes(2);
       expect(stream).toHaveBeenCalledTimes(1);
-      expect(stream.mock.calls[0]?.[0]).toEqual({
-        ...model,
-        baseUrl: "https://recap.example.test",
-      });
+      expect(stream.mock.calls[0]?.[0]).toBe(model);
       expect(stream.mock.calls[0]?.[1]).not.toHaveProperty("tools");
       expect(stream.mock.calls[0]?.[1]).not.toHaveProperty("systemPrompt");
       expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("maxTokens");
       expect(stream.mock.calls[0]?.[2]).toMatchObject({
-        apiKey: "fresh-key",
         cacheRetention: "none",
-        env: { RECAP_AUTH: "ambient" },
-        headers: { "x-recap": "test" },
         timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
       });
       expect(stream.mock.calls[0]?.[2]).toHaveProperty("sessionId", expect.any(String));
@@ -161,15 +137,11 @@ describe("recap runtime", () => {
   ] as const)(
     "clamps thinking to model capabilities: %j",
     async ({ reasoning, thinking, expected }) => {
-      const completion = completionMock(async () => fauxAssistantMessage("unused"));
-      const { provider, setResponses } = fauxProvider({ provider: "cheap" });
-      setResponses([fauxAssistantMessage("Recap")]);
-      const stream = vi.spyOn(provider, "streamSimple");
+      const stream = queuedStream(() => fauxAssistantMessage("Recap"));
 
-      const { ctx, host, runtime } = await setup(completion, {
+      const { ctx, host, runtime } = await setup(stream, {
         config: { model: { id: "small", provider: "cheap" }, thinking },
         model: { reasoning },
-        registry: { getProvider: () => provider },
       });
 
       runtime.settled(ctx);
@@ -178,11 +150,11 @@ describe("recap runtime", () => {
     },
   );
 
-  it("restores native defaults when thinking is removed on reload", async () => {
-    const completion = completionMock(async () => fauxAssistantMessage("Recap"));
+  it("omits reasoning when thinking is unset after reload", async () => {
+    const stream = queuedStream(() => fauxAssistantMessage("Recap"));
     const model = { id: "small", provider: "cheap" };
 
-    const { configPath, ctx, host, runtime } = await setup(completion, {
+    const { configPath, ctx, host, runtime } = await setup(stream, {
       config: { model, thinking: "high" },
     });
 
@@ -190,35 +162,24 @@ describe("recap runtime", () => {
     await runtime.start(ctx);
     runtime.settled(ctx);
     await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
-    expect(completion).toHaveBeenCalledTimes(1);
-    expect(completion.mock.calls[0]?.[2]).not.toHaveProperty("reasoning");
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("reasoning");
   });
 
   it.each(["cancel", "timeout"])(
-    "does not dispatch after %s while resolving thinking-request auth",
+    "does not append after %s while a thinking request is pending",
     async (action) => {
       vi.useFakeTimers();
-      const completion = completionMock(async () => fauxAssistantMessage("unused"));
-      const { provider } = fauxProvider({ provider: "cheap" });
-      const stream = vi.spyOn(provider, "streamSimple");
+      const release = Promise.withResolvers<AssistantMessage>();
+      const stream = queuedStream(() => release.promise);
 
-      const auth =
-        Promise.withResolvers<
-          Awaited<ReturnType<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>>
-        >();
-
-      const getAuth = vi
-        .fn<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>()
-        .mockResolvedValueOnce({ ok: true })
-        .mockImplementation(() => auth.promise);
-
-      const { ctx, host, runtime } = await setup(completion, {
+      const { ctx, host, runtime } = await setup(stream, {
         config: { model: { id: "small", provider: "cheap" }, thinking: "low" },
-        registry: { getApiKeyAndHeaders: getAuth, getProvider: () => provider },
       });
 
       runtime.settled(ctx);
-      expect(getAuth).toHaveBeenCalledTimes(2);
+      await flushPromises();
+      expect(stream).toHaveBeenCalledTimes(1);
 
       if (action === "cancel") {
         runtime.cancel();
@@ -226,11 +187,9 @@ describe("recap runtime", () => {
         await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
       }
 
-      auth.resolve({ ok: true });
+      release.resolve(fauxAssistantMessage("Late recap"));
       await flushPromises();
 
-      expect(stream).not.toHaveBeenCalled();
-      expect(completion).not.toHaveBeenCalled();
       expect(host.getAppendedEntries()).toHaveLength(0);
       expect(host.getNotifications()).toHaveLength(action === "timeout" ? 1 : 0);
       runtime.dispose();
@@ -238,35 +197,35 @@ describe("recap runtime", () => {
   );
 
   it("uses the configured model and appends a display-only recap", async () => {
-    const completion = completionMock(async () =>
+    const stream = queuedStream(() =>
       fauxAssistantMessage(
         "  \u001B[31mFinished the parser.\u001B[0m\u0007 Next: test it.\u202E  ",
       ),
     );
 
-    const { ctx, host, model, runtime } = await setup(completion);
+    const { ctx, host, model, runtime } = await setup(stream);
 
     runtime.settled(ctx);
 
     await vi.waitFor(() => {
       expect(host.getAppendedEntries()).toHaveLength(1);
     });
-    expect(completion.mock.calls).toHaveLength(1);
-    expect(completion.mock.calls[0]?.[0]).toBe(model);
-    expect(completion.mock.calls[0]?.[1]).not.toHaveProperty("systemPrompt");
-    expect(completion.mock.calls[0]?.[1]).not.toHaveProperty("tools");
-    const content = completion.mock.calls[0]?.[1].messages[0]?.content;
+    expect(stream.mock.calls).toHaveLength(1);
+    expect(stream.mock.calls[0]?.[0]).toBe(model);
+    expect(stream.mock.calls[0]?.[1]).not.toHaveProperty("systemPrompt");
+    expect(stream.mock.calls[0]?.[1]).not.toHaveProperty("tools");
+    const content = stream.mock.calls[0]?.[1].messages[0]?.content;
     expect(content).toHaveLength(1);
     expect(content).toHaveProperty("0.type", "text");
     expect(content).toHaveProperty("0.text", expect.stringContaining("Write a brief catch-up"));
-    expect(completion.mock.calls[0]?.[2]).toMatchObject({
+    expect(stream.mock.calls[0]?.[2]).toMatchObject({
       cacheRetention: "none",
       timeoutMs: 30_000,
     });
-    expect(completion.mock.calls[0]?.[2]?.sessionId).toEqual(expect.any(String));
-    expect(completion.mock.calls[0]?.[2]?.sessionId).not.toBe("");
-    expect(completion.mock.calls[0]?.[2]?.sessionId).not.toBe(ctx.sessionManager.getSessionId());
-    const signal = completion.mock.calls[0]?.[2]?.signal;
+    expect(stream.mock.calls[0]?.[2]?.sessionId).toEqual(expect.any(String));
+    expect(stream.mock.calls[0]?.[2]?.sessionId).not.toBe("");
+    expect(stream.mock.calls[0]?.[2]?.sessionId).not.toBe(ctx.sessionManager.getSessionId());
+    const signal = stream.mock.calls[0]?.[2]?.signal;
 
     if (signal === undefined) throw new Error("Missing recap abort signal");
     expect(getEventListeners(signal, "abort")).toHaveLength(0);
@@ -287,21 +246,21 @@ describe("recap runtime", () => {
   });
 
   it("leaves the output token limit to the model provider", async () => {
-    const completion = completionMock(async () => fauxAssistantMessage("Done"));
-    const { ctx, host, runtime } = await setup(completion, { model: { maxTokens: 1024 } });
+    const stream = queuedStream(() => fauxAssistantMessage("Done"));
+    const { ctx, host, runtime } = await setup(stream, { model: { maxTokens: 1024 } });
 
     runtime.settled(ctx);
 
     await vi.waitFor(() => {
       expect(host.getAppendedEntries()).toHaveLength(1);
     });
-    expect(completion.mock.calls[0]?.[2]).not.toHaveProperty("maxTokens");
+    expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("maxTokens");
   });
 
   it("disables itself instead of falling back to the active model", async () => {
-    const completion = completionMock(async () => fauxAssistantMessage("unused"));
+    const stream = queuedStream(() => fauxAssistantMessage("unused"));
 
-    const { configPath, ctx, host, runtime } = await setup(completion, {
+    const { configPath, ctx, host, runtime } = await setup(stream, {
       config: { model: { id: "small\u001B[31m\u0007\u202E", provider: "cheap" } },
       registry: { find: () => undefined },
     });
@@ -314,13 +273,13 @@ describe("recap runtime", () => {
         type: "error",
       },
     ]);
-    expect(completion.mock.calls).toHaveLength(0);
+    expect(stream.mock.calls).toHaveLength(0);
     expect(host.getAppendedEntries()).toHaveLength(0);
   });
 
   it("ignores initialization failure after disposal", async () => {
-    const completion = completionMock(async () => fauxAssistantMessage("unused"));
-    const { configPath, ctx, host, runtime } = await setup(completion);
+    const stream = queuedStream(() => fauxAssistantMessage("unused"));
+    const { configPath, ctx, host, runtime } = await setup(stream);
     await rm(configPath);
 
     const starting = runtime.start(ctx);
@@ -334,19 +293,15 @@ describe("recap runtime", () => {
     "suppresses an unsuccessful snapshot without retrying and recovers after %s changes",
     async (recovery) => {
       vi.useFakeTimers();
-      let calls = 0;
 
-      const completion = completionMock(async () => {
-        calls += 1;
-
-        if (calls === 1) {
+      const stream = queuedStream(
+        () => {
           throw new Error("\u001B[31mprovider\u001B[0m\u0007 unavailable\u202E");
-        }
+        },
+        () => fauxAssistantMessage("Fresh recap"),
+      );
 
-        return fauxAssistantMessage("Fresh recap");
-      });
-
-      const { ctx, host, runtime } = await setup(completion);
+      const { ctx, host, runtime } = await setup(stream);
 
       runtime.settled(ctx);
       await flushPromises();
@@ -356,7 +311,7 @@ describe("recap runtime", () => {
       runtime.cancel();
       runtime.settled(ctx);
       await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS * 10);
-      expect(completion).toHaveBeenCalledTimes(1);
+      expect(stream).toHaveBeenCalledTimes(1);
       expect(host.getNotifications()).toHaveLength(1);
       expect(host.getAppendedEntries()).toHaveLength(0);
 
@@ -373,11 +328,9 @@ describe("recap runtime", () => {
 
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
-      expect(completion).toHaveBeenCalledTimes(2);
+      expect(stream).toHaveBeenCalledTimes(2);
       expect(host.getNotifications()).toHaveLength(1);
-      expect(completion.mock.calls[0]?.[2]?.sessionId).not.toBe(
-        completion.mock.calls[1]?.[2]?.sessionId,
-      );
+      expect(stream.mock.calls[0]?.[2]?.sessionId).not.toBe(stream.mock.calls[1]?.[2]?.sessionId);
     },
   );
 
@@ -388,15 +341,15 @@ describe("recap runtime", () => {
 
       if (prompt === undefined) throw new Error("Expected recap prompt");
       const estimated = estimateTokens(userMessage(prompt));
-      const completion = completionMock(async () => fauxAssistantMessage("Fits now"));
+      const stream = queuedStream(() => fauxAssistantMessage("Fits now"));
 
-      const { ctx, host, runtime } = await setup(completion, {
+      const { ctx, host, runtime } = await setup(stream, {
         model: { contextWindow: estimated + offset },
       });
 
       runtime.settled(ctx);
       runtime.settled(ctx);
-      expect(completion).not.toHaveBeenCalled();
+      expect(stream).not.toHaveBeenCalled();
       expect(host.getAppendedEntries()).toHaveLength(0);
       expect(host.getNotifications()).toEqual([
         {
@@ -409,7 +362,7 @@ describe("recap runtime", () => {
       Object.assign(ctx.sessionManager, { buildContextEntries: () => shorterContext });
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
-      expect(completion).toHaveBeenCalledTimes(1);
+      expect(stream).toHaveBeenCalledTimes(1);
       expect(host.getNotifications()).toHaveLength(1);
     },
   );
@@ -418,26 +371,26 @@ describe("recap runtime", () => {
     const prompt = buildRecapPrompt(sessionWithTurns(3).getBranch());
 
     if (prompt === undefined) throw new Error("Expected recap prompt");
-    const completion = completionMock(async () => fauxAssistantMessage("Recap"));
+    const stream = queuedStream(() => fauxAssistantMessage("Recap"));
 
-    const { ctx, host, runtime } = await setup(completion, {
+    const { ctx, host, runtime } = await setup(stream, {
       model: { contextWindow: estimateTokens(userMessage(prompt)) + 1, maxTokens: 4096 },
     });
 
     runtime.settled(ctx);
     await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
-    expect(completion.mock.calls[0]?.[1].messages[0]?.content).toEqual([
+    expect(stream.mock.calls[0]?.[1].messages[0]?.content).toEqual([
       { type: "text", text: prompt },
     ]);
-    expect(completion.mock.calls[0]?.[2]).not.toHaveProperty("maxTokens");
+    expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("maxTokens");
   });
 
   it("leaves an unknown context window to the provider", async () => {
-    const completion = completionMock(async () => fauxAssistantMessage("Recap"));
-    const { ctx, host, runtime } = await setup(completion, { model: { contextWindow: 0 } });
+    const stream = queuedStream(() => fauxAssistantMessage("Recap"));
+    const { ctx, host, runtime } = await setup(stream, { model: { contextWindow: 0 } });
     runtime.settled(ctx);
     await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
-    expect(completion).toHaveBeenCalledTimes(1);
+    expect(stream).toHaveBeenCalledTimes(1);
     expect(host.getNotifications()).toHaveLength(0);
   });
 
@@ -452,20 +405,18 @@ describe("recap runtime", () => {
       });
 
       response.usage = { ...response.usage, input: 1001, output: 0, cacheRead: 0 };
-      let calls = 0;
 
-      const completion = completionMock(async () => {
-        calls += 1;
+      const stream = queuedStream(
+        () => response,
+        () => fauxAssistantMessage("Fresh recap"),
+      );
 
-        return calls === 1 ? response : fauxAssistantMessage("Fresh recap");
-      });
-
-      const { ctx, host, runtime } = await setup(completion, { model: { contextWindow: 1000 } });
+      const { ctx, host, runtime } = await setup(stream, { model: { contextWindow: 1000 } });
 
       runtime.settled(ctx);
       await flushPromises();
       runtime.settled(ctx);
-      expect(completion).toHaveBeenCalledTimes(1);
+      expect(stream).toHaveBeenCalledTimes(1);
       expect(host.getAppendedEntries()).toHaveLength(0);
       expect(host.getNotifications()).toEqual([
         {
@@ -481,21 +432,19 @@ describe("recap runtime", () => {
       });
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
-      expect(completion).toHaveBeenCalledTimes(2);
+      expect(stream).toHaveBeenCalledTimes(2);
     },
   );
 
   it("discards stale failures without warning or suppressing the changed context", async () => {
     const request = Promise.withResolvers<AssistantMessage>();
-    let calls = 0;
 
-    const completion = completionMock(() => {
-      calls += 1;
+    const stream = queuedStream(
+      () => request.promise,
+      () => fauxAssistantMessage("Fresh recap"),
+    );
 
-      return calls === 1 ? request.promise : Promise.resolve(fauxAssistantMessage("Fresh recap"));
-    });
-
-    const { ctx, host, runtime } = await setup(completion);
+    const { ctx, host, runtime } = await setup(stream);
     const fullContext = ctx.sessionManager.buildContextEntries();
     let contextEntries = fullContext;
     Object.assign(ctx.sessionManager, { buildContextEntries: () => contextEntries });
@@ -508,34 +457,30 @@ describe("recap runtime", () => {
 
     runtime.settled(ctx);
     await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
-    expect(completion).toHaveBeenCalledTimes(2);
+    expect(stream).toHaveBeenCalledTimes(2);
   });
 
   it("times out an uncooperative provider without retrying or disabling later turns", async () => {
     vi.useFakeTimers();
     const request = Promise.withResolvers<AssistantMessage>();
-    let calls = 0;
 
-    const completion = completionMock(() => {
-      calls += 1;
+    const stream = queuedStream(
+      () => request.promise,
+      () => fauxAssistantMessage("Fresh recap"),
+    );
 
-      return calls === 1 ? request.promise : Promise.resolve(fauxAssistantMessage("Fresh recap"));
-    });
-
-    const { ctx, host, runtime } = await setup(completion);
+    const { ctx, host, runtime } = await setup(stream);
 
     runtime.settled(ctx);
     await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS);
-    expect(completion.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
-    expect(completion.mock.calls[0]?.[2]?.signal?.reason).toEqual(
-      new Error("Recap request timed out"),
-    );
+    expect(stream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
+    expect(stream.mock.calls[0]?.[2]?.signal?.reason).toEqual(new Error("Recap request timed out"));
     expect(host.getNotifications()).toEqual([
       { message: "Recap skipped: Recap request timed out", type: "warning" },
     ]);
     runtime.settled(ctx);
     await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS * 10);
-    expect(completion).toHaveBeenCalledTimes(1);
+    expect(stream).toHaveBeenCalledTimes(1);
     expect(host.getAppendedEntries()).toHaveLength(0);
 
     const changedBranch = sessionWithTurns(4).getBranch();
@@ -552,17 +497,19 @@ describe("recap runtime", () => {
     expect(host.getNotifications()).toHaveLength(1);
   });
 
-  it("preserves a replacement when the prior completion settles during cancellation", async () => {
+  it("preserves a replacement when the prior stream settles during cancellation", async () => {
     const requests: PromiseWithResolvers<AssistantMessage>[] = [];
 
-    const completion = completionMock(() => {
+    const next = () => {
       const request = Promise.withResolvers<AssistantMessage>();
       requests.push(request);
 
       return request.promise;
-    });
+    };
 
-    const { ctx, host, runtime } = await setup(completion);
+    const stream = queuedStream(next, next);
+
+    const { ctx, host, runtime } = await setup(stream);
 
     runtime.settled(ctx);
     expect(requests).toHaveLength(1);
@@ -584,8 +531,8 @@ describe("recap runtime", () => {
 
   it("ignores a late provider rejection after cancellation", async () => {
     const request = Promise.withResolvers<AssistantMessage>();
-    const completion = completionMock(() => request.promise);
-    const { ctx, host, runtime } = await setup(completion);
+    const stream = queuedStream(() => request.promise);
+    const { ctx, host, runtime } = await setup(stream);
 
     runtime.settled(ctx);
     runtime.cancel();
@@ -595,7 +542,7 @@ describe("recap runtime", () => {
 
     expect(host.getAppendedEntries()).toHaveLength(0);
     expect(host.getNotifications()).toHaveLength(0);
-    expect(completion.mock.calls).toHaveLength(1);
+    expect(stream.mock.calls).toHaveLength(1);
   });
 
   it.each(["length", "toolUse", "deferred"] as const)(
@@ -603,26 +550,24 @@ describe("recap runtime", () => {
     async (stopReason) => {
       vi.useFakeTimers();
 
-      const completion = completionMock(async () =>
-        fauxAssistantMessage("Not a final recap", { stopReason }),
-      );
+      const stream = queuedStream(() => fauxAssistantMessage("Not a final recap", { stopReason }));
 
-      const { ctx, host, runtime } = await setup(completion);
+      const { ctx, host, runtime } = await setup(stream);
 
       runtime.settled(ctx);
       await flushPromises();
       runtime.settled(ctx);
       await vi.advanceTimersByTimeAsync(RECAP_REQUEST_TIMEOUT_MS * 10);
 
-      expect(completion.mock.calls).toHaveLength(1);
+      expect(stream.mock.calls).toHaveLength(1);
       expect(host.getAppendedEntries()).toHaveLength(0);
       expect(host.getNotifications()).toHaveLength(1);
     },
   );
 
   it("uses compaction-aware history without resetting lifetime cadence", async () => {
-    const completion = completionMock(async () => fauxAssistantMessage("Current context recap"));
-    const { ctx, host, runtime } = await setup(completion);
+    const stream = queuedStream(() => fauxAssistantMessage("Current context recap"));
+    const { ctx, host, runtime } = await setup(stream);
     const fullBranch = ctx.sessionManager.getBranch();
     const compactedContext = fullBranch.slice(-2);
     Object.assign(ctx.sessionManager, {
@@ -634,7 +579,7 @@ describe("recap runtime", () => {
     await vi.waitFor(() => {
       expect(host.getAppendedEntries()).toHaveLength(1);
     });
-    const prompt = completion.mock.calls[0]?.[1].messages[0]?.content;
+    const prompt = stream.mock.calls[0]?.[1].messages[0]?.content;
     expect(prompt).toHaveLength(1);
     expect(prompt).toHaveProperty("0.text", expect.not.stringContaining("request 1"));
     expect(prompt).toHaveProperty("0.text", expect.stringContaining("request 3"));
@@ -643,10 +588,10 @@ describe("recap runtime", () => {
     });
   });
 
-  it("discards a recap when compaction changes its prompt before completion", async () => {
+  it("discards a recap when compaction changes its prompt before stream", async () => {
     const request = Promise.withResolvers<AssistantMessage>();
-    const completion = completionMock(() => request.promise);
-    const { ctx, host, runtime } = await setup(completion);
+    const stream = queuedStream(() => request.promise);
+    const { ctx, host, runtime } = await setup(stream);
     const fullContext = ctx.sessionManager.buildContextEntries();
     let contextEntries = fullContext;
     Object.assign(ctx.sessionManager, {
@@ -658,21 +603,21 @@ describe("recap runtime", () => {
     request.resolve(fauxAssistantMessage("This result is stale"));
     await flushPromises();
 
-    expect(completion.mock.calls).toHaveLength(1);
+    expect(stream.mock.calls).toHaveLength(1);
     expect(host.getAppendedEntries()).toHaveLength(0);
   });
 
-  it("discards a recap when the active conversation changes before completion", async () => {
+  it("discards a recap when the active conversation changes before stream", async () => {
     let finish: ((message: AssistantMessage) => void) | undefined;
 
-    const completion = completionMock(
-      async () =>
-        await new Promise<AssistantMessage>((resolve) => {
+    const stream = queuedStream(
+      () =>
+        new Promise<AssistantMessage>((resolve) => {
           finish = resolve;
         }),
     );
 
-    const { ctx, host, runtime } = await setup(completion);
+    const { ctx, host, runtime } = await setup(stream);
 
     runtime.settled(ctx);
     await flushPromises();
@@ -682,13 +627,13 @@ describe("recap runtime", () => {
     });
 
     if (finish === undefined) {
-      throw new Error("Recap completion did not start");
+      throw new Error("Recap stream did not start");
     }
 
     finish(fauxAssistantMessage("This result is stale"));
     await flushPromises();
 
-    expect(completion.mock.calls).toHaveLength(1);
+    expect(stream.mock.calls).toHaveLength(1);
     expect(host.getAppendedEntries()).toHaveLength(0);
   });
 });

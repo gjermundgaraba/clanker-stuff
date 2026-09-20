@@ -27,6 +27,12 @@ const { validateToolArguments } = /** @type {typeof import("@earendil-works/pi-a
   await jiti.import("@earendil-works/pi-ai")
 );
 
+// Native tool calls carry JSON-only arguments; the provider owns that boundary's schema.
+const { JsonObjectSchema } =
+  /** @type {typeof import("/opt/codex-provider/code-mode/protocol.ts")} */ (
+    await jiti.import("/opt/codex-provider/code-mode/protocol.ts")
+  );
+
 const journal = createJournal("/logs/agent/service-events.jsonl");
 
 await journal.reset();
@@ -61,7 +67,7 @@ const ToolCallSchema = Type.Object({
   namespace: Type.Optional(Type.Null()),
   tool: Type.String(),
   callId: Type.String(),
-  arguments: Type.Record(Type.String(), Type.Unknown()),
+  arguments: JsonObjectSchema,
 });
 
 /** @type {import("./codex-eval.mjs").RunnerHooks} */

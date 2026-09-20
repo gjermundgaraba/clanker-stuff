@@ -58,6 +58,26 @@ describe("child runtime results", () => {
     expect(finalFromMessages([message])).toStrictEqual(outcome);
   });
 
+  it("reports a cancelled overflow response as interrupted", () => {
+    const message = {
+      content: [{ text: "partial", type: "text" }],
+      role: "assistant",
+      stopReason: "length",
+    };
+
+    expect({
+      cancelled: finalFromMessages([message], { cancelled: true }),
+      cancelledWithoutAssistant: finalFromMessages([], { cancelled: true }),
+      running: finalFromMessages([message]),
+      runningWithoutAssistant: finalFromMessages([]),
+    }).toStrictEqual({
+      cancelled: { status: "interrupted" },
+      cancelledWithoutAssistant: { status: "interrupted" },
+      running: { status: "completed", text: "partial" },
+      runningWithoutAssistant: { status: "completed" },
+    });
+  });
+
   it("recognizes the host extension through a symlinked install path", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "subagents-link-"));
     const linked = path.join(directory, "subagents.ts");

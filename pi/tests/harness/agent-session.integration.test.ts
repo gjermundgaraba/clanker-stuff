@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { Type, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { Type, fauxAssistantMessage, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import type { Context } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
@@ -27,10 +27,7 @@ const TestProviderPayloadSchema = Type.Object(
 
 const HarnessPayloadSchema = Type.Intersect([
   TestProviderPayloadSchema,
-  Type.Object({
-    metadata: Type.Object({ harness: Type.String() }),
-    systemPrompt: Type.String(),
-  }),
+  Type.Object({ metadata: Type.Object({ harness: Type.String() }) }),
 ]);
 
 const lastUserText = (context: Context): string => {
@@ -52,10 +49,13 @@ const createPayloadExtension =
     pi.on("before_provider_request", (event) => {
       const payload = Value.Parse(TestProviderPayloadSchema, event.payload);
 
+      // The prompt travels in the transcript's system messages; replace them wholesale.
       return {
         ...payload,
+        messages: payload.messages.map((message) =>
+          message.role === "system" ? { ...message, content: marker, sections: {} } : message,
+        ),
         metadata: { harness: marker },
-        systemPrompt: marker,
       };
     });
   };
@@ -225,7 +225,7 @@ describe("agent-session harness", () => {
           await firstRelease.promise;
 
           return fauxAssistantMessage(
-            `first:${context.systemPrompt}:${JSON.stringify(context.messages)}`,
+            `first:${getCurrentSystemPrompt(context.messages)}:${JSON.stringify(context.messages)}`,
           );
         },
       ]);
@@ -235,7 +235,7 @@ describe("agent-session harness", () => {
           await secondRelease.promise;
 
           return fauxAssistantMessage(
-            `second:${context.systemPrompt}:${JSON.stringify(context.messages)}`,
+            `second:${getCurrentSystemPrompt(context.messages)}:${JSON.stringify(context.messages)}`,
           );
         },
       ]);
@@ -261,7 +261,7 @@ describe("agent-session harness", () => {
           hasOwnResponse: firstMessages.includes("first:first"),
           metadata: firstPayload.metadata,
           pendingResponses: first.getPendingResponseCount(),
-          systemPrompt: firstPayload.systemPrompt,
+          systemPrompt: getCurrentSystemPrompt(firstPayload.messages),
         },
         second: {
           hasOtherPrompt: secondMessages.includes("alpha"),
@@ -269,7 +269,7 @@ describe("agent-session harness", () => {
           hasOwnResponse: secondMessages.includes("second:second"),
           metadata: secondPayload.metadata,
           pendingResponses: second.getPendingResponseCount(),
-          systemPrompt: secondPayload.systemPrompt,
+          systemPrompt: getCurrentSystemPrompt(secondPayload.messages),
         },
       }).toStrictEqual({
         first: {

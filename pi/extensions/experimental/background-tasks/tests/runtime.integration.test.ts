@@ -58,7 +58,7 @@ const start = (code: string, protocol?: string) =>
       name: "untrusted-name-do-not-follow",
       command: process.execPath,
       args: ["-e", code],
-      protocol,
+      ...(protocol === undefined ? {} : { protocol }),
     }),
     { stopReason: "toolUse" },
   );

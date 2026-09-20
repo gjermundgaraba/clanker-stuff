@@ -57,7 +57,6 @@
   "imports": {
     "#pi-abort": "@earendil-works/pi-ai/utils/abort",
     "#pi-constrained-sampling": "@earendil-works/pi-ai/api/constrained-sampling",
-    "#pi-deferred-tools": "@earendil-works/pi-ai/utils/deferred-tools",
     "#pi-openai-codex": "@earendil-works/pi-ai/providers/openai-codex",
     "#pi-responses": "@earendil-works/pi-ai/api/openai-responses-shared",
     "#pi-simple-options": "@earendil-works/pi-ai/api/simple-options"

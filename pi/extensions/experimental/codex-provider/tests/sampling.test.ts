@@ -1,7 +1,8 @@
 import { zstdDecompressSync } from "node:zlib";
 
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
+import type { AssistantMessage, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getEncoding } from "js-tiktoken";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -17,7 +18,9 @@ const model = {
   cost: { input: 1, output: 2, cacheRead: 0.5, cacheWrite: 1.5 },
 };
 
-const context: Context = { messages: [{ role: "user", content: "server input", timestamp: 0 }] };
+const context = normalizeContext({
+  messages: [{ role: "user", content: "server input", timestamp: 0 }],
+});
 
 const tokenizer = getEncoding("o200k_base");
 
@@ -664,7 +667,7 @@ describe("registry-backed isolated Codex sampling", () => {
         images.run(() =>
           runtime.provider.streamSimple(
             model,
-            {
+            normalizeContext({
               messages: [
                 {
                   role: "user",
@@ -672,7 +675,7 @@ describe("registry-backed isolated Codex sampling", () => {
                   timestamp: 0,
                 },
               ],
-            },
+            }),
             { apiKey: SPIKE_API_KEY },
           ),
         ),

@@ -230,6 +230,7 @@ const ASTRA_MODEL: SupportedModel = {
   baseUrl: DEFAULT_BASE_URL,
   compat: {
     supportsAdditionalTools: true,
+    supportsMidConvoSystemMessages: true,
     supportsOpenAIGrammarTools: true,
     supportsToolSearch: true,
   },

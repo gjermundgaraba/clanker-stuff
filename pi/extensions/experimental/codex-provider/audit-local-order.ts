@@ -12,7 +12,7 @@ import {
 
 const TARGET_PATH = realpathSync(path.join(import.meta.dirname, "index.ts"));
 
-export const SUPPORTED_PI_VERSION = "0.85.0";
+export const SUPPORTED_PI_VERSION = "0.86.0";
 
 export interface LocalOrderAuditResult {
   readonly count: number;

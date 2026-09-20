@@ -1038,7 +1038,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         payloadUntouched: before.payloads,
         remoteFeature: null,
         requestMatchesPayload: true,
-        roles: ["user", "assistant"],
+        roles: ["system", "user", "assistant"],
       });
     } finally {
       session.dispose();

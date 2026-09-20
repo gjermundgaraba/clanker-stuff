@@ -5,7 +5,7 @@ Reference research and implementation contract for the experimental Pi extension
 ## Reference snapshots
 
 - Codex: `openai/codex` `origin/main` at `389dd5645944891b65e4ca584125bbb0c852d352`, inspected 2026-09-03.
-- Pi: `earendil-works/pi` tag `v0.85.0` at `107d79f11072bbc8a3a757ed7fd69596bee7d68c`.
+- Pi: `earendil-works/pi` tag `v0.86.0` at `ecac0a9c4edad3dac5d9f8b40e0c7db7a56471fc`.
 
 Codex introduced the feature in three commits:
 
@@ -269,9 +269,9 @@ Pi's provider-independent completion API does not expose JSON Schema output, so 
 
 ### Isolation, freshness, and snapshot-local failures
 
-The configured model is resolved with `ctx.modelRegistry.find()` and called through `ctx.modelRegistry.complete()` with a fresh session ID, no system prompt or tools, no active-conversation messages, no cache retention, and no explicit output-token limit (model/provider defaults apply). The runtime enforces a hard 30-second deadline while also passing the provider an abort signal and timeout. Direct completion already isolates the request from Pi's agent loop, so the extension does not need Codex's hidden app-server thread or sandbox configuration.
+The configured model is resolved with `ctx.modelRegistry.find()` and called through `ctx.modelRegistry.streamSimple().result()` with a fresh session ID, no system prompt or tools, no active-conversation messages, no cache retention, and no explicit output-token limit (model/provider defaults apply). The registry resolves Pi authentication, headers, environment, and base URL for the request, including for extension-registered providers. The runtime enforces a hard 30-second deadline while also passing the provider an abort signal and timeout. The registry request is isolated from Pi's agent loop, so the extension does not need Codex's hidden app-server thread or sandbox configuration.
 
-When optional `thinking` is configured, the request instead uses the registered provider's `streamSimple().result()` with freshly resolved Pi authentication, headers, environment, and base URL. Pi's `clampThinkingLevel()` and the provider's simple adapter handle model capabilities and native thinking options without a recap-specific provider mapping. The same isolation, cancellation, and deadline apply; adapters may add a thinking budget within the model limit. Omitting `thinking` retains the native completion path and its defaults, never the active session's thinking setting.
+`thinking` defaults to `off`. Any other level goes into the same request as Pi's provider-neutral `reasoning` option after `clampThinkingLevel()` fits it to the model; the provider's simple adapter maps it to native thinking options without a recap-specific provider mapping. Adapters may add a thinking budget within the model limit. `off` sends no reasoning option, so the adapter disables thinking where the model supports it. Recap never inherits the active session's thinking setting.
 
 Each request captures completed-turn progress, the latest user-or-assistant entry ID as its conversation revision, and the exact compaction-aware prompt. The Pi session state and in-flight `AbortController` provide session and request identity. Before appending the result, the extension rebuilds both views and rejects the response if:
 
@@ -306,7 +306,7 @@ The extension remains separate from compaction while respecting its resulting co
 
 ### Remaining Pi differences
 
-Pi v0.85.0 has no supported extension event or context field for terminal-window focus changes. `ctx.ui.onTerminalInput()` is not an equivalent:
+Pi v0.86.0 has no supported extension event or context field for terminal-window focus changes. `ctx.ui.onTerminalInput()` is not an equivalent:
 
 - regular-screen Pi does not enable terminal focus reporting; and
 - fullscreen Pi enables focus reporting as part of its mouse mode, but its viewport listener consumes `ESC [ I` and `ESC [ O` before extension input listeners receive them.

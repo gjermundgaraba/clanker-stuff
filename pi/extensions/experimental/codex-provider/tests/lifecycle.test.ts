@@ -1,3 +1,4 @@
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -82,15 +83,11 @@ describe("transport fallback notification", () => {
     const sessionId = ctx.sessionManager.getSessionId();
 
     const output = await lifecycle.provider
-      .streamSimple(
-        SPIKE_MODEL,
-        { messages: [], systemPrompt: "System truth" },
-        {
-          apiKey: SPIKE_API_KEY,
-          fetch: async () => sse(responseEvents("resp_fallback", "ok")),
-          sessionId,
-        },
-      )
+      .streamSimple(SPIKE_MODEL, normalizeContext({ messages: [], systemPrompt: "System truth" }), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => sse(responseEvents("resp_fallback", "ok")),
+        sessionId,
+      })
       .result();
 
     lifecycle.messageEnd(

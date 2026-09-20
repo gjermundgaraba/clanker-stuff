@@ -6,7 +6,7 @@ import { acquireEditorHost } from "../index.js";
 // oxlint-disable-next-line anti-slop/no-module-mocking -- Inject an unsupported private Pi layout at the adapter import; testing host recovery must still exercise the real editor installation path.
 vi.mock("../adapter.js", () => ({
   connect: () => {
-    throw new Error("The shared editor requires Pi 0.85.0 Editor internals");
+    throw new Error("The shared editor requires Pi 0.86.0 Editor internals");
   },
 }));
 
@@ -38,6 +38,6 @@ it("keeps a stock prompt and skips shared features on an unsupported Pi", () => 
   expect(ctx.ui.setEditorComponent).toHaveBeenCalledOnce();
   expect(ctx.ui.setStatus).toHaveBeenLastCalledWith(
     "shared-editor",
-    "The shared editor requires Pi 0.85.0 Editor internals",
+    "The shared editor requires Pi 0.86.0 Editor internals",
   );
 });

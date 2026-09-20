@@ -1,4 +1,4 @@
-import type { Context } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -15,7 +15,9 @@ const RoutingFrameSchema = Type.Object({
 
 type RoutingFrame = Static<typeof RoutingFrameSchema>;
 
-const context: Context = { messages: [{ role: "user", content: "hello", timestamp: 0 }] };
+const context = normalizeContext({
+  messages: [{ role: "user", content: "hello", timestamp: 0 }],
+});
 
 const compactionEvents = [
   { type: "response.created", response: { id: "compact", status: "in_progress" } },

@@ -3,7 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 
-import { createAssistantMessageEventStream, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  fauxAssistantMessage,
+  getCurrentSystemPrompt,
+  getCurrentTools,
+} from "@earendil-works/pi-ai";
 import {
   createSyntheticSourceInfo,
   initTheme,
@@ -261,12 +266,13 @@ describe("Codex tools with a real AgentSession", () => {
 
         const expected = mode === "Code Mode" ? CODE_NAMES : DIRECT_NAMES;
         expect(captureTools).toHaveBeenLastCalledWith(expected);
-        const context = stream.mock.calls.at(-1)?.[1];
-        expect(context?.tools?.map(({ name }) => name)).toStrictEqual(expected);
-        expect(context?.systemPrompt).toContain("<available_skills>");
-        expect(context?.systemPrompt).toContain("<name>example</name>");
-        expect(context?.systemPrompt).toContain("Earlier extension guidance.");
-        expect(context?.systemPrompt).toContain(
+        const messages = stream.mock.calls.at(-1)?.[1].messages ?? [];
+        const systemPrompt = getCurrentSystemPrompt(messages);
+        expect(getCurrentTools(messages).map(({ name }) => name)).toStrictEqual(expected);
+        expect(systemPrompt).toContain("<available_skills>");
+        expect(systemPrompt).toContain("<name>example</name>");
+        expect(systemPrompt).toContain("Earlier extension guidance.");
+        expect(systemPrompt).toContain(
           `Use the \`${mode === "Code Mode" ? "exec" : "exec_command"}\` tool to load a skill`,
         );
         expect(onExtensionError).not.toHaveBeenCalled();
