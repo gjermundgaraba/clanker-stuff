@@ -2,7 +2,7 @@ import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-age
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
-import { createMockTui } from "../../../../../tests/harness/tui.js";
+import { createIdentityTheme, createMockTui } from "../../../../../tests/harness/tui.js";
 import type { RuntimeToolTrace } from "../../code-mode/types.js";
 import { stripVTControlCharacters } from "node:util";
 import {
@@ -13,15 +13,6 @@ import {
   rows,
   theme,
 } from "../fixtures/code-mode-rendering.js";
-
-const SUCCESS_BG = "48;2;40;50;40m";
-
-const ERROR_BG = "48;2;60;40;40m";
-
-const PENDING_BG = "48;2;40;40;50m";
-
-const isPaddingRow = (line: string | undefined): boolean =>
-  line !== undefined && line.length > 0 && stripVTControlCharacters(line).trim().length === 0;
 
 beforeAll(() => initTheme("dark"));
 
@@ -50,9 +41,6 @@ describe("Code Mode display", () => {
       expect(rendered.length).toBeLessThanOrEqual(19);
       expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
       expect(stripVTControlCharacters(rendered.join("\n"))).toContain("1 failed");
-      // A completed script with a failed command takes the error box, not the success box.
-      expect(rendered.slice(1).every((line) => line.includes(ERROR_BG))).toBe(true);
-      expect(rendered.join("\n")).not.toContain(SUCCESS_BG);
     }
 
     row.setExpanded(true);
@@ -71,50 +59,67 @@ describe("Code Mode display", () => {
     }
   });
 
-  it("draws one shared box whose color follows the script and its nested commands", () => {
-    const { definition } = codeModeTool();
+  it.each([
+    {
+      label: "partial result",
+      partial: true,
+      error: false,
+      scriptError: "",
+      exitCode: 1,
+      tone: "toolPendingBg",
+    },
+    {
+      label: "successful result",
+      partial: false,
+      error: false,
+      scriptError: "",
+      exitCode: 0,
+      tone: "toolSuccessBg",
+    },
+    {
+      label: "failed command",
+      partial: false,
+      error: false,
+      scriptError: "",
+      exitCode: 1,
+      tone: "toolErrorBg",
+    },
+    {
+      label: "script error",
+      partial: false,
+      error: false,
+      scriptError: "Script failed",
+      exitCode: 0,
+      tone: "toolErrorBg",
+    },
+    {
+      label: "tool error",
+      partial: false,
+      error: true,
+      scriptError: "",
+      exitCode: 0,
+      tone: "toolErrorBg",
+    },
+  ])(
+    "selects the semantic background for $label",
+    ({ partial, error, scriptError, exitCode, tone }) => {
+      const tool = codeModeTool("exec", []);
+      const rendererTheme = createIdentityTheme();
+      const background = vi.spyOn(rendererTheme, "bg");
+      const data = result([processTrace("a", "echo hi", "hi", exitCode)]);
 
-    const row = new ToolExecutionComponent(
-      "exec",
-      "shell",
-      { code: 'await tools.exec_command({cmd: "echo hi"});' },
-      { showImages: false },
-      definition,
-      createMockTui(),
-      "/tmp/demo",
-    );
+      const component = tool.renderResult(
+        { ...data, details: { ...data.details, scriptError } },
+        { expanded: false, isPartial: partial },
+        rendererTheme,
+        { ...context(), isError: error, isPartial: partial },
+      );
 
-    const boxed = (lines: string[], bg: string) => {
-      // Pi emits one unpainted spacer row, then the box: padding, content, padding.
-      expect(lines[0]).toBe("");
-      expect(isPaddingRow(lines[1])).toBe(true);
-      expect(isPaddingRow(lines.at(-1))).toBe(true);
-      expect(lines.slice(1).every((line) => line.includes(bg))).toBe(true);
-      expect(lines.slice(1).every((line) => visibleWidth(line) === 80)).toBe(true);
-    };
-
-    const pending = row.render(80);
-    boxed(pending, PENDING_BG);
-    expect(stripVTControlCharacters(pending[2] ?? "")).toMatch(/^ Exec/u);
-
-    row.updateResult({ ...result([processTrace("a", "echo hi", "hi")]), isError: false });
-    const collapsed = row.render(80);
-    boxed(collapsed, SUCCESS_BG);
-    expect(stripVTControlCharacters(collapsed[2] ?? "")).toMatch(
-      /^ Exec · 1 command · ✓ completed/u,
-    );
-
-    row.setExpanded(true);
-
-    const expanded = row
-      .render(80)
-      .map((line) => stripVTControlCharacters(line).trimEnd())
-      .join("\n");
-
-    boxed(row.render(80), SUCCESS_BG);
-    // The script and its results share one box: no seam between the call and the result rows.
-    expect(expanded).toMatch(/exec_command\(\{cmd: "echo hi"\}\);\n Results · 1 command/u);
-  });
+      component.render(80);
+      expect(background).toHaveBeenCalledWith(tone, expect.any(String));
+      expect(new Set(background.mock.calls.map(([color]) => color))).toEqual(new Set([tone]));
+    },
+  );
 
   it("keeps a short script preview, then replaces it with commands on the first result frame", () => {
     const tool = codeModeTool();

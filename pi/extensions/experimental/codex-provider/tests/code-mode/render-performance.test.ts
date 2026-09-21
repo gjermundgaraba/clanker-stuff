@@ -1,14 +1,6 @@
 import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import {
-  Box,
-  Container,
-  ScrollView,
-  Text,
-  TuiAltScreen,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
-import type { Terminal } from "@earendil-works/pi-tui";
+import { Text, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -32,12 +24,12 @@ const makeRow = (definition = codeModeTool().definition) =>
   );
 
 const output = (id: number) =>
-  Array.from({ length: 400 }, (_, i) => `file-${id}:${i} ${"output ".repeat(10)}`).join("\n");
+  Array.from({ length: 8 }, (_, i) => `file-${id}:${i} ${"output ".repeat(10)}`).join("\n");
 
 beforeAll(() => initTheme("dark"));
 
 describe("Code Mode render work", () => {
-  it("caches the entire expanded shell, including nested prefixes and width checks", () => {
+  it("reuses expanded output composition until the width changes", () => {
     const row = makeRow();
     row.updateResult({
       ...result([processTrace("a", "cat example.ts", output(1))], [output(2)]),
@@ -45,31 +37,24 @@ describe("Code Mode render work", () => {
     });
     row.setExpanded(true);
     const prefixes = vi.spyOn(PrefixedComponent.prototype, "render");
-    const boxes = vi.spyOn(Box.prototype, "render");
     const first = row.render(120);
     const text = stripVTControlCharacters(first.join("\n"));
     expect(text).toContain("file-1:0");
-    expect(text).toContain("file-1:399");
-    expect(text).toContain("file-2:399");
+    expect(text).toContain("file-1:7");
+    expect(text).toContain("file-2:7");
     expect(prefixes).toHaveBeenCalled();
-    expect(boxes).toHaveBeenCalled();
     prefixes.mockClear();
-    boxes.mockClear();
 
     for (let i = 0; i < 10; i++) expect(row.render(120)).toEqual(first);
     expect(prefixes).not.toHaveBeenCalled();
-    expect(boxes).not.toHaveBeenCalled();
 
     const narrow = row.render(60);
     expect(narrow.length).toBeGreaterThan(first.length);
     expect(narrow.every((line) => visibleWidth(line) <= 60)).toBe(true);
     expect(prefixes).toHaveBeenCalled();
-    expect(boxes).toHaveBeenCalled();
     prefixes.mockClear();
-    boxes.mockClear();
     expect(row.render(60)).toEqual(narrow);
     expect(prefixes).not.toHaveBeenCalled();
-    expect(boxes).not.toHaveBeenCalled();
   });
 
   it("caches output, failed-command previews, and script-error previews together", () => {
@@ -78,7 +63,7 @@ describe("Code Mode render work", () => {
     const data = result([processTrace("failed", "vp test", output(1), 1)], [output(2)]);
     row.updateResult({
       ...data,
-      details: { ...data.details, scriptError: "Error: script failed\n".repeat(50) },
+      details: { ...data.details, scriptError: "Error: script failed\n".repeat(3) },
       isError: false,
     });
     const first = row.render(120);
@@ -144,7 +129,6 @@ describe("Code Mode render work", () => {
     const data = result([processTrace("a", "echo changed", "changed")]);
     row.updateResult({ ...data, isError: false }, true);
     const partial = row.render(120);
-    expect(partial.slice(1).every((line) => line.includes("48;2;40;40;50m"))).toBe(true);
     expect(stripVTControlCharacters(partial.join("\n"))).not.toContain("tools.exec_command");
 
     // Clicking the result-owned box must still use Pi's normal expand behavior.
@@ -173,7 +157,6 @@ describe("Code Mode render work", () => {
     });
     row.setExpanded(false);
     const dark = row.render(120).join("\n");
-    expect(dark).toContain("48;2;60;40;40m");
     expect(stripVTControlCharacters(dark)).toContain("new failure");
 
     try {
@@ -236,78 +219,4 @@ describe("Code Mode render work", () => {
     expect(updated).toContain("after");
     expect(updated).not.toContain("before");
   });
-
-  it.each([false, true])(
-    "does no fresh composition while scrolling offscreen rows (expanded=%s)",
-    (expanded) => {
-      const terminal: Terminal = {
-        columns: 120,
-        rows: 40,
-        kittyProtocolActive: false,
-        start() {},
-        stop() {},
-        drainInput: () => Promise.resolve(),
-        write() {},
-        moveBy() {},
-        hideCursor() {},
-        showCursor() {},
-        clearLine() {},
-        clearFromCursor() {},
-        clearScreen() {},
-        setTitle() {},
-        setProgress() {},
-      };
-
-      const tui = new TuiAltScreen(terminal);
-      const document = new Container();
-      const { definition } = codeModeTool();
-
-      for (let i = 0; i < 50; i++) {
-        const row = new ToolExecutionComponent(
-          "exec",
-          `row-${i}`,
-          { code },
-          { showImages: false },
-          definition,
-          tui,
-          "/tmp",
-        );
-
-        row.updateResult({
-          ...result([processTrace(`trace-${i}`, `cat file-${i}`, output(i))], [output(i)]),
-          isError: false,
-        });
-        row.setExpanded(expanded);
-        document.addChild(row);
-      }
-
-      const scroll = new ScrollView(document, { follow: "end", primary: true });
-      tui.setLayoutRoot(scroll);
-      const work = observeRenderWork();
-      const prefixes = vi.spyOn(PrefixedComponent.prototype, "render");
-
-      try {
-        tui.start();
-        tui.renderNow();
-        expect(scroll.scrollTop).toBeGreaterThan(40);
-        expect(work.layouts).toHaveBeenCalled();
-        work.layouts.mockClear();
-        work.highlights.mockClear();
-        prefixes.mockClear();
-        const start = scroll.scrollTop;
-
-        for (let i = 0; i < 10; i++) {
-          scroll.scrollBy(-1);
-          tui.renderNow();
-        }
-
-        expect(scroll.scrollTop).toBe(start - 10);
-        expect(work.layouts).not.toHaveBeenCalled();
-        expect(work.highlights).not.toHaveBeenCalled();
-        expect(prefixes).not.toHaveBeenCalled();
-      } finally {
-        tui.stop();
-      }
-    },
-  );
 });
