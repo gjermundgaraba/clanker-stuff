@@ -4,6 +4,14 @@ All scenarios use synthetic jobs and payloads. No service credentials or private
 
 ## Automated
 
+Retrieval-consumption coverage includes:
+
+- Exact event selection, failed reads, observational discovery/human commands, future completions after running inspection, and terminal-only result/stop retrieval.
+- In-flight consumption without changing receipt/admission gates, and the 32-task protection budget across uncaptured outcomes and unread notices.
+- Readable payloads after a 65-ID summary and across an older event's pages with full newer history; chronological capture-time eviction and the aggregate retention bound.
+- Real-session retrieval of ready events before settlement and of terminal outcomes before cleanup emits their notices, with retained history and no stale wake or extra provider request.
+- Consumption through the Code Mode adapter when the caller discards its result. This is adapter coverage, not a V8-cell test or proof of model visibility.
+
 The Pi 0.87.0 boundary-delivery revision adds real-session regressions for ready notices before successful settlement, the one-batch-per-activity bound, no boundary continuation after error/abort, and idle delivery of remaining batches. Cross-extension questionnaire tests keep saved answers pending through a background continuation, gate notifications while its UI is open, and require an explicit Send action producing one real user message. Receipt regressions cover cancellation during a later boundary handler (both public/RPC abort and TUI queue-clear plus abort), committed notices without a model response or extension `message_end`, preservation of preceding drafts, and dropped or invalid proposals retried only after settlement. Unit tests distinguish admission allowance from outstanding receipts and do not infer a lost idle handoff from settlement or elapsed time.
 
 The earlier automatic-notification/manual-compaction revision passed 72 package tests and repository static/policy checks. Manual Herdr validation below is historical; it has not been repeated for the boundary-delivery revision.
@@ -18,7 +26,7 @@ Real Pi 0.87.0 sessions verify:
 - Both TUI and RPC deliver notifications without confirmation. Aborted responses do not hold later notifications.
 - Task listing and inspection through `/tasks`, and agent-callable cancellation through `task_stop`.
 - Payload continuation survives numeric serialization expansion and UTF-8 boundaries; summary log reads fit after invalid-byte expansion.
-- Recorded notification receipts automatically release reservations; retained payloads remain inspectable.
+- Recorded notification receipts or targeted agent retrieval release eligible reservations; retained payloads remain inspectable.
 - Ancestral ownership and no resurrection after tree navigation.
 - Agent stop during terminal cleanup waits for completion without overwriting the accepted result.
 - A stale queued notice is removed before provider context on a new branch.

@@ -58,6 +58,66 @@ function setup() {
 const add = (inbox: Inbox) => inbox.add({ taskId: "a", terminal: false, reason: "observation" });
 
 describe("Delivery", () => {
+  it("does not send or retry a consumed boundary batch", () => {
+    const s = setup();
+    const event = add(s.inbox);
+    const batch = s.propose();
+    assert.ok(batch);
+    s.inbox.consume([event.id]);
+    expect(s.inbox.outstanding).toBe(batch.id);
+    expect(s.delivery.beforeSettle()).toBeUndefined();
+    s.delivery.settled();
+    vi.advanceTimersByTime(1100);
+    expect(s.batches).toHaveLength(1);
+    expect(s.inbox.outstanding).toBeUndefined();
+    expect(s.inbox.lookup("a")).toEqual([event]);
+    const next = add(s.inbox);
+    s.delivery.schedule();
+    vi.advanceTimersByTime(100);
+    expect(s.batches[1]?.events).toEqual([next]);
+  });
+  it("retries only unseen notices from a partially consumed boundary proposal", () => {
+    const s = setup();
+    const consumed = add(s.inbox);
+    const unseen = s.inbox.add({ taskId: "b", terminal: false, reason: "observation" });
+    const batch = s.propose();
+    assert.ok(batch);
+    s.inbox.consume([consumed.id]);
+    expect(s.inbox.outstanding).toBe(batch.id);
+    expect(s.propose()).toBeUndefined();
+    s.delivery.settled();
+    vi.advanceTimersByTime(999);
+    expect(s.batches).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(s.batches).toHaveLength(2);
+    expect(s.batches[1]?.events).toEqual([unseen]);
+    expect(s.batches[1]?.id).not.toBe(batch.id);
+    expect(s.inbox.lookup("a")).toEqual([consumed]);
+  });
+  it("keeps idle receipt ownership and activity admission after all its events are consumed", () => {
+    const s = setup();
+    const event = add(s.inbox);
+    s.delivery.flush();
+    const batch = s.batches[0];
+    assert.ok(batch);
+    s.inbox.consume([event.id]);
+    const next = add(s.inbox);
+    s.delivery.settled();
+    s.delivery.schedule();
+    vi.advanceTimersByTime(2000);
+    expect(s.batches).toHaveLength(1);
+    expect(s.inbox.outstanding).toBe(batch.id);
+    s.delivery.acknowledge(batch.id);
+    s.delivery.schedule();
+    vi.advanceTimersByTime(100);
+    expect(s.batches[1]?.events).toEqual([next]);
+    s.inbox.consume([next.id]);
+    s.delivery.acknowledge(s.batches[1]!.id);
+    add(s.inbox);
+    expect(s.propose()).toBeUndefined();
+    s.delivery.flush();
+    expect(s.batches).toHaveLength(2);
+  });
   it("admits one pre-settlement batch, cancels the idle timer, and waits for actual settlement", () => {
     const { delivery, inbox, batches, propose } = setup();
 
@@ -208,7 +268,7 @@ describe("Delivery", () => {
     vi.advanceTimersByTime(100);
     expect(batches).toHaveLength(2);
   });
-  it("releases terminal capacity when the notification is recorded", () => {
+  it("releases the task reservation when its only notice is recorded", () => {
     const { delivery, inbox, batches } = setup();
     inbox.reserve("a");
     inbox.add({ taskId: "a", terminal: true, reason: "completed" });

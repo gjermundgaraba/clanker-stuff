@@ -4,6 +4,8 @@ import type { ToolInventory, ToolAccounting } from "@clanker-stuff/code-mode-too
 import { Type } from "typebox";
 import { describe, expect, it, vi } from "vite-plus/test";
 import backgroundTasks from "../../background-tasks/index.js";
+import { TaskRuntime } from "../../background-tasks/runtime.js";
+import { registerTaskTools } from "../../background-tasks/register.js";
 import mcp from "../../../mcp/index.js";
 import { fixtureServer, setupMcpTest } from "../../../mcp/tests/helpers.js";
 import { toGeneratedToolName } from "../../../mcp/bridge.js";
@@ -14,6 +16,53 @@ import { createToolsModel } from "./fixtures.js";
 
 describe("Code Mode contributions", () => {
   const t = setupMcpTest();
+
+  it("consumes a retrieved task notice even when the Code Mode caller discards the result", async () => {
+    let runtime!: TaskRuntime;
+    let sources = (): ToolInventory[] => [];
+
+    const host = t.createExtensionHost((pi) => {
+      runtime = new TaskRuntime(pi);
+      registerTaskTools(pi, runtime);
+      sources = () => collectContributions(pi);
+    });
+
+    await host.emitSessionStart();
+    const ctx = host.createContext({ mode: "tui", isIdle: () => false });
+    runtime.startSession(ctx);
+
+    try {
+      const task = await runtime.supervisor.start({
+        name: "nested-retrieval",
+        command: process.execPath,
+        args: ["-e", ""],
+        cwd: ctx.cwd,
+        origin: "test-origin",
+      });
+
+      await expect.poll(() => task.outcome).toBe("completed");
+      await task.cleanupPromise;
+      expect(runtime.inbox.count).toBe(1);
+
+      const tool = sources()
+        .flatMap((source) => source.tools)
+        .find(({ definition }) => definition.name === "task_inspect");
+
+      if (!tool) throw new Error("Missing task contribution");
+      // Invoke the real nested adapter but never emit its return value as cell output.
+      await toNestedTool(tool).invoke(
+        { id: task.id, view: "summary" },
+        { cellId: "discarded-result", extensionContext: ctx },
+        new AbortController().signal,
+      );
+      expect(runtime.inbox.count).toBe(0);
+      expect(runtime.inbox.lookup(task.id)).toMatchObject([
+        { terminal: true, reason: "completed" },
+      ]);
+    } finally {
+      await runtime.shutdown();
+    }
+  });
 
   it("rejects invalid publications before changing registrations or placement", async () => {
     let source: ContributedTools | undefined;

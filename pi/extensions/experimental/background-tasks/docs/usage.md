@@ -19,7 +19,7 @@ Use Node.js 26+, Pi 0.87.0+, and a POSIX host (macOS/Linux). Windows admission i
 
 Ordinary jobs treat stdout and stderr as logs. Successful exit produces `completed`; a nonzero exit produces `process_error`. Do useful work or finish the turn after starting a task; do not repeatedly poll while waiting.
 
-`task_list({})` shows the pending notification count and every retained task in compact rows. Display names are shortened to 32 Unicode characters plus an ellipsis; full names remain available through inspection. Omission/eviction counts describe bounded retention, not response truncation.
+`task_list({})` shows the pending notification count and every retained task in compact rows without consuming notifications. Display names are shortened to 32 Unicode characters plus an ellipsis; full names remain available through inspection. Omission/eviction counts describe bounded retention, not response truncation.
 
 `task_inspect` requires a task ID and a view:
 
@@ -29,7 +29,7 @@ Ordinary jobs treat stdout and stderr as logs. Successful exit produces `complet
 
 Payload responses contain `payload: {encoding: "json", text, offset, nextOffset, totalBytes}`. Concatenate `text` from successive pages, passing `nextOffset` back as `offset` until it is `null`, then parse the complete JSON text. Offsets are UTF-8 bytes in that immutable JSON representation, not string indexes or raw stdout offsets. Small payloads fit in one response. Display-control escaping preserves the JSON value. An evicted event produces an explicit not-found error, never a page from another event. Terminal results remain readable by task ID under task-history retention.
 
-`task_stop({id})` lets the agent stop a job that is no longer needed. It waits for bounded cleanup and reports the actual terminal decision. Cancellation does not overwrite a result already accepted. There is no dismissal step: terminal notification capacity is released automatically when Pi records the notice in session history.
+`task_stop({id})` lets the agent stop a job that is no longer needed. It waits for bounded cleanup and reports the actual terminal decision. Cancellation does not overwrite a result already accepted. A successful stop response consumes its terminal notice, but not earlier watcher events. There is no dismissal step: capacity is released after terminal capture when the terminal notice has been retrieved or recorded in session history and no notices for that task remain pending or in flight.
 
 Commands:
 
@@ -37,14 +37,23 @@ Commands:
 - `/tasks inspect <id>`: summary status, all retained event IDs, result availability, and bounded log tails. Read payloads through `task_inspect` with `view: "result"` or `view: "event"`.
   These commands are read-only. There are no user-facing pause, resume, stop, or dismiss controls. Ask the agent to stop a job when needed.
 
-Inspection is read-only and does not consume pending notifications. Notification acknowledgement means Pi recorded the notice in the actual session branch, not that a model acted on it or that processing succeeded.
+Successful agent-tool retrieval consumes notification eligibility, not retained data:
+
+- Summary inspection consumes exactly its listed event IDs and reported terminal outcome, including an outcome whose notice is still awaiting cleanup.
+- Event inspection consumes only the selected event. Result inspection consumes only the terminal notice, even when retrieving just one payload page.
+- Successful `task_stop` consumes its terminal notice. Failed tool calls consume nothing. Running snapshots cannot consume future completions.
+- `task_list`, `/tasks`, and `/tasks inspect` are observational and do not consume notices.
+
+This is an invocation contract, not proof that the model saw or acted on the output. It also applies inside Code Mode when the script discards the return value without printing it. Retrieval and notification acknowledgement do not evict event payloads. New event capture may evict older retired history; task pruning and session replacement can also end access. Pagination is not pinned across those changes. A wake already admitted to Pi cannot be retracted and may still contain a subsequently retrieved event; remaining unseen events keep their normal delivery timing.
+
+Notification acknowledgement separately means Pi recorded the notice in the actual session branch, not that a model acted on it or that processing succeeded. Neither retrieval nor acknowledgement is undone by navigating to a point before it; retained task results can still be inspected.
 
 ## Border indicators
 
 Load the optional [border-status extension](../../border-status/README.md) to see compact counts on the editor border. There is no footer status or fallback when the border host is absent.
 
 - Active tasks: Nerd Font gears (`nf-fa-gears`, U+F085), including tasks still awaiting cleanup.
-- Pending notifications: Nerd Font bell (`nf-fa-bell`, U+F0F3). This counts events, including in-flight notices until acknowledged, not tasks.
+- Pending notifications: Nerd Font bell (`nf-fa-bell`, U+F0F3). This counts events, including in-flight notices until acknowledged or consumed, not tasks.
 
 Each indicator is hidden independently when its count is zero. Icons follow the border host's preference; use `/border-status icons nerd` for Nerd Font glyphs. Unicode uses ⚙ / 🔔; ASCII uses `tasks` / `pending`. Task inspection and automatic delivery still work without the border host and in RPC mode.
 
@@ -73,7 +82,7 @@ See the [authoring skill](../skills/watchers/SKILL.md) for a polling example.
 
 Automatic messages contain only host-assigned task/event IDs and host-authored outcome names. Names, keys, logs, commands, and result payloads are not pushed into the conversation. Pulling them with `task_inspect` exposes **untrusted data**, not instructions. JSON/custom-message roles are not a prompt-injection boundary. Terminal control sequences are sanitized on display; raw bounded log files remain untrusted.
 
-Capture continues while Pi is busy or showing an extension prompt. Before a successful activity settles, one already-ready batch of up to eight notices can continue that activity. Delivery never waits for a task to finish and never extends an errored or aborted activity. Ready notices are proposed as native boundary entries; further batches and later completions start new prompts when idle. An open extension prompt blocks both admission points. Only one batch is admitted per activity, ensuring a settlement boundary between batches rather than capping total automatic work. Ordinary stdout/stderr stays in logs; completion and watcher records trigger notifications.
+Capture continues while Pi is busy or showing an extension prompt. Before a successful activity settles, one already-ready batch of up to eight notices can continue that activity. Delivery never waits for a task to finish and never extends an errored or aborted activity. Ready notices are proposed as native boundary entries; further batches and later completions start new prompts when idle. An open extension prompt blocks both admission points. Only one batch is admitted per activity, ensuring a settlement boundary between batches rather than capping total automatic work. Ordinary stdout/stderr stays in logs; unretrieved completion and watcher records trigger notifications.
 
 Pending notifications recheck readiness once per second while Pi is busy, including during manual compaction. These checks do not call the model or resend an outstanding batch.
 
@@ -100,15 +109,17 @@ Shutdown sends TERM to the owned POSIX process group, waits up to one second, th
 | Record                            | 16 KiB before LF                                                          |
 | Watcher output                    | 256 records per one-second window; excess fails the protocol              |
 | Pending progress                  | 64 records / 64 KiB, plus one in-flight batch                             |
-| Terminal reservations             | 32 active or unacknowledged terminal tasks                                |
+| Protected-task budget             | 32 active tasks or tasks still protected by capture/outstanding notices   |
 | Delivery batch                    | 8 records per batch; no total batch limit                                 |
-| Acknowledged event history        | 64 acknowledged records; summaries list all retained event IDs            |
+| Retired event history             | Target 64 at each capture; retirement alone does not evict                |
 | Unprotected finished task history | 32 at admission-time pruning, plus current admitted tasks                 |
 | Log storage                       | Last 128 KiB per stream, in memory and disposable files                   |
 | Log tool reads                    | 6,000 bytes/stream default, 12,000 maximum                                |
 | Tool response                     | 32,000 encoded bytes; complete compact envelopes and payload continuation |
 
-Progress overflow drops the oldest pending progress and increments the omitted count. Terminal reservations are never evicted by progress; new admission fails when all slots are occupied. Acknowledged history can be evicted, with a visible count. Log tails report omitted bytes and storage errors; they are not complete logs. Session lifecycle entries contain metadata, never raw output, and accumulate with session history.
+Progress overflow drops the oldest pending progress and increments the omitted count. Terminal notices are never evicted by progress. Admission fails when all 32 task reservations are occupied, including completed tasks with unread watcher events. Inspect completed task summaries to consume their listed notices, or allow cleanup and automatic delivery to finish. Rereading only the terminal result does not consume earlier watcher events.
+
+New event capture may evict the oldest consumed or acknowledged events to meet the history target, with a visible eviction count. Retrieval and notification acknowledgement do not evict payloads. Log tails report omitted bytes and storage errors; they are not complete logs. Session lifecycle entries contain metadata, never raw output, and accumulate with session history.
 
 The supervisor, wire decoder, inbox, and delivery controller are separate components. Persistence beyond a session would require a new external owner and authenticated reconnection—not a PID-file escape hatch.
 

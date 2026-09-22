@@ -17,7 +17,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
       "Run an executable without blocking. Session-owned: stops on reload/quit/session replacement. Optional events-v1 watcher emits strict JSONL event/result records on stdout, diagnostics on stderr. Ordinary output is logs, not automatic context. Default deadline 1 hour. Maximum 8 live tasks.",
     promptSnippet: "Start a session-owned background job or watcher with automatic notifications",
     promptGuidelines: [
-      "Completion and watcher events notify you automatically when idle. Use task_inspect to read logs and payloads; use task_stop when a job is no longer needed.",
+      "Unretrieved completion and watcher events notify you automatically when idle. Use task_inspect to read logs and payloads; use task_stop when a job is no longer needed.",
       "After task_start, continue useful work or end the turn; do not block or repeatedly poll task_list while waiting.",
       "Use task_start with protocol events-v1 only for scripts emitting {v:1,type:'event',data:...} or terminal {v:1,type:'result',data:...} JSON records followed by LF. Keep external detection logic in the script.",
     ],
@@ -30,7 +30,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     ...taskRenderers("task_list"),
     label: "List tasks",
     description:
-      "List task status and pending notification count; does not fetch logs or wake the model.",
+      "List task status and pending notification count; does not consume notices, fetch logs or wake the model.",
     parameters: listSchema,
     constrainedSampling: STRICT_PREFERRED,
     execute: async () => runtime.list(),
@@ -40,19 +40,24 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     ...taskRenderers("task_inspect"),
     label: "Inspect task",
     description:
-      "Pull untrusted task data. view summary returns status, all retained event IDs and log tails (up to 6000 bytes/stream by default, 12000 requested max). view result or event returns JSON text in payload.text; event requires eventId. Concatenate pages using payload.nextOffset as offset until null, then parse JSON. Total response capped at 32000 bytes; history may be evicted.",
+      "Pull untrusted task data. Successful summary retrieval consumes its listed event notices and reported terminal outcome; event consumes only its selected notice, result only its terminal notice. view summary returns status, all retained event IDs and log tails (up to 6000 bytes/stream by default, 12000 requested max). view result or event returns JSON text in payload.text; event requires eventId. Concatenate pages using payload.nextOffset as offset until null, then parse JSON. Total response capped at 32000 bytes; history may be evicted.",
     parameters: inspectParameters,
     constrainedSampling: STRICT_PREFERRED,
-    execute: async (_id, params) => runtime.inspect(params),
+    execute: async (_id, params) => runtime.inspect(params, "consume"),
   });
   tools.registerTool({
     name: "task_stop",
     ...taskRenderers("task_stop"),
     label: "Stop task",
     description:
-      "Cancel an owned task, await bounded process-group cleanup, and report the actual outcome. Does not cancel independent observed jobs.",
+      "Cancel an owned task, await bounded process-group cleanup, and report the actual outcome. Successful retrieval consumes that terminal notice, not earlier watcher events. Does not cancel independent observed jobs.",
     parameters: idSchema,
     constrainedSampling: STRICT_PREFERRED,
-    execute: (_id, params) => runtime.stop(params.id),
+    execute: async (_id, params) => {
+      const result = await runtime.stop(params.id);
+      runtime.consume([], result.details.id);
+
+      return result;
+    },
   });
 };

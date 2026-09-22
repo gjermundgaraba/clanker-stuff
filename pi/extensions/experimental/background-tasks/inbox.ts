@@ -19,15 +19,15 @@ export interface Batch {
 export interface InboxLimits {
   progress: number;
   bytes: number;
-  terminals: number;
+  protectedTasks: number;
   history: number;
 }
 
-const defaults: InboxLimits = { progress: 64, bytes: 64 * 1024, terminals: 32, history: 64 };
+const defaults: InboxLimits = { progress: 64, bytes: 64 * 1024, protectedTasks: 32, history: 64 };
 
-/** Reservations make terminal retention bounded without losing admitted results. */
+/** Uncaptured outcomes and outstanding notices protect tasks against admission-time pruning. */
 export class Inbox {
-  private reservations = new Set<string>();
+  private awaitingTerminalCapture = new Map<string, "unread" | "retrieved">();
   private pending: Observation[] = [];
   private history: Observation[] = [];
   private flight: Batch | undefined;
@@ -37,19 +37,52 @@ export class Inbox {
   constructor(private limits: InboxLimits = defaults) {}
 
   reserve(id: string): void {
-    if (this.reservations.size >= this.limits.terminals)
+    if (this.protectedTasks().size >= this.limits.protectedTasks)
       throw new Error(
-        "Terminal inbox full; wait for pending notifications to be delivered before starting more.",
+        "Task notification capacity is full; inspect completed task summaries or allow cleanup and pending notifications to finish before starting more.",
       );
-    this.reservations.add(id);
-  }
-  private release(id: string): void {
-    this.reservations.delete(id);
+    this.awaitingTerminalCapture.set(id, "unread");
   }
   protected(id: string): boolean {
-    // The supervisor emits terminal last; FIFO acknowledgement cannot release
-    // its reservation while earlier task events remain pending or in flight.
-    return this.reservations.has(id);
+    return this.protectedTasks().has(id);
+  }
+  private protectedTasks(): Set<string> {
+    const ids = new Set(this.awaitingTerminalCapture.keys());
+
+    for (const event of [...this.pending, ...(this.flight?.events ?? [])]) ids.add(event.taskId);
+
+    return ids;
+  }
+  /** Only capture grows storage; reads and receipts must not evict their payloads. */
+  private trimHistory(): void {
+    if (this.history.length <= this.limits.history) return;
+    this.history.sort((a, b) => a.seq - b.seq);
+
+    while (this.history.length > this.limits.history) {
+      this.history.shift();
+      this.evicted++;
+    }
+  }
+  /** Retire retrieved notices, not their admitted batch's receipt or activity allowance. */
+  consume(eventIds: readonly string[], terminalTaskId?: string): void {
+    const ids = new Set(eventIds);
+
+    // The immutable outcome can be returned before cleanup emits its terminal event.
+    if (terminalTaskId !== undefined && this.awaitingTerminalCapture.has(terminalTaskId))
+      this.awaitingTerminalCapture.set(terminalTaskId, "retrieved");
+    const retired: Observation[] = [];
+
+    const keep = (event: Observation): boolean => {
+      if (!ids.has(event.id) && !(event.terminal && event.taskId === terminalTaskId)) return true;
+      retired.push(event);
+
+      return false;
+    };
+
+    this.pending = this.pending.filter(keep);
+
+    if (this.flight) this.flight.events = this.flight.events.filter(keep);
+    this.history.push(...retired);
   }
   add(input: Omit<Observation, "id" | "seq">): Observation {
     const { taskId, terminal, key } = input;
@@ -60,8 +93,19 @@ export class Inbox {
       seq: ++this.sequence,
     };
 
-    if (terminal && !this.reservations.has(taskId))
-      throw new Error("Terminal outcome has no reservation");
+    if (terminal) {
+      const state = this.awaitingTerminalCapture.get(taskId);
+
+      if (state === undefined) throw new Error("Terminal outcome has no reservation");
+      this.awaitingTerminalCapture.delete(taskId);
+
+      if (state === "retrieved") {
+        this.history.push(event);
+        this.trimHistory();
+
+        return event;
+      }
+    }
 
     if (!terminal && key !== undefined) {
       this.pending = this.pending.filter((e) => e.terminal || e.taskId !== taskId || e.key !== key);
@@ -79,6 +123,8 @@ export class Inbox {
       this.pending.splice(oldest, 1);
       this.omitted++;
     }
+
+    this.trimHistory();
 
     return event;
   }
@@ -101,17 +147,8 @@ export class Inbox {
   acknowledge(id: string): boolean {
     if (this.flight?.id !== id) return false;
 
-    for (const event of this.flight.events) {
-      if (event.terminal) this.release(event.taskId);
-      this.history.push(event);
-    }
-
+    this.history.push(...this.flight.events);
     this.flight = undefined;
-
-    while (this.history.length > this.limits.history) {
-      this.history.shift();
-      this.evicted++;
-    }
 
     return true;
   }
@@ -122,15 +159,15 @@ export class Inbox {
     // The bounded in-flight batch is extra reserved capacity; never coalesce it away.
   }
   abandon(taskId: string): void {
-    this.release(taskId);
+    this.awaitingTerminalCapture.delete(taskId);
     this.pending = this.pending.filter((e) => e.taskId !== taskId);
 
     if (this.flight) this.flight.events = this.flight.events.filter((e) => e.taskId !== taskId);
   }
   lookup(taskId: string, id?: string): Observation[] {
-    return [...this.history, ...(this.flight?.events ?? []), ...this.pending].filter(
-      (e) => e.taskId === taskId && (id === undefined || e.id === id),
-    );
+    return [...this.history, ...(this.flight?.events ?? []), ...this.pending]
+      .filter((e) => e.taskId === taskId && (id === undefined || e.id === id))
+      .sort((a, b) => a.seq - b.seq);
   }
   get outstanding(): string | undefined {
     return this.flight?.id;
@@ -142,6 +179,6 @@ export class Inbox {
     this.pending = [];
     this.history = [];
     this.flight = undefined;
-    this.reservations.clear();
+    this.awaitingTerminalCapture.clear();
   }
 }

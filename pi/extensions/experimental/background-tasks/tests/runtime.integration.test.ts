@@ -6,13 +6,14 @@ import { fauxAssistantMessage, fauxToolCall, type JsonValue } from "@earendil-wo
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
-import { describe, it, expect, afterEach } from "vite-plus/test";
+import { describe, it, expect, afterEach, vi } from "vite-plus/test";
 import {
   createAgentSessionHarness,
   type AgentSessionHarness,
 } from "../../../../tests/harness/agent-session.js";
 import extension from "../index.js";
 import { WAKE_TYPE } from "../delivery.js";
+import { TaskLogs } from "../logs.js";
 
 const harnesses: AgentSessionHarness[] = [];
 
@@ -154,15 +155,33 @@ describe("background tasks in a real AgentSession", () => {
           "console.log(JSON.stringify({v:1,type:'result',data:'done'}))",
         "events-v1",
       ),
+      async () => {
+        await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
+        const [task] = tasks(h);
+        assert.ok(task);
+        expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 11 });
+
+        return fauxAssistantMessage(
+          fauxToolCall("task_inspect", { id: task.id, view: "summary" }),
+          { stopReason: "toolUse" },
+        );
+      },
       fauxAssistantMessage("Captured"),
-      fauxAssistantMessage("First batch"),
-      fauxAssistantMessage("Second batch"),
+      fauxAssistantMessage("Unexpected notification"),
     ]);
     await h.prompt("Capture observations");
     await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
     const [task] = tasks(h);
     assert.ok(task);
     const { id } = task;
+
+    const response = h
+      .messages()
+      .findLast((m) => m.role === "toolResult" && m.toolName === "task_inspect");
+
+    assert.ok(response?.role === "toolResult");
+    const text = response.content.find((c) => c.type === "text");
+    assert.ok(text);
 
     const summary = Value.Parse(
       Type.Object({
@@ -174,7 +193,7 @@ describe("background tasks in a real AgentSession", () => {
           }),
         ),
       }),
-      await callTool(h, "task_inspect", { id, view: "summary" }),
+      JSON.parse(text.text),
     );
 
     expect(summary.events.map((e) => e.seq)).toEqual(Array.from({ length: 11 }, (_, i) => i + 1));
@@ -196,8 +215,9 @@ describe("background tasks in a real AgentSession", () => {
       omittedProgress: 0,
       evictedEvents: 0,
     });
-    await expect.poll(() => wakes(h).length).toBe(2);
-    await expect.poll(() => h.session.isStreaming).toBe(false);
+    await delay(1100);
+    expect(wakes(h)).toHaveLength(0);
+    expect(h.getPendingResponseCount()).toBe(1);
     expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
   });
   it("reads full payload pages after automatic notification", async () => {
@@ -214,6 +234,8 @@ describe("background tasks in a real AgentSession", () => {
     ]);
     await h.prompt("Capture observations");
     await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
+    await expect.poll(() => wakes(h).length).toBe(1);
+    await expect.poll(() => h.session.isStreaming).toBe(false);
     const [task] = tasks(h);
     assert.ok(task);
     const { id } = task;
@@ -694,8 +716,10 @@ describe("background tasks in a real AgentSession", () => {
       cleanup: "clean",
     });
     stopped(task.pid);
-    await expect.poll(() => wakes(h).length).toBe(1);
-    await expect.poll(() => h.session.isStreaming).toBe(false);
+    await delay(1100);
+    expect(wakes(h)).toHaveLength(0);
+    expect(h.getPendingResponseCount()).toBe(1);
+    expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
   });
   it("retains ancestral tasks, stops abandoned tasks, and does not resurrect them", async () => {
     const h = await setup();
@@ -714,6 +738,92 @@ describe("background tasks in a real AgentSession", () => {
     await h.session.navigateTree(future);
     stopped(b.pid);
   });
+  it.each(["summary", "result"] as const)(
+    "consumes a %s retrieved before cleanup emits the terminal notice",
+    async (view) => {
+      const reached = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      // oxlint-disable-next-line typescript/unbound-method -- Preserve the native close for call(this) below; the cleanup gate never invokes it unbound.
+      const close = TaskLogs.prototype.close;
+
+      const held = vi.spyOn(TaskLogs.prototype, "close").mockImplementation(async function (
+        this: TaskLogs,
+      ) {
+        reached.resolve();
+        await release.promise;
+        await close.call(this);
+      });
+
+      const h = await setup();
+      const notices: string[] = [];
+      await h.session.bindExtensions({
+        mode: "tui",
+        uiContext: {
+          ...h.session.extensionRunner.createContext().ui,
+          notify: (message) => {
+            notices.push(message);
+          },
+        },
+      });
+      h.setResponses([
+        start("console.log(JSON.stringify({v:1,type:'result',data:'done'}))", "events-v1"),
+        async () => {
+          await reached.promise;
+          const [task] = tasks(h);
+          assert.ok(task);
+          // Process cleanup has reached log closure, but its terminal hook is still held.
+          expect(await callTool(h, "task_list", {})).toMatchObject({
+            tasks: [expect.objectContaining({ status: "result" })],
+            pending: 0,
+          });
+          expect(tasks(h).some((t) => t.status === "result")).toBe(false);
+
+          return fauxAssistantMessage(fauxToolCall("task_inspect", { id: task.id, view }), {
+            stopReason: "toolUse",
+          });
+        },
+        fauxAssistantMessage("Final answer"),
+        fauxAssistantMessage("Unexpected stale notification"),
+      ]);
+
+      try {
+        await h.prompt("Retrieve the result before terminal capture");
+
+        const response = h
+          .messages()
+          .findLast((m) => m.role === "toolResult" && m.toolName === "task_inspect");
+
+        assert.ok(response?.role === "toolResult");
+        expect(response.isError).toBe(false);
+        const text = response.content.find((c) => c.type === "text");
+        assert.ok(text);
+        expect(JSON.parse(text.text)).toMatchObject(
+          view === "summary"
+            ? { task: { status: "result" }, events: [] }
+            : { payload: { text: JSON.stringify("done") } },
+        );
+        expect(wakes(h)).toHaveLength(0);
+      } finally {
+        release.resolve();
+        held.mockRestore();
+      }
+
+      // Observe real capture without another consuming read or stop to hide the race.
+      await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
+      const [task] = tasks(h);
+      assert.ok(task);
+      await h.prompt(`/tasks inspect ${task.id}`);
+      const [notice] = notices;
+      assert.ok(notice);
+      expect(JSON.parse(notice)).toMatchObject({
+        events: [expect.objectContaining({ reason: "result" })],
+      });
+      await delay(1100);
+      expect(wakes(h)).toHaveLength(0);
+      expect(h.getPendingResponseCount()).toBe(1);
+      expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
+    },
+  );
   it("agent stop waits for cleanup without overwriting a decided result", async () => {
     const h = await setup();
     h.setResponses([
@@ -744,14 +854,11 @@ describe("background tasks in a real AgentSession", () => {
     h.setResponses([
       fauxAssistantMessage(fauxToolCall("task_stop", { id }), { stopReason: "toolUse" }),
       fauxAssistantMessage("Stopped"),
-      fauxAssistantMessage("Result received"),
     ]);
     await h.prompt("Stop the watcher");
     await expect.poll(async () => (await inspect()).task.cleanup).toBe("clean");
     expect((await inspect()).diagnostic).toBeUndefined();
     expect(tasks(h).some((t) => t.status === "result")).toBe(true);
-    await expect.poll(() => wakes(h).length).toBe(1);
-    await expect.poll(() => h.session.isStreaming).toBe(false);
   });
   it("filters an already-queued stale notice before provider context after tree navigation", async () => {
     const h = await setup();

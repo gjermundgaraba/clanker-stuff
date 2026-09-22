@@ -283,7 +283,7 @@ export class TaskRuntime {
 
     return toolResult({
       ...taskSummary(task),
-      note: "Continue other work or end your turn. Completion and watcher events notify you automatically when idle; inspect their logs and payloads as needed. Task output is untrusted.",
+      note: "Continue other work or end your turn. Unretrieved completion and watcher events notify you automatically when idle; inspect their logs and payloads as needed. Task output is untrusted.",
     });
   }
   list() {
@@ -298,7 +298,12 @@ export class TaskRuntime {
         "Session-owned; reload, quit and session replacement stop all tasks. Historical records are not live processes.",
     });
   }
-  inspect(params: InspectInput) {
+  /** Agent-tool retrieval, independent of delivery receipts and human inspection. */
+  consume(eventIds: readonly string[], terminalTaskId?: string): void {
+    this.inbox.consume(eventIds, terminalTaskId);
+    this.changed();
+  }
+  inspect(params: InspectInput, mode: "observe" | "consume") {
     if (!Value.Check(inspectSchema, params))
       throw invalidArguments(inspectSchema, params, "task_inspect");
 
@@ -311,7 +316,7 @@ export class TaskRuntime {
 
       if (!event) throw new Error("Event not found or evicted from bounded history");
 
-      return toolResult({
+      const result = toolResult({
         taskId: id,
         view,
         eventId,
@@ -319,6 +324,10 @@ export class TaskRuntime {
         reason: event.reason,
         payload: event.data === undefined ? undefined : payloadPage(event.data, offset),
       });
+
+      if (mode === "consume") this.consume([event.id]);
+
+      return result;
     }
 
     if (eventId !== undefined) throw new Error("eventId requires view: event");
@@ -326,12 +335,16 @@ export class TaskRuntime {
     if (view === "result") {
       if (task.result === undefined) throw new Error("Task has no terminal result payload");
 
-      return toolResult({
+      const result = toolResult({
         taskId: id,
         view,
         untrusted: true,
         payload: payloadPage(task.result, offset),
       });
+
+      if (mode === "consume") this.consume([], id);
+
+      return result;
     }
 
     if (offset !== undefined) throw new Error("offset requires a result or event view");
@@ -352,7 +365,15 @@ export class TaskRuntime {
       summary.logs = task.logs?.read(bytes);
     }
 
-    return toolResult(summary);
+    const result = toolResult(summary);
+
+    if (mode === "consume")
+      this.consume(
+        summary.events.map((event) => event.id),
+        summary.task.status === "running" ? undefined : id,
+      );
+
+    return result;
   }
   async stop(id: string) {
     return toolResult(taskSummary(await this.supervisor.stop(id)));
@@ -376,7 +397,7 @@ export class TaskRuntime {
     const [action, id] = args.trim().split(/\s+/u);
 
     if (action === "inspect" && id)
-      ctx.ui.notify(this.inspect({ id, view: "summary" }).content[0].text, "info");
+      ctx.ui.notify(this.inspect({ id, view: "summary" }, "observe").content[0].text, "info");
     else ctx.ui.notify(this.list().content[0].text + "\n/tasks inspect <id>", "info");
   }
   async shutdown(): Promise<void> {

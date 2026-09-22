@@ -48,7 +48,15 @@ Subprocess callbacks submit observations to the inbox; they never send Pi messag
 
 Keyed progress represents replaceable pending state within one task/key. Unkeyed events retain arrival order. Coalescing never alters an already-handed-off batch. Progress overflow evicts only progress and exposes an omitted count.
 
-Bounded storage cannot promise unlimited terminal retention. Each admitted task reserves a terminal slot until Pi records its terminal notification in the session branch. Exhaustion blocks admission rather than silently deleting results. Inspection is read-only; acknowledgement releases capacity automatically. Delivered history and logs have separate finite retention.
+Admission and task-history pruning share one derived protection set: tasks awaiting terminal capture, plus tasks with pending or in-flight notices. Each distinct task occupies one of 32 slots, even if it appears in several of those sources. Capturing a terminal transfers protection from the awaiting task to its unread notice; retiring the last notice releases protection naturally. Completed tasks with unread watcher events still occupy a slot. This keeps notification metadata available without a separate reservation-reconciliation state machine. Exhaustion blocks admission rather than silently deleting results. Retired history and logs have separate finite retention.
+
+Runtime inspection requires an explicit `observe` or `consume` mode. Human commands observe; the agent tool consumes. Each view constructs its complete response before consuming the local events and outcome it returned, so failures consume nothing. Summary consumes its listed IDs and reported terminal outcome; event consumes only its selected ID; result consumes only the terminal outcome. Successful `task_stop` also consumes the terminal outcome without consuming earlier progress. `task_start` returns a running task, and `task_list` is observational.
+
+The supervisor decides an immutable terminal outcome before cleanup emits its notice. The awaiting-capture map records whether that outcome has already been retrieved. If so, capture stores the terminal event directly in history instead of scheduling a stale notice. Capture removes the map entry; any remaining notices independently protect the task. Abandonment and clear discard awaiting state, and repeated reads never recreate it. Event-only retrieval does not mark an unrelated terminal outcome retrieved.
+
+Consumption removes exact IDs from pending and in-flight eligibility while retaining inspectable history. Lookup returns sequence order across history, flight, and pending. Retired history need not stay sorted internally: only a new capture trims it to its 64-record target, sorting by sequence rather than retrieval order. Consumption and acknowledgement never evict payloads. Continuation is not pinned across later captures, task pruning or session replacement.
+
+Aggregate retention stays bounded by 168 records: 64 retired history at capture, 64 pending progress, at most 32 terminal notices, and an 8-record flight. Between captures, retirement only transfers existing records, so history may exceed its target without growing total storage.
 
 Pruning claims and counts selected history victims synchronously before awaiting filesystem removal. No concurrent admission can count the same eviction twice.
 
@@ -72,13 +80,15 @@ While notifications are pending and Pi is not ready, one timer rechecks readines
 pending → boundary proposal or idle prompt → recorded in the actual session branch
 ```
 
-Only one batch may be outstanding. Before provider-context preparation and at settlement, the runtime looks for its runtime ID and outstanding batch ID in actual session `custom_message` entries. A match acknowledges the batch and releases terminal reservations. Proposed boundary previews are not receipts. Extension `message_end` is not used: it precedes persistence on the normal loop path and is absent for boundary drafts.
+Only one batch may be outstanding. Before provider-context preparation and at settlement, the runtime looks for its runtime ID and outstanding batch ID in actual session `custom_message` entries. A match acknowledges the batch, retiring its remaining notices. Proposed boundary previews are not receipts. Extension `message_end` is not used: it precedes persistence on the normal loop path and is absent for boundary drafts.
+
+Retrieval does not acknowledge a batch, fabricate a branch receipt, reset activity admission, or retract an admitted message. Even when all its events are consumed, outstanding batch identity remains until a real receipt or an already-eligible boundary retry resolves it. Retry requeues only remaining events; an empty dropped proposal neither produces an empty wake nor blocks later pending notices. Already-admitted content may still mention subsequently consumed events.
 
 Later boundary handlers can replace or invalidate the proposal. If its receipt is still missing at settlement, the boundary batch returns to pending and idle delivery retries after one second. A synchronous idle handoff failure also backs off for one second. Settlement or elapsed time alone does not prove that a queued message was discarded; an unacknowledged idle handoff is not automatically requeued.
 
 Pi commits valid boundary drafts even when cancellation during a later handler suppresses continuation. Such a recorded notice is accepted without forcing a model response: it remains available for the next request. Neither cancellation, a failed response, nor lack of model processing replays a recorded notice. Later pending notifications continue automatically.
 
-This is session-local, bounded in-memory tracking. Recording a receipt is not proof of model action, successful processing, or crash-safe persistence; there is no durable outbox or crash-exactly-once guarantee.
+Retrieval and recorded receipts are runtime-local, not replayed when navigating before them. This is session-local, bounded in-memory tracking. Recording a receipt is not proof of model action, successful processing, or crash-safe persistence; there is no durable outbox or crash-exactly-once guarantee.
 
 ### Always-on delivery
 
