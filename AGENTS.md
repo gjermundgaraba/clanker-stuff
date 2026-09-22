@@ -13,6 +13,13 @@ This repository contains agent tooling for Pi, Claude Code, and Codex. Pi extens
 - For any custom tool that mutates files, use `withFileMutationQueue()` around the full read/modify/write critical section, keyed by the resolved absolute target path, so it participates in pi's per-file mutation queue.
 - Never suggest "upstreaming a change to pi itself". If we can't do something in an extension today, we can't do it today.
 
+## Test value
+
+- Test meaningful supported contracts. Consider existing protection and failure diagnosis before adding coverage; source-file symmetry and test counts are not reasons to add tests.
+- Assertions should distinguish correct behavior from a plausible regression. Avoid expectations, mocks, or downstream behavior that would conceal the defect the test claims to detect.
+- Prefer behavioral contracts over incidental implementation details. Narrow dependency-compatibility checks are worthwhile when they protect a concrete assumption our code relies on.
+- Consolidate tests only when meaningful cases, assertion strength, and failure diagnosis remain clear. Overlap alone does not establish redundancy; fewer tests or lines are not the objective.
+
 ## Lint policy and exceptions
 
 - Follow [docs/lint-policy.md](docs/lint-policy.md). Before adding or retaining any lint exception, strongly consider a cleaner, more correct refactor that removes its cause, even when it breaks owned APIs. Update affected callers and tests directly; do not preserve avoidable debt with compatibility wrappers.
