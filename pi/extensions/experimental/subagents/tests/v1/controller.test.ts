@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fauxProvider } from "@earendil-works/pi-ai";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -94,6 +95,21 @@ const setup = async (
 };
 
 describe("V1 controller", () => {
+  it("returns the runtime's resolved settings even without spawn overrides", async () => {
+    const { controller, ctx, createRuntime } = await setup();
+    const runtime = new FakeChildRuntime("worker");
+    runtime.model = fauxProvider().getModel();
+    runtime.thinkingLevel = "low";
+    createRuntime.mockResolvedValueOnce(runtime);
+
+    const spawned = await controller.spawn({ forkContext: false, message: "work" }, ctx);
+
+    expect(spawned).toMatchObject({
+      model: `${runtime.model.provider}/${runtime.model.id}`,
+      thinkingLevel: "low",
+    });
+  });
+
   it("publishes live root service-tier changes to existing children", async () => {
     const { childHosts, controller, ctx } = await setup(2, {}, true);
     controller.setRootServiceTier("priority");

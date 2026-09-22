@@ -440,7 +440,12 @@ export class V2Controller {
     input: SpawnInput,
     ctx: CallerContext,
     signal?: AbortSignal,
-  ): Promise<{ nickname: string; task_name: string }> {
+  ): Promise<{
+    task_name: string;
+    nickname: string;
+    model: string | undefined;
+    thinkingLevel: ChildRuntime["thinkingLevel"];
+  }> {
     signal?.throwIfAborted();
 
     if (this.#closing) {
@@ -582,7 +587,15 @@ export class V2Controller {
         this.#contexts.set(pathname, ctx);
         this.#scheduleDelivery(communication.id, ctx, epoch);
 
-        return { nickname: claimedNickname, task_name: pathname };
+        return {
+          task_name: pathname,
+          nickname: claimedNickname,
+          model:
+            provisionalRuntime.model === undefined
+              ? undefined
+              : `${provisionalRuntime.model.provider}/${provisionalRuntime.model.id}`,
+          thinkingLevel: provisionalRuntime.thinkingLevel,
+        };
       } catch (error) {
         if (runtime !== undefined) {
           await runtime.rollback();

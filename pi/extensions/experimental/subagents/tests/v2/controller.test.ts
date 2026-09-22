@@ -92,6 +92,25 @@ const setup = async (
 };
 
 describe("V2 controller", () => {
+  it("returns the runtime's resolved settings even without spawn overrides", async () => {
+    const { controller, ctx, createRuntime } = await setup();
+    const runtime = new FakeChildRuntime("worker");
+    runtime.model = fauxProvider().getModel();
+    runtime.thinkingLevel = "low";
+    createRuntime.mockResolvedValueOnce(runtime);
+
+    const spawned = await controller.spawn(
+      "/root",
+      { forkTurns: "none", taskName: "worker", message: "work" },
+      ctx,
+    );
+
+    expect(spawned).toMatchObject({
+      model: `${runtime.model.provider}/${runtime.model.id}`,
+      thinkingLevel: "low",
+    });
+  });
+
   it("publishes task intent, accepts it, and commits terminal state with parent mail", async () => {
     const { controller, coordinator, ctx, runtimes } = await setup();
 

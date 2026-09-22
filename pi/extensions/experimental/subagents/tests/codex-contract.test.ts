@@ -14,7 +14,13 @@ const v1Controller = (): V1ToolController => ({
   close: () => Promise.resolve({ previous_status: "not_found" }),
   resume: () => Promise.resolve({ status: "not_found" }),
   sendInput: () => Promise.resolve({ submission_id: "submission" }),
-  spawn: () => Promise.resolve({ agent_id: "agent", nickname: "Atlas" }),
+  spawn: () =>
+    Promise.resolve({
+      agent_id: "agent",
+      nickname: "Atlas",
+      model: "provider/child",
+      thinkingLevel: "off",
+    }),
   wait: () => Promise.resolve({ status: {}, timed_out: false }),
 });
 
@@ -23,7 +29,13 @@ const v2Controller = (): V2ToolController => ({
   interrupt: () => Promise.resolve({ previous_status: "not_found" }),
   list: () => [],
   sendMessage: () => Promise.resolve(),
-  spawn: () => Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" }),
+  spawn: () =>
+    Promise.resolve({
+      nickname: "Atlas",
+      task_name: "/root/worker",
+      model: "provider/child",
+      thinkingLevel: "off",
+    }),
   wait: () => Promise.resolve({ message: "Wait completed.", timed_out: false }),
 });
 

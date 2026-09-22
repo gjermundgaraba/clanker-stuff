@@ -335,7 +335,12 @@ export class V1Controller {
     input: SpawnInput,
     ctx: CallerContext,
     signal?: AbortSignal,
-  ): Promise<{ agent_id: string; nickname: string }> {
+  ): Promise<{
+    agent_id: string;
+    nickname: string;
+    model: string | undefined;
+    thinkingLevel: ChildRuntime["thinkingLevel"];
+  }> {
     signal?.throwIfAborted();
 
     if (this.#closing) {
@@ -443,7 +448,15 @@ export class V1Controller {
         });
         this.#scheduleDelivery(id, ctx, epoch);
 
-        return { agent_id: id, nickname: claimedNickname };
+        return {
+          agent_id: id,
+          nickname: claimedNickname,
+          model:
+            provisionalRuntime.model === undefined
+              ? undefined
+              : `${provisionalRuntime.model.provider}/${provisionalRuntime.model.id}`,
+          thinkingLevel: provisionalRuntime.thinkingLevel,
+        };
       } catch (error) {
         await runtime?.rollback();
         throw error;

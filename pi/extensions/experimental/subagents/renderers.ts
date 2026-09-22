@@ -59,6 +59,11 @@ const ResultDisplaySchema = Type.Partial(
 
 const NicknameSchema = Type.Object({ nickname: Type.Optional(Type.String()) });
 
+const ExecutionSettingsSchema = Type.Object({
+  model: Type.Optional(Type.String()),
+  thinkingLevel: Type.Optional(Type.String()),
+});
+
 type AgentStatus = Static<typeof StatusSchema>;
 
 type CallDisplay = Static<typeof CallDisplaySchema>;
@@ -223,6 +228,14 @@ export const agentRenderers = (name: string): Renderers => ({
         () =>
           `${theme.fg("success", "✓ Spawned")} ${theme.fg("accent", inline(data.task_name) || inline(data.agent_id))}${nickname ? theme.fg("muted", ` · ${nickname}`) : ""}`,
       );
+      const execution = Value.Check(ExecutionSettingsSchema, result.details) ? result.details : {};
+
+      const settings = [
+        execution.model ? `model ${inline(execution.model)}` : "",
+        execution.thinkingLevel ? `thinking ${inline(execution.thinkingLevel)}` : "",
+      ].filter(Boolean);
+
+      if (settings.length) add(() => theme.fg("muted", settings.join(" · ")));
     } else if (data.submission_id !== undefined) {
       add(
         () =>

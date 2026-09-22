@@ -12,7 +12,13 @@ const controller = (overrides: Partial<V2ToolController> = {}): V2ToolController
   interrupt: () => Promise.resolve({ previous_status: "not_found" }),
   list: () => [],
   sendMessage: () => Promise.resolve(),
-  spawn: () => Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" }),
+  spawn: () =>
+    Promise.resolve({
+      nickname: "Atlas",
+      task_name: "/root/worker",
+      model: "provider/child",
+      thinkingLevel: "high",
+    }),
   wait: () => Promise.resolve({ message: "Wait completed.", timed_out: false }),
   ...overrides,
 });
@@ -55,6 +61,8 @@ describe("V2 model contract", () => {
   it("matches Codex argument names, result shapes, and live-list semantics", async () => {
     const spawnCall = vi.fn<V2ToolController["spawn"]>((..._args) =>
       Promise.resolve({
+        model: "provider/child",
+        thinkingLevel: "high",
         nickname: "Atlas",
         task_name: "/root/worker",
       }),
@@ -124,6 +132,8 @@ describe("V2 model contract", () => {
     ).resolves.toMatchObject({
       content: [{ text: '{"task_name":"/root/worker"}', type: "text" }],
       details: {
+        model: "provider/child",
+        thinkingLevel: "high",
         nickname: "Atlas",
         task_name: "/root/worker",
       },
@@ -184,7 +194,12 @@ describe("V2 model contract", () => {
     ["18446744073709551615", Number.MAX_SAFE_INTEGER],
   ] as const)("normalizes Codex-compatible fork_turns %j", async (value, expected) => {
     const spawn = vi.fn<V2ToolController["spawn"]>((..._args) =>
-      Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" }),
+      Promise.resolve({
+        nickname: "Atlas",
+        task_name: "/root/worker",
+        model: "provider/child",
+        thinkingLevel: "high",
+      }),
     );
 
     const host = createExtensionHost((pi) => {
@@ -223,7 +238,12 @@ describe("V2 model contract", () => {
 
   it("projects role-enabled and model-overrides-hidden spawn profiles", async () => {
     const spawn = vi.fn<V2ToolController["spawn"]>((..._args) =>
-      Promise.resolve({ nickname: "Atlas", task_name: "/root/worker" }),
+      Promise.resolve({
+        nickname: "Atlas",
+        task_name: "/root/worker",
+        model: "provider/child",
+        thinkingLevel: "high",
+      }),
     );
 
     const host = createExtensionHost((pi) => {

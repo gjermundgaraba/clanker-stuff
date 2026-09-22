@@ -11,7 +11,13 @@ const controller = (overrides: Partial<V1ToolController> = {}): V1ToolController
   close: () => Promise.resolve({ previous_status: "not_found" }),
   resume: () => Promise.resolve({ status: "not_found" }),
   sendInput: () => Promise.resolve({ submission_id: "submission" }),
-  spawn: () => Promise.resolve({ agent_id: "agent-id", nickname: "Atlas" }),
+  spawn: () =>
+    Promise.resolve({
+      agent_id: "agent-id",
+      nickname: "Atlas",
+      model: "provider/child",
+      thinkingLevel: "high",
+    }),
   wait: () => Promise.resolve({ status: {}, timed_out: false }),
   ...overrides,
 });
@@ -49,7 +55,13 @@ describe("V1 model contract", () => {
       close: () => Promise.resolve({ previous_status: { completed: "done" } }),
       resume: () => Promise.resolve({ status: "interrupted" }),
       sendInput: () => Promise.resolve({ submission_id: "submission" }),
-      spawn: () => Promise.resolve({ agent_id: "agent-id", nickname: "Atlas" }),
+      spawn: () =>
+        Promise.resolve({
+          agent_id: "agent-id",
+          nickname: "Atlas",
+          model: "provider/child",
+          thinkingLevel: "high",
+        }),
       wait: () =>
         Promise.resolve({
           status: { "agent-id": { completed: "done" } },
@@ -93,7 +105,12 @@ describe("V1 model contract", () => {
     });
     await expect(host.runTool("spawn_agent", { message: "work" })).resolves.toMatchObject({
       content: [{ text: '{"agent_id":"agent-id","nickname":"Atlas"}', type: "text" }],
-      details: { agent_id: "agent-id", nickname: "Atlas" },
+      details: {
+        agent_id: "agent-id",
+        nickname: "Atlas",
+        model: "provider/child",
+        thinkingLevel: "high",
+      },
     });
     await expect(
       host.runTool("wait_agent", {
@@ -240,6 +257,8 @@ describe("V1 model contract", () => {
   it("preserves configured agent_type while hiding only model overrides", async () => {
     const spawn = vi.fn<V1ToolController["spawn"]>(async () => ({
       agent_id: "agent-id",
+      model: "provider/child",
+      thinkingLevel: "high",
       nickname: "Atlas",
     }));
 

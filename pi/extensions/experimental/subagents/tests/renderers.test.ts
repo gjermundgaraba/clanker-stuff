@@ -65,6 +65,62 @@ describe("agent presentation", () => {
     ).toBe("✓ Spawned /root/review · Atlas");
     expect(result).toEqual(original);
   });
+  it.each([false, true])("shows resolved spawn settings in expanded=%s results", (expanded) => {
+    for (const identity of [{ agent_id: "uuid" }, { task_name: "/root/review" }]) {
+      const result = {
+        ...jsonToolResult(identity),
+        details: { nickname: "Atlas", model: "provider/child", thinkingLevel: "off" },
+      };
+
+      const original = structuredClone(result);
+
+      const component = agentRenderers("spawn_agent").renderResult(
+        result,
+        { expanded, isPartial: false },
+        theme,
+        {
+          ...toolRenderContext({ expanded }),
+          args: { model: "requested", reasoning_effort: "high" },
+        },
+      );
+
+      expect(renderedRows(component).join("\n")).toContain("model provider/child · thinking off");
+      expect(renderedRows(component).join("\n")).not.toContain("requested");
+
+      for (const width of [1, 2, 20, 80]) {
+        expect(component.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+      }
+
+      expect(result).toEqual(original);
+    }
+  });
+  it.each([undefined, null, {}, { model: 7, thinkingLevel: false }])(
+    "does not invent settings for absent or malformed saved metadata: %j",
+    (details) => {
+      const component = agentRenderers("spawn_agent").renderResult(
+        { ...jsonToolResult({ agent_id: "uuid", nickname: "Atlas" }), details },
+        { expanded: false, isPartial: false },
+        theme,
+        toolRenderContext(),
+      );
+
+      expect(renderedRows(component).join("\n")).toBe("✓ Spawned uuid · Atlas");
+    },
+  );
+  it("sanitizes saved model and thinking metadata", () => {
+    const component = agentRenderers("spawn_agent").renderResult(
+      {
+        ...jsonToolResult({ task_name: "/root/review" }),
+        details: { model: "provider/child\u001b[2J\nforged", thinkingLevel: "high\u001b[2J" },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      toolRenderContext(),
+    );
+
+    const rows = renderedRows(component);
+    expect(rows).toEqual(["✓ Spawned /root/review", "model provider/child forged · thinking high"]);
+  });
   it("renders queued acknowledgements without inventing completion", () => {
     for (const name of ["send_message", "followup_task"]) {
       const result = { content: [{ type: "text" as const, text: "" }], details: {} };

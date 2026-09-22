@@ -165,6 +165,10 @@ The context hook replaces its own previous ephemeral prefix and emits no block f
 
 Child runtimes exclude the root-only asynchronous `request_user_input_async` and `send_message_to_user_async` tools from inherited active tools. The blocking `request_user_input` questionnaire is separate and retains its interactive-TUI and persistence preconditions. These questionnaire contracts belong to `ask-question`, not the native Codex tool schema.
 
+## Spawn presentation
+
+Successful V1 and V2 spawn results retain the child runtime’s resolved provider/model and effective Pi thinking level in host-only tool-result details. The collapsed and expanded renderers show these settings, including inherited settings and thinking off. Saved results without this metadata keep their original presentation; the renderer does not guess from current parent settings or requested overrides. Model-facing JSON results and controller snapshots are unchanged.
+
 ## Spawn model selection
 
 When model overrides are exposed, both spawn descriptions prepend up to five picker-visible models from the current provider's effective registry, in catalog order. Each entry includes its provider description (or Pi name when unavailable), supported Pi reasoning levels with the known default marked, and supported service tiers. An empty list is stated explicitly. The list is guidance, not an allowlist: hidden models and entries beyond the five suggestions remain valid explicit selections if the registry resolves them.

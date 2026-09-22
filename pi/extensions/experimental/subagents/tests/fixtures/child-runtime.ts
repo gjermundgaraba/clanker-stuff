@@ -32,6 +32,8 @@ export class FakeChildRuntime implements ChildRuntime {
   });
   readonly messageAcceptances: PromiseWithResolvers<void>[] = [];
   readonly sessionFile: string;
+  model: ChildRuntime["model"] = undefined;
+  thinkingLevel: ChildRuntime["thinkingLevel"] = "off";
   readonly turns: FakeTurn[] = [];
   acceptMessages = true;
   acceptTurns = true;

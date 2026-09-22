@@ -85,6 +85,8 @@ export interface ChildRuntime {
   ) => ChildDelivery;
   startTurn: (input: PromptInput) => ChildTurn;
   readonly sessionFile: string;
+  readonly model: ExtensionContext["model"];
+  readonly thinkingLevel: ExtensionContext["thinkingLevel"];
 }
 
 export interface ChildRuntimeRequest {
@@ -1114,6 +1116,12 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         return { accepted: accepted.promise };
       },
       sessionFile,
+      get model() {
+        return session.model;
+      },
+      get thinkingLevel() {
+        return session.thinkingLevel;
+      },
       startTurn,
     };
 

@@ -175,9 +175,9 @@ const SendCommon = {
   }),
 };
 
-const result = <T>(value: T) => ({
-  content: [{ text: JSON.stringify(value), type: "text" as const }],
-  details: value,
+const result = <Visible, Details>(visible: Visible, details: Details | Visible = visible) => ({
+  content: [{ text: JSON.stringify(visible), type: "text" as const }],
+  details,
 });
 
 export const registerV1Tools = (
@@ -215,22 +215,20 @@ export const registerV1Tools = (
       execute: async (_id, params, signal, _update, ctx) => {
         beforeExecute(ctx);
 
-        return result(
-          await controller.spawn(
-            {
-              ...(params.agent_type !== undefined ? { agentType: params.agent_type } : {}),
-              forkContext: params.fork_context ?? false,
-              ...(params.items !== undefined ? { items: params.items } : {}),
-              ...(params.message !== undefined ? { message: params.message } : {}),
-              ...(params.model !== undefined ? { model: params.model } : {}),
-              ...(params.reasoning_effort !== undefined
-                ? { thinking: params.reasoning_effort }
-                : {}),
-            },
-            ctx,
-            signal,
-          ),
+        const spawned = await controller.spawn(
+          {
+            ...(params.agent_type !== undefined ? { agentType: params.agent_type } : {}),
+            forkContext: params.fork_context ?? false,
+            ...(params.items !== undefined ? { items: params.items } : {}),
+            ...(params.message !== undefined ? { message: params.message } : {}),
+            ...(params.model !== undefined ? { model: params.model } : {}),
+            ...(params.reasoning_effort !== undefined ? { thinking: params.reasoning_effort } : {}),
+          },
+          ctx,
+          signal,
         );
+
+        return result({ agent_id: spawned.agent_id, nickname: spawned.nickname }, spawned);
       },
       executionMode: "parallel",
       label: "Spawn Agent",

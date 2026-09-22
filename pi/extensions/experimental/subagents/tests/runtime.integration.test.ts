@@ -261,6 +261,33 @@ describe("child runtime", () => {
     }
   });
 
+  it("exposes effective model and thinking after child initialization", async () => {
+    const harness = await createAgentSessionHarness({
+      models: [{ id: "child", reasoning: true }],
+    });
+
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("session_start", () => {
+          pi.setThinkingLevel("off");
+        });
+      },
+      thinkingLevel: "high",
+    });
+
+    try {
+      expect(runtime.model?.id).toBe(harness.faux.getModel().id);
+      expect(runtime.model?.provider).toBe(harness.faux.getModel().provider);
+      expect(runtime.thinkingLevel).toBe("off");
+    } finally {
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
   it("materializes an identity-bound transcript before publication", async () => {
     const harness = await createAgentSessionHarness();
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
