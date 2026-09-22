@@ -38,13 +38,15 @@ import {
 } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The SSE fixture serializes arbitrary server frames, including malformed ones, to exercise the real transport decoder.
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 const TypeTaggedSchema = Type.Object({ type: Type.String() });
 
+// A real PNG: Pi validates and normalizes prompt images before persisting them.
+const PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAA1BMVEX/AP804Oa6AAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
+
 const requestJson = (body: RequestInit["body"], headers: Headers): WireRecord => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
   if (typeof body === "string") {
     return wireRecord(JSON.parse(body));
   }
@@ -65,11 +67,9 @@ const turnMetadata = (request: WireRecord) => {
 
   const value = metadata?.["x-codex-turn-metadata"];
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
   return typeof value === "string" ? wireRecord(JSON.parse(value)) : undefined;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The assertion decodes raw observed request input rather than trusting the implementation’s output type.
 const inputItemTypes = (input: unknown) =>
   Array.isArray(input)
     ? wireArray(input).flatMap((item) => (Value.Check(TypeTaggedSchema, item) ? [item.type] : []))
@@ -376,7 +376,6 @@ const responsesLiteTransform: ExtensionFactory = (pi) => {
       },
     ];
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
     if (typeof instructions === "string" && instructions.length > 0) {
       prefix.push({
         content: [{ text: instructions, type: "input_text" }],
@@ -723,10 +722,12 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         await session.prompt("check originating effort");
         expect(errors).toStrictEqual([]);
         expect(requests).toHaveLength(2);
-        expect(wireRecord(requests[0]!.reasoning).effort).toBe("low");
+        // Request settings are captured after turn_start, but before context hooks.
+        const originatingEffort = boundary === "turn_start" ? "high" : "low";
+        expect(wireRecord(requests[0]!.reasoning).effort).toBe(originatingEffort);
         expect(session.thinkingLevel).toBe("high");
         expect(wireRecord(requests[1]!.reasoning).effort).toBe("high");
-        expect(JSON.stringify(requests[1]!.input)).toContain("ORIGIN_EFFORT=low");
+        expect(JSON.stringify(requests[1]!.input)).toContain(`ORIGIN_EFFORT=${originatingEffort}`);
       } finally {
         session.dispose();
         await rm(paths.rootDir, { force: true, recursive: true });
@@ -819,7 +820,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const headers = new Headers(init?.headers);
       headersSeen.push(headers);
 
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
       if (typeof init?.body === "string") {
         bodies.push(new TextEncoder().encode(init.body));
       } else if (init?.body instanceof Uint8Array) {
@@ -1347,6 +1347,20 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       await session.prompt("retry once, use large_result, then answer");
       const branch = manager.getBranch();
 
+      const failedAttempt = branch.find(
+        (entry) =>
+          entry.type === "message" &&
+          entry.message.role === "assistant" &&
+          entry.message.stopReason === "error",
+      );
+
+      expect(branch).toContainEqual(
+        expect.objectContaining({
+          type: "context_edit",
+          targetId: failedAttempt?.id,
+          replacement: null,
+        }),
+      );
       expect({
         failedAssistants: branch.filter(
           (entry) =>
@@ -2739,7 +2753,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
     try {
       await session.prompt("x".repeat(15_000), {
-        images: [{ data: "AA", mimeType: "image/png", type: "image" }],
+        images: [{ data: PNG_BASE64, mimeType: "image/png", type: "image" }],
       });
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
 
@@ -2822,7 +2836,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
     try {
       await session.prompt("x".repeat(15_000), {
-        images: [{ data: "AA", mimeType: "image/png", type: "image" }],
+        images: [{ data: PNG_BASE64, mimeType: "image/png", type: "image" }],
       });
       const active = resolveActiveCheckpointBoundary(manager.getBranch());
 
@@ -3188,7 +3202,6 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
       const toolNames = Array.isArray(additionalTools?.tools)
         ? additionalTools.tools.flatMap((tool) =>
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
             Value.Check(WireRecordSchema, tool) && typeof tool.name === "string" ? [tool.name] : [],
           )
         : [];
@@ -3519,12 +3532,10 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       const continuationInput = continuation?.input;
 
       const continuationInstructions =
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
         typeof continuation?.instructions === "string" ? continuation.instructions : "";
 
       const continuationToolNames = Array.isArray(continuation?.tools)
         ? continuation.tools.flatMap((tool) =>
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport test observes raw request bodies and hook output independently of production decoders.
             Value.Check(WireRecordSchema, tool) && typeof tool.name === "string" ? [tool.name] : [],
           )
         : [];

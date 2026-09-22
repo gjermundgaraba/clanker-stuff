@@ -30,7 +30,6 @@ export const createHistoryRuntime = () => {
 
   const search = createSearch(() => history);
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem and SQLite failures are arbitrary thrown values; this diagnostic only formats Error messages.
   const warnPersistence = (ui: ExtensionContext["ui"], cause: unknown): void => {
     if (persistenceWarningShown) {
       return;

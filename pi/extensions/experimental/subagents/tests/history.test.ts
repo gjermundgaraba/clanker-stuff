@@ -26,7 +26,7 @@ describe(forkHistory, () => {
     session.appendMessage(assistant("unfinished", "toolUse"));
     session.appendMessage(assistant("final"));
 
-    const history = forkHistory(session.buildContextEntries(), 1);
+    const history = forkHistory(session.buildSessionProjection().messages, 1);
 
     expect(history.map((message) => message.role)).toStrictEqual(["user", "assistant"]);
     expect(history[0]?.content).toBe("new");
@@ -41,7 +41,7 @@ describe(forkHistory, () => {
     const kept = session.appendMessage(user("recent"));
     session.appendCompaction("Earlier decisions", kept, 100);
 
-    const history = forkHistory(session.buildContextEntries(), "all");
+    const history = forkHistory(session.buildSessionProjection().messages, "all");
 
     expect(history.map((message) => message.role)).toStrictEqual(["user", "user"]);
     expect(history[0]?.content).toBe("Previous conversation summary:\nEarlier decisions");
@@ -51,7 +51,40 @@ describe(forkHistory, () => {
     const session = SessionManager.inMemory();
     session.appendMessage(user("hello"));
 
-    expect(forkHistory(session.buildContextEntries(), "none")).toStrictEqual([]);
-    expect(forkHistory(session.buildContextEntries(), "all")).toHaveLength(1);
+    expect(forkHistory(session.buildSessionProjection().messages, "none")).toStrictEqual([]);
+    expect(forkHistory(session.buildSessionProjection().messages, "all")).toHaveLength(1);
+  });
+
+  it("forks edited context without resurrecting omitted history", () => {
+    const session = SessionManager.inMemory();
+    const old = session.appendMessage(user("original request"));
+    const abandoned = session.appendMessage(assistant("abandoned answer"));
+    session.appendMessage(user("recent request"));
+    session.appendContextEdit(old, { content: "corrected request" });
+    session.appendContextEdit(abandoned, null);
+
+    const history = forkHistory(session.buildSessionProjection().messages, "all");
+    expect(history.map(({ content }) => content)).toStrictEqual([
+      "corrected request",
+      "recent request",
+    ]);
+    expect(forkHistory(session.buildSessionProjection().messages, 1)).toHaveLength(1);
+    expect(session.getEntry(abandoned)).toHaveProperty(
+      "message.content.1.text",
+      "abandoned answer",
+    );
+
+    session.branch(abandoned);
+    expect(forkHistory(session.buildSessionProjection().messages, "all")).toHaveLength(2);
+  });
+
+  it("forks only the summary after retain-none compaction", () => {
+    const session = SessionManager.inMemory();
+    session.appendMessage(user("old request"));
+    session.appendCompaction("all earlier decisions", null, 100);
+
+    expect(forkHistory(session.buildSessionProjection().messages, "all")).toMatchObject([
+      { content: "Previous conversation summary:\nall earlier decisions", role: "user" },
+    ]);
   });
 });

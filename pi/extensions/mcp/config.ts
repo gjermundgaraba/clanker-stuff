@@ -89,7 +89,6 @@ export interface LoadMcpConfigOptions {
   projectTrusted?: boolean;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem operations can throw arbitrary values; missing-file detection reads only the diagnostic code.
 const getErrorCode = (cause: unknown): string | undefined =>
   cause instanceof Object && "code" in cause ? String(cause.code) : undefined;
 

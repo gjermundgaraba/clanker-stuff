@@ -14,7 +14,6 @@ export const isWireRecord = (value: unknown): value is WireRecord =>
   Value.Check(WireRecordSchema, value);
 
 export const fetchRequestUrl = (input: Parameters<typeof fetch>[0]): string => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Fetch adapter discriminates the platform string/URL/Request and body unions before decoding transport bytes.
   if (typeof input === "string") {
     return input;
   }
@@ -34,7 +33,6 @@ export const fetchRequestBody = async (
     init?.body ??
     (input instanceof Request ? Buffer.from(await input.clone().arrayBuffer()) : undefined);
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Fetch adapter discriminates the platform string/URL/Request and body unions before decoding transport bytes.
   if (typeof value === "string") {
     return value;
   }

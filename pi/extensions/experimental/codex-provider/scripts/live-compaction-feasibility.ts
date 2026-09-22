@@ -94,13 +94,11 @@ const assertCompactionHeaders = (headers: Headers, caseId: FeasibilityCase["id"]
   );
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The interception boundary receives native WebSocket constructor options and validates the headers needed for the canary.
 const websocketHeaders = (value: unknown, caseId: FeasibilityCase["id"]) => {
   assert(isRecord(value) && isRecord(value.headers), `${caseId}: WebSocket headers are missing`);
   const headers = new Headers();
 
   for (const [name, headerValue] of Object.entries(value.headers)) {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
     assert(typeof headerValue === "string", `${caseId}: WebSocket header ${name} is malformed`);
     headers.set(name, headerValue);
   }
@@ -122,7 +120,6 @@ export const installFeasibilityRequestBudget = () => {
   let requestCount = 0;
   let active: ActiveRequest | undefined;
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Fetch and socket failures can reject with any JavaScript value; abort the owned request while retaining its diagnostic.
   const abortRequest = (request: ActiveRequest, error: unknown) => {
     request.abort.abort(error instanceof Error ? error : new Error(String(error)));
   };
@@ -154,7 +151,6 @@ export const installFeasibilityRequestBudget = () => {
     const cacheKey = request.prompt_cache_key;
     const metadata = request.client_metadata;
     assert(
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
       typeof cacheKey === "string" && cacheKey.length > 0,
       `${current.caseId}: prompt cache key is missing`,
     );
@@ -162,11 +158,9 @@ export const installFeasibilityRequestBudget = () => {
     const sessionId = metadata.session_id;
     const turnId = metadata.turn_id;
     assert(
-      /* oxlint-disable anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test. */
       typeof sessionId === "string" &&
         sessionId.length > 0 &&
         typeof turnId === "string" &&
-        /* oxlint-enable anti-slop/no-runtime-typeof */
         turnId.length > 0,
       `${current.caseId}: session metadata is missing`,
     );
@@ -225,7 +219,6 @@ export const installFeasibilityRequestBudget = () => {
         try {
           const url: unknown = argumentsList[0];
           const options: unknown = argumentsList[1];
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
           assert(typeof url === "string", `${owner.caseId}: WebSocket URL is malformed`);
           assertResponsesEndpoint(url, "websocket", owner.caseId);
           assertCompactionHeaders(websocketHeaders(options, owner.caseId), owner.caseId);
@@ -247,12 +240,10 @@ export const installFeasibilityRequestBudget = () => {
         const nativeSend = socket.send;
         Object.defineProperty(socket, "send", {
           configurable: true,
-          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A passive socket send interceptor must preserve foreign string and byte payloads rather than narrow the native transport contract.
           value(data: unknown) {
             try {
               assert(active === owner, `${owner.caseId}: WebSocket request outlived its case`);
               assert(
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Independent wire canary must reject malformed outbound values rather than trust the provider under test.
                 typeof data === "string",
                 `${owner.caseId}: WebSocket request frame is malformed`,
               );

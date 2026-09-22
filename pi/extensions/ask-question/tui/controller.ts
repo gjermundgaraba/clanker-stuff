@@ -31,7 +31,6 @@ export interface FormPort {
   blocking: boolean;
   setFlush(flush: () => Promise<void>): void;
   notify(text: string): void;
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The UI reports arbitrary promise rejections and thrown values without interpreting them as domain data.
   report(cause: unknown): void;
 }
 

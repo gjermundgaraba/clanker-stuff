@@ -106,7 +106,6 @@ export interface V2ControllerDependencies {
   dataDir: string;
   id?: () => string;
   nicknames: NicknamePool;
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Background task rejections may be arbitrary JavaScript values.
   onBackgroundError?: (cause: unknown) => void;
 }
 
@@ -139,7 +138,6 @@ const runtimeMessage = (communication: Communication) => ({
 
 const reportFailure = async (
   operation: Promise<unknown> | undefined,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Cleanup must report arbitrary promise rejections without changing the thrown value.
   report?: (cause: unknown) => void,
 ): Promise<void> => {
   try {
@@ -163,7 +161,6 @@ export class V2Controller {
   readonly #maxChildren: number;
   readonly #nicknames: NicknamePool;
   readonly #observedSequence = new Map<string, number>();
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Preserves the background-error callback contract for arbitrary thrown values.
   readonly #onBackgroundError: ((cause: unknown) => void) | undefined;
   readonly #provisionalSpawns = new Set<Promise<null>>();
   readonly #queue = new KeyedSerialQueue();
@@ -513,7 +510,10 @@ export class V2Controller {
           bridge: (api) => this.attachChild(pathname, api, token),
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
-          history: forkHistory(ctx.sessionManager.buildContextEntries(), input.forkTurns),
+          history: forkHistory(
+            ctx.sessionManager.buildSessionProjection().messages,
+            input.forkTurns,
+          ),
           identity: pathname,
           model: settings.model,
           modelRegistry: ctx.modelRegistry,
@@ -1481,7 +1481,6 @@ export class V2Controller {
   async #rejectTurn(
     active: ActiveTurn,
     deliveryId: string,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A child prompt can reject with any value; delivery failure handling owns its diagnostic conversion.
     cause: unknown,
     epoch: symbol,
   ): Promise<void> {
@@ -1685,7 +1684,6 @@ export class V2Controller {
   async #finishError(
     pathname: string,
     deliveryId: string,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A child prompt can reject with any value; delivery failure handling owns its diagnostic conversion.
     cause: unknown,
     epoch: symbol,
   ): Promise<boolean> {

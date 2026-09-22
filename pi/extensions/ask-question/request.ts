@@ -95,7 +95,6 @@ export type Question = Static<typeof QuestionSchema>;
 
 export type Revision = Static<typeof RevisionSchema>;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for tool arguments and persisted requests.
 export function validateQuestionnaire(input: unknown): Questionnaire {
   if (!Value.Check(QuestionnaireSchema, input))
     throw invalidArguments(QuestionnaireSchema, input, "questionnaire");
@@ -134,7 +133,6 @@ export function validateQuestionnaire(input: unknown): Questionnaire {
   return request;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for tool arguments.
 export function validateRevision(input: unknown): Revision {
   if (!Value.Check(RevisionSchema, input))
     throw invalidArguments(RevisionSchema, input, "revision");

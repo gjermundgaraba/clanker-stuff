@@ -75,7 +75,6 @@ const validateId = (id: string): void => {
   }
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for the parsed config file.
 export const parseFooterConfig = (value: unknown): FooterConfig => {
   if (!Value.Check(FooterConfigSchema, value)) {
     throw new Error("config must be a strict object");

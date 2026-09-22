@@ -126,15 +126,12 @@ export const createCodexRuntime = (
     fastMode.refresh(ctx, catalog.supportsFastMode);
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi’s event bus erases event payload types; this adapter handles the shared MCP sampling protocol.
   const samplingListener = (payload: unknown) => {
     if (
-      /* oxlint-disable anti-slop/no-runtime-typeof -- Event-bus adapter must establish that the supplied resolver is callable before invoking the foreign payload. */
       typeof payload !== "object" ||
       payload === null ||
       !("resolve" in payload) ||
       typeof payload.resolve !== "function" ||
-      /* oxlint-enable anti-slop/no-runtime-typeof */
       !("model" in payload) ||
       !("maxTokens" in payload)
     )

@@ -917,11 +917,9 @@ describe("Codex code mode", () => {
     for (const text of ["😀".repeat(100), "\u0000".repeat(100), '"\\'.repeat(100)]) {
       for (const budget of [29, 30, 31, 100]) {
         const result = sanitizeTraceInput(text, budget);
-        /* oxlint-disable anti-slop/no-runtime-typeof -- Assert the serializer preserved a string before inspecting its truncation marker; accepting another JSON variant would mask a regression. */
         expect(typeof result).toBe("string");
 
         if (typeof result !== "string") throw new Error("Expected a string snapshot");
-        /* oxlint-enable anti-slop/no-runtime-typeof */
 
         expect(result.endsWith("[value truncated]")).toBe(true);
         expect(result.isWellFormed()).toBe(true);

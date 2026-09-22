@@ -35,7 +35,6 @@ const formatSizeChange = (before: number, after: number) => {
   return `~${absolute} ${after < before ? "fewer" : "more"} (${percent.toLocaleString("en-US", { maximumFractionDigits: 1 })}% ${after < before ? "smaller" : "larger"})`;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi supplies opaque persisted custom-entry data; parseCheckpoint validates it before presentation.
 export const formatCheckpointEntry = (data: unknown, expanded = false): string | undefined => {
   const parsed = parseCheckpoint(data);
 

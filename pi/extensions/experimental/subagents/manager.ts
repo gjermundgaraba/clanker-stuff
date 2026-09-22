@@ -130,7 +130,6 @@ export class SubagentManager {
     kind: "awaiting-session",
     protocol: "v1",
   };
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Reports arbitrary failures from child-session background operations, not unparsed task data.
   #showBackgroundError: ((cause: unknown) => void) | undefined;
   readonly #unsubscribeContract: ReturnType<typeof registerContractResponder>;
   readonly #unsubscribeState: () => void;
@@ -144,7 +143,6 @@ export class SubagentManager {
     this.#dataDir = options.dataDir;
     this.#pi = pi;
     this.#nicknames = new NicknamePool(options.config);
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Forwards arbitrary child-session failures to the active UI error sink.
     const report = (cause: unknown) => this.#showBackgroundError?.(cause);
     this.#v1 = new V1Controller({
       config: options.config,

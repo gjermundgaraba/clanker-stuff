@@ -414,7 +414,6 @@ export const createCodexHeaders = (
 
 const reasoningLevels = (metadata: CodexModelMetadata) =>
   (metadata.supported_reasoning_levels ?? []).flatMap((value) => {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate schema/metadata string unions while preserving the existing reasoning-policy fallback.
     if (typeof value === "string") {
       return [value];
     }
@@ -484,7 +483,6 @@ const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata =
     supports_parallel_tool_calls: supportsParallelToolCalls,
   } = value;
 
-  /* oxlint-disable anti-slop/no-runtime-typeof -- Remote/cache metadata boundary: validate capability and optional fields before constructing the supported model contract. */
   if (
     typeof supportedInApi !== "boolean" ||
     typeof supportVerbosity !== "boolean" ||
@@ -544,7 +542,6 @@ const parseModelMetadata = (value: CodexModelMetadataWire): CodexModelMetadata =
   ) {
     throw new Error("Codex model experimental tools are invalid");
   }
-  /* oxlint-enable anti-slop/no-runtime-typeof */
 
   const {
     truncation_policy: _truncation,

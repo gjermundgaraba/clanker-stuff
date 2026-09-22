@@ -70,7 +70,6 @@ const str = (value: string | null | undefined) => clean(value ?? "");
 const inline = (value: string | undefined) => inlineText(value ?? "");
 
 const status = (value: AgentStatus, theme: Theme): string => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate the validated string/status-detail union; no raw input is being reparsed.
   if (typeof value !== "string") {
     if (value.completed !== undefined) return theme.fg("success", "✓ completed");
 
@@ -210,7 +209,6 @@ export const agentRenderers = (name: string): Renderers => ({
           `${prefix ? theme.fg("muted", prefix) : ""}${target ? `${theme.fg("accent", inline(target))} · ` : ""}${status(value, theme)}`,
       );
 
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate the validated string/status-detail union; no raw input is being reparsed.
       if (typeof value === "string") return;
 
       const answer = str(value.errored) || str(value.completed);

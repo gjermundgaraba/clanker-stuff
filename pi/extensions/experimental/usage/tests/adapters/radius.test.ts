@@ -20,7 +20,6 @@ const payload = {
   ok: true as const,
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Adapter ingress must reject arbitrary JSON before mapping Radius billing data.
 const fetchPayload = async (value: unknown) =>
   await fetchRadiusUsage(
     {

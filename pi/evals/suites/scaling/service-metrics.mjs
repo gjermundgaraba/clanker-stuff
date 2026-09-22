@@ -1,10 +1,8 @@
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 export const isRecord = (value) =>
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- JSONL telemetry and submitted answers are external object boundaries; exclude null and arrays before field access.
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @param {Record<string, unknown>} event @returns {event is import('./services.mjs').ServiceStart} */
-/* oxlint-disable anti-slop/no-runtime-typeof -- Validate all service-start fields consumed by metric accounting; JSDoc predicates are not recognized by the syntax-only rule. */
 const isStart = (event) =>
   event.type === "pi_eval_service_start" &&
   typeof event.operation === "number" &&
@@ -16,10 +14,8 @@ const isStart = (event) =>
   typeof event.concurrent === "number" &&
   Number.isSafeInteger(event.concurrent) &&
   event.concurrent > 0;
-/* oxlint-enable anti-slop/no-runtime-typeof */
 
 /** @param {Record<string, unknown>} event @returns {event is import('./services.mjs').ServiceEnd} */
-/* oxlint-disable anti-slop/no-runtime-typeof -- Validate the complete service-end accounting contract, rejecting nonfinite counters rather than poisoning independent metrics. */
 const isEnd = (event) =>
   event.type === "pi_eval_service_end" &&
   typeof event.operation === "number" &&
@@ -35,7 +31,6 @@ const isEnd = (event) =>
   typeof event.response_bytes === "number" &&
   Number.isSafeInteger(event.response_bytes) &&
   event.response_bytes >= 0;
-/* oxlint-enable anti-slop/no-runtime-typeof */
 
 /** @param {unknown[]} events Untrusted journal records; malformed rows invalidate completeness without hiding independent counts. */
 export function serviceMetrics(events) {

@@ -57,7 +57,7 @@ const limits = (node: Record<string, unknown>): string[] => {
 const isSchemaNode = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- JSON Schema is an open tree; only schema-valued keywords are traversed.
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- JSON Schema is an open tree; only schema-valued keywords are traversed.
 const strip = (node: unknown): unknown => {
   if (Array.isArray(node)) return node.map(strip);
 
@@ -97,7 +97,6 @@ export const structuralSchema = <T extends TSchema>(schema: T): T =>
   strip(schema) as T;
 
 /** Why `input` fails the constrained schema, naming each violation. */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary: describes arbitrary tool arguments that already failed the schema.
 export const invalidArguments = (schema: TSchema, input: unknown, label: string) =>
   new Error(
     `Invalid ${label} arguments: ` +

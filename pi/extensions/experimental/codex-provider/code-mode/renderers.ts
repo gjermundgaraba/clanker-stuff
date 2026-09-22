@@ -208,7 +208,6 @@ const actionLabel = (kind: Kind, args: Static<typeof WaitArgsSchema> | undefined
 
 const callContent = (
   kind: Kind,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Restored and streaming tool arguments may be incomplete; validate the applicable display schema before rendering.
   args: unknown,
   theme: Theme,
   expanded: boolean,
@@ -253,7 +252,6 @@ const traceRenderers = (
   // Traces keep the raw freeform string that Code Mode passed; renderers expect the same object
   // shape execution builds before validation.
   const args =
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Trace input is a JSON union; only a freeform string needs the execution-equivalent argument object.
     nested?.freeformProperty !== undefined && typeof trace.input === "string"
       ? { [nested.freeformProperty]: trace.input }
       : trace.input;
@@ -464,7 +462,6 @@ const renderCodeModeResult = (
   context: RenderContext,
   tools: Map<string, NestedTool>,
 ): Component => {
-  /* oxlint-disable anti-slop/no-runtime-typeof -- Persisted/partial result decoder preserves usable traces and diagnostics independently; a malformed sibling must not reject the whole display. */
   const details =
     typeof result.details === "object" && result.details !== null ? result.details : {};
 
@@ -500,7 +497,6 @@ const renderCodeModeResult = (
     "droppedTraceCount" in details && typeof details.droppedTraceCount === "number"
       ? details.droppedTraceCount
       : 0;
-  /* oxlint-enable anti-slop/no-runtime-typeof */
 
   const outcomes = traceOutcomes(traces);
   const counts = countOutcomes(outcomes.values());

@@ -43,9 +43,11 @@ nor a predicate signature proves its claimed invariant.
 Internal operations should accept concrete owner/schema-derived contracts.
 Unknown input belongs at real decoding, exception, serializer, or third-party
 adapter boundaries. Prefer parsing once and passing typed values downstream to
-repeated field probing. A genuine boundary may need a narrow exception; do not
-create a wrapper merely to relocate the unknown parameter. Parameter names do
-not grant exceptions: `cause`, `error`, and `value` follow the same policy.
+repeated field probing. `no-unknown-parameters` is disabled: decoding, exceptions,
+serializers, and third-party adapters may accept `unknown` without a suppression.
+Do not create wrappers or erase owner types to satisfy a syntactic convention;
+review whether each boundary actually needs arbitrary input. Parameter names
+such as `cause`, `error`, and `value` do not change that responsibility.
 
 For example, when `Invoice` is already the validated owner contract:
 
@@ -65,7 +67,6 @@ function invoiceLabel(input: Invoice) {
 Do not extend that refactor to arbitrary thrown values: those really are unknown.
 
 ```ts
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript may throw any value.
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -78,46 +79,23 @@ fake domain name, a schema that establishes no new invariant, or a cast.
 
 ## Runtime typeof
 
-`no-runtime-typeof` is enabled with `allowInTypeGuards: true`. The rule recognizes
-explicit TypeScript predicate/assertion signatures, not validation correctness or
-the operand's type. JSDoc predicates in maintained JavaScript currently need a
-narrow exception explaining their actual validation boundary. Comparisons against `"undefined"` are already exempt.
+`no-runtime-typeof` is disabled. Ordinary `typeof` checks and TypeScript narrowing
+need no suppression or one-use predicate wrapper. A schema that merely replaces
+`typeof` establishes no additional guarantee.
 
-- Refactor scattered interpretation of external domain data into its actual
-  decoder. Use existing schemas or complete handwritten validation; do not
-  introduce a second interpretation path.
-- Allow genuine handwritten predicates/assertions through the supported option.
-  Do not introduce trivial `isString`/`isNumber` wrappers just for that exemption.
-- Keep direct discrimination of an already-typed union when it expresses the
-  operation correctly. A narrow exception is preferable to a wrapper, primitive
-  schema, or new tagged-object API with no domain benefit.
-- Arbitrary-value serializers and diagnostics must handle values outside any
-  domain schema. Explain that responsibility in a narrow exception.
-- Runtime/version adapters and tests may need to inspect values independently of
-  static declarations. Keep only checks that protect a concrete runtime failure
-  or verify an actual boundary contract.
-
-For example, `typeof limit === "number"` on `number | "unlimited"` discriminates
-the declared contract; it does not indicate unparsed input. Conversely, checking
-one field on raw account JSON in every consumer suggests a missing account
-decoder. Review the data flow before choosing a refactor or an exception.
+- Keep owner-derived types inside the application and decode external data at
+  its actual boundary. Do not scatter partial interpretations of the same input.
+- Use direct discrimination for typed unions, diagnostics, and private runtime
+  adapters when it expresses the required check clearly.
+- Use complete schemas or handwritten validation where an external contract
+  requires them. A primitive type check alone does not validate that contract.
+- Preserve finite-number constraints, omitted-property semantics, and independent
+  diagnostics when changing an existing validator.
 
 ```ts
-// Avoid: a primitive schema or one-use isNumber wrapper adds no invariant here.
-const count = Value.Check(Type.Number(), limit) ? limit : rows.length;
-
-// Prefer: direct discrimination of the declared number | "unlimited" contract.
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- A numeric limit and "unlimited" are already-typed alternatives, not raw external data.
+// This discriminates an already-valid union; it does not validate raw JSON.
 const count = typeof limit === "number" ? limit : rows.length;
 ```
-
-This example assumes an already-valid limit; neither version validates a raw
-positive-integer limit. Validate that stronger contract at its real boundary.
-
-Changes between `typeof value === "number"` and schema validation must preserve
-finite-number constraints where required. Do not accidentally admit `NaN` or
-infinities, change omitted-property semantics, or hide independently useful
-diagnostics through stricter whole-object validation.
 
 ## Type safety and inference
 

@@ -59,7 +59,6 @@ const copyIcon = (value: FooterWidgetIcon | false): FooterWidgetIcon | false | u
     return false;
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate the decoded string/glyph-map union before applying text limits to each glyph.
   if (typeof value.glyphs !== "string") {
     if (Object.values(value.glyphs).some((glyph) => glyph !== undefined && !validText(glyph, 16))) {
       return undefined;
@@ -133,7 +132,6 @@ const validateSnapshot = (value: FooterWidgetSnapshot): ValidationResult<FooterW
 };
 
 export const validateFooterWidgetMessage = (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for untyped event-bus payloads.
   value: unknown,
 ): ValidationResult<FooterWidgetMessage> => {
   if (!Value.Check(FooterWidgetMessageSchema, value)) {

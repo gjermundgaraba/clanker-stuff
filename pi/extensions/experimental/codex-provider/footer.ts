@@ -14,6 +14,8 @@ export const CODE_MODE_STATUS_KEY = "codex-code-mode";
 
 export const FAST_MODE_STATUS_KEY = "codex-fast";
 
+export const ULTRA_MODE_STATUS_KEY = "codex-ultra";
+
 const WIDGETS = {
   codeMode: {
     consumesStatusKeys: [CODE_MODE_STATUS_KEY],
@@ -36,6 +38,18 @@ const WIDGETS = {
     },
     id: "clanker.codex.fast",
     label: "Codex fast mode",
+  },
+  ultraMode: {
+    consumesStatusKeys: [ULTRA_MODE_STATUS_KEY],
+    content: [{ text: "ultra", tone: "accent" }],
+    defaults: { enabled: true },
+    icon: {
+      // nf-md-creation (U+F0674): sparkles, distinct from Fast's lightning bolt.
+      glyphs: { ascii: "**", nerd: "󰙴", unicode: "✦" },
+      tone: "accent",
+    },
+    id: "clanker.codex.ultra",
+    label: "Codex Ultra mode",
   },
 } as const satisfies Record<string, FooterWidgetSnapshot>;
 
@@ -115,6 +129,9 @@ export const createCodexFooter = (pi: ExtensionAPI) => {
     },
     setFastMode: (enabled: boolean): void => {
       setActive("fastMode", enabled);
+    },
+    setUltraMode: (enabled: boolean): void => {
+      setActive("ultraMode", enabled);
     },
   };
 };

@@ -32,6 +32,7 @@ import type {
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
+  buildSessionProjection,
   createEventBus,
   createSyntheticSourceInfo,
   DefaultResourceLoader,
@@ -146,10 +147,23 @@ const incomplete = <T extends object>(value: Partial<T>): T =>
     },
   }) as T;
 
-const createTurnEndEvent = (event?: Partial<TurnEndEvent>): TurnEndEvent => ({
-  message: event?.message ?? fauxAssistantMessage("done"),
-  toolResults: event?.toolResults ?? [],
-  turnIndex: event?.turnIndex ?? 0,
+const createTurnEndEvent = (event: Partial<TurnEndEvent> = {}): TurnEndEvent => ({
+  context: {
+    canContinue: false,
+    contextEntries: [],
+    contextMessages: [],
+    llmMessages: [],
+    pendingMessages: [],
+  },
+  continue: false,
+  entries: [],
+  message: fauxAssistantMessage("done"),
+  messageEntryId: "test-assistant",
+  outcome: "completed",
+  toolResultEntryIds: [],
+  toolResults: [],
+  turnIndex: 0,
+  ...event,
   type: "turn_end",
 });
 
@@ -359,6 +373,9 @@ export const createExtensionHost = (
     const sessionManagerOverrides = overrides.sessionManager;
 
     const defaultSessionManager = incomplete<ExtensionContext["sessionManager"]>({
+      buildSessionProjection:
+        sessionManagerOverrides?.buildSessionProjection?.bind(sessionManagerOverrides) ??
+        (() => buildSessionProjection(sessionManagerOverrides?.getBranch?.() ?? getBranch())),
       buildContextEntries:
         sessionManagerOverrides?.buildContextEntries?.bind(sessionManagerOverrides) ?? getBranch,
       getBranch: sessionManagerOverrides?.getBranch?.bind(sessionManagerOverrides) ?? getBranch,

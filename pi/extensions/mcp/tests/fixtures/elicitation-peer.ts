@@ -42,7 +42,6 @@ const result = (id: string | number, value: PeerPayload) => {
   send({ jsonrpc: "2.0", id, result: payload });
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This raw wire peer echoes opaque JSON payloads without projecting away prototype-named fields.
 const complete = (id: string | number, answers: unknown) =>
   result(id, { content: [{ type: "text", text: JSON.stringify(answers) }] });
 

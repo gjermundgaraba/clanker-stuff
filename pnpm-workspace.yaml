@@ -19,15 +19,15 @@ overrides:
   "typebox": "1.3.14"
   vite@*: "catalog:"
 catalog:
-  "@earendil-works/chord": 0.86.1
-  "@earendil-works/pi-agent-core": 0.86.1
-  "@earendil-works/pi-ai": 0.86.1
-  "@earendil-works/pi-client": 0.86.1
-  "@earendil-works/pi-coding-agent": 0.86.1
-  "@earendil-works/pi-protocol": 0.86.1
-  "@earendil-works/pi-server": 0.86.1
-  "@earendil-works/pi-telemetry": 0.86.1
-  "@earendil-works/pi-tui": 0.86.1
+  "@earendil-works/chord": 0.87.0
+  "@earendil-works/pi-agent-core": 0.87.0
+  "@earendil-works/pi-ai": 0.87.0
+  "@earendil-works/pi-client": 0.87.0
+  "@earendil-works/pi-coding-agent": 0.87.0
+  "@earendil-works/pi-protocol": 0.87.0
+  "@earendil-works/pi-server": 0.87.0
+  "@earendil-works/pi-telemetry": 0.87.0
+  "@earendil-works/pi-tui": 0.87.0
   "@types/node": 26.6.2
   typescript: 7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@0.3.3
@@ -44,19 +44,19 @@ allowBuilds:
   esbuild: true
   protobufjs: true
 minimumReleaseAgeExclude:
-  - "@earendil-works/chord@0.86.1"
-  - "@earendil-works/pi-agent-core@0.86.1"
-  - "@earendil-works/pi-ai@0.86.1"
-  - "@earendil-works/pi-client@0.86.1"
-  - "@earendil-works/pi-coding-agent@0.86.1"
-  - "@earendil-works/pi-protocol@0.86.1"
-  - "@earendil-works/pi-server@0.86.1"
-  - "@earendil-works/pi-telemetry@0.86.1"
-  - "@earendil-works/pi-tui@0.86.1"
+  - "@earendil-works/chord@0.87.0"
+  - "@earendil-works/pi-agent-core@0.87.0"
+  - "@earendil-works/pi-ai@0.87.0"
+  - "@earendil-works/pi-client@0.87.0"
+  - "@earendil-works/pi-coding-agent@0.87.0"
+  - "@earendil-works/pi-protocol@0.87.0"
+  - "@earendil-works/pi-server@0.87.0"
+  - "@earendil-works/pi-telemetry@0.87.0"
+  - "@earendil-works/pi-tui@0.87.0"
   - "@types/node@26.6.2"
 
-# Pi 0.86.1's public SDK imports its server package without declaring it.
+# Pi 0.87.0's public SDK imports its server package without declaring it.
 packageExtensions:
-  "@earendil-works/pi-coding-agent@0.86.1":
+  "@earendil-works/pi-coding-agent@0.87.0":
     dependencies:
-      "@earendil-works/pi-server": "0.86.1"
+      "@earendil-works/pi-server": "0.87.0"

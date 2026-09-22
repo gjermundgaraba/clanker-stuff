@@ -25,13 +25,11 @@ const budgetExhausted = new Error("Trace serialization budget exhausted");
 
 // Nested tools may return any JavaScript value; this display boundary preserves
 // strings and normalizes everything else through the diagnostic serializer.
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Delegated tools may return any value; normalize valid tool results or serialize the arbitrary return value for display.
 export function toolResultFromValue(value: unknown): RuntimeToolResult {
   return {
     content: [
       {
         text:
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Diagnostic serializer handles arbitrary JS values; classify strings without rejecting cycles or other supported inputs.
           typeof value === "string"
             ? value
             : JSON.stringify(sanitizeTraceInput(value, MAX_TRACE_TEXT_CHARS)),
@@ -158,7 +156,6 @@ function fitSnapshot(value: MutableJsonValue, size: number, maxChars: number): J
   const strings: TraceString[] = [];
 
   const collect = (entry: MutableJsonValue, replace: (text: string) => void): void => {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Budget reduction traverses an already-detached JsonValue union; preserve structured values while shortening strings.
     if (typeof entry === "string") {
       strings.push({ text: entry, encodedLength: JSON.stringify(entry).length, replace });
     } else if (isJsonArray(entry)) {
@@ -167,7 +164,6 @@ function fitSnapshot(value: MutableJsonValue, size: number, maxChars: number): J
           entry[index] = text;
         }),
       );
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Budget reduction traverses an already-detached JsonValue union; preserve structured values while shortening strings.
     } else if (entry !== null && typeof entry === "object") {
       for (const [key, item] of Object.entries(entry)) {
         collect(item, (text) => {
@@ -199,7 +195,6 @@ function fitSnapshot(value: MutableJsonValue, size: number, maxChars: number): J
 
 // Diagnostic JSON, not a lossless JavaScript clone or a sandbox for getters,
 // proxies, or toJSON hooks. Normalize once, then reduce only the detached data.
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Trace capture must bound arbitrary arguments, including cycles and unsupported JavaScript values, before storing JSON.
 export function sanitizeTraceInput(value: unknown, maxChars: number): JsonValue {
   if (maxChars <= 0) return VALUE_LIMIT;
 
@@ -214,7 +209,6 @@ export function sanitizeTraceInput(value: unknown, maxChars: number): JsonValue 
 
       // Replacing a short string with a marker would expand it and erase useful
       // discriminants. These fit within the per-node marker reservation.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Diagnostic serializer handles arbitrary JS values; classify strings without rejecting cycles or other supported inputs.
       if (typeof entry !== "string" || entry.length <= TRACE_VALUE_TRUNCATED_MARKER.length)
         return entry;
 

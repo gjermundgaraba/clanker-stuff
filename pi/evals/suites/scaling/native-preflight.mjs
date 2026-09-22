@@ -204,7 +204,6 @@ const topTools = firstRequest.input
       assert.ok(Array.isArray(group) && group.every(isRecord));
 
       return group.map((entry) => {
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This preflight verifies the real native capability catalog, including nested tool namespaces.
         assert.ok(typeof entry.name === "string");
 
         return entry.name;

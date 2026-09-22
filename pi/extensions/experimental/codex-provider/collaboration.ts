@@ -60,7 +60,6 @@ interface CollaborationContext {
 
 export interface CollaborationContractRequest {
   readonly context: ExtensionContext;
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The cross-extension event bus supplies opaque contributions; the receiver validates the collaboration contract before accepting it.
   readonly provide: (value: unknown) => void;
   readonly rootServiceTier?: "priority" | null;
   readonly sessionId: string;
@@ -93,7 +92,6 @@ const requestContract = (
 
   const request: CollaborationContractRequest = {
     context: ctx,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The cross-extension event bus supplies opaque contributions; the receiver validates the collaboration contract before accepting it.
     provide(value: unknown) {
       if (!isRecord(value)) {
         return;
@@ -107,7 +105,6 @@ const requestContract = (
         (protocol !== "off" && protocol !== "v1" && protocol !== "v2") ||
         (inheritedServiceTier !== undefined &&
           !Value.Check(ServiceTierSchema, inheritedServiceTier)) ||
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Extension/wire boundary: validate the consumed contract fields before accepting untyped contributions.
         (inheritedUltra !== undefined && typeof inheritedUltra !== "boolean") ||
         !Array.isArray(nestedTools) ||
         !nestedTools.every(isNestedToolContract)
@@ -136,9 +133,7 @@ const requestContract = (
 
 export const requestCollaborationContract = requestContract;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Responses tool arrays contain heterogeneous wire items; only recognized function definitions participate in namespacing.
 const toolName = (tool: unknown): string | undefined =>
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Extension/wire boundary: validate the consumed contract fields before accepting untyped contributions.
   isRecord(tool) && tool.type === "function" && typeof tool.name === "string"
     ? tool.name
     : undefined;
@@ -228,7 +223,6 @@ const namespaceTools = (
 };
 
 export const rewriteCollaborationTools = (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks supply opaque requests; rewrite only recognized collaboration tools and preserve foreign fields unchanged.
   payload: unknown,
   pi: CollaborationApi,
   ctx: ExtensionContext & CollaborationContext,
@@ -246,7 +240,6 @@ export const rewriteCollaborationTools = (
   }
 
   if (Array.isArray(input)) {
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Responses input is a heterogeneous wire array; only additional-tools items are interpreted by this adapter.
     rewritten.input = input.map((item: unknown) =>
       isRecord(item) && item.type === "additional_tools" && Array.isArray(item.tools)
         ? { ...item, tools: namespaceTools(item.tools, contract) }

@@ -6,6 +6,7 @@ import type {
   MarkdownTransformer,
   SessionShutdownEvent,
   SessionStartEvent,
+  TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -92,6 +93,36 @@ const setupHost = () =>
   });
 
 describe("extension-host harness", () => {
+  it("supplies turn boundary defaults and preserves explicit boundary fields", async () => {
+    const seen: TurnEndEvent[] = [];
+
+    const host = createExtensionHost((pi) => {
+      pi.on("turn_end", (event) => {
+        seen.push(event);
+      });
+    });
+
+    await host.emitTurnEnd();
+    expect(seen[0]).toMatchObject({
+      context: { canContinue: false, pendingMessages: [] },
+      continue: false,
+      entries: [],
+      outcome: "completed",
+      type: "turn_end",
+    });
+
+    const overrides: Partial<TurnEndEvent> = {
+      continue: true,
+      entries: [{ type: "custom", customType: "test" }],
+      messageEntryId: "persisted-assistant",
+      outcome: "aborted",
+      toolResultEntryIds: ["persisted-result"],
+    };
+
+    await host.emitTurnEnd(overrides);
+    expect(seen[1]).toMatchObject(overrides);
+  });
+
   it("preserves input metadata and image updates through ordered transforms", async () => {
     const seen: InputEvent[] = [];
     const images = [{ type: "image" as const, data: "original", mimeType: "image/png" }];

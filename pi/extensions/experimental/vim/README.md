@@ -16,4 +16,4 @@ Start typing in Insert mode; press Escape for Normal mode, then `i` to resume ty
 
 ## Requirements
 
-Pi 0.86.1 is the tested host. See [commands and boundaries](docs/design.md) before use; Vim is skipped when another custom editor owns the session.
+The repository’s [pinned Pi SDK](../../../../pnpm-workspace.yaml) is the tested host. See [commands and boundaries](docs/design.md) before use; Vim is skipped when another custom editor owns the session.

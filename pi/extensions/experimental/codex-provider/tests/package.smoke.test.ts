@@ -3,12 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 
-import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, SettingsManager, VERSION } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { readJson, readWorkspacePackages } from "../../../../../scripts/workspace-packages.js";
 
-import { SUPPORTED_PI_VERSION } from "../audit-local-order.js";
 import { CHECKPOINT_CUSTOM_TYPE } from "../checkpoint.js";
 import * as packageEntry from "../index.js";
 
@@ -257,9 +256,9 @@ describe("codex-provider package", () => {
           dependencies: {
             "@clanker-stuff/codex-provider": `file:${tarball}`,
             ...localDependencies,
-            "@earendil-works/pi-ai": SUPPORTED_PI_VERSION,
-            "@earendil-works/pi-coding-agent": SUPPORTED_PI_VERSION,
-            "@earendil-works/pi-tui": SUPPORTED_PI_VERSION,
+            "@earendil-works/pi-ai": VERSION,
+            "@earendil-works/pi-coding-agent": VERSION,
+            "@earendil-works/pi-tui": VERSION,
             typebox: "1.3.7",
           },
           private: true,

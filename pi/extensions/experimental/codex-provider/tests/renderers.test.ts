@@ -592,7 +592,6 @@ describe("Codex tool renderers", () => {
     const state = {};
     const context = renderContext({ args: { patch }, state });
 
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- These deliberately truncated persisted details exercise the renderer’s independent partial decoders.
     const render = (details: unknown) =>
       rendered(
         definition.renderResult?.(

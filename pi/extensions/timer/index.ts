@@ -6,7 +6,6 @@ export default function timerExtension(pi: ExtensionAPI): void {
   const timer = createTimer();
   pi.events.on("clanker:async-prompt", (event) =>
     timer.setAsyncPrompt(
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Event-bus boundary reads only the async-prompt activity flag; unrelated payloads must not activate the timer.
       typeof event === "object" && event !== null && "active" in event && event.active === true,
     ),
   );

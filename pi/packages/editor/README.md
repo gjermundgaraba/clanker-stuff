@@ -14,4 +14,4 @@ Use `acquireEditorHost(ctx)` from cooperating extensions; it installs or joins t
 
 ## Requirements
 
-Pi 0.86.1. Editor conflicts and unsupported Pi versions appear as one shared status label and leave a working prompt; callers skip editor-dependent features.
+Tested against the repository’s [pinned Pi SDK](../../../pnpm-workspace.yaml). Editor conflicts and unsupported editor layouts appear as one shared status label and leave a working prompt; callers skip editor-dependent features.

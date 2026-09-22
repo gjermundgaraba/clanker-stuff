@@ -80,9 +80,8 @@ interface NativeEditor extends NativeSnapshot {
   buildVisualLineMap(width: number): { logicalLine: number; startCol: number; length: number }[];
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Version boundary: validates Pi internals that no public type describes.
 function nativeEditor(instance: unknown): NativeEditor {
-  // SAFETY: This single boundary targets Pi 0.86.1's Editor; validate required internals before use.
+  // SAFETY: Validate the required private Editor layout before exposing the document/undo adapter.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exposes no public document/undo adapter; the pinned private layout is checked below and covered by native editor contract tests.
   const native = instance as NativeEditor;
 
@@ -90,16 +89,14 @@ function nativeEditor(instance: unknown): NativeEditor {
     !Array.isArray(native.state?.lines) ||
     !(native.pastes instanceof Map) ||
     !Array.isArray(native.undoStack?.stack) ||
-    /* oxlint-disable anti-slop/no-runtime-typeof -- Version adapter checks required Pi internals at runtime; the private structural declaration alone cannot guarantee callable methods. */
     typeof native.killRing?.push !== "function" ||
     typeof native.killRing?.peek !== "function" ||
     typeof native.killRing?.rotate !== "function" ||
     typeof native.expandPasteMarkers !== "function" ||
     typeof native.cancelAutocomplete !== "function" ||
     typeof native.buildVisualLineMap !== "function"
-    /* oxlint-enable anti-slop/no-runtime-typeof */
   ) {
-    throw new Error("The shared editor requires Pi 0.86.1 Editor internals");
+    throw new Error("Unsupported Pi editor layout: required document/undo APIs are unavailable");
   }
 
   return native;

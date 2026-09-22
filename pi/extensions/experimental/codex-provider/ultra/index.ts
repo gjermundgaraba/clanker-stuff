@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { requestCollaborationContract } from "../collaboration.js";
+import { ULTRA_MODE_STATUS_KEY } from "../footer.js";
 import type { CodexUltraSettings } from "../model-catalog.js";
 
 const ULTRA_STATE = "codex-ultra-state";
@@ -34,7 +35,11 @@ const branchUltraState = (session: BranchSession): boolean | undefined => {
   return Value.Check(UltraStateSchema, entry.data) ? entry.data.enabled : false;
 };
 
-export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): void => {
+export const registerCodexUltra = (
+  pi: ExtensionAPI,
+  catalog: UltraCatalog,
+  setFooterActive: (active: boolean) => void,
+): void => {
   let desired = false;
   let publishedActive: boolean | undefined;
   let refreshGeneration = 0;
@@ -45,6 +50,9 @@ export const registerCodexUltra = (pi: ExtensionAPI, catalog: UltraCatalog): voi
   });
 
   const publishActive = (ctx: ExtensionContext, active: boolean): void => {
+    ctx.ui.setStatus(ULTRA_MODE_STATUS_KEY, active ? "✦ ultra" : undefined);
+    setFooterActive(active);
+
     if (publishedActive === active) {
       return;
     }

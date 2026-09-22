@@ -261,7 +261,6 @@ describe("durable questionnaires in AgentSession", () => {
         .at(-1)!;
 
       const wire =
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Session test: discriminate Pi message content before inspecting the delivered wire text.
         typeof answer.content === "string"
           ? answer.content
           : answer.content

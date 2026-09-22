@@ -77,7 +77,7 @@ export type ActiveCheckpointBoundary =
       readonly carrier: "inline" | "lifecycle";
       readonly checkpoint: Checkpoint;
       readonly kind: "checkpoint";
-      readonly tail: readonly SessionEntry[];
+      readonly rawTail: readonly SessionEntry[];
     }
   | {
       readonly boundaryIndex: number;
@@ -311,7 +311,6 @@ export const normalizeBaseUrl = (value: string | null | undefined) => {
 };
 
 export const parseCompactionItem = (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The remote compaction response is untrusted and must pass the canonical wire schema.
   value: unknown,
   options: {
     readonly allowAlias?: boolean;
@@ -350,7 +349,6 @@ export const parseCompactionItem = (
 };
 
 export const parseRealUserInputItem = (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the decoder for user items loaded from persisted checkpoints or finalized provider payloads.
   value: unknown,
   path = "replacement item",
 ): RealUserInputItem => {
@@ -361,7 +359,6 @@ export const parseRealUserInputItem = (
   return Value.Clone(value);
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the schema decoder for collaboration messages in persisted or externally rewritten provider input.
 export const parseAgentMessageItem = (value: unknown, path: string): CheckpointAgentMessageItem => {
   if (!Value.Check(CheckpointAgentMessageItemSchema, value)) {
     throw new Error(`${path} must be a canonical agent message`);
@@ -370,18 +367,15 @@ export const parseAgentMessageItem = (value: unknown, path: string): CheckpointA
   return Value.Clone(value);
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Canonical serialization must reject arbitrary non-JSON values, cycles, and non-finite numbers, including nested values.
 const canonicalize = (value: unknown, ancestors: WeakSet<object>): string => {
   if (value === null) {
     return "null";
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Canonical serializer must reject non-JSON values and non-finite numbers, not pretend its input was already decoded.
   if (typeof value === "string" || typeof value === "boolean") {
     return JSON.stringify(value) ?? validationError("canonical JSON contains a non-JSON value");
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Canonical serializer must reject non-JSON values and non-finite numbers, not pretend its input was already decoded.
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       validationError("canonical JSON cannot contain non-finite numbers");
@@ -422,10 +416,8 @@ const canonicalize = (value: unknown, ancestors: WeakSet<object>): string => {
   return validationError("canonical JSON contains a non-JSON value");
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Canonical serialization validates arbitrary caller values rather than assuming they are already valid JSON.
 export const canonicalJson = (value: unknown) => canonicalize(value, new WeakSet());
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Hashing uses the canonical serializer as its validation boundary; adding a separate decode would duplicate that traversal.
 export const sha256Canonical = (value: unknown) => hash("sha256", canonicalJson(value));
 
 const parseCheckpointValue = (value: Static<typeof CheckpointSchema>): Checkpoint => {
@@ -472,7 +464,6 @@ const deepFreeze = <T>(value: T): T => {
   return value;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Persisted checkpoint data is untrusted; this parser validates schema, compatibility fields, and replacement integrity.
 export const parseCheckpoint = (value: unknown): CheckpointParseResult => {
   if (!Value.Check(CheckpointSchema, value)) {
     return {
@@ -602,7 +593,7 @@ export const resolveActiveCheckpointBoundary = (
       ...carrier,
       boundaryEntryId: entry.id,
       boundaryIndex: index,
-      tail: branch.slice(index + 1),
+      rawTail: branch.slice(index + 1),
     };
   }
 

@@ -8,7 +8,6 @@ export function planDeployment(config) {
   const target = config.target.trim().toLowerCase();
   const attempts = config.attempts === undefined ? 4 : config.attempts;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The benchmark contract rejects numeric strings and non-integer attempts; this is the complete range decoder.
   if (typeof attempts !== "number" || !Number.isInteger(attempts) || attempts < 0 || attempts > 5) {
     throw new TypeError("invalid attempts");
   }

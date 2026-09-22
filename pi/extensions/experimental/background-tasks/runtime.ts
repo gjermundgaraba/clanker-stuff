@@ -374,7 +374,6 @@ export class TaskRuntime {
 
 export function renderWake(message: Parameters<MessageRenderer>[0]) {
   return new Text(
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pi custom-message content is a string/block union; only text is rendered as a task notification.
     typeof message.content === "string" ? safeText(message.content) : "Task notification",
     0,
     0,

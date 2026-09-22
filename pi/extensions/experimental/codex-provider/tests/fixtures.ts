@@ -13,16 +13,12 @@ const WireArraySchema = Type.Array(Type.Unknown());
 
 const StringValueSchema = Type.String();
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireRecord = (value: unknown): WireRecord => Value.Parse(WireRecordSchema, value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireArray = (value: unknown): unknown[] => Value.Parse(WireArraySchema, value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireRecords = (value: unknown): WireRecord[] => wireArray(value).map(wireRecord);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests inspect opaque serialized provider output; this asserting decoder fails malformed wire values rather than casting them.
 export const wireString = (value: unknown): string => Value.Parse(StringValueSchema, value);
 
 type MockUiContext = Pick<ExtensionUIContext, "notify" | "setStatus"> &
@@ -100,7 +96,6 @@ export const responseEvents = (id: string, text: string, endTurn?: boolean) => {
   ];
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The fixture encoder serializes JWT headers and claims into wire bytes without assuming one payload domain.
 const jwtPart = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
 
 export const makeCodexApiKey = (accountId: string): string =>

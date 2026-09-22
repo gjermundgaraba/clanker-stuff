@@ -8,7 +8,6 @@ const trajectoryPath = "/logs/agent/trajectory.json";
 const answer = existsSync(answerPath) && readFileSync(answerPath, "utf-8") === "CITRINE-47-EMBER\n";
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- Harbor trajectory containers are external JSON; this predicate excludes null and arrays before inspecting evidence.
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @type {unknown[]} */
@@ -35,7 +34,6 @@ const targets = (call, name, filename) => {
   return (
     call.function_name === name &&
     isRecord(args) &&
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- A recorded file operation must actually name a string path, not merely stringify a malformed payload.
     typeof args.path === "string" &&
     path.basename(args.path) === filename
   );

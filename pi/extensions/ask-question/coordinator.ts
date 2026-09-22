@@ -462,7 +462,6 @@ export class Coordinator {
     this.listeners.clear();
     this.ctx = undefined;
   }
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Rejected promises and caught JavaScript exceptions can contain arbitrary values.
   report(cause: unknown, ctx: ExtensionContext): void {
     ctx.ui.notify(cause instanceof Error ? cause.message : String(cause), "error");
   }

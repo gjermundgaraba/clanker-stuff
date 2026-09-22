@@ -5,7 +5,6 @@ import type { ControlStore, RootBinding, SubagentsSnapshot } from "./snapshot.js
 type Listener = (state: SubagentsSnapshot) => void;
 
 const freeze = <T extends JsonValue | undefined>(value: T): T => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Recursively freezing a JSON snapshot distinguishes its declared object/array variants from scalar leaves.
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
 

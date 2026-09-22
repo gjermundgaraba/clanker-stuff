@@ -179,7 +179,6 @@ const renderContent = (content: FooterContent, theme: FooterTheme): string =>
   content.map((span) => renderSpan(span, theme)).join("");
 
 const iconGlyph = (icon: FooterWidgetIcon, family: IconFamily): string => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate the schema-derived string/glyph-map union; both representations are valid domain values.
   if (typeof icon.glyphs === "string") {
     return icon.glyphs;
   }

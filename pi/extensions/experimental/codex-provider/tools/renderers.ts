@@ -100,7 +100,6 @@ interface PatchDetails {
 }
 
 /** The change list and the diffs are validated independently: a cut in one must not hide the other. */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Persisted and size-bounded delegated results are opaque; validate changes and diffs independently to retain partial display evidence.
 const parsePatchDetails = (details: unknown): PatchDetails | undefined => {
   if (!Value.Check(ApplyPatchDetailsSchema, details)) return undefined;
   const diffs = new Map<number, string>();
@@ -298,7 +297,6 @@ const formatWriteStdinCall = (
   return `${title} ${theme.fg("muted", "←")} ${theme.fg("toolOutput", escaped)}`;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi and delegated traces supply opaque result details; this is the process display schema boundary.
 export const parseProcessDetails = (details: unknown): ProcessDisplayDetails | undefined =>
   Value.Check(ProcessDisplayDetailsSchema, details) ? details : undefined;
 

@@ -28,7 +28,6 @@ const COLLABORATION_TOOLS = [
 ];
 
 const requestJson = (body: RequestInit["body"], headers: Headers): WireRecord => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture distinguishes text from compressed bytes before inspecting emitted requests.
   if (typeof body === "string") {
     return wireRecord(JSON.parse(body));
   }

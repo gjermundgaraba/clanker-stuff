@@ -96,7 +96,6 @@ export const loadHistory = (database: DatabaseSync, limit = -1): HistoryItem[] =
 export const getDataVersion = (database: DatabaseSync): number => {
   const version: unknown = database.prepare("PRAGMA data_version").get()?.data_version;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- SQLite boundary must reject missing, nonnumeric, or non-finite PRAGMA results before returning a version.
   if (typeof version !== "number" || !Number.isFinite(version)) {
     throw new TypeError("SQLite did not return a data version");
   }

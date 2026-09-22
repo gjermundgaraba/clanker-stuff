@@ -89,7 +89,6 @@ try {
   connection.addEventListener("message", ({ data }) => {
     const text: unknown = data;
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- CDP replies are WebSocket text frames; reject binary frames before JSON decoding.
     if (typeof text !== "string") throw new Error("Chrome sent a non-text response");
 
     const message = Value.Parse(

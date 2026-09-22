@@ -486,17 +486,13 @@ describe("MCP SDK input continuations", () => {
     const owned = { ctx, model, signal: controller.signal, reportUsage: () => {} };
     let parentError: unknown;
 
-    const first = connection.withContext!(
-      owned,
-      () =>
-        connection.client
-          .callTool({ name: "interact" }, { signal: owned.signal, timeout: 100 })
-          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Capture arbitrary MCP transport rejections to verify cancellation ownership.
-          .catch((cause: unknown) => {
-            parentError = cause;
-            throw cause;
-          }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Observe the original promise rejection without changing its identity or assuming an Error type.
+    const first = connection.withContext!(owned, () =>
+      connection.client
+        .callTool({ name: "interact" }, { signal: owned.signal, timeout: 100 })
+        .catch((cause: unknown) => {
+          parentError = cause;
+          throw cause;
+        }),
     ).catch((cause: unknown) => cause);
 
     const next = vi.fn(() =>
@@ -575,12 +571,10 @@ describe("MCP SDK input continuations", () => {
       () =>
         connection.client
           .callTool({ name: "interact" }, { signal: controller.signal, timeout: 100 })
-          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Capture arbitrary MCP transport rejections to verify cancellation ownership.
           .catch((cause: unknown) => {
             parentError = cause;
             throw cause;
           }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Observe the original promise rejection without changing its identity or assuming an Error type.
     ).catch((cause: unknown) => {
       settled = true;
 

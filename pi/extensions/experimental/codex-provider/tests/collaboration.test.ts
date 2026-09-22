@@ -26,7 +26,6 @@ const tools = (names: readonly string[]) =>
     type: "function",
   }));
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This wire assertion decodes actual emitted namespace members independently of the production implementation.
 const namespaceMemberNames = (namespace: unknown): string[] => {
   const members = wireRecord(namespace).tools;
 
@@ -37,7 +36,6 @@ const namespaceMemberNames = (namespace: unknown): string[] => {
   return members.flatMap((member) => {
     const name = wireRecord(member).name;
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire assertion extracts actual emitted tool names independently of the collaboration implementation.
     return typeof name === "string" ? [name] : [];
   });
 };
@@ -45,7 +43,6 @@ const namespaceMemberNames = (namespace: unknown): string[] => {
 const harness = (
   protocol?: "off" | "v1" | "v2",
   nestedTools: readonly ToolDefinition[] = [],
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The fixture intentionally supplies malformed service tiers to test contract rejection at the event-bus boundary.
   inheritedServiceTier?: unknown,
 ) => {
   const sessionId = "collaboration-session";

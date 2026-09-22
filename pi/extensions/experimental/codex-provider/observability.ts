@@ -18,7 +18,6 @@ export interface CodexObservation {
   readonly timestamp: number;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- SQLite and filesystem operations may throw any JavaScript value.
 const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 const ObservationRowSchema = Type.Object({
@@ -70,7 +69,6 @@ export class CodexObservability {
   record(
     sessionId: string,
     kind: CodexObservationKind,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The observation journal serializes heterogeneous diagnostic payloads without interpreting them.
     data: unknown,
     timestamp = Date.now(),
   ): boolean {

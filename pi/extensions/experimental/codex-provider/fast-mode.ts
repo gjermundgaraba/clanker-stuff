@@ -10,7 +10,6 @@ import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
 import { FAST_MODE_STATUS_KEY } from "./footer.js";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem promise rejections can be any JavaScript value; inspect an error code only when present.
 const errorCode = (cause: unknown): string | undefined =>
   cause instanceof Object && "code" in cause ? String(cause.code) : undefined;
 

@@ -26,7 +26,7 @@ export function registerCodexProvider(
   pi.registerProvider(createLazyCodexProvider(runtime.catalog, runtime.loadProvider));
   registerCheckpointRenderer(pi);
   registerTools?.(footer.setCodeMode, settings);
-  registerCodexUltra(pi, runtime.catalog);
+  registerCodexUltra(pi, runtime.catalog, footer.setUltraMode);
 
   pi.registerCommand("fast", {
     description: "Toggle OpenAI Codex fast mode",

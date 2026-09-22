@@ -424,7 +424,6 @@ describe("background tasks in a real AgentSession", () => {
 
       const compacting = h.session.compact().then(
         (result) => ({ result }),
-        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Observe the actual tool-prompt rejection while the test verifies background-task delivery.
         (cause: unknown) => ({ error: cause }),
       );
 

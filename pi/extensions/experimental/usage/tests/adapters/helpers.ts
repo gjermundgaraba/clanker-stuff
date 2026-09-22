@@ -14,9 +14,8 @@ export const tokenAuthClient = (token: string): ProviderAuthClient => ({
 });
 
 export const okFetch =
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Fake network payload: adapters must schema-check whatever arrives.
   (json: unknown): FetchJson =>
-    async (_url, schema) =>
-      Value.Check(schema, json)
-        ? { json, ok: true }
-        : { kind: "payload", message: "invalid usage payload", ok: false };
+  async (_url, schema) =>
+    Value.Check(schema, json)
+      ? { json, ok: true }
+      : { kind: "payload", message: "invalid usage payload", ok: false };

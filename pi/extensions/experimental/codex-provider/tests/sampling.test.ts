@@ -78,7 +78,6 @@ const transportFixture = (transport: Transport, events: readonly unknown[]) => {
         signal = init.signal;
         const headers = new Headers(init.headers);
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture distinguishes text from compressed bytes before inspecting emitted requests.
         if (typeof init.body === "string") frames.push(JSON.parse(init.body));
         else if (init.body instanceof Uint8Array && headers.get("content-encoding") === "zstd")
           frames.push(JSON.parse(zstdDecompressSync(init.body).toString("utf8")));

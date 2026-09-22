@@ -68,13 +68,11 @@ interface LoadServerOptions {
   heartbeatTimeoutMs?: number;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Only an actual SDK HTTP 404 on a session-bearing transport permits session recovery; other thrown values do not.
 const sessionExpired = (connection: McpClientConnection, cause: unknown): boolean =>
   connection.transport.sessionId !== undefined &&
   SdkHttpError.isInstance(cause) &&
   cause.status === 404;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Classifies arbitrary transport rejections before deciding whether user authorization is necessary.
 const authorizationRequired = (cause: unknown): boolean =>
   isAuthorizationError(cause) || (SdkHttpError.isInstance(cause) && cause.status === 403);
 

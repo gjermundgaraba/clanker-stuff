@@ -9,6 +9,7 @@ import {
   type CollaborationContractRequest,
 } from "../collaboration.js";
 import type { CodexUltraSettings } from "../model-catalog.js";
+import { createCodexFooter } from "../footer.js";
 import { registerCodexUltra } from "../ultra/index.js";
 import { createToolsModel } from "./fixtures.js";
 
@@ -61,7 +62,9 @@ const createHost = (
         });
       }
 
-      registerCodexUltra(pi, testCatalog);
+      const footer = createCodexFooter(pi);
+      registerCodexUltra(pi, testCatalog, footer.setUltraMode);
+      pi.on("session_shutdown", () => footer.dispose());
     },
     {
       entries,
@@ -83,7 +86,9 @@ describe("Codex Ultra", () => {
     const host = createHost();
     const ctx = host.createContext({ model: MODEL });
     await host.emitSessionStart(ctx);
+    expect(host.getStatus("codex-ultra")).toBeUndefined();
     await host.runCommand("ultra", "", ctx);
+    expect(host.getStatus("codex-ultra")).toBe("✦ ultra");
 
     expect(host.getAppendedEntries()).toMatchObject([
       { customType: "codex-ultra-state", data: { enabled: true } },
@@ -94,6 +99,7 @@ describe("Codex Ultra", () => {
     const missingCtx = missing.createContext({ model: MODEL });
     await missing.emitSessionStart(missingCtx);
     await missing.runCommand("ultra", "", missingCtx);
+    expect(missing.getStatus("codex-ultra")).toBeUndefined();
     expect(missing.getAppendedEntries()).toStrictEqual([]);
     expect(missing.getNotifications()).toContainEqual({
       message: "Codex Ultra requires the companion V2 subagents extension.",
@@ -105,6 +111,7 @@ describe("Codex Ultra", () => {
     const unsupportedCtx = ineligible.createContext({ model: unsupported });
     await ineligible.emitSessionStart(unsupportedCtx);
     await ineligible.runCommand("ultra", "", unsupportedCtx);
+    expect(ineligible.getStatus("codex-ultra")).toBeUndefined();
     expect(ineligible.getAppendedEntries()).toStrictEqual([]);
     expect(ineligible.getNotifications()).toContainEqual({
       message: "The selected model does not advertise Ultra.",
@@ -120,6 +127,7 @@ describe("Codex Ultra", () => {
     ] as const) {
       const ctx = host.createContext({ model: MODEL });
       await host.emitSessionStart(ctx, reason);
+      expect(host.getStatus("codex-ultra")).toBe("✦ ultra");
       expect(host.getThinkingLevel()).toBe("max");
       const [result] = await host.emit("before_agent_start", beforeAgentStart, ctx);
       const prompt = wireRecord(result).systemPrompt;
@@ -145,6 +153,7 @@ describe("Codex Ultra", () => {
     await host.emitSessionStart(ctx, "resume");
 
     await host.runCommand("ultra", "", ctx);
+    expect(host.getStatus("codex-ultra")).toBeUndefined();
     expect(host.getAppendedEntries().at(-1)).toMatchObject({
       customType: "codex-ultra-state",
       data: { enabled: false },
@@ -212,6 +221,7 @@ describe("Codex Ultra", () => {
       customType: "codex-ultra-state",
       data: { enabled: false },
     });
+    expect(host.getStatus("codex-ultra")).toBeUndefined();
   });
 
   it("refreshes missing metadata only while restoring or explicitly enabling", async () => {

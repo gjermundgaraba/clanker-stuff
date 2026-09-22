@@ -173,7 +173,6 @@ const assistantText = (message: AssistantMessage | undefined) =>
     .map((block) => block.text)
     .join("") ?? "";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The live probe inspects finalized provider request JSON independently, validating only the output entries it counts.
 const rewrittenTrailingOutputCount = (requestBodyValue: unknown): number => {
   assert(isRecord(requestBodyValue), "Compaction request body is invalid");
   assert(Array.isArray(requestBodyValue.input), "Compaction input is missing");
@@ -251,7 +250,6 @@ export const installTransportProbe = (
         }
 
         const errorValue = isRecord(responseValue?.error) ? responseValue.error : undefined;
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Compaction canary inspects persisted/remote observations independently of producer types.
         failures.push(typeof errorValue?.code === "string" ? errorValue.code : "response.failed");
       }
     } catch {
@@ -1321,7 +1319,6 @@ Environment:
             timestampCanaryState.contextSeen === true &&
               timestampCanaryState.providerSeen === true &&
               timestampCanaryState.liveTimestamp === 1 &&
-              // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Compaction canary inspects persisted/remote observations independently of producer types.
               typeof timestampCanaryState.persistedTimestamp === "number" &&
               Number.isFinite(timestampCanaryState.persistedTimestamp) &&
               timestampCanaryState.persistedTimestamp !== 1,

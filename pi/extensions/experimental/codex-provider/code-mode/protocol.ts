@@ -110,7 +110,6 @@ const parseInteger = (
     return null;
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pragma decoder: reject non-numbers before range validation; no coercion of strings or null.
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`${name} must be a safe integer from 0 to ${Number.MAX_SAFE_INTEGER}`);
   }

@@ -75,7 +75,6 @@ interface EvaluationResult {
   turns: number;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Runner, filesystem, and subprocess failures can throw arbitrary JavaScript values.
 const errorMessage = (cause: unknown) =>
   cause instanceof Error ? cause.message : "Unknown evaluation error";
 
@@ -97,9 +96,7 @@ const emptyMetrics = (compactions: number | null = 0): Metrics => ({
   usage: emptyUsage(),
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Partial runner metric fields are untrusted; accept finite numbers and preserve the documented zero default for malformed fields.
 const number = (value: unknown) =>
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Evaluation decoder accepts partial metrics from different runners; malformed fields retain their documented defaults.
   typeof value === "number" && Number.isFinite(value) ? value : 0;
 
 const addUsage = (metrics: Metrics, usage: Usage) => {
@@ -111,7 +108,6 @@ const addUsage = (metrics: Metrics, usage: Usage) => {
   metrics.usage.total += usage.total;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Runner event usage is external and partial; decode each finite metric independently without discarding the other valid counters.
 const sanitizeUsage = (value: unknown, native: boolean): Usage => {
   if (!isRecord(value)) return emptyUsage();
 
@@ -153,7 +149,6 @@ const sanitizeEvent = (
   metrics: Metrics,
   startedAt: number,
 ): JsonRecord | undefined => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Evaluation decoder accepts partial metrics from different runners; malformed fields retain their documented defaults.
   const type = typeof event.type === "string" ? event.type : "unknown";
 
   if (metrics.firstResponseMs === null && (type === "message_update" || type === "item.started")) {
@@ -493,7 +488,6 @@ export const applyExecutionOutcome = (
   return grade;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This file boundary serializes heterogeneous evaluation reports without interpreting their contents.
 export const writeJsonReport = (target: string, report: unknown) => {
   const contents = `${JSON.stringify(report, null, 2)}\n`;
   const temporary = `${target}.tmp`;
@@ -839,7 +833,6 @@ const unexpectedFailure = (
   dryRun: boolean,
   repetition: number,
   order: number,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Subprocess and evaluation failures are arbitrary JavaScript rejection values.
   error: unknown,
 ): EvaluationResult => ({
   diff: emptyDiff(),

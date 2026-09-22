@@ -106,6 +106,5 @@ export const normalizeHistory = (items: HistoryItem[]): HistoryItem[] => {
     });
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for session entries and imported JSONL lines.
 export const historyItemFromEntry = (entry: unknown): HistoryItem | undefined =>
   Value.Check(EntryWireSchema, entry) ? textFromEntry(entry) : undefined;

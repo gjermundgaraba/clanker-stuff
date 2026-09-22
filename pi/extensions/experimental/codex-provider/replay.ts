@@ -78,7 +78,6 @@ const utf8Bytes = (value: string) => Buffer.byteLength(value, "utf8");
 export const frameMarkerText = (edge: "end" | "start", nonce: string) =>
   `${FRAME_MARKER_PREFIX}${edge}:${nonce}]`;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Baseline comparison serializes heterogeneous Pi messages, omitting their timestamps; serialization failures mean the frame cannot be proven.
 const canonicalJsonValue = (value: unknown) => {
   try {
     const serialized = JSON.stringify(
@@ -93,83 +92,45 @@ const canonicalJsonValue = (value: unknown) => {
   }
 };
 
+/** tailCount is the checkpoint-tail length selected from the same projection as baseline. */
 export const frameContiguousBaseline = <T>(
   messages: readonly T[],
   baseline: readonly T[],
-  framedSegment: readonly T[],
+  tailCount: number,
   startMarker: T,
   endMarker: T,
-  canOmitBaselineMessage?: (message: T) => boolean,
 ): ContextFrameResult<T> => {
-  if (baseline.length === 0 || framedSegment.length > baseline.length) {
-    return { kind: "missing" };
-  }
+  if (baseline.length === 0) return { kind: "missing" };
 
   const baselineValues = baseline.map(canonicalJsonValue);
   const messageValues = messages.map(canonicalJsonValue);
-  const framedSegmentValues = framedSegment.map(canonicalJsonValue);
 
-  if ([...baselineValues, ...messageValues, ...framedSegmentValues].includes(null)) {
+  if (baselineValues.includes(null) || messageValues.includes(null)) {
     return { kind: "missing" };
   }
 
-  const segmentOffset = baseline.length - framedSegment.length;
+  let matchStart: number | undefined;
 
-  if (framedSegmentValues.some((value, index) => value !== baselineValues[segmentOffset + index])) {
-    return { kind: "missing" };
-  }
-
-  const omittable = baseline.map((message) => canOmitBaselineMessage?.(message) === true);
-  const requiredMessages = omittable.filter((value) => !value).length;
-
-  if (requiredMessages > messages.length) {
-    return { kind: "missing" };
-  }
-
-  let match: { end: number; framed: T[]; start: number } | undefined;
-
-  for (let start = 0; start <= messages.length - requiredMessages; start += 1) {
-    let messageIndex = start;
-    let matched = true;
-    const effectiveSegment: T[] = [];
-
-    for (let baselineIndex = 0; baselineIndex < baseline.length; baselineIndex += 1) {
-      if (
-        messageIndex < messages.length &&
-        baselineValues[baselineIndex] === messageValues[messageIndex]
-      ) {
-        if (baselineIndex >= segmentOffset) {
-          // The enclosing comparison establishes messageIndex < messages.length.
-          effectiveSegment.push(messages[messageIndex]!);
-        }
-
-        messageIndex += 1;
-      } else if (!omittable[baselineIndex]) {
-        matched = false;
-        break;
-      }
+  for (let start = 0; start + baseline.length <= messages.length; start += 1) {
+    if (!baselineValues.every((value, offset) => value === messageValues[start + offset])) {
+      continue;
     }
 
-    if (matched) {
-      if (match !== undefined) {
-        return { kind: "ambiguous" };
-      }
-
-      match = { end: messageIndex, framed: effectiveSegment, start };
-    }
+    if (matchStart !== undefined) return { kind: "ambiguous" };
+    matchStart = start;
   }
 
-  if (match === undefined) {
-    return { kind: "missing" };
-  }
+  if (matchStart === undefined) return { kind: "missing" };
 
-  const prefix = messages.slice(0, match.start);
-  const suffix = messages.slice(match.end);
+  const end = matchStart + baseline.length;
+  const prefix = messages.slice(0, matchStart);
+  const framed = messages.slice(end - tailCount, end);
+  const suffix = messages.slice(end);
 
   return {
-    framed: match.framed,
+    framed,
     kind: "ok",
-    messages: [...prefix, startMarker, ...match.framed, endMarker, ...suffix],
+    messages: [...prefix, startMarker, ...framed, endMarker, ...suffix],
     prefix,
     suffix,
   };
@@ -280,7 +241,6 @@ export const estimateModelVisibleItemTokens = (item: ResponsesInputItem) => {
 
   const serialized = JSON.stringify(
     item,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- JSON.stringify supplies the holder and arbitrary nested value; image accounting validates the holder before replacing an image URL.
     function modelVisibleReplacer(this: unknown, key: string, value: unknown) {
       if (
         key === "image_url" &&
@@ -555,7 +515,6 @@ export const buildTransientCheckpointReplacement = (
 
 export const syntheticOutputId = (
   prefix: "ctco" | "fco" | "tso",
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Responses input items have open fields; only a nonempty string wire ID can produce a deterministic output ID.
   sourceItemId: unknown,
 ): string | undefined => {
   if (!Value.Check(NonemptyStringSchema, sourceItemId)) {

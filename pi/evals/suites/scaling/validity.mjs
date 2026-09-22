@@ -52,7 +52,6 @@ export function validateNativeDiagnostic(trajectory, events) {
     finished.length === 1 &&
     finish !== undefined &&
     finish.nativeVersion === start.nativeVersion &&
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Match the audited native CLI version to the actual string version in the external trajectory.
     typeof agent?.version === "string" &&
     start.nativeVersion === `codex-cli ${agent.version}` &&
     !records.some((e) => e.type === "runner_error" || e.method === "error") &&

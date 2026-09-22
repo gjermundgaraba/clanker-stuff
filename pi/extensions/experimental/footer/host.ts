@@ -107,7 +107,6 @@ export const createFooterHost = (
   let sessionTimer: ReturnType<typeof setInterval> | undefined;
   let startGeneration = 0;
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Widget collectors are extension callbacks and may throw any value; diagnostics never treat it as widget data.
   const addCollectorError = (active: HostRuntime, cause: unknown): void => {
     const message = summary(cause instanceof Error ? cause.message : String(cause));
 

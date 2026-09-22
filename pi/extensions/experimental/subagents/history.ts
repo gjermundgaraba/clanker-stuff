@@ -1,9 +1,8 @@
-import { sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionProjection } from "@earendil-works/pi-coding-agent";
 
 export type ForkTurns = "none" | "all" | number;
 
-type ContextMessage = ReturnType<typeof sessionEntryToContextMessages>[number];
+type ContextMessage = SessionProjection["messages"][number];
 
 type ForkedMessage = Extract<ContextMessage, { role: "assistant" | "user" }>;
 
@@ -59,14 +58,14 @@ const sanitizeMessage = (message: ContextMessage): ForkedMessage | undefined => 
 };
 
 export const forkHistory = (
-  entries: readonly SessionEntry[],
+  contextMessages: readonly ContextMessage[],
   turns: ForkTurns,
 ): ForkedMessage[] => {
   if (turns === "none") {
     return [];
   }
 
-  let messages = entries.flatMap(sessionEntryToContextMessages);
+  let messages = contextMessages;
 
   if (turns !== "all") {
     let remaining = turns;

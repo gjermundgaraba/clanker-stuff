@@ -1,7 +1,6 @@
 // The trajectory is external evidence. Validate containers before reading fields;
 // retain malformed field values so one failed metric cannot hide independent results.
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- This standalone verifier uses a real JSDoc predicate; the syntax-only rule recognizes only TypeScript predicate annotations.
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
@@ -12,7 +11,6 @@ const isManifest = (value) => {
   if (!isRecord(value)) return false;
   const keys = ["compaction_mode", "expected_mechanism", "expected_protocol", "platform"];
 
-  /* oxlint-disable anti-slop/no-runtime-typeof -- Complete handwritten validation of the external manifest, including exact keys and nonempty fields; no schema dependency is installed in verifier containers. */
   return (
     keys.every((key) => Object.hasOwn(value, key)) &&
     Object.keys(value).every((key) => keys.includes(key)) &&
@@ -24,7 +22,6 @@ const isManifest = (value) => {
     (value.expected_protocol === null ||
       (typeof value.expected_protocol === "string" && value.expected_protocol.trim() !== ""))
   );
-  /* oxlint-enable anti-slop/no-runtime-typeof */
 };
 
 /** @param {unknown} trajectory @param {{expectedSegments: unknown}} options */
@@ -38,7 +35,6 @@ export function validateCompaction(trajectory, { expectedSegments }) {
 
   const expectedValid =
     Array.isArray(expectedSegments) &&
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Each configured boundary must be a nonnegative integer; Number.isInteger alone does not narrow an unknown field.
     expected.every((value) => typeof value === "number" && Number.isInteger(value) && value >= 0) &&
     (manifest?.compaction_mode === "off" || expected.length > 0);
 

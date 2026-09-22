@@ -1,5 +1,4 @@
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- This standalone verifier uses a real JSDoc predicate; the syntax-only rule recognizes only TypeScript predicate annotations.
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @param {unknown} trajectory @param {{directTools?: string[]}} options */
@@ -35,7 +34,6 @@ export function validateToolMode(
     manifest.platform === "pi-provider" &&
     manifest.expected_mechanism === "codex-provider" &&
     manifest.expected_protocol === "openai-responses-compaction-v2" &&
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pair identity is an external manifest field; require a nonempty string as part of this complete arm-contract validation.
     typeof manifest.pair_id === "string" &&
     manifest.pair_id.trim().length > 0 &&
     (steps === undefined ||

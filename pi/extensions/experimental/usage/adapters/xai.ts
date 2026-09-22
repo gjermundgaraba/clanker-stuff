@@ -37,7 +37,6 @@ type XaiConfig = Static<typeof XaiConfigSchema>;
 export type XaiPayload = Static<typeof XaiPayloadSchema>;
 
 const moneyValue = (value: XaiConfig["monthlyLimit"]): number | undefined =>
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Discriminate the schema-derived numeric/object quota union before reading its amount.
   typeof value === "number" ? value : value?.val;
 
 export const mapXaiMonthlyPayload = (payload: XaiPayload): UsageWindow | undefined => {

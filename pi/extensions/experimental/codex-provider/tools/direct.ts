@@ -242,7 +242,6 @@ const outputTokenPolicy = (ctx: ExtensionContext): number => {
       ? model.codexOutputTokenLimit
       : undefined;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Model-registry adapter checks the optional extension-owned token limit before applying its numeric policy.
   return typeof configured === "number" && Number.isSafeInteger(configured) && configured >= 0
     ? configured
     : DEFAULT_OUTPUT_TOKEN_LIMIT;

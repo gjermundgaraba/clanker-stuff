@@ -41,7 +41,6 @@ const oauthFetch =
     return fetch(input, { ...init, signal: AbortSignal.any(signals) });
   };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The MCP transport rejects with SDK authentication errors or arbitrary network failures.
 export const isAuthorizationError = (cause: unknown): boolean =>
   UnauthorizedError.isInstance(cause) ||
   cause instanceof InsufficientScopeError ||
@@ -102,7 +101,6 @@ export const startOAuthCallbackServer = async (redirectUrl: URL, expectedState: 
   server.on("error", code.reject);
   const address = server.address();
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Node address() returns null, a pipe name, or a TCP address; this listener requires the TCP variant.
   if (address === null || typeof address === "string")
     throw new Error("OAuth listener has no TCP address");
   const boundUrl = new URL(redirectUrl);

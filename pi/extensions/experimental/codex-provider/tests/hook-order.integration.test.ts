@@ -25,7 +25,6 @@ interface HookRecord {
   label: string;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The SSE fixture encodes protocol events into bytes consumed by the real provider.
 const event = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 
 const assistantResponse = () => {

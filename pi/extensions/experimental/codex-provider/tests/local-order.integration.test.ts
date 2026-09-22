@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { auditLocalOrder, SUPPORTED_PI_VERSION } from "../audit-local-order.js";
+import { auditLocalOrder } from "../audit-local-order.js";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -64,7 +65,7 @@ describe("local order audit", () => {
     const result = await auditLocalOrder({
       agentDir,
       cwd,
-      piVersion: SUPPORTED_PI_VERSION,
+      piVersion: VERSION,
     });
 
     expect({
@@ -79,12 +80,12 @@ describe("local order audit", () => {
       count: 3,
       finalPath: path.join(PACKAGE_ROOT, "index.ts"),
       orderedFiles: ["configured.ts", "index.ts", "index.ts"],
-      piVersion: SUPPORTED_PI_VERSION,
-      sdkVersion: SUPPORTED_PI_VERSION,
+      piVersion: VERSION,
+      sdkVersion: VERSION,
     });
 
     await expect(auditLocalOrder({ agentDir, cwd, piVersion: "0.83.0" })).rejects.toThrow(
-      "Unsupported Pi executable version 0.83.0",
+      `Pi executable 0.83.0 does not match SDK ${VERSION}`,
     );
   });
 });

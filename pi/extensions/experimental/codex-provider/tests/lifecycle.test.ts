@@ -1,4 +1,5 @@
 import { normalizeContext } from "@earendil-works/pi-ai";
+import { buildSessionProjection, SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -199,31 +200,25 @@ describe("lifecycle source and checkpoint construction", () => {
     },
   );
 
-  it("keeps a tool-result boundary when a deferred custom message follows it", () => {
-    const toolResult = entry("tool-result", {
-      message: {
-        content: [{ text: "result", type: "text" }],
-        isError: false,
-        role: "toolResult",
-        timestamp: 1,
-        toolCallId: "call",
-        toolName: "read",
-      },
-      type: "message",
+  it("reads the latest projected turn role without treating custom messages as turns", () => {
+    const manager = SessionManager.inMemory();
+    manager.appendMessage({ content: "request", role: "user", timestamp: 1 });
+
+    const toolResultId = manager.appendMessage({
+      content: [{ text: "result", type: "text" }],
+      isError: false,
+      role: "toolResult",
+      timestamp: 2,
+      toolCallId: "call",
+      toolName: "read",
     });
 
-    const customMessage = entry(
-      "custom-message",
-      {
-        content: "context note",
-        customType: "test",
-        display: false,
-        type: "custom_message",
-      },
-      "tool-result",
-    );
+    manager.appendCustomMessageEntry("test", "context note", false);
+    expect(latestTurnMessageRole(manager.buildSessionProjection().messages)).toBe("toolResult");
 
-    expect(latestTurnMessageRole([toolResult, customMessage])).toBe("toolResult");
+    manager.appendContextEdit(toolResultId, null);
+    expect(latestTurnMessageRole(manager.buildSessionProjection().messages)).toBe("user");
+    expect(buildLifecycleSource(manager.getBranch(), SPIKE_MODEL).latestMessageRole).toBe("user");
   });
 
   it("uses full active branch history rather than Pi's summary subset", () => {
@@ -298,6 +293,18 @@ describe("lifecycle source and checkpoint construction", () => {
       prefix: [],
       retainedItems: [userInput("old user"), userInput("new user")],
     });
+  });
+
+  it("uses projected user content for compaction input and retention", () => {
+    const manager = SessionManager.inMemory();
+    const omitted = manager.appendMessage({ role: "user", content: "omit me", timestamp: 1 });
+    const edited = manager.appendMessage({ role: "user", content: "old", timestamp: 2 });
+    manager.appendContextEdit(omitted, null);
+    manager.appendContextEdit(edited, { content: "corrected" });
+
+    const source = buildLifecycleSource(manager.getBranch(), SPIKE_MODEL);
+    expect(source.contextMessages).toMatchObject([{ role: "user", content: "corrected" }]);
+    expect(source.retainedItems).toStrictEqual([userInput("corrected")]);
   });
 
   it("ignores corrupt inline state only with safe local Pi provenance", () => {
@@ -498,16 +505,25 @@ describe("lifecycle source and checkpoint construction", () => {
       type: CHECKPOINT_CUSTOM_TYPE,
     });
 
-    const lifecycleEntry = entry("checkpoint", {
-      details: {
-        checkpoint,
-        type: CHECKPOINT_CUSTOM_TYPE,
-      },
-      firstKeptEntryId: "old",
-      summary: "local marker",
-      tokensBefore: 100,
-      type: "compaction",
+    const keptBeforeCheckpoint = entry("old", {
+      message: { content: "already checkpointed", role: "user", timestamp: 1 },
+      type: "message",
     });
+
+    const lifecycleEntry = entry(
+      "checkpoint",
+      {
+        details: {
+          checkpoint,
+          type: CHECKPOINT_CUSTOM_TYPE,
+        },
+        firstKeptEntryId: "old",
+        summary: "local marker",
+        tokensBefore: 100,
+        type: "compaction",
+      },
+      "old",
+    );
 
     const tailEntry = entry(
       "tail",
@@ -522,9 +538,35 @@ describe("lifecycle source and checkpoint construction", () => {
       "checkpoint",
     );
 
-    const repeatedSource = buildLifecycleSource([lifecycleEntry, tailEntry], SPIKE_MODEL);
+    const branch = [keptBeforeCheckpoint, lifecycleEntry, tailEntry];
+    expect(
+      buildSessionProjection(branch).entries.map(({ sourceEntry }) => sourceEntry.id),
+    ).toStrictEqual(["checkpoint", "old", "tail"]);
+    const repeatedSource = buildLifecycleSource(branch, SPIKE_MODEL);
+    expect(repeatedSource.contextMessages).toMatchObject([
+      { role: "user", content: [{ text: "tail user", type: "text" }] },
+    ]);
+    expect(repeatedSource.retainedItems).not.toContainEqual(userInput("already checkpointed"));
+
+    const editedTail = entry(
+      "tail-edit",
+      { type: "context_edit", targetId: "tail", replacement: { content: "edited tail" } },
+      "tail",
+    );
+
+    const editedSource = buildLifecycleSource([...branch, editedTail], SPIKE_MODEL);
+    expect(editedSource.contextMessages).toMatchObject([{ role: "user", content: "edited tail" }]);
+    expect(editedSource.retainedItems.at(-1)).toStrictEqual(userInput("edited tail"));
+
+    const omittedSource = buildLifecycleSource(
+      [...branch, { ...editedTail, replacement: null }],
+      SPIKE_MODEL,
+    );
+
+    expect(omittedSource.contextMessages).toStrictEqual([]);
+    expect(omittedSource.retainedItems).toHaveLength(2);
     expect(() =>
-      buildLifecycleSource([lifecycleEntry, tailEntry], {
+      buildLifecycleSource(branch, {
         ...SPIKE_MODEL,
         baseUrl: "https://changed-endpoint.invalid/backend-api",
       }),
@@ -549,7 +591,7 @@ describe("lifecycle source and checkpoint construction", () => {
         retainedItems: repeatedSource.retainedItems,
       },
       resolvableInstall: isLifecycleInstallationResolvable(
-        [lifecycleEntry, tailEntry],
+        branch,
         checkpoint.response.id,
         checkpoint.replacementSha256,
       ),
@@ -870,6 +912,24 @@ describe("lifecycle source and checkpoint construction", () => {
         1,
         SPIKE_MODEL,
       ),
+      editedUsage: freshAssistantUsageTokens(
+        [
+          staleAssistant,
+          boundary,
+          freshAssistant,
+          entry(
+            "edit",
+            {
+              type: "context_edit",
+              targetId: "fresh-assistant",
+              replacement: null,
+            },
+            "fresh-assistant",
+          ),
+        ],
+        1,
+        SPIKE_MODEL,
+      ),
       retryUsage: freshAssistantUsageTokens(
         [staleAssistant, boundary, freshAssistant, failedAssistant, trailingUser],
         1,
@@ -880,6 +940,7 @@ describe("lifecycle source and checkpoint construction", () => {
       decisions: [false, true, false, true, true, false],
       envelopeDecisions: [true, true, false, false, false],
       freshUsage: 13,
+      editedUsage: undefined,
       retryUsage: undefined,
       staleUsage: undefined,
     });

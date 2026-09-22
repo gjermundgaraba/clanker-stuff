@@ -91,11 +91,9 @@ export const tokenizeArguments = (input: string): string[] => {
   return tokens;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- CLI and filesystem exceptions may be arbitrary thrown values.
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command failures are caught JavaScript values, not a domain payload to decode.
 export const notifyError = (ctx: ExtensionCommandContext, label: string, cause: unknown): void => {
   ctx.ui.notify(`${label}: ${errorMessage(cause)}`, "error");
 };

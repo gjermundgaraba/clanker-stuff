@@ -1,6 +1,5 @@
 /** @param {unknown} input The task explicitly includes non-string route rejection. */
 export function parseRoute(input) {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Route parsing must reject non-strings before splitting and validate both slash-separated components below.
   if (typeof input !== "string") {
     throw new TypeError("route must be a string");
   }

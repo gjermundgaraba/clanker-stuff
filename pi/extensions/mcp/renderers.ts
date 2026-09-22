@@ -17,12 +17,10 @@ type Renderers = Required<Pick<ToolDefinition, "renderCall" | "renderResult">>;
 const isData = (value: unknown): value is Data =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-/* oxlint-disable anti-slop/no-runtime-typeof -- Generic MCP display intentionally accepts arbitrary/partial JSON; field-level rendering must not impose a remote tool schema. */
 const record = (value: JsonValue | undefined): Data => (isData(value) ? value : {});
 
 const inline = (value: JsonValue | undefined) =>
   typeof value === "string" ? inlineText(value) : "";
-/* oxlint-enable anti-slop/no-runtime-typeof */
 
 const json = (value: JsonValue) => {
   try {
@@ -63,7 +61,6 @@ export const mcpRenderers = (server: string, tool: string, manager = false): Ren
           if (context.expanded) {
             const visible = new Set(["type"]);
 
-            /* oxlint-disable anti-slop/no-runtime-typeof -- Partial-call display deliberately shows attempted numeric settings even when execution will reject them; keep credentials hidden. */
             for (const key of ["heartbeatIntervalMs", "heartbeatTimeoutMs"]) {
               const value = config[key];
 
@@ -88,14 +85,12 @@ export const mcpRenderers = (server: string, tool: string, manager = false): Ren
               )
             )
               visible.add("oauth");
-            /* oxlint-enable anti-slop/no-runtime-typeof */
 
             if (Object.keys(config).some((key) => !visible.has(key)))
               lines.push(theme.fg("muted", "Additional configuration hidden"));
           }
         } else {
           for (const [key, value] of Object.entries(data)) {
-            /* oxlint-disable anti-slop/no-runtime-typeof -- Remote tool arguments are arbitrary JSON; discriminate variants for display without imposing an application schema. */
             const content =
               typeof value === "string"
                 ? clean(value)
@@ -106,7 +101,6 @@ export const mcpRenderers = (server: string, tool: string, manager = false): Ren
                     : value !== null && typeof value === "object"
                       ? "{…}"
                       : String(value);
-            /* oxlint-enable anti-slop/no-runtime-typeof */
 
             lines.push(
               `${theme.fg("muted", `${inline(key)}:`)} ${theme.fg("toolOutput", content)}`,

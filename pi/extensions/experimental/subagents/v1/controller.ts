@@ -65,7 +65,6 @@ export interface V1ControllerDependencies {
   dataDir: string;
   id?: () => string;
   nicknames: NicknamePool;
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Background task rejections may be arbitrary JavaScript values.
   onBackgroundError?: (cause: unknown) => void;
 }
 
@@ -195,7 +194,6 @@ const applyFinal = (agent: OpenAgent, final: ChildTurnOutcome, queue: V1Turn[]):
 
 const reportFailure = async (
   operation: Promise<unknown> | undefined,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Cleanup must report arbitrary promise rejections without changing the thrown value.
   report?: (cause: unknown) => void,
 ): Promise<void> => {
   try {
@@ -215,7 +213,6 @@ export class V1Controller {
   readonly #maxOpenAgents: number;
   readonly #nicknames: NicknamePool;
   readonly #nicknameReservations = new Map<string, symbol>();
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Preserves the background-error callback contract for arbitrary thrown values.
   readonly #onBackgroundError: ((cause: unknown) => void) | undefined;
   readonly #openReservations = new Map<symbol, string>();
   readonly #provisionalSpawns = new Set<Promise<null>>();
@@ -381,7 +378,7 @@ export class V1Controller {
           cwd: ctx.cwd,
           dataDir: this.#dataDir,
           history: input.forkContext
-            ? forkHistory(ctx.sessionManager.buildContextEntries(), "all")
+            ? forkHistory(ctx.sessionManager.buildSessionProjection().messages, "all")
             : [],
           identity: id,
           model: settings.model,
@@ -1310,7 +1307,6 @@ export class V1Controller {
 
   async #markError(
     id: string,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Records an arbitrary child prompt rejection while preserving its original error cause.
     cause: unknown,
     attemptId: string | undefined,
     epoch: symbol,

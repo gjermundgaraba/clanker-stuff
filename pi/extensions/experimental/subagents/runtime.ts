@@ -153,7 +153,6 @@ const findModel = (
   modelId: string,
 ): Model<Api> | undefined => registry.find(provider, modelId);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Restored child-session failures can throw arbitrary values; this boundary turns them into a permanent runtime failure.
 const restoreError = (cause: unknown): PermanentChildError =>
   cause instanceof PermanentChildError
     ? cause
@@ -288,7 +287,6 @@ export const finalFromMessages = (
 
     if (candidate.stopReason === "error") {
       return {
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Child failure diagnostics retain a fallback when an external assistant message has a malformed error field.
         error: typeof candidate.errorMessage === "string" ? candidate.errorMessage : "Agent failed",
         status: "errored",
       };
@@ -444,7 +442,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     const poisoned = Promise.withResolvers<never>();
     void ignored(poisoned.promise);
 
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Child-session persistence failures must poison that runtime even when a dependency rejects with a non-Error value.
     const poison = (cause: unknown): PermanentChildError => {
       if (poisonError !== undefined) {
         return poisonError;

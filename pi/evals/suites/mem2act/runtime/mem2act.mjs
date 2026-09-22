@@ -10,7 +10,6 @@ const callsPath = process.env.MEM2ACT_CALLS_PATH ?? "/app/.mem2act-calls.jsonl";
 const parseJson = (text) => /** @type {unknown} */ (JSON.parse(text));
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- The CLI accepts JSON object arguments and a schema object, not arrays or primitive JSON values.
 const isObject = (value) => value !== null && !Array.isArray(value) && typeof value === "object";
 
 /** @param {string} message @returns {never} */
@@ -43,7 +42,6 @@ if (command === "describe" && args.length === 0) {
   const schema = parseJson(readFileSync(schemaPath, "utf-8"));
   const tool = isObject(schema) && "name" in schema ? schema.name : null;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- A callable schema must supply a nonempty tool name, independent of arbitrary argument payloads.
   if (typeof tool !== "string" || tool.length === 0) {
     fail("tool schema must have a name");
   }

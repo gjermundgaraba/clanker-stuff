@@ -1,5 +1,4 @@
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- This standalone verifier uses a real JSDoc predicate; the syntax-only rule recognizes only TypeScript predicate annotations.
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** @param {unknown} trajectory */

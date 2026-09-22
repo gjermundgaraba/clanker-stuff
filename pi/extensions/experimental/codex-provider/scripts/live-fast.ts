@@ -274,11 +274,9 @@ const randomizedOrders = (pairs: number, random: () => number): Mode[][] => {
   return orders;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The passive WebSocket probe receives native events with string, Blob, or byte payloads; decode the message without changing the transport.
 const messageText = async (event: unknown): Promise<string | undefined> => {
   const data = isRecord(event) ? event.data : undefined;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Passive transport probe inspects raw frames/headers independently without changing the provider payload.
   if (typeof data === "string") {
     return data;
   }
@@ -298,7 +296,6 @@ const messageText = async (event: unknown): Promise<string | undefined> => {
   return undefined;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Timing frames are external telemetry and are validated independently so malformed metrics do not abort inference.
 const timingMetrics = (value: unknown): TimingMetrics | undefined => {
   if (
     !isRecord(value) ||
@@ -313,7 +310,6 @@ const timingMetrics = (value: unknown): TimingMetrics | undefined => {
   for (const key of TIMING_KEYS) {
     const candidate = value.timing_metrics[key];
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Passive transport probe inspects raw frames/headers independently without changing the provider payload.
     if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
       sanitized[key] = candidate;
     }
@@ -352,7 +348,6 @@ export const installWebSocketProbe = () => {
       const observation = active;
       const options: unknown = argumentsList[1];
       const headers = isRecord(options) && isRecord(options.headers) ? options.headers : {};
-      /* oxlint-disable anti-slop/no-runtime-typeof -- Passive probe records raw handshake headers independently of production code; malformed fields stay absent. */
       observation.handshakes.push({
         originator: typeof headers.originator === "string" ? headers.originator : undefined,
         routingHint:
@@ -364,7 +359,6 @@ export const installWebSocketProbe = () => {
             ? headers["x-responsesapi-include-timing-metrics"]
             : undefined,
       });
-      /* oxlint-enable anti-slop/no-runtime-typeof */
 
       const socket = Value.Parse(
         WebSocketProbeSchema,
@@ -376,9 +370,7 @@ export const installWebSocketProbe = () => {
       const nativeSend = socket.send;
       Object.defineProperty(socket, "send", {
         configurable: true,
-        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The probe intercepts the foreign socket send method; preserve arbitrary byte or string payloads for the native implementation.
         value(data: unknown) {
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Passive transport probe inspects raw frames/headers independently without changing the provider payload.
           if (typeof data === "string") {
             try {
               const payload: unknown = JSON.parse(data);
@@ -397,7 +389,6 @@ export const installWebSocketProbe = () => {
         },
         writable: true,
       });
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Foreign socket events are decoded by messageText before the probe reads timing fields.
       socket.addEventListener("message", (event: unknown) => {
         messageSequence += 1;
         const currentMessageSequence = messageSequence;
@@ -425,7 +416,6 @@ export const installWebSocketProbe = () => {
                 payload.type === "response.failed") &&
               isRecord(payload.response)
             ) {
-              /* oxlint-disable anti-slop/no-runtime-typeof -- Passive probe records each terminal field independently; malformed sibling fields must not erase transport evidence. */
               observation.terminalResponses.push({
                 messageSequence: currentMessageSequence,
                 responseId:
@@ -438,7 +428,6 @@ export const installWebSocketProbe = () => {
                   typeof payload.response.status === "string" ? payload.response.status : "absent",
                 type: payload.type,
               });
-              /* oxlint-enable anti-slop/no-runtime-typeof */
             }
           } catch {
             // The shipped provider remains authoritative for response parsing.

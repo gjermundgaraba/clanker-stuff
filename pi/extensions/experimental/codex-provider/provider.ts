@@ -519,13 +519,12 @@ const isAborted = (signal: AbortSignal | undefined) => signal?.aborted ?? false;
 
 const cloneJson = <T>(value: T): T => structuredClone(value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Responses Lite adapts open message/tool-output content, normalizing recognized image parts while preserving foreign content for the protocol processor.
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- Responses Lite adapts open message/tool-output content, normalizing recognized image parts while preserving foreign content for the protocol processor.
 const prepareLiteContent = (content: unknown): unknown => {
   if (!Array.isArray(content)) {
     return content;
   }
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Open wire content can contain unrecognized parts; decode only images and preserve all other values.
   return content.map((item: unknown) => {
     if (!Value.Check(LiteImageSchema, item)) {
       return item;
@@ -859,9 +858,8 @@ const buildRequestBody = (
   return { body, grammarToolInputProperties, responsesLite: lite, systemPrompt };
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Continuation equality compares heterogeneous wire values after JSON serialization, omitting transport metadata at any depth.
 const equalContinuationValue = (value: unknown) => {
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- The JSON replacer receives arbitrary nested values and must return non-metadata fields unchanged.
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- The JSON replacer receives arbitrary nested values and must return non-metadata fields unchanged.
   const serialized = JSON.stringify(value, (key: string, nested: unknown): unknown =>
     key === "internal_chat_message_metadata_passthrough" ? undefined : nested,
   );
@@ -876,7 +874,7 @@ const parseLosslessJsonRecord = (value: string): JsonRecord | undefined => {
   try {
     parsed = JSON.parse(
       value,
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- The JSON reviver inspects original numeric tokens and preserves every other decoded value; a domain projection would lose wire fidelity.
+      // oxlint-disable-next-line anti-slop/no-unknown-returns -- The JSON reviver inspects original numeric tokens and preserves every other decoded value; a domain projection would lose wire fidelity.
       (_key: string, nested: unknown, context?: { source?: string }): unknown => {
         const number = Number(context?.source);
 
@@ -899,7 +897,6 @@ const parseLosslessJsonRecord = (value: string): JsonRecord | undefined => {
   return !lossyNumber && isRecord(parsed) ? parsed : undefined;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Terminal Responses output is untrusted; decode the supported item families before allowing continuation replay.
 const normalizedContinuationOutputItem = (value: unknown): ResponsesInputItem | undefined => {
   if (!Value.Check(ContinuationOutputItemSchema, value)) {
     return undefined;
@@ -986,10 +983,8 @@ const continuationOutputMatches = (
       isRecord(terminalItem) &&
       terminalItem.type === "reasoning" &&
       item.id === terminalItem.id &&
-      /* oxlint-disable anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior. */
       (typeof item.encrypted_content !== "string" || item.encrypted_content.length === 0) &&
       typeof terminalItem.encrypted_content === "string" &&
-      /* oxlint-enable anti-slop/no-runtime-typeof */
       terminalItem.encrypted_content.length > 0
     ) {
       return { ...item, encrypted_content: terminalItem.encrypted_content };
@@ -1031,7 +1026,7 @@ const continuationDelta = (
     : undefined;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Diagnostic hashes must reflect JSON wire serialization of arbitrary request fields; canonical hashing validates the resulting value.
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- Diagnostic hashes must reflect JSON wire serialization of arbitrary request fields; canonical hashing validates the resulting value.
 const jsonWireValue = (value: unknown): unknown => {
   const serialized = JSON.stringify(value);
 
@@ -1039,7 +1034,6 @@ const jsonWireValue = (value: unknown): unknown => {
 };
 
 const requestObservation = (body: OutboundRequestBody) => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
   const cacheKey = typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : undefined;
   const cacheEnabled = cacheKey !== undefined && cacheKey.length > 0;
 
@@ -1106,7 +1100,6 @@ const TERMINAL_QUOTA_ERROR_CODES = new Set([
   "usage_not_included",
 ]);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
 const requestErrorObservation = (cause: unknown) => ({
   code: cause instanceof CodexProviderError ? cause.code : undefined,
   name: cause instanceof Error ? cause.name : "ThrownValue",
@@ -1114,7 +1107,6 @@ const requestErrorObservation = (cause: unknown) => ({
   status: cause instanceof CodexProviderError ? cause.status : undefined,
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
 export const isCodexCompactionCurrentModelFallbackError = (cause: unknown) =>
   cause instanceof CodexProviderError && cause.useCurrentModelFallback;
 
@@ -1150,7 +1142,6 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
   if (event.type === "error") {
     const nested = isRecord(event.error) ? event.error : undefined;
 
-    /* oxlint-disable anti-slop/no-runtime-typeof -- Error-envelope decoder accepts top-level and nested fields independently; retain recoverable server diagnostics when a sibling field is malformed. */
     const status =
       typeof event.status === "number" && Number.isFinite(event.status)
         ? event.status
@@ -1172,7 +1163,6 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
         : typeof nested?.message === "string"
           ? nested.message
           : code;
-    /* oxlint-enable anti-slop/no-runtime-typeof */
 
     const resolvedMessage = message ?? "Codex request failed";
     throw new CodexProviderError(
@@ -1185,10 +1175,8 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
   if (event.type === "response.failed") {
     const response = isRecord(event.response) ? event.response : undefined;
     const error = isRecord(response?.error) ? response.error : undefined;
-    /* oxlint-disable anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior. */
     const message = typeof error?.message === "string" ? error.message : "Codex response failed";
     const code = typeof error?.code === "string" ? error.code : undefined;
-    /* oxlint-enable anti-slop/no-runtime-typeof */
     const classification = responseFailureClassification(code);
     throw new CodexProviderError(
       message,
@@ -1241,12 +1229,10 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
   if (isTerminalResponseEvent(event)) {
     const response = isRecord(event.response) ? event.response : undefined;
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
     if (typeof response?.id === "string") {
       capture.responseId = response.id;
     }
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
     if (typeof response?.service_tier === "string") {
       capture.serviceTier = response.service_tier;
     }
@@ -1277,7 +1263,6 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
         ? rawUsage.input_tokens_details
         : undefined;
 
-      /* oxlint-disable anti-slop/no-runtime-typeof -- Usage decoder preserves valid counters when optional siblings are malformed; a whole-object rejection would discard billable usage. */
       const cached =
         typeof details?.cached_tokens === "number" && Number.isFinite(details?.cached_tokens)
           ? details.cached_tokens
@@ -1315,7 +1300,6 @@ const captureEvent = (capture: ResponseCapture, event: JsonRecord) => {
       ) {
         capture.usage.reasoning = rawUsage.output_tokens_details.reasoning_tokens;
       }
-      /* oxlint-enable anti-slop/no-runtime-typeof */
     }
   }
 };
@@ -1328,7 +1312,6 @@ const terminalTurnState = (event: JsonRecord): string | undefined => {
   for (const [name, value] of Object.entries(event.headers)) {
     if (
       name.toLowerCase() === "x-codex-turn-state" &&
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
       typeof value === "string" &&
       value.length > 0
     ) {
@@ -1411,7 +1394,6 @@ const responseError = (status: number, text: string) => {
     const error = isRecord(parsed) && isRecord(parsed.error) ? parsed.error : undefined;
 
     if (error !== undefined) {
-      /* oxlint-disable anti-slop/no-runtime-typeof -- HTTP error decoder preserves a useful message/code independently; plain text and malformed sibling fields still follow the status-based fallback. */
       const code =
         typeof error.code === "string"
           ? error.code
@@ -1429,7 +1411,6 @@ const responseError = (status: number, text: string) => {
         text,
         classification.useCurrentModelFallback,
       );
-      /* oxlint-enable anti-slop/no-runtime-typeof */
     }
   } catch {
     // Plain-text error bodies are valid.
@@ -1594,7 +1575,6 @@ const connectSocket = async (
     if (signal?.aborted === true) {
       onAbort();
     }
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
   }).catch((cause: unknown) => {
     if (!isAborted(signal)) {
       trace.websocketHandshakeFailures += 1;
@@ -1627,7 +1607,6 @@ const releaseSocket = (session: SessionRuntime, socket: WebSocketLike, keep: boo
   cached.idleTimer.unref?.();
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Supported Node and Bun WebSocket implementations expose different message objects; this decoder validates and converts their actual text/byte payloads.
 const messageData = async (event: unknown) => {
   if (!Value.Check(WebSocketMessageSchema, event)) {
     throw new Error("Unsupported WebSocket message payload");
@@ -1635,7 +1614,6 @@ const messageData = async (event: unknown) => {
 
   const data = event.data;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- WebSocket decoder distinguishes text from Blob/buffer payloads before decoding bytes.
   if (typeof data === "string") {
     return data;
   }
@@ -1694,7 +1672,6 @@ async function* parseWebSocket(
     enqueue(new Error("WebSocket error: stream failed"));
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The WebSocket adapter receives opaque foreign events and passes each to messageData before JSON decoding.
   const onMessage = (event: unknown) => {
     void messageData(event)
       .then((data) => {
@@ -1708,7 +1685,6 @@ async function* parseWebSocket(
         armIdle();
         enqueue(value);
       })
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript rejection values are unconstrained; classify or report only errors this provider recognizes.
       .catch((cause: unknown) => {
         enqueue(cause instanceof Error ? cause : new Error(String(cause)));
       });
@@ -1799,7 +1775,6 @@ async function* bufferInitialResponseCreated(
 
 const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRuntime) => {
   const clientMetadata = isRecord(body.client_metadata) ? body.client_metadata : undefined;
-  /* oxlint-disable anti-slop/no-runtime-typeof -- Hook-supplied metadata is open; only string headers may be forwarded to the transport. */
   const metadata = clientMetadata?.["x-codex-turn-metadata"];
 
   if (typeof metadata === "string") {
@@ -1811,7 +1786,6 @@ const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRu
   if (typeof windowId === "string") {
     headers.set("x-codex-window-id", windowId);
   }
-  /* oxlint-enable anti-slop/no-runtime-typeof */
 
   if (session.turn?.state !== undefined && session.turn.state.length > 0) {
     headers.set("x-codex-turn-state", session.turn.state);
@@ -1820,10 +1794,8 @@ const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRu
 
 const applyRoutingHint = (headers: Headers, body: JsonRecord) => {
   headers.set("originator", body.service_tier === "priority" ? "codex_cli_rs" : "pi");
-  /* oxlint-disable anti-slop/no-runtime-typeof -- Hook-supplied request fields are open; construct routing telemetry only from string model/tier values. */
   const model = typeof body.model === "string" ? body.model : "";
   const tier = typeof body.service_tier === "string" ? `;tier=${body.service_tier}` : "";
-  /* oxlint-enable anti-slop/no-runtime-typeof */
 
   const hint = `model=${model}${tier}`;
   headers.set("x-codex-routing-hint", hint);
@@ -2502,7 +2474,6 @@ export const createCodexProviderRuntime = (
       }
 
       const instructions =
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wire adapter: optional external fields are decoded independently; rejecting the whole envelope would change fallback behavior.
         typeof envelope.instructions === "string"
           ? envelope.instructions
           : getCurrentSystemPrompt(request.context.messages);
@@ -2813,7 +2784,6 @@ export const createCodexProviderRuntime = (
             (message.role !== "user" &&
               message.role !== "assistant" &&
               message.role !== "system") ||
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pi user/assistant content is a string/block union; discriminate it before checking for non-text blocks.
             (typeof message.content !== "string" &&
               message.content.some((block) => block.type !== "text")),
         ))
@@ -3181,14 +3151,12 @@ export const createCodexProviderRuntime = (
             inferenceAttempts: recovery.attempts,
             inferenceDispatches: recovery.dispatches,
           },
-          /* oxlint-disable anti-slop/no-runtime-typeof -- Observation records hook-supplied metadata only when textual; telemetry must not reject the actual request. */
           turnId:
             typeof observedMetadata?.turn_id === "string" ? observedMetadata.turn_id : undefined,
           windowId:
             typeof observedMetadata?.["x-codex-window-id"] === "string"
               ? observedMetadata["x-codex-window-id"]
               : undefined,
-          /* oxlint-enable anti-slop/no-runtime-typeof */
         });
       }
     })();

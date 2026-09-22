@@ -1,12 +1,10 @@
 import type { ToolExecutionSettings } from "./tools/execution-context.js";
-import { getCurrentSystemMessage, normalizeContext, uuidv7 } from "@earendil-works/pi-ai";
+import { normalizeContext, uuidv7 } from "@earendil-works/pi-ai";
 import type { Message, Model, ProviderHeaders, Usage } from "@earendil-works/pi-ai";
 import {
-  buildContextEntries,
-  buildSessionContext,
+  buildSessionProjection,
   calculateContextTokens,
   convertToLlm,
-  sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
 import type {
   BeforeProviderHeadersEvent,
@@ -18,6 +16,7 @@ import type {
   ExtensionEvent,
   ExtensionFactory,
   MessageEndEvent,
+  ProjectedSessionEntry,
   SessionBeforeCompactEvent,
   SessionBeforeCompactResult,
   SessionCompactEvent,
@@ -129,6 +128,7 @@ export interface LifecycleSource {
   readonly branchSha256: string;
   readonly contextMessages: Message[];
   readonly ignoredInlineCheckpoint: boolean;
+  readonly latestMessageRole: ReturnType<typeof latestTurnMessageRole>;
   readonly inputPrefix: readonly ResponsesInputItem[];
   readonly retainedItems: readonly (CheckpointAgentMessageItem | RealUserInputItem)[];
 }
@@ -256,7 +256,6 @@ const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecord
 
 const isUnknownArray = (value: unknown): value is unknown[] => Array.isArray(value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JavaScript promise rejection values are unconstrained; classify both direct and wrapped abort errors.
 const isAbortError = (cause: unknown) =>
   (Value.Check(NamedErrorSchema, cause) && cause.name === "AbortError") ||
   (Value.Check(CausedErrorSchema, cause) && cause.cause.name === "AbortError");
@@ -269,7 +268,6 @@ export const isSupportedLifecycleModel = (
 export const hasResolvedLifecycleAuth = (apiKey?: string): apiKey is string =>
   apiKey !== undefined && apiKey.trim().length > 0;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Snapshot hashing serializes heterogeneous messages and hook payloads, then validates their canonical JSON representation.
 const hashJsonClone = (value: unknown) => {
   const serialized = JSON.stringify(value);
 
@@ -288,17 +286,24 @@ const branchSha256 = (branch: readonly SessionEntry[]) => hashJsonClone(branch);
 const conversationMessages = (messages: Parameters<typeof convertToLlm>[0]): Message[] =>
   convertToLlm(messages).filter((message) => message.role !== "system");
 
-const serializeRealUserEntries = (entries: readonly SessionEntry[], model: SupportedModel) => {
+const serializeRealUserEntries = (
+  entries: readonly ProjectedSessionEntry[],
+  model: SupportedModel,
+) => {
   const users: RealUserInputItem[] = [];
 
-  for (const entry of entries) {
-    if (entry.type !== "message" || entry.message.role !== "user") {
+  for (const { sourceEntry, messages } of entries) {
+    if (
+      sourceEntry.type !== "message" ||
+      sourceEntry.message.role !== "user" ||
+      messages.length === 0
+    ) {
       continue;
     }
 
     const input = convertResponsesMessages(
       model,
-      normalizeContext({ messages: convertToLlm([entry.message]) }),
+      normalizeContext({ messages: convertToLlm(messages) }),
       ALLOWED_TOOL_CALL_PROVIDERS,
       { includeSystemPrompt: false },
     );
@@ -377,8 +382,7 @@ const retainedFinalizedInput = (input: readonly ResponsesInputItem[], model: Sup
     }
 
     const content = Array.isArray(item.content)
-      ? // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Finalized provider content is open wire data; normalize only image parts before the complete user-item decoder.
-        item.content.map((part: unknown) => {
+      ? item.content.map((part: unknown) => {
           if (!Value.Check(ImageItemSchema, part)) {
             return part;
           }
@@ -427,6 +431,8 @@ export const buildLifecycleSource = (
   compHash?: string | null,
 ): LifecycleSource => {
   const boundary = resolveActiveCheckpointBoundary(branch);
+  const projection = buildSessionProjection([...branch]);
+  const latestMessageRole = latestTurnMessageRole(projection.messages);
 
   const canUseLocalHistory =
     (boundary.kind === "checkpoint" || boundary.kind === "invalid-checkpoint") &&
@@ -461,9 +467,10 @@ export const buildLifecycleSource = (
       }
 
       const safePreviousItems = omitUnsupportedImagesFromRetained(previousItems, model);
+      const tail = selectContextSource(projection.entries, boundary);
 
       const tailUsers = omitUnsupportedImagesFromUsers(
-        serializeRealUserEntries(boundary.tail, model),
+        serializeRealUserEntries(tail, model),
         model,
       );
 
@@ -477,22 +484,24 @@ export const buildLifecycleSource = (
 
       return {
         branchSha256: branchSha256(branch),
-        contextMessages: conversationMessages(boundary.tail.flatMap(sessionEntryToContextMessages)),
+        contextMessages: conversationMessages(tail.flatMap(({ messages }) => messages)),
         ignoredInlineCheckpoint: false,
+        latestMessageRole,
         inputPrefix,
         retainedItems: [...safePreviousItems, ...tailUsers],
       };
     }
   }
 
-  const contextEntries = buildContextEntries([...branch]);
+  const contextEntries = projection.entries;
   const users = serializeRealUserEntries(contextEntries, model);
   const retainedItems = omitUnsupportedImagesFromUsers(users, model);
 
   return {
     branchSha256: branchSha256(branch),
-    contextMessages: conversationMessages(buildSessionContext([...branch]).messages),
+    contextMessages: conversationMessages(projection.messages),
     ignoredInlineCheckpoint: canUseLocalHistory,
+    latestMessageRole,
     inputPrefix: [],
     retainedItems,
   };
@@ -502,6 +511,7 @@ const lifecycleSourceSha256 = (source: LifecycleSource) =>
   hashJsonClone({
     contextMessages: source.contextMessages,
     inputPrefix: source.inputPrefix,
+    latestMessageRole: source.latestMessageRole,
     retainedItems: source.retainedItems,
   });
 
@@ -1048,7 +1058,7 @@ const runLifecycleHook = async (
 
       const phase = resolveCheckpointPhase({
         carrier: "lifecycle",
-        latestMessageRole: latestTurnMessageRole(event.branchEntries),
+        latestMessageRole: source.latestMessageRole,
         reason: event.reason,
         runContinues,
         willRetry: event.willRetry,
@@ -1229,21 +1239,24 @@ const replayBoundaryDecision = (
 
 const isConversationMessage = (message: { readonly role: string }) => message.role !== "system";
 
-const contextSourceMessages = (
-  branch: readonly SessionEntry[],
+const selectContextSource = (
+  entries: readonly ProjectedSessionEntry[],
   activeCheckpoint?: ActiveNativeCheckpoint,
-) =>
-  activeCheckpoint
-    ? activeCheckpoint.tail.flatMap(sessionEntryToContextMessages)
-    : buildSessionContext([...branch]).messages;
+) => {
+  if (!activeCheckpoint) return entries;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Mismatch diagnostics must classify arbitrary content, including malformed values, without hiding the evidence behind a domain decoder.
+  // Pi places retained pre-compaction entries after the compaction entry itself.
+  // Raw-tail membership, not the projected boundary position, identifies new history.
+  const tailIds = new Set(activeCheckpoint.rawTail.map(({ id }) => id));
+
+  return entries.filter(({ sourceEntry }) => tailIds.has(sourceEntry.id));
+};
+
 const diagnosticContentType = (content: unknown) => {
   if (Value.Check(TypeTaggedSchema, content)) {
     return content.type;
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Diagnostic classification intentionally accepts arbitrary JS values, including functions and symbols.
   const kind = typeof content;
 
   // Preserve the diagnostic convention that non-finite numbers use the object bucket.
@@ -1266,12 +1279,10 @@ const messageDiagnostic = (message: ContextEvent["messages"][number] | undefined
     hash: hashJsonClone(message),
     role: message.role,
     stopReason:
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Context diagnostics inspect open message fields without rejecting the message whose mismatch they must report.
       "stopReason" in message && typeof message.stopReason === "string"
         ? message.stopReason
         : undefined,
     toolName:
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Context diagnostics inspect open message fields without rejecting the message whose mismatch they must report.
       "toolName" in message && typeof message.toolName === "string" ? message.toolName : undefined,
   };
 };
@@ -1455,26 +1466,15 @@ const sentinelMessage = (
   timestamp: Date.now(),
 });
 
-// Pi persists auto-retry errors but removes them from live agent context.
-const isPersistedRetryError = (message: ContextEvent["messages"][number]) =>
-  message.role === "assistant" && message.stopReason === "error";
+export const latestTurnMessageRole = (messages: readonly ContextEvent["messages"][number][]) =>
+  messages.findLast((message) => message.role !== "custom")?.role;
 
-export const latestTurnMessageRole = (branch: readonly SessionEntry[]) => {
-  for (const entry of branch.toReversed()) {
-    for (const message of sessionEntryToContextMessages(entry).toReversed()) {
-      if (message.role !== "custom") {
-        return message.role;
-      }
-    }
-  }
-
-  return undefined;
-};
-
-const inlineCheckpointPhase = (branch: readonly SessionEntry[]): RequestFrame["phase"] => {
+const inlineCheckpointPhase = (
+  messages: readonly ContextEvent["messages"][number][],
+): RequestFrame["phase"] => {
   const phase = resolveCheckpointPhase({
     carrier: "inline",
-    latestMessageRole: latestTurnMessageRole(branch),
+    latestMessageRole: latestTurnMessageRole(messages),
     reason: "threshold",
     runContinues: true,
     willRetry: false,
@@ -1526,7 +1526,7 @@ const isPossibleAutomaticThreshold = (
 const captureUnframedCandidate = (
   pi: Parameters<ExtensionFactory>[0],
   state: LifecycleState,
-  branch: readonly SessionEntry[],
+  messages: readonly ContextEvent["messages"][number][],
   model: SupportedModel,
   ctx: ExtensionContext,
 ) => {
@@ -1535,7 +1535,7 @@ const captureUnframedCandidate = (
     generation: state.generation,
     leafId: ctx.sessionManager.getLeafId(),
     modelIdentity: modelIdentity(model),
-    phase: inlineCheckpointPhase(branch),
+    phase: inlineCheckpointPhase(messages),
     requestStateSha256: requestSnapshot.hash,
   };
 };
@@ -1624,11 +1624,12 @@ const runContextHook = (
   }
 
   const { activeCheckpoint, model } = replay;
+  const projection = buildSessionProjection(branch);
   const usage = ctx.getContextUsage();
   const possibleThreshold = isPossibleAutomaticThreshold(model, usage, providerRuntime);
 
   if (!activeCheckpoint && !possibleThreshold) {
-    captureUnframedCandidate(pi, state, branch, model, ctx);
+    captureUnframedCandidate(pi, state, projection.messages, model, ctx);
 
     return undefined;
   }
@@ -1637,21 +1638,20 @@ const runContextHook = (
   // compaction checkpoint and later deltas. Framing compares conversation
   // messages only, and the replayed prompt state leads the request instead.
   const conversationMessages = event.messages.filter(isConversationMessage);
-  const baseline = buildSessionContext([...branch]).messages.filter(isConversationMessage);
+  const baseline = projection.messages.filter(isConversationMessage);
 
-  const framedSegment = contextSourceMessages(branch, activeCheckpoint).filter(
-    isConversationMessage,
-  );
+  const framedSegment = selectContextSource(projection.entries, activeCheckpoint)
+    .flatMap(({ messages }) => messages)
+    .filter(isConversationMessage);
 
   const nonce = uuidv7();
 
   const framed = frameContiguousBaseline(
     conversationMessages,
     baseline,
-    framedSegment,
+    framedSegment.length,
     sentinelMessage("start", nonce),
     sentinelMessage("end", nonce),
-    isPersistedRetryError,
   );
 
   if (framed.kind !== "ok") {
@@ -1689,7 +1689,7 @@ const runContextHook = (
         }`,
       );
     } else {
-      captureUnframedCandidate(pi, state, branch, model, ctx);
+      captureUnframedCandidate(pi, state, projection.messages, model, ctx);
     }
 
     return undefined;
@@ -1737,7 +1737,7 @@ const runContextHook = (
         "OpenAI checkpoint replay was blocked because marker framing changed the serialized request.",
       );
     } else {
-      captureUnframedCandidate(pi, state, branch, model, ctx);
+      captureUnframedCandidate(pi, state, projection.messages, model, ctx);
     }
 
     return undefined;
@@ -1750,19 +1750,17 @@ const runContextHook = (
     leafId: ctx.sessionManager.getLeafId(),
     modelIdentity: modelIdentity(model),
     nonce,
-    phase: inlineCheckpointPhase(branch),
+    phase: inlineCheckpointPhase(projection.messages),
     requestStateSha256: requestSnapshot.hash,
   };
 
-  const promptState = getCurrentSystemMessage(event.messages);
-
-  return { messages: promptState ? [promptState, ...framed.messages] : [...framed.messages] };
+  // Pi restores prompt/tool state after this conversation-only context hook.
+  return { messages: [...framed.messages] };
 };
 
 export type FinalizedResponsesEnvelope = Static<typeof FinalizedResponsesEnvelopeSchema>;
 
 export const parseFinalizedResponsesEnvelope = (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   model: SupportedModel,
 ): FinalizedResponsesEnvelope | undefined => {
@@ -1784,9 +1782,8 @@ export const freshAssistantUsageTokens = (
   model: SupportedModel,
 ): number | undefined => {
   for (const entry of branch.slice(boundaryIndex + 1).reverse()) {
-    if (sessionEntryToContextMessages(entry).length === 0) {
-      continue;
-    }
+    // Usage from before an edit measures a different model-visible context.
+    if (entry.type === "context_edit") return undefined;
 
     if (entry.type !== "message" || entry.message.role !== "assistant") {
       continue;
@@ -1840,7 +1837,6 @@ type FinalizedReplayPreparation =
     };
 
 const prepareFinalizedReplay = (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   model: Model<string> | undefined,
   frame: RequestFrame,
@@ -1875,7 +1871,6 @@ const prepareFinalizedReplay = (
     ),
   );
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Provider hooks can supply open payload fields; inspect them without assuming the hook preserved the original types.
   const instructions = typeof envelope.instructions === "string" ? envelope.instructions : "";
   const estimatedTokens = estimateModelVisibleTokens(instructions, effectiveInput);
 
@@ -2172,7 +2167,6 @@ const runUnframedCandidateHook = async (
   state: LifecycleState,
   candidate: UnframedCandidate,
   headers: Readonly<ProviderHeaders> | undefined,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
@@ -2226,7 +2220,6 @@ const runUnframedCandidateHook = async (
 
   const authoritativeInput = jsonInputClone(envelope.input);
   const split = splitUnframedInput(authoritativeInput);
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Provider hooks can supply open payload fields; inspect them without assuming the hook preserved the original types.
   const instructions = typeof envelope.instructions === "string" ? envelope.instructions : "";
 
   const transitionCompaction = transitionCompactionModel(
@@ -2313,7 +2306,6 @@ const runBeforeProviderRequestHook = async (
   pi: Parameters<ExtensionFactory>[0],
   state: LifecycleState,
   headers: Readonly<ProviderHeaders> | undefined,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Pi provider hooks can carry foreign or rewritten payloads; the finalized-envelope decoder validates owned requests and other values pass through unchanged.
   payload: unknown,
   ctx: ExtensionContext,
   providerRuntime: CodexProviderRuntime,
@@ -2391,7 +2383,6 @@ const runBeforeProviderRequestHook = async (
     state,
     providerRuntime,
     model,
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Provider hooks can supply open payload fields; inspect them without assuming the hook preserved the original types.
     typeof envelope.instructions === "string" ? envelope.instructions : "",
     effectiveInput,
   );
@@ -2495,7 +2486,7 @@ export const resolvePreviousTurnTransition = (
   const durableCheckpoint = boundary.kind === "checkpoint" ? boundary.checkpoint : undefined;
 
   const tailMessage =
-    boundary.kind === "checkpoint" ? findPreviousModelMessage(boundary.tail) : undefined;
+    boundary.kind === "checkpoint" ? findPreviousModelMessage(boundary.rawTail) : undefined;
 
   const previousMessage = tailMessage ?? findPreviousModelMessage(branch);
   const durableIdentity = tailMessage ? undefined : durableCheckpoint?.identity;

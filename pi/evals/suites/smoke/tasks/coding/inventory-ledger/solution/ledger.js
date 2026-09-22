@@ -24,13 +24,11 @@ export function parseEvents(input) {
       throw lineError(TypeError, line, "event must be an object");
     }
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The event decoder validates SKU text, event kind and integer quantity together; no coercion is accepted.
     const sku = typeof event.sku === "string" ? event.sku.trim().toUpperCase() : "";
     const { type, quantity } = event;
     const validType = type === "receive" || type === "ship" || type === "adjust";
 
     const validQuantity =
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Number.isInteger does not narrow unknown; preserve the decoder's integer and per-kind range checks.
       typeof quantity === "number" &&
       Number.isInteger(quantity) &&
       (type === "adjust" ? quantity >= 0 : quantity > 0);
@@ -66,5 +64,4 @@ export function applyEvents(events) {
 }
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- Each JSONL event must be an object before the full event decoder inspects its required fields.
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);

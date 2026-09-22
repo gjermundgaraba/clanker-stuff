@@ -69,7 +69,6 @@ const socketEvent = (
   }
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The fake transport serializes valid and malformed server frames to exercise the real stream decoder.
 const socketMessage = (socket: ScriptedSocket, value: unknown) => {
   queueMicrotask(() => {
     socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) }));
@@ -134,7 +133,6 @@ const createCodexProviderRuntime = (
 
 const expectedFallbackMultiAgentVersions = codexContractFixture.catalog.declarations;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The transport fixture serializes an arbitrary first frame before injecting a stream failure.
 const interruptedSse = (firstEvent: unknown) => {
   const bytes = new TextEncoder().encode(`data: ${JSON.stringify(firstEvent)}\n\n`);
   let sent = false;
@@ -219,7 +217,6 @@ const context = (
 const CODE_MODE_TOOLS: NonNullable<Context["tools"]> = new CodeModeRuntime().createTools();
 
 const readBody = (body: RequestInit["body"]) => {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture discriminates platform body types and open wire fields without assuming production output is valid.
   if (typeof body === "string") {
     return wireRecord(JSON.parse(body));
   }
@@ -238,7 +235,6 @@ const requestKind = (frame: WireRecord) => {
   return wireString(turn.request_kind);
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test hook receives Pi’s opaque provider payload and uses the wire decoder before inserting a retry marker.
 const markProtocolRetryPayload = (payload: unknown) => ({
   ...wireRecord(payload),
   protocolRetryTest: true,
@@ -251,7 +247,6 @@ const FAST_MODEL = {
   name: "GPT-5.6 Sol",
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- JWT fixtures serialize heterogeneous headers and claims, including malformed claims for auth rejection tests.
 const encodeJwtPart = (value: unknown): string =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
@@ -679,7 +674,6 @@ describe("Codex provider", () => {
       sessionId: "tool-settings",
       transport: "sse" as const,
       reasoning: "high" as const,
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test hook receives Pi’s opaque provider payload and uses the wire decoder before changing reasoning effort.
       onPayload: async (payload: unknown) => {
         // Refresh after request capture: only the next request should see 7.
         await Promise.resolve();
@@ -3037,7 +3031,6 @@ describe("Codex provider", () => {
 
     const reconstructed = wireRecords(followup.input).find(
       (item) =>
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture discriminates platform body types and open wire fields without assuming production output is valid.
         (typeof callId === "string" && item.call_id === callId) ||
         (item.id === fixture.item.id && item.type === fixture.item.type),
     );
@@ -4336,7 +4329,6 @@ describe("Codex provider", () => {
       vi.stubGlobal("fetch", async () => {
         attempts += 1;
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Transport fixture discriminates platform body types and open wire fields without assuming production output is valid.
         return typeof body === "string"
           ? new Response(body, { status })
           : Response.json(body, { status });

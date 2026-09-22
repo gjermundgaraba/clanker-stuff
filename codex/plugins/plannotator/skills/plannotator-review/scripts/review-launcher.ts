@@ -138,7 +138,6 @@ const completionBeforeReady = async (completion: Promise<CliCompletion>): Promis
   throw new Error("Plannotator exited before opening the review server");
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem failures are arbitrary thrown values; this distinguishes an absent launch file from other failures.
 const isMissingFileError = (cause: unknown): boolean =>
   cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 
@@ -146,7 +145,6 @@ const parseReadyMetadata = (line: string): ReadyMetadata | undefined => {
   try {
     const value: unknown = JSON.parse(line);
 
-    /* oxlint-disable anti-slop/no-runtime-typeof -- Decode the standalone launcher's readiness-file contract here, including its boolean and URL invariants. */
     if (
       typeof value !== "object" ||
       value === null ||
@@ -156,7 +154,6 @@ const parseReadyMetadata = (line: string): ReadyMetadata | undefined => {
       typeof value.isRemote !== "boolean" ||
       !URL.canParse(value.url)
     ) {
-      /* oxlint-enable anti-slop/no-runtime-typeof */
       return undefined;
     }
 
@@ -170,14 +167,12 @@ const parseApiError = (text: string): string | undefined => {
   try {
     const value: unknown = JSON.parse(text);
 
-    /* oxlint-disable anti-slop/no-runtime-typeof -- Decode the remote API error envelope; unrelated response bodies have no diagnostic string. */
     return typeof value === "object" &&
       value !== null &&
       "error" in value &&
       typeof value.error === "string"
       ? value.error
       : undefined;
-    /* oxlint-enable anti-slop/no-runtime-typeof */
   } catch {
     return undefined;
   }

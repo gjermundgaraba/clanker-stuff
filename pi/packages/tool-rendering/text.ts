@@ -18,7 +18,6 @@ const unicodeEscape = (character: string): string =>
   `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`;
 
 /** Serialize first: escaping unsafe display characters must not change the JSON value. */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Serializer sink: accepts whatever JSON.stringify accepts.
 export function jsonText(value: unknown): string {
   return (
     JSON.stringify(value)

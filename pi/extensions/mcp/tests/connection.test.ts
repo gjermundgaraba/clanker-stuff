@@ -96,7 +96,6 @@ describe("mcp connection", () => {
 
       const settled = connection.then(
         (value) => value.close(),
-        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Capture the actual connection rejection without assuming dependencies throw Error objects.
         (cause: unknown) => {
           error = cause;
         },

@@ -98,7 +98,6 @@ const validCheckpoint = (): CheckpointFixture => {
   };
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Parser rejection tests must accept deliberately malformed persisted checkpoints, not assert them into the valid domain.
 const parseKind = (value: unknown) => {
   const parsed = parseCheckpoint(value);
 
@@ -458,7 +457,7 @@ describe("checkpoint protocol", () => {
       native: {
         carrier: native.kind === "checkpoint" ? native.carrier : undefined,
         responseId: native.kind === "checkpoint" ? native.checkpoint.response.id : undefined,
-        tailLength: native.kind === "checkpoint" ? native.tail.length : -1,
+        tailLength: native.kind === "checkpoint" ? native.rawTail.length : -1,
       },
     }).toStrictEqual({
       disabled: "pi-compaction",

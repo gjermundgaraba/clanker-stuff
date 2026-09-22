@@ -7,9 +7,9 @@ import os from "node:os";
 import path from "node:path";
 
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { getAgentDir, RpcClient } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, RpcClient, VERSION } from "@earendil-works/pi-coding-agent";
 
-import { auditLocalOrder, SUPPORTED_PI_VERSION } from "../audit-local-order.ts";
+import { auditLocalOrder } from "../audit-local-order.ts";
 import { resolveCheckpointCarrier } from "../checkpoint.ts";
 import { isWireRecord as isRecord } from "./wire.ts";
 import type { WireRecord } from "./wire.ts";
@@ -43,17 +43,12 @@ const resolveInstalledPiCli = () => {
     encoding: "utf-8",
   }).trim();
 
-  assert(
-    version === SUPPORTED_PI_VERSION,
-    `Unsupported installed Pi version ${version}; expected ${SUPPORTED_PI_VERSION}`,
-  );
+  assert(version === VERSION, `Installed Pi ${version} does not match SDK ${VERSION}`);
 
   return cliPath;
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The installed-package probe reads opaque RPC events independently of the implementation being tested.
 const eventType = (event: unknown) =>
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
   isRecord(event) && typeof event.type === "string" ? event.type : undefined;
 
 const waitForNotify = (client: RpcClient, messagePrefix: string, timeoutMs = 10_000) => {
@@ -66,7 +61,6 @@ const waitForNotify = (client: RpcClient, messagePrefix: string, timeoutMs = 10_
       isRecord(candidate) &&
       candidate.type === "extension_ui_request" &&
       candidate.method === "notify" &&
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
       typeof candidate.message === "string" &&
       candidate.message.startsWith(messagePrefix)
     ) {
@@ -187,7 +181,7 @@ const run = async () => {
   const audit = await auditLocalOrder({
     agentDir,
     cwd,
-    piVersion: SUPPORTED_PI_VERSION,
+    piVersion: VERSION,
   });
 
   const extensionErrors: unknown[] = [];
@@ -256,7 +250,6 @@ const run = async () => {
     assert(copied.trim() === sentinel, "Initial turn did not copy the sentinel safely");
     const initialText = await client.getLastAssistantText();
     assert(
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
       typeof initialText === "string" &&
         initialText.includes("INITIAL_OK") &&
         initialText.includes("REAL-INSTALLED-PI") &&
@@ -329,7 +322,6 @@ const run = async () => {
 
     const state = await client.getState();
     assert(
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
       typeof state.sessionFile === "string" && state.sessionFile.length > 0,
       "Installed canary did not create a session file",
     );
@@ -395,7 +387,6 @@ const run = async () => {
     );
     const resumeText = await client.getLastAssistantText();
     assert(
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Installed-process canary must verify observed RPC fields independently of the implementation under test.
       typeof resumeText === "string" && resumeText.includes("RESUME_OK"),
       "Fresh-process resume did not finish cleanly",
     );
@@ -429,7 +420,7 @@ if (process.argv[1] === import.meta.filename) {
   if (process.argv.includes("--help")) {
     console.log(`Usage: vp run @clanker-stuff/codex-provider#test:live:installed
 
-Runs a paid happy-path canary through the system-installed Pi ${SUPPORTED_PI_VERSION}, actual
+Runs a paid happy-path canary through the system-installed Pi ${VERSION}, actual
 configured environment, native model context window, and isolated temp project.`);
   } else {
     try {

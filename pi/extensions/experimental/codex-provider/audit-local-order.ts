@@ -12,8 +12,6 @@ import {
 
 const TARGET_PATH = realpathSync(path.join(import.meta.dirname, "index.ts"));
 
-export const SUPPORTED_PI_VERSION = "0.86.1";
-
 export interface LocalOrderAuditResult {
   readonly count: number;
   readonly extensions: readonly {
@@ -29,17 +27,11 @@ export const auditLocalOrder = async (options?: {
   readonly cwd?: string;
   readonly piVersion?: string;
 }): Promise<LocalOrderAuditResult> => {
-  if (VERSION !== SUPPORTED_PI_VERSION) {
-    throw new Error(`Unsupported audit SDK version ${VERSION}; expected ${SUPPORTED_PI_VERSION}`);
-  }
-
   const piVersion =
     options?.piVersion ?? execFileSync("pi", ["--version"], { encoding: "utf-8" }).trim();
 
-  if (piVersion !== SUPPORTED_PI_VERSION) {
-    throw new Error(
-      `Unsupported Pi executable version ${piVersion}; expected ${SUPPORTED_PI_VERSION}`,
-    );
+  if (piVersion !== VERSION) {
+    throw new Error(`Pi executable ${piVersion} does not match SDK ${VERSION}`);
   }
 
   const cwd = path.resolve(options?.cwd ?? process.cwd());

@@ -34,7 +34,7 @@ The editor's public `getText()` exports expanded text because Pi transfers only 
 
 History preview cancellation restores the complete document, cursor, native undo, and Vim state. Accepting history starts a fresh editing boundary. A revision check prevents previews from overwriting intervening edits. The history database format is unchanged.
 
-The adapter validates its required private Pi surface once. Pi 0.86.1 is the tested target, not a claim of compatibility with arbitrary Pi releases. With an unrelated editor factory installed, or when validation fails inside Pi's factory call, attachment is skipped and a shared status label explains why; a failed validation leaves a stock Pi editor mounted rather than an empty editor container. Skill completion/injection, history persistence, and text-only history search remain available. There is no alternate editor implementation or factory wrapping.
+The adapter validates its required private Pi surface once. The [workspace-pinned Pi SDK](../../../../../pnpm-workspace.yaml) is the tested target, not a claim of compatibility with arbitrary Pi releases. With an unrelated editor factory installed, or when validation fails inside Pi's factory call, attachment is skipped and a shared status label explains why; a failed validation leaves a stock Pi editor mounted rather than an empty editor container. Skill completion/injection, history persistence, and text-only history search remain available. There is no alternate editor implementation or factory wrapping.
 
 ## Validation
 

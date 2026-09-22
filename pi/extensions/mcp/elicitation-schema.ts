@@ -9,7 +9,6 @@ import { z } from "zod";
 const properties = z
   .preprocess(
     (value) =>
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Schema preprocessing must preserve arbitrary field names, including __proto__, before validating each entry.
       typeof value === "object" && value !== null && !Array.isArray(value)
         ? Object.entries(value)
         : undefined,

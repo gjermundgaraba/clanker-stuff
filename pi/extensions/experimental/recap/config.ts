@@ -34,7 +34,6 @@ export interface RecapConfig {
 
 export const getRecapConfigPath = (): string => getExtensionStoragePaths("recap").configFile;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema boundary for the parsed config file.
 export const parseRecapConfig = (value: unknown): RecapConfig => {
   if (!Value.Check(RecapConfigSchema, value)) {
     throw new Error(

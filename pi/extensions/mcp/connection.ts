@@ -26,7 +26,6 @@ export type McpConnectionFactory = (
   signal?: AbortSignal,
 ) => Promise<McpClientConnection>;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- MCP connection failures can be SDK errors, strings, or other thrown values; this boundary formats their diagnostics.
 export const errorMessage = (cause: unknown): string => {
   if (!(cause instanceof Error) || !cause.message) {
     return String(cause);

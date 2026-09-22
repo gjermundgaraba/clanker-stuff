@@ -234,7 +234,6 @@ const assertSnapshotSemantics = (snapshot: SubagentsSnapshot): void => {
   assertV2Semantics(snapshot);
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Decode persisted control JSON here before checking root identity and semantic consistency.
 const assertSnapshot = (value: unknown, expectedRoot: RootBinding): SubagentsSnapshot => {
   if (!Value.Check(SnapshotSchema, value)) {
     throw new Error("Invalid subagent control snapshot");

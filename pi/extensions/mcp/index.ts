@@ -15,7 +15,6 @@ export default function mcp(pi: ExtensionAPI): void {
 
     if (!accounting) return;
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Foreign tool details are opaque; preserve object fields when attaching sampling accounting without interpreting their schema.
     const details = typeof event.details === "object" ? event.details : undefined;
 
     return {

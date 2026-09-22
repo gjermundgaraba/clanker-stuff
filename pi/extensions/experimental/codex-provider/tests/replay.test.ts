@@ -63,9 +63,6 @@ const agentMessage = (
 const serializedMarker = (edge: "end" | "start", nonce: string) =>
   textUser(frameMarkerText(edge, nonce));
 
-const canOmitAssistantError = (message: { role: string; stopReason?: string }) =>
-  message.role === "assistant" && message.stopReason === "error";
-
 describe("request framing and finalized replay", () => {
   it("frames one baseline while preserving fresh prefix/suffix and removes the lifecycle marker", () => {
     const prefix = { content: "fresh prefix", role: "user" };
@@ -84,7 +81,7 @@ describe("request framing and finalized replay", () => {
     const framed = frameContiguousBaseline(
       [prefix, marker, oldBaseline, liveTail, suffix],
       [marker, oldBaseline, liveTail],
-      [liveTail],
+      1,
       start,
       end,
     );
@@ -192,7 +189,7 @@ describe("request framing and finalized replay", () => {
       timestamp: 3,
     };
 
-    expect(frameContiguousBaseline(reordered, baseline, [], start, end)).toStrictEqual({
+    expect(frameContiguousBaseline(reordered, baseline, 0, start, end)).toStrictEqual({
       framed: [],
       kind: "ok",
       messages: [start, end],
@@ -200,7 +197,7 @@ describe("request framing and finalized replay", () => {
       suffix: [],
     });
     expect(
-      frameContiguousBaseline([...reordered, ...reordered], baseline, [], start, end).kind,
+      frameContiguousBaseline([...reordered, ...reordered], baseline, 0, start, end).kind,
     ).toBe("ambiguous");
   });
 
@@ -217,7 +214,7 @@ describe("request framing and finalized replay", () => {
     const live = { ...value, timestamp: 2 };
     const start = { content: "START", role: "user", timestamp: 3 };
     const end = { content: "END", role: "user", timestamp: 4 };
-    const framed = frameContiguousBaseline([live], [persisted], [persisted], start, end);
+    const framed = frameContiguousBaseline([live], [persisted], 1, start, end);
 
     expect(framed.kind).toBe("ok");
 
@@ -241,84 +238,21 @@ describe("request framing and finalized replay", () => {
     const duplicate = { ...persisted, timestamp: 3 };
     const marker = { content: "marker", role: "user", timestamp: 4 };
 
-    expect(frameContiguousBaseline([changed], [persisted], [persisted], marker, marker).kind).toBe(
-      "missing",
-    );
+    expect(frameContiguousBaseline([changed], [persisted], 1, marker, marker).kind).toBe("missing");
     expect(
-      frameContiguousBaseline([persisted, duplicate], [persisted], [persisted], marker, marker)
-        .kind,
+      frameContiguousBaseline([persisted, duplicate], [persisted], 1, marker, marker).kind,
     ).toBe("ambiguous");
   });
 
-  it("aligns persisted retry errors without reintroducing them into the live segment", () => {
-    const history = { content: "history", role: "user" };
+  it("does not silently omit an error from the canonical baseline", () => {
+    const user = { content: "request", role: "user" };
+    const error = { content: "partial", role: "assistant", stopReason: "error" };
+    const reply = { content: "answer", role: "assistant", stopReason: "stop" };
+    const marker = { content: "marker", role: "user" };
 
-    const firstError = {
-      content: [{ text: "partial one", type: "thinking" }],
-      role: "assistant",
-      stopReason: "error",
-      timestamp: 1,
-    };
-
-    const secondError = {
-      content: [{ text: "partial two", type: "thinking" }],
-      role: "assistant",
-      stopReason: "error",
-      timestamp: 2,
-    };
-
-    const retried = {
-      content: [{ text: "retry", type: "toolCall" }],
-      role: "assistant",
-      stopReason: "toolUse",
-      timestamp: 3,
-    };
-
-    const result = {
-      content: [{ text: "result", type: "text" }],
-      role: "toolResult",
-      timestamp: 4,
-    };
-
-    const start = { content: "START", role: "user" };
-    const end = { content: "END", role: "user" };
-    const baseline = [history, firstError, secondError, retried, result];
-    const segment = [firstError, secondError, retried, result];
-
-    const aligned = frameContiguousBaseline(
-      [history, retried, result],
-      baseline,
-      segment,
-      start,
-      end,
-      canOmitAssistantError,
-    );
-
-    const retained = frameContiguousBaseline(
-      baseline,
-      baseline,
-      segment,
-      start,
-      end,
-      canOmitAssistantError,
-    );
-
-    expect({ aligned, retained }).toStrictEqual({
-      aligned: {
-        framed: [retried, result],
-        kind: "ok",
-        messages: [start, retried, result, end],
-        prefix: [],
-        suffix: [],
-      },
-      retained: {
-        framed: segment,
-        kind: "ok",
-        messages: [start, ...segment, end],
-        prefix: [],
-        suffix: [],
-      },
-    });
+    expect(
+      frameContiguousBaseline([user, reply], [user, error, reply], 2, marker, marker).kind,
+    ).toBe("missing");
   });
 });
 

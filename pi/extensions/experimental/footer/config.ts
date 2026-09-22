@@ -22,7 +22,6 @@ export interface FooterConfigStore {
   save: (config: FooterConfig) => Promise<void>;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Filesystem operations may throw arbitrary values; only their optional diagnostic code is inspected.
 const errorCode = (cause: unknown): string | undefined =>
   cause instanceof Object && "code" in cause ? String(cause.code) : undefined;
 

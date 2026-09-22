@@ -22,12 +22,10 @@ const running = {
   wall_time_seconds: 0.1,
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Display tests serialize arbitrary captured results, including malformed values, to exercise rendering boundaries.
 const items = (value: unknown): RuntimeToolResult["content"] => [
   { text: JSON.stringify(value), type: "text" },
 ];
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Trace fixtures retain arbitrary delegated results so the display tests cover unknown and malformed envelopes.
 const trace = (value: unknown, name = "exec_command"): RuntimeToolTrace => ({
   id: "trace-1",
   input: {},

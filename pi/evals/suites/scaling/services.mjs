@@ -34,11 +34,9 @@ export function toolSpecs(Type) {
 const settings = JSON.parse(readFileSync(new URL("./case.json", import.meta.url), "utf8"));
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
-// oxlint-disable-next-line anti-slop/no-runtime-typeof -- Generated case files and service calls are independent JSON boundaries; this JSDoc predicate excludes null and arrays.
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
 // The task generator owns these required seed and sizing settings. Fail before creating a ledger or cursor loop.
-/* oxlint-disable anti-slop/no-runtime-typeof -- Validate the complete generated case contract; the standalone service has no runtime schema dependency. */
 if (
   !isRecord(settings) ||
   typeof settings.count !== "number" ||
@@ -55,7 +53,6 @@ if (
 ) {
   throw new TypeError("Invalid scaling case settings");
 }
-/* oxlint-enable anti-slop/no-runtime-typeof */
 
 export const SETTINGS = {
   count: settings.count,
@@ -130,7 +127,6 @@ export function createServices({ emit = () => {}, latencyMs = 150 } = {}) {
         const offset =
           isRecord(args) &&
           args.collection === "ledger" &&
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This callable backend also serves the reference solver directly; validate the complete list request before cursor lookup.
           (args.cursor === null || typeof args.cursor === "string")
             ? cursors.get(args.cursor)
             : undefined;
@@ -147,7 +143,6 @@ export function createServices({ emit = () => {}, latencyMs = 150 } = {}) {
         let report;
 
         try {
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- A submission must contain JSON text; its parsed report stays unknown for the grader to judge, including malformed task answers.
           if (!isRecord(args) || typeof args.json !== "string")
             throw new TypeError("Missing report JSON");
           report = JSON.parse(args.json);

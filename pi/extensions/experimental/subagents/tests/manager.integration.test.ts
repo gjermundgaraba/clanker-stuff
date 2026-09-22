@@ -900,10 +900,9 @@ describe("root subagent delivery", () => {
         harness
           .messages()
           .filter(
-            (message) =>
-              message.role === "custom" && JSON.stringify(message).includes("child answer"),
+            (message) => message.role === "custom" && message.customType === V1_NOTIFICATION_TYPE,
           ),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
       expect(
         appendSpy.mock.calls.filter(([customType]) => customType === V1_NOTIFICATION_TYPE),
       ).toHaveLength(1);
@@ -1135,10 +1134,9 @@ describe("root subagent delivery", () => {
         harness
           .messages()
           .filter(
-            (message) =>
-              message.role === "custom" && JSON.stringify(message).includes("child answer"),
+            (message) => message.role === "custom" && message.customType === SUBAGENT_MESSAGE_TYPE,
           ),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
       const snapshot = await controlStore(harness).load();
       expect(
         snapshot?.protocolLatch === "v2"
