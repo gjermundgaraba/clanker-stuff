@@ -1,0 +1,31 @@
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { createTiming, formatElapsed } from "../timing.js";
+
+afterEach(() => vi.useRealTimers());
+
+describe("active timing", () => {
+  it("uses monotonic time even if the wall clock jumps and coalesces duplicate pauses/resumes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const clock = createTiming(false);
+    vi.advanceTimersByTime(1000);
+    clock.pause();
+    clock.pause();
+    vi.setSystemTime(1);
+    vi.advanceTimersByTime(2000);
+    clock.resume();
+    clock.resume();
+    vi.advanceTimersByTime(500);
+    expect(clock.read()).toEqual({ startedAt: 1000, activeMs: 1500, wallMs: 3500 });
+  });
+
+  it.each([
+    [0, "0.0s"],
+    [12_345, "12.3s"],
+    [60_000, "1:00"],
+    [125_000, "2:05"],
+  ] as const)("formats %i ms", (ms, expected) => {
+    expect(formatElapsed(ms)).toBe(expected);
+  });
+});

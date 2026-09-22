@@ -12,7 +12,6 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | [`@clanker-stuff/mcp`](pi/extensions/mcp)                                   | Connects selected MCP servers to pi and registers their tools.                             |
 | [`@clanker-stuff/shell-resume-history`](pi/extensions/shell-resume-history) | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits.        |
 | [`@clanker-stuff/stash`](pi/extensions/stash)                               | Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text.      |
-| [`@clanker-stuff/timer`](pi/extensions/timer)                               | Tracks agent execution time and displays a live running timer in the status bar.           |
 | [`@clanker-stuff/tool-picker`](pi/extensions/tool-picker)                   | Adds /tools for choosing active tools, with selections saved per session branch.           |
 
 ## Experimental pi extensions
@@ -25,10 +24,10 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | [`@clanker-stuff/context`](pi/extensions/experimental/context)                   | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details.                                                                                |
 | [`@clanker-stuff/footer`](pi/extensions/experimental/footer)                     | Hosts a configurable cooperative footer for built-in, native, and rich extension widgets.                                                                                 |
 | [`@clanker-stuff/plannotator`](pi/extensions/experimental/plannotator)           | Adds Plannotator review and annotation commands to pi.                                                                                                                    |
-| [`@clanker-stuff/recap`](pi/extensions/experimental/recap)                       | Automatically adds durable conversation recap cards after settled Pi turns using a configured secondary model.                                                            |
 | [`@clanker-stuff/shape-spinner`](pi/extensions/experimental/shape-spinner)       | Replaces Pi's working, retry, compaction, and branch-summary spinners with selectable Rubik's cube or wireframe shape animations.                                         |
 | [`@clanker-stuff/side`](pi/extensions/experimental/side)                         | Adds a concurrent multi-turn /side conversation with an adaptive side panel.                                                                                              |
 | [`@clanker-stuff/subagents`](pi/extensions/experimental/subagents)               | Adds durable hierarchical subagents with independent pi sessions, modeled on the Codex collaboration tools; works with any provider but is tuned for OpenAI Codex models. |
+| [`@clanker-stuff/turn-recap`](pi/extensions/experimental/turn-recap)             | Shows a persistent live turn card with timing, usage, tool activity, and optional LLM recaps.                                                                             |
 | [`@clanker-stuff/usage`](pi/extensions/experimental/usage)                       | Shows account usage for supported providers and contributes usage widgets to cooperative footers.                                                                         |
 | [`@clanker-stuff/user-attention`](pi/extensions/experimental/user-attention)     | Sends attention notifications while pi continues working.                                                                                                                 |
 | [`@clanker-stuff/vim`](pi/extensions/experimental/vim)                           | Adds composable Vim editing with transactional undo and visual selections to pi.                                                                                          |

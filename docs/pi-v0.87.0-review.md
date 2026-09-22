@@ -63,7 +63,7 @@ Boundary proposals are validated before persistence, not an atomic durable trans
 
 The [`context` inspector](../pi/extensions/experimental/context/snapshot.ts) already counts effective context. `buildSessionProjection().entries` can additionally show raw-versus-projected provenance, edited content, and omitted attempts. That would make recovery and replay failures easier to explain without modifying history.
 
-[`recap/runtime.ts`](../pi/extensions/experimental/recap/runtime.ts) still summarizes raw retained user/assistant entries. Consider projected message content for the generated recap so it does not summarize a superseded length-limited attempt or an explicitly replaced message. Keep raw-branch cadence accounting separate, and preserve the existing policy of excluding compaction summaries. This is a user-visible policy choice, not a mechanical version migration.
+The renamed [`turn-recap/conversation.ts`](../pi/extensions/experimental/turn-recap/conversation.ts) now uses projected message content, so generated recaps respect omitted or replaced messages. Raw-branch usage accounting remains separate, and compaction summaries remain excluded from recap input.
 
 ### 4. Model-specific image handling
 

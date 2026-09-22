@@ -490,34 +490,6 @@ importers:
         specifier: 'catalog:'
         version: 0.3.3(@opentelemetry/api@1.9.0)(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
 
-  pi/extensions/experimental/recap:
-    dependencies:
-      '@clanker-stuff/pi-extension-paths':
-        specifier: workspace:^
-        version: link:../../../packages/extension-paths
-      '@clanker-stuff/pi-tool-rendering':
-        specifier: workspace:^
-        version: link:../../../packages/tool-rendering
-      '@earendil-works/pi-ai':
-        specifier: 0.87.0
-        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
-      '@earendil-works/pi-coding-agent':
-        specifier: 0.87.0
-        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
-      '@earendil-works/pi-tui':
-        specifier: 0.87.0
-        version: 0.87.0
-      typebox:
-        specifier: 1.3.14
-        version: 1.3.14
-    devDependencies:
-      vite:
-        specifier: 'catalog:'
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
-      vite-plus:
-        specifier: 'catalog:'
-        version: 0.3.3(@opentelemetry/api@1.9.0)(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
-
   pi/extensions/experimental/shape-spinner:
     dependencies:
       '@clanker-stuff/editor':
@@ -588,6 +560,40 @@ importers:
       typebox:
         specifier: 1.3.14
         version: 1.3.14
+
+  pi/extensions/experimental/turn-recap:
+    dependencies:
+      '@clanker-stuff/pi-extension-paths':
+        specifier: workspace:^
+        version: link:../../../packages/extension-paths
+      '@clanker-stuff/pi-motion':
+        specifier: workspace:^
+        version: link:../../../packages/motion
+      '@clanker-stuff/pi-tones':
+        specifier: workspace:^
+        version: link:../../../packages/tones
+      '@clanker-stuff/pi-tool-rendering':
+        specifier: workspace:^
+        version: link:../../../packages/tool-rendering
+      '@earendil-works/pi-ai':
+        specifier: 0.87.0
+        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.87.0
+        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.87.0
+        version: 0.87.0
+      typebox:
+        specifier: 1.3.14
+        version: 1.3.14
+    devDependencies:
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 0.3.3(@opentelemetry/api@1.9.0)(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
 
   pi/extensions/experimental/usage:
     dependencies:
@@ -777,22 +783,6 @@ importers:
       typebox:
         specifier: 1.3.14
         version: 1.3.14
-    devDependencies:
-      vite:
-        specifier: 'catalog:'
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
-      vite-plus:
-        specifier: 'catalog:'
-        version: 0.3.3(@opentelemetry/api@1.9.0)(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
-
-  pi/extensions/timer:
-    dependencies:
-      '@clanker-stuff/pi-motion':
-        specifier: workspace:^
-        version: link:../../packages/motion
-      '@earendil-works/pi-coding-agent':
-        specifier: 0.87.0
-        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
     devDependencies:
       vite:
         specifier: 'catalog:'

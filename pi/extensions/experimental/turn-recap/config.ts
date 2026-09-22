@@ -32,7 +32,7 @@ export interface RecapConfig {
   thinking: NonNullable<RecapConfigFile["thinking"]>;
 }
 
-export const getRecapConfigPath = (): string => getExtensionStoragePaths("recap").configFile;
+export const getRecapConfigPath = (): string => getExtensionStoragePaths("turn-recap").configFile;
 
 export const parseRecapConfig = (value: unknown): RecapConfig => {
   if (!Value.Check(RecapConfigSchema, value)) {
@@ -51,6 +51,19 @@ export const parseRecapConfig = (value: unknown): RecapConfig => {
   return { model: { id, provider }, thinking: value.thinking ?? "off" };
 };
 
-export const loadRecapConfig = async (configPath = getRecapConfigPath()): Promise<RecapConfig> => {
-  return parseRecapConfig(JSON.parse(await readFile(configPath, "utf-8")));
+export const loadRecapConfig = async (
+  configPath = getRecapConfigPath(),
+): Promise<RecapConfig | undefined> => {
+  let text: string;
+
+  try {
+    text = await readFile(configPath, "utf-8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+
+  const value: unknown = JSON.parse(text);
+
+  return parseRecapConfig(value);
 };

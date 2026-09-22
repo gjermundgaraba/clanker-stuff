@@ -10,7 +10,7 @@ const temporaryConfigPath = async (): Promise<string> => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "recap-config-"));
   onTestFinished(() => rm(directory, { force: true, recursive: true }));
 
-  return path.join(directory, "recap.json");
+  return path.join(directory, "turn-recap.json");
 };
 
 describe("recap config", () => {
@@ -76,7 +76,7 @@ describe("recap config", () => {
 
   it("preserves file and JSON errors", async () => {
     const configPath = await temporaryConfigPath();
-    await expect(loadRecapConfig(configPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(loadRecapConfig(configPath)).resolves.toBeUndefined();
 
     await writeFile(configPath, "{", "utf-8");
     await expect(loadRecapConfig(configPath)).rejects.toBeInstanceOf(SyntaxError);

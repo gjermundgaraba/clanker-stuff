@@ -1,12 +1,12 @@
 {
-  "name": "@clanker-stuff/recap",
+  "name": "@clanker-stuff/turn-recap",
   "version": "0.1.0",
   "private": true,
-  "description": "Automatically adds durable conversation recap cards after settled Pi turns using a configured secondary model.",
+  "description": "Shows a persistent live turn card with timing, usage, tool activity, and optional LLM recaps.",
   "keywords": [
     "pi-package"
   ],
-  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/recap#readme",
+  "homepage": "https://github.com/gjermundgaraba/clanker-stuff/tree/main/pi/extensions/experimental/turn-recap#readme",
   "bugs": {
     "url": "https://github.com/gjermundgaraba/clanker-stuff/issues"
   },
@@ -14,7 +14,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gjermundgaraba/clanker-stuff.git",
-    "directory": "pi/extensions/experimental/recap"
+    "directory": "pi/extensions/experimental/turn-recap"
   },
   "files": [
     "config.ts",
@@ -22,17 +22,26 @@
     "entry.ts",
     "index.ts",
     "runtime.ts",
+    "timing.ts",
+    "metrics.ts",
+    "card.ts",
+    "recap.ts",
     "README.md",
     "LICENSE",
     "docs"
   ],
   "type": "module",
+  "imports": {
+    "#pi-abort": "@earendil-works/pi-ai/utils/abort"
+  },
   "exports": "./index.ts",
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@clanker-stuff/pi-extension-paths": "workspace:^",
+    "@clanker-stuff/pi-motion": "workspace:^",
+    "@clanker-stuff/pi-tones": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },
   "devDependencies": {
