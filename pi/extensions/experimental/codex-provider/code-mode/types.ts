@@ -41,16 +41,21 @@ export interface NestedTool {
   usage: string;
   invoke: (
     input: JsonValue | undefined,
-    context: ToolExecutionContext,
+    context: NestedToolContext,
     signal: AbortSignal,
     // oxlint-disable-next-line anti-slop/no-unknown-returns -- Heterogeneous delegated tools own their result schemas; structured results are parsed JSON the calling cell interprets.
   ) => Promise<unknown>;
 }
 
 export interface ToolExecutionContext {
+  onCellStarted?: (cellId: string) => void;
   extensionContext: ExtensionContext;
   toolCallId?: string;
   onUpdate?: (result: AgentToolResult<unknown>) => void;
+}
+
+export interface NestedToolContext extends Omit<ToolExecutionContext, "onCellStarted"> {
+  cellId: string;
   captureResult?: (result: RuntimeToolResult) => void;
 }
 

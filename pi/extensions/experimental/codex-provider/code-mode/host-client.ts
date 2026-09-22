@@ -185,11 +185,15 @@ export class CodeModeHostClient {
       }
 
       return {
-        ...this.delegateRuntime.attach(runtimeResponseFromValue(await initial.promise)),
+        ...(await this.delegateRuntime.finishResponse(
+          runtimeResponseFromValue(await initial.promise),
+        )),
         maxOutputTokens: maxOutputTokens ?? 10_000,
       };
     } catch (error) {
       this.initial.delete(id);
+
+      if (cellId !== undefined) await this.delegateRuntime.cancelAndSettle(cellId);
       throw error;
     } finally {
       this.delegateRuntime.unobserve(id);
@@ -228,7 +232,7 @@ export class CodeModeHostClient {
         throw new Error("Code-mode host returned an invalid wait outcome");
       }
 
-      return this.delegateRuntime.attach(parseRuntimeResponse(wrapped));
+      return await this.delegateRuntime.finishResponse(parseRuntimeResponse(wrapped));
     });
   }
 
@@ -262,7 +266,7 @@ export class CodeModeHostClient {
         throw new Error("Code-mode host returned an invalid termination outcome");
       }
 
-      return this.delegateRuntime.attach(parseRuntimeResponse(wrapped));
+      return await this.delegateRuntime.finishResponse(parseRuntimeResponse(wrapped));
     });
   }
 
@@ -511,6 +515,7 @@ export class CodeModeHostClient {
       const cellId = executionCellId(value);
 
       if (cellId !== undefined && cellId.length > 0 && pending.context !== undefined) {
+        pending.context.onCellStarted?.(cellId);
         this.delegateRuntime.bindCell(cellId, pending.context.extensionContext, pending.tools);
         this.delegateRuntime.observe(message.id, cellId, pending.context.onUpdate);
       }

@@ -7,7 +7,12 @@ import { nestedToolKey } from "./protocol.js";
 import type { DelegateRequestMessage, DelegateResponse } from "./protocol.js";
 import { CodeModeTraceStore } from "./trace-store.js";
 import { toolResultFromValue, truncateTraceText } from "./trace-values.js";
-import type { NestedTool, RuntimeResponse, ToolExecutionContext } from "./types.js";
+import type {
+  NestedTool,
+  NestedToolContext,
+  RuntimeResponse,
+  ToolExecutionContext,
+} from "./types.js";
 
 const MAX_TRACE_ERROR_CHARS = 16_384;
 
@@ -25,14 +30,44 @@ export class CodeModeDelegateRuntime {
     }
   >();
   private readonly cellTools = new Map<string, Map<string, NestedTool>>();
+  private readonly finalizing = new Set<string>();
   private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly controllers = new Map<number, AbortController>();
+  private readonly pending = new Map<
+    Promise<void>,
+    { cellId: string; controller: AbortController }
+  >();
   private readonly notifications = new Map<string, string[]>();
   private readonly send: (message: DelegateResponse) => void;
   private readonly traces = new CodeModeTraceStore();
 
   constructor(send: (message: DelegateResponse) => void) {
     this.send = send;
+  }
+
+  async cancelAndSettle(cellId: string): Promise<void> {
+    const pending = [...this.pending].filter(([, call]) => call.cellId === cellId);
+
+    for (const [, call] of pending) call.controller.abort();
+    await Promise.allSettled(pending.map(([promise]) => promise));
+  }
+
+  async finishResponse(response: RuntimeResponse): Promise<RuntimeResponse> {
+    if (response.kind === "yielded") return this.attach(response);
+    const { cellId } = response;
+    this.finalizing.add(cellId);
+    clearTimeout(this.cleanupTimers.get(cellId));
+    this.cleanupTimers.delete(cellId);
+
+    try {
+      await this.cancelAndSettle(cellId);
+
+      return this.attach(response);
+    } finally {
+      this.finalizing.delete(cellId);
+      this.notifications.delete(cellId);
+      this.traces.delete(cellId);
+    }
   }
 
   bindCell(cellId: string, context: ExtensionContext, tools?: Map<string, NestedTool>): void {
@@ -68,6 +103,8 @@ export class CodeModeDelegateRuntime {
       clearTimeout(previous);
     }
 
+    if (this.finalizing.has(cellId)) return;
+
     this.cleanupTimers.set(
       cellId,
       setTimeout(() => {
@@ -95,6 +132,7 @@ export class CodeModeDelegateRuntime {
     }
 
     this.cleanupTimers.clear();
+    this.finalizing.clear();
   }
 
   cancel(id: number): void {
@@ -126,7 +164,15 @@ export class CodeModeDelegateRuntime {
       }
     };
 
-    void run();
+    const pending = run();
+    this.pending.set(pending, {
+      cellId:
+        message.request.type === "tool/invoke"
+          ? message.request.invocation.cell_id
+          : message.request.cellId,
+      controller,
+    });
+    void pending.finally(() => this.pending.delete(pending));
   }
 
   attach(response: RuntimeResponse): RuntimeResponse {
@@ -227,7 +273,8 @@ export class CodeModeDelegateRuntime {
       input,
     );
 
-    const invocationContext: ToolExecutionContext = {
+    const invocationContext: NestedToolContext = {
+      cellId,
       extensionContext: context,
       captureResult: (result) => {
         trace.result = this.traces.captureResult(cellId, trace, result);

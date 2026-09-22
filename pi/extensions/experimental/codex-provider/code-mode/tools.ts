@@ -1,5 +1,7 @@
 // Tool descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
+import { sumUsages } from "@clanker-stuff/code-mode-tools";
+import type { ToolAccounting } from "@clanker-stuff/code-mode-tools";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -101,6 +103,8 @@ export interface CodeModeToolDescriptor {
   readonly definition: ToolDefinition;
   readonly namespace?: string;
   readonly outputSchema?: unknown;
+  readonly resultMode?: "content";
+  readonly takeAccounting?: (id: string) => ToolAccounting | undefined;
 }
 
 type CodeModeClientFactory = (signal: AbortSignal) => Promise<CodeModeHostClient>;
@@ -123,51 +127,94 @@ const createCodeModeHostClient: CodeModeClientFactory = async (signal) => {
 export class CodeModeRuntime {
   private readonly client;
   private nestedToolDescriptors: readonly CodeModeToolDescriptor[] = [];
+  private readonly accounting = new Map<string, ToolAccounting[]>();
+  private readonly observedAccounting = new Map<
+    string,
+    { cellId: string; entries: ToolAccounting[] }
+  >();
+
+  private observeAccounting(id: string, cellId: string): void {
+    const entries = this.accounting.get(cellId);
+
+    if (!entries) return;
+    this.accounting.delete(cellId);
+    this.observedAccounting.set(id, { cellId, entries });
+  }
+
+  takeAccounting(id: string): ToolAccounting | undefined {
+    const observed = this.observedAccounting.get(id);
+    this.observedAccounting.delete(id);
+
+    if (!observed) return undefined;
+    const { cellId, entries } = observed;
+    const usage = sumUsages(entries.flatMap((entry) => (entry.usage ? [entry.usage] : [])));
+
+    return { ...(usage ? { usage } : {}), details: { cellId, entries } };
+  }
 
   constructor(options: CodeModeRuntimeOptions = {}) {
     this.client = createLazySingleton(options.createClient ?? createCodeModeHostClient);
   }
 
   createTools(): ToolDefinition[] {
-    const currentByName = () =>
-      new Map(this.nestedTools().map((tool) => [tool.definition.name, tool] as const));
+    return [this.createExecTool(), this.createWaitTool()];
+  }
 
-    return [
-      defineTool({
-        constrainedSampling: EXEC_CONSTRAINED_SAMPLING,
-        description: EXEC_DESCRIPTION,
-        execute: async (id, params, signal, onUpdate, ctx) => {
-          const client = await this.getClient(signal);
+  private currentByName = () =>
+    new Map(this.nestedTools().map((tool) => [tool.definition.name, tool] as const));
 
+  createExecTool(prompt = this.prompt()): ToolDefinition {
+    return defineTool({
+      constrainedSampling: EXEC_CONSTRAINED_SAMPLING,
+      description: `${EXEC_DESCRIPTION}
+
+${prompt}`,
+      execute: async (id, params, signal, onUpdate, ctx) => {
+        const client = await this.getClient(signal);
+        let cellId: string | undefined;
+
+        try {
           const response = await client.execute(
             params.code,
             {
               extensionContext: ctx,
               ...(onUpdate !== undefined ? { onUpdate } : {}),
               toolCallId: id,
+              onCellStarted: (value) => {
+                cellId = value;
+              },
             },
             signal,
             this.nestedTools(),
           );
 
+          cellId = response.cellId;
+
           return toCodeModeToolResult(response);
-        },
-        label: "Exec",
-        name: "exec",
-        parameters: EXEC_PARAMETERS,
-        ...codeModeRenderers("exec", currentByName),
-      }),
-      defineTool({
-        description: WAIT_DESCRIPTION,
-        execute: async (id, params, signal, onUpdate, ctx) => {
-          const client = await this.getClient(signal);
+        } finally {
+          if (cellId !== undefined) this.observeAccounting(id, cellId);
+        }
+      },
+      label: "Exec",
+      name: "exec",
+      parameters: EXEC_PARAMETERS,
+      ...codeModeRenderers("exec", this.currentByName),
+    });
+  }
 
-          const executionContext = {
-            extensionContext: ctx,
-            ...(onUpdate !== undefined ? { onUpdate } : {}),
-            toolCallId: id,
-          };
+  createWaitTool(): ToolDefinition {
+    return defineTool({
+      description: WAIT_DESCRIPTION,
+      execute: async (id, params, signal, onUpdate, ctx) => {
+        const client = await this.getClient(signal);
 
+        const executionContext = {
+          extensionContext: ctx,
+          ...(onUpdate !== undefined ? { onUpdate } : {}),
+          toolCallId: id,
+        };
+
+        try {
           const response =
             params.terminate === true
               ? await client.terminate(params.cell_id, executionContext, signal)
@@ -179,25 +226,46 @@ export class CodeModeRuntime {
                 );
 
           return toCodeModeToolResult(response, params.max_tokens);
-        },
-        label: "Wait",
-        name: "wait",
-        parameters: WAIT_PARAMETERS,
-        ...codeModeRenderers("wait", currentByName),
-      }),
-    ];
+        } finally {
+          this.observeAccounting(id, params.cell_id);
+        }
+      },
+      label: "Wait",
+      name: "wait",
+      parameters: WAIT_PARAMETERS,
+      ...codeModeRenderers("wait", this.currentByName),
+    });
   }
 
-  setNestedTools(descriptors: readonly CodeModeToolDescriptor[]): void {
-    this.nestedToolDescriptors = [...descriptors];
+  prepareNestedTools(descriptors: readonly CodeModeToolDescriptor[]): () => void {
+    const names = new Set<string>(["exec", "wait"]);
+
+    for (const descriptor of descriptors) {
+      const name = codeModeName(descriptor.definition.name, descriptor.namespace);
+
+      if (names.has(name)) throw new Error(`Duplicate or reserved Code Mode tool name: ${name}`);
+      names.add(name);
+    }
+
+    for (const descriptor of descriptors) toNestedTool(descriptor);
+
+    return () => {
+      this.nestedToolDescriptors = [...descriptors];
+    };
   }
 
-  prompt = (): string => {
-    const lines = this.nestedTools()
+  prompt = (descriptors = this.nestedToolDescriptors): string => {
+    const lines = descriptors
+      .map((descriptor) => toNestedTool(descriptor))
       .toSorted((left, right) => left.name.localeCompare(right.name))
-      .map(
-        (tool) =>
-          `### \`${tool.name}\`\n${tool.definition.description}\n\nUsage: \`${tool.usage}\``,
+      .map((tool) =>
+        [
+          `### \`${tool.name}\``,
+          tool.definition.description,
+          `Parameters: ${JSON.stringify(tool.definition.parameters)}`,
+          ...(tool.definition.promptGuidelines ?? []),
+          `Usage: \`${tool.usage}\``,
+        ].join("\n\n"),
       );
 
     return `Tools available in exec:\n\n${lines.join("\n\n")}`;
@@ -221,7 +289,13 @@ export class CodeModeRuntime {
   }
 
   private nestedTools(): NestedTool[] {
-    return this.nestedToolDescriptors.map(toNestedTool);
+    return this.nestedToolDescriptors.map((descriptor) =>
+      toNestedTool(descriptor, (accounting, cellId) => {
+        const entries = this.accounting.get(cellId) ?? [];
+        entries.push(accounting);
+        this.accounting.set(cellId, entries);
+      }),
+    );
   }
 }
 
@@ -235,7 +309,10 @@ const functionArguments = (name: string, input: JsonValue | undefined): JsonObje
   return input;
 };
 
-export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => {
+export const toNestedTool = (
+  descriptor: CodeModeToolDescriptor,
+  reportAccounting?: (accounting: ToolAccounting, cellId: string) => void,
+): NestedTool => {
   const { definition, namespace, outputSchema } = descriptor;
   const freeformProperty = freeformInputProperty(definition);
 
@@ -273,21 +350,48 @@ export const toNestedTool = (descriptor: CodeModeToolDescriptor): NestedTool => 
 
       signal.throwIfAborted();
 
-      const result = await definition.execute(
-        context.toolCallId ?? `code-mode-${definition.name}`,
-        validated,
-        signal,
-        (update) => {
-          context.onUpdate?.(update);
-        },
-        context.extensionContext,
-      );
+      const id = context.toolCallId ?? `code-mode-${definition.name}`;
 
-      context.captureResult?.(result);
+      try {
+        const result = await definition.execute(
+          id,
+          validated,
+          signal,
+          (update) => {
+            context.onUpdate?.(update);
+          },
+          context.extensionContext,
+        );
 
-      return nestedResultValue(definition.name, result, outputSchema !== undefined);
+        context.captureResult?.(result);
+
+        if (result.usage) reportAccounting?.({ usage: result.usage }, context.cellId);
+
+        if (result.terminate)
+          throw new Error(`Nested tool ${definition.name} cannot terminate the Pi turn`);
+
+        if (descriptor.resultMode === "content") {
+          return {
+            content: result.content.map((item) => {
+              if (item.type === "text") return item;
+              assertSupportedImageMimeType(item.mimeType);
+
+              return { type: "image", image_url: `data:${item.mimeType};base64,${item.data}` };
+            }),
+          };
+        }
+
+        return nestedResultValue(definition.name, result, outputSchema !== undefined);
+      } finally {
+        const accounting = descriptor.takeAccounting?.(id);
+
+        if (accounting) reportAccounting?.(accounting, context.cellId);
+      }
     },
-    usage: usageFor(codeModeName(definition.name, namespace)),
+    usage:
+      descriptor.resultMode === "content"
+        ? `const result = await tools.${codeModeName(definition.name, namespace)}(input); // result.content preserves text and images; JSON.parse(textPart.text) for structured text; image(imagePart) to display an image`
+        : usageFor(codeModeName(definition.name, namespace)),
   };
 
   if (freeformProperty !== undefined) {
@@ -326,14 +430,20 @@ const freeformInputProperty = (definition: ToolDefinition): string | undefined =
   return grammar.inputProperty;
 };
 
+// Codex code-mode-protocol/src/description.rs: normalize_code_mode_identifier.
 const codeModeName = (name: string, namespace?: string): string => {
-  if (namespace === undefined || namespace === "functions") {
-    return name;
-  }
+  const qualified =
+    namespace === undefined || namespace === "functions"
+      ? name
+      : namespace.endsWith("_") || name.startsWith("_")
+        ? `${namespace}${name}`
+        : `${namespace}__${name}`;
 
-  return namespace.endsWith("_") || name.startsWith("_")
-    ? `${namespace}${name}`
-    : `${namespace}__${name}`;
+  return (
+    Array.from(qualified, (character, index) =>
+      (index === 0 ? /[a-zA-Z_$]/u : /[a-zA-Z0-9_$]/u).test(character) ? character : "_",
+    ).join("") || "_"
+  );
 };
 
 const usageFor = (name: string) => {

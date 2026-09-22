@@ -1,3 +1,4 @@
+import { ContributedTools } from "@clanker-stuff/code-mode-tools";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -78,7 +79,28 @@ const listAvailableServers = async (ctx: ExtensionContext): Promise<McpManagerLi
 
 export const createMcpLoader = (pi: ExtensionAPI) => {
   let context: ExtensionContext | undefined;
-  const serverPool = new McpServerPool(pi, (message) => context?.ui.notify(message, "warning"));
+
+  const takeSamplingUsage = (id: string) => {
+    const samples = serverPool.takeUsage(id);
+
+    return samples ? { usage: sumUsage(samples), sampling: samples } : undefined;
+  };
+
+  const contributed = new ContributedTools(pi, (id) => {
+    const accounting = takeSamplingUsage(id);
+
+    if (!accounting) return undefined;
+
+    return {
+      ...(accounting.usage ? { usage: accounting.usage } : {}),
+      details: { sampling: accounting.sampling },
+    };
+  });
+
+  const serverPool = new McpServerPool(contributed, (message) =>
+    context?.ui.notify(message, "warning"),
+  );
+
   let workspace: string | undefined;
   let managerRegistered = false;
   let restoreGeneration = 0;
@@ -175,16 +197,7 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
   };
 
   return {
-    takeSamplingUsage: (id: string) => {
-      const samples = serverPool.takeUsage(id);
-
-      return samples
-        ? {
-            usage: sumUsage(samples),
-            sampling: samples,
-          }
-        : undefined;
-    },
+    takeSamplingUsage,
     dispose: (): Promise<void> => {
       context = undefined;
       workspace = undefined;

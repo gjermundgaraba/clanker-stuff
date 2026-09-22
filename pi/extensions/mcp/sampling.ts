@@ -1,3 +1,4 @@
+import { sumUsages } from "@clanker-stuff/code-mode-tools";
 import type { Api, Context, Model, Usage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CreateMessageRequestParams, CreateMessageResult } from "@modelcontextprotocol/client";
@@ -149,28 +150,5 @@ export const sample = async (
   }
 };
 
-export const sumUsage = (samples: readonly SamplingUsage[]): Usage | undefined => {
-  let total: Usage | undefined;
-
-  for (const { usage } of samples) {
-    if (!usage) continue;
-    total ??= {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    };
-
-    if (usage.reasoning !== undefined) total.reasoning = (total.reasoning ?? 0) + usage.reasoning;
-
-    for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const)
-      total[key] += usage[key];
-
-    for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const)
-      total.cost[key] += usage.cost[key];
-  }
-
-  return total;
-};
+export const sumUsage = (samples: readonly SamplingUsage[]): Usage | undefined =>
+  sumUsages(samples.flatMap(({ usage }) => (usage ? [usage] : [])));

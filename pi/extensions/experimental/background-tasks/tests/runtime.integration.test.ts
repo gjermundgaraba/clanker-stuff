@@ -647,6 +647,8 @@ describe("background tasks in a real AgentSession", () => {
     await h.prompt("Start server");
     const task = tasks(h)[0];
     assert.ok(task);
+    // Bound hosts receive session_start on reload, as the interactive application does.
+    await h.session.bindExtensions({ uiContext: h.session.extensionRunner.createContext().ui });
     await h.session.reload();
     stopped(task.pid);
     h.setResponses([

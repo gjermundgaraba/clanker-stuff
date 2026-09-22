@@ -23,12 +23,11 @@ beforeAll(() => initTheme("dark"));
 const PersistedMcpToolDetailsSchema = Type.Object({ outputPath: Type.String() });
 
 const createToolRegistry = (onRegister?: McpToolRegistry["registerTool"]): McpToolRegistry => ({
-  getActiveTools: () => [],
   getAllTools: () => [],
   registerTool(tool) {
     onRegister?.(tool);
   },
-  setActiveTools: vi.fn<McpToolRegistry["setActiveTools"]>(),
+  setEnabled: vi.fn<McpToolRegistry["setEnabled"]>(),
 });
 
 const createEmptyClient = (): McpClient => ({
@@ -44,6 +43,31 @@ type RegisteredToolExecutor = (
 
 describe("mcp server pool", () => {
   const t = setupMcpTest();
+
+  it("publishes one enabled inventory after a complete multi-tool discovery", async () => {
+    const registry = createToolRegistry();
+    const pool = new McpServerPool(registry);
+
+    const definitions = Array.from({ length: 100 }, (_, index) => ({
+      name: `tool_${index}`,
+      inputSchema: { type: "object" as const },
+    }));
+
+    await pool.loadServer({
+      serverName: "many",
+      interactive: false,
+      connectionFactory: async () => ({
+        client: { ...createEmptyClient(), listTools: async () => ({ tools: definitions }) },
+        close: async () => {},
+        transport: {},
+      }),
+    });
+    expect(registry.setEnabled).toHaveBeenCalledTimes(1);
+    expect(registry.setEnabled).toHaveBeenCalledWith(
+      definitions.map(({ name }) => toGeneratedToolName("many", name)),
+    );
+    await pool.closeAll();
+  });
 
   it("closes a late connection and skips queued reconnects during shutdown", async () => {
     const connection = Promise.withResolvers<McpClientConnection>();
@@ -202,10 +226,9 @@ describe("mcp server pool", () => {
 
   it("replaces tools, deactivates disconnected servers, and permits removed tools to return", async () => {
     const tools = new Map<string, ToolInfo>();
-    let active = ["read"];
+    let active: string[] = [];
 
     const pi: McpToolRegistry = {
-      getActiveTools: () => active,
       getAllTools: () => [...tools.values()],
       registerTool: (tool) => {
         tools.set(tool.name, {
@@ -215,8 +238,8 @@ describe("mcp server pool", () => {
           sourceInfo: createSyntheticSourceInfo("<test>", { source: "test" }),
         });
       },
-      setActiveTools: (names) => {
-        active = names;
+      setEnabled: (names) => {
+        active = [...names];
       },
     };
 
@@ -246,10 +269,10 @@ describe("mcp server pool", () => {
       await pool.loadServer({ ...options, connectionFactory: async () => first });
       await pool.loadServer({ ...options, reconnect: true, connectionFactory: async () => second });
       expect(first.close).toHaveBeenCalledOnce();
-      expect(active).toEqual(["read", toGeneratedToolName("remote", "second")]);
+      expect(active).toEqual([toGeneratedToolName("remote", "second")]);
       await second.close();
       expect(pool.hasServer("remote")).toBe(false);
-      expect(active).toEqual(["read"]);
+      expect(active).toEqual([]);
       await expect(
         pool.loadServer({
           ...options,
@@ -258,11 +281,11 @@ describe("mcp server pool", () => {
           },
         }),
       ).rejects.toThrow("unavailable");
-      expect(active).toEqual(["read"]);
+      expect(active).toEqual([]);
       await pool.loadServer({ ...options, connectionFactory: async () => makeConnection("first") });
-      expect(active).toEqual(["read", toGeneratedToolName("remote", "first")]);
+      expect(active).toEqual([toGeneratedToolName("remote", "first")]);
       pool.reconcileActiveServers([]);
-      expect(active).toEqual(["read"]);
+      expect(active).toEqual([]);
     } finally {
       await pool.closeAll();
     }

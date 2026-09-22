@@ -46,7 +46,7 @@ export const codeModeTool = (
   definitions: ToolDefinition[] = createCodexDirectTools().nestedDefinitions,
 ) => {
   const runtime = new CodeModeRuntime();
-  runtime.setNestedTools(definitions.map((definition) => ({ definition })));
+  runtime.prepareNestedTools(definitions.map((definition) => ({ definition })))();
   const tool = runtime.createTools().find((tool) => tool.name === name);
 
   if (!tool?.renderCall || !tool.renderResult) throw new Error("Missing Code Mode renderer");

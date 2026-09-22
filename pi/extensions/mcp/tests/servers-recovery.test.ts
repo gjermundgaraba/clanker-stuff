@@ -1,3 +1,4 @@
+import { ContributedTools } from "@clanker-stuff/code-mode-tools";
 import { syncBuiltinESMExports } from "node:module";
 import timers from "node:timers/promises";
 import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
@@ -55,7 +56,7 @@ describe("MCP connection maintenance", () => {
     warn = vi.fn();
     host = t.createExtensionHost(
       (pi) => {
-        pool = new McpServerPool(pi, warn);
+        pool = new McpServerPool(new ContributedTools(pi), warn);
         pi.on("session_shutdown", () => pool.closeAll());
       },
       { activeTools: ["read"], allTools: ["read"], hasUI: false },

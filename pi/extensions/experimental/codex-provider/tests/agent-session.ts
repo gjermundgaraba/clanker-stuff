@@ -24,6 +24,8 @@ import { SPIKE_API_KEY, SPIKE_MODEL } from "./fixtures.js";
 
 interface RealCodexSessionOptions {
   apiKey?: string;
+  tools?: string[];
+  excludeTools?: string[];
   compaction?: CompactionSettings;
   extensionFactories: ExtensionFactory[];
   model?: Model<Api>;
@@ -99,6 +101,8 @@ export const createRealCodexSession = async (options: RealCodexSessionOptions) =
 
   const created = await createAgentSession({
     agentDir,
+    ...(options.tools ? { tools: options.tools } : {}),
+    ...(options.excludeTools ? { excludeTools: options.excludeTools } : {}),
     cwd: options.sessionManager.getCwd(),
     model,
     modelRuntime,

@@ -70,7 +70,7 @@ beforeAll(() => initTheme("dark"));
 describe("task presentation", () => {
   it("registers both display slots and renders the details it returns", async () => {
     const host = createExtensionHost(extension);
-    await host.ready;
+    await host.emitSessionStart();
 
     for (const { definition } of host.getRegisteredTools().values()) {
       expect(definition.renderCall).toBeTypeOf("function");

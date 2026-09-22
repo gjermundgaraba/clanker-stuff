@@ -108,9 +108,7 @@ describe("spawn catalog provider payload", () => {
         expect(JSON.stringify(requests.at(-1))).toContain(description);
 
         if (protocol === "v1" && mode === "code_mode_only") {
-          expect(JSON.stringify(requests.at(-1)?.instructions)).toContain(
-            "pi_subagents__spawn_agent",
-          );
+          expect(JSON.stringify(requests.at(-1)?.tools)).toContain("pi_subagents__spawn_agent");
         } else {
           const namespace = wireRecords(requests.at(-1)?.tools ?? []).find(
             (tool) => tool.name === "pi_subagents",

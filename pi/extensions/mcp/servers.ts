@@ -16,7 +16,7 @@ import type { CallToolResult } from "@modelcontextprotocol/client";
 import { Type } from "typebox";
 import type { TUnsafe } from "typebox";
 
-import { activateTools, mcpResultToPiContent, toGeneratedToolName } from "./bridge.js";
+import { mcpResultToPiContent, toGeneratedToolName } from "./bridge.js";
 import type { McpClientConnection, McpConnectionFactory } from "./connection.js";
 import { errorMessage } from "./connection.js";
 import { isAuthorizationError } from "./oauth.js";
@@ -26,10 +26,9 @@ type ToolArguments = NonNullable<
   Parameters<McpClientConnection["client"]["callTool"]>[0]["arguments"]
 >;
 
-export type McpToolRegistry = Pick<
-  ExtensionAPI,
-  "getActiveTools" | "getAllTools" | "registerTool" | "setActiveTools"
->;
+export type McpToolRegistry = Pick<ExtensionAPI, "getAllTools" | "registerTool"> & {
+  setEnabled: (names: readonly string[]) => void;
+};
 
 export interface McpToolDetails {
   overflowNoticeIndex?: number;
@@ -85,14 +84,10 @@ export class McpServerPool {
   private readonly persistOutput = createOutputStore();
   private readonly background = new Set<Promise<void>>();
 
-  private readonly pi: McpToolRegistry;
-
   constructor(
-    pi: McpToolRegistry,
+    private readonly registry: McpToolRegistry,
     private readonly warn: (message: string) => void = () => {},
-  ) {
-    this.pi = pi;
-  }
+  ) {}
 
   hasServer(name: string): boolean {
     return this.servers.get(name)?.connection !== undefined;
@@ -170,12 +165,6 @@ export class McpServerPool {
   reconcileActiveServers(names: readonly string[]): void {
     const desired = new Set(names);
 
-    const managed = new Set(
-      [...this.servers.values()].flatMap((server) => [...server.registeredNames]),
-    );
-
-    const active = this.pi.getActiveTools().filter((name) => !managed.has(name));
-
     for (const [name, server] of this.servers) {
       const wanted = desired.has(name);
 
@@ -185,11 +174,17 @@ export class McpServerPool {
 
         if (wanted && server.connection) this.schedulePing(server, server.connection);
       }
-
-      if (desired.has(name) && server.connection) active.push(...server.toolNames);
     }
 
-    this.pi.setActiveTools([...new Set(active)]);
+    this.publishEnabled();
+  }
+
+  private publishEnabled(): void {
+    this.registry.setEnabled(
+      [...this.servers.values()].flatMap((server) =>
+        server.desired && server.connection ? server.toolNames : [],
+      ),
+    );
   }
 
   private disconnect(server: ServerRecord, connection: McpClientConnection): void {
@@ -197,9 +192,7 @@ export class McpServerPool {
     clearTimeout(server.timer);
     delete server.timer;
     delete server.connection;
-    this.pi.setActiveTools(
-      this.pi.getActiveTools().filter((name) => !server.registeredNames.has(name)),
-    );
+    this.publishEnabled();
   }
 
   private async load(options: LoadServerOptions, signal: AbortSignal): Promise<number> {
@@ -209,7 +202,7 @@ export class McpServerPool {
     if (!server) throw new Error(`MCP server ${serverName} is not loaded`);
 
     if (server.connection && !options.reconnect) {
-      if (server.desired) activateTools(this.pi, server.toolNames);
+      this.publishEnabled();
       this.schedulePing(server, server.connection);
 
       return server.toolNames.length;
@@ -230,7 +223,7 @@ export class McpServerPool {
       connection.closed?.throwIfAborted();
 
       const occupied = new Set(
-        this.pi
+        this.registry
           .getAllTools()
           .map((tool) => tool.name)
           .filter((name) => !server.registeredNames.has(name)),
@@ -302,10 +295,7 @@ export class McpServerPool {
         },
       );
 
-      for (const definition of definitions) {
-        this.pi.registerTool(definition);
-        server.registeredNames.add(definition.name);
-      }
+      for (const definition of definitions) this.registry.registerTool(definition);
 
       server.toolNames = definitions.map((tool) => tool.name);
       server.settings = {
@@ -326,7 +316,9 @@ export class McpServerPool {
         once: true,
       });
 
-      if (server.desired) activateTools(this.pi, server.toolNames);
+      this.publishEnabled();
+
+      for (const definition of definitions) server.registeredNames.add(definition.name);
       this.schedulePing(server, connection);
 
       return tools.length;

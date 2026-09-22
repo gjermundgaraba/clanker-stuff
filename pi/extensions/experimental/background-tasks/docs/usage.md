@@ -109,3 +109,7 @@ Shutdown sends TERM to the owned POSIX process group, waits up to one second, th
 Progress overflow drops the oldest pending progress and increments the omitted count. Terminal reservations are never evicted by progress; new admission fails when all slots are occupied. Observed history can be evicted, with a visible count. Log tails report omitted bytes and storage errors; they are not complete logs. Session lifecycle entries contain metadata, never raw output, and accumulate with session history.
 
 The supervisor, wire decoder, inbox, and delivery controller are separate components. Persistence beyond a session would require a new external owner and authenticated reconnection—not a PID-file escape hatch.
+
+## Code Mode placement
+
+With the experimental Codex provider, all four task tools follow the model's direct, hybrid, or Code-Mode-only policy. Nested calls use the same session-owned runtime and notification delivery. Their return value is a content envelope: parse the JSON in `result.content[0].text`. See the provider's [contributed tools contract](../../codex-provider/docs/contributed-tools.md) for placement and permission boundaries.

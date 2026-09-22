@@ -114,3 +114,7 @@ For supported Codex models, the provider limits the returned concatenated text u
 Each sampling operation owns a fresh provider scope. Completion, failures, cancellation, length limits, and conversion errors all await explicit scope disposal, which releases its transport and continuation state. Ordinary Pi sessions and overlapping sampling operations remain independent. Provider-reported usage is attached to the originating tool result, including unsuccessful later continuations; each sample also records whether accounting is complete. Incomplete accounting means final usage did not arrive, not zero usage or an exact saving.
 
 See [Testing MCP](testing.md) for the shared local server, automated coverage, and manual scenarios.
+
+## Code Mode placement
+
+With the experimental Codex provider, connected server tools follow the model's direct, hybrid, or Code-Mode-only policy, including discovery and reconnection during a turn. MCP manager tools remain direct. Configuration and saved loaded-server entries are unchanged. Nested results preserve the bridge's bounded text and image content; parse structured JSON text from the returned content envelope. See the provider's [contributed tools contract](../../experimental/codex-provider/docs/contributed-tools.md) for accounting and the aggregate permission boundary: nested calls do not pass through Pi's per-tool hooks.

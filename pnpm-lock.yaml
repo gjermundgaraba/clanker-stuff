@@ -291,6 +291,9 @@ importers:
       '@clanker-stuff/border-status-protocol':
         specifier: workspace:^
         version: link:../../../packages/border-status-protocol
+      '@clanker-stuff/code-mode-tools':
+        specifier: workspace:^
+        version: link:../../../packages/code-mode-tools
       '@clanker-stuff/pi-tool-rendering':
         specifier: workspace:^
         version: link:../../../packages/tool-rendering
@@ -353,6 +356,9 @@ importers:
 
   pi/extensions/experimental/codex-provider:
     dependencies:
+      '@clanker-stuff/code-mode-tools':
+        specifier: workspace:^
+        version: link:../../../packages/code-mode-tools
       '@clanker-stuff/codex-http':
         specifier: workspace:^
         version: link:../../../packages/codex-http
@@ -688,6 +694,9 @@ importers:
 
   pi/extensions/mcp:
     dependencies:
+      '@clanker-stuff/code-mode-tools':
+        specifier: workspace:^
+        version: link:../../packages/code-mode-tools
       '@clanker-stuff/lazy-singleton':
         specifier: workspace:^
         version: link:../../packages/lazy-singleton
@@ -822,6 +831,25 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.87.0
         version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+      typebox:
+        specifier: 1.3.14
+        version: 1.3.14
+    devDependencies:
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 0.3.3(@opentelemetry/api@1.9.0)(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
+
+  pi/packages/code-mode-tools:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: 0.87.0
+        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(ws@8.21.3)(zod@4.6.5)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.87.0
+        version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(ws@8.21.3)(zod@4.6.5)
       typebox:
         specifier: 1.3.14
         version: 1.3.14

@@ -25,7 +25,7 @@ export default function extension(pi) {
   const tools = definitions(backend),
     runtime = new CodeModeRuntime();
 
-  runtime.setNestedTools(tools.map((definition) => ({ definition, outputSchema: {} })));
+  runtime.prepareNestedTools(tools.map((definition) => ({ definition, outputSchema: {} })))();
   const activeDefinitions = mode === "direct" ? tools : runtime.createTools();
 
   for (const definition of activeDefinitions) pi.registerTool(definition);

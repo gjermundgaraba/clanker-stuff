@@ -120,7 +120,7 @@ describe("Codex tools", () => {
         systemPromptOptions: options,
       });
 
-      expect("code_mode_tools" in options.sections).toBe(mode !== "direct");
+      expect(options.sections.code_mode_tools).toBeUndefined();
       await host.runCommand("code-mode", "", host.createContext({ model }));
       expect(host.getActiveTools()).toStrictEqual(mode === "direct" ? DIRECT_NAMES : CODE_NAMES);
     },
@@ -314,11 +314,11 @@ describe("Codex tools", () => {
     const host = createExtensionHost(registerCodexTools, { model });
     await host.ready;
 
-    expect(host.getActiveTools()).toStrictEqual([...PI_NAMES, ...DIRECT_NAMES, ...CODE_NAMES]);
+    expect(host.getActiveTools()).toStrictEqual([...PI_NAMES, ...DIRECT_NAMES, "wait"]);
     await host.emitSessionStart();
 
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
-    expect([...host.getRegisteredTools().keys()]).toStrictEqual([...DIRECT_NAMES, ...CODE_NAMES]);
+    expect([...host.getRegisteredTools().keys()]).toStrictEqual([...DIRECT_NAMES, "wait"]);
   });
 
   it.each([true, false])("normalizes tools on input only when idle is %s", async (idle) => {
@@ -482,9 +482,9 @@ describe("Codex tools", () => {
         ctx,
       );
 
-      const systemPrompt = options.sections.code_mode_tools ?? "";
+      const execDescription = host.getRegisteredTools().get("exec")?.definition.description ?? "";
 
-      expect(systemPrompt.includes("pi_subagents__spawn_agent")).toBe(nested);
+      expect(execDescription.includes("pi_subagents__spawn_agent")).toBe(nested);
       expect(host.getActiveTools()).toStrictEqual(["spawn_agent", ...CODE_NAMES]);
     },
   );

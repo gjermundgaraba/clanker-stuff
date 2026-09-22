@@ -27,6 +27,142 @@ afterEach(() => {
 });
 
 describe("Code Mode wait snapshots", () => {
+  it.each(["before", "during"] as const)(
+    "retains output through slow finalization when close arrives %s",
+    async (close) => {
+      vi.useFakeTimers();
+      const runtime = new CodeModeDelegateRuntime(() => {});
+      const release = Promise.withResolvers<void>();
+
+      const tool: NestedTool = {
+        name: "slow",
+        kind: "function",
+        usage: "slow()",
+        definition: {
+          name: "slow",
+          label: "Slow",
+          description: "Slow",
+          parameters: Type.Object({}),
+          execute: async () => ({ content: [], details: undefined }),
+        },
+        invoke: async (_input, _ctx, signal) => {
+          await new Promise<void>((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+          await release.promise;
+          throw new Error("cancelled after cleanup");
+        },
+      };
+
+      runtime.bindCell(
+        "cell",
+        extensionContext,
+        new Map([[nestedToolKey({ name: "slow" }), tool]]),
+      );
+      expect((await runtime.finishResponse(response())).contentItems).toEqual([]);
+      runtime.handleRequest({
+        id: 1,
+        request: { type: "notification/send", cellId: "cell", text: "undelivered" },
+      });
+      runtime.handleRequest({
+        id: 2,
+        request: {
+          type: "tool/invoke",
+          invocation: {
+            cell_id: "cell",
+            runtime_tool_call_id: "slow-call",
+            tool_name: { name: "slow", namespace: null },
+            input: {},
+          },
+        },
+      });
+
+      if (close === "before") runtime.closeCell("cell");
+      const finished = runtime.finishResponse(response("terminated"));
+
+      if (close === "during") runtime.closeCell("cell");
+      await vi.advanceTimersByTimeAsync(2000);
+      release.resolve();
+      const result = await finished;
+      expect(result.contentItems).toEqual([{ type: "input_text", text: "undelivered" }]);
+      expect(result.traces).toMatchObject([
+        { id: "slow-call", status: "error", error: "cancelled after cleanup" },
+      ]);
+      const consumed = await runtime.finishResponse(response("terminated"));
+      expect(consumed.contentItems).toEqual([]);
+      expect(consumed.traces).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+      runtime.clear();
+    },
+  );
+
+  it("settles cancellation accounting only for the terminated cell", async () => {
+    const runtime = new CodeModeDelegateRuntime(() => {});
+    const cancelled: string[] = [];
+    const accounted: string[] = [];
+    const release = Promise.withResolvers<void>();
+
+    const tool: NestedTool = {
+      name: "probe",
+      kind: "function",
+      usage: "probe()",
+      definition: {
+        name: "probe",
+        label: "Probe",
+        description: "Probe",
+        parameters: Type.Object({}),
+        execute: async () => ({ content: [], details: undefined }),
+      },
+      invoke: async (_input, ctx, signal) => {
+        const id = ctx.toolCallId ?? "";
+
+        try {
+          await new Promise<void>((resolve) =>
+            signal.addEventListener(
+              "abort",
+              () => {
+                cancelled.push(id);
+                resolve();
+              },
+              { once: true },
+            ),
+          );
+          await release.promise;
+
+          return "cancelled";
+        } finally {
+          accounted.push(id);
+        }
+      },
+    };
+
+    for (const [index, cell] of ["a", "b"].entries()) {
+      runtime.bindCell(cell, extensionContext, new Map([[nestedToolKey({ name: "probe" }), tool]]));
+      runtime.handleRequest({
+        id: index,
+        request: {
+          type: "tool/invoke",
+          invocation: {
+            cell_id: cell,
+            runtime_tool_call_id: cell,
+            tool_name: { name: "probe", namespace: null },
+            input: {},
+          },
+        },
+      });
+    }
+
+    const settled = runtime.cancelAndSettle("a");
+    expect(cancelled).toEqual(["a"]);
+    expect(accounted).toEqual([]);
+    release.resolve();
+    await settled;
+    expect(accounted).toEqual(["a"]);
+    await runtime.cancelAndSettle("b");
+    expect(accounted).toEqual(["a", "b"]);
+    runtime.clear();
+  });
+
   it("keeps each cell's originating model and effort across waits", async () => {
     const host = createExtensionHost(() => {});
     const sent = Promise.withResolvers<void>();

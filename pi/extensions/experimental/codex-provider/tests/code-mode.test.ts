@@ -317,13 +317,14 @@ describe("Codex code mode", () => {
 
     const definition = {
       description: "Runs a test operation.",
+      promptGuidelines: ["Call once per operation."],
       execute: async () => ({ content: [], details: {} }),
       label: "Test",
       name: "test",
       parameters: Type.Object({ value: Type.String() }, { additionalProperties: false }),
     };
 
-    runtime.setNestedTools([{ definition }]);
+    runtime.prepareNestedTools([{ definition }])();
     const tools = runtime.createTools();
 
     expect(tools.find((tool) => tool.name === "exec")?.description).toContain(
@@ -332,13 +333,25 @@ describe("Codex code mode", () => {
     expect(tools.find((tool) => tool.name === "wait")?.description).toContain(
       "returns only new output since the last yield",
     );
-    expect(runtime.prompt()).toContain(
-      "### `test`\nRuns a test operation.\n\nUsage: `await tools.test(input)`",
+    expect(runtime.prompt()).toBe(
+      [
+        "Tools available in exec:",
+        "",
+        "### `test`",
+        "",
+        "Runs a test operation.",
+        "",
+        `Parameters: ${JSON.stringify(definition.parameters)}`,
+        "",
+        "Call once per operation.",
+        "",
+        "Usage: `await tools.test(input)`",
+      ].join("\n"),
     );
-    runtime.setNestedTools([
+    runtime.prepareNestedTools([
       { definition: { ...definition, name: "exec_command" } },
       { definition: { ...definition, name: "write_stdin" } },
-    ]);
+    ])();
     expect(runtime.prompt()).toContain("yield_time_ms?: number, max_output_tokens?: number");
     expect(runtime.prompt()).toContain(
       "chars?: string, yield_time_ms?: number, max_output_tokens?: number",
@@ -412,7 +425,10 @@ describe("Codex code mode", () => {
     );
 
     expect(prompt).toBeUndefined();
-    expect(options.sections.code_mode_tools).toContain("Tools available in exec:");
+    expect(options.sections.code_mode_tools).toBeUndefined();
+    expect(host.getRegisteredTools().get("exec")?.definition.description).toContain(
+      "Tools available in exec:",
+    );
   });
 
   it("validates nested calls before invoking their definition", async () => {
@@ -441,6 +457,7 @@ describe("Codex code mode", () => {
 
     const context = {
       cwd: "/tmp",
+      cellId: "test-cell",
       extensionContext: TEST_EXTENSION_CONTEXT,
     };
 
@@ -486,7 +503,7 @@ describe("Codex code mode", () => {
     await expect(
       nested.invoke(
         { path: "ignored" },
-        { extensionContext: TEST_EXTENSION_CONTEXT },
+        { cellId: "test-cell", extensionContext: TEST_EXTENSION_CONTEXT },
         new AbortController().signal,
       ),
     ).resolves.toBe("file:undefined");
@@ -506,7 +523,7 @@ describe("Codex code mode", () => {
     await expect(
       nested.invoke(
         "text",
-        { extensionContext: TEST_EXTENSION_CONTEXT },
+        { cellId: "test-cell", extensionContext: TEST_EXTENSION_CONTEXT },
         new AbortController().signal,
       ),
     ).rejects.toThrow("Invalid arguments for test");
@@ -534,7 +551,11 @@ describe("Codex code mode", () => {
     });
 
     await expect(
-      nested.invoke({}, { extensionContext: TEST_EXTENSION_CONTEXT }, new AbortController().signal),
+      nested.invoke(
+        {},
+        { cellId: "test-cell", extensionContext: TEST_EXTENSION_CONTEXT },
+        new AbortController().signal,
+      ),
     ).resolves.toStrictEqual({
       agent_id: "agent-1",
       nickname: "Scout",
@@ -557,7 +578,11 @@ describe("Codex code mode", () => {
     });
 
     await expect(
-      nested.invoke({}, { extensionContext: TEST_EXTENSION_CONTEXT }, new AbortController().signal),
+      nested.invoke(
+        {},
+        { cellId: "test-cell", extensionContext: TEST_EXTENSION_CONTEXT },
+        new AbortController().signal,
+      ),
     ).rejects.toThrow("declared structured output but returned invalid JSON");
   });
 
@@ -596,7 +621,7 @@ describe("Codex code mode", () => {
     await expect(
       nested.invoke(
         "*** Begin Patch\n*** End Patch",
-        { extensionContext: TEST_EXTENSION_CONTEXT },
+        { cellId: "test-cell", extensionContext: TEST_EXTENSION_CONTEXT },
         new AbortController().signal,
       ),
     ).resolves.toContain("*** Begin Patch");
@@ -685,7 +710,7 @@ describe("Codex code mode", () => {
     await expect(
       nested.invoke(
         { path: "/tmp/image.svg" },
-        { extensionContext: TEST_EXTENSION_CONTEXT },
+        { cellId: "test-cell", extensionContext: TEST_EXTENSION_CONTEXT },
         new AbortController().signal,
       ),
     ).rejects.toThrow("convert SVG to PNG first");

@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { createAssistantMessageEventStream, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { registerCodexTools } from "../tools/register.js";
+import { createToolsModel } from "../tests/fixtures.js";
+import { collectContributions, ContributedTools } from "@clanker-stuff/code-mode-tools";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,16 +33,55 @@ const rootDir = await realpath(await mkdtemp(path.join(tmpdir(), "codex-host-che
 
 const context = Promise.withResolvers<ExtensionContext>();
 
+const sampleUsage = {
+  input: 2,
+  output: 3,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 5,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
 let session: Awaited<ReturnType<typeof createRealCodexSession>> | undefined;
 
 try {
   session = await createRealCodexSession({
     extensionFactories: [
       (pi) => {
-        pi.on("session_start", (_event, ctx) => context.resolve(ctx));
+        const accounting = new Map<string, { usage: typeof sampleUsage }>();
+
+        const source = new ContributedTools(pi, (id) => {
+          const entry = accounting.get(id);
+          accounting.delete(id);
+
+          return entry;
+        });
+
+        source.registerTool({
+          name: "contributed_probe",
+          label: "Probe",
+          description: "Check contributed content envelopes",
+          parameters: Type.Object({ fail: Type.Optional(Type.Boolean()) }),
+          execute: async (id, params) => {
+            accounting.set(id, { usage: sampleUsage });
+
+            if (params.fail) throw new Error("sampled failure");
+
+            return { content: [{ type: "text", text: '{"verified":true}' }], details: undefined };
+          },
+        });
+        pi.on("session_start", (_event, ctx) => {
+          source.setEnabled(["contributed_probe"]);
+
+          for (const source of collectContributions(pi))
+            tools.push(...source.tools.map((tool) => toNestedTool(tool)));
+          context.resolve(ctx);
+        });
+        registerCodexTools(pi, undefined, "code_mode_only");
       },
     ],
     rootDir,
+    model: createToolsModel("gpt-6-astra", true),
     sessionManager: SessionManager.inMemory(rootDir),
   });
   const ctx = { extensionContext: await context.promise };
@@ -48,7 +91,7 @@ try {
 
   const simple = await execute("text(6 * 7)");
   assert.equal(simple.kind, "result");
-  assert("errorText" in simple && simple.errorText === undefined);
+  assert(!("errorText" in simple) || simple.errorText === undefined, JSON.stringify(simple));
   assert(simple.contentItems.some((item) => item.text === "42"));
 
   // 0.155.0 fixes undefined handling before V8 JSON serialization. A rejected
@@ -58,7 +101,7 @@ try {
   );
 
   assert.equal(undefinedStore.kind, "result");
-  assert("errorText" in undefinedStore && undefinedStore.errorText === undefined);
+  assert(!("errorText" in undefinedStore) || undefinedStore.errorText === undefined);
   assert.deepEqual(
     undefinedStore.contentItems.map((item) => item.text),
     ['Unable to store "undefined-check". Only plain serializable objects can be stored.', "null"],
@@ -77,6 +120,51 @@ try {
   assert.equal(nested.kind, "result");
   assert(nested.contentItems.some((item) => item.text === rootDir));
   assert(nested.contentItems.some((item) => item.text?.includes("exec_command")));
+
+  const probe = await execute(
+    "const result = await tools.contributed_probe({}); text(JSON.parse(result.content[0].text));",
+  );
+
+  assert.equal(probe.kind, "result");
+  assert(!("errorText" in probe) || probe.errorText === undefined);
+  assert(probe.contentItems.some((item) => item.text?.includes('"verified":true')));
+
+  const slowStarted = Promise.withResolvers<void>();
+
+  const slow = toNestedTool({
+    definition: {
+      name: "slow_cleanup",
+      label: "Slow cleanup",
+      description: "Slow cancellation cleanup",
+      parameters: Type.Object({}),
+      execute: async (_id, _args, signal) => {
+        slowStarted.resolve();
+        await new Promise<void>((resolve) =>
+          signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        await delay(1200);
+        throw new Error("SLOW_CLEANUP_DONE");
+      },
+    },
+  });
+
+  const slowCell = await client.execute(
+    '// @exec: {"yield_time_ms":0}\nawait new Promise(resolve => setTimeout(resolve, 50)); notify("BEFORE_SLOW_CLEANUP"); await tools.slow_cleanup({});',
+    ctx,
+    AbortSignal.timeout(15_000),
+    [slow],
+  );
+
+  assert.equal(slowCell.kind, "yielded");
+  assert.equal(slowCell.contentItems.length, 0);
+  await slowStarted.promise;
+  const slowTerminal = await client.terminate(slowCell.cellId, ctx, AbortSignal.timeout(15_000));
+  assert(slowTerminal.contentItems.some((item) => item.text === "BEFORE_SLOW_CLEANUP"));
+  assert(
+    slowTerminal.traces?.some(
+      (trace) => trace.name === "slow_cleanup" && trace.error === "SLOW_CLEANUP_DONE",
+    ),
+  );
 
   const failed = await execute('throw new Error("HOST_CHECK_ERROR")');
   assert(failed.kind === "result" && failed.errorText?.includes("HOST_CHECK_ERROR"));
@@ -220,12 +308,59 @@ try {
     }
   }
 
+  // Full registry -> native host -> executor -> tool_result hook -> Pi history path.
+  let request = 0;
+  session.agent.streamFunction = (model) => {
+    const step = request++;
+    const toolCall = step % 2 === 0;
+    const stream = createAssistantMessageEventStream();
+
+    const message = {
+      ...fauxAssistantMessage("done"),
+      api: model.api,
+      model: model.id,
+      provider: model.provider,
+      ...(toolCall
+        ? {
+            content: [
+              {
+                type: "toolCall" as const,
+                id: `accounting-${step}`,
+                name: "exec",
+                arguments: { code: `await tools.contributed_probe({fail:${step === 2}});` },
+              },
+            ],
+            stopReason: "toolUse" as const,
+          }
+        : {}),
+    };
+
+    stream.push({ type: "done", reason: toolCall ? "toolUse" : "stop", message });
+
+    return stream;
+  };
+
+  await session.prompt("Sample successfully");
+  await session.prompt("Sample and fail");
+
+  const results = session.messages.filter(
+    (message) => message.role === "toolResult" && message.toolName === "exec",
+  );
+
+  assert.equal(results.length, 2);
+
+  for (const result of results) {
+    assert(result.role === "toolResult");
+    assert.deepEqual(result.usage, sampleUsage);
+  }
+
   console.log(
-    `PASS ${HOST_RELEASE} (${process.platform}-${process.arch}): execution, nested tools, errors, wait, termination, observer rejection/cancellation\n${binary}`,
+    `PASS ${HOST_RELEASE} (${process.platform}-${process.arch}): execution, nested tools, errors, wait, termination, observer rejection/cancellation, persisted accounting\n${binary}`,
   );
 } finally {
   await client.shutdown();
   await direct.dispose();
+  await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
   session?.dispose();
   await rm(rootDir, { recursive: true, force: true });
 }

@@ -51,6 +51,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clanker-stuff/code-mode-tools": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-extension-paths": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",

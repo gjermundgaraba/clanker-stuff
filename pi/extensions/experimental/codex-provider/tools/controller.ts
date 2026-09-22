@@ -1,10 +1,10 @@
 import type {
   ExtensionAPI,
   ExtensionContext,
-  NormalizedBuildSystemPromptOptions,
   SessionShutdownEvent,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { collectContributions, placeContributions } from "@clanker-stuff/code-mode-tools";
 
 import { CodeModeRuntime } from "../code-mode/tools.js";
 import { PI_SUBAGENTS_NAMESPACE, requestCollaborationContract } from "../collaboration.js";
@@ -12,8 +12,6 @@ import { CODE_MODE_STATUS_KEY } from "../footer.js";
 import { withExecutionSettings } from "./execution-context.js";
 import type { ToolExecutionSettings } from "./execution-context.js";
 import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
-
-const CODE_MODE_TOOLS_SECTION = "code_mode_tools";
 
 export const createCodexToolsController = (
   pi: ExtensionAPI,
@@ -24,9 +22,9 @@ export const createCodexToolsController = (
   const direct = createCodexDirectTools();
   const codeMode = new CodeModeRuntime();
   const directDefinitions = [...direct.definitions];
-  const codeDefinitions = codeMode.createTools();
+  const codeDefinitions = [codeMode.createWaitTool()];
   const directNames = directDefinitions.map(({ name }) => name);
-  const codeNames = codeDefinitions.map(({ name }) => name);
+  const codeNames = ["exec", "wait"];
   const codexToolNameSet = new Set([...directNames, ...codeNames]);
   let codeModeEnabled = false;
   let currentModel: ExtensionContext["model"];
@@ -34,6 +32,85 @@ export const createCodexToolsController = (
   let suppressedPiNames: string[] = [];
   let suppressedAsyncNames: string[] = [];
   let tuiAvailable = false;
+  let lastContext: ExtensionContext | undefined;
+  let execDescription: string | undefined;
+
+  const wrap = (definition: ToolDefinition): ToolDefinition => ({
+    ...definition,
+    execute: (id, args, signal, onUpdate, ctx) =>
+      definition.execute(
+        id,
+        args,
+        signal,
+        onUpdate,
+        withExecutionSettings(ctx, executionSettings?.take(ctx.sessionManager.getSessionId(), id)),
+      ),
+  });
+
+  const configuredDefinition = (definition: ToolDefinition): ToolDefinition => ({
+    ...definition,
+    execute: (id, args, signal, update, ctx) => {
+      if (!pi.getAllTools().some(({ name }) => name === definition.name))
+        throw new Error(`Nested tool is no longer available: ${definition.name}`);
+
+      return definition.execute(id, args, signal, update, ctx);
+    },
+  });
+
+  const prepareContributions = (): (() => void) => {
+    const nestedOnly =
+      currentModel !== undefined &&
+      isCodexToolsModel(currentModel) &&
+      effectiveMode(currentModel) === "code_mode_only";
+
+    const inventories = collectContributions(pi);
+    const contributed = inventories.flatMap((inventory) => inventory.tools);
+    const collaboration = lastContext ? requestCollaborationContract(pi, lastContext) : undefined;
+
+    const descriptors = [
+      ...direct.nestedDefinitions.map((definition) => ({
+        definition: configuredDefinition(definition),
+      })),
+      ...(collaboration?.protocol === "v1"
+        ? collaboration.nestedTools.map((tool) => ({
+            ...tool,
+            definition: configuredDefinition(tool.definition),
+            namespace: PI_SUBAGENTS_NAMESPACE,
+          }))
+        : []),
+      ...contributed,
+    ];
+
+    try {
+      codeMode.prepareNestedTools(descriptors);
+
+      return () => {
+        // Pi applies allowlists and exclusions during registration, not staging.
+        const configured = new Set(pi.getAllTools().map(({ name }) => name));
+        const admitted = descriptors.filter(({ definition }) => configured.has(definition.name));
+        codeMode.prepareNestedTools(admitted)();
+
+        const exec = codeModeActive()
+          ? codeMode.createExecTool(codeMode.prompt(admitted))
+          : undefined;
+
+        if (exec && exec.description !== execDescription) {
+          const active = pi.getActiveTools();
+          pi.registerTool(wrap(exec));
+          pi.setActiveTools(active);
+          execDescription = exec.description;
+        }
+
+        placeContributions(pi, collectContributions(pi), nestedOnly);
+      };
+    } catch (error) {
+      lastContext?.ui.notify(
+        `Code Mode inventory rejected: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+      throw error;
+    }
+  };
 
   const isQuestionnaire = (name: string) =>
     name === "request_user_input" || name === "request_user_input_async";
@@ -68,6 +145,7 @@ export const createCodexToolsController = (
     model !== undefined && isCodexToolsModel(model) && effectiveMode(model) !== "direct";
 
   const apply = (ctx: ExtensionContext, refreshModel = true): void => {
+    lastContext = ctx;
     const previousModel = currentModel;
     tuiAvailable = ctx.mode === "tui" && ctx.hasUI;
     modelRegistry = ctx.modelRegistry;
@@ -77,16 +155,7 @@ export const createCodexToolsController = (
       currentModel = resolveModel(ctx.model);
     }
 
-    const collaboration = requestCollaborationContract(pi, ctx);
-    codeMode.setNestedTools([
-      ...direct.nestedDefinitions.map((definition) => ({ definition })),
-      ...(collaboration?.protocol === "v1"
-        ? collaboration.nestedTools.map((tool) => ({
-            ...tool,
-            namespace: PI_SUBAGENTS_NAMESPACE,
-          }))
-        : []),
-    ]);
+    prepareContributions()();
     const active = codeModeActive();
     ctx.ui.setStatus(CODE_MODE_STATUS_KEY, active ? "</>" : undefined);
     setFooterActive(active);
@@ -150,33 +219,23 @@ export const createCodexToolsController = (
 
   return {
     apply,
-    /** Code Mode's nested-tool guidance rides along as a prompt section while it is active. */
-    beforeAgentStart(options: NormalizedBuildSystemPromptOptions): void {
-      if (codeModeActive()) {
-        options.sections[CODE_MODE_TOOLS_SECTION] = codeMode.prompt();
-      }
-    },
-    definitions: [...directDefinitions, ...codeDefinitions].map((definition): ToolDefinition => ({
-      ...definition,
-      execute: (id, args, signal, onUpdate, ctx) =>
-        definition.execute(
-          id,
-          args,
-          signal,
-          onUpdate,
-          withExecutionSettings(
-            ctx,
-            executionSettings?.take(ctx.sessionManager.getSessionId(), id),
-          ),
-        ),
-    })),
+    prepareContributions,
+    takeAccounting: (id: string) => codeMode.takeAccounting(id),
+    definitions: [...directDefinitions, ...codeDefinitions].map(wrap),
     async shutdown(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (reason === "reload") {
+        const enabled = collectContributions(pi).flatMap((inventory) =>
+          inventory.tools.map(({ definition }) => definition.name),
+        );
+
         pi.setActiveTools([
           ...new Set(
-            [...suppressedPiNames, ...suppressedAsyncNames, ...pi.getActiveTools()].filter(
-              (name) => !isQuestionnaire(name) || tuiAvailable,
-            ),
+            [
+              ...suppressedPiNames,
+              ...suppressedAsyncNames,
+              ...pi.getActiveTools(),
+              ...enabled,
+            ].filter((name) => !isQuestionnaire(name) || tuiAvailable),
           ),
         ]);
       }

@@ -95,7 +95,7 @@ for (const mode of ["direct", "code"]) {
     });
   else {
     const runtime = new CodeModeRuntime();
-    runtime.setNestedTools(defs.map((definition) => ({ definition, outputSchema: {} })));
+    runtime.prepareNestedTools(defs.map((definition) => ({ definition, outputSchema: {} })))();
     const exec = runtime.createTools().find((t) => t.name === "exec");
     assert.ok(exec);
 

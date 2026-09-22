@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { onContributionPublish } from "@clanker-stuff/code-mode-tools";
 
 import type { ToolExecutionSettings } from "./execution-context.js";
 
@@ -20,6 +21,20 @@ export const registerCodexTools = (
   for (const definition of tools.definitions) {
     pi.registerTool(definition);
   }
+
+  onContributionPublish(pi, tools.prepareContributions);
+  pi.on("tool_result", (event) => {
+    if (event.toolName !== "exec" && event.toolName !== "wait") return;
+    const accounting = tools.takeAccounting(event.toolCallId);
+
+    if (!accounting) return;
+    const details = typeof event.details === "object" ? event.details : undefined;
+
+    return {
+      ...(accounting.usage ? { usage: accounting.usage } : {}),
+      details: { ...details, nestedAccounting: accounting.details },
+    };
+  });
 
   pi.registerCommand("code-mode", {
     description: "Toggle Code Mode when the Codex model has no required tool mode",
@@ -48,9 +63,6 @@ export const registerCodexTools = (
   pi.on("turn_end", () => executionSettings?.clear());
   pi.on("agent_end", () => executionSettings?.clear());
   pi.on("session_shutdown", () => executionSettings?.reset());
-  pi.on("before_agent_start", (event) => {
-    tools.beforeAgentStart(event.systemPromptOptions);
-  });
   pi.on("session_before_compact", (_event, ctx) => {
     // A refresh during a running turn takes effect on the next idle input.
     tools.apply(ctx, ctx.isIdle());
