@@ -1,4 +1,9 @@
 import { wireRecord } from "./fixtures.js";
+import {
+  FOOTER_PROTOCOL_VERSION,
+  FOOTER_READY_EVENT,
+  FOOTER_WIDGET_EVENT,
+} from "@clanker-stuff/footer-protocol";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -82,6 +87,79 @@ const beforeAgentStart = {
 } as const;
 
 describe("Codex Ultra", () => {
+  it("publishes the Ultra widget at xhigh, replays for a late footer, and clears on shutdown", async () => {
+    const host = createHost([state(true)], {
+      getUltraSettings: () => ({ reasoningLevel: "xhigh" }),
+    });
+
+    const ctx = host.createContext({ model: MODEL });
+    const messages: unknown[] = [];
+    host.events.on(FOOTER_WIDGET_EVENT, (value) => messages.push(value));
+
+    await host.emitSessionStart(ctx, "resume");
+    expect(host.getThinkingLevel()).toBe("xhigh");
+    expect(host.getStatus("codex-ultra")).toBe("✦ ultra");
+    expect(messages).toEqual([]);
+
+    for (const instanceId of ["footer-1", "footer-2"]) {
+      host.events.emit(FOOTER_READY_EVENT, {
+        instanceId,
+        protocol: FOOTER_PROTOCOL_VERSION,
+        type: "ready",
+      });
+      expect(messages.at(-1)).toMatchObject({
+        instanceId,
+        type: "upsert",
+        widget: {
+          consumesStatusKeys: ["codex-ultra"],
+          content: [{ text: "ultra", tone: "accent" }],
+          defaults: { enabled: true },
+          icon: {
+            glyphs: { ascii: "**", nerd: "󰙴", unicode: "✦" },
+            tone: "accent",
+          },
+          id: "clanker.codex.ultra",
+          label: "Codex Ultra mode",
+        },
+      });
+    }
+
+    await host.emit("before_agent_start", beforeAgentStart, ctx);
+    expect(messages).toHaveLength(2);
+    await host.runCommand("ultra", "", ctx);
+    expect(messages.at(-1)).toMatchObject({ id: "clanker.codex.ultra", type: "remove" });
+    await host.runCommand("ultra", "", ctx);
+    expect(messages.at(-1)).toMatchObject({ type: "upsert" });
+    await host.emitSessionShutdown(ctx);
+    expect(host.getStatus("codex-ultra")).toBeUndefined();
+    expect(messages.at(-1)).toMatchObject({ id: "clanker.codex.ultra", type: "remove" });
+    expect(messages).toHaveLength(5);
+
+    host.events.emit(FOOTER_READY_EVENT, {
+      instanceId: "footer-3",
+      protocol: FOOTER_PROTOCOL_VERSION,
+      type: "ready",
+    });
+    expect(messages).toHaveLength(5);
+  });
+
+  it("updates the indicator when navigating between enabled and disabled branches", async () => {
+    const host = createHost([state(true), state(false)]);
+    const ctx = host.createContext({ model: MODEL });
+    await host.emitSessionStart(ctx, "resume");
+    expect(host.getStatus("codex-ultra")).toBeUndefined();
+
+    for (const enabled of [true, false]) {
+      host.setLeafId(state(enabled).id);
+      await host.emit(
+        "session_tree",
+        { newLeafId: state(enabled).id, oldLeafId: null, type: "session_tree" },
+        ctx,
+      );
+      expect(host.getStatus("codex-ultra")).toBe(enabled ? "✦ ultra" : undefined);
+    }
+  });
+
   it("enables only with eligible metadata and V2 collaboration", async () => {
     const host = createHost();
     const ctx = host.createContext({ model: MODEL });

@@ -227,6 +227,14 @@ The companion V2 controller hosts the in-process Pi `AgentSession` children, dur
 
 This implementation intentionally has no separate Pi model-picker value, persistent global Ultra default, or second collaboration runtime.
 
+### Status indicator
+
+Active Ultra publishes an accent-colored `ultra` footer widget using the same mechanism as Code Mode and Fast. It follows the footer's icon family: Nerd Font `󰙴` (`nf-md-creation`, sparkles), Unicode `✦`, or ASCII `**`. Without the footer extension, Pi's native status row shows plain `✦ ultra` instead. The rich widget consumes that native status key so it is not shown twice.
+
+Placement follows the saved `/footer` layout. To show Ultra beside Code Mode, place `clanker.codex.ultra` immediately after `clanker.codex.code-mode` in the same row and group. Otherwise, it appears wherever the `footer.widgets` aggregate is placed; it is not automatically grouped with explicitly placed Code Mode or Fast widgets.
+
+The indicator reflects active Ultra, not merely saved intent or the effective reasoning level: Astra can show `xhigh` and `ultra` together. It is restored with the session or branch and cleared when Ultra is disabled, becomes unavailable, or the session shuts down.
+
 ## Non-effects and caveats
 
 - Ultra does not select a faster service tier; fast/priority routing remains independent.
