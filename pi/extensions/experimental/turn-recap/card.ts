@@ -33,7 +33,9 @@ export const renderCard = (
   theme: Theme,
   terminalRows: number,
 ): string[] => {
-  const maxRows = Math.min(state.expanded ? 12 : 5, Math.floor(terminalRows / 2));
+  const maxRows = state.expanded
+    ? Math.floor(terminalRows / 2)
+    : Math.min(5, Math.floor(terminalRows / 2));
 
   if (width <= 0 || maxRows <= 0) return [];
   const { snapshot, running, waiting, expanded } = state;
@@ -81,42 +83,30 @@ export const renderCard = (
   const lines = [truncateToWidth(heading, width, "")];
   const indent = width > 2 ? "  " : "";
 
-  const add = (text: string) => {
-    if (lines.length > maxRows) return;
-    lines.push(
-      ...wrapTextWithAnsi(text, Math.max(1, width - indent.length))
-        .slice(0, maxRows + 1 - lines.length)
-        .map((line) => truncateToWidth(`${indent}${line}`, width, "")),
-    );
-  };
-
-  const finish = () => {
-    if (lines.length <= maxRows) return lines;
-    const last = lines[maxRows - 1] ?? "";
+  const clip = (rows: string[], limit: number) => {
+    if (rows.length <= limit) return rows;
+    const last = rows[limit - 1] ?? "";
 
     return [
-      ...lines.slice(0, maxRows - 1),
+      ...rows.slice(0, limit - 1),
       truncateToWidth(last, Math.max(0, width - 1), "") + theme.fg("dim", "…"),
     ];
   };
 
-  const usage = metrics.usage;
-  const tokens = `${number(totalTokens(usage))} tokens${running ? " reported" : ""}`;
-  lines.push(
-    truncateToWidth(
-      theme.fg(
-        "muted",
-        `${indent}${formatElapsed(snapshot.activeMs)} active · ${clock(running ? snapshot.startedAt : snapshot.finishedAt)} · ${metrics.toolCalls} tools · ${tokens}`,
-      ),
-      width,
-      "…",
-    ),
-  );
+  const add = (text: string, limit = Infinity) => {
+    // Keep one overflow row for final clipping, without spreading unbounded error text.
+    const wrapped = wrapTextWithAnsi(text, Math.max(1, width - indent.length))
+      .slice(0, maxRows + 1)
+      .map((line) => truncateToWidth(`${indent}${line}`, width, ""));
+
+    lines.push(...clip(wrapped, limit));
+  };
+
+  const recapRows = expanded ? Infinity : 2;
 
   if (!running && recap.status === "ready") {
-    add(theme.fg("text", sanitizeRecapText(recap.text)));
+    add(theme.fg("text", sanitizeRecapText(recap.text)), recapRows);
   } else {
-    // Current status takes priority over stale text within the row budget.
     if (!running && recap.status === "pending") add(theme.fg("dim", "Generating recap…"));
 
     if (!running && recap.status === "failed")
@@ -127,64 +117,89 @@ export const renderCard = (
             ? `Recap unavailable: ${sanitizeRecapText(recap.error)}`
             : "Recap unavailable · /turn-recap for details",
         ),
+        recapRows,
       );
 
     if (!running && recap.status === "cancelled") add(theme.fg("dim", "Recap interrupted"));
-
-    if (state.previousRecap)
-      add(theme.fg("muted", `Previous recap: ${sanitizeRecapText(state.previousRecap)}`));
   }
 
-  if (!expanded) return finish();
-
-  add(
-    theme.fg(
-      "muted",
-      `Input ${number(usage.input)} · Output ${number(usage.output)} · Cache read ${number(usage.cacheRead)} · Cache write ${number(usage.cacheWrite)}`,
+  lines.push(
+    truncateToWidth(
+      theme.fg(
+        "muted",
+        `${indent}${formatElapsed(snapshot.activeMs)} active · ${clock(running ? snapshot.startedAt : snapshot.finishedAt)} · ${metrics.toolCalls} tools`,
+      ),
+      width,
+      "…",
     ),
   );
 
-  const reasoning =
-    usage.reasoningReports === 0
-      ? "not reported"
-      : `${number(usage.reasoning)}${usage.reasoningReports < usage.reports ? " (partially reported)" : ""} (included in output)`;
-
-  add(theme.fg("muted", `Reasoning ${reasoning} · Reported cost $${usage.cost.toFixed(4)}`));
-  add(
-    theme.fg(
-      "muted",
-      `${metrics.responses} responses · ${metrics.toolErrors} tool errors · ${metrics.compactions} compactions`,
-    ),
-  );
-  add(
-    theme.fg(
-      "muted",
-      `${formatElapsed(snapshot.wallMs)} wall · ${formatElapsed(Math.max(0, snapshot.wallMs - snapshot.activeMs))} waiting · Started ${clock(snapshot.startedAt)}`,
-    ),
-  );
-
-  if (metrics.models.length > 0)
-    add(theme.fg("muted", `Models: ${metrics.models.map(sanitizeRecapText).join(", ")}`));
+  const usage = metrics.usage;
   const context = metrics.context;
+  const percent = context?.percent;
 
-  if (context) {
-    const percent = context.percent;
+  const contextCount =
+    context === undefined
+      ? "unavailable"
+      : context.tokens === null
+        ? "unknown"
+        : `≈${number(context.tokens)}`;
+
+  const contextText =
+    expanded && context
+      ? `Context ${contextCount}/${number(context.contextWindow)}${percent == null ? "" : ` (${percent.toFixed(1)}%)`}`
+      : `${contextCount} context`;
+
+  add(
+    theme.fg("muted", `${number(totalTokens(usage))} processed · `) +
+      theme.fg(percent == null ? "muted" : percentTone(percent), contextText),
+  );
+
+  if (expanded) {
+    const reasoning =
+      usage.reasoningReports === 0
+        ? "not reported"
+        : `${number(usage.reasoning)}${usage.reasoningReports < usage.reports ? " (partially reported)" : ""} (included in output)`;
+
+    add(theme.fg("muted", `Reported cost $${usage.cost.toFixed(4)} · Reasoning ${reasoning}`));
+
+    if ((recap.status === "ready" || recap.status === "failed") && recap.usage) {
+      add(
+        theme.fg(
+          "dim",
+          `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} reported (excluded above)`,
+        ),
+      );
+    }
+
     add(
       theme.fg(
-        percent === null ? "muted" : percentTone(percent),
-        `Context ≈ ${context.tokens === null ? "unknown" : number(context.tokens)} / ${number(context.contextWindow)}${percent === null ? "" : ` (${percent.toFixed(1)}%)`}`,
+        "muted",
+        `Input ${number(usage.input)} · Output ${number(usage.output)} · Cache read ${number(usage.cacheRead)} · Cache write ${number(usage.cacheWrite)}`,
       ),
     );
   }
 
-  if ((recap.status === "ready" || recap.status === "failed") && recap.usage) {
+  if ((running || recap.status !== "ready") && state.previousRecap)
+    add(theme.fg("muted", `Previous recap: ${sanitizeRecapText(state.previousRecap)}`), recapRows);
+
+  if (expanded) {
     add(
       theme.fg(
-        "dim",
-        `Recap only: ${number(totalTokens(recap.usage))} tokens · $${recap.usage.cost.toFixed(4)} reported (excluded above)`,
+        "muted",
+        `${metrics.responses} responses · ${metrics.toolErrors} tool errors · ${metrics.compactions} compactions`,
       ),
     );
+    add(
+      theme.fg(
+        "muted",
+        `${formatElapsed(snapshot.wallMs)} wall · ${formatElapsed(Math.max(0, snapshot.wallMs - snapshot.activeMs))} waiting · Started ${clock(snapshot.startedAt)}`,
+      ),
+    );
+
+    if (metrics.models.length > 0)
+      add(theme.fg("muted", `Models: ${metrics.models.map(sanitizeRecapText).join(", ")}`));
   }
 
-  return finish();
+  return clip(lines, maxRows);
 };

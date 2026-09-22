@@ -124,7 +124,7 @@ describe("turn recap runtime", () => {
     const final = { ...fauxAssistantMessage("finished"), usage: sampleUsage() };
     env.session.appendMessage(final);
     env.runtime.refresh(env.ctx);
-    expect(env.render()).toContain("370 tokens reported");
+    expect(env.render()).toContain("370 processed");
     const project = env.ctx.sessionManager.buildSessionProjection.bind(env.ctx.sessionManager);
 
     const projection = vi

@@ -10,7 +10,9 @@ Load `pi/extensions/experimental/turn-recap/index.ts` as a local extension; npm 
 
 ## Usage
 
-The card stays above the editor while working and after completion; use `/turn-recap` to toggle detailed statistics.
+- The card stays above the editor while working and after completion; use `/turn-recap` to toggle detailed statistics.
+- **Processed** counts reported tokens across the run's model calls, including cache usage; recap generation is excluded.
+- **Context** shows the estimated context size at the latest run update, retained when the run finishes.
 
 ## Configuration
 
