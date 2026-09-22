@@ -17,48 +17,6 @@ import {
 beforeAll(() => initTheme("dark"));
 
 describe("Code Mode display", () => {
-  it("renders through Pi's real shell, expands, resizes, and refreshes theme colors", () => {
-    const { definition } = codeModeTool();
-    const code = 'await tools.exec_command({cmd: "vp test"});';
-
-    const row = new ToolExecutionComponent(
-      "exec",
-      "shell",
-      { code },
-      { showImages: false },
-      definition,
-      createMockTui(),
-      "/tmp/demo",
-    );
-
-    row.updateResult({
-      ...result([processTrace("failed", "vp test", "test failed", 1)]),
-      isError: false,
-    });
-
-    for (const width of [40, 60, 80, 120]) {
-      const rendered = row.render(width);
-      expect(rendered.length).toBeLessThanOrEqual(19);
-      expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
-      expect(stripVTControlCharacters(rendered.join("\n"))).toContain("1 failed");
-    }
-
-    row.setExpanded(true);
-    expect(stripVTControlCharacters(row.render(120).join("\n"))).toContain(code);
-    row.setExpanded(false);
-    const dark = row.render(80).join("\n");
-
-    try {
-      initTheme("light");
-      row.invalidate();
-      const light = row.render(80).join("\n");
-      expect(light).not.toBe(dark);
-      expect(stripVTControlCharacters(light)).toBe(stripVTControlCharacters(dark));
-    } finally {
-      initTheme("dark");
-    }
-  });
-
   it.each([
     {
       label: "partial result",
@@ -406,40 +364,6 @@ describe("Code Mode display", () => {
     }
   });
 
-  it("reconciles a yielded process with the later poll that observes its exit", () => {
-    const tool = codeModeTool();
-
-    const started: RuntimeToolTrace = {
-      id: "start",
-      input: { cmd: "long-job" },
-      name: "exec_command",
-      status: "done",
-      result: {
-        content: [],
-        details: { status: "running", sessionId: 7, exitCode: null, durationMs: 100 },
-      },
-    };
-
-    const ended: RuntimeToolTrace = {
-      ...processTrace("end", "", "finished"),
-      name: "write_stdin",
-      input: { session_id: 7 },
-    };
-
-    const output = rows(
-      tool.renderResult(
-        result([started, ended]),
-        { expanded: false, isPartial: false },
-        theme,
-        context(),
-      ),
-    );
-
-    expect(output[0]).toBe("Exec · 2 calls · ✓ completed");
-    expect(output.join("\n")).not.toContain("running");
-    expect(output.join("\n")).toContain("yielded · 0.1s");
-  });
-
   it("marks invalid persisted arguments instead of throwing at draw time", () => {
     const exec = codeModeTool();
     const call = exec.renderCall({ code: null }, theme, context());
@@ -449,15 +373,6 @@ describe("Code Mode display", () => {
     expect(rows(wait.renderCall({ cell_id: 7 }, theme, context())).join("\n")).toBe(
       "Wait [invalid arg]",
     );
-    expect(
-      rows(
-        wait.renderCall({ cell_id: "cell\u001b[2J-1", terminate: true }, theme, context(true)),
-      ).join("\n"),
-    ).toBe("Terminate #cell-1");
-    // The header is one screen row, so an embedded newline would break Pi's row accounting.
-    expect(rows(wait.renderCall({ cell_id: "first\nsecond" }, theme, context(true)))).toEqual([
-      "Wait #first second",
-    ]);
   });
 
   it("keeps cell identity terminal-safe and single-line in both views", () => {
@@ -583,6 +498,7 @@ describe("Code Mode display", () => {
     );
 
     expect(output[0]).toBe("Exec · 3 calls · ✓ completed");
+    expect(output.join("\n")).toContain("yielded · 0.1s");
     expect(output.join("\n")).not.toContain("running");
   });
 

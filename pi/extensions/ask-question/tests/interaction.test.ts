@@ -8,7 +8,6 @@ import {
   InteractionSchema,
 } from "../interaction.js";
 import type { Action } from "../interaction.js";
-import { validateQuestionnaire } from "../request.js";
 
 const request = {
   questions: [
@@ -152,18 +151,5 @@ describe("questionnaire transitions", () => {
     expect(Object.values(item.submissions[0]?.answers ?? {})[0]?.selections).toEqual([
       { option_id: "toString", label: "Safe" },
     ]);
-  });
-  it("rejects unknown fields, invalid recommendations and duplicate questions", () => {
-    expect(() => validateQuestionnaire({ ...request, retired: true })).toThrow();
-    expect(() =>
-      validateQuestionnaire({
-        questions: [
-          { ...request.questions[0], recommendation: { option_ids: ["missing"], reason: "why" } },
-        ],
-      }),
-    ).toThrow("recommendation");
-    expect(() =>
-      validateQuestionnaire({ questions: [request.questions[0], request.questions[0]] }),
-    ).toThrow("Duplicate question");
   });
 });

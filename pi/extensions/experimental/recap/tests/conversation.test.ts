@@ -78,29 +78,17 @@ describe("recap input", () => {
     expect(prompt?.match(/^User:/gmu)).toHaveLength(8);
   });
 
-  it("keeps complete long messages in chronological order without a byte budget", () => {
+  it("keeps complete long ASCII and Unicode messages in chronological order without a byte budget", () => {
     const session = SessionManager.inMemory();
     session.appendMessage(userMessage("old request"));
     session.appendMessage(fauxAssistantMessage("old answer"));
-    session.appendMessage(userMessage("L".repeat(500)));
+    session.appendMessage(userMessage("🦄".repeat(500)));
     session.appendMessage(fauxAssistantMessage("A".repeat(159)));
 
     const prompt = buildRecapPrompt(session.getBranch());
 
     expect(prompt).toBe(
-      `${RECAP_PROMPT_PREFIX}User: old request\n\nAssistant: old answer\n\nUser: ${"L".repeat(500)}\n\nAssistant: ${"A".repeat(159)}`,
-    );
-  });
-
-  it("preserves complete Unicode messages", () => {
-    const session = SessionManager.inMemory();
-    appendTurn(session, 1);
-    session.appendMessage(userMessage("🦄".repeat(400)));
-    session.appendMessage(fauxAssistantMessage("latest result"));
-
-    const prompt = buildRecapPrompt(session.getBranch());
-    expect(prompt).toBe(
-      `${RECAP_PROMPT_PREFIX}User: request 1\n\nAssistant: answer 1\n\nUser: ${"🦄".repeat(400)}\n\nAssistant: latest result`,
+      `${RECAP_PROMPT_PREFIX}User: old request\n\nAssistant: old answer\n\nUser: ${"🦄".repeat(500)}\n\nAssistant: ${"A".repeat(159)}`,
     );
   });
 

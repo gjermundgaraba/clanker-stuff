@@ -4,20 +4,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from pi_evals.adapters.services import ServicePiEval, ServiceCodexEval
-from pi_evals.adapters.pi import PiEval
 from pi_evals.adapters.codex import CodexEval
 from harbor.models.agent.context import AgentContext
 from test_tool_mode import PROFILE
 
 
 class ServiceAdaptersTest(unittest.TestCase):
-    def test_no_builtin_tools(self):
-        with patch.object(PiEval, "_session_args", return_value=["--no-skills"]):
-            self.assertEqual(
-                object.__new__(ServicePiEval)._session_args(),
-                ["--no-skills", "--no-builtin-tools"],
-            )
-
     def test_adapter_counts_backend_attempts_not_exec_wrappers(self):
         with TemporaryDirectory() as directory:
             profile = PROFILE["agents"][0]
@@ -26,6 +18,8 @@ class ServiceAdaptersTest(unittest.TestCase):
                 model_name=profile["model_name"],
                 **profile["kwargs"],
             )
+            self.assertIn("--no-builtin-tools", adapter._session_args())
+            self.assertIn("--no-skills", adapter._session_args())
             adapter._instructions = ["task"]
             (adapter.logs_dir / "pi-events.jsonl").write_text(
                 json.dumps(

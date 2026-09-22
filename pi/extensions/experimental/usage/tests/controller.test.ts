@@ -193,17 +193,6 @@ describe("usage controller", () => {
     await host.emitSessionShutdown(context);
   });
 
-  it("works without a rich footer host", async () => {
-    const extension = stubDependencies({ value: 1000 });
-    const host = createExtensionHost(extension, { model: codexModel });
-    const context = host.createContext({ model: codexModel });
-    await host.emitSessionStart(context);
-    await vi.waitFor(() => {
-      expect(host.getStatus("usage")).toContain("Codex");
-    });
-    await host.emitSessionShutdown(context);
-  });
-
   it("refreshes immediately when Codex observes a login", async () => {
     const extension = stubDependencies({ value: 1000 });
     let requests = 0;

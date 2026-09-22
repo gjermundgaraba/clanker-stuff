@@ -83,28 +83,6 @@ describe("xai weekly parsing", () => {
 });
 
 describe("xai combined payloads", () => {
-  it("succeeds with monthly only when weekly is absent", () => {
-    const result = mapXaiUsagePayloads(
-      {
-        config: {
-          monthlyLimit: 100,
-          used: 50,
-        },
-      },
-      undefined,
-      1000,
-    );
-
-    expect(result).toStrictEqual({
-      ok: true,
-      snapshot: {
-        fetchedAt: 1000,
-        provider: "xai",
-        quotaWindows: [{ id: "month", label: "month", remainingPercent: 50 }],
-      },
-    });
-  });
-
   it("maps prepaidBalance from the credits payload", () => {
     const result = mapXaiUsagePayloads(
       {

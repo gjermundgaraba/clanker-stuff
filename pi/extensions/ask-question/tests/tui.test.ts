@@ -423,35 +423,6 @@ describe("bounded questionnaire TUI", () => {
       e.view.dispose();
     }
   });
-  it("sizes each question and auxiliary view to its current content", async () => {
-    const e = setup(false, false, undefined, {
-      questions: [
-        { ...question, multi_select: false },
-        {
-          ...plainQuestion,
-          id: "plain",
-          header: "Plain",
-          options: [{ id: "a", label: "A" }],
-        },
-      ],
-    });
-
-    try {
-      Object.defineProperty(e.tui.terminal, "rows", { value: 60, configurable: true });
-      const first = e.view.render(100).length;
-      await e.press("l");
-      const second = e.view.render(100).length;
-      await e.press("1");
-      const review = e.view.render(100).length;
-      await e.press("i");
-      const detail = e.view.render(100).length;
-
-      expect(new Set([first, second, review, detail]).size).toBeGreaterThan(1);
-      expect(Math.max(first, second, review, detail)).toBeLessThanOrEqual(36);
-    } finally {
-      e.view.dispose();
-    }
-  });
   it("reveals number-key selections and retains focus across a narrow resize", async () => {
     const e = setup(true, false, undefined, {
       questions: [

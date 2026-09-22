@@ -351,7 +351,6 @@ export const startMcpHttpFixture = async ({
 
   return {
     state,
-    requests,
     close: async () => {
       initializationGate.resolve(null);
       releaseToolCalls?.();

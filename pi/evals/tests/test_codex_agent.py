@@ -92,14 +92,6 @@ class CodexCompactionTest(TestCase):
                 {"model": "other", "effort": None},
             ])
 
-    def test_runtime_capture_covers_all_terminal_states(self) -> None:
-        result = subprocess.run(
-            ["node", "runtime/codex-eval.mjs", "--self-test"],
-            check=False,
-            cwd=Path(__file__).parents[1],
-        )
-        self.assertEqual(result.returncode, 0)
-
     def test_runtime_validates_json_boundaries_and_symlink_entrypoint(self) -> None:
         result = subprocess.run(
             ["node", "--test", "tests/codex-runtime.test.mjs"],

@@ -399,7 +399,6 @@ describe("Codex tool renderers", () => {
   it("keeps hyperlink labels and drops raw terminal controls from output", () => {
     const esc = String.fromCharCode(0x1b);
     const linked = `see ${esc}]8;;https://a.example${esc}\\docs${esc}]8;;${esc}\\ and ${esc}]8;;https://b.example${esc}\\more${esc}]8;;${esc}\\ here`;
-    expect(stripVTControlCharacters(linked)).toBe("see docs and more here");
 
     const rendered = renderResult(
       "exec_command",

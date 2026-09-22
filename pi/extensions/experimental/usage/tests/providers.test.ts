@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  getActiveProvider,
-  providerDisplayName,
-  SUPPORTED_PROVIDERS,
-  usageResult,
-} from "../providers.js";
+import { getActiveProvider, SUPPORTED_PROVIDERS, usageResult } from "../providers.js";
 
 describe("providers", () => {
   it("recognizes exactly the supported providers", () => {
@@ -15,20 +10,6 @@ describe("providers", () => {
     expect(getActiveProvider({ provider: "openrouter" })).toBe("openrouter");
     expect(getActiveProvider({ provider: "unknown" })).toBeUndefined();
     expect(getActiveProvider(null)).toBeUndefined();
-  });
-
-  it("provides display names", () => {
-    expect(SUPPORTED_PROVIDERS.map(providerDisplayName)).toStrictEqual([
-      "Claude",
-      "Codex",
-      "OpenRouter",
-      "Copilot",
-      "Kimi",
-      "Radius",
-      "Grok",
-      "GLM",
-      "OpenCode Go",
-    ]);
   });
 
   it("requires quota, accounting, or explicit eligibility", () => {

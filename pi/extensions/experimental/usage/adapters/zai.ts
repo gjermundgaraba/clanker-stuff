@@ -19,7 +19,7 @@ const ZaiLimitSchema = Type.Object({
   usage: Type.Optional(Type.Number()),
 });
 
-export const ZaiQuotaPayloadSchema = Type.Object({
+const ZaiQuotaPayloadSchema = Type.Object({
   code: Type.Optional(Type.Number()),
   data: Type.Optional(
     Type.Object({

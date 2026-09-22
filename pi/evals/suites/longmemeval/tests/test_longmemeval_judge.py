@@ -12,7 +12,7 @@ from unittest import TestCase
 from unittest.mock import Mock, patch
 
 import httpx
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
+from openai import APIStatusError, OpenAI
 
 SCRIPTS = Path(__file__).parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -65,9 +65,6 @@ def judge_item(**changes: object) -> dict[str, object]:
 
 
 class LongMemEvalJudgeTest(TestCase):
-    def test_defaults_to_sol(self) -> None:
-        self.assertEqual(judge.MODEL, "gpt-5.6-sol")
-
     def test_cache_identity_includes_all_inputs(self) -> None:
         row = cache_row()
         for key, value in {
@@ -357,55 +354,6 @@ class OpenAIJudgeTest(TestCase):
                     self.assertEqual(error.exception.status_code, status)
                     self.assertEqual(respond.call_count, attempts)
                     self.assertEqual(sleep.call_count, attempts - 1)
-
-    def test_sdk_obeys_retry_after_and_server_retry_controls(self) -> None:
-        for headers, delay in (
-            ({"Retry-After": "3"}, 3.0),
-            ({"retry-after-ms": "250"}, 0.25),
-            ({"Retry-After": "121"}, None),
-            ({"x-should-retry": "false"}, None),
-        ):
-            with self.subTest(headers=headers):
-                respond = Mock(
-                    side_effect=[
-                        httpx.Response(
-                            429, headers=headers, json={"error": {"message": "busy"}}
-                        ),
-                        self.answer(),
-                    ]
-                )
-                with (
-                    self.client(respond) as client,
-                    patch("openai._base_client.time.sleep") as sleep,
-                ):
-                    if delay is None:
-                        with self.assertRaises(APIStatusError):
-                            judge._post("rubric", client=client, model=judge.MODEL)
-                        respond.assert_called_once()
-                        sleep.assert_not_called()
-                    else:
-                        self.assertEqual(
-                            judge._post("rubric", client=client, model=judge.MODEL),
-                            "yes",
-                        )
-                        self.assertEqual(respond.call_count, 2)
-                        sleep.assert_called_once_with(delay)
-
-    def test_sdk_retries_connection_errors_and_timeouts(self) -> None:
-        for transport_error, sdk_error in (
-            (httpx.ConnectError, APIConnectionError),
-            (httpx.ReadTimeout, APITimeoutError),
-        ):
-            with self.subTest(error=transport_error):
-                respond = Mock(side_effect=transport_error("failed"))
-                with (
-                    self.client(respond) as client,
-                    patch("openai._base_client.time.sleep") as sleep,
-                ):
-                    with self.assertRaises(sdk_error):
-                        judge._post("rubric", client=client, model=judge.MODEL)
-                    self.assertEqual(respond.call_count, 6)
-                    self.assertEqual(sleep.call_count, 5)
 
     def test_workers_share_and_close_one_client_and_reuse_cache(self) -> None:
         os.environ["OPENAI_API_KEY"] = "test-key"

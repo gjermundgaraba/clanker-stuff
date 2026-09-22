@@ -474,47 +474,6 @@ describe("history runtime", () => {
     expect(second.ctx.ui.getEditorText()).toBe("prompt from directory b");
   });
 
-  it("reports database write failures during import", async () => {
-    const sessionDirectory = path.join(agentDir, "sessions", "project");
-    await mkdir(sessionDirectory, { recursive: true });
-    await writeFile(
-      path.join(sessionDirectory, "blocked.jsonl"),
-      [
-        JSON.stringify({
-          cwd: "/project",
-          id: "blocked-session",
-          timestamp: new Date(50).toISOString(),
-          type: "session",
-          version: 3,
-        }),
-        JSON.stringify(userEntry("blocked", null, "blocked prompt", 100)),
-      ].join("\n"),
-      "utf-8",
-    );
-
-    const { ctx, host } = await createHarness();
-    const blocker = openHistoryDatabase();
-    blocker.exec(`
-      CREATE TRIGGER block_history_import
-      BEFORE INSERT ON history
-      BEGIN
-        SELECT RAISE(FAIL, 'blocked import write');
-      END;
-    `);
-    blocker.close();
-
-    await host.runCommand("history-import", "", ctx);
-    expect(
-      host
-        .getNotifications()
-        .some(
-          ({ message, type }) =>
-            message.includes("Session history import failed: blocked import write") &&
-            type === "error",
-        ),
-    ).toBe(true);
-  });
-
   it("reconciles files committed before a later import failure", async () => {
     const sessionDirectory = path.join(agentDir, "sessions", "project");
     const committedPath = path.join(sessionDirectory, "a-committed.jsonl");

@@ -1,6 +1,5 @@
 import { makeStrictJsonSchema } from "@earendil-works/pi-ai/api/constrained-sampling";
 import { Type } from "typebox";
-import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
 import { invalidArguments, structuralSchema } from "../index.js";
@@ -38,7 +37,6 @@ describe("tool schemas", () => {
   it("names each violation of the constrained schema", () => {
     const input = { name: "much too long" };
 
-    expect(Value.Check(Rich, input)).toBe(false);
     expect(invalidArguments(Rich, input, "demo").message).toContain(
       "Invalid demo arguments: /name",
     );

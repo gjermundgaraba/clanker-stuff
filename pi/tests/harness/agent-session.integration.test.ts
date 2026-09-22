@@ -88,14 +88,18 @@ describe("agent-session harness", () => {
     });
 
     harness.setResponses([(context) => fauxAssistantMessage(`seen:${lastUserText(context)}`)]);
+    expect(harness.agentDir).toBe(path.join(harness.tempDir, "agent"));
+    expect(existsSync(harness.agentDir)).toBeTruthy();
 
     await harness.prompt("hello world");
 
     const assistant = harness.messages().findLast((message) => message.role === "assistant");
     const user = harness.messages().findLast((message) => message.role === "user");
-    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toStrictEqual([{ type: "text", text: "seen:[ext] hello world" }]);
     expect(JSON.stringify(user)).toContain("[ext] hello world");
     expect(harness.getPendingResponseCount()).toBe(0);
+    expect(harness.eventsOfType("agent_start")).toHaveLength(1);
+    expect(harness.eventsOfType("agent_end")).toHaveLength(1);
   });
 
   it("captures transformed before_provider_request payloads without treating wire data as context", async () => {
@@ -177,31 +181,6 @@ describe("agent-session harness", () => {
     expect(payload.temperature).toBe(0);
     expect(payload.headers).toStrictEqual({ "x-test": "1" });
     expect(payload.metadata).toStrictEqual({ harness: true });
-  });
-
-  it("uses an isolated agentDir under the harness temp dir", async () => {
-    harness = await createAgentSessionHarness();
-    harness.setResponses([fauxAssistantMessage("reply")]);
-
-    expect(harness.agentDir).toBe(path.join(harness.tempDir, "agent"));
-    expect(existsSync(harness.agentDir)).toBeTruthy();
-
-    await harness.prompt("question");
-
-    const assistant = harness.messages().findLast((message) => message.role === "assistant");
-    expect(JSON.stringify(assistant)).toContain("reply");
-  });
-
-  it("captures session events and preserves prompt/message flow", async () => {
-    harness = await createAgentSessionHarness();
-    harness.setResponses([fauxAssistantMessage("reply")]);
-
-    await harness.prompt("question");
-
-    expect(harness.eventsOfType("agent_start")).toHaveLength(1);
-    expect(harness.eventsOfType("agent_end")).toHaveLength(1);
-    expect(harness.messages().map((message) => message.role)).toContain("user");
-    expect(harness.messages().map((message) => message.role)).toContain("assistant");
   });
 
   it("isolates simultaneous harness response queues and provider payloads", async () => {

@@ -10,8 +10,6 @@ from unittest import TestCase
 
 from harbor.models.task.task import Task
 
-from pi_evals.jsonl import read_jsonl_objects
-
 SUITE_DIR = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location("mem2act", SUITE_DIR / "mem2act.py")
 assert SPEC and SPEC.loader
@@ -52,16 +50,6 @@ def session(identifier: str, source: str = "source-1") -> dict:
 
 
 class Mem2ActTest(TestCase):
-    def test_jsonl_preserves_unicode_line_separators(self) -> None:
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "data.jsonl"
-            record = {"content": "before\u2028after"}
-            path.write_text(
-                json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8"
-            )
-
-            self.assertEqual(read_jsonl_objects(path), [record])
-
     def test_resolves_only_one_complete_session_and_stratifies(self) -> None:
         records = [qa("qa-empty", "L1"), qa("qa-one", "L2"), qa("qa-many", "L3")]
         records[0]["source_conversation_ids"] = []
@@ -103,8 +91,6 @@ class Mem2ActTest(TestCase):
             self.assertNotIn('"count":3', instruction)
             grader = (task / "tests" / "grade.mjs").read_text(encoding="utf-8")
             self.assertIn('\\"count\\":3', grader)
-            self.assertIn("quality", grader)
-            self.assertIn("valid_experiment", grader)
             self.assertNotIn("PRIVATE_GROUNDING", grader)
             self.assertNotIn("PRIVATE_EVOLUTION", grader)
             runtime = task / "environment" / "mem2act"

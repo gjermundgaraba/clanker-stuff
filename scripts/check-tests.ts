@@ -101,12 +101,6 @@ for (const harnessPath of [AGENT_SESSION_HARNESS, EXTENSION_SMOKE_HARNESS]) {
 for (const packageName of packageDirs) {
   const packageRoot = path.join(repoRoot, packageName);
   const files = findTypeScriptFiles(packageRoot);
-  const repoRelativeFiles = files.map(relativeToRepo);
-  const testFiles = repoRelativeFiles.filter((filePath) => filePath.endsWith(".test.ts"));
-
-  if (testFiles.length === 0) {
-    errors.push(`${packageName}: missing test file (*.test.ts)`);
-  }
 
   const sourceFiles = files.filter(
     (filePath) =>

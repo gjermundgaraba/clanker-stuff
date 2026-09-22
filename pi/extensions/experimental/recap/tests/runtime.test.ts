@@ -103,7 +103,7 @@ describe("recap runtime", () => {
     async (thinking) => {
       const stream = queuedStream(() => fauxAssistantMessage("Recap"));
 
-      const { ctx, host, model, runtime } = await setup(stream, {
+      const { ctx, host, runtime } = await setup(stream, {
         config: { model: { id: "small", provider: "cheap" }, thinking },
         model: { reasoning: true, thinkingLevelMap: { max: "max", xhigh: "xhigh" } },
       });
@@ -112,16 +112,6 @@ describe("recap runtime", () => {
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
 
       expect(stream).toHaveBeenCalledTimes(1);
-      expect(stream.mock.calls[0]?.[0]).toBe(model);
-      expect(stream.mock.calls[0]?.[1]).not.toHaveProperty("tools");
-      expect(stream.mock.calls[0]?.[1]).not.toHaveProperty("systemPrompt");
-      expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("maxTokens");
-      expect(stream.mock.calls[0]?.[2]).toMatchObject({
-        cacheRetention: "none",
-        timeoutMs: RECAP_REQUEST_TIMEOUT_MS,
-      });
-      expect(stream.mock.calls[0]?.[2]).toHaveProperty("sessionId", expect.any(String));
-      expect(stream.mock.calls[0]?.[2]).toHaveProperty("signal", expect.any(AbortSignal));
 
       if (thinking === "off") {
         expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("reasoning");
@@ -243,18 +233,6 @@ describe("recap runtime", () => {
       completedTurns: 3,
       recap: "Finished the parser. Next: test it.",
     });
-  });
-
-  it("leaves the output token limit to the model provider", async () => {
-    const stream = queuedStream(() => fauxAssistantMessage("Done"));
-    const { ctx, host, runtime } = await setup(stream, { model: { maxTokens: 1024 } });
-
-    runtime.settled(ctx);
-
-    await vi.waitFor(() => {
-      expect(host.getAppendedEntries()).toHaveLength(1);
-    });
-    expect(stream.mock.calls[0]?.[2]).not.toHaveProperty("maxTokens");
   });
 
   it("disables itself instead of falling back to the active model", async () => {

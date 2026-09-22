@@ -167,7 +167,7 @@ describe("mcp loader", () => {
     expect(host.getRegisteredTools().has(toGeneratedToolName("project", "search"))).toBeTruthy();
   });
 
-  it("connects the selected server and registers its tools as active", async () => {
+  it("connects the selected server, persists it, and marks its tools and picker row active", async () => {
     vi.stubEnv("MCP_TEST_MISSING_COMMAND", undefined);
     await t.writeConfig({
       mcpServers: {
@@ -176,12 +176,8 @@ describe("mcp loader", () => {
       },
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
-
-    const ctx = host.createContext({
-      ui: {
-        select: vi.fn<() => Promise<string>>(async () => "○ github"),
-      },
-    });
+    const select = vi.fn<() => Promise<string | undefined>>().mockResolvedValueOnce("○ github");
+    const ctx = host.createContext({ ui: { select } });
 
     await host.runCommand("mcp", "", ctx);
 
@@ -199,21 +195,15 @@ describe("mcp loader", () => {
       text: "result: needle",
       type: "text",
     });
-  });
+    expect(host.getAppendedEntries()).toMatchObject([
+      { customType: "mcp-server-loaded", data: { serverName: "github" } },
+    ]);
 
-  it("marks successfully loaded servers as active", async () => {
-    await t.writeConfig({
-      mcpServers: { github: fixtureServer() },
-    });
-    const select = vi.fn<() => Promise<string | undefined>>().mockResolvedValueOnce("○ github");
-    const host = t.createExtensionHost(mcp, { hasUI: false });
-    const ctx = host.createContext({ ui: { select } });
-
-    await host.runCommand("mcp", "", ctx);
     await host.runCommand("mcp", "", ctx);
 
     expect(select).toHaveBeenLastCalledWith("MCP server", [
       `○ ${MCP_MANAGER_SERVER_NAME}`,
+      "○ broken",
       "● github (reconnect)",
     ]);
   });
@@ -277,27 +267,6 @@ describe("mcp loader", () => {
             notice.type === "error" && notice.message.includes("Failed to load MCP config:"),
         ),
     ).toBe(true);
-  });
-
-  it("persists loaded server state to session entries", async () => {
-    await t.writeConfig({
-      mcpServers: { github: fixtureServer() },
-    });
-    const host = t.createExtensionHost(mcp, { hasUI: false });
-
-    const ctx = host.createContext({
-      ui: {
-        select: vi.fn<() => Promise<string>>(async () => "○ github"),
-      },
-    });
-
-    await host.runCommand("mcp", "", ctx);
-
-    const mcpEntries = host
-      .getAppendedEntries()
-      .filter((entry) => entry.type === "custom" && entry.customType === "mcp-server-loaded");
-
-    expect(mcpEntries).toStrictEqual([expect.objectContaining({ data: { serverName: "github" } })]);
   });
 
   it("continues restoring persisted servers after one fails", async () => {

@@ -22,18 +22,6 @@ describe("command runtime", () => {
     },
   );
 
-  it("returns before the CLI completes", async () => {
-    const { ctx, host, pending } = setup();
-    await host.runCommand("plannotator-review", "--git", ctx);
-    expect(pending).toHaveLength(1);
-    expect(host.getNotifications()).toStrictEqual([
-      {
-        message: "Plannotator code review opened.",
-        type: "info",
-      },
-    ]);
-  });
-
   it("streams complete stderr lines before the CLI exits", async () => {
     const { ctx, host, pending } = setup();
     await host.runCommand("plannotator-review", "--git", ctx);

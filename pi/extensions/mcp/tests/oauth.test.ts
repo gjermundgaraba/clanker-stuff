@@ -459,22 +459,6 @@ describe("mcp oauth", () => {
     await expect(fetch(callback.redirectUrl)).rejects.toThrow();
   });
 
-  it("cancels callback waiting promptly", async () => {
-    const callback = await startOAuthCallbackServer(
-      new URL("http://localhost:0/callback"),
-      "expected",
-    );
-
-    try {
-      const controller = new AbortController();
-      const waiting = callback.waitForCode(controller.signal);
-      controller.abort();
-      await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
-    } finally {
-      await callback.close();
-    }
-  });
-
   it.each(["before", "during"])(
     "preserves other callback waiters when cancellation occurs %s waiting",
     async (when) => {

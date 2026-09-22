@@ -160,30 +160,6 @@ describe("Codex tools with a real AgentSession", () => {
     }
   });
 
-  it("normalizes startup and toggles Code Mode", async () => {
-    const rootDir = await mkdtemp(path.join(os.tmpdir(), "codex-tools-"));
-    const cwd = path.join(rootDir, "project");
-    await mkdir(cwd, { recursive: true });
-    vi.stubEnv("PI_CODING_AGENT_DIR", path.join(rootDir, "agent-config"));
-
-    const session = await createRealCodexSession({
-      extensionFactories: [codexProviderExtension],
-      model: createToolsModel("gpt-5.6-sol", true),
-      rootDir,
-      sessionManager: SessionManager.inMemory(cwd),
-    });
-
-    try {
-      expect(session.getActiveToolNames()).toStrictEqual(DIRECT_NAMES);
-
-      await session.prompt("/code-mode");
-      expect(session.getActiveToolNames()).toStrictEqual(CODE_NAMES);
-    } finally {
-      session.dispose();
-      await rm(rootDir, { force: true, recursive: true });
-    }
-  });
-
   it.each([
     ["Direct Mode", "exec_command"],
     ["Code Mode", "exec"],
@@ -252,7 +228,13 @@ describe("Codex tools with a real AgentSession", () => {
       session.agent.streamFunction = stream;
 
       try {
-        if (mode === "Code Mode") await session.prompt("/code-mode");
+        expect(session.getActiveToolNames()).toStrictEqual(DIRECT_NAMES);
+
+        if (mode === "Code Mode") {
+          await session.prompt("/code-mode");
+          expect(session.getActiveToolNames()).toStrictEqual(CODE_NAMES);
+        }
+
         const index = session.getAllTools().findIndex(({ name }) => name === toolName);
         expect(index).toBeGreaterThanOrEqual(0);
 

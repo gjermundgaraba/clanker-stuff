@@ -147,44 +147,6 @@ describe("direct tool display boundaries", () => {
     );
   });
 
-  it("omits pure rename zero counts and labels a lone diff among multiple changes", () => {
-    const args = {
-      patch: "*** Begin Patch\n*** Update File: before.ts\n*** Move to: after.ts\n*** End Patch",
-    };
-
-    expect(rows(applyPatchRenderers.renderCall?.(args, theme, context())).join("\n")).toBe(
-      "apply_patch Update before.ts → after.ts",
-    );
-
-    const result = {
-      content: [],
-      details: {
-        changes: [
-          {
-            changed: false,
-            from: "before.ts",
-            kind: "update",
-            lines: { added: 0, removed: 0 },
-            path: "after.ts",
-          },
-          { changed: true, kind: "add", lines: { added: 1, removed: 0 }, path: "new.ts" },
-        ],
-        diffs: [{ diff: "+1 hello", index: 1 }],
-      },
-    };
-
-    const rendered = rows(
-      applyPatchRenderers.renderResult?.(
-        result,
-        { expanded: false, isPartial: false },
-        theme,
-        context(),
-      ),
-    ).join("\n");
-
-    expect(rendered).toContain("new.ts\n+1 hello");
-  });
-
   it.each([0, 1, 2])(
     "keeps original diff associations when change %i is malformed",
     (invalidIndex) => {

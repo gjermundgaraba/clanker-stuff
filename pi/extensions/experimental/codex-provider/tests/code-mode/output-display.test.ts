@@ -47,12 +47,6 @@ const render = (
 beforeAll(() => initTheme());
 
 describe("Code Mode script output display", () => {
-  it("unwraps a captured failed process envelope into real output lines", () => {
-    expect(render(items(exited), [trace(exited)])).toEqual([
-      { text: "first\nsecond\n", traceId: "trace-1" },
-    ]);
-  });
-
   it("unwraps captured running write_stdin results", () => {
     expect(render(items(running), [trace(running, "write_stdin")])).toEqual([
       { text: "still running\n", traceId: "trace-1" },

@@ -33,6 +33,7 @@ describe(forkHistory, () => {
     expect(history[1]?.content).toStrictEqual([{ text: "final", type: "text" }]);
     expect(history[1]).not.toHaveProperty("responseId");
     expect(history[1]).toHaveProperty("usage.cost.total", 0);
+    expect(forkHistory(session.buildSessionProjection().messages, "none")).toStrictEqual([]);
   });
 
   it("carries compacted context into full forks", () => {
@@ -46,13 +47,6 @@ describe(forkHistory, () => {
     expect(history.map((message) => message.role)).toStrictEqual(["user", "user"]);
     expect(history[0]?.content).toBe("Previous conversation summary:\nEarlier decisions");
     expect(history[1]?.content).toBe("recent");
-  });
-  it("supports fresh and full forks", () => {
-    const session = SessionManager.inMemory();
-    session.appendMessage(user("hello"));
-
-    expect(forkHistory(session.buildSessionProjection().messages, "none")).toStrictEqual([]);
-    expect(forkHistory(session.buildSessionProjection().messages, "all")).toHaveLength(1);
   });
 
   it("forks edited context without resurrecting omitted history", () => {

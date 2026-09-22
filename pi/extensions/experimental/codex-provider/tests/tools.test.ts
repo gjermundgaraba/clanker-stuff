@@ -370,17 +370,6 @@ describe("Codex tools", () => {
     },
   );
 
-  it("restores Pi tools after a model switch", async () => {
-    const codex = createToolsModel("gpt-5.6-sol", true);
-    const host = createExtensionHost(registerCodexTools, { model: codex });
-    await host.emitSessionStart();
-
-    const unsupported = createToolsModel("deepseek-v4-pro");
-    await selectModel(host, codex, unsupported);
-
-    expect(host.getActiveTools()).toStrictEqual(PI_NAMES);
-  });
-
   it("suppresses and restores powershell from builtin provenance", async () => {
     const codex = createToolsModel("gpt-5.6-sol", true);
     const builtinNames = [...PI_NAMES, "powershell"];

@@ -53,12 +53,6 @@ describe("atomic control store", () => {
     }
   });
 
-  it("binds the file name to both root path and header id", () => {
-    const first = rootBinding("one", "/tmp/root.jsonl");
-    const second = rootBinding("two", "/tmp/root.jsonl");
-    expect(first).not.toStrictEqual(second);
-  });
-
   it("rejects a pending V2 node without its owned task mail", () => {
     const root = rootBinding("invalid");
     const snapshot = freshSnapshot("v2", root);

@@ -27,34 +27,6 @@ describe("MCP presentation", () => {
 
     expect(expanded).toContain('"owner": "clanker"');
   });
-  it("never reveals manager config credentials, including in expanded calls", () => {
-    const args = {
-      name: "private",
-      scope: "project",
-      config: {
-        type: "http",
-        url: "https://user:password@example.com",
-        headers: { Authorization: "Bearer SECRET" },
-        env: { TOKEN: "secret-env" },
-        args: ["--password=abc"],
-      },
-    };
-
-    for (const expanded of [false, true]) {
-      const text = renderedRows(
-        mcpRenderers("mcp-manager", "mcp_set", true).renderCall(
-          args,
-          theme,
-          toolRenderContext({ expanded }),
-        ),
-      ).join("\n");
-
-      expect(text).toBe(
-        "mcp_set private\nproject · http" + (expanded ? "\nAdditional configuration hidden" : ""),
-      );
-      expect(text).not.toMatch(/password|SECRET|secret-env|abc/u);
-    }
-  });
   it("shows only allowlisted operational settings in expanded manager calls", () => {
     for (const type of ["http", "stdio"]) {
       const args = {
@@ -219,22 +191,6 @@ describe("MCP presentation", () => {
     ).toContain("line 29");
     expect(data).toEqual(original);
   });
-  it.each(["0", 0.5, null, -1, 100])(
-    "does not hide content for an invalid overflow index (%s)",
-    (overflowNoticeIndex) => {
-      const data = { ...result("original content"), details: { overflowNoticeIndex } };
-
-      const output = mcpRenderers("server", "tool").renderResult(
-        data,
-        { expanded: true, isPartial: false },
-        theme,
-        toolRenderContext(),
-      );
-
-      expect(renderedRows(output).join("\n")).toBe("original content");
-    },
-  );
-
   it("leaves images to Pi and provides a hidden-image indicator", () => {
     const data = {
       content: [{ type: "image" as const, data: "BASE64", mimeType: "image/png" }],

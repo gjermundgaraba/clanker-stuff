@@ -97,6 +97,18 @@ describe("questionnaire contract", () => {
       expect(() => validateQuestionnaire(invalid)).toThrow();
     }
 
+    expect(() =>
+      validateQuestionnaire({
+        questions: [
+          {
+            ...question,
+            options: [{ id: "unit", label: "Unit tests" }],
+            recommendation: { option_ids: ["missing"], reason: "why" },
+          },
+        ],
+      }),
+    ).toThrow(/Invalid recommendation/u);
+
     for (const invalid of [
       {},
       { interaction_id: "i1", base_revision: 0, reason: "Update" },

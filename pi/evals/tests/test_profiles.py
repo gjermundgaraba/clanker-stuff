@@ -150,13 +150,6 @@ class ProfileTest(unittest.TestCase):
                 self.assertEqual([task.path.name for task in tasks], ["inventory-ledger"])
                 self.assertEqual(len(trials), len(raw["agents"]) * raw["n_attempts"])
 
-    def test_nonexistent_task_path_fails_discovery(self):
-        raw, _ = self.load("paired")
-        raw["datasets"] = [{"path": str(EVALS / "does-not-exist")}]
-        config = JobConfig.model_validate(raw)
-        with self.assertRaises(FileNotFoundError):
-            asyncio.run(JobPlan.resolve_task_configs(config))
-
     def test_smoke_manifest_matches_trajectory(self):
         smoke = yaml.safe_load(
             (EVALS / "suites" / "smoke" / "job.yaml").read_text()

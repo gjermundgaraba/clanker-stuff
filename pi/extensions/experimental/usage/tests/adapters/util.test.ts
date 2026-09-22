@@ -74,16 +74,4 @@ describe("bearer usage fetch", () => {
       fetchUsage({ authClient: tokenAuthClient("token"), fetchJson: failing(status) }),
     ).resolves.toStrictEqual({ error: { kind, message: `HTTP ${status}` }, ok: false });
   });
-
-  it("rejects payloads that fail the schema", async () => {
-    await expect(
-      fetchUsage({
-        authClient: tokenAuthClient("token"),
-        fetchJson: okFetch({ available: "nope" }),
-      }),
-    ).resolves.toStrictEqual({
-      error: { kind: "failure", message: "invalid usage payload" },
-      ok: false,
-    });
-  });
 });

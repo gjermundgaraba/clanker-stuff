@@ -346,57 +346,30 @@ describe("extension-host harness", () => {
     await expect(host.ready).rejects.toThrow("factory failed");
   });
 
-  it("auto-activates newly registered tools", async () => {
-    const host = createExtensionHost(
-      (pi: ExtensionAPI) => {
-        pi.registerTool({
-          description: "New tool",
-          async execute() {
-            await Promise.resolve();
+  it.each([
+    { name: "new-tool", allTools: ["read"], expected: ["read", "new-tool"] },
+    { name: "known-tool", allTools: ["read", "known-tool"], expected: ["read"] },
+  ])(
+    "activates $name only if it was not previously registered",
+    async ({ name, allTools, expected }) => {
+      const host = createExtensionHost(
+        (pi: ExtensionAPI) => {
+          pi.registerTool({
+            description: "Tool activation fixture",
+            execute: async () => ({ content: [], details: {} }),
+            label: name,
+            name,
+            parameters: Type.Object({}),
+          });
+        },
+        { activeTools: ["read"], allTools },
+      );
 
-            return {
-              content: [{ text: "ok", type: "text" }],
-              details: {},
-            };
-          },
-          label: "New tool",
-          name: "new-tool",
-          parameters: Type.Object({}),
-        });
-      },
-      { activeTools: ["read"] },
-    );
+      await host.ready;
 
-    await host.ready;
-
-    expect(host.getActiveTools()).toStrictEqual(["read", "new-tool"]);
-  });
-
-  it("does not auto-activate re-registered inactive tools", async () => {
-    const host = createExtensionHost(
-      (pi: ExtensionAPI) => {
-        pi.registerTool({
-          description: "Known tool",
-          async execute() {
-            await Promise.resolve();
-
-            return {
-              content: [{ text: "ok", type: "text" }],
-              details: {},
-            };
-          },
-          label: "Known tool",
-          name: "known-tool",
-          parameters: Type.Object({}),
-        });
-      },
-      { activeTools: ["read"], allTools: ["read", "known-tool"] },
-    );
-
-    await host.ready;
-
-    expect(host.getActiveTools()).toStrictEqual(["read"]);
-  });
+      expect(host.getActiveTools()).toStrictEqual(expected);
+    },
+  );
 
   it("applies prepareArguments before execute", async () => {
     const host = createExtensionHost((pi: ExtensionAPI) => {

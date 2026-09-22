@@ -53,7 +53,6 @@ describe("task contracts", () => {
   });
   it.each([
     {
-      wire: "[" + Array(2500).fill("1e20").join(",") + "]",
       data: Array.from({ length: 2500 }, () => 1e20),
     },
     {
@@ -62,19 +61,9 @@ describe("task contracts", () => {
         "😀".repeat(2000),
         ...Array.from({ length: 1000 }, () => 1e20),
       ],
-      wire:
-        "[" +
-        Array(400).fill("1e20").join(",") +
-        "," +
-        JSON.stringify("😀".repeat(2000)) +
-        "," +
-        Array(1000).fill("1e20").join(",") +
-        "]",
     },
-    { wire: JSON.stringify("\u202e".repeat(4500) + "😀"), data: "\u202e".repeat(4500) + "😀" },
-  ])("reassembles bounded JSON text pages without changing payload values", ({ wire, data }) => {
-    expect(Buffer.byteLength(wire)).toBeLessThan(16000);
-    expect(JSON.parse(wire)).toEqual(data);
+    { data: "\u202e".repeat(4500) + "😀" },
+  ])("reassembles bounded JSON text pages without changing payload values", ({ data }) => {
     let offset: number | null = 0;
     let text = "";
     let pages = 0;

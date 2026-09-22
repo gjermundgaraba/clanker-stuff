@@ -88,13 +88,6 @@ describe("stash", () => {
     };
   };
 
-  it("describes the registered pop command", async () => {
-    const { host } = await createHarness();
-    expect(host.getRegisteredCommands().get("pop-stash")?.description).toBe(
-      "Pop the most recent stashed editor text",
-    );
-  });
-
   beforeEach(async () => {
     agentDir = await useAgentDir();
   });
@@ -121,18 +114,6 @@ describe("stash", () => {
     });
   });
 
-  it("persists stashed text across extension instances", async () => {
-    const cwd = await createTempDir("stash-cwd-");
-    const first = await createHarness({ cwd });
-
-    await first.stash("draft message");
-
-    const second = await createHarness({ cwd });
-    await second.popStash();
-
-    expect(second.editorText()).toBe("draft message");
-  });
-
   it("caps persisted and in-memory stashes to the ten newest entries", async () => {
     const cwd = await createTempDir("stash-cwd-");
     const harness = await createHarness({ cwd });
@@ -157,22 +138,12 @@ describe("stash", () => {
       expect(restored.editorText()).toBe(`draft ${index}`);
     }
 
+    expect(await readStore(agentDir, cwd)).toStrictEqual({ entries: [] });
     await restored.popStash();
     expect(restored.notifications()).toContainEqual({
       message: "Nothing stashed.",
       type: "info",
     });
-  });
-
-  it("persists an empty cwd stack when the stack is emptied", async () => {
-    const cwd = await createTempDir("stash-cwd-");
-    const harness = await createHarness({ cwd });
-
-    await harness.stash("draft message");
-    await harness.popStash();
-
-    const store = await readStore(agentDir, cwd);
-    expect(store).toStrictEqual({ entries: [] });
   });
 
   it("treats malformed persisted stash as empty", async () => {
@@ -302,16 +273,6 @@ describe("stash", () => {
     expect(copyToClipboard).not.toHaveBeenCalled();
   });
 
-  it("restores the most recent stash on the next interactive input", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("first draft");
-    await harness.stash("second draft");
-    await harness.input("send message", "interactive");
-
-    expect(harness.editorText()).toBe("second draft");
-  });
-
   it("does not restore on non-interactive input", async () => {
     const harness = await createHarness();
 
@@ -357,21 +318,6 @@ describe("stash", () => {
     expect(harness.editorText()).toBe("");
   });
 
-  it("pops the most recent stash when Ctrl+S is pressed on an empty editor", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("first");
-    await harness.stash("second");
-
-    harness.ctx.ui.setEditorText("");
-    await harness.host.runShortcut("ctrl+s", harness.ctx);
-    expect(harness.editorText()).toBe("second");
-
-    harness.ctx.ui.setEditorText("");
-    await harness.host.runShortcut("ctrl+s", harness.ctx);
-    expect(harness.editorText()).toBe("first");
-  });
-
   it("notifies when Ctrl+S is pressed on an empty editor with nothing stashed", async () => {
     const harness = await createHarness();
 
@@ -385,7 +331,7 @@ describe("stash", () => {
     });
   });
 
-  it("persists stack changes when Ctrl+S pops on an empty editor", async () => {
+  it("pops in LIFO order and persists stack changes when Ctrl+S sees an empty editor", async () => {
     const cwd = await createTempDir("stash-cwd-");
     const harness = await createHarness({ cwd });
 
@@ -394,27 +340,15 @@ describe("stash", () => {
 
     harness.ctx.ui.setEditorText("");
     await harness.host.runShortcut("ctrl+s", harness.ctx);
+    expect(harness.editorText()).toBe("second");
     const afterFirstPop = await readStore(agentDir, cwd);
     expect(afterFirstPop.entries).toStrictEqual(["first"]);
 
     harness.ctx.ui.setEditorText("");
     await harness.host.runShortcut("ctrl+s", harness.ctx);
+    expect(harness.editorText()).toBe("first");
     const afterSecondPop = await readStore(agentDir, cwd);
     expect(afterSecondPop.entries).toStrictEqual([]);
-  });
-
-  it("pops stashed text in LIFO order across repeated /pop-stash calls", async () => {
-    const harness = await createHarness();
-
-    await harness.stash("first");
-    await harness.stash("second");
-    await harness.popStash();
-    expect(harness.editorText()).toBe("second");
-
-    harness.ctx.ui.setEditorText("cleared");
-    await harness.popStash();
-
-    expect(harness.editorText()).toBe("first");
   });
 
   it("notifies when /pop-stash is used with an empty stash", async () => {

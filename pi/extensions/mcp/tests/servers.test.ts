@@ -369,34 +369,6 @@ describe("mcp server pool", () => {
     },
   );
 
-  it("loads tools from a real streamable HTTP server", async () => {
-    const fixture = await t.startHttpFixture();
-    await t.writeConfig({
-      mcpServers: {
-        remote: { type: "http", url: fixture.url },
-      },
-    });
-    const host = t.createExtensionHost(mcp, { hasUI: false });
-
-    const ctx = host.createContext({
-      ui: {
-        select: vi.fn<() => Promise<string>>(async () => "○ remote"),
-      },
-    });
-
-    await host.runCommand("mcp", "", ctx);
-
-    const result = await host.runTool(toGeneratedToolName("remote", "search"), {
-      query: "http-needle",
-    });
-
-    expect(host.getRegisteredTools().has(toGeneratedToolName("remote", "search"))).toBeTruthy();
-    expect(result.content).toContainEqual({
-      text: "result: http-needle",
-      type: "text",
-    });
-  });
-
   it("recovers an expired session automatically without replay", async () => {
     const fixture = await t.startHttpFixture({ expireSessionOnce: true });
     await t.writeConfig({

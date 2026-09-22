@@ -87,12 +87,18 @@ describe("codex payload parsing", () => {
     });
   });
 
-  it.each([null, undefined, "", "  ", "invalid", Infinity, NaN, "Infinity"])(
-    "omits an unavailable credit balance (%s)",
-    (balance) => {
+  it.each([
+    { balance: null, hasCredits: false },
+    ...[null, undefined, "", "  ", "invalid", Infinity, NaN, "Infinity"].map((balance) => ({
+      balance,
+      hasCredits: true,
+    })),
+  ])(
+    "omits an unavailable credit balance ($balance, hasCredits=$hasCredits)",
+    ({ balance, hasCredits }) => {
       const result = mapCodexUsagePayload(
         {
-          credits: { has_credits: true, ...(balance !== undefined ? { balance } : {}) },
+          credits: { has_credits: hasCredits, ...(balance !== undefined ? { balance } : {}) },
           rate_limit: { primary_window: { used_percent: 0 } },
         },
         0,
@@ -104,28 +110,6 @@ describe("codex payload parsing", () => {
       expect(result.snapshot).not.toHaveProperty("accounting");
     },
   );
-
-  it("accepts a null credit balance", () => {
-    const result = mapCodexUsagePayload(
-      {
-        credits: { balance: null, has_credits: false },
-        rate_limit: {
-          primary_window: { used_percent: 32 },
-          secondary_window: null,
-        },
-      },
-      now,
-    );
-
-    expect(result).toStrictEqual({
-      ok: true,
-      snapshot: {
-        fetchedAt: now,
-        provider: "openai-codex",
-        quotaWindows: [{ id: "5h", label: "5h", remainingPercent: 68 }],
-      },
-    });
-  });
 
   it("fails when windows are missing", () => {
     const result = mapCodexUsagePayload({ rate_limit: {} }, now);

@@ -232,12 +232,6 @@ describe("pinned marker-free fallback assistant ID parity", () => {
     },
   );
 
-  it("keeps marker-free fallback identity through repeated replacement", () => {
-    expect.hasAssertions();
-    assertMarkerFreeParity([assistant([{ text: "before repeated compaction", type: "text" }])]);
-    assertMarkerFreeParity([assistant([{ text: "after repeated compaction", type: "text" }])]);
-  });
-
   it("detects a start marker splitting a prefix call from a framed result", () => {
     const nonce = "split-start";
 

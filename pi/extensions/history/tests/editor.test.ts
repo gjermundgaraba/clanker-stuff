@@ -1,3 +1,4 @@
+import { acquireEditorHost, EditorHost } from "@clanker-stuff/editor";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type { SessionEntry, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -35,41 +36,20 @@ const start = (reason: SessionStartEvent["reason"]): SessionStartEvent => ({
 
 const up = "\u001B[A";
 
-const down = "\u001B[B";
-
-const recall = (editor: ReturnType<typeof createEditor>, key: string) => {
-  editor.handleInput(key);
-  editor.render(80);
-
-  return editor.getText();
-};
-
 describe("history editor", () => {
   it.each(["startup", "new", "reload"] as const)(
-    "seeds an empty %s session newest-first without changing its draft",
+    "seeds an empty %s session from global history, oldest first",
     (reason) => {
-      const { host, ctx } = setup();
+      const { ctx } = setup();
+      const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
       installHistoryEditor(start(reason), ctx, () => persisted);
-      const editor = createEditor(host);
-      expect(editor.getText()).toBe("");
-      expect(recall(editor, up)).toBe("latest global");
-      expect(recall(editor, up)).toBe("older global");
-      expect(recall(editor, up)).toBe("older global");
-      expect(recall(editor, down)).toBe("latest global");
-      expect(recall(editor, down)).toBe("");
-
-      editor.setText("unfinished draft");
-      expect(recall(editor, up)).toBe("unfinished draft"); // Move to the start first.
-      expect(recall(editor, up)).toBe("latest global");
-      expect(recall(editor, down)).toBe("unfinished draft");
-      expect(editor).toBeInstanceOf(CustomEditor);
-
-      if (editor instanceof CustomEditor) expect(editor.embedWorkingStatus).toBeTruthy();
+      expect(seedHistory).toHaveBeenCalledExactlyOnceWith(["older global", "latest global"]);
     },
   );
 
-  it("keeps only the latest 100 prompts and lets new submissions join native history", () => {
-    const { host, ctx } = setup();
+  it("passes exactly the latest 100 prompts to the editor host, oldest first", () => {
+    const { ctx } = setup();
+    const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
 
     const history = Array.from({ length: 105 }, (_, index) => ({
       text: `prompt ${105 - index}`,
@@ -77,104 +57,78 @@ describe("history editor", () => {
     }));
 
     installHistoryEditor(start("startup"), ctx, () => history);
-    const editor = createEditor(host);
-
-    for (let index = 0; index < 105; index++) recall(editor, up);
-    expect(editor.getText()).toBe("prompt 6");
-    editor.setText("");
-    editor.addToHistory?.("just submitted");
-    expect(recall(editor, up)).toBe("just submitted");
-  });
-
-  it("leaves multiline cursor movement to the underlying editor", () => {
-    const { host, ctx } = setup();
-    installHistoryEditor(start("startup"), ctx, () => persisted);
-    const editor = createEditor(host);
-    editor.setText("first\nsecond");
-    expect(recall(editor, up)).toBe("first\nsecond");
-    expect(recall(editor, up)).toBe("first\nsecond");
-    expect(recall(editor, up)).toBe("latest global");
-    expect(recall(editor, down)).toBe("first\nsecond");
-  });
-
-  it("does not steal arrows from an autocomplete menu", async () => {
-    const { host, ctx } = setup();
-    installHistoryEditor(start("startup"), ctx, () => persisted);
-    const editor = createEditor(host);
-
-    if (!(editor instanceof CustomEditor)) throw new Error("Expected CustomEditor");
-    editor.setAutocompleteProvider({
-      getSuggestions: () =>
-        Promise.resolve({
-          prefix: "",
-          items: [
-            { value: "choice one", label: "choice one" },
-            { value: "choice two", label: "choice two" },
-          ],
-        }),
-      applyCompletion: (_lines, _line, _col, item) => ({
-        lines: [item.value],
-        cursorLine: 0,
-        cursorCol: item.value.length,
-      }),
-    });
-    editor.handleInput("\t");
-    await vi.waitFor(() => expect(editor.isShowingAutocomplete()).toBeTruthy());
-    expect(recall(editor, down)).toBe("");
-    expect(recall(editor, up)).toBe("");
-    expect(recall(editor, "\r")).toBe("choice one");
+    expect(seedHistory).toHaveBeenCalledExactlyOnceWith(
+      Array.from({ length: 100 }, (_, index) => `prompt ${index + 6}`),
+    );
   });
 
   it("does not double-seed Pi's initial resumed-session replay", () => {
-    const { host, ctx } = setup(branch);
+    const { ctx } = setup(branch);
+    const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
     installHistoryEditor(start("startup"), ctx, () => persisted);
-    const editor = createEditor(host);
-    expect(recall(editor, up)).toBe("");
     // Initial InteractiveMode startup replays user messages after session_start.
-    editor.addToHistory?.("older session");
-    editor.addToHistory?.("latest session");
-    expect(recall(editor, up)).toBe("latest session");
-    expect(recall(editor, up)).toBe("older session");
-    expect(recall(editor, up)).toBe("older session");
+    expect(seedHistory).toHaveBeenCalledExactlyOnceWith([]);
   });
 
   it.each(["resume", "fork", "reload", "new"] as const)(
     "seeds only the active branch for a populated %s session",
     (reason) => {
-      const { host, ctx } = setup(branch);
+      const { host, ctx } = setup([...branch, userEntry("other", "a", "other branch", 400)]);
+      host.setLeafId("b");
+      const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
       installHistoryEditor(start(reason), ctx, () => persisted);
-      const editor = createEditor(host);
-      expect(recall(editor, up)).toBe("latest session");
-      expect(recall(editor, up)).toBe("older session");
-      expect(recall(editor, up)).toBe("older session");
+      expect(seedHistory).toHaveBeenCalledExactlyOnceWith(["older session", "latest session"]);
     },
   );
 
   it.each(["resume", "fork"] as const)("does not treat an empty %s as fresh", (reason) => {
-    const { host, ctx } = setup();
+    const { ctx } = setup();
+    const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
     installHistoryEditor(start(reason), ctx, () => persisted);
-    expect(recall(createEditor(host), up)).toBe("");
+    expect(seedHistory).toHaveBeenCalledExactlyOnceWith([]);
   });
 
-  it("does not treat a CLI fork or a rewound conversation as fresh", () => {
-    const fork = setup();
-    Object.assign(fork.ctx.sessionManager, {
+  it("does not treat a CLI fork as fresh", () => {
+    const { ctx } = setup();
+    const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
+    Object.assign(ctx.sessionManager, {
       getHeader: () => ({ parentSession: "/parent.jsonl" }),
     });
-    installHistoryEditor(start("startup"), fork.ctx, () => persisted);
-    expect(recall(createEditor(fork.host), up)).toBe("");
+    installHistoryEditor(start("startup"), ctx, () => persisted);
+    expect(seedHistory).toHaveBeenCalledExactlyOnceWith([]);
+  });
 
-    const rewind = setup(branch);
-    rewind.host.setLeafId(null);
-    installHistoryEditor(start("reload"), rewind.ctx, () => persisted);
-    expect(recall(createEditor(rewind.host), up)).toBe("");
+  it("does not treat a rewound conversation as fresh", () => {
+    const { host, ctx } = setup(branch);
+    const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
+    host.setLeafId(null);
+    installHistoryEditor(start("reload"), ctx, () => persisted);
+    expect(seedHistory).toHaveBeenCalledExactlyOnceWith([]);
   });
 
   it("never seeds global data into an ephemeral session", () => {
-    const { host, ctx } = setup();
+    const { ctx } = setup();
+    const seedHistory = vi.spyOn(EditorHost.prototype, "seedHistory");
     Object.assign(ctx.sessionManager, { getSessionDir: () => "" });
     installHistoryEditor(start("startup"), ctx, () => persisted);
-    expect(recall(createEditor(host), up)).toBe("");
+    expect(seedHistory).toHaveBeenCalledExactlyOnceWith([]);
+  });
+
+  it("wires seeded recall through the shared native editor with embedded status", () => {
+    const { host, ctx } = setup();
+    installHistoryEditor(start("startup"), ctx, () => persisted);
+    const editor = createEditor(host);
+    expect(acquireEditorHost(ctx)?.editor).toBe(editor);
+    expect(editor).toBeInstanceOf(CustomEditor);
+
+    if (editor instanceof CustomEditor) expect(editor.embedWorkingStatus).toBe(true);
+    expect(editor.getText()).toBe("");
+    editor.handleInput(up);
+    editor.render(80);
+    expect(editor.getText()).toBe("latest global");
+    editor.handleInput(up);
+    editor.render(80);
+    expect(editor.getText()).toBe("older global");
   });
 
   it("skips recall attachment without replacing a competing editor", () => {

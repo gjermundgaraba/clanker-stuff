@@ -772,23 +772,6 @@ class PiTrajectoryTest(TestCase):
                 {"harbor": True, "pi_evals": CODEX_NATIVE_OFF, "native_turn_contexts": []},
             )
 
-    def test_load_is_strict_and_preserves_unicode_line_separators(self) -> None:
+    def test_missing_event_log_is_empty(self) -> None:
         with TemporaryDirectory() as directory:
-            path = Path(directory) / "events.jsonl"
-            compaction = {
-                "type": "compaction_end",
-                "result": {"summary": "before\u2028after"},
-            }
-            path.write_text(
-                '{"type":"session","id":"ok"}\n'
-                + json.dumps(compaction, ensure_ascii=False)
-                + "\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(
-                load_pi_events(path),
-                [{"type": "session", "id": "ok"}, compaction],
-            )
-            path.write_text("warning\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "invalid JSON"):
-                load_pi_events(path)
+            self.assertEqual(load_pi_events(Path(directory) / "missing.jsonl"), [])

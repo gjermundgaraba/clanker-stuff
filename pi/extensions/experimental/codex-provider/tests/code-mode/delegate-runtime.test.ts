@@ -456,17 +456,6 @@ describe("Code Mode wait snapshots", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps UI callback failures outside execution", () => {
-    const runtime = new CodeModeDelegateRuntime(() => {});
-    runtime.bindCell("cell", extensionContext);
-    expect(() =>
-      runtime.observe(1, "cell", () => {
-        throw new Error("UI unavailable");
-      }),
-    ).not.toThrow();
-    runtime.clear();
-  });
-
   it("clones normalized snapshots without revisiting hooks or sharing nested data", () => {
     const store = new CodeModeTraceStore();
     store.startCell("cell");

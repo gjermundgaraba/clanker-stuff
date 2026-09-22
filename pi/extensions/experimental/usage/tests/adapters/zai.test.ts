@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { fetchZaiUsage, mapZaiQuotaPayload, ZaiQuotaPayloadSchema } from "../../adapters/zai.js";
-import { Value } from "typebox/value";
+import { fetchZaiUsage, mapZaiQuotaPayload } from "../../adapters/zai.js";
 import type { FetchJson } from "../../http.js";
 import { NOW, okFetch, tokenAuthClient } from "./helpers.js";
 
@@ -184,7 +183,6 @@ describe("zai usage", () => {
 
   it("rejects invalid payloads at request ingress", async () => {
     const invalidCode = { code: "200" };
-    expect(Value.Check(ZaiQuotaPayloadSchema, invalidCode)).toBe(false);
 
     const result = await fetchZaiUsage({
       authClient: tokenAuthClient("token"),

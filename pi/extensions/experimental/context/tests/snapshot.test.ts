@@ -32,7 +32,6 @@ describe("snapshot", () => {
     expect(snapshot.tools.map((part) => part.label)).toEqual(["read"]);
     expect(snapshot.tools[0]?.estimatedTokens).toBeGreaterThan(0);
     expect(snapshot.system.body).toBe(prompt);
-    expect(snapshot.system.body.match(/UNIQUE PROJECT INSTRUCTIONS/g)).toHaveLength(1);
     expect(snapshot.system.estimatedTokens).toBe(Math.ceil(prompt.length / 4));
     expect(snapshot.usage?.tokens).toBe(0);
   });

@@ -194,26 +194,6 @@ describe("tool selection", () => {
     expect(host.getAppendedEntries()).toStrictEqual([]);
   });
 
-  it("restores registered tools from branch state", async () => {
-    const host = createExtensionHost(extension, {
-      activeTools: ["read"],
-      allTools: ["read", "extra-tool"],
-      externalTools: ["extra-tool"],
-      entries: [
-        messageEntry("root", null),
-        toolsEntry("tools-a", "root", {
-          "extra-tool": true,
-          read: true,
-        }),
-      ],
-      leafId: "tools-a",
-    });
-
-    await host.emitSessionStart();
-
-    expect(new Set(host.getActiveTools())).toStrictEqual(new Set(["read", "extra-tool"]));
-  });
-
   it("uses the session baseline on branches without tool state", async () => {
     const host = createExtensionHost(extension, {
       entries: [

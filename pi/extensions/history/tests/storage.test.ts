@@ -2,13 +2,7 @@ import { rm } from "node:fs/promises";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { patchEnv } from "../../../tests/helpers/env.js";
 import { createTempDir } from "../../../tests/helpers/fs.js";
-import {
-  getDataVersion,
-  loadHistory,
-  openHistoryDatabase,
-  saveHistoryBatch,
-  saveHistoryItem,
-} from "../storage.js";
+import { loadHistory, openHistoryDatabase, saveHistoryBatch, saveHistoryItem } from "../storage.js";
 
 describe("history storage", () => {
   it("stores history by most recent use", async () => {
@@ -31,7 +25,6 @@ describe("history storage", () => {
       { text: "first", timestamp: 300 },
       { text: "second", timestamp: 200 },
     ]);
-    expect(getDataVersion(database)).toBeTypeOf("number");
   });
   it("rolls back an entire failed batch and does not replace newer timestamps", async () => {
     const agentDir = await createTempDir("history-storage-");

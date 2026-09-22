@@ -3,7 +3,6 @@ import type { CustomEntry } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
-import { RECAP_ENTRY_TYPE } from "../entry.js";
 import extension from "../index.js";
 import { queuedStream, createRecapConfigFile, sessionWithTurns } from "./fixtures.js";
 import type { ResponseStep } from "./fixtures.js";
@@ -21,15 +20,6 @@ const data = {
 };
 
 describe("recap extension", () => {
-  it("registers only automatic lifecycle behavior and the recap renderer", async () => {
-    const host = createExtensionHost(extension);
-    await host.ready;
-
-    expect(RECAP_ENTRY_TYPE).toBe("@clanker-stuff/recap");
-    expect(host.getRegisteredCommands()).toHaveLength(0);
-    expect(host.getEntryRenderer(RECAP_ENTRY_TYPE)).toBeDefined();
-  });
-
   it("wires automatic generation and lifecycle cancellation", async () => {
     const { directory } = await createRecapConfigFile();
     vi.stubEnv("PI_CODING_AGENT_DIR", directory);
@@ -83,6 +73,7 @@ describe("recap extension", () => {
     });
 
     await host.emitSessionStart(ctx);
+    expect(host.getRegisteredCommands()).toHaveLength(0);
     await host.emit("agent_settled", { type: "agent_settled" }, ctx);
     expect(stream.mock.calls).toHaveLength(1);
 
@@ -106,11 +97,10 @@ describe("recap extension", () => {
   it("renders valid durable recap entries", async () => {
     const host = createExtensionHost(extension);
     await host.ready;
-    const renderer = host.getEntryRenderer(RECAP_ENTRY_TYPE);
     const ctx = host.createContext();
 
     const entry: CustomEntry = {
-      customType: RECAP_ENTRY_TYPE,
+      customType: "@clanker-stuff/recap",
       data,
       id: "recap-1",
       parentId: "assistant-3",
@@ -118,6 +108,7 @@ describe("recap extension", () => {
       type: "custom",
     };
 
+    const renderer = host.getEntryRenderer(entry.customType);
     const component = renderer?.(entry, { expanded: false }, ctx.ui.theme);
     const width = 24;
     const lines = component?.render(width) ?? [];

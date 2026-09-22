@@ -4,7 +4,7 @@ import { McpServer, inputRequired } from "@modelcontextprotocol/server";
 import type { CallToolResult, InputRequests } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
-export const FIXTURE_SCENARIOS = [
+const FIXTURE_SCENARIOS = [
   "normal",
   "changed",
   "collision",

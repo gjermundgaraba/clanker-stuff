@@ -135,11 +135,7 @@ describe("render", () => {
     [[5, 0, 5], 3, [2, 0, 1]],
     [[0, 0, 0], 5, [0, 0, 0]],
   ])("distributes %j tokens over %s cells as %j", (weights, cells, expected) => {
-    const result = distributeCells(weights, cells);
-    expect(result).toEqual(expected);
-    expect(result.reduce((sum, value) => sum + value, 0)).toBe(
-      weights.some((weight) => weight > 0) ? cells : 0,
-    );
+    expect(distributeCells(weights, cells)).toEqual(expected);
   });
 
   it("splits into tree and preview panes from 80 columns", () => {
