@@ -7,14 +7,19 @@ export interface TreeNode extends ContextPart {
 
 const leaf = (part: ContextPart, id: string): TreeNode => ({ ...part, id, children: [] });
 
-const group = (id: string, label: string, parts: readonly ContextPart[]): TreeNode => ({
+const group = (
+  id: string,
+  label: string,
+  children: readonly TreeNode[],
+  body = `${children.length} entries. Expand this group to inspect individual entries. Token counts are estimates.`,
+): TreeNode => ({
   id,
   label,
-  body: `${parts.length} entries. Expand this group to inspect individual entries. Token counts are estimates.`,
+  body,
   format: "text",
   tone: "text",
-  estimatedTokens: parts.reduce((sum, part) => sum + part.estimatedTokens, 0),
-  children: parts.map((part, index) => leaf(part, `${id}-${index}`)),
+  estimatedTokens: children.reduce((sum, child) => sum + child.estimatedTokens, 0),
+  children,
 });
 
 const largestFirst = (parts: readonly ContextPart[]): ContextPart[] =>
@@ -22,8 +27,17 @@ const largestFirst = (parts: readonly ContextPart[]): ContextPart[] =>
 
 export const buildTree = (snapshot: ContextSnapshot): TreeNode[] => [
   leaf(snapshot.system, "system"),
-  group("tools", "Active tools", largestFirst(snapshot.tools)),
-  group("messages", "Messages", snapshot.messages),
+  group(
+    "tools",
+    "Active tools",
+    largestFirst(snapshot.tools).map((part, index) => leaf(part, `tools-${index}`)),
+  ),
+  group(
+    "messages",
+    "Messages",
+    snapshot.messages.map((message) => leaf(message, `messages-${message.sourceEntryId}`)),
+    "Canonical session context before transient extension/provider transformations. Token estimates count effective content only; original content and omitted entries do not add tokens.",
+  ),
 ];
 
 export const groupIds = (nodes: readonly TreeNode[]): string[] =>

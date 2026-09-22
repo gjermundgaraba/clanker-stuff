@@ -4,19 +4,21 @@ All scenarios use synthetic jobs and payloads. No service credentials or private
 
 ## Automated
 
-The automatic-notification revision, including the manual-compaction readiness follow-up, passed all **72 package tests** (unit, integration, and smoke), package-scoped checks, repository-wide `vp check`, README policy, and test-boundary checks. The full repository test suite and manual Herdr exercise were not repeated for this revision.
+The Pi 0.87.0 boundary-delivery revision adds real-session regressions for ready notices before successful settlement, the one-batch-per-activity bound, no boundary continuation after error/abort, and idle delivery of remaining batches. Cross-extension questionnaire tests keep saved answers pending through a background continuation, gate notifications while its UI is open, and require an explicit Send action producing one real user message. Receipt regressions cover cancellation during a later boundary handler (both public/RPC abort and TUI queue-clear plus abort), committed notices without a model response or extension `message_end`, preservation of preceding drafts, and dropped or invalid proposals retried only after settlement. Unit tests distinguish admission allowance from outstanding receipts and do not infer a lost idle handoff from settlement or elapsed time.
+
+The earlier automatic-notification/manual-compaction revision passed 72 package tests and repository static/policy checks. Manual Herdr validation below is historical; it has not been repeated for the boundary-delivery revision.
 
 The package has unit tests for strict framing, inbox reservations/coalescing/eviction, automatic delivery and retry, bounded logs, schemas and tool output. Real subprocess tests cover spawn/exit failures, missing results, record floods, cancellation, deadlines, concurrency, inherited-pipe drain, TERM-resistant descendants, and history pruning.
 
-Real Pi 0.86.1 sessions verify:
+Real Pi 0.87.0 sessions verify:
 
 - Spawn handoff before completion, idle triggered notices, metadata-only delivery and pull inspection.
-- Busy buffering and a competing extension starting a run between the readiness check and send; the follow-up is queued without interrupting that run.
+- Busy buffering, one ready batch before successful settlement, and ordinary synchronous idle handoff through Pi's public API. Synthetic replacement of `sendMessage` to start a competing run inside the handoff is no longer a supported contract or test fixture.
 - Automatic delivery of tasks completed during manual compaction, after success, failure, or cancellation. All three regression cases reproduced the stalled notification before the readiness fix.
 - Both TUI and RPC deliver notifications without confirmation. Aborted responses do not hold later notifications.
 - Task listing and inspection through `/tasks`, and agent-callable cancellation through `task_stop`.
 - Payload continuation survives numeric serialization expansion and UTF-8 boundaries; summary log reads fit after invalid-byte expansion.
-- Notification observation automatically releases reservations; retained payloads remain inspectable.
+- Recorded notification receipts automatically release reservations; retained payloads remain inspectable.
 - Ancestral ownership and no resurrection after tree navigation.
 - Agent stop during terminal cleanup waits for completion without overwriting the accepted result.
 - A stale queued notice is removed before provider context on a new branch.

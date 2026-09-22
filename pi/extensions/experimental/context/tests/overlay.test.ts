@@ -1,4 +1,5 @@
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   CURSOR_MARKER,
   KeybindingsManager,
@@ -66,15 +67,14 @@ beforeEach(() => {
 });
 
 describe("overlay", () => {
-  it("keeps search active after confirmation so matches can be navigated and copied", async () => {
-    const snapshot = {
-      ...fixtureSnapshot(),
-      messages: [
-        fixturePart("1. user", "needle first", 3),
-        fixturePart("2. user", "needle second", 3),
-        fixturePart("3. user", "unrelated", 3),
-      ],
-    };
+  it("keeps original content searchable after confirmation and copies the full edited preview", async () => {
+    const session = SessionManager.inMemory();
+    const first = session.appendMessage({ role: "user", content: "needle first", timestamp: 0 });
+    const second = session.appendMessage({ role: "user", content: "needle second", timestamp: 0 });
+    session.appendMessage({ role: "user", content: "unrelated", timestamp: 0 });
+    session.appendContextEdit(first, { content: "replacement first" });
+    const edit = session.appendContextEdit(second, { content: "replacement second" });
+    const snapshot = fixtureSnapshot({ branch: session.getBranch() });
 
     const t = setup(snapshot);
     t.press("/", ..."needle".split(""));
@@ -82,7 +82,15 @@ describe("overlay", () => {
     t.press("\r", "j", "j", "y");
     expect(t.render()).not.toContain(CURSOR_MARKER);
     expect(t.render()).not.toContain("3. user");
-    expect(copyToClipboard).toHaveBeenCalledWith("needle second");
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Effective content:\nreplacement second\n\nOriginal content:\nneedle second",
+      ),
+    );
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      expect.stringContaining(`Source entry: ${second}`),
+    );
+    expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining(`Context edit: ${edit}`));
     await vi.waitFor(() =>
       expect(t.notify).toHaveBeenCalledWith(expect.stringContaining("Copied"), "info"),
     );

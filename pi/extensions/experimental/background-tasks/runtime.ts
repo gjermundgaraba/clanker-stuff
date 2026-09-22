@@ -9,10 +9,12 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type {
   ContextEvent,
+  AgentBeforeSettleEvent,
+  BoundaryResult,
+  CustomMessageEntryDraft,
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-  MessageEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Inbox, type Batch } from "./inbox.js";
 import { Delivery, WAKE_TYPE } from "./delivery.js";
@@ -90,7 +92,13 @@ export class TaskRuntime {
       changed: () => this.changed(),
     });
     this.delivery = new Delivery(this.inbox, {
-      ready: () => Boolean(this.ctx?.isIdle() && !this.closing && !this.prompting),
+      ready: (phase) =>
+        Boolean(
+          this.ctx &&
+          !this.closing &&
+          !this.prompting &&
+          (phase === "before_settle" || this.ctx.isIdle()),
+        ),
       send: (batch) => this.send(batch),
       changed: () => this.changed(),
     });
@@ -102,27 +110,45 @@ export class TaskRuntime {
     this.changed();
   }
   settled(): void {
+    this.reconcileReceipt();
     this.delivery.settled();
+  }
+  beforeSettle(event: AgentBeforeSettleEvent, ctx: ExtensionContext): BoundaryResult | undefined {
+    if (event.outcome !== "completed" || ctx.signal?.aborted) return;
+    const batch = this.delivery.beforeSettle();
+
+    if (!batch) return;
+    const draft = this.notification(batch);
+
+    if (draft) return { entries: [...event.entries, draft], continue: true };
   }
   prompt(active: boolean): void {
     this.prompting = active;
 
     if (!active) this.delivery.schedule();
   }
-  message(event: MessageEndEvent): void {
-    const message = event.message;
+  private reconcileReceipt(): void {
+    const batchId = this.inbox.outstanding;
 
-    if (
-      message.role !== "custom" ||
-      message.customType !== WAKE_TYPE ||
-      !Value.Check(detailsSchema, message.details)
-    )
-      return;
+    if (!batchId) return;
 
-    if (message.details.runtimeId === this.runtimeId)
-      this.delivery.acknowledge(message.details.batchId);
+    // Boundary previews and message_end precede persistence. Only the actual
+    // branch proves receipt, including a draft committed during cancellation.
+    const recorded = this.ctx?.sessionManager
+      .getBranch()
+      .some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === WAKE_TYPE &&
+          Value.Check(detailsSchema, entry.details) &&
+          entry.details.runtimeId === this.runtimeId &&
+          entry.details.batchId === batchId,
+      );
+
+    if (recorded) this.delivery.acknowledge(batchId);
   }
   context(event: ContextEvent, ctx: ExtensionContext) {
+    this.reconcileReceipt();
     const ancestors = new Set(ctx.sessionManager.getBranch().map((e) => e.id));
 
     return {
@@ -143,7 +169,7 @@ export class TaskRuntime {
       }),
     };
   }
-  private send(batch: Batch): void {
+  private notification(batch: Batch): CustomMessageEntryDraft | undefined {
     const ancestors = new Set(this.ctx?.sessionManager.getBranch().map((e) => e.id));
 
     const notices = batch.events.flatMap((event) => {
@@ -158,20 +184,22 @@ export class TaskRuntime {
 
     if (!notices.length) {
       this.delivery.acknowledge(batch.id);
-      this.delivery.settled();
 
       return;
     }
 
-    this.pi.sendMessage(
-      {
-        customType: WAKE_TYPE,
-        content: renderNotices(notices),
-        display: true,
-        details: { runtimeId: this.runtimeId, batchId: batch.id, notices },
-      },
-      { triggerTurn: true, deliverAs: "followUp" },
-    );
+    return {
+      type: "custom_message",
+      customType: WAKE_TYPE,
+      content: renderNotices(notices),
+      display: true,
+      details: { runtimeId: this.runtimeId, batchId: batch.id, notices },
+    };
+  }
+  private send(batch: Batch): void {
+    const draft = this.notification(batch);
+
+    if (draft) this.pi.sendMessage(draft, { triggerTurn: true, deliverAs: "followUp" });
   }
   private persistTask(task: Task): void {
     if (this.closing || !this.ctx) return;

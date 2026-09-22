@@ -33,6 +33,13 @@ function setup() {
     inbox,
     delivery,
     batches,
+    propose: () => {
+      const batch = delivery.beforeSettle();
+
+      if (batch) batches.push(batch);
+
+      return batch;
+    },
     busy: () => {
       ready = false;
     },
@@ -51,6 +58,45 @@ function setup() {
 const add = (inbox: Inbox) => inbox.add({ taskId: "a", terminal: false, reason: "observation" });
 
 describe("Delivery", () => {
+  it("admits one pre-settlement batch, cancels the idle timer, and waits for actual settlement", () => {
+    const { delivery, inbox, batches, propose } = setup();
+
+    for (let i = 0; i < 10; i++) add(inbox);
+    delivery.schedule();
+    propose();
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.events).toHaveLength(8);
+    expect(vi.getTimerCount()).toBe(0);
+    const batch = batches[0];
+    assert.ok(batch);
+    delivery.acknowledge(batch.id);
+    propose();
+    delivery.flush();
+    expect(batches).toHaveLength(1);
+    delivery.settled();
+    vi.advanceTimersByTime(100);
+    expect(batches).toHaveLength(2);
+    expect(batches[1]?.events).toHaveLength(2);
+  });
+
+  it("retries an unrecorded boundary proposal only after settlement and backoff", () => {
+    const s = setup();
+    const event = add(s.inbox);
+    const batch = s.propose();
+    assert.ok(batch);
+    expect(s.inbox.outstanding).toBe(batch.id);
+    s.propose();
+    vi.advanceTimersByTime(1000);
+    expect(s.batches).toHaveLength(1);
+    s.delivery.settled();
+    vi.advanceTimersByTime(999);
+    expect(s.batches).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(s.batches).toHaveLength(2);
+    expect(s.batches[1]?.events[0]?.id).toBe(event.id);
+    expect(s.batches[1]?.id).not.toBe(batch.id);
+  });
+
   it("automatically delivers successive batches", () => {
     const { delivery, inbox, batches } = setup();
 
@@ -67,7 +113,7 @@ describe("Delivery", () => {
 
     expect(inbox.count).toBe(0);
   });
-  it("waits for both observation and settle before dispatching the next batch", () => {
+  it("waits for both receipt and settlement before dispatching the next batch", () => {
     const { delivery, inbox, batches } = setup();
     add(inbox);
     delivery.schedule();
@@ -141,21 +187,28 @@ describe("Delivery", () => {
     expect(s.batches).toHaveLength(2);
     expect(s.batches[1]?.events[0]?.id).toBe(event.id);
   });
-  it("retries an unobserved notice only after the agent settles", () => {
+  it("does not infer a lost idle handoff from settlement or elapsed time", () => {
     const { delivery, inbox, batches } = setup();
-    const event = add(inbox);
+    add(inbox);
     delivery.schedule();
     vi.advanceTimersByTime(100);
+    const batch = batches[0];
+    assert.ok(batch);
+    delivery.settled();
+    delivery.flush();
+    expect(delivery.beforeSettle()).toBeUndefined();
     vi.advanceTimersByTime(10000);
     expect(batches).toHaveLength(1);
-    delivery.settled();
-    vi.advanceTimersByTime(999);
-    expect(batches).toHaveLength(1);
-    vi.advanceTimersByTime(1);
+    expect(inbox.outstanding).toBe(batch.id);
+    expect(vi.getTimerCount()).toBe(0);
+    // A later receipt releases the inbox without inventing another settlement.
+    add(inbox);
+    delivery.acknowledge(batch.id);
+    delivery.schedule();
+    vi.advanceTimersByTime(100);
     expect(batches).toHaveLength(2);
-    expect(batches[1]?.events[0]?.id).toBe(event.id);
   });
-  it("releases terminal capacity when Pi observes the notification", () => {
+  it("releases terminal capacity when the notification is recorded", () => {
     const { delivery, inbox, batches } = setup();
     inbox.reserve("a");
     inbox.add({ taskId: "a", terminal: true, reason: "completed" });

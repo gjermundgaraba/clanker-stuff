@@ -4,7 +4,7 @@ import { rm, writeFile } from "node:fs/promises";
 
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { buildSessionProjection, estimateTokens } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -83,6 +83,40 @@ afterEach(() => {
 });
 
 describe("recap runtime", () => {
+  it("discards an in-flight recap after a context edit, then summarizes the replacement", async () => {
+    const pending = Promise.withResolvers<AssistantMessage>();
+
+    const stream = queuedStream(
+      () => pending.promise,
+      () => fauxAssistantMessage("Current recap"),
+    );
+
+    const { ctx, host, runtime } = await setup(stream);
+    const session = sessionWithTurns(3);
+    Object.assign(ctx.sessionManager, {
+      buildSessionProjection: () => session.buildSessionProjection(),
+    });
+
+    runtime.settled(ctx);
+    const last = session.getLeafId();
+
+    if (!last) throw new Error("Expected assistant entry");
+    session.appendContextEdit(last, { content: "corrected answer" });
+    pending.resolve(fauxAssistantMessage("Stale recap"));
+    await flushPromises();
+    expect(host.getAppendedEntries()).toHaveLength(0);
+
+    runtime.settled(ctx);
+    await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
+    expect(stream.mock.calls[1]?.[1].messages[0]?.content).toHaveProperty(
+      "0.text",
+      expect.stringContaining("corrected answer"),
+    );
+    expect(host.getAppendedEntries()[0]).toMatchObject({
+      data: { completedTurns: 3, recap: "Current recap" },
+    });
+  });
+
   it("does not duplicate a recap on repeated settled events or reload", async () => {
     const stream = queuedStream(() => fauxAssistantMessage("Recap"));
     const { ctx, host, runtime } = await setup(stream);
@@ -295,7 +329,9 @@ describe("recap runtime", () => {
 
       if (recovery === "context") {
         const shorterContext = ctx.sessionManager.buildContextEntries().slice(-2);
-        Object.assign(ctx.sessionManager, { buildContextEntries: () => shorterContext });
+        Object.assign(ctx.sessionManager, {
+          buildSessionProjection: () => buildSessionProjection(shorterContext),
+        });
       } else if (recovery === "revision") {
         const changedBranch = sessionWithTurns(4).getBranch();
         // Leave the prompt unchanged to prove that revision alone unlocks generation.
@@ -315,7 +351,7 @@ describe("recap runtime", () => {
   it.each([0, -1])(
     "skips estimated input at or above the model window (offset %i)",
     async (offset) => {
-      const prompt = buildRecapPrompt(sessionWithTurns(3).getBranch());
+      const prompt = buildRecapPrompt(sessionWithTurns(3).buildSessionProjection().entries);
 
       if (prompt === undefined) throw new Error("Expected recap prompt");
       const estimated = estimateTokens(userMessage(prompt));
@@ -337,7 +373,9 @@ describe("recap runtime", () => {
       ]);
 
       const shorterContext = ctx.sessionManager.buildContextEntries().slice(-2);
-      Object.assign(ctx.sessionManager, { buildContextEntries: () => shorterContext });
+      Object.assign(ctx.sessionManager, {
+        buildSessionProjection: () => buildSessionProjection(shorterContext),
+      });
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
       expect(stream).toHaveBeenCalledTimes(1);
@@ -346,7 +384,7 @@ describe("recap runtime", () => {
   );
 
   it("sends the full prompt below the window without reserving the model's maximum output", async () => {
-    const prompt = buildRecapPrompt(sessionWithTurns(3).getBranch());
+    const prompt = buildRecapPrompt(sessionWithTurns(3).buildSessionProjection().entries);
 
     if (prompt === undefined) throw new Error("Expected recap prompt");
     const stream = queuedStream(() => fauxAssistantMessage("Recap"));
@@ -406,7 +444,7 @@ describe("recap runtime", () => {
       const changedBranch = sessionWithTurns(4).getBranch();
       Object.assign(ctx.sessionManager, {
         getBranch: () => changedBranch,
-        buildContextEntries: () => changedBranch,
+        buildSessionProjection: () => buildSessionProjection(changedBranch),
       });
       runtime.settled(ctx);
       await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
@@ -425,7 +463,9 @@ describe("recap runtime", () => {
     const { ctx, host, runtime } = await setup(stream);
     const fullContext = ctx.sessionManager.buildContextEntries();
     let contextEntries = fullContext;
-    Object.assign(ctx.sessionManager, { buildContextEntries: () => contextEntries });
+    Object.assign(ctx.sessionManager, {
+      buildSessionProjection: () => buildSessionProjection(contextEntries),
+    });
 
     runtime.settled(ctx);
     contextEntries = fullContext.slice(-2);
@@ -464,7 +504,7 @@ describe("recap runtime", () => {
     const changedBranch = sessionWithTurns(4).getBranch();
     Object.assign(ctx.sessionManager, {
       getBranch: () => changedBranch,
-      buildContextEntries: () => changedBranch,
+      buildSessionProjection: () => buildSessionProjection(changedBranch),
     });
     runtime.settled(ctx);
     await vi.waitFor(() => expect(host.getAppendedEntries()).toHaveLength(1));
@@ -549,7 +589,7 @@ describe("recap runtime", () => {
     const fullBranch = ctx.sessionManager.getBranch();
     const compactedContext = fullBranch.slice(-2);
     Object.assign(ctx.sessionManager, {
-      buildContextEntries: () => compactedContext,
+      buildSessionProjection: () => buildSessionProjection(compactedContext),
     });
 
     runtime.settled(ctx);
@@ -573,7 +613,7 @@ describe("recap runtime", () => {
     const fullContext = ctx.sessionManager.buildContextEntries();
     let contextEntries = fullContext;
     Object.assign(ctx.sessionManager, {
-      buildContextEntries: () => contextEntries,
+      buildSessionProjection: () => buildSessionProjection(contextEntries),
     });
 
     runtime.settled(ctx);

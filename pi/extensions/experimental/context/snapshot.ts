@@ -1,5 +1,10 @@
 import type { Message } from "@earendil-works/pi-ai";
-import { buildSessionContext, convertToLlm, estimateTokens } from "@earendil-works/pi-coding-agent";
+import {
+  buildSessionProjection,
+  convertToLlm,
+  estimateTokens,
+  sessionEntryToContextMessages,
+} from "@earendil-works/pi-coding-agent";
 import type { ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 export type BodyFormat = "markdown" | "json" | "text";
@@ -14,12 +19,17 @@ export interface ContextPart {
   readonly estimatedTokens: number;
 }
 
+/** Finished inspector previews; token estimates describe model input, not preview text. */
 export interface ContextSnapshot {
   readonly modelLabel: string;
   readonly usage: ContextUsage | undefined;
   readonly system: ContextPart;
   readonly tools: readonly ContextPart[];
-  readonly messages: readonly ContextPart[];
+  readonly messages: readonly ContextMessagePart[];
+}
+
+export interface ContextMessagePart extends ContextPart {
+  readonly sourceEntryId: string;
 }
 
 interface SnapshotInput {
@@ -59,12 +69,58 @@ const messageTone = (message: Message): NodeTone => {
 
 export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
   const active = new Set(input.activeTools);
+  const projection = buildSessionProjection(input.branch);
 
-  // System messages are persisted prompt state, not conversation; the prompt
-  // leaf already shows the effective prompt.
-  const messages = convertToLlm(buildSessionContext(input.branch).messages).filter(
-    (message) => message.role !== "system",
+  const edits = new Map(
+    projection.entries.flatMap(({ sourceEntry }) =>
+      sourceEntry.type === "context_edit" ? [[sourceEntry.targetId, sourceEntry] as const] : [],
+    ),
   );
+
+  // Only the canonical retained range is inspected; this is not a raw-history browser.
+  const messages: ContextMessagePart[] = [];
+
+  for (const { sourceEntry, messages: projected } of projection.entries) {
+    const effective = convertToLlm(projected).filter((message) => message.role !== "system");
+    const edit = edits.get(sourceEntry.id);
+
+    const original = edit
+      ? convertToLlm(sessionEntryToContextMessages(sourceEntry)).filter(
+          (message) => message.role !== "system",
+        )
+      : [];
+
+    const message = effective[0] ?? original[0];
+
+    // Excludes metadata, system state, !! executions, and older compaction summaries.
+    if (!message) continue;
+
+    const state = edit?.replacement === null ? "omitted" : edit ? "replaced" : "unchanged";
+
+    const role =
+      message.role === "toolResult"
+        ? `tool result: ${message.toolName}${message.isError ? " (error)" : ""}`
+        : message.role;
+
+    messages.push({
+      label: `${messages.length + 1}. ${role}${state === "unchanged" ? "" : ` · ${state}`}`,
+      body: [
+        `Source entry: ${sourceEntry.id}`,
+        `State: ${state}`,
+        ...(edit ? [`Context edit: ${edit.id}`] : []),
+        "",
+        "Effective content:",
+        state === "omitted"
+          ? "(omitted from model context)"
+          : effective.map(messageBody).join("\n\n"),
+        ...(edit ? ["", "Original content:", original.map(messageBody).join("\n\n")] : []),
+      ].join("\n"),
+      format: "text",
+      tone: state === "omitted" ? "muted" : messageTone(message),
+      estimatedTokens: effective.reduce((total, item) => total + estimateTokens(item), 0),
+      sourceEntryId: sourceEntry.id,
+    });
+  }
 
   const { prompt } = input;
 
@@ -95,12 +151,6 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
           estimatedTokens: Math.ceil(JSON.stringify(definition).length / 4),
         };
       }),
-    messages: messages.map((message, index) => ({
-      label: `${index + 1}. ${message.role === "toolResult" ? `tool result: ${message.toolName}${message.isError ? " (error)" : ""}` : message.role}`,
-      body: messageBody(message),
-      format: message.role === "toolResult" ? "text" : "markdown",
-      tone: messageTone(message),
-      estimatedTokens: estimateTokens(message),
-    })),
+    messages,
   };
 };

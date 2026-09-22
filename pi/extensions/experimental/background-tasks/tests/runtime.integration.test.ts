@@ -24,26 +24,9 @@ afterEach(async () => {
   }
 });
 
-async function setup(extra: ExtensionFactory[] = [], race = false, mode: "tui" | "rpc" = "tui") {
+async function setup(extra: ExtensionFactory[] = [], mode: "tui" | "rpc" = "tui") {
   const h = await createAgentSessionHarness({
-    extensionFactories: [
-      (pi) => {
-        const send = pi.sendMessage.bind(pi);
-
-        if (race)
-          pi.sendMessage = (message, options) => {
-            if (message.customType === WAKE_TYPE)
-              send(
-                { customType: "test:other-extension", content: "Other run", display: false },
-                { triggerTurn: true },
-              );
-            send(message, options);
-          };
-
-        extension(pi);
-      },
-      ...extra,
-    ],
+    extensionFactories: [extension, ...extra],
     mode,
   });
 
@@ -64,7 +47,7 @@ const start = (code: string, protocol?: string) =>
   );
 
 const wakes = (h: AgentSessionHarness) =>
-  h.messages().filter((m) => m.role === "custom" && m.customType === WAKE_TYPE);
+  h.messages().flatMap((m) => (m.role === "custom" && m.customType === WAKE_TYPE ? [m] : []));
 
 const lifecycleSchema = Type.Object({
   id: Type.String(),
@@ -286,7 +269,7 @@ describe("background tasks in a real AgentSession", () => {
   it.each(["tui", "rpc"] as const)(
     "%s automatically wakes idle with metadata only, then allows payload/log inspection",
     async (mode) => {
-      const h = await setup([], false, mode);
+      const h = await setup([], mode);
       h.setResponses([
         start(
           "setTimeout(()=>{console.error('private diagnostic');console.log(JSON.stringify({v:1,type:'result',data:'untrusted-payload'}))},250)",
@@ -332,42 +315,245 @@ describe("background tasks in a real AgentSession", () => {
       ).toContain("untrusted-payload");
     },
   );
-  it("buffers during a busy run and wakes only after settled", async () => {
-    const blocked = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    let calls = 0;
+  it.each([
+    { stopReason: "stop", observations: 0, expectedAtSettle: 1 },
+    { stopReason: "stop", observations: 10, expectedAtSettle: 1 },
+    { stopReason: "error", observations: 0, expectedAtSettle: 0 },
+    { stopReason: "aborted", observations: 0, expectedAtSettle: 0 },
+  ] as const)(
+    "admits ready notifications at a $stopReason boundary (observations=$observations)",
+    async ({ stopReason, observations, expectedAtSettle }) => {
+      const blocked = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const settledWakeCounts: number[] = [];
+      let calls = 0;
+      let pendingAtDelivery: unknown;
 
-    const h = await setup([
-      (pi) => {
-        pi.on("before_provider_request", async () => {
-          if (++calls === 2) {
-            blocked.resolve();
-            await release.promise;
-          }
-        });
-      },
-    ]);
+      const h = await setup([
+        (pi) => {
+          pi.on("before_provider_request", async () => {
+            if (++calls === 2) {
+              blocked.resolve();
+              await release.promise;
+            }
 
-    h.setResponses([
-      start("setTimeout(()=>console.log('done'),100)"),
-      fauxAssistantMessage("Done other work"),
-      fauxAssistantMessage("Wake"),
-    ]);
-    const prompt = h.prompt("Run a task and continue");
+            if (calls === 3) pendingAtDelivery = await callTool(h, "task_list", {});
+          });
+          pi.on("agent_settled", () => {
+            settledWakeCounts.push(wakes(h).length);
+          });
+        },
+      ]);
 
-    try {
-      await blocked.promise;
-      await expect.poll(() => tasks(h).some((t) => t.status === "completed")).toBe(true);
-      await delay(150); // Observe at least one delivery debounce while still busy.
-      expect(wakes(h)).toHaveLength(0);
-    } finally {
-      release.resolve();
-    }
+      h.setResponses([
+        start(
+          `for(let n=0;n<${observations};n++) console.log(JSON.stringify({v:1,type:'event',data:n}));` +
+            "console.log(JSON.stringify({v:1,type:'result',data:'done'}))",
+          "events-v1",
+        ),
+        fauxAssistantMessage("Done other work", { stopReason }),
+        fauxAssistantMessage("First batch"),
+        ...(observations ? [fauxAssistantMessage("Remaining batch")] : []),
+      ]);
+      const prompt = h.prompt("Run a task and continue");
 
-    await prompt;
-    await expect.poll(() => wakes(h).length).toBe(1);
-    await expect.poll(() => h.session.isStreaming).toBe(false);
-  });
+      try {
+        await blocked.promise;
+        await expect.poll(() => tasks(h).some((t) => t.status === "result")).toBe(true);
+        await delay(150); // Observe at least one delivery debounce while still busy.
+        expect(wakes(h)).toHaveLength(0);
+      } finally {
+        release.resolve();
+      }
+
+      await prompt;
+      // The successful boundary consumes only one batch in the original activity.
+      // Errors and aborts settle without a notification continuation.
+      expect(settledWakeCounts).toEqual([expectedAtSettle]);
+      const totalBatches = observations ? 2 : 1;
+      await expect.poll(() => wakes(h).length).toBe(totalBatches);
+      await expect.poll(() => h.session.isStreaming).toBe(false);
+      expect(settledWakeCounts).toHaveLength(observations || !expectedAtSettle ? 2 : 1);
+      expect(h.getPendingResponseCount()).toBe(0);
+      expect(pendingAtDelivery).toMatchObject({ pending: Math.max(0, observations + 1 - 8) });
+      expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
+
+      const notices = wakes(h).map((message) =>
+        Value.Parse(
+          Type.Object({ notices: Type.Array(Type.Object({ eventId: Type.String() })) }),
+          message.details,
+        ),
+      );
+
+      const ids = notices.flatMap((batch) => batch.notices.map((notice) => notice.eventId));
+      expect(new Set(ids).size).toBe(observations + 1);
+      expect(ids).toHaveLength(observations + 1);
+      expect(notices[0]?.notices).toHaveLength(Math.min(observations + 1, 8));
+    },
+  );
+  it.each(["rpc", "tui"] as const)(
+    "records a boundary notice once when %s aborts after admission, without forcing a response",
+    async (mode) => {
+      const admitted = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let proposed = false;
+      let wakeMessageEnds = 0;
+
+      const h = await setup(
+        [
+          (pi) => {
+            pi.on("agent_before_settle", async (event) => {
+              if (proposed) return;
+              proposed = event.entries.some(
+                (e) => e.type === "custom_message" && e.customType === WAKE_TYPE,
+              );
+              admitted.resolve();
+              await release.promise;
+            });
+            pi.on("message_end", ({ message }) => {
+              if (message.role === "custom" && message.customType === WAKE_TYPE) wakeMessageEnds++;
+            });
+          },
+        ],
+        mode,
+      );
+
+      h.setResponses([
+        start("process.exit(0)"),
+        async () => {
+          await expect.poll(() => tasks(h).some((t) => t.status === "completed")).toBe(true);
+
+          return fauxAssistantMessage("Done other work");
+        },
+        fauxAssistantMessage("Response to the next user request"),
+      ]);
+      const prompt = h.prompt("Start a task");
+
+      try {
+        await admitted.promise;
+        expect(proposed).toBe(true);
+        expect(wakes(h)).toHaveLength(0);
+        expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 1 });
+        expect(h.session.agent.peekQueuedMessages()).toHaveLength(0);
+
+        // TUI clears queues before abort; RPC/public abort does not.
+        if (mode === "tui") h.session.clearQueue();
+        const aborting = h.session.abort();
+        release.resolve();
+        await aborting;
+      } finally {
+        release.resolve();
+        await prompt;
+      }
+
+      expect(wakes(h)).toHaveLength(1);
+      expect(wakeMessageEnds).toBe(0); // Boundary commits have no extension message_end receipt.
+      expect(h.session.agent.peekQueuedMessages()).toHaveLength(0);
+      expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
+      const recorded = wakes(h)[0];
+      assert.ok(recorded);
+      await delay(1100); // Cross the old retry deadline; no duplicate or automatic model request.
+      expect(wakes(h)).toEqual([recorded]);
+      expect(h.getPendingResponseCount()).toBe(1);
+      expect(h.eventsOfType("agent_settled")).toHaveLength(1);
+      await h.prompt("Continue when I ask");
+      expect(h.getPendingResponseCount()).toBe(0);
+      expect(wakes(h)).toEqual([recorded]);
+      expect(JSON.stringify(h.lastProviderPayload(Type.Unknown()))).toContain(recorded.content);
+    },
+  );
+  it.each(["preserved", "dropped", "invalid"] as const)(
+    "reconciles a %s boundary proposal against recorded history, not its preview",
+    async (proposal) => {
+      let firstBoundary = true;
+      let proposedDetails: { batchId: string; notices: { eventId: string }[] } | undefined;
+      let pendingAtProposal: unknown;
+
+      const h = await createAgentSessionHarness({
+        mode: "tui",
+        extensionFactories: [
+          (pi) => {
+            pi.on("agent_before_settle", (event) => {
+              if (!firstBoundary) return;
+              firstBoundary = false;
+
+              return {
+                entries: [...event.entries, { type: "custom", customType: "test:prior-draft" }],
+              };
+            });
+          },
+          extension,
+          (pi) => {
+            pi.on("agent_before_settle", async (event) => {
+              const wake = event.entries.find(
+                (e) => e.type === "custom_message" && e.customType === WAKE_TYPE,
+              );
+
+              if (wake?.type !== "custom_message") return;
+              proposedDetails = Value.Parse(
+                Type.Object({
+                  batchId: Type.String(),
+                  notices: Type.Array(Type.Object({ eventId: Type.String() })),
+                }),
+                wake.details,
+              );
+              pendingAtProposal = await callTool(h, "task_list", {});
+
+              if (proposal === "dropped")
+                return { entries: event.entries.filter((e) => e !== wake), continue: false };
+
+              if (proposal === "invalid")
+                return {
+                  entries: [
+                    ...event.entries,
+                    { type: "context_edit", targetId: "missing-entry", replacement: null },
+                  ],
+                };
+            });
+          },
+        ],
+      });
+
+      harnesses.push(h);
+      h.setResponses([
+        start("process.exit(0)"),
+        async () => {
+          await expect.poll(() => tasks(h).some((t) => t.status === "completed")).toBe(true);
+
+          return fauxAssistantMessage("Done other work");
+        },
+        fauxAssistantMessage("Notification received"),
+      ]);
+      await h.prompt("Start a task");
+      assert.ok(proposedDetails);
+      expect(pendingAtProposal).toMatchObject({ pending: 1 });
+      expect(
+        h.sessionManager
+          .getBranch()
+          .some((e) => e.type === "custom" && e.customType === "test:prior-draft"),
+      ).toBe(proposal !== "invalid");
+      expect(wakes(h)).toHaveLength(proposal === "preserved" ? 1 : 0);
+      expect(await callTool(h, "task_list", {})).toMatchObject({
+        pending: proposal === "preserved" ? 0 : 1,
+      });
+      await expect.poll(() => wakes(h).length, { timeout: 2000 }).toBe(1);
+      await h.session.agent.waitForIdle();
+      await expect.poll(() => h.session.isIdle).toBe(true);
+      expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
+      expect(h.getPendingResponseCount()).toBe(0);
+
+      const recorded = Value.Parse(
+        Type.Object({
+          batchId: Type.String(),
+          notices: Type.Array(Type.Object({ eventId: Type.String() })),
+        }),
+        wakes(h)[0]?.details,
+      );
+
+      expect(recorded.notices).toEqual(proposedDetails.notices);
+      expect(recorded.batchId === proposedDetails.batchId).toBe(proposal === "preserved");
+    },
+  );
   it.each(["success", "failure", "abort"] as const)(
     "delivers a task notification after manual compaction ends with %s",
     async (outcome) => {
@@ -457,44 +643,6 @@ describe("background tasks in a real AgentSession", () => {
       expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
     },
   );
-  it("queues a follow-up when another extension starts a run at handoff", async () => {
-    const release = Promise.withResolvers<void>();
-    const blocked = Promise.withResolvers<void>();
-    let calls = 0;
-
-    const h = await setup(
-      [
-        (pi) => {
-          pi.on("before_provider_request", async () => {
-            if (++calls === 3) {
-              blocked.resolve();
-              await release.promise;
-            }
-          });
-        },
-      ],
-      true,
-    );
-
-    h.setResponses([
-      start("setTimeout(()=>console.log('done'),150)"),
-      fauxAssistantMessage("Started"),
-      fauxAssistantMessage("Other extension response"),
-      fauxAssistantMessage("Background response"),
-    ]);
-    const prompt = h.prompt("Start task");
-
-    try {
-      await blocked.promise;
-      expect(wakes(h)).toHaveLength(0);
-    } finally {
-      release.resolve();
-    }
-
-    await prompt;
-    await expect.poll(() => wakes(h).length).toBe(1);
-    await expect.poll(() => h.session.isStreaming).toBe(false);
-  });
   it("continues automatic notifications after an aborted response", async () => {
     const h = await setup();
     h.setResponses([

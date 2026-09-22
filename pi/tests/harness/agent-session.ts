@@ -58,6 +58,8 @@ export type {
 } from "@earendil-works/pi-coding-agent";
 
 interface AgentSessionHarnessOptions {
+  api?: string;
+  provider?: string;
   extensionFactories?: ExtensionFactory[];
   mode?: ExtensionContext["mode"];
   models?: FauxModelDefinition[];
@@ -235,7 +237,12 @@ export const createAgentSessionHarness = async (options: AgentSessionHarnessOpti
 
     const providerPayloads: CapturedProviderPayload[] = [];
 
-    const localFaux = fauxProvider(options.models === undefined ? {} : { models: options.models });
+    const localFaux = fauxProvider({
+      ...(options.api !== undefined ? { api: options.api } : {}),
+      ...(options.provider !== undefined ? { provider: options.provider } : {}),
+      ...(options.models !== undefined ? { models: options.models } : {}),
+    });
+
     localFaux.setResponses([]);
 
     const withConfiguredAuth = options.withConfiguredAuth ?? true;

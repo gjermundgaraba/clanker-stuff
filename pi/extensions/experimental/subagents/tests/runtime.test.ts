@@ -78,6 +78,22 @@ describe("child runtime results", () => {
     });
   });
 
+  it("reports cancellation of an explicitly unfinished response without discarding a completed answer", () => {
+    const message = {
+      role: "assistant",
+      stopReason: "stop",
+      content: [{ type: "text", text: "answer" }],
+    };
+
+    expect(finalFromMessages([{ ...message, endTurn: false }], { cancelled: true })).toEqual({
+      status: "interrupted",
+    });
+    expect(finalFromMessages([{ ...message, endTurn: true }], { cancelled: true })).toEqual({
+      status: "completed",
+      text: "answer",
+    });
+  });
+
   it("recognizes the host extension through a symlinked install path", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "subagents-link-"));
     const linked = path.join(directory, "subagents.ts");

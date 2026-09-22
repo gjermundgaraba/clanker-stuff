@@ -2,7 +2,11 @@ import { Value } from "typebox/value";
 
 import { contentText } from "@earendil-works/pi-ai";
 import type { StopReason } from "@earendil-works/pi-ai";
-import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  ProjectedSessionEntry,
+  SessionEntry,
+  SessionMessageEntry,
+} from "@earendil-works/pi-coding-agent";
 
 import { RecapEntrySchema, RECAP_ENTRY_TYPE, RECAP_MAX_CHARS, sanitizeRecapText } from "./entry.js";
 
@@ -85,31 +89,34 @@ export const shouldGenerateRecap = ({
   lastRecappedTurns,
 }: ConversationProgress): boolean => completedTurns > (lastRecappedTurns ?? 0);
 
-const selectMessages = (entries: readonly SessionEntry[]): ConversationMessage[] => {
+const selectMessages = (entries: readonly ProjectedSessionEntry[]): ConversationMessage[] => {
   const messages: ConversationMessage[] = [];
   let userTurns = 0;
 
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
+  // Only original conversation entries, not synthetic compaction/branch summaries.
+  const conversation = entries.flatMap(({ sourceEntry, messages }) =>
+    sourceEntry.type === "message" ? messages : [],
+  );
 
-    if (entry === undefined || !isConversationMessage(entry)) {
+  for (const message of conversation.toReversed()) {
+    if (message.role !== "user" && message.role !== "assistant") {
       continue;
     }
 
     if (
-      entry.message.role === "assistant" &&
-      (entry.message.stopReason === "error" || entry.message.stopReason === "aborted")
+      message.role === "assistant" &&
+      (message.stopReason === "error" || message.stopReason === "aborted")
     ) {
       continue;
     }
 
-    const text = contentText(entry.message.content).trim();
+    const text = contentText(message.content).trim();
 
     if (text.length === 0) {
       continue;
     }
 
-    const role = entry.message.role === "user" ? "User" : "Assistant";
+    const role = message.role === "user" ? "User" : "Assistant";
     messages.push({ role, text });
 
     if (role === "User") {
@@ -124,7 +131,7 @@ const selectMessages = (entries: readonly SessionEntry[]): ConversationMessage[]
   return messages.reverse();
 };
 
-export const buildRecapPrompt = (entries: readonly SessionEntry[]): string | undefined => {
+export const buildRecapPrompt = (entries: readonly ProjectedSessionEntry[]): string | undefined => {
   const messages = selectMessages(entries);
   const history = messages.map(({ role, text }) => `${role}: ${text}`).join("\n\n");
 

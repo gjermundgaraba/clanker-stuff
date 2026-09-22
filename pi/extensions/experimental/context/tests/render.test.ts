@@ -9,7 +9,7 @@ import {
   renderUsageBar,
   usageSegments,
 } from "../render.js";
-import { fixturePart, fixtureSnapshot } from "./fixtures/snapshot.js";
+import { fixtureMessage, fixturePart, fixtureSnapshot } from "./fixtures/snapshot.js";
 
 const theme = createIdentityTheme();
 
@@ -100,7 +100,7 @@ describe("render", () => {
     const withParts = {
       ...snapshot,
       tools: [fixturePart("read", "{}", 200)],
-      messages: [fixturePart("1. user", "hi", 100)],
+      messages: [fixtureMessage("1. user", "hi", 100)],
     };
 
     const layout = layoutOverlay(120, 24, false);

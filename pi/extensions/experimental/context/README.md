@@ -10,6 +10,6 @@ Load `pi/extensions/experimental/context/index.ts` as a local extension; npm ins
 
 ## Usage
 
-- Run `/context` to inspect the system prompt, active tools, and compacted message history.
+- Run `/context` to inspect the system prompt, active tools, and retained messages with original/effective content and edit provenance.
 - Use `/` to search, h/l to fold, Tab to switch panes, arrows or j/k and Page Up/Down to scroll, Enter for details, and y to copy; the mouse wheel scrolls the pane under the pointer.
-- The snapshot shows Pi-side state, not transient context-hook changes or a serialized provider request; breakdown counts are estimates, separate from Pi context usage.
+- The snapshot shows Pi-side state, not transient context-hook changes or a serialized provider request; token estimates count effective content only, separately from Pi context usage.

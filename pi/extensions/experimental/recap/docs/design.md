@@ -248,9 +248,9 @@ agent_settled
 
 ### Model input and output
 
-Lifetime turn and recap accounting uses the full active branch so compaction does not reset the durable cadence. History construction instead uses `ctx.sessionManager.buildContextEntries()` to respect Pi's retained-message boundary after compaction, while deliberately omitting the compaction summary itself. It retains Codex's message selection and turn window, but not its prompt byte budget:
+Lifetime turn and recap accounting uses the full active branch so compaction does not reset the durable cadence. History construction instead uses `ctx.sessionManager.buildSessionProjection().entries` to respect Pi's retained-message boundary and branch-local context edits. Replacements supply effective text; omitted messages supply none. The original conversation entry identifies eligible user/assistant content, excluding synthetic compaction/branch summaries and custom notices. It retains Codex's message selection and turn window, but not its prompt byte budget:
 
-- walk that compaction-aware context newest-first;
+- walk that canonical projected conversation newest-first;
 - keep non-empty user text and assistant text while ignoring tool results, tool calls without text, errors, notices, compaction summaries, and earlier recaps;
 - stop after the eighth most recent user message, then restore chronological order; and
 - include the full selected text without byte-based truncation.
@@ -279,7 +279,7 @@ Each request captures completed-turn progress, the latest user-or-assistant entr
 - another request superseded it;
 - a user turn started or settled;
 - the conversation revision changed; or
-- compaction or another context change altered the captured prompt.
+- compaction, a context replacement/omission, or another context change altered the captured prompt.
 
 Only user and assistant conversation entries contribute to the revision, so an unrelated display-only custom entry does not make a valid recap stale. `agent_start`, `session_tree`, session replacement, and shutdown abort any in-flight request. The provider receives an abort signal, and the abort race also releases the runtime if a provider ignores cancellation.
 
@@ -306,7 +306,7 @@ The extension remains separate from compaction while respecting its resulting co
 
 ### Remaining Pi differences
 
-Pi v0.86.1 has no supported extension event or context field for terminal-window focus changes. `ctx.ui.onTerminalInput()` is not an equivalent:
+Pi v0.87.0 has no supported extension event or context field for terminal-window focus changes. `ctx.ui.onTerminalInput()` is not an equivalent:
 
 - regular-screen Pi does not enable terminal focus reporting; and
 - fullscreen Pi enables focus reporting as part of its mouse mode, but its viewport listener consumes `ESC [ I` and `ESC [ O` before extension input listeners receive them.

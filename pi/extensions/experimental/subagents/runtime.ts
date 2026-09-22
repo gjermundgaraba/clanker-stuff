@@ -134,6 +134,7 @@ const AssistantCandidateSchema = Type.Object(
   {
     content: Type.Optional(Type.Array(Type.Unknown())),
     errorMessage: Type.Optional(Type.Unknown()),
+    endTurn: Type.Optional(Type.Boolean()),
     role: Type.Literal("assistant"),
     stopReason: Type.Optional(Type.String()),
   },
@@ -296,9 +297,12 @@ export const finalFromMessages = (
       return { status: "interrupted" };
     }
 
-    // A cancelled run ends after overflow compaction without the retry Pi would
-    // otherwise start, so the truncated response is not a completed answer.
-    if (candidate.stopReason === "length" && options.cancelled === true) {
+    // Cancellation can prevent overflow recovery or an explicit unfinished-turn
+    // continuation. Neither intermediate response is a completed answer.
+    if (
+      (candidate.stopReason === "length" || candidate.endTurn === false) &&
+      options.cancelled === true
+    ) {
       return { status: "interrupted" };
     }
 
@@ -427,6 +431,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     const pendingCustom = new Map<string, PromiseWithResolvers<void>>();
     const pendingPassive: RuntimeMessage[] = [];
     const terminatingToolCalls = new Set<string>();
+    let continueUnfinishedTurn = false;
 
     interface ActiveAttempt {
       accepted: PromiseWithResolvers<void>;
@@ -582,17 +587,32 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       });
       pi.on("turn_end", async (event, ctx) => {
         const terminal =
-          ctx.signal?.aborted === true ||
-          (event.message.role === "assistant" &&
-            (event.message.stopReason === "error" || event.message.stopReason === "aborted"));
+          event.outcome !== "completed" ||
+          activeAttempt?.cancellationError !== undefined ||
+          ctx.signal?.aborted === true;
 
-        const continues =
+        const hasTools = event.toolResults.length > 0;
+
+        const toolContinuation = event.toolResults.some(
+          ({ toolCallId }) => !terminatingToolCalls.has(toolCallId),
+        );
+
+        // Length/overflow recovery belongs to Pi, not this continuation adapter.
+        continueUnfinishedTurn =
           !terminal &&
-          event.toolResults.length > 0 &&
-          event.toolResults.some(({ toolCallId }) => !terminatingToolCalls.has(toolCallId));
+          (!hasTools || toolContinuation) &&
+          event.message.role === "assistant" &&
+          event.message.provider === "openai-codex" &&
+          event.message.api === "openai-codex-responses" &&
+          (event.message.stopReason === "stop" || event.message.stopReason === "toolUse") &&
+          event.message.endTurn === false;
 
         try {
-          if (continues && !ctx.hasPendingMessages()) {
+          if (
+            !terminal &&
+            (toolContinuation || continueUnfinishedTurn) &&
+            event.context.pendingMessages.length === 0
+          ) {
             await flushPassive(true);
           }
         } catch (error) {
@@ -709,6 +729,24 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     });
 
     createdSession = session;
+    // Preserve Pi's actionable turn boundary and any earlier end decision. The
+    // loop coalesces "continue" with ordinary tool/queue scheduling into one request.
+    const finishTurn = session.agent.finishTurn;
+    session.agent.finishTurn = async (turn, signal) => {
+      continueUnfinishedTurn = false;
+      const decision = await finishTurn?.(turn, signal);
+
+      if (
+        decision?.action === "end" ||
+        !continueUnfinishedTurn ||
+        signal?.aborted ||
+        activeAttempt?.cancellationError !== undefined
+      )
+        return decision ?? undefined;
+
+      return { action: "continue" };
+    };
+
     const stream = session.agent.streamFunction;
     session.agent.streamFunction = (model, context, options) => {
       const cancellation = activeAttempt?.cancellationError;

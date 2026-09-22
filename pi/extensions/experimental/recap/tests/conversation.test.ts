@@ -67,9 +67,32 @@ describe("conversation progress", () => {
 });
 
 describe("recap input", () => {
+  it("uses replacements and omissions without changing raw turn accounting", () => {
+    const session = sessionWithTurns(2);
+    const progress = conversationProgress(session.getBranch());
+    const messages = session.getBranch().filter((entry) => entry.type === "message");
+    const first = messages[0];
+    const last = messages.at(-1);
+
+    if (!first || !last) throw new Error("Expected conversation entries");
+    session.appendContextEdit(first.id, { content: "corrected request" });
+    session.appendContextEdit(last.id, null);
+
+    const prompt = buildRecapPrompt(session.buildSessionProjection().entries);
+    expect(prompt).toContain("corrected request");
+    expect(prompt).not.toContain("request 1");
+    expect(prompt).not.toContain("answer 2");
+    expect(conversationProgress(session.getBranch())).toEqual(progress);
+
+    session.branch(last.id);
+    expect(buildRecapPrompt(session.buildSessionProjection().entries)).toContain("answer 2");
+    session.appendCompaction("summary only", null, 100);
+    expect(buildRecapPrompt(session.buildSessionProjection().entries)).toBeUndefined();
+  });
+
   it("keeps the latest eight textual user turns", () => {
     const session = sessionWithTurns(9);
-    const prompt = buildRecapPrompt(session.getBranch());
+    const prompt = buildRecapPrompt(session.buildSessionProjection().entries);
 
     expect(prompt).not.toContain("request 1");
     expect(prompt).toContain("request 2");
@@ -85,7 +108,7 @@ describe("recap input", () => {
     session.appendMessage(userMessage("🦄".repeat(500)));
     session.appendMessage(fauxAssistantMessage("A".repeat(159)));
 
-    const prompt = buildRecapPrompt(session.getBranch());
+    const prompt = buildRecapPrompt(session.buildSessionProjection().entries);
 
     expect(prompt).toBe(
       `${RECAP_PROMPT_PREFIX}User: old request\n\nAssistant: old answer\n\nUser: ${"🦄".repeat(500)}\n\nAssistant: ${"A".repeat(159)}`,
@@ -94,10 +117,10 @@ describe("recap input", () => {
 
   it("returns no prompt without eligible text", () => {
     const session = SessionManager.inMemory();
-    expect(buildRecapPrompt(session.getBranch())).toBeUndefined();
+    expect(buildRecapPrompt(session.buildSessionProjection().entries)).toBeUndefined();
     session.appendMessage(userMessage("   "));
     session.appendMessage(fauxAssistantMessage("   "));
-    expect(buildRecapPrompt(session.getBranch())).toBeUndefined();
+    expect(buildRecapPrompt(session.buildSessionProjection().entries)).toBeUndefined();
   });
 
   it("ignores failed assistant text and earlier recaps", () => {
@@ -114,7 +137,7 @@ describe("recap input", () => {
       }),
     );
 
-    const prompt = buildRecapPrompt(session.getBranch());
+    const prompt = buildRecapPrompt(session.buildSessionProjection().entries);
     expect(prompt).not.toContain("Do not repeat this");
     expect(prompt).not.toContain("internal provider failure");
     expect(prompt).toContain("User: latest");
@@ -130,7 +153,7 @@ describe("recap input", () => {
     session.appendCompaction("SUMMARY_SECRET", kept, 100);
     appendTurn(session, 4);
 
-    const prompt = buildRecapPrompt(session.buildContextEntries());
+    const prompt = buildRecapPrompt(session.buildSessionProjection().entries);
 
     expect(prompt).not.toContain("COMPACTED_SECRET");
     expect(prompt).not.toContain("SUMMARY_SECRET");

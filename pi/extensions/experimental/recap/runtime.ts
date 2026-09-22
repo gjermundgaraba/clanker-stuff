@@ -117,7 +117,7 @@ class RecapRuntime {
       return;
     }
 
-    const prompt = buildRecapPrompt(ctx.sessionManager.buildContextEntries());
+    const prompt = buildRecapPrompt(ctx.sessionManager.buildSessionProjection().entries);
 
     if (prompt === undefined) {
       return;
@@ -149,7 +149,7 @@ class RecapRuntime {
 
     return (
       progress.sourceRevision === snapshot.progress.sourceRevision &&
-      buildRecapPrompt(ctx.sessionManager.buildContextEntries()) === snapshot.prompt
+      buildRecapPrompt(ctx.sessionManager.buildSessionProjection().entries) === snapshot.prompt
     );
   }
 

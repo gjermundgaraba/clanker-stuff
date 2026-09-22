@@ -1,5 +1,5 @@
 import { buildSnapshot } from "../../snapshot.js";
-import type { ContextPart } from "../../snapshot.js";
+import type { ContextPart, ContextMessagePart } from "../../snapshot.js";
 
 export const fixturePart = (
   label: string,
@@ -12,6 +12,15 @@ export const fixtureJsonTools = (count: number): ContextPart[] =>
   Array.from({ length: count }, (_, i) =>
     fixturePart(`tool-${i}`, `{"index": ${i}}`, 10, { format: "json" }),
   );
+
+export const fixtureMessage = (
+  label: string,
+  body: string,
+  estimatedTokens: number,
+): ContextMessagePart => ({
+  ...fixturePart(label, body, estimatedTokens),
+  sourceEntryId: label,
+});
 
 export const fixtureSnapshot = (overrides: Partial<Parameters<typeof buildSnapshot>[0]> = {}) =>
   buildSnapshot({

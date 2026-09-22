@@ -1,6 +1,6 @@
 # Background tasks design
 
-Implemented by the experimental [background-tasks extension](../). Pi API baseline: v0.86.1.
+Implemented by the experimental [background-tasks extension](../). Pi API baseline: v0.87.0.
 [Usage](usage.md) is authoritative for tools, commands, protocol, and limits; [validation](validation.md) records demonstrated behavior and verification limits.
 
 ## Scope
@@ -48,7 +48,7 @@ Subprocess callbacks submit observations to the inbox; they never send Pi messag
 
 Keyed progress represents replaceable pending state within one task/key. Unkeyed events retain arrival order. Coalescing never alters an already-handed-off batch. Progress overflow evicts only progress and exposes an omitted count.
 
-Bounded storage cannot promise unlimited terminal retention. Each admitted task reserves a terminal slot until Pi observes its terminal notification. Exhaustion blocks admission rather than silently deleting results. Inspection is read-only; acknowledgement releases capacity automatically. Delivered history and logs have separate finite retention.
+Bounded storage cannot promise unlimited terminal retention. Each admitted task reserves a terminal slot until Pi records its terminal notification in the session branch. Exhaustion blocks admission rather than silently deleting results. Inspection is read-only; acknowledgement releases capacity automatically. Delivered history and logs have separate finite retention.
 
 Pruning claims and counts selected history victims synchronously before awaiting filesystem removal. No concurrent admission can count the same eviction twice.
 
@@ -58,27 +58,31 @@ Notices contain only host-authored IDs and outcome names. Payloads, command outp
 
 Structured JSON and custom-message roles are not security boundaries: Pi converts custom messages into model-facing user content. Pull-based access reduces unsolicited exposure, but does not eliminate prompt injection once data is read. Programs inherit local capabilities and environment credentials; process supervision is not a sandbox.
 
-Capture continues while busy. Delivery waits for settlement and idle state, including blocking extension prompts. Dispatch uses a triggered follow-up so another extension winning the readiness race queues the batch rather than steering into its run.
+Capture continues while busy. At a successful `agent_before_settle` boundary, delivery admits one already-ready batch of at most eight notices unless an extension prompt is open or the run is aborted. It appends a native `custom_message` draft to the preceding handlers' `event.entries` and requests `continue: true`. It does not queue a follow-up or wait for tasks to finish. Error and abort boundaries do not admit a batch.
 
-While notifications are pending and Pi is not ready, one timer rechecks readiness every second. This also covers manual compaction returning to idle without an `agent_settled` event. Readiness checks never retry a batch while its delivery cycle is outstanding, and shutdown cancels the timer.
+The activity admission allowance stays spent until actual `agent_settled`, even after receipt acknowledgement or a dropped proposal. This gives settlement consumers a lifecycle boundary instead of allowing notifications to extend one activity indefinitely; it is not a total notification or model-spend cap. Inbox ownership independently prevents overlapping batches. Remaining batches and later task completions use idle delivery. Blocking extension prompts gate both admission points.
 
-### Handoff is not observation
+Idle delivery checks readiness and calls Pi's triggered `sendMessage()` synchronously, starting a new prompt through the unmodified public API. Arbitrary third-party replacements of `sendMessage` that start another run inside that handoff are outside the supported contract. Boundary and idle delivery share notification content, inbox ownership, and receipt reconciliation, not a transport mechanism.
+
+While notifications are pending and Pi is not ready, one timer rechecks readiness every second. This also covers manual compaction returning to idle without an `agent_settled` event. Readiness checks do not resend an outstanding batch; shutdown cancels the timer.
+
+### Receipt means recorded history
 
 ```text
-pending → handed to Pi → observed through the agent loop
+pending → boundary proposal or idle prompt → recorded in the actual session branch
 ```
 
-Only one batch may be outstanding. Correlation through extension `message_end` confirms agent-loop observation, not model action, successful processing, or durable persistence: extension handlers run before Pi appends the message to session history.
+Only one batch may be outstanding. Before provider-context preparation and at settlement, the runtime looks for its runtime ID and outstanding batch ID in actual session `custom_message` entries. A match acknowledges the batch and releases terminal reservations. Proposed boundary previews are not receipts. Extension `message_end` is not used: it precedes persistence on the normal loop path and is absent for boundary drafts.
 
-Pi's extension-facing `sendMessage()` has no success acknowledgement. The idle, non-triggered append path does not emit extension `message_end`; this dispatcher never uses that path.
+Later boundary handlers can replace or invalidate the proposal. If its receipt is still missing at settlement, the boundary batch returns to pending and idle delivery retries after one second. A synchronous idle handoff failure also backs off for one second. Settlement or elapsed time alone does not prove that a queued message was discarded; an unacknowledged idle handoff is not automatically requeued.
 
-A settled cycle with an unobserved batch retries it after one second. A synchronous handoff failure also retries after one second. No retry runs while a delivery cycle is outstanding; elapsed time alone does not prove that Pi lost a queued follow-up. Acknowledgement may precede settlement, so an outstanding delivery cycle is distinct from an outstanding batch.
+Pi commits valid boundary drafts even when cancellation during a later handler suppresses continuation. Such a recorded notice is accepted without forcing a model response: it remains available for the next request. Neither cancellation, a failed response, nor lack of model processing replays a recorded notice. Later pending notifications continue automatically.
 
-An aborted turn does not pause delivery. An observed notice is not replayed because the response failed or was aborted; later pending notifications continue automatically. This is bounded in-memory delivery tracking, not a crash-safe or exactly-once outbox.
+This is session-local, bounded in-memory tracking. Recording a receipt is not proof of model action, successful processing, or crash-safe persistence; there is no durable outbox or crash-exactly-once guarantee.
 
 ### Always-on delivery
 
-TUI and RPC sessions use the same automatic delivery path. There are no approvals, wake credits, attention checkpoints, or total batch limits. The user-facing `/tasks` command only lists or inspects tasks. The agent retains `task_stop` for jobs that are no longer needed; there is no dismissal tool or manual notification lifecycle.
+TUI and RPC sessions use the same automatic delivery policy. There are no approvals, wake credits, attention checkpoints, or total batch limits. The user-facing `/tasks` command only lists or inspects tasks. The agent retains `task_stop` for jobs that are no longer needed; there is no dismissal tool or manual notification lifecycle.
 
 Process concurrency, deadlines, record sizes, and retained memory still have finite limits. Those resource bounds do not grant or revoke permission to notify the agent.
 
@@ -94,12 +98,12 @@ Follow the repository [extension structure](../../../../../docs/extension-struct
 - `supervisor.ts`: process ownership, lifecycle, admission, cancellation.
 - `protocol.ts`: bounded record framing and validation.
 - `inbox.ts`: coalescing, retention, and delivery batches.
-- `delivery.ts`: idle delivery, observation, and retry.
+- `delivery.ts`: bounded boundary/idle admission, acknowledgement, and retry.
 - `logs.ts`: bounded storage and reads.
 - `task.ts`: strict schemas, compact formatting, payload continuation.
 - `runtime.ts`: Pi lifecycle and tool coordination.
 
-The supervisor owns no Pi context. Do not introduce generic process, storage, or clock backends without an actual need. Strict tool schemas stay strict; `prepareArguments` belongs only at real persisted-call migrations.
+The supervisor owns no Pi context. Do not introduce generic process, storage, or clock backends without an actual need. Strict tool schemas stay closed and current; renderers tolerate older stored calls without argument migrations.
 
 Session custom entries contain lifecycle metadata, not raw payloads or a process database. Disposable logs live under an owned temporary directory. File mutation uses Pi's per-file queue. Installed source is never runtime storage.
 
@@ -121,7 +125,7 @@ These are architectural inspirations, not dependencies or guarantees copied whol
 - [channels.tools wake component at e180364](https://github.com/schuettc/pi-extensions/blob/e180364/packages/channels.tools/src/wake.ts): independent busy-gated delivery.
 - [pi-wake at ac01632](https://github.com/Jasperxjy/pi-wake/blob/ac01632/extensions/pi-wake/index.ts): handoff versus observed delivery; its durable daemon machinery is outside v1.
 - [dannote background manager at 73fe052](https://github.com/dannote/dot-pi/blob/73fe052/extensions/background.ts): named jobs and inspectable logs, not the v1 ownership model.
-- [Pi v0.86.1 extension documentation](https://github.com/earendil-works/pi/blob/v0.86.1/packages/coding-agent/docs/extensions.md): lifecycle, provenance fields, custom messages, and session state.
-- [Pi v0.86.1 AgentSession](https://github.com/earendil-works/pi/blob/v0.86.1/packages/coding-agent/src/core/agent-session.ts): `sendCustomMessage`, `_appendCustomMessage`, `_handleAgentEvent`, and prompt dispatch.
+- [Pi v0.87.0 extension documentation](https://github.com/earendil-works/pi/blob/v0.87.0/packages/coding-agent/docs/extensions.md): lifecycle, provenance fields, custom messages, and session state.
+- [Pi v0.87.0 AgentSession](https://github.com/earendil-works/pi/blob/v0.87.0/packages/coding-agent/src/core/agent-session.ts): `sendCustomMessage`, `_appendCustomMessage`, `_handleAgentEvent`, and prompt dispatch.
 
 Source inspection informed this design. The implementation has unit, real-subprocess, AgentSession integration, discovery, and manually driven Herdr/Pi validation; limitations are recorded in the linked validation document.

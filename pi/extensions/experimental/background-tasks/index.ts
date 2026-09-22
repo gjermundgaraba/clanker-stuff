@@ -12,7 +12,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
   pi.registerMessageRenderer("background-tasks:wake", renderWake);
   pi.on("session_start", (_event, ctx) => runtime.startSession(ctx));
   pi.on("agent_settled", () => runtime.settled());
-  pi.on("message_end", (event) => runtime.message(event));
+  pi.on("agent_before_settle", (event, ctx) => runtime.beforeSettle(event, ctx));
   pi.on("context", (event, ctx) => runtime.context(event, ctx));
   pi.on("ui_prompt_start", () => runtime.prompt(true));
   pi.on("ui_prompt_end", () => runtime.prompt(false));

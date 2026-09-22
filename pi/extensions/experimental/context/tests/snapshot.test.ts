@@ -7,10 +7,84 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import { fixtureSnapshot } from "./fixtures/snapshot.js";
+import { buildTree, filterTree } from "../tree.js";
 
 const user = (content: string) => ({ role: "user" as const, content, timestamp: 0 });
 
 describe("snapshot", () => {
+  it("shows original and effective content with branch-local edit provenance and effective token counts", () => {
+    const session = SessionManager.inMemory();
+    const retained = session.appendMessage(user("unchanged"));
+    const replaced = session.appendMessage(user("old request"));
+    const omitted = session.appendMessage(fauxAssistantMessage("abandoned attempt"));
+    session.appendContextEdit(replaced, { content: "superseded replacement" });
+    const edit = session.appendContextEdit(replaced, { content: "corrected request" });
+    const omission = session.appendContextEdit(omitted, null);
+    const snapshot = fixtureSnapshot({ branch: session.getBranch() });
+
+    expect(snapshot.messages).toMatchObject([
+      {
+        sourceEntryId: retained,
+        format: "text",
+      },
+      {
+        sourceEntryId: replaced,
+        format: "text",
+      },
+      {
+        sourceEntryId: omitted,
+        format: "text",
+        estimatedTokens: 0,
+      },
+    ]);
+    expect(snapshot.messages[0]?.body).toContain(
+      "State: unchanged\n\nEffective content:\nunchanged",
+    );
+    expect(snapshot.messages[0]?.body).not.toContain("Original content:");
+    expect(snapshot.messages[0]?.body).not.toContain("Context edit:");
+    expect(snapshot.messages[1]?.body).toContain(`State: replaced\nContext edit: ${edit}`);
+    expect(snapshot.messages[1]?.body).toContain(
+      "Effective content:\ncorrected request\n\nOriginal content:\nold request",
+    );
+    expect(snapshot.messages[1]?.body).not.toContain("superseded replacement");
+    expect(snapshot.messages[2]?.body).toContain(`State: omitted\nContext edit: ${omission}`);
+    expect(snapshot.messages[2]?.body).toContain(
+      "Effective content:\n(omitted from model context)\n\nOriginal content:\nabandoned attempt",
+    );
+    expect(snapshot.messages[0]?.estimatedTokens).toBe(estimateTokens(user("unchanged")));
+    expect(snapshot.messages[1]?.estimatedTokens).toBe(estimateTokens(user("corrected request")));
+
+    const tree = buildTree(snapshot);
+    const changes = filterTree(tree, "old request");
+    expect(changes[0]?.children[0]?.body).toContain(`Source entry: ${replaced}`);
+    expect(changes[0]?.children[0]?.body).toContain(`Context edit: ${edit}`);
+    expect(changes[0]?.children[0]?.body).toContain("Effective content:\ncorrected request");
+    expect(changes[0]?.children[0]?.body).toContain("Original content:\nold request");
+    expect(filterTree(tree, "abandoned attempt")[0]?.children[0]?.estimatedTokens).toBe(0);
+    expect(tree[2]?.estimatedTokens).toBe(
+      snapshot.messages.reduce((sum, part) => sum + part.estimatedTokens, 0),
+    );
+    expect(tree[2]?.body).toContain("before transient extension/provider transformations");
+
+    session.branch(omitted);
+    const branched = fixtureSnapshot({ branch: session.getBranch() });
+    expect(branched.messages.map((part) => part.sourceEntryId)).toEqual([
+      retained,
+      replaced,
+      omitted,
+    ]);
+
+    for (const part of branched.messages) {
+      expect(part.body).toContain("State: unchanged");
+      expect(part.body).not.toContain("Original content:");
+      expect(part.body).not.toContain("Context edit:");
+    }
+
+    expect(branched.messages[1]?.body).toContain("Effective content:\nold request");
+    session.appendCompaction("summary only", null, 100);
+    expect(fixtureSnapshot({ branch: session.getBranch() }).messages).toHaveLength(1);
+  });
+
   it("includes only active definitions and counts the assembled prompt once, even with zero reported usage", () => {
     const tools = ["read", "bash"].map((name) => ({
       name,
@@ -52,8 +126,8 @@ describe("snapshot", () => {
 
     expect(snapshot.messages.map((part) => part.body).join("\n")).toContain("COMPACTED SUMMARY");
     expect(snapshot.messages.map((part) => part.body).slice(1)).toEqual([
-      "retained message",
-      "latest message",
+      expect.stringContaining("Effective content:\nretained message"),
+      expect.stringContaining("Effective content:\nlatest message"),
     ]);
     expect(snapshot.messages.map((part) => part.body).join("\n")).not.toContain("old message");
     expect(snapshot.messages.map((part) => part.body).join("\n")).not.toContain(
@@ -99,8 +173,8 @@ describe("snapshot", () => {
       "user",
     ]);
     expect(snapshot.messages.map((part) => part.body).slice(1)).toEqual([
-      "retained message",
-      "latest message",
+      expect.stringContaining("Effective content:\nretained message"),
+      expect.stringContaining("Effective content:\nlatest message"),
     ]);
   });
 
@@ -123,7 +197,7 @@ describe("snapshot", () => {
 
     const snapshot = fixtureSnapshot({ branch: session.getBranch() });
     expect(snapshot.messages).toHaveLength(2);
-    expect(snapshot.messages[0]?.body).toBe("custom content");
+    expect(snapshot.messages[0]?.body).toContain("Effective content:\ncustom content");
     expect(snapshot.messages[1]?.body).toContain("VISIBLE OUTPUT");
     expect(snapshot.messages[1]?.body).not.toContain("PRIVATE OUTPUT");
   });

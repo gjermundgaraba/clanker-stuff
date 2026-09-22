@@ -154,6 +154,30 @@ describe("Codex model catalog", () => {
     expect(isSupportedCodexModelId("gpt-6-other")).toBeFalsy();
   });
 
+  it("preserves Pi image limits through remote refresh and account-cache restoration", async () => {
+    const fallback = createCodexModelCatalog()
+      .getModels()
+      .find((model) => model.id === "gpt-5.6-sol");
+
+    expect(fallback?.inputLimits?.images?.resize).toBeDefined();
+
+    const stored = await fetchStoredCatalog([{ ...remoteModel, slug: "gpt-5.6-sol" }]);
+    expect(stored.models[0]?.inputLimits).toEqual(fallback?.inputLimits);
+
+    const restored = createCodexModelCatalog();
+    await restored.refreshModels(
+      refreshContext(async (publication) => {
+        publication.update?.();
+
+        return true;
+      }, stored),
+    );
+    expect(restored.getModels()[0]?.inputLimits).toEqual(fallback?.inputLimits);
+
+    const unknown = await fetchStoredCatalog();
+    expect(unknown.models[0]).not.toHaveProperty("inputLimits");
+  });
+
   it("seeds native Astra policy and full Pi capabilities before refresh", () => {
     const catalog = createCodexModelCatalog();
     const astra = catalog.getModels().find((model) => model.id === "gpt-6-astra");

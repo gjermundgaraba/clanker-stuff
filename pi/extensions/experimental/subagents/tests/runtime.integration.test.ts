@@ -78,6 +78,146 @@ describe("child runtime", () => {
     }
   });
 
+  it("continues explicit unfinished Codex responses, admitting mail without synthetic user input", async () => {
+    const harness = await createAgentSessionHarness({
+      api: "openai-codex-responses",
+      provider: "openai-codex",
+    });
+
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const boundaries: string[] = [];
+    harness.setResponses([
+      async () => {
+        started.resolve();
+        await release.promise;
+
+        return { ...fauxAssistantMessage("intermediate response"), endTurn: false };
+      },
+      { ...fauxAssistantMessage("still working"), endTurn: false },
+      { ...fauxAssistantMessage("completed answer"), endTurn: true },
+      fauxAssistantMessage("unused"),
+    ]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("turn_end", (event) => {
+          boundaries.push(event.messageEntryId);
+        });
+      },
+    });
+
+    runtime.commit();
+
+    try {
+      const turn = runtime.startTurn({ text: "work" });
+      await turn.accepted;
+      await started.promise;
+
+      const mail = runtime.sendMessage({
+        content: "mail for unfinished turn",
+        customType: "subagent-message",
+        details: { communicationId: "unfinished-mail" },
+      });
+
+      release.resolve();
+      await mail.accepted;
+      await expect(turn.settled).resolves.toEqual({
+        status: "completed",
+        text: "completed answer",
+      });
+      expect(harness.getPendingResponseCount()).toBe(1);
+      expect(lastProviderPayloadText(harness)).toContain("mail for unfinished turn");
+
+      const branch = SessionManager.open(runtime.sessionFile).getBranch();
+      expect(boundaries).toHaveLength(3);
+      expect(boundaries.every((id) => branch.some((entry) => entry.id === id))).toBe(true);
+      expect(
+        branch.filter((entry) => entry.type === "message" && entry.message.role === "user"),
+      ).toHaveLength(1);
+      expect(branch.filter((entry) => entry.type === "custom_message")).toHaveLength(1);
+    } finally {
+      release.resolve();
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
+  it.each([
+    { provider: "openai-codex", stopReason: "stop", endTurn: true },
+    { provider: "openai-codex", stopReason: "stop", endTurn: undefined },
+    { provider: "openai-codex", stopReason: "error", endTurn: false },
+    { provider: "openai-codex", stopReason: "aborted", endTurn: false },
+    { provider: "openai-codex", stopReason: "length", endTurn: false },
+    { provider: "different-provider", stopReason: "stop", endTurn: false },
+  ] as const)(
+    "does not force continuation for $provider/$stopReason/$endTurn",
+    async ({ provider, stopReason, endTurn }) => {
+      const harness = await createAgentSessionHarness({ api: "openai-codex-responses", provider });
+      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      harness.setResponses([
+        {
+          ...fauxAssistantMessage("first", { stopReason }),
+          ...(endTurn !== undefined ? { endTurn } : {}),
+        },
+        fauxAssistantMessage("unused"),
+      ]);
+      const runtime = await createChildRuntime(runtimeRequest(harness));
+      runtime.commit();
+
+      try {
+        await runtime.startTurn({ text: "work" }).settled;
+        expect(harness.getPendingResponseCount()).toBe(1);
+      } finally {
+        await runtime.dispose();
+        harness.cleanup();
+      }
+    },
+  );
+
+  it("does not continue an unfinished response when cancelled during its boundary", async () => {
+    const harness = await createAgentSessionHarness({
+      api: "openai-codex-responses",
+      provider: "openai-codex",
+    });
+
+    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+    const boundary = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    harness.setResponses([
+      { ...fauxAssistantMessage("unfinished"), endTurn: false },
+      fauxAssistantMessage("unused"),
+    ]);
+
+    const runtime = await createChildRuntime({
+      ...runtimeRequest(harness),
+      bridge: (pi) => {
+        pi.on("turn_end", async () => {
+          boundary.resolve();
+          await release.promise;
+        });
+      },
+    });
+
+    runtime.commit();
+
+    try {
+      const turn = runtime.startTurn({ text: "work" });
+      await boundary.promise;
+      const abort = runtime.abort();
+      release.resolve();
+      await abort;
+      await expect(turn.settled).resolves.toMatchObject({ status: "interrupted" });
+      expect(harness.getPendingResponseCount()).toBe(1);
+    } finally {
+      release.resolve();
+      await runtime.dispose();
+      harness.cleanup();
+    }
+  });
+
   it("keeps asynchronous user interaction tools root-only while retaining blocking questions", async () => {
     const harness = await createAgentSessionHarness();
     process.env.PI_CODING_AGENT_DIR = harness.agentDir;
@@ -1046,65 +1186,77 @@ describe("child runtime", () => {
     }
   });
 
-  it("steers admitted mail into an existing tool continuation", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const toolStarted = Promise.withResolvers<undefined>();
-    const releaseTool = Promise.withResolvers<undefined>();
-    harness.setResponses([
-      fauxAssistantMessage(fauxToolCall("continue", {}, { id: "continue-1" }), {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("answer with mail"),
-    ]);
+  it.each([undefined, false])(
+    "steers mail into one tool continuation with endTurn=%s",
+    async (endTurn) => {
+      const harness = await createAgentSessionHarness({
+        api: "openai-codex-responses",
+        provider: "openai-codex",
+      });
 
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        pi.registerTool({
-          description: "Continue after a barrier",
-          async execute() {
-            toolStarted.resolve(undefined);
-            await releaseTool.promise;
+      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      const toolStarted = Promise.withResolvers<undefined>();
+      const releaseTool = Promise.withResolvers<undefined>();
+      harness.setResponses([
+        {
+          ...fauxAssistantMessage(fauxToolCall("continue", {}, { id: "continue-1" }), {
+            stopReason: "toolUse",
+          }),
+          ...(endTurn !== undefined ? { endTurn } : {}),
+        },
+        fauxAssistantMessage("answer with mail"),
+        fauxAssistantMessage("unused"),
+      ]);
 
-            return {
-              content: [{ text: "continued", type: "text" }],
-              details: {},
-            };
-          },
-          label: "Continue",
-          name: "continue",
-          parameters: Type.Object({}),
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        bridge: async (pi) => {
+          pi.registerTool({
+            description: "Continue after a barrier",
+            async execute() {
+              toolStarted.resolve(undefined);
+              await releaseTool.promise;
+
+              return {
+                content: [{ text: "continued", type: "text" }],
+                details: {},
+              };
+            },
+            label: "Continue",
+            name: "continue",
+            parameters: Type.Object({}),
+          });
+        },
+        tools: ["continue"],
+      });
+
+      runtime.commit();
+
+      try {
+        const turn = runtime.startTurn({ text: "initial task" });
+        await turn.accepted;
+        await toolStarted.promise;
+
+        const delivery = runtime.sendMessage({
+          content: "mail visible to continuation",
+          customType: "subagent-message",
+          details: { communicationId: "message-tool" },
         });
-      },
-      tools: ["continue"],
-    });
 
-    runtime.commit();
+        releaseTool.resolve(undefined);
 
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await toolStarted.promise;
-
-      const delivery = runtime.sendMessage({
-        content: "mail visible to continuation",
-        customType: "subagent-message",
-        details: { communicationId: "message-tool" },
-      });
-
-      releaseTool.resolve(undefined);
-
-      await delivery.accepted;
-      await expect(turn.settled).resolves.toMatchObject({
-        text: "answer with mail",
-      });
-      expect(lastProviderPayloadText(harness)).toContain("mail visible to continuation");
-    } finally {
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
+        await delivery.accepted;
+        await expect(turn.settled).resolves.toMatchObject({
+          text: "answer with mail",
+        });
+        expect(lastProviderPayloadText(harness)).toContain("mail visible to continuation");
+        expect(harness.getPendingResponseCount()).toBe(1);
+      } finally {
+        await runtime.dispose();
+        harness.cleanup();
+      }
+    },
+  );
 
   it("clears queued triggering mail before aborting the active turn", async () => {
     const harness = await createAgentSessionHarness();
@@ -1716,165 +1868,190 @@ describe("child runtime", () => {
     }
   });
 
-  it("does not steer passive mail behind existing one-at-a-time steering", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const toolStarted = Promise.withResolvers<undefined>();
-    const releaseTool = Promise.withResolvers<undefined>();
-    const inputSeen = Promise.withResolvers<undefined>();
-    let steerExisting: (() => void) | undefined;
-    harness.setResponses([
-      fauxAssistantMessage(fauxToolCall("continue", {}, { id: "continue-steer-1" }), {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("answer to existing steering"),
-      fauxAssistantMessage("next explicit answer"),
-    ]);
+  it.each(["user", "custom"])(
+    "does not steer passive mail behind existing %s steering",
+    async (kind) => {
+      const harness = await createAgentSessionHarness();
+      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      const toolStarted = Promise.withResolvers<undefined>();
+      const releaseTool = Promise.withResolvers<undefined>();
+      const inputSeen = Promise.withResolvers<undefined>();
+      let steerExisting: (() => void) | undefined;
+      harness.setResponses([
+        fauxAssistantMessage(fauxToolCall("continue", {}, { id: "continue-steer-1" }), {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage("answer to existing steering"),
+        fauxAssistantMessage("next explicit answer"),
+      ]);
 
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        steerExisting = () => {
-          pi.sendUserMessage("existing user steering", { deliverAs: "steer" });
-        };
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        bridge: async (pi) => {
+          steerExisting = () => {
+            if (kind === "user") {
+              pi.sendUserMessage("existing user steering", { deliverAs: "steer" });
+            } else {
+              pi.sendMessage(
+                {
+                  customType: "external-steering",
+                  content: "existing user steering",
+                  display: false,
+                },
+                { deliverAs: "steer", triggerTurn: true },
+              );
+              inputSeen.resolve(undefined);
+            }
+          };
 
-        pi.on("input", () => {
-          inputSeen.resolve(undefined);
+          pi.on("input", () => {
+            inputSeen.resolve(undefined);
 
-          return { action: "continue" };
+            return { action: "continue" };
+          });
+          pi.registerTool({
+            description: "Continue after a barrier",
+            async execute() {
+              toolStarted.resolve(undefined);
+              await releaseTool.promise;
+
+              return {
+                content: [{ text: "continued", type: "text" }],
+                details: {},
+              };
+            },
+            label: "Continue",
+            name: "continue",
+            parameters: Type.Object({}),
+          });
+        },
+        tools: ["continue"],
+      });
+
+      runtime.commit();
+
+      try {
+        const turn = runtime.startTurn({ text: "initial task" });
+        await turn.accepted;
+        await toolStarted.promise;
+
+        const delivery = runtime.sendMessage({
+          content: "mail held behind existing steering",
+          customType: "subagent-message",
+          details: { communicationId: "message-existing-steer" },
         });
-        pi.registerTool({
-          description: "Continue after a barrier",
-          async execute() {
-            toolStarted.resolve(undefined);
-            await releaseTool.promise;
 
-            return {
-              content: [{ text: "continued", type: "text" }],
-              details: {},
-            };
-          },
-          label: "Continue",
-          name: "continue",
-          parameters: Type.Object({}),
+        steerExisting?.();
+        await inputSeen.promise;
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
         });
-      },
-      tools: ["continue"],
-    });
+        releaseTool.resolve(undefined);
 
-    runtime.commit();
-
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await toolStarted.promise;
-
-      const delivery = runtime.sendMessage({
-        content: "mail held behind existing steering",
-        customType: "subagent-message",
-        details: { communicationId: "message-existing-steer" },
-      });
-
-      steerExisting?.();
-      await inputSeen.promise;
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      releaseTool.resolve(undefined);
-
-      await expect(turn.settled).resolves.toMatchObject({
-        text: "answer to existing steering",
-      });
-      await delivery.accepted;
-      expect(harness.getPendingResponseCount()).toBe(1);
-
-      const payloads = harness.providerPayloads(
-        Type.Object(
-          { messages: Type.Optional(Type.Array(Type.Unknown())) },
-          { additionalProperties: true },
-        ),
-      );
-
-      expect(payloads).toHaveLength(2);
-      expect(JSON.stringify(payloads[1]?.messages)).toContain("existing user steering");
-      expect(JSON.stringify(payloads[1]?.messages)).not.toContain(
-        "mail held behind existing steering",
-      );
-
-      const next = runtime.startTurn({ text: "next task" });
-      await next.accepted;
-      await expect(next.settled).resolves.toMatchObject({ text: "next explicit answer" });
-      expect(lastProviderPayloadText(harness)).toContain("mail held behind existing steering");
-    } finally {
-      releaseTool.resolve(undefined);
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it("does not continue after an all-terminating tool batch", async () => {
-    const harness = await createAgentSessionHarness();
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const toolStarted = Promise.withResolvers<undefined>();
-    const releaseTool = Promise.withResolvers<undefined>();
-    harness.setResponses([
-      fauxAssistantMessage(fauxToolCall("terminate", {}, { id: "terminate-1" }), {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("next explicit turn"),
-    ]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: async (pi) => {
-        pi.registerTool({
-          description: "Terminate after a barrier",
-          async execute() {
-            toolStarted.resolve(undefined);
-            await releaseTool.promise;
-
-            return {
-              content: [{ text: "terminated", type: "text" }],
-              details: {},
-              terminate: true,
-            };
-          },
-          label: "Terminate",
-          name: "terminate",
-          parameters: Type.Object({}),
+        await expect(turn.settled).resolves.toMatchObject({
+          text: "answer to existing steering",
         });
-      },
-      tools: ["terminate"],
-    });
+        await delivery.accepted;
+        expect(harness.getPendingResponseCount()).toBe(1);
 
-    runtime.commit();
+        const payloads = harness.providerPayloads(
+          Type.Object(
+            { messages: Type.Optional(Type.Array(Type.Unknown())) },
+            { additionalProperties: true },
+          ),
+        );
 
-    try {
-      const turn = runtime.startTurn({ text: "initial task" });
-      await turn.accepted;
-      await toolStarted.promise;
+        expect(payloads).toHaveLength(2);
+        expect(JSON.stringify(payloads[1]?.messages)).toContain("existing user steering");
+        expect(JSON.stringify(payloads[1]?.messages)).not.toContain(
+          "mail held behind existing steering",
+        );
 
-      const delivery = runtime.sendMessage({
-        content: "mail after terminating tool",
-        customType: "subagent-message",
-        details: { communicationId: "message-terminal-tool" },
+        const next = runtime.startTurn({ text: "next task" });
+        await next.accepted;
+        await expect(next.settled).resolves.toMatchObject({ text: "next explicit answer" });
+        expect(lastProviderPayloadText(harness)).toContain("mail held behind existing steering");
+      } finally {
+        releaseTool.resolve(undefined);
+        await runtime.dispose();
+        harness.cleanup();
+      }
+    },
+  );
+
+  it.each([undefined, false])(
+    "does not continue after an all-terminating batch with endTurn=%s",
+    async (endTurn) => {
+      const harness = await createAgentSessionHarness({
+        api: "openai-codex-responses",
+        provider: "openai-codex",
       });
 
-      releaseTool.resolve(undefined);
+      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      const toolStarted = Promise.withResolvers<undefined>();
+      const releaseTool = Promise.withResolvers<undefined>();
+      harness.setResponses([
+        {
+          ...fauxAssistantMessage(fauxToolCall("terminate", {}, { id: "terminate-1" }), {
+            stopReason: "toolUse",
+          }),
+          ...(endTurn !== undefined ? { endTurn } : {}),
+        },
+        fauxAssistantMessage("next explicit turn"),
+      ]);
 
-      await delivery.accepted;
-      await expect(turn.settled).resolves.toMatchObject({ status: "completed" });
-      expect(harness.getPendingResponseCount()).toBe(1);
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        bridge: async (pi) => {
+          pi.registerTool({
+            description: "Terminate after a barrier",
+            async execute() {
+              toolStarted.resolve(undefined);
+              await releaseTool.promise;
 
-      const next = runtime.startTurn({ text: "next task" });
-      await next.accepted;
-      await expect(next.settled).resolves.toMatchObject({ text: "next explicit turn" });
-      expect(lastProviderPayloadText(harness)).toContain("mail after terminating tool");
-    } finally {
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
+              return {
+                content: [{ text: "terminated", type: "text" }],
+                details: {},
+                terminate: true,
+              };
+            },
+            label: "Terminate",
+            name: "terminate",
+            parameters: Type.Object({}),
+          });
+        },
+        tools: ["terminate"],
+      });
+
+      runtime.commit();
+
+      try {
+        const turn = runtime.startTurn({ text: "initial task" });
+        await turn.accepted;
+        await toolStarted.promise;
+
+        const delivery = runtime.sendMessage({
+          content: "mail after terminating tool",
+          customType: "subagent-message",
+          details: { communicationId: "message-terminal-tool" },
+        });
+
+        releaseTool.resolve(undefined);
+
+        await delivery.accepted;
+        await expect(turn.settled).resolves.toMatchObject({ status: "completed" });
+        expect(harness.getPendingResponseCount()).toBe(1);
+
+        const next = runtime.startTurn({ text: "next task" });
+        await next.accepted;
+        await expect(next.settled).resolves.toMatchObject({ text: "next explicit turn" });
+        expect(lastProviderPayloadText(harness)).toContain("mail after terminating tool");
+      } finally {
+        await runtime.dispose();
+        harness.cleanup();
+      }
+    },
+  );
 
   it("keeps triggering messages active and idle", async () => {
     const harness = await createAgentSessionHarness();

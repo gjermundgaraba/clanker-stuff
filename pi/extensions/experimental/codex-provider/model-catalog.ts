@@ -727,6 +727,7 @@ const projectModel = (
       showInPicker: metadata.visibility === "list",
     },
     ...(existing?.compat !== undefined ? { compat: existing.compat } : {}),
+    ...(existing?.inputLimits !== undefined ? { inputLimits: existing.inputLimits } : {}),
     contextWindow,
     cost: existing?.cost ?? {
       cacheRead: 0,
