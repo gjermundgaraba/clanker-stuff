@@ -21,7 +21,21 @@ coverage/
 !.vscode/settings.json
 
 # Local AI tooling
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/bump-pi/
+!.agents/skills/leverage-pi/
+.agents/skills/bump-pi/*
+.agents/skills/leverage-pi/*
+!.agents/skills/bump-pi/SKILL.md
+!.agents/skills/bump-pi/agents/
+.agents/skills/bump-pi/agents/*
+!.agents/skills/bump-pi/agents/openai.yaml
+!.agents/skills/leverage-pi/SKILL.md
+!.agents/skills/leverage-codex/
+.agents/skills/leverage-codex/*
+!.agents/skills/leverage-codex/SKILL.md
 .claude/
 .codex/
 .cursor/
