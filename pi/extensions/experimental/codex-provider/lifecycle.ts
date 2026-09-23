@@ -1,6 +1,6 @@
 import type { ToolExecutionSettings } from "./tools/execution-context.js";
 import { normalizeContext, uuidv7 } from "@earendil-works/pi-ai";
-import type { Message, Model, ProviderHeaders, Usage } from "@earendil-works/pi-ai";
+import type { Api, Message, Model, ProviderHeaders, Usage } from "@earendil-works/pi-ai";
 import {
   buildSessionProjection,
   calculateContextTokens,
@@ -260,9 +260,7 @@ const isAbortError = (cause: unknown) =>
   (Value.Check(NamedErrorSchema, cause) && cause.name === "AbortError") ||
   (Value.Check(CausedErrorSchema, cause) && cause.cause.name === "AbortError");
 
-export const isSupportedLifecycleModel = (
-  model: Model<string> | undefined,
-): model is SupportedModel =>
+export const isSupportedLifecycleModel = (model: Model<Api> | undefined): model is SupportedModel =>
   model?.provider === "openai-codex" && model.api === "openai-codex-responses";
 
 export const hasResolvedLifecycleAuth = (apiKey?: string): apiKey is string =>
@@ -1185,7 +1183,7 @@ type ReplayBoundaryDecision =
 
 const replayBoundaryDecision = (
   branch: readonly SessionEntry[],
-  model: Model<string> | undefined,
+  model: Model<Api> | undefined,
   providerRuntime: CodexProviderRuntime,
   previousModel?: SupportedModel,
   previousCompHash?: string | null,
@@ -1838,7 +1836,7 @@ type FinalizedReplayPreparation =
 
 const prepareFinalizedReplay = (
   payload: unknown,
-  model: Model<string> | undefined,
+  model: Model<Api> | undefined,
   frame: RequestFrame,
   branch: readonly SessionEntry[],
   providerRuntime: CodexProviderRuntime,
@@ -2480,7 +2478,7 @@ const findPreviousModelMessage = (entries: readonly SessionEntry[]) =>
 export const resolvePreviousTurnTransition = (
   branch: readonly SessionEntry[],
   currentModel: SupportedModel,
-  findModel: (provider: string, model: string) => Model<string> | undefined,
+  findModel: (provider: string, model: string) => Model<Api> | undefined,
 ): LifecycleState["transition"] => {
   const boundary = resolveActiveCheckpointBoundary(branch);
   const durableCheckpoint = boundary.kind === "checkpoint" ? boundary.checkpoint : undefined;
@@ -2490,7 +2488,7 @@ export const resolvePreviousTurnTransition = (
 
   const previousMessage = tailMessage ?? findPreviousModelMessage(branch);
   const durableIdentity = tailMessage ? undefined : durableCheckpoint?.identity;
-  let previousModel: Model<string> | undefined;
+  let previousModel: Model<Api> | undefined;
 
   if (durableIdentity) {
     previousModel =
@@ -2713,6 +2711,7 @@ export const createCodexLifecycle = (
       const observations = observability.list(sessionId);
       ctx.ui.notify(
         formatCodexProviderStatus({
+          catalogRejections: providerRuntime.getCatalogRejections(),
           branch: ctx.sessionManager.getBranch(),
           current: {
             ...(modelWindow !== undefined

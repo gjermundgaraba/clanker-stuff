@@ -54,15 +54,16 @@ describe("Codex fast mode", () => {
     ).toStrictEqual({ fast: true });
     expect(first.getStatus("codex-fast")).toBe("⚡");
 
+    const unsupported = { ...SPIKE_MODEL, id: "unknown-model" };
     await first.emit(
       "model_select",
       {
-        model: SPIKE_MODEL,
+        model: unsupported,
         previousModel: FAST_MODEL,
         source: "set",
         type: "model_select",
       },
-      first.createContext({ model: SPIKE_MODEL }),
+      first.createContext({ model: unsupported }),
     );
     expect(first.getStatus("codex-fast")).toBeUndefined();
 

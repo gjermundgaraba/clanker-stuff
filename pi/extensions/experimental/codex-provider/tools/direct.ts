@@ -23,13 +23,6 @@ const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
 
 const CODE_MODE_OUTPUT_TOKEN_LIMIT = (1024 * 1024) / 4;
 
-export const CODEX_MODEL_IDS = new Set([
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-6-astra",
-]);
-
 const APPLY_PATCH_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
 end_patch: "*** End Patch" LF?
@@ -50,14 +43,6 @@ export const APPLY_PATCH_CONSTRAINED_SAMPLING = {
   type: "grammar",
   variants: { openai_lark: APPLY_PATCH_GRAMMAR },
 } as const;
-
-export const isCodexToolsModel = (model: ExtensionContext["model"]) =>
-  model?.provider === "openai-codex" &&
-  model.api === "openai-codex-responses" &&
-  CODEX_MODEL_IDS.has(model.id) &&
-  model.compat !== undefined &&
-  "supportsOpenAIGrammarTools" in model.compat &&
-  model.compat.supportsOpenAIGrammarTools === true;
 
 const textResult = <Details>(text: string, details: Details) => ({
   content: [{ text, type: "text" as const }],

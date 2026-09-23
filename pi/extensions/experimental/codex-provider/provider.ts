@@ -19,6 +19,7 @@ import {
   uuidv7,
 } from "@earendil-works/pi-ai";
 import type {
+  Api,
   AssistantMessage,
   Model,
   ModelThinkingLevel,
@@ -56,11 +57,10 @@ import {
   extractAccountId,
   isCodexWireReasoningEffort,
   piReasoningLevel,
-  isSupportedCodexModelId,
   modelSupportsServiceTier,
   resolveCodexResponsesUrl,
 } from "./model-catalog.js";
-import type { CodexModelCatalog, CodexModelMetadata } from "./model-catalog.js";
+import type { CodexModelCatalog } from "./model-catalog.js";
 import type { CodexObservability } from "./observability.js";
 import {
   estimateModelVisibleTokens,
@@ -689,15 +689,16 @@ const buildRequestBody = (
   model: SupportedModel,
   context: TranscriptContext,
   options: OpenAICodexResponsesOptions | undefined,
-  metadata: CodexModelMetadata | undefined,
+  catalog: CodexModelCatalog,
   sessionId: string,
   session: SessionRuntime,
   kind: "prewarm" | "turn" = "turn",
 ) => {
-  if (!isSupportedCodexModelId(model.id)) {
+  if (!catalog.supportsModel(model)) {
     throw new Error(`Unsupported Codex provider model: ${model.id}`);
   }
 
+  const metadata = catalog.getModelMetadata(model.id);
   const supportsMidConvoSystemMessages = model.compat?.supportsMidConvoSystemMessages === true;
   const transcript = resolveTranscript(context, supportsMidConvoSystemMessages);
 
@@ -2448,7 +2449,7 @@ export const createCodexProviderRuntime = (
         request.model,
         request.context,
         options,
-        catalog.getModelMetadata(request.model.id),
+        catalog,
         request.sessionId,
         session,
       );
@@ -2886,14 +2887,7 @@ export const createCodexProviderRuntime = (
           startedAt: Date.now(),
         };
 
-        const built = buildRequestBody(
-          model,
-          context,
-          options,
-          catalog.getModelMetadata(model.id),
-          sessionId,
-          session,
-        );
+        const built = buildRequestBody(model, context, options, catalog, sessionId, session);
 
         let litePrefixLength = 0;
 
@@ -3194,7 +3188,7 @@ export const createCodexProviderRuntime = (
     }
   };
 
-  const createSamplingScope = (model: Model<string>, maxTokens: number): SamplingScope => {
+  const createSamplingScope = (model: Model<Api>, maxTokens: number): SamplingScope => {
     const operation: SamplingOperation = {
       controller: undefined,
       task: undefined,
@@ -3284,6 +3278,7 @@ export const createCodexProviderRuntime = (
         session.turn = undefined;
       }
     },
+    getCatalogRejections: catalog.getRejections,
     getModelMetadata(modelId: string) {
       return catalog.getModelMetadata(modelId);
     },

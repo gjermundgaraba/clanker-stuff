@@ -13,7 +13,7 @@ import { createExtensionHost } from "../../../../tests/harness/extension-host.js
 import { boundRuntimeToolResult } from "../code-mode/trace-values.js";
 import { MAX_DIFF_CHARS } from "../tools/patch.js";
 import { ProcessManager } from "../tools/process.js";
-import { registerCodexTools } from "../tools/register.js";
+import { registerFallbackCodexTools } from "./tool-fixtures.js";
 import { createToolsModel } from "./fixtures.js";
 
 // oxlint-disable-next-line anti-slop/no-module-mocking -- Observes Pi helpers without replacing them; Pi exposes no seam.
@@ -71,7 +71,7 @@ describe("profile execution", () => {
   it("applies Codex add, update, move, and delete patches", async () => {
     const cwd = await createTempDirectory();
     const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
@@ -114,7 +114,7 @@ describe("profile execution", () => {
       execFileSync("mkfifo", [path.join(cwd, "pipe")]);
       await writeFile(path.join(cwd, "plain.txt"), "one\ntwo\n", "utf-8");
       const model = createToolsModel("gpt-5.6-terra", true);
-      const host = createExtensionHost(registerCodexTools, { model });
+      const host = createExtensionHost(registerFallbackCodexTools, { model });
       const ctx = host.createContext({ cwd, model });
       await host.emitSessionStart(ctx);
 
@@ -152,7 +152,7 @@ describe("profile execution", () => {
     const big = Array.from({ length: 3000 }, (_, i) => `+${"x".repeat(30)} ${i}`);
     const names = Array.from({ length: 200 }, (_, i) => `dir/file-${i}.txt`);
     const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
@@ -197,7 +197,7 @@ describe("profile execution", () => {
     const lines = Array.from({ length: 6000 }, (_, i) => `line ${i} ${"x".repeat(30)}`);
     await writeFile(path.join(cwd, "big.txt"), `${lines.join("\n")}\n`, "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
@@ -288,7 +288,7 @@ describe("profile execution", () => {
     const bigLines = Math.ceil((1024 * 1024) / line.length) + 500;
     await writeFile(path.join(cwd, "huge.txt"), line.repeat(bigLines), "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
@@ -339,7 +339,7 @@ describe("profile execution", () => {
         mode: 0,
       });
       const model = createToolsModel("gpt-5.6-terra", true);
-      const host = createExtensionHost(registerCodexTools, { model });
+      const host = createExtensionHost(registerFallbackCodexTools, { model });
       const ctx = host.createContext({ cwd, model });
       await host.emitSessionStart(ctx);
 
@@ -374,7 +374,7 @@ describe("profile execution", () => {
     const cwd = await createTempDirectory();
     await writeFile(path.join(cwd, "source.txt"), "unchanged\n", "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
@@ -400,7 +400,7 @@ describe("profile execution", () => {
     const file = path.join(cwd, "example.txt");
     await writeFile(file, "target\nmiddle\ntarget\n", "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
@@ -462,7 +462,7 @@ describe("profile execution", () => {
   it("does not start an already-aborted Codex patch", async () => {
     const cwd = await createTempDirectory();
     const model = createToolsModel("gpt-5.6-terra", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ cwd, model });
     const controller = new AbortController();
     controller.abort();
@@ -484,7 +484,7 @@ describe("profile execution", () => {
 
   it("runs and continues Codex process sessions", async () => {
     const model = createToolsModel("gpt-5.6-luna", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     await host.emitSessionStart();
 
     const started = await host.runTool("exec_command", {
@@ -558,7 +558,7 @@ describe("profile execution", () => {
       shell: process.execPath,
     });
     const model = createToolsModel("gpt-5.6-luna", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     await host.emitSessionStart();
 
     await expect(host.runTool("exec_command", { cmd: "printf unreachable" })).rejects.toThrow(
@@ -572,7 +572,7 @@ describe("profile execution", () => {
       const cwd = await createTempDirectory();
       const marker = path.join(cwd, "descendant.txt");
       const model = createToolsModel("gpt-5.6-luna", true);
-      const host = createExtensionHost(registerCodexTools, { model });
+      const host = createExtensionHost(registerFallbackCodexTools, { model });
       await host.emitSessionStart();
       const startedAt = Date.now();
       const descendant = `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "alive"), 1200)`;
@@ -591,7 +591,7 @@ describe("profile execution", () => {
 
   it("kills and forgets an aborted Codex process session", async () => {
     const model = createToolsModel("gpt-5.6-luna", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     await host.emitSessionStart();
 
     const started = await host.runTool("exec_command", {
@@ -629,7 +629,7 @@ describe("profile execution", () => {
       const cwd = await createTempDirectory();
       const marker = path.join(cwd, "leaked.txt");
       const model = createToolsModel("gpt-5.6-luna", true);
-      const host = createExtensionHost(registerCodexTools, { model });
+      const host = createExtensionHost(registerFallbackCodexTools, { model });
       const ctx = host.createContext({ cwd, model });
       await host.emitSessionStart(ctx);
 
@@ -653,7 +653,7 @@ describe("profile execution", () => {
 
   it("formats direct output from the preserved full stream", async () => {
     const model = createToolsModel("gpt-5.6-luna", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     await host.emitSessionStart();
 
     const result = await host.runTool("exec_command", {

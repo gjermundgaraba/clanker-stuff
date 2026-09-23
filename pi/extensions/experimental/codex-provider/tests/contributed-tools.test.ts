@@ -11,7 +11,7 @@ import { fixtureServer, setupMcpTest } from "../../../mcp/tests/helpers.js";
 import { toGeneratedToolName } from "../../../mcp/bridge.js";
 import type { SamplingScopeRequest } from "../../../mcp/sampling-protocol.js";
 import { CodeModeRuntime, toNestedTool } from "../code-mode/tools.js";
-import { registerCodexTools } from "../tools/register.js";
+import { registerFallbackCodexTools } from "./tool-fixtures.js";
 import { createToolsModel } from "./fixtures.js";
 
 describe("Code Mode contributions", () => {
@@ -70,7 +70,7 @@ describe("Code Mode contributions", () => {
 
     const host = t.createExtensionHost(
       (pi) => {
-        registerCodexTools(pi);
+        registerFallbackCodexTools(pi);
         source = new ContributedTools(pi);
       },
       { model },
@@ -117,7 +117,7 @@ describe("Code Mode contributions", () => {
 
     const host = t.createExtensionHost(
       (pi) => {
-        registerCodexTools(pi);
+        registerFallbackCodexTools(pi);
         const source = new ContributedTools(pi);
 
         for (const name of ["enabled", "disabled"])
@@ -170,7 +170,7 @@ describe("Code Mode contributions", () => {
 
       const host = t.createExtensionHost(
         (pi) => {
-          registerCodexTools(pi);
+          registerFallbackCodexTools(pi);
           backgroundTasks(pi);
           mcp(pi);
           sources = () => collectContributions(pi);
@@ -261,7 +261,7 @@ describe("Code Mode contributions", () => {
       const host = t.createExtensionHost(
         (pi) => {
           mcp(pi);
-          registerCodexTools(pi);
+          registerFallbackCodexTools(pi);
           sources = () => collectContributions(pi);
           pi.events.on("clanker-codex:sampling-scope-request", (request) => {
             // SAFETY: The real MCP producer emits this request in this isolated host.

@@ -42,7 +42,7 @@ describe("spawn catalog provider payload", () => {
       );
       vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
       const parent = createToolsModel("gpt-5.6-sol", true);
-      const workerId = "gpt-5.6-synthetic-worker";
+      const workerId = "gpt-5.6-luna";
       let description = "Fast and affordable synthetic worker.";
       const requests: WireRecord[] = [];
       const errors: string[] = [];

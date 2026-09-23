@@ -8,7 +8,7 @@ import { Value } from "typebox/value";
 
 const CODEX_COMMIT = "36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564";
 
-const CATALOG_COMMIT = "36f0dbe796d9bb1a18a0fc0640ed08b3e1d54564";
+const CATALOG_COMMIT = "b412ff32c417f855c2b2d1581b77058eed87c84b";
 
 const CONFIG_PATH = "codex-rs/core/src/config/mod.rs";
 
@@ -204,6 +204,8 @@ const fixture = {
       "gpt-5.6-sol": catalogVersion("gpt-5.6-sol"),
       "gpt-5.6-terra": catalogVersion("gpt-5.6-terra"),
       "gpt-6-astra": catalogVersion("gpt-6-astra"),
+      "gpt-6-luna": catalogVersion("gpt-6-luna"),
+      "gpt-6-sol": catalogVersion("gpt-6-sol"),
     },
   },
   commit: CODEX_COMMIT,

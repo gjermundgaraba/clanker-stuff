@@ -6,16 +6,19 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { collectContributions, placeContributions } from "@clanker-stuff/code-mode-tools";
 
+import type { CodexModelCatalog } from "../model-catalog.js";
+
 import { CodeModeRuntime } from "../code-mode/tools.js";
 import { PI_SUBAGENTS_NAMESPACE, requestCollaborationContract } from "../collaboration.js";
 import { CODE_MODE_STATUS_KEY } from "../footer.js";
 import { withExecutionSettings } from "./execution-context.js";
 import type { ToolExecutionSettings } from "./execution-context.js";
-import { createCodexDirectTools, isCodexToolsModel } from "./direct.js";
+import { createCodexDirectTools } from "./direct.js";
 
 export const createCodexToolsController = (
   pi: ExtensionAPI,
   setFooterActive: (active: boolean) => void,
+  supportsModel: CodexModelCatalog["supportsModel"],
   evaluationToolMode?: "direct" | "code_mode_only",
   executionSettings?: ToolExecutionSettings,
 ) => {
@@ -29,7 +32,7 @@ export const createCodexToolsController = (
   let codeModeEnabled = false;
   let currentModel: ExtensionContext["model"];
   let modelRegistry: ExtensionContext["modelRegistry"] | undefined;
-  let suppressedPiNames: string[] = [];
+  let suppressedPiNames: string[] | undefined;
   let suppressedAsyncNames: string[] = [];
   let tuiAvailable = false;
   let lastContext: ExtensionContext | undefined;
@@ -60,7 +63,7 @@ export const createCodexToolsController = (
   const prepareContributions = (): (() => void) => {
     const nestedOnly =
       currentModel !== undefined &&
-      isCodexToolsModel(currentModel) &&
+      supportsModel(currentModel) &&
       effectiveMode(currentModel) === "code_mode_only";
 
     const inventories = collectContributions(pi);
@@ -124,7 +127,7 @@ export const createCodexToolsController = (
     );
 
   const declaredMode = (model: ExtensionContext["model"]) => {
-    if (model === undefined || !isCodexToolsModel(model) || !("codexToolMode" in model)) {
+    if (model === undefined || !supportsModel(model) || !("codexToolMode" in model)) {
       return undefined;
     }
 
@@ -142,11 +145,10 @@ export const createCodexToolsController = (
     model === undefined ? undefined : (modelRegistry?.find(model.provider, model.id) ?? model);
 
   const codeModeActive = (model: ExtensionContext["model"] = currentModel) =>
-    model !== undefined && isCodexToolsModel(model) && effectiveMode(model) !== "direct";
+    model !== undefined && supportsModel(model) && effectiveMode(model) !== "direct";
 
   const apply = (ctx: ExtensionContext, refreshModel = true): void => {
     lastContext = ctx;
-    const previousModel = currentModel;
     tuiAvailable = ctx.mode === "tui" && ctx.hasUI;
     modelRegistry = ctx.modelRegistry;
 
@@ -174,19 +176,17 @@ export const createCodexToolsController = (
       return true;
     });
 
-    if (currentModel === undefined || !isCodexToolsModel(currentModel)) {
+    if (currentModel === undefined || !supportsModel(currentModel)) {
       const remainingNames = activeNames.filter((name) => !codexToolNameSet.has(name));
-      pi.setActiveTools([...new Set([...suppressedPiNames, ...remainingNames])]);
-      suppressedPiNames = [];
+      pi.setActiveTools([...new Set([...(suppressedPiNames ?? []), ...remainingNames])]);
+      suppressedPiNames = undefined;
 
       return;
     }
 
     const builtinNames = builtinToolNames();
 
-    if (previousModel === undefined || !isCodexToolsModel(previousModel)) {
-      suppressedPiNames = activeNames.filter((name) => builtinNames.has(name));
-    }
+    suppressedPiNames ??= activeNames.filter((name) => builtinNames.has(name));
 
     const externalNames = activeNames.filter((name) => {
       if (builtinNames.has(name) || codexToolNameSet.has(name)) return false;
@@ -231,7 +231,7 @@ export const createCodexToolsController = (
         pi.setActiveTools([
           ...new Set(
             [
-              ...suppressedPiNames,
+              ...(suppressedPiNames ?? []),
               ...suppressedAsyncNames,
               ...pi.getActiveTools(),
               ...enabled,

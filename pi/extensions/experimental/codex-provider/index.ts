@@ -7,7 +7,11 @@ export default function codexProviderExtension(
   pi: ExtensionAPI,
   evaluationToolMode?: "direct" | "code_mode_only",
 ): void {
-  registerCodexProvider(pi, (setCodeMode, settings) =>
-    registerCodexTools(pi, setCodeMode, evaluationToolMode, settings),
+  registerCodexProvider(pi, (setCodeMode, settings, catalog) =>
+    registerCodexTools(pi, catalog, {
+      setFooterActive: setCodeMode,
+      executionSettings: settings,
+      ...(evaluationToolMode === undefined ? {} : { evaluationToolMode }),
+    }),
   );
 }

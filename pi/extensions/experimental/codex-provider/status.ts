@@ -12,6 +12,7 @@ import type { CodexObservation } from "./observability.js";
 import { estimateModelVisibleTokens } from "./replay.js";
 
 export interface CodexProviderStatusOptions {
+  readonly catalogRejections?: readonly string[];
   readonly branch: readonly SessionEntry[];
   readonly entries: readonly SessionEntry[];
   readonly observations: readonly CodexObservation[];
@@ -460,6 +461,7 @@ export const formatCodexProviderStatus = (options: CodexProviderStatusOptions): 
     `  Replay blocks: ${observedFrames.length} session${latestFrame === undefined ? "" : ` · latest in session: ${latestFrame.frameResult} at ${timestamp(latestFrame.timestamp)} (${latestFrame.baselineMessages} baseline / ${latestFrame.eventMessages} event messages)`}`,
     `  Transport fallbacks: ${observedFallbacks.length} session${latestFallback === undefined ? "" : ` · latest in session: ${latestFallback.configuredTransport} at ${timestamp(latestFallback.timestamp)}`}`,
     `  Failed compaction requests: ${observedCompactionFailures.length} session`,
+    ...(options.catalogRejections ?? []).map((reason) => `  Rejected catalog entry: ${reason}`),
     "Observability",
     `  Database: ${options.observabilityPath}`,
     `  Rows (session, 30 days): ${observationCounts.requests} requests · ${observationCounts.compactions} compactions · ${observationCounts.frames} replay blocks`,

@@ -19,6 +19,7 @@ import {
   resolveCheckpointCarrier,
 } from "../checkpoint.js";
 import codexCompactionExtension from "../index.js";
+import { registerFallbackCodexTools } from "./tool-fixtures.js";
 import { CodexObservability } from "../observability.js";
 import { FRAME_MARKER_PREFIX } from "../replay.js";
 import {
@@ -839,7 +840,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
         keepRecentTokens: 1,
         reserveTokens: 1000,
       },
-      extensionFactories: [stabilizeCodexRequest],
+      extensionFactories: [stabilizeCodexRequest, (pi) => registerFallbackCodexTools(pi)],
       rootDir: paths.rootDir,
       sessionManager: SessionManager.inMemory(paths.cwd),
       systemPrompt: "unchanged system",
@@ -2282,14 +2283,14 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const previousModel = {
       ...SPIKE_MODEL,
       contextWindow: 20_000,
-      id: "gpt-5.6-previous",
+      id: "gpt-5.6-sol",
       name: "Previous Codex",
     };
 
     const currentModel = {
       ...SPIKE_MODEL,
       contextWindow: 4000,
-      id: "gpt-5.6-current",
+      id: "gpt-5.6-luna",
       name: "Current Codex",
     };
 
@@ -2321,6 +2322,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       compaction: { enabled: false },
       extensionFactories: [codexCompactionExtension],
       model: previousModel,
+      additionalModels: [currentModel],
       rootDir: paths.rootDir,
       sessionManager: manager,
     });
@@ -2345,9 +2347,9 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
           inputItemTypes(request.input).includes("compaction_trigger"),
         ),
       }).toStrictEqual({
-        checkpointModel: "gpt-5.6-current",
+        checkpointModel: "gpt-5.6-luna",
         checkpointResponse: "resp_current-fallback",
-        models: ["gpt-5.6-previous", "gpt-5.6-previous", "gpt-5.6-current", "gpt-5.6-current"],
+        models: ["gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-luna"],
         reasons: ["model_downshift", "model_downshift"],
         triggers: [false, true, true, false],
       });
@@ -2629,7 +2631,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
     const changedModel = {
       ...initialModel,
       baseUrl: "https://changed-endpoint.invalid/backend-api",
-      id: "gpt-5.6-changed-endpoint",
+      id: "gpt-5.6-luna",
       name: "Changed endpoint Codex",
     };
 
@@ -2664,6 +2666,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
       },
       extensionFactories: [codexCompactionExtension],
       model: initialModel,
+      additionalModels: [changedModel],
       rootDir: paths.rootDir,
       sessionManager: manager,
       systemPrompt: "short",

@@ -16,7 +16,7 @@ Follow the audited [local load-last deployment contract](docs/local-deployment.m
 
 ## Usage
 
-OpenAI Codex requests compact and replay opaque checkpoints automatically, and Astra starts in required Code Mode; with [`subagents`](../subagents) loaded first, run [`/ultra`](docs/ultra.md) or start with `--ultra` for catalog-resolved proactive V2 delegation, `/code-mode` to toggle Code Mode when the model leaves that choice open, `/fast` for priority service, or `/codex-provider` for status.
+OpenAI Codex requests compact and replay opaque checkpoints automatically, and GPT-6 Astra, Sol, and Luna start in required Code Mode; with [`subagents`](../subagents) loaded first, run [`/ultra`](docs/ultra.md) or start with `--ultra` for proactive V2 delegation on Ultra-capable models, `/code-mode` to toggle Code Mode when the model leaves that choice open, `/fast` for priority service, or `/codex-provider` for status.
 
 ## Configuration
 

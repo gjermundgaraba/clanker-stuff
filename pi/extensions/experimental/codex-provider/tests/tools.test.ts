@@ -12,7 +12,7 @@ import attentionExtension from "../../user-attention/index.js";
 import questionExtension from "../../../ask-question/index.js";
 import toolPickerExtension from "../../../tool-picker/index.js";
 import { COLLABORATION_CONTRACT_REQUEST } from "../collaboration.js";
-import { registerCodexTools } from "../tools/register.js";
+import { registerFallbackCodexTools } from "./tool-fixtures.js";
 import { createToolsModel } from "./fixtures.js";
 
 const DIRECT_NAMES = ["exec_command", "write_stdin", "apply_patch", "view_image"];
@@ -27,7 +27,7 @@ const ContractRequestSchema = Type.Object({
 });
 
 const withCollaborationContract =
-  (protocol: "v1" | "v2") => (pi: Parameters<typeof registerCodexTools>[0]) => {
+  (protocol: "v1" | "v2") => (pi: Parameters<typeof registerFallbackCodexTools>[0]) => {
     const nested = {
       description: "Spawn a test agent.",
       execute: async () => ({ content: [], details: {} }),
@@ -46,7 +46,7 @@ const withCollaborationContract =
         version: 1,
       });
     });
-    registerCodexTools(pi);
+    registerFallbackCodexTools(pi);
   };
 
 const selectModel = async (
@@ -71,7 +71,7 @@ describe("Codex tools", () => {
       codexSupportedTools: ["send_user_message_async"],
     };
 
-    const host = createExtensionHost(registerCodexTools, {
+    const host = createExtensionHost(registerFallbackCodexTools, {
       model,
       activeTools: [...PI_NAMES, ...asyncNames],
       allTools: [...PI_NAMES, ...asyncNames],
@@ -108,7 +108,12 @@ describe("Codex tools", () => {
     "pins the evaluation tool surface and prompt to %s",
     async (mode) => {
       const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode_only" };
-      const host = createExtensionHost((pi) => registerCodexTools(pi, () => null, mode), { model });
+
+      const host = createExtensionHost(
+        (pi) => registerFallbackCodexTools(pi, { evaluationToolMode: mode }),
+        { model },
+      );
+
       await host.emitSessionStart();
       expect(host.getActiveTools()).toStrictEqual(mode === "direct" ? DIRECT_NAMES : CODE_NAMES);
 
@@ -129,7 +134,7 @@ describe("Codex tools", () => {
   it("resolves refreshed policy for commands without changing the manual preference", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
     let refreshed = { ...model, codexToolMode: "code_mode_only" };
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
 
     const ctx = host.createContext({
       model,
@@ -157,11 +162,11 @@ describe("Codex tools", () => {
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
   });
 
-  it.each(["gpt-6-astra", "gpt-5.6-sol"])(
+  it.each(["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"])(
     "starts %s in catalog-required Code Mode and cannot toggle it off",
     async (id) => {
       const model = { ...createToolsModel(id, true), codexToolMode: "code_mode_only" };
-      const host = createExtensionHost(registerCodexTools, { model });
+      const host = createExtensionHost(registerFallbackCodexTools, { model });
       const ctx = host.createContext({ model });
       await host.emitSessionStart(ctx);
       expect(host.getActiveTools()).toStrictEqual(CODE_NAMES);
@@ -180,7 +185,7 @@ describe("Codex tools", () => {
     "preserves the optional Code Mode preference %s across every declared mode",
     async (enabled) => {
       const optional = createToolsModel("gpt-5.6-sol", true);
-      const host = createExtensionHost(registerCodexTools, { model: optional });
+      const host = createExtensionHost(registerFallbackCodexTools, { model: optional });
       await host.emitSessionStart();
 
       if (enabled) {
@@ -215,7 +220,7 @@ describe("Codex tools", () => {
   it("preserves external tools while applying declared hybrid and direct modes", async () => {
     const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "code_mode" };
 
-    const host = createExtensionHost(registerCodexTools, {
+    const host = createExtensionHost(registerFallbackCodexTools, {
       activeTools: [...PI_NAMES, "request_user_input"],
       allTools: [...PI_NAMES, "request_user_input"],
       externalTools: ["request_user_input"],
@@ -245,7 +250,7 @@ describe("Codex tools", () => {
 
   it("keeps unknown selectors manually toggleable", async () => {
     const model = { ...createToolsModel("gpt-6-astra", true), codexToolMode: "future" };
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     await host.emitSessionStart();
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
     await host.runCommand("code-mode", "", host.createContext({ model }));
@@ -258,8 +263,8 @@ describe("Codex tools", () => {
     const host = createExtensionHost(
       (pi) => {
         for (const extension of order === "picker first"
-          ? [toolPickerExtension, registerCodexTools]
-          : [registerCodexTools, toolPickerExtension]) {
+          ? [toolPickerExtension, registerFallbackCodexTools]
+          : [registerFallbackCodexTools, toolPickerExtension]) {
           extension(pi);
         }
       },
@@ -296,7 +301,7 @@ describe("Codex tools", () => {
   it("preserves unrelated extension tools across model changes", async () => {
     const codex = createToolsModel("gpt-5.6-sol", true);
 
-    const host = createExtensionHost(registerCodexTools, {
+    const host = createExtensionHost(registerFallbackCodexTools, {
       activeTools: ["read", "request_user_input"],
       allTools: [...PI_NAMES, "request_user_input"],
       externalTools: ["request_user_input"],
@@ -311,7 +316,7 @@ describe("Codex tools", () => {
 
   it("normalizes Pi's initial all-extension-tool activation", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     await host.ready;
 
     expect(host.getActiveTools()).toStrictEqual([...PI_NAMES, ...DIRECT_NAMES, "wait"]);
@@ -322,7 +327,7 @@ describe("Codex tools", () => {
   });
 
   it.each([true, false])("normalizes tools on input only when idle is %s", async (idle) => {
-    const host = createExtensionHost(registerCodexTools, {
+    const host = createExtensionHost(registerFallbackCodexTools, {
       model: createToolsModel("gpt-5.6-sol", true),
     });
 
@@ -340,7 +345,7 @@ describe("Codex tools", () => {
   });
 
   it("does not normalize tools after prompt metadata has been captured", async () => {
-    const host = createExtensionHost(registerCodexTools, {
+    const host = createExtensionHost(registerFallbackCodexTools, {
       model: createToolsModel("gpt-5.6-sol", true),
     });
 
@@ -362,7 +367,7 @@ describe("Codex tools", () => {
     "gates %s activation on grammar-tool support",
     async (id) => {
       const model = { ...createToolsModel(id), codexToolMode: "code_mode_only" };
-      const host = createExtensionHost(registerCodexTools, { model });
+      const host = createExtensionHost(registerFallbackCodexTools, { model });
 
       await host.emitSessionStart();
 
@@ -374,7 +379,7 @@ describe("Codex tools", () => {
     const codex = createToolsModel("gpt-5.6-sol", true);
     const builtinNames = [...PI_NAMES, "powershell"];
 
-    const host = createExtensionHost(registerCodexTools, {
+    const host = createExtensionHost(registerFallbackCodexTools, {
       activeTools: builtinNames,
       allTools: builtinNames,
       model: codex,
@@ -400,7 +405,7 @@ describe("Codex tools", () => {
       provider,
     });
 
-    const host = createExtensionHost(registerCodexTools, { model: codex });
+    const host = createExtensionHost(registerFallbackCodexTools, { model: codex });
     await host.emitSessionStart();
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
 
@@ -413,7 +418,7 @@ describe("Codex tools", () => {
 
   it("toggles direct and Code Mode tools", async () => {
     const model = createToolsModel("gpt-5.6-sol", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ model });
     await host.emitSessionStart(ctx);
 
@@ -489,8 +494,8 @@ describe("combined questionnaire/provider availability", () => {
         const host = createExtensionHost(
           (pi) => {
             for (const register of questionFirst
-              ? [questionExtension, attentionExtension, registerCodexTools]
-              : [registerCodexTools, attentionExtension, questionExtension])
+              ? [questionExtension, attentionExtension, registerFallbackCodexTools]
+              : [registerFallbackCodexTools, attentionExtension, questionExtension])
               register(pi);
           },
           { model },

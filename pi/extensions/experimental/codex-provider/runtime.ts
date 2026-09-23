@@ -4,7 +4,7 @@ import path from "node:path";
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
 import type { SamplingEvents, SamplingScopeRequest } from "@clanker-stuff/mcp/sampling-protocol";
 import { getExtensionStoragePaths } from "@clanker-stuff/pi-extension-paths";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
   BeforeProviderHeadersEvent,
   BeforeProviderRequestEvent,
@@ -28,7 +28,7 @@ type CodexLifecycle = ReturnType<typeof createCodexLifecycle>;
 
 type ModelSelectEvent = Extract<ExtensionEvent, { type: "model_select" }>;
 
-const isCodexModel = (model: Model<string> | undefined): boolean =>
+const isCodexModel = (model: Model<Api> | undefined): boolean =>
   model?.provider === "openai-codex" && model.api === "openai-codex-responses";
 
 export const createCodexRuntime = (

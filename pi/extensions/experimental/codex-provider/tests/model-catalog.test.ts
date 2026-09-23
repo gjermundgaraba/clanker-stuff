@@ -1,8 +1,9 @@
+import { openaiCodexProvider } from "#pi-openai-codex";
 import type { RefreshModelsContext } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createCodexModelCatalog, isSupportedCodexModelId } from "../model-catalog.js";
-import { SPIKE_API_KEY } from "./fixtures.js";
+import { createCodexModelCatalog as createCatalog } from "../model-catalog.js";
+import { SPIKE_API_KEY, SPIKE_MODEL, builtinWithModels, makeCodexApiKey } from "./fixtures.js";
 
 type StoredModels = NonNullable<RefreshModelsContext["stored"]>;
 
@@ -18,12 +19,20 @@ const remoteModel = {
   display_name: "Boundary model",
   future_metadata: { retained: true },
   priority: 1,
-  slug: "gpt-5.6-boundary",
+  slug: "gpt-6-future",
   supported_in_api: true,
   support_verbosity: true,
   supports_parallel_tool_calls: true,
   visibility: "list",
 };
+
+const futureModel = {
+  ...SPIKE_MODEL,
+  id: remoteModel.slug,
+  cost: { input: 3, output: 7, cacheRead: 1, cacheWrite: 3 },
+};
+
+const createCodexModelCatalog = () => createCatalog(undefined, builtinWithModels(futureModel));
 
 // Native Astra catalog shape at Codex f1aac1e885f676a1129f2da0c46a3dba86392fc6.
 // Application instructions omitted: this provider uses Pi's effective prompt.
@@ -148,35 +157,100 @@ describe("Codex model catalog", () => {
     }
   });
 
-  it("admits exact Astra without admitting other GPT-6 models", () => {
-    expect(isSupportedCodexModelId("gpt-6-astra")).toBeTruthy();
-    expect(isSupportedCodexModelId("gpt-6-astra-preview")).toBeFalsy();
-    expect(isSupportedCodexModelId("gpt-6-other")).toBeFalsy();
+  it("admits a newly bundled Pi model only after refresh, preserving its prices and capabilities", async () => {
+    const catalog = createCodexModelCatalog();
+    expect(catalog.supportsModel(futureModel)).toBe(false);
+    const stored = await fetchStoredCatalog();
+    await catalog.refreshModels(
+      refreshContext(
+        async (publication) => {
+          publication.update?.();
+
+          return true;
+        },
+        {
+          ...stored,
+          models: stored.models.map((model) => ({
+            ...model,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            compat: {},
+          })),
+        },
+      ),
+    );
+    expect(catalog.getModels()).toHaveLength(1);
+    expect(catalog.getModels()[0]).toMatchObject({
+      id: futureModel.id,
+      cost: futureModel.cost,
+      compat: futureModel.compat,
+    });
+    expect(catalog.supportsModel(futureModel)).toBe(true);
+    expect(
+      catalog.supportsModel({ ...futureModel, compat: { supportsAdditionalTools: true } }),
+    ).toBe(false);
+    expect(catalog.supportsModel({ ...futureModel, provider: "unrelated" })).toBe(false);
+    expect(catalog.base.filterModels?.(catalog.getModels(), undefined)).toEqual(
+      catalog.getModels(),
+    );
   });
 
-  it("preserves Pi image limits through remote refresh and account-cache restoration", async () => {
-    const fallback = createCodexModelCatalog()
-      .getModels()
-      .find((model) => model.id === "gpt-5.6-sol");
+  it("does not admit unknown names, unsupported Pi capabilities, or unknown tool modes", async () => {
+    const stored = await fetchStoredCatalog([
+      remoteModel,
+      { ...remoteModel, slug: "gpt-5.6-unknown" },
+      { ...remoteModel, slug: "gpt-6-unknown" },
+      { ...remoteModel, slug: "gpt-5.2" },
+      { ...remoteAstra, tool_mode: "future_mode" },
+    ]);
 
-    expect(fallback?.inputLimits?.images?.resize).toBeDefined();
-
-    const stored = await fetchStoredCatalog([{ ...remoteModel, slug: "gpt-5.6-sol" }]);
-    expect(stored.models[0]?.inputLimits).toEqual(fallback?.inputLimits);
-
-    const restored = createCodexModelCatalog();
-    await restored.refreshModels(
+    expect(stored.models.map((model) => model.id)).toEqual([futureModel.id]);
+    const noFutureDefinition = createCatalog();
+    await noFutureDefinition.refreshModels(
       refreshContext(async (publication) => {
         publication.update?.();
 
         return true;
       }, stored),
     );
-    expect(restored.getModels()[0]?.inputLimits).toEqual(fallback?.inputLimits);
-
-    const unknown = await fetchStoredCatalog();
-    expect(unknown.models[0]).not.toHaveProperty("inputLimits");
+    expect(noFutureDefinition.getModels()).toEqual([]);
+    expect(noFutureDefinition.getRejections()).toStrictEqual([
+      `${futureModel.id}: No Pi-bundled definition with required grammar-tool support`,
+    ]);
+    expect(noFutureDefinition.supportsModel(futureModel)).toBe(false);
   });
+
+  it.each(["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])(
+    "preserves Pi capabilities and image limits for %s through refresh and cache restoration",
+    async (id) => {
+      const fallback = createCodexModelCatalog()
+        .getModels()
+        .find((model) => model.id === id);
+
+      const builtin = openaiCodexProvider()
+        .getModels()
+        .find((model) => model.id === id);
+
+      expect(builtin).toBeDefined();
+      expect(fallback?.cost).toEqual(builtin?.cost);
+      expect(fallback?.compat).toEqual(builtin?.compat);
+      expect(fallback?.inputLimits).toEqual(builtin?.inputLimits);
+
+      expect(fallback?.inputLimits?.images?.resize).toBeDefined();
+
+      const stored = await fetchStoredCatalog([{ ...remoteModel, slug: id }]);
+      expect(stored.models[0]?.inputLimits).toEqual(fallback?.inputLimits);
+
+      const restored = createCodexModelCatalog();
+      await restored.refreshModels(
+        refreshContext(async (publication) => {
+          publication.update?.();
+
+          return true;
+        }, stored),
+      );
+      expect(restored.getModels()[0]?.inputLimits).toEqual(fallback?.inputLimits);
+    },
+  );
 
   it("seeds native Astra policy and full Pi capabilities before refresh", () => {
     const catalog = createCodexModelCatalog();
@@ -233,6 +307,88 @@ describe("Codex model catalog", () => {
     });
   });
 
+  it.each([
+    { id: "gpt-6-sol", ultra: true },
+    { id: "gpt-6-luna", ultra: false },
+  ])("projects $id native policy through fallback, refresh and cache", async ({ id, ultra }) => {
+    const fallback = createCodexModelCatalog();
+
+    const expected = {
+      id,
+      codexToolMode: "code_mode_only",
+      codexSupportedTools: ["send_user_message_async", "clock"],
+      multiAgentVersion: "v2",
+      contextWindow: 272_000,
+      maxTokens: 128_000,
+      spawnAgentMetadata: {
+        defaultReasoningEffort: "medium",
+        serviceTiers: ["priority"],
+        showInPicker: true,
+      },
+      thinkingLevelMap: {
+        off: null,
+        minimal: null,
+        low: "low",
+        medium: "medium",
+        high: "high",
+        xhigh: "xhigh",
+        max: "max",
+      },
+    };
+
+    const fallbackModel = fallback.getModels().find((model) => model.id === id);
+    expect(fallbackModel).toMatchObject(expected);
+    expect(fallback.getUltraSettings(fallbackModel)).toEqual(
+      ultra ? { reasoningLevel: "max" } : undefined,
+    );
+    expect(fallback.getModelMetadata(id)).toMatchObject({
+      comp_hash: "3000",
+      default_reasoning_summary: "none",
+      use_responses_lite: true,
+      default_service_tier: "priority",
+    });
+    expect(
+      fallback.base
+        .filterModels?.(fallback.getModels(), undefined)
+        .some((model) => model.id === id),
+    ).toBe(true);
+
+    const stored = await fetchStoredCatalog([
+      {
+        ...remoteAstra,
+        slug: id,
+        default_reasoning_level: "medium",
+        default_service_tier: "priority",
+        minimal_client_version: "0.155.0",
+        multi_agent_reasoning_effort: null,
+        supported_reasoning_levels: [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          ...(ultra ? ["ultra"] : []),
+        ],
+        visibility: "list",
+      },
+    ]);
+
+    expect(stored.models[0]).toMatchObject(expected);
+    const restored = createCodexModelCatalog();
+    await restored.refreshModels(
+      refreshContext(async (publication) => {
+        publication.update?.();
+
+        return true;
+      }, stored),
+    );
+    const [model] = restored.getModels();
+    expect(model).toMatchObject(expected);
+    expect(restored.getUltraSettings(model)).toEqual(ultra ? { reasoningLevel: "max" } : undefined);
+    expect(restored.supportsFastMode(model)).toBe(true);
+    expect(restored.getModelMetadata(id)?.use_responses_lite).toBe(true);
+  });
+
   it("retains hidden native Astra for explicit resolution and restores its metadata from cache", async () => {
     const stored = await fetchStoredCatalog([remoteAstra]);
     const catalog = createCodexModelCatalog();
@@ -263,11 +419,12 @@ describe("Codex model catalog", () => {
     expect(catalog.supportsFastMode(astra)).toBeTruthy();
   });
 
-  it("lets remote Astra policy override fallback and ignores unsupported effort and tool-mode selectors", async () => {
+  it("lets remote Astra policy override fallback and ignores unsupported optional reasoning efforts", async () => {
     const stored = await fetchStoredCatalog([
       {
         ...remoteAstra,
         comp_hash: "next",
+        tool_mode: null,
         context_window: 300_000,
         multi_agent_reasoning_effort: "future_effort",
         service_tiers: [],
@@ -276,7 +433,6 @@ describe("Codex model catalog", () => {
           { effort: "future_effort" },
           { effort: "ultra" },
         ],
-        tool_mode: "future_mode",
         use_responses_lite: false,
         visibility: "list",
       },
@@ -327,16 +483,82 @@ describe("Codex model catalog", () => {
     expect(catalog.supportsFastMode(sol)).toBeFalsy();
   });
 
-  it("rejects empty remote catalogs without replacing the current catalog", async () => {
+  it.each([{ models: [] }, { models: [{ ...remoteAstra, tool_mode: "future_mode" }] }])(
+    "keeps live authoritative absence without resurrecting offline profiles (%j)",
+    async ({ models }) => {
+      const catalog = createCodexModelCatalog();
+      const astra = catalog.getModels().find((model) => model.id === remoteAstra.slug);
+      vi.stubGlobal("fetch", async () =>
+        Response.json({ models }, { headers: { etag: '"empty-catalog"' } }),
+      );
+      let stored: StoredModels | undefined;
+
+      const publish: RefreshModelsContext["publish"] = async (publication) => {
+        if (publication.persist != null) stored = publication.persist;
+        publication.update?.();
+
+        return true;
+      };
+
+      await catalog.refreshModels(refreshContext(publish));
+      expect(stored?.models).toStrictEqual([]);
+      expect(catalog.getModels()).toStrictEqual([]);
+      expect(catalog.supportsModel(astra)).toBe(false);
+      expect(catalog.supportsFastMode(astra)).toBe(false);
+
+      // Repeated offline refresh must not overwrite an already account-bound live result.
+      await catalog.refreshModels({ ...refreshContext(publish, stored), allowNetwork: false });
+      expect(catalog.getModels()).toStrictEqual([]);
+
+      const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(new Headers(init?.headers).has("if-none-match")).toBe(false);
+
+        return Response.json({ models: [remoteModel] });
+      });
+
+      vi.stubGlobal("fetch", fetch);
+      await catalog.refreshModels({
+        ...refreshContext(publish, stored),
+        allowNetwork: true,
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(catalog.getModels().map((model) => model.id)).toStrictEqual([futureModel.id]);
+    },
+  );
+
+  it.each([
+    { account: "same", key: SPIKE_API_KEY },
+    { account: "different", key: makeCodexApiKey("different-account") },
+  ])("ignores an empty persisted cache under the $account account", async ({ key }) => {
+    const stored = { ...(await fetchStoredCatalog([])), etag: '"old-account"' };
     const catalog = createCodexModelCatalog();
-    const previous = catalog.getModels();
-    vi.stubGlobal("fetch", async () => Response.json({ models: [] }));
-    const publish = vi.fn<RefreshModelsContext["publish"]>();
-    await expect(catalog.refreshModels(refreshContext(publish))).rejects.toThrow(
-      "Codex model response contains no usable models",
+    const fallbackIds = catalog.getModels().map((model) => model.id);
+    expect(fallbackIds.length).toBeGreaterThan(0);
+
+    const context = {
+      ...refreshContext(async (publication) => {
+        publication.update?.();
+
+        return true;
+      }, stored),
+      credential: { type: "api_key", key } as const,
+    };
+
+    await catalog.refreshModels(context);
+    expect(catalog.getModels().map((model) => model.id)).toStrictEqual(fallbackIds);
+
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(new Headers(init?.headers).has("if-none-match")).toBe(false);
+
+      return new Response(null, { status: 503 });
+    });
+
+    vi.stubGlobal("fetch", fetch);
+    await expect(catalog.refreshModels({ ...context, allowNetwork: true })).rejects.toThrow(
+      "Codex model refresh failed (503)",
     );
-    expect(catalog.getModels()).toBe(previous);
-    expect(publish).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(catalog.getModels().map((model) => model.id)).toStrictEqual(fallbackIds);
   });
 
   it.each([undefined, null, false, true, "true", 1])(
@@ -355,7 +577,6 @@ describe("Codex model catalog", () => {
         multi_agent_version: "future_version",
         service_tiers: [null, { id: "future_tier", future_field: true }],
         supported_reasoning_levels: [null, "future_effort", { effort: "future_effort", rank: 1 }],
-        tool_mode: "future_mode",
         use_responses_lite: useResponsesLite,
       };
 
@@ -365,7 +586,6 @@ describe("Codex model catalog", () => {
         auto_compact_token_limit: _auto,
         context_window: _context,
         max_context_window: _max,
-        tool_mode: _mode,
         ...preservedMetadata
       } = nativeMetadata;
 
@@ -413,32 +633,79 @@ describe("Codex model catalog", () => {
     });
   });
 
+  it.each([null, { models: {} }])(
+    "rejects malformed envelopes without publication: %j",
+    async (payload) => {
+      const catalog = createCodexModelCatalog();
+      vi.stubGlobal("fetch", async () => Response.json(payload));
+      const publish = vi.fn<RefreshModelsContext["publish"]>();
+      await expect(catalog.refreshModels(refreshContext(publish))).rejects.toThrow(
+        "Codex model response is malformed",
+      );
+      expect(publish).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     ...[null, "request_user_input_async", [42]].map((value) => ({
-      payload: { models: [{ ...remoteModel, experimental_supported_tools: value }] },
+      entry: { ...remoteModel, experimental_supported_tools: value },
       message: "Codex model experimental tools are invalid",
     })),
-    { payload: null, message: "Codex model response is malformed" },
-    { payload: { models: {} }, message: "Codex model response is malformed" },
-    { payload: { models: [null] }, message: "Codex model metadata must be an object" },
-    { payload: { models: [[]] }, message: "Codex model metadata must be an object" },
-    ...["display_name", "slug", "visibility"].flatMap((field) => [
-      {
-        payload: { models: [{ ...remoteModel, [field]: 1 }] },
-        message: "Codex model metadata must be an object",
-      },
+    ...[null, [], ...[1, undefined, ""].map((slug) => ({ ...remoteModel, slug }))].map((entry) => ({
+      entry,
+      message: "invalid or missing model slug",
+    })),
+    ...["display_name", "visibility"].flatMap((field) => [
+      { entry: { ...remoteModel, [field]: 1 }, message: "Codex model metadata fields are invalid" },
       ...[undefined, ""].map((value) => ({
-        payload: { models: [{ ...remoteModel, [field]: value }] },
+        entry: { ...remoteModel, [field]: value },
         message: `Codex model metadata ${field} is invalid`,
       })),
     ]),
-  ])("preserves entry-boundary errors: $message ($payload)", async ({ payload, message }) => {
+  ])("rejects only invalid entries: $message ($entry)", async ({ entry, message }) => {
     const catalog = createCodexModelCatalog();
-    vi.stubGlobal("fetch", async () => Response.json(payload));
-    const publish = vi.fn<RefreshModelsContext["publish"]>();
-    const refreshing = catalog.refreshModels(refreshContext(publish));
-    await expect(refreshing).rejects.toMatchObject({ message, name: "Error" });
-    expect(publish).not.toHaveBeenCalled();
+    vi.stubGlobal("fetch", async () => Response.json({ models: [entry, remoteAstra] }));
+    await catalog.refreshModels(
+      refreshContext(async (publication) => {
+        publication.update?.();
+
+        return true;
+      }),
+    );
+    expect(catalog.getModels().map((model) => model.id)).toStrictEqual([remoteAstra.slug]);
+    expect(catalog.getRejections()).toHaveLength(1);
+    expect(catalog.getRejections()[0]).toContain(message);
+  });
+
+  it("diagnoses unbundled IDs before parsing metadata and atomically publishes the valid subset", async () => {
+    const catalog = createCodexModelCatalog();
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        models: [
+          { slug: "unknown-model", visibility: 42, experimental_supported_tools: false },
+          { ...remoteAstra, tool_mode: "future-required-mode" },
+          remoteModel,
+        ],
+      }),
+    );
+
+    const publish = vi.fn<RefreshModelsContext["publish"]>(async (publication) => {
+      expect(catalog.getModels().some((model) => model.id === remoteModel.slug)).toBe(false);
+      expect(publication.persist?.models.map((model) => model.id)).toStrictEqual([
+        remoteModel.slug,
+      ]);
+      publication.update?.();
+
+      return true;
+    });
+
+    await catalog.refreshModels(refreshContext(publish));
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(catalog.getModels().map((model) => model.id)).toStrictEqual([remoteModel.slug]);
+    expect(catalog.getRejections()).toStrictEqual([
+      "unknown-model: No Pi-bundled definition with required grammar-tool support",
+      `${remoteAstra.slug}: Unsupported visibility or required tool mode`,
+    ]);
   });
 
   it.each([
@@ -447,44 +714,42 @@ describe("Codex model catalog", () => {
         field,
         value,
         message: `Codex model metadata ${field} is invalid`,
-        name: "Error",
       })),
     ),
     ...[0, 101, 1.5].map((value) => ({
       field: "effective_context_window_percent",
       value,
       message: "Codex model effective context percentage is invalid",
-      name: "Error",
     })),
     ...[1.5, Number.MAX_SAFE_INTEGER + 1].map((value) => ({
       field: "priority",
       value,
       message: "Codex model metadata capabilities are invalid",
-      name: "TypeError",
     })),
     ...[-1, 1.5, Number.MAX_SAFE_INTEGER + 1].map((limit) => ({
       field: "truncation_policy",
       value: { mode: "tokens", limit },
       message: "Codex model truncation policy is invalid",
-      name: "Error",
     })),
     {
       field: "truncation_policy",
       value: { mode: "future_mode", limit: 0 },
       message: "Codex model truncation policy is invalid",
-      name: "Error",
     },
-  ])("preserves numeric validation for $field=$value", async ({ field, value, message, name }) => {
+  ])("preserves numeric validation for $field=$value", async ({ field, value, message }) => {
     const catalog = createCodexModelCatalog();
     vi.stubGlobal("fetch", async () =>
       Response.json({ models: [{ ...remoteModel, [field]: value }] }),
     );
-    const publish = vi.fn<RefreshModelsContext["publish"]>();
-    await expect(catalog.refreshModels(refreshContext(publish))).rejects.toMatchObject({
-      message,
-      name,
-    });
-    expect(publish).not.toHaveBeenCalled();
+    await catalog.refreshModels(
+      refreshContext(async (publication) => {
+        publication.update?.();
+
+        return true;
+      }),
+    );
+    expect(catalog.getModels()).toStrictEqual([]);
+    expect(catalog.getRejections()).toStrictEqual([`${remoteModel.slug}: ${message}`]);
   });
 
   it.each([0, Number.MAX_SAFE_INTEGER])("accepts safe integer limits of %s", async (limit) => {
@@ -508,23 +773,57 @@ describe("Codex model catalog", () => {
       Response.json({ models: [{ ...remoteModel, [field]: "false" }] }),
     );
 
-    await expect(
-      catalog.refreshModels(
-        refreshContext(async (publication) => {
-          publication.update?.();
+    await catalog.refreshModels(
+      refreshContext(async (publication) => {
+        publication.update?.();
 
-          return true;
-        }),
-      ),
-    ).rejects.toMatchObject({
-      message: "Codex model metadata capabilities are invalid",
-      name: "TypeError",
-    });
-    expect(catalog.getModels().some((model) => model.id === remoteModel.slug)).toBeFalsy();
+        return true;
+      }),
+    );
+    expect(catalog.getModels()).toStrictEqual([]);
+    expect(catalog.getRejections()).toStrictEqual([
+      `${remoteModel.slug}: Codex model metadata capabilities are invalid`,
+    ]);
   });
 
+  it.each(["metadata identity", "duplicate identity", "mixed accounts"])(
+    "discards the whole cache on broken %s",
+    async (corruption) => {
+      const stored = await fetchStoredCatalog([remoteModel, remoteAstra]);
+
+      const models =
+        corruption === "duplicate identity"
+          ? [...stored.models, ...stored.models]
+          : stored.models.map((model) =>
+              model.id !== remoteAstra.slug
+                ? model
+                : {
+                    ...model,
+                    ...(corruption === "mixed accounts"
+                      ? { codexProviderAccountId: "another-account" }
+                      : { codexProviderMetadata: { ...remoteAstra, slug: remoteModel.slug } }),
+                  },
+            );
+
+      const catalog = createCodexModelCatalog();
+      const offlineIds = catalog.getModels().map((model) => model.id);
+      await catalog.refreshModels(
+        refreshContext(
+          async (publication) => {
+            publication.update?.();
+
+            return true;
+          },
+          { ...stored, models },
+        ),
+      );
+      expect(catalog.getModels().map((model) => model.id)).toStrictEqual(offlineIds);
+      expect(catalog.supportsModel(futureModel)).toBe(false);
+    },
+  );
+
   it.each(CAPABILITY_FIELDS)("rejects non-boolean cached %s metadata", async (field) => {
-    const stored = await fetchStoredCatalog();
+    const stored = await fetchStoredCatalog([remoteModel, remoteAstra]);
 
     const models = stored.models.map((model) => {
       if (model.id !== remoteModel.slug || !("codexProviderMetadata" in model)) {
@@ -553,6 +852,9 @@ describe("Codex model catalog", () => {
       ),
     );
 
-    expect(catalog.getModels().some((model) => model.id === remoteModel.slug)).toBeFalsy();
+    expect(catalog.getModels().map((model) => model.id)).toStrictEqual([remoteAstra.slug]);
+    expect(catalog.getRejections()).toStrictEqual([
+      `${remoteModel.slug}: Codex model metadata capabilities are invalid`,
+    ]);
   });
 });

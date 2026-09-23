@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createAssistantMessageEventStream, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { createCodexModelCatalog } from "../model-catalog.js";
 import { registerCodexTools } from "../tools/register.js";
 import { createToolsModel } from "../tests/fixtures.js";
 import { collectContributions, ContributedTools } from "@clanker-stuff/code-mode-tools";
@@ -19,6 +20,7 @@ import { toNestedTool } from "../code-mode/tools.js";
 import type { ToolExecutionContext } from "../code-mode/types.js";
 import { createRealCodexSession } from "../tests/agent-session.js";
 import { createCodexDirectTools } from "../tools/direct.js";
+import { withExecutionSettings } from "../tools/execution-context.js";
 
 // Exercise the downloaded binary and real adapter without inference or installed credentials.
 const binary = await ensureCodeModeHostBinary(AbortSignal.timeout(120_000));
@@ -77,7 +79,7 @@ try {
             tools.push(...source.tools.map((tool) => toNestedTool(tool)));
           context.resolve(ctx);
         });
-        registerCodexTools(pi, undefined, "code_mode_only");
+        registerCodexTools(pi, createCodexModelCatalog(), { evaluationToolMode: "code_mode_only" });
       },
     ],
     rootDir,
@@ -128,6 +130,77 @@ try {
   assert.equal(probe.kind, "result");
   assert(!("errorText" in probe) || probe.errorText === undefined);
   assert(probe.contentItems.some((item) => item.text?.includes('"verified":true')));
+
+  // 0.156.1 owns delegates per execution. Interleaved cells must retain their
+  // original tools/settings across yields, even when wait supplies another model.
+  const probes = ["gpt-6-sol", "gpt-6-luna"].map((id) => ({
+    id,
+    release: Promise.withResolvers<void>(),
+  }));
+
+  const cells = [];
+
+  try {
+    for (const { id, release } of probes) {
+      const entered = Promise.withResolvers<void>();
+      const signal = AbortSignal.timeout(15_000);
+      signal.addEventListener("abort", () => entered.reject(signal.reason), { once: true });
+
+      const cellProbe = toNestedTool({
+        definition: {
+          name: "cell_probe",
+          label: "Cell probe",
+          description: "Report the originating cell's settings",
+          parameters: Type.Object({}),
+          execute: async (_callId, _args, _signal, _onUpdate, executionContext) => ({
+            content: [{ type: "text", text: `${id}:${executionContext.model?.id}` }],
+            details: undefined,
+          }),
+        },
+      });
+
+      const gate = toNestedTool({
+        definition: {
+          name: "cell_gate",
+          label: "Cell gate",
+          description: "Hold the cell across another execution",
+          parameters: Type.Object({}),
+          execute: async () => {
+            entered.resolve();
+            await release.promise;
+
+            return { content: [], details: undefined };
+          },
+        },
+      });
+
+      const cell = await client.execute(
+        '// @exec: {"yield_time_ms":0}\nawait tools.cell_gate({}); text(await tools.cell_probe({}));',
+        {
+          extensionContext: withExecutionSettings(ctx.extensionContext, {
+            model: createToolsModel(id, true),
+            thinkingLevel: "medium",
+          }),
+        },
+        signal,
+        [gate, cellProbe],
+      );
+
+      assert.equal(cell.kind, "yielded");
+      await entered.promise;
+      cells.push({ id, cell, release, signal });
+    }
+
+    for (const { id, cell, release, signal } of cells.toReversed()) {
+      release.resolve();
+      const result = await client.wait(cell.cellId, 1000, ctx, signal);
+      assert.equal(result.kind, "result");
+      assert(!("errorText" in result) || result.errorText === undefined);
+      assert(result.contentItems.some((item) => item.text?.includes(`${id}:${id}`)));
+    }
+  } finally {
+    for (const { release } of probes) release.resolve();
+  }
 
   const slowStarted = Promise.withResolvers<void>();
 
@@ -355,7 +428,7 @@ try {
   }
 
   console.log(
-    `PASS ${HOST_RELEASE} (${process.platform}-${process.arch}): execution, nested tools, errors, wait, termination, observer rejection/cancellation, persisted accounting\n${binary}`,
+    `PASS ${HOST_RELEASE} (${process.platform}-${process.arch}): execution, nested tools, errors, wait, termination, interleaved cell settings, observer rejection/cancellation, persisted accounting\n${binary}`,
   );
 } finally {
   await client.shutdown();

@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { getEncoding } from "js-tiktoken";
 import type { SamplingStatus } from "@clanker-stuff/mcp/sampling-protocol";
 import { Type, type Static } from "typebox";
@@ -44,7 +44,7 @@ export class CodexSamplingBound {
   private verifiedLength = 0;
 
   constructor(
-    readonly model: Model<string>,
+    readonly model: Model<Api>,
     maxTokens: number,
   ) {
     if (
@@ -52,7 +52,9 @@ export class CodexSamplingBound {
       model.api !== "openai-codex-responses" ||
       !model.id.startsWith("gpt-5")
     ) {
-      throw new Error(`No verified sampling output tokenizer for ${model.provider}/${model.id}`);
+      throw new Error(
+        `No verified sampling output tokenizer for ${model.provider}/${model.id}; ordinary inference support does not imply token-bounded sampling support`,
+      );
     }
 
     if (

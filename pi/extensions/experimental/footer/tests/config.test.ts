@@ -1,7 +1,17 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_CONFIG } from "@clanker-stuff/footer-protocol/config";
@@ -30,6 +40,76 @@ describe("footer config store", () => {
 
     await store.save(DEFAULT_CONFIG);
     expect(JSON.parse(await readFile(configPath, "utf-8"))).toStrictEqual(DEFAULT_CONFIG);
+  });
+
+  it("saves through a symlinked config without replacing the link", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "footer-config-"));
+    const targetPath = path.join(directory, "managed", "footer.json");
+    const linkPath = path.join(directory, "footer.json");
+    await mkdir(path.dirname(targetPath));
+    await writeFile(targetPath, "{}\n");
+    await symlink(targetPath, linkPath);
+
+    await createFooterConfigStore(linkPath).save(DEFAULT_CONFIG);
+
+    expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(await readFile(targetPath, "utf-8"))).toStrictEqual(DEFAULT_CONFIG);
+  });
+
+  it("relies on Pi serializing existing symlink and target aliases in one mutation queue", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "footer-config-"));
+    const targetPath = path.join(directory, "target.json");
+    const linkPath = path.join(directory, "footer.json");
+    await writeFile(targetPath, "{}");
+    await symlink(targetPath, linkPath);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const order: string[] = [];
+
+    const target = withFileMutationQueue(targetPath, async () => {
+      entered.resolve();
+      await release.promise;
+      order.push("target");
+    });
+
+    await entered.promise;
+
+    const alias = withFileMutationQueue(linkPath, async () => {
+      order.push("alias");
+    });
+
+    try {
+      // Pi registers queue keys in order; an unrelated queue is a deterministic barrier.
+      await withFileMutationQueue(path.join(directory, "unrelated"), async () => {
+        expect(order).toStrictEqual([]);
+      });
+    } finally {
+      release.resolve();
+      await Promise.all([target, alias]);
+    }
+
+    expect(order).toStrictEqual(["target", "alias"]);
+  });
+
+  it("creates a missing config and its parent directory", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "footer-config-"));
+    const configPath = path.join(directory, "new", "footer.json");
+    await createFooterConfigStore(configPath).save(DEFAULT_CONFIG);
+    expect(JSON.parse(await readFile(configPath, "utf-8"))).toStrictEqual(DEFAULT_CONFIG);
+  });
+
+  it("rejects a dangling relative symlink without replacing it or creating its target", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "footer-config-"));
+    const linkPath = path.join(directory, "footer.json");
+    const destination = "missing/footer.json";
+    await symlink(destination, linkPath);
+
+    await expect(createFooterConfigStore(linkPath).save(DEFAULT_CONFIG)).rejects.toThrow(
+      "dangling symlink",
+    );
+    expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
+    expect(await readlink(linkPath)).toBe(destination);
+    await expect(lstat(path.join(directory, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("uses an absolute mutation-queue key", () => {

@@ -22,7 +22,7 @@ import { toGeneratedToolName } from "../../../mcp/bridge.js";
 import { fixtureServer, setupMcpTest } from "../../../mcp/tests/helpers.js";
 import { toNestedTool } from "../code-mode/tools.js";
 import backgroundTasks from "../../background-tasks/index.js";
-import { registerCodexTools } from "../tools/register.js";
+import { registerFallbackCodexTools } from "./tool-fixtures.js";
 
 it("publishes dynamic contributed schemas to the next model request in the same turn", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "codex-contributions-"));
@@ -52,7 +52,7 @@ it("publishes dynamic contributed schemas to the next model request in the same 
             return { content: [], details: undefined };
           },
         });
-        registerCodexTools(pi, undefined, "code_mode_only");
+        registerFallbackCodexTools(pi, { evaluationToolMode: "code_mode_only" });
       },
     ],
   });
@@ -119,7 +119,7 @@ it.each(["exclude", "allowlist"] as const)(
         : { tools: ["exec", "wait", "task_list", allowed] }),
       extensionFactories: [
         (pi) => {
-          registerCodexTools(pi, undefined, "code_mode_only");
+          registerFallbackCodexTools(pi, { evaluationToolMode: "code_mode_only" });
           backgroundTasks(pi);
           source = new ContributedTools(pi);
           pi.events.on(CONTRIBUTIONS_PUBLISH, () => {
@@ -204,7 +204,7 @@ describe("restricted MCP discovery", () => {
             pi.appendEntry("mcp-server-loaded", { serverName: "mcp-manager" });
           });
           mcp(pi);
-          registerCodexTools(pi, undefined, "code_mode_only");
+          registerFallbackCodexTools(pi, { evaluationToolMode: "code_mode_only" });
           inventories = () => collectContributions(pi);
         },
       ],

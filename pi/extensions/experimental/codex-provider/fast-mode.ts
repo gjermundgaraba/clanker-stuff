@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import path from "node:path";
 
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
@@ -90,7 +90,7 @@ export const createFastModeState = (
 
   const refresh = (
     ctx: ExtensionContext,
-    supportsFastMode: (model: Model<string> | undefined) => boolean,
+    supportsFastMode: (model: Model<Api> | undefined) => boolean,
   ): void => {
     const active = current() && supportsFastMode(ctx.model);
     ctx.ui.setStatus(FAST_MODE_STATUS_KEY, active ? "⚡" : undefined);

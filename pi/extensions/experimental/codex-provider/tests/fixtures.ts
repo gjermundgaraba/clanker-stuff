@@ -1,3 +1,4 @@
+import { openaiCodexProvider } from "#pi-openai-codex";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionUIContext, SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -117,7 +118,8 @@ export const SPIKE_MODEL = {
     input: 0,
     output: 0,
   },
-  id: "gpt-5.6-phase-zero",
+  compat: { supportsOpenAIGrammarTools: true, supportsAdditionalTools: true },
+  id: "gpt-5.6-terra",
   input: ["text"],
   maxTokens: 16_384,
   name: "Phase Zero Codex",
@@ -131,8 +133,15 @@ export const createToolsModel = (
   overrides: { api?: Api; provider?: string } = {},
 ): Model<Api> => ({
   ...SPIKE_MODEL,
-  ...(grammar ? { compat: { supportsOpenAIGrammarTools: true } } : {}),
+  compat: { supportsOpenAIGrammarTools: grammar, supportsAdditionalTools: true },
   id,
   name: id,
   ...overrides,
 });
+
+// A Pi catalog dependency with future definitions, not remote authority inventing base fields.
+export const builtinWithModels = (...models: Model<"openai-codex-responses">[]) => {
+  const builtin = openaiCodexProvider();
+
+  return { ...builtin, getModels: () => [...builtin.getModels(), ...models] };
+};

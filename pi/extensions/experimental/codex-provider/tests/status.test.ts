@@ -343,3 +343,15 @@ describe("Codex provider status", () => {
     expect(report).not.toContain("CARRIER_SECRET");
   });
 });
+
+it("shows catalog entry rejection reasons in provider diagnostics", () => {
+  expect(
+    formatCodexProviderStatus({
+      ...EMPTY_OBSERVABILITY,
+      branch: [],
+      entries: [],
+      sessionId: "session",
+      catalogRejections: ["gpt-6-astra: Unsupported visibility or required tool mode"],
+    }),
+  ).toContain("Rejected catalog entry: gpt-6-astra: Unsupported visibility or required tool mode");
+});

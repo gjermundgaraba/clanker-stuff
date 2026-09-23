@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -64,15 +64,31 @@ export const createFooterConfigStore = (configPath = getFooterConfigPath()): Foo
     async save(config) {
       const validated = parseFooterConfig(config);
       await withFileMutationQueue(targetPath, async () => {
-        await mkdir(path.dirname(targetPath), { recursive: true });
-        const temporary = `${targetPath}.tmp-${process.pid}-${randomUUID()}`;
+        // Replace the symlink's target, not the link, so a dotfiles-managed config stays linked.
+        const writePath = await realpath(targetPath).catch(async (error: unknown) => {
+          if (errorCode(error) !== "ENOENT") throw error;
+
+          const entry = await lstat(targetPath).catch((cause: unknown) => {
+            if (errorCode(cause) === "ENOENT") return undefined;
+            throw cause;
+          });
+
+          if (entry?.isSymbolicLink()) {
+            throw new Error(`Cannot save footer config through dangling symlink: ${targetPath}`);
+          }
+
+          return targetPath;
+        });
+
+        await mkdir(path.dirname(writePath), { recursive: true });
+        const temporary = `${writePath}.tmp-${process.pid}-${randomUUID()}`;
 
         try {
           await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
             encoding: "utf-8",
             mode: 0o600,
           });
-          await rename(temporary, targetPath);
+          await rename(temporary, writePath);
         } finally {
           await rm(temporary, { force: true });
         }

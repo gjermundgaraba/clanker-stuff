@@ -1,6 +1,6 @@
 // Asset names and SHA-256 digests from the official OpenAI Codex release API.
 // Keep current using docs/codex-baseline.md#code-mode-host-upkeep.
-export const HOST_RELEASE = "rust-v0.155.0";
+export const HOST_RELEASE = "rust-v0.156.1";
 
 interface HostAssetIndex {
   [key: string]: readonly [string, string] | undefined;
@@ -9,27 +9,27 @@ interface HostAssetIndex {
 export const HOST_ASSETS: HostAssetIndex = {
   "darwin-arm64": [
     "codex-code-mode-host-aarch64-apple-darwin.tar.gz",
-    "3d751deef91b4526f086029c9395feb872abf7a717e45752ad1b33dcb387fa6b",
+    "2625d023e2b6e03d2bcc437a3e0e0831c25d3c722d2854638a8e74921ff79bd9",
   ],
   "darwin-x64": [
     "codex-code-mode-host-x86_64-apple-darwin.tar.gz",
-    "285d1c6fdacf9b500fe041c0a98b06cf58eb7ea35549554bcb2a0c04866ef49d",
+    "fc968d9e7212d7fbb1e1546d2836f3b07c5f388109c05b8428c1f3f3091d7209",
   ],
   "linux-arm64": [
     "codex-code-mode-host-aarch64-unknown-linux-musl.tar.gz",
-    "0ecd8e263468b520770c6dc6c9ebafeba3052c0c9796eabc5b0c469f77d5489b",
+    "40198138b03798ffa8c0da4c827a8ca5896774ea104b7110c2a2c0c7560cbe94",
   ],
   "linux-x64": [
     "codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz",
-    "328c1bebe09fc727053794576efea353d3b18381ee8883f5283b37ae4a7854d4",
+    "a929daa9f6a0bddc00c0c9e6402df117b125acd96f9d554f6c99c32c7e66c608",
   ],
   "win32-arm64": [
     "codex-code-mode-host-aarch64-pc-windows-msvc.exe",
-    "600cd4465b0508e3731235cd1b00b06f67512fde7f4376a2331aae431927c097",
+    "1aac957f7973fbb75885fdb3779584769f060b954e3fabc2aea15fd7a382fbae",
   ],
   "win32-x64": [
     "codex-code-mode-host-x86_64-pc-windows-msvc.exe",
-    "1d0569ec6390b4f446ecc7cd66ec7e5103648d55e065d45dbca19120d0bbd056",
+    "0f83a73dc6d511d43bd3e52cc0a999cb383c19c645ef3fbd8fbdaddde3088138",
   ],
 } as const;
 

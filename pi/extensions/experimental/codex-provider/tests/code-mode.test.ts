@@ -22,7 +22,7 @@ import {
 } from "../code-mode/protocol.js";
 import { CodeModeRuntime, toNestedTool, toPiContent } from "../code-mode/tools.js";
 import { sanitizeTraceInput } from "../code-mode/trace-values.js";
-import { registerCodexTools } from "../tools/register.js";
+import { registerFallbackCodexTools } from "./tool-fixtures.js";
 import { createToolsModel, wireRecord } from "./fixtures.js";
 import type { WireRecord } from "./fixtures.js";
 
@@ -406,7 +406,7 @@ describe("Codex code mode", () => {
 
   it("adds nested tool instructions only with Code Mode", async () => {
     const model = createToolsModel("gpt-5.6-luna", true);
-    const host = createExtensionHost(registerCodexTools, { model });
+    const host = createExtensionHost(registerFallbackCodexTools, { model });
     const ctx = host.createContext({ model });
     await host.emitSessionStart(ctx);
     await host.runCommand("code-mode", "", ctx);

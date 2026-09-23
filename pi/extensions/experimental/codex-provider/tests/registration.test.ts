@@ -7,6 +7,7 @@ import { SPIKE_MODEL } from "./fixtures.js";
 
 const OTHER_MODEL = {
   ...SPIKE_MODEL,
+  compat: {},
   api: "anthropic-messages",
   id: "claude-test",
   name: "Claude Test",

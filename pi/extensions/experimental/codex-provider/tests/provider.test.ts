@@ -12,6 +12,9 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
+import { registerCodexTools } from "../tools/register.js";
+
 import { codexContractFixture } from "../../subagents/docs/fixtures/codex-contract.generated.js";
 import { REMOTE_USER_IMAGE_PLACEHOLDER } from "../checkpoint.js";
 import { CodeModeRuntime } from "../code-mode/tools.js";
@@ -24,6 +27,7 @@ import {
 } from "../provider.js";
 import {
   responseEvents,
+  builtinWithModels,
   SPIKE_API_KEY,
   SPIKE_MODEL,
   sse,
@@ -129,7 +133,16 @@ const defaultObservability = new CodexObservability(":memory:");
 const createCodexProviderRuntime = (
   observability = defaultObservability,
   isFastModeEnabled: () => boolean = () => false,
-) => createProviderRuntime(observability, isFastModeEnabled);
+) => createProviderRuntime(observability, isFastModeEnabled, createTestCatalog());
+
+const createTestCatalog = () =>
+  createCodexModelCatalog(
+    undefined,
+    builtinWithModels({
+      ...SPIKE_MODEL,
+      id: "gpt-5.6-remote",
+    }),
+  );
 
 const expectedFallbackMultiAgentVersions = codexContractFixture.catalog.declarations;
 
@@ -329,10 +342,10 @@ const REMOTE_CATALOG = {
       visibility: "list",
     },
     {
-      display_name: "Terra",
+      display_name: "Luna 6",
       multi_agent_version: "v3",
       priority: 4,
-      slug: "gpt-5.6-terra",
+      slug: "gpt-6-luna",
       support_verbosity: true,
       supported_in_api: true,
       supports_parallel_tool_calls: true,
@@ -348,9 +361,9 @@ const REMOTE_CATALOG = {
       visibility: "list",
     },
     {
-      display_name: "Unsupported GPT-5.5",
+      display_name: "Unsupported GPT-5.2",
       priority: 6,
-      slug: "gpt-5.5",
+      slug: "gpt-5.2",
       support_verbosity: true,
       supported_in_api: true,
       supports_parallel_tool_calls: true,
@@ -364,7 +377,7 @@ interface RemoteCatalogPayload {
 }
 
 const fetchRemoteCatalog = async (remoteCatalog: RemoteCatalogPayload = REMOTE_CATALOG) => {
-  const catalog = createCodexModelCatalog();
+  const catalog = createTestCatalog();
   const runtime = createProviderRuntime(defaultObservability, () => false, catalog);
   const requests: Request[] = [];
   const state: FetchCatalogState = {};
@@ -491,7 +504,14 @@ describe("Codex provider", () => {
       ),
     }).toStrictEqual({
       filtered: [SPIKE_MODEL.id],
-      listed: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+      listed: [
+        "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+      ],
       versions: expectedFallbackMultiAgentVersions,
     });
     expect(message).toMatchObject({
@@ -501,19 +521,25 @@ describe("Codex provider", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { fast: false, inputTokens: 8, expectedCost: 0.00018 },
-    { fast: true, inputTokens: 8, expectedCost: 0.00036 },
-    { fast: false, inputTokens: 272_001, expectedCost: 5.44017 },
-    { fast: true, inputTokens: 272_001, expectedCost: 10.88034 },
-  ])(
-    "sends Astra Lite requests and prices $inputTokens input tokens with Fast=$fast",
-    async ({ fast, inputTokens, expectedCost }) => {
+  it.each(
+    [
+      { fast: false, inputTokens: 8, expectedCost: 0.00018 },
+      { fast: true, inputTokens: 8, expectedCost: 0.00036 },
+      { fast: false, inputTokens: 272_001, expectedCost: 5.44017 },
+      { fast: true, inputTokens: 272_001, expectedCost: 10.88034 },
+    ].flatMap((row) => [
+      { ...row, id: "gpt-6-astra", effort: "low", expectedCost: row.expectedCost },
+      { ...row, id: "gpt-6-sol", effort: "medium", expectedCost: row.expectedCost / 5 },
+      { ...row, id: "gpt-6-luna", effort: "medium", expectedCost: row.expectedCost / 100 },
+    ]),
+  )(
+    "sends $id Lite requests and prices $inputTokens input tokens with Fast=$fast",
+    async ({ id, effort, fast, inputTokens, expectedCost }) => {
       const runtime = createCodexProviderRuntime(defaultObservability, () => fast);
-      const model = runtime.provider.getModels().find(({ id }) => id === "gpt-6-astra");
+      const model = runtime.provider.getModels().find((model) => model.id === id);
 
       if (model === undefined) {
-        throw new Error("Astra fallback model is missing");
+        throw new Error(`Missing fallback model: ${id}`);
       }
 
       let request: RequestInit | undefined;
@@ -551,7 +577,7 @@ describe("Codex provider", () => {
       expect(message.stopReason).toBe("stop");
       const body = readBody(request?.body);
       expect(body).toMatchObject({
-        model: "gpt-6-astra",
+        model: id,
         instructions: "",
         input: [
           {
@@ -563,7 +589,7 @@ describe("Codex provider", () => {
           },
           { role: "developer", type: "message" },
         ],
-        reasoning: { context: "all_turns", effort: "low" },
+        reasoning: { context: "all_turns", effort },
       });
       expect(body.tools).toBeUndefined();
       expect(wireRecord(body.reasoning).summary).toBeUndefined();
@@ -1067,7 +1093,7 @@ describe("Codex provider", () => {
     const dynamicContext = context(
       [
         {
-          ...fauxAssistantMessage(fauxToolCall("exec", {}, { id: toolCallId }), {
+          ...fauxAssistantMessage(fauxToolCall("exec", { code: "1 + 1" }, { id: toolCallId }), {
             stopReason: "toolUse",
             timestamp: 1,
           }),
@@ -1091,14 +1117,20 @@ describe("Codex provider", () => {
     const [additionalTools, toolSearchOnly] = await Promise.all(
       [
         {
+          supportsOpenAIGrammarTools: true,
           supportsAdditionalTools: true,
           supportsMidConvoSystemMessages: true,
           supportsToolSearch: true,
         },
-        { supportsMidConvoSystemMessages: true, supportsToolSearch: true },
+        {
+          supportsOpenAIGrammarTools: true,
+          supportsMidConvoSystemMessages: true,
+          supportsToolSearch: true,
+        },
       ].map(async (compat, index) => {
         let body: RequestInit["body"];
-        await createCodexProviderRuntime()
+
+        const message = await createCodexProviderRuntime()
           .provider.streamSimple({ ...SPIKE_MODEL, compat }, dynamicContext, {
             apiKey: SPIKE_API_KEY,
             fetch: async (_input, init) => {
@@ -1111,22 +1143,24 @@ describe("Codex provider", () => {
           })
           .result();
 
+        expect(message.errorMessage).toBeUndefined();
+
         return readBody(body);
       }),
     );
 
     expect(additionalTools).toMatchObject({
       input: [
-        { type: "function_call" },
-        { type: "function_call_output" },
+        { type: "custom_tool_call" },
+        { type: "custom_tool_call_output" },
         { tools: [{ name: "wait" }], type: "additional_tools" },
       ],
       tools: [{ name: "exec" }],
     });
     expect(toolSearchOnly).toMatchObject({
       input: [
-        { type: "function_call" },
-        { type: "function_call_output" },
+        { type: "custom_tool_call" },
+        { type: "custom_tool_call_output" },
         { type: "tool_search_call" },
         { tools: [{ name: "wait" }], type: "tool_search_output" },
       ],
@@ -1235,9 +1269,10 @@ describe("Codex provider", () => {
     ]);
   });
 
-  it("removes priority from transition compaction on an unsupported model", async () => {
+  it("removes priority from transition compaction when remote policy omits Fast", async () => {
     let request: WireRecord | undefined;
-    const runtime = createCodexProviderRuntime(defaultObservability, () => true);
+    const { catalog } = await fetchRemoteCatalog();
+    const runtime = createProviderRuntime(defaultObservability, () => true, catalog);
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       request = readBody(init?.body);
 
@@ -1259,6 +1294,7 @@ describe("Codex provider", () => {
       thinkingLevel: "medium",
     });
 
+    expect(request).toBeDefined();
     expect(request?.service_tier).toBeUndefined();
   });
 
@@ -1676,6 +1712,107 @@ describe("Codex provider", () => {
     expect(websocket).not.toHaveBeenCalled();
   });
 
+  it("shares catalog-led admission between requests and tools, including authoritative removal", async () => {
+    const { catalog, runtime } = await fetchRemoteCatalog();
+
+    const model = runtime.provider
+      .getModels()
+      .find((candidate) => candidate.id === "gpt-5.6-remote");
+
+    if (model === undefined) throw new Error("Missing future Pi-backed fixture");
+
+    const host = createExtensionHost((pi) => registerCodexTools(pi, catalog), {
+      model,
+      activeTools: ["read", "bash", "edit", "write"],
+    });
+
+    const fetch = vi.fn(async () => sse(responseEvents("admission", "done")));
+
+    try {
+      await host.emitSessionStart();
+      expect(host.getActiveTools()).toEqual([
+        "exec_command",
+        "write_stdin",
+        "apply_patch",
+        "view_image",
+      ]);
+
+      const stream = () =>
+        runtime.provider
+          .streamSimple(model, context([]), {
+            apiKey: SPIKE_API_KEY,
+            fetch,
+            transport: "sse",
+            sessionId: "model-admission",
+          })
+          .result();
+
+      expect(await stream()).toMatchObject({ stopReason: "stop" });
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // The previous model is no longer admitted when the selected model changes.
+      // Its saved Pi tool selection must survive the transition.
+      vi.stubGlobal("fetch", async () =>
+        Response.json({
+          models: REMOTE_CATALOG.models.filter((entry) => entry.slug === "gpt-5.6-sol"),
+        }),
+      );
+      await catalog.refreshModels({
+        allowNetwork: true,
+        force: true,
+        credential: { type: "api_key", key: SPIKE_API_KEY },
+        publish: publishModelUpdate,
+        signal: new AbortController().signal,
+      });
+      const nextModel = runtime.provider.getModels()[0];
+
+      if (nextModel === undefined) throw new Error("Missing replacement model");
+      await host.emit(
+        "model_select",
+        {
+          type: "model_select",
+          source: "set",
+          model: nextModel,
+          previousModel: model,
+        },
+        host.createContext({ model: nextModel }),
+      );
+      expect(host.getActiveTools()).toEqual([
+        "exec_command",
+        "write_stdin",
+        "apply_patch",
+        "view_image",
+      ]);
+
+      vi.stubGlobal("fetch", async () => Response.json({ models: [] }));
+      await catalog.refreshModels({
+        allowNetwork: true,
+        force: true,
+        credential: { type: "api_key", key: SPIKE_API_KEY },
+        publish: publishModelUpdate,
+        signal: new AbortController().signal,
+      });
+      await host.emit(
+        "model_select",
+        {
+          type: "model_select",
+          source: "set",
+          model: nextModel,
+          previousModel: nextModel,
+        },
+        host.createContext({ model: nextModel }),
+      );
+      expect(host.getActiveTools()).toEqual(["read", "bash", "edit", "write"]);
+      const rejected = await stream();
+      expect(rejected.stopReason).toBe("error");
+      expect(rejected.errorMessage).toContain("Unsupported Codex provider model");
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      runtime.closeSession("model-admission");
+      await host.emitSessionShutdown();
+    }
+  });
+
   it("restores authoritative remote models and reprojects cached selectors offline", async () => {
     const { getStored, publish, requests, runtime, signal } = await fetchRemoteCatalog();
 
@@ -1731,7 +1868,7 @@ describe("Codex provider", () => {
       .getModels()
       .find((model) => model.id === "gpt-5.6-remote");
 
-    expect(requests[0]?.url).toContain("/codex/models?client_version=");
+    expect(requests[0]?.url).toContain("/codex/models?client_version=0.156.1");
     expect({
       liveCatalog: runtime.provider.getModels().map((model) => model.id),
       liveRemoteAfterRepeatedRestore: runtime.provider
@@ -1751,13 +1888,7 @@ describe("Codex provider", () => {
       },
       routingHint: requests[0]?.headers.get("x-codex-routing-hint"),
     }).toStrictEqual({
-      liveCatalog: [
-        "gpt-5.6-remote",
-        SPIKE_MODEL.id,
-        "gpt-5.6-sol",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-      ],
+      liveCatalog: ["gpt-5.6-remote", SPIKE_MODEL.id, "gpt-5.6-sol", "gpt-6-luna", "gpt-5.6-luna"],
       liveRemoteAfterRepeatedRestore: true,
       omittedLunaRestored: false,
       persistedRemoteAfterNotModified: true,

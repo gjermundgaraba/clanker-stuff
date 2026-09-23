@@ -13,6 +13,7 @@ vi.mock(import("../lifecycle.js"), { spy: true });
 
 const OTHER_MODEL = {
   ...SPIKE_MODEL,
+  compat: {},
   api: "anthropic-messages",
   id: "claude-test",
   name: "Claude Test",

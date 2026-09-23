@@ -3,17 +3,25 @@ import { onContributionPublish } from "@clanker-stuff/code-mode-tools";
 
 import type { ToolExecutionSettings } from "./execution-context.js";
 
+import type { CodexModelCatalog } from "../model-catalog.js";
+
 import { createCodexToolsController } from "./controller.js";
+
+interface CodexToolsOptions {
+  readonly setFooterActive?: (active: boolean) => void;
+  readonly evaluationToolMode?: "direct" | "code_mode_only";
+  readonly executionSettings?: ToolExecutionSettings;
+}
 
 export const registerCodexTools = (
   pi: ExtensionAPI,
-  setFooterActive: (active: boolean) => void = () => null,
-  evaluationToolMode?: "direct" | "code_mode_only",
-  executionSettings?: ToolExecutionSettings,
+  catalog: CodexModelCatalog,
+  { setFooterActive = () => null, evaluationToolMode, executionSettings }: CodexToolsOptions = {},
 ): void => {
   const tools = createCodexToolsController(
     pi,
     setFooterActive,
+    catalog.supportsModel,
     evaluationToolMode,
     executionSettings,
   );
