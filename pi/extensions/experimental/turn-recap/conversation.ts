@@ -10,6 +10,14 @@ export const RECAP_MAX_CHARS = 320;
 export const sanitizeRecapText = (value: string): string =>
   safeText(value).replace(/\s+/gu, " ").trim();
 
+const ERROR_MAX_CHARS = 1000;
+
+/** Sanitized and bounded, since recap failures are persisted and shown in cards. */
+export const errorText = (error: unknown): string =>
+  Array.from(sanitizeRecapText(error instanceof Error ? error.message : String(error)))
+    .slice(0, ERROR_MAX_CHARS)
+    .join("");
+
 export const RECAP_PROMPT_MAX_CHARS = 12_000;
 
 export const RECAP_PROMPT_PREFIX =

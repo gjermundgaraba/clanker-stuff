@@ -14,39 +14,37 @@ const temporaryConfigPath = async (): Promise<string> => {
 };
 
 describe("recap config", () => {
-  it("parses and trims an explicit model", () => {
-    expect(
-      parseRecapConfig({
-        model: { id: " small ", provider: " cheap " },
-      }),
-    ).toStrictEqual({
-      model: { id: "small", provider: "cheap" },
+  it("parses an explicit model, keeping ids exactly as Pi will match them", () => {
+    expect(parseRecapConfig({ model: { id: " Llama 3.2 ", provider: "local " } })).toStrictEqual({
+      model: { id: " Llama 3.2 ", provider: "local " },
       thinking: "off",
     });
   });
 
-  it("rejects blank values and unknown fields", () => {
-    expect(() => parseRecapConfig({ model: { id: " ", provider: "cheap" } })).toThrow(
-      "must be non-empty",
-    );
+  it("requires a model with non-empty ids", () => {
+    expect(() => parseRecapConfig({ thinking: "low" })).toThrow("required properties model");
+    expect(() => parseRecapConfig({ model: { id: "", provider: "cheap" } })).toThrow("/model/id");
+  });
+
+  it("rejects unknown fields", () => {
     expect(() =>
       parseRecapConfig({
         fallback: true,
         model: { id: "small", provider: "cheap" },
       }),
-    ).toThrow("must contain only");
+    ).toThrow("Invalid turn-recap configuration");
     expect(() =>
       parseRecapConfig({
         model: { id: "small", provider: "cheap", temperature: 0 },
       }),
-    ).toThrow("must contain only");
+    ).toThrow("Invalid turn-recap configuration");
   });
 
   it.each(["off", "minimal", "low", "medium", "high", "xhigh", "max"])(
     "accepts explicit %s thinking",
     (thinking) => {
       expect(
-        parseRecapConfig({ model: { id: " small ", provider: " cheap " }, thinking }),
+        parseRecapConfig({ model: { id: "small", provider: "cheap" }, thinking }),
       ).toStrictEqual({ model: { id: "small", provider: "cheap" }, thinking });
     },
   );
@@ -56,7 +54,7 @@ describe("recap config", () => {
     (thinking) => {
       expect(() =>
         parseRecapConfig({ model: { id: "small", provider: "cheap" }, thinking }),
-      ).toThrow("optional thinking");
+      ).toThrow("/thinking");
     },
   );
 
@@ -64,7 +62,10 @@ describe("recap config", () => {
     const configPath = await temporaryConfigPath();
     await writeFile(
       configPath,
-      JSON.stringify({ model: { id: "small", provider: "cheap" }, thinking: "low" }),
+      JSON.stringify({
+        model: { id: "small", provider: "cheap" },
+        thinking: "low",
+      }),
       "utf-8",
     );
 

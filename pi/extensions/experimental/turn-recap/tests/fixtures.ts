@@ -15,6 +15,7 @@ import { onTestFinished, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
 
 import type { RecapConfig } from "../config.js";
+import { ROLLING_PAIRS } from "../font.js";
 
 type StreamModel = ExtensionContext["modelRegistry"]["streamSimple"];
 
@@ -132,7 +133,18 @@ export const snapshot = (): import("../entry.js").Snapshot => ({
     responses: 2,
     compactions: 1,
     models: ["provider/model"],
-    context: { tokens: 1000, contextWindow: 10000, percent: 10 },
+    context: { tokens: 1000, contextWindow: 10000, percent: 10, startTokens: 600 },
   },
-  recap: { status: "off" },
+});
+
+/** Deliberately sparse test mappings: consumers must follow the manifest, not builder offsets. */
+export const fontManifest = (steps = 8) => ({
+  version: 1,
+  steps,
+  transitions: Object.fromEntries(
+    ROLLING_PAIRS.map((pair, index) => [
+      pair,
+      Array.from({ length: steps + 1 }, (_, frame) => 0xf1000 + index * 0x100 + frame),
+    ]),
+  ),
 });

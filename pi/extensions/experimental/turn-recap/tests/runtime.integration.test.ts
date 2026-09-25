@@ -76,7 +76,25 @@ const setup = async (
           : [],
       );
 
-  return { ...harness, snapshots, render: () => component?.render(120).join("\n") ?? "" };
+  // Renders the latest card through the renderer Pi registered, as the transcript would.
+  const card = () => {
+    const entry = harness.sessionManager
+      .getBranch()
+      .findLast((item) => item.type === "custom" && item.customType === ENTRY_TYPE);
+
+    const renderer = harness.session.extensionRunner.getEntryRenderer(ENTRY_TYPE);
+
+    return entry?.type === "custom" && renderer
+      ? (renderer(entry, { expanded: false }, createIdentityTheme())?.render(120).join("\n") ?? "")
+      : "";
+  };
+
+  return {
+    ...harness,
+    snapshots,
+    card,
+    render: () => component?.render(120).join("\n") ?? "",
+  };
 };
 
 describe("real Pi run boundaries", () => {
@@ -109,7 +127,8 @@ describe("real Pi run boundaries", () => {
     expect(env.snapshots()[0]?.metrics.usage).toEqual(
       collectMetrics(env.sessionManager.getBranch()).usage,
     );
-    expect(env.render()).toContain("Completed");
+    expect(env.card()).toContain("Completed");
+    expect(env.render()).toBe("");
     const firstLeaf = env.sessionManager.getLeafId();
 
     if (!firstLeaf) throw new Error("Missing card");
@@ -118,9 +137,9 @@ describe("real Pi run boundaries", () => {
     expect(env.snapshots()[1]?.metrics.responses).toBe(1);
     expect(env.snapshots()[1]?.metrics.toolCalls).toBe(0);
     await env.session.reload();
-    expect(env.render()).toContain("Completed");
+    expect(env.card()).toContain("0 tools");
     await env.session.navigateTree(firstLeaf);
-    expect(env.render()).toContain("1 tools");
+    expect(env.card()).toContain("1 tool ·");
     expect(env.snapshots()).toHaveLength(1);
     expect(env.messages().some((message) => message.role === "custom")).toBe(false);
   });
@@ -146,8 +165,8 @@ describe("real Pi run boundaries", () => {
     await entered.promise;
 
     try {
-      expect(env.render()).toContain("Running");
-      expect(env.render()).toContain("1 tools");
+      expect(env.render()).toContain("active ·");
+      expect(env.render()).toContain("1 tool ·");
       expect(env.render()).toContain("processed");
       expect(env.snapshots()).toHaveLength(0);
     } finally {
@@ -179,7 +198,8 @@ describe("real Pi run boundaries", () => {
     await running;
     expect(env.snapshots()).toHaveLength(1);
     expect(env.snapshots()[0]?.outcome).toBe("aborted");
-    expect(env.render()).toContain("Aborted");
+    expect(env.card()).toContain("Aborted");
+    expect(env.render()).toBe("");
   });
 
   it("keeps one snapshot across automatic error recovery", async () => {
@@ -234,6 +254,6 @@ describe("real Pi run boundaries", () => {
     await env.prompt("Fail");
     expect(env.snapshots()).toHaveLength(1);
     expect(env.snapshots()[0]?.outcome).toBe(stopReason);
-    expect(env.render()).toContain(stopReason === "error" ? "Failed" : "Aborted");
+    expect(env.card()).toContain(stopReason === "error" ? "Failed" : "Aborted");
   });
 });

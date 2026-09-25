@@ -39,6 +39,8 @@ export const MetricsSchema = Type.Object(
           tokens: Type.Union([count, Type.Null()]),
           contextWindow: amount,
           percent: Type.Union([amount, Type.Null()]),
+          /** Context size when the run started; null while unknown. */
+          startTokens: Type.Union([count, Type.Null()]),
         },
         closed,
       ),

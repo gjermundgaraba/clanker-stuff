@@ -7,7 +7,7 @@ import { raceWithAbortSignal } from "#pi-abort";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { RecapConfig } from "./config.js";
-import { normalizeRecap, sanitizeRecapText } from "./conversation.js";
+import { errorText, normalizeRecap } from "./conversation.js";
 import type { Recap } from "./entry.js";
 import { addUsage, emptyUsage } from "./metrics.js";
 import type { ReportedUsage } from "./metrics.js";
@@ -80,7 +80,7 @@ export const generateRecap = async (
   } catch (error) {
     return {
       status: "failed",
-      error: sanitizeRecapText(error instanceof Error ? error.message : String(error)),
+      error: errorText(error),
       ...(usage === undefined ? {} : { usage }),
     };
   } finally {

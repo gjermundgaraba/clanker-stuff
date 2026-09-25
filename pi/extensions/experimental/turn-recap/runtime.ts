@@ -1,46 +1,52 @@
 import { randomUUID } from "node:crypto";
 
-import { BREATHING_DOT_INTERVAL_MS } from "@clanker-stuff/pi-motion";
 import type {
   AgentBeforeSettleEvent,
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Value } from "typebox/value";
 
-import { renderCard } from "./card.js";
-import type { CardState } from "./card.js";
+import type { LiveState, RecapView } from "./card.js";
 import type { RecapConfig } from "./config.js";
 import { getRecapConfigPath, loadRecapConfig } from "./config.js";
-import { buildRecapPrompt, sanitizeRecapText } from "./conversation.js";
-import { ENTRY_TYPE, restoreSnapshots } from "./entry.js";
+import { buildRecapPrompt, errorText } from "./conversation.js";
+import { ENTRY_TYPE, RECAP_ENTRY_TYPE, RecapEntrySchema } from "./entry.js";
 import type { Recap, Snapshot } from "./entry.js";
+import { getRollingFontPath, loadRollingFont } from "./font.js";
+import type { RollingFont } from "./font.js";
 import { collectMetrics } from "./metrics.js";
+import type { Metrics } from "./metrics.js";
 import { generateRecap } from "./recap.js";
 import { createTiming } from "./timing.js";
+import { createLiveWidget } from "./widget.js";
+
+const WIDGET_KEY = "turn-recap";
 
 interface SessionState {
-  id: string;
   config: RecapConfig | undefined;
-  configError: string | undefined;
+  rollingFont: RollingFont | undefined;
 }
 
 interface ActiveRun {
   baseline: string | null;
   timing: ReturnType<typeof createTiming>;
   signal: AbortSignal | undefined;
+  contextStart: number | null;
+  outcome: Snapshot["outcome"];
+  metrics: Metrics;
 }
 
 class TurnRecapRuntime {
   readonly #pi: ExtensionAPI;
   readonly #configPath: string;
   #session: SessionState | undefined;
-  #current: Snapshot | undefined;
-  #previousRecap: string | undefined;
   #active: ActiveRun | undefined;
-  #request: AbortController | undefined;
-  #interval: ReturnType<typeof setInterval> | undefined;
+  /** Recaps by run ID, from saved entries plus those being generated. */
+  #recaps = new Map<string, RecapView>();
+  /** Recap requests in flight; several can overlap later runs. */
+  #pending = new Set<AbortController>();
   #requestRender: (() => void) | undefined;
-  #expanded = false;
   #promptActive = false;
   #asyncPrompt = false;
 
@@ -50,68 +56,59 @@ class TurnRecapRuntime {
   }
 
   async start(ctx: ExtensionContext): Promise<void> {
-    this.dispose(ctx);
+    this.#reset(ctx);
 
-    const session: SessionState = {
-      id: ctx.sessionManager.getSessionId(),
-      config: undefined,
-      configError: undefined,
-    };
-
-    this.#session = session;
-    this.restore(ctx);
-
-    if (ctx.mode === "tui") {
-      ctx.ui.setWidget("turn-recap", (tui, theme) => {
-        this.#requestRender = () => tui.requestRender();
-
-        return {
-          render: (width) => renderCard(this.view(), width, theme, tui.terminal.rows),
-          invalidate() {},
-          dispose: () => {
-            this.#requestRender = undefined;
-          },
-        };
-      });
+    // Keyed by run ID, so recaps on other branches are harmless and navigation needs no rebuild.
+    for (const entry of ctx.sessionManager.getEntries()) {
+      if (
+        entry.type === "custom" &&
+        entry.customType === RECAP_ENTRY_TYPE &&
+        Value.Check(RecapEntrySchema, entry.data)
+      )
+        this.#recaps.set(entry.data.runId, entry.data.recap);
     }
 
-    try {
-      const config = await loadRecapConfig(this.#configPath);
+    const session: SessionState = { config: undefined, rollingFont: undefined };
+    this.#session = session;
 
-      if (this.#session === session) session.config = config;
-    } catch (error) {
-      if (this.#session !== session) return;
-      session.configError = sanitizeRecapText(
-        error instanceof Error ? error.message : String(error),
-      );
+    // Independent loads: a broken config never disables animation, or vice versa.
+    const [config, font] = await Promise.allSettled([
+      loadRecapConfig(this.#configPath),
+      ctx.mode === "tui" ? loadRollingFont() : undefined,
+    ]);
+
+    if (this.#session !== session) return;
+
+    if (config.status === "fulfilled") session.config = config.value;
+    else
       ctx.ui.notify(
-        sanitizeRecapText(`Turn recap text disabled (${this.#configPath}): ${session.configError}`),
+        `Turn recap configuration ignored; generated recaps disabled (${this.#configPath}): ${errorText(config.reason)}`,
         "error",
       );
-    }
+
+    if (font.status === "fulfilled") session.rollingFont = font.value;
+    else
+      ctx.ui.notify(
+        `Rolling numbers disabled (${getRollingFontPath()}): ${errorText(font.reason)}`,
+        "error",
+      );
   }
 
-  view(): CardState {
-    return {
-      snapshot:
-        this.#current && this.#active
-          ? { ...this.#current, ...this.#active.timing.read() }
-          : this.#current,
-      previousRecap: this.#previousRecap,
-      running: this.#active !== undefined,
-      waiting: this.#promptActive,
-      expanded: this.#expanded,
-    };
+  view(): LiveState | undefined {
+    return (
+      this.#active && {
+        activeMs: this.#active.timing.read().activeMs,
+        paused: this.#promptActive,
+        metrics: this.#active.metrics,
+      }
+    );
   }
 
-  toggle(): void {
-    this.#expanded = !this.#expanded;
-    this.#requestRender?.();
+  recap(runId: string): RecapView | undefined {
+    return this.#recaps.get(runId);
   }
 
   begin(ctx: ExtensionContext): void {
-    this.#cancelRequest();
-
     // Retries and queued continuations can emit multiple starts before settling.
     if (this.#active) {
       this.#active.signal = ctx.signal;
@@ -119,29 +116,26 @@ class TurnRecapRuntime {
       return;
     }
 
-    if (this.#current?.recap.status === "ready") this.#previousRecap = this.#current.recap.text;
-    const timing = createTiming(this.#promptActive);
-    this.#active = { baseline: ctx.sessionManager.getLeafId(), timing, signal: ctx.signal };
-    this.#current = {
-      runId: randomUUID(),
-      ...timing.read(),
-      finishedAt: Date.now(),
+    this.#active = {
+      baseline: ctx.sessionManager.getLeafId(),
+      timing: createTiming(this.#promptActive),
+      signal: ctx.signal,
+      contextStart: null,
       outcome: "completed",
       metrics: collectMetrics([]),
-      recap: { status: "off" },
     };
 
-    if (ctx.mode === "tui") {
-      this.#interval = setInterval(() => this.#requestRender?.(), BREATHING_DOT_INTERVAL_MS);
-    }
-
-    this.#requestRender?.();
+    // Measures the starting context, so the first frame already reads +0.
+    this.refresh(ctx);
+    this.#mount(ctx);
   }
 
   refresh(ctx: ExtensionContext): void {
-    if (!this.#active || !this.#current) return;
+    const active = this.#active;
+
+    if (!active) return;
     const branch = ctx.sessionManager.getBranch();
-    const baseline = this.#active.baseline;
+    const baseline = active.baseline;
     const index = baseline === null ? -1 : branch.findIndex((entry) => entry.id === baseline);
 
     // A replaced branch must never be charged to the abandoned run.
@@ -149,44 +143,71 @@ class TurnRecapRuntime {
     const metrics = collectMetrics(branch.slice(index + 1));
     const context = ctx.getContextUsage();
 
-    if (context) metrics.context = context;
-    this.#current = { ...this.#current, metrics };
+    if (context) {
+      // After compaction Pi knows no size until the next response; the first known size stands in.
+      active.contextStart ??= context.tokens;
+      metrics.context = { ...context, startTokens: active.contextStart };
+    }
+
+    active.metrics = metrics;
     this.#requestRender?.();
   }
 
   boundary(event: Pick<AgentBeforeSettleEvent, "outcome">, ctx: ExtensionContext): void {
-    if (!this.#current || !this.#active) return;
-    this.#current = { ...this.#current, outcome: event.outcome };
+    if (!this.#active) return;
+    this.#active.outcome = event.outcome;
     this.#active.signal = ctx.signal ?? this.#active.signal;
     this.refresh(ctx);
   }
 
   async settled(ctx: ExtensionContext): Promise<void> {
-    const session = this.#session;
+    const config = this.#session?.config;
+    const active = this.#active;
 
-    if (!session || !this.#active || !this.#current) return;
+    if (!this.#session || !active) return;
     this.refresh(ctx);
-    const outcome = this.#active.signal?.aborted ? "aborted" : this.#current.outcome;
+    this.#active = undefined;
+    this.#unmount(ctx);
 
     const snapshot: Snapshot = {
-      ...this.#current,
-      ...this.#active.timing.read(),
+      runId: randomUUID(),
+      ...active.timing.read(),
       finishedAt: Date.now(),
-      outcome,
-      recap:
-        session.configError !== undefined
-          ? { status: "failed", error: session.configError }
-          : session.config
-            ? { status: "pending" }
-            : { status: "off" },
+      outcome: active.signal?.aborted ? "aborted" : active.outcome,
+      metrics: active.metrics,
     };
 
-    this.#stopClock();
-    this.#current = snapshot;
     this.#pi.appendEntry(ENTRY_TYPE, snapshot);
-    this.#requestRender?.();
 
-    if (session.config) await this.#generate(ctx, session, session.config, snapshot);
+    if (!config) return;
+    let prompt: string | undefined;
+
+    try {
+      prompt = buildRecapPrompt(
+        ctx.sessionManager.buildSessionProjection().entries,
+        snapshot.outcome,
+      );
+    } catch (error) {
+      this.#save(snapshot.runId, { status: "failed", error: errorText(error) });
+
+      return;
+    }
+
+    if (prompt === undefined) return;
+
+    // Pi draws the new card on a later frame, so it already sees this.
+    this.#recaps.set(snapshot.runId, { status: "generating" });
+    const controller = new AbortController();
+    this.#pending.add(controller);
+
+    try {
+      const recap = await generateRecap(ctx, config, prompt, controller.signal);
+
+      // Only shutdown aborts; later runs and tree navigation let the recap finish.
+      if (!controller.signal.aborted) this.#save(snapshot.runId, recap);
+    } finally {
+      this.#pending.delete(controller);
+    }
   }
 
   setAsyncPrompt(event: unknown): void {
@@ -208,86 +229,52 @@ class TurnRecapRuntime {
     this.#requestRender?.();
   }
 
-  restore(ctx: ExtensionContext): void {
-    this.#cancelRequest();
-    this.#stopClock();
-    const restored = restoreSnapshots(ctx.sessionManager.getBranch());
-    this.#current = restored.current;
-    this.#previousRecap = restored.previousRecap;
-    this.#requestRender?.();
+  shutdown(ctx: ExtensionContext): void {
+    this.#reset(ctx);
   }
 
-  dispose(ctx: ExtensionContext): void {
-    this.#cancelRequest();
-    this.#stopClock();
+  #reset(ctx: ExtensionContext): void {
+    for (const controller of this.#pending) controller.abort();
+    this.#pending.clear();
+    this.#recaps.clear();
+    this.#active = undefined;
     this.#session = undefined;
-    this.#current = undefined;
-    this.#previousRecap = undefined;
     this.#promptActive = false;
     this.#asyncPrompt = false;
-
-    if (ctx.mode === "tui") ctx.ui.setWidget("turn-recap", undefined);
-    this.#requestRender = undefined;
+    this.#unmount(ctx);
   }
 
-  #stopClock(): void {
-    clearInterval(this.#interval);
-    this.#interval = undefined;
-    this.#active = undefined;
+  /** Writing any entry makes Pi redraw the transcript, so the card picks up its recap. */
+  #save(runId: string, recap: Recap): void {
+    this.#recaps.set(runId, recap);
+    this.#pi.appendEntry(RECAP_ENTRY_TYPE, { runId, recap });
   }
 
-  #cancelRequest(): void {
-    const request = this.#request;
-    this.#request = undefined;
-    request?.abort();
+  /**
+   * A fresh widget per run, so rolling history never spans runs. A run that starts
+   * while the font is still loading keeps ordinary digits.
+   */
+  #mount(ctx: ExtensionContext): void {
+    if (ctx.mode !== "tui") return;
 
-    if (this.#current?.recap.status === "pending") {
-      this.#current = { ...this.#current, recap: { status: "cancelled" } };
-    }
-  }
+    // Pi disposes a replaced widget before building its successor.
+    ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
+      this.#requestRender = () => tui.requestRender();
 
-  async #generate(
-    ctx: ExtensionContext,
-    session: SessionState,
-    config: RecapConfig,
-    snapshot: Snapshot,
-  ): Promise<void> {
-    const controller = new AbortController();
-    this.#request = controller;
-    let recap: Recap;
+      const widget = createLiveWidget(tui, theme, () => this.view(), this.#session?.rollingFont);
 
-    try {
-      const prompt = buildRecapPrompt(
-        ctx.sessionManager.buildSessionProjection().entries,
-        snapshot.outcome,
-      );
-
-      recap =
-        prompt === undefined
-          ? { status: "off" }
-          : await generateRecap(ctx, config, prompt, controller.signal);
-
-      if (this.#request !== controller || this.#session !== session) return;
-
-      if (
-        ctx.sessionManager.getSessionId() !== session.id ||
-        !ctx.isIdle() ||
-        buildRecapPrompt(ctx.sessionManager.buildSessionProjection().entries, snapshot.outcome) !==
-          prompt
-      )
-        recap = { status: "cancelled" };
-    } catch (error) {
-      recap = {
-        status: "failed",
-        error: sanitizeRecapText(error instanceof Error ? error.message : String(error)),
+      return {
+        ...widget,
+        dispose: () => {
+          widget.dispose();
+          this.#requestRender = undefined;
+        },
       };
-    }
+    });
+  }
 
-    if (this.#request !== controller || this.#session !== session) return;
-    this.#request = undefined;
-    this.#current = { ...snapshot, recap };
-    this.#pi.appendEntry(ENTRY_TYPE, this.#current);
-    this.#requestRender?.();
+  #unmount(ctx: ExtensionContext): void {
+    if (ctx.mode === "tui") ctx.ui.setWidget(WIDGET_KEY, undefined);
   }
 }
 

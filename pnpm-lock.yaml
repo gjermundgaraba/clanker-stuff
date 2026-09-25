@@ -558,9 +558,6 @@ importers:
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../../packages/extension-paths
-      '@clanker-stuff/pi-motion':
-        specifier: workspace:^
-        version: link:../../../packages/motion
       '@clanker-stuff/pi-tones':
         specifier: workspace:^
         version: link:../../../packages/tones

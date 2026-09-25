@@ -26,10 +26,10 @@ export const createTiming = (paused: boolean) => {
   };
 };
 
-export const formatElapsed = (ms: number): string => {
-  const seconds = ms / 1000;
+export const formatElapsed = (ms: number, precision: "seconds" | "tenths" = "tenths"): string => {
+  const seconds = precision === "seconds" ? Math.floor(ms / 1000) : Math.round(ms / 100) / 10;
 
   return seconds < 60
-    ? `${seconds.toFixed(1)}s`
+    ? `${precision === "seconds" ? seconds : seconds.toFixed(1)}s`
     : `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 };

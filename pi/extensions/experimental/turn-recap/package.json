@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/turn-recap",
   "version": "0.1.0",
   "private": true,
-  "description": "Shows a persistent live turn card with timing, usage, tool activity, and optional LLM recaps.",
+  "description": "Adds a turn card with timing, usage, tool activity, and optional LLM recaps to the chat after each run.",
   "keywords": [
     "pi-package"
   ],
@@ -17,11 +17,14 @@
     "directory": "pi/extensions/experimental/turn-recap"
   },
   "files": [
+    "font.ts",
     "config.ts",
     "conversation.ts",
     "entry.ts",
     "index.ts",
     "runtime.ts",
+    "rolling.ts",
+    "widget.ts",
     "timing.ts",
     "metrics.ts",
     "card.ts",
@@ -40,7 +43,6 @@
   },
   "dependencies": {
     "@clanker-stuff/pi-extension-paths": "workspace:^",
-    "@clanker-stuff/pi-motion": "workspace:^",
     "@clanker-stuff/pi-tones": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^"
   },

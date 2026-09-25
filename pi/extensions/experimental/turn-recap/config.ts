@@ -8,15 +8,13 @@ import { Value } from "typebox/value";
 
 const STRICT = { additionalProperties: false } as const;
 
+// Pi matches ids exactly; a mistyped one fails its lookup with a visible recap error.
+const Id = Type.String({ minLength: 1 });
+
+/** The file exists only to configure recaps, so a model is required. */
 const RecapConfigSchema = Type.Object(
   {
-    model: Type.Object(
-      {
-        id: Type.String({ minLength: 1 }),
-        provider: Type.String({ minLength: 1 }),
-      },
-      STRICT,
-    ),
+    model: Type.Object({ id: Id, provider: Id }, STRICT),
     thinking: Type.Optional(
       StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const),
     ),
@@ -37,18 +35,13 @@ export const getRecapConfigPath = (): string => getExtensionStoragePaths("turn-r
 export const parseRecapConfig = (value: unknown): RecapConfig => {
   if (!Value.Check(RecapConfigSchema, value)) {
     throw new Error(
-      "config must contain only model.provider, model.id, and optional thinking (off, minimal, low, medium, high, xhigh, max)",
+      `Invalid turn-recap configuration: ${Value.Errors(RecapConfigSchema, value)
+        .map((error) => `${error.instancePath || "/"} ${error.message}`)
+        .join("; ")}`,
     );
   }
 
-  const provider = value.model.provider.trim();
-  const id = value.model.id.trim();
-
-  if (provider.length === 0 || id.length === 0) {
-    throw new Error("model.provider and model.id must be non-empty");
-  }
-
-  return { model: { id, provider }, thinking: value.thinking ?? "off" };
+  return { model: value.model, thinking: value.thinking ?? "off" };
 };
 
 export const loadRecapConfig = async (

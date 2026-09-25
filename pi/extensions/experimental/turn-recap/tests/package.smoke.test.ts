@@ -3,7 +3,7 @@ import path from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ENTRY_TYPE, restoreSnapshots } from "../entry.js";
+import { ENTRY_TYPE } from "../entry.js";
 import { createExtensionSmokeHarness } from "../../../../tests/harness/extension-smoke.js";
 
 describe("turn-recap package", () => {
@@ -16,9 +16,14 @@ describe("turn-recap package", () => {
       expect(harness.extensionsResult.errors).toEqual([]);
       harness.setResponses([fauxAssistantMessage("Done")]);
       await harness.prompt("Hello");
-      const restored = restoreSnapshots(harness.sessionManager.getBranch());
-      expect(restored.current).toMatchObject({ outcome: "completed", recap: { status: "off" } });
-      expect(harness.session.extensionRunner.getEntryRenderer(ENTRY_TYPE)).toBeUndefined();
+
+      const cards = harness.sessionManager
+        .getBranch()
+        .filter((entry) => entry.type === "custom" && entry.customType === ENTRY_TYPE);
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0]).toMatchObject({ data: { outcome: "completed" } });
+      expect(harness.session.extensionRunner.getEntryRenderer(ENTRY_TYPE)).toBeDefined();
     } finally {
       await harness.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
       harness.cleanup();

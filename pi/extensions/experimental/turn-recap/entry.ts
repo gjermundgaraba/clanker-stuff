@@ -1,36 +1,16 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
-import { Value } from "typebox/value";
 
 import { RECAP_MAX_CHARS } from "./conversation.js";
 import { MetricsSchema, UsageSchema } from "./metrics.js";
 
+/** The transcript card, written as soon as its run settles. */
 export const ENTRY_TYPE = "@clanker-stuff/turn-recap";
 
-const closed = { additionalProperties: false } as const;
+/** A run's recap, written when it arrives; it renders inside its run's card. */
+export const RECAP_ENTRY_TYPE = "@clanker-stuff/turn-recap/recap";
 
-const RecapSchema = Type.Union([
-  Type.Object({ status: Type.Literal("off") }, closed),
-  Type.Object({ status: Type.Literal("pending") }, closed),
-  Type.Object({ status: Type.Literal("cancelled") }, closed),
-  Type.Object(
-    {
-      status: Type.Literal("failed"),
-      error: Type.String(),
-      usage: Type.Optional(UsageSchema),
-    },
-    closed,
-  ),
-  Type.Object(
-    {
-      status: Type.Literal("ready"),
-      text: Type.String({ minLength: 1, maxLength: RECAP_MAX_CHARS }),
-      usage: UsageSchema,
-    },
-    closed,
-  ),
-]);
+const closed = { additionalProperties: false } as const;
 
 export const SnapshotSchema = Type.Object(
   {
@@ -45,37 +25,34 @@ export const SnapshotSchema = Type.Object(
       Type.Literal("error"),
     ]),
     metrics: MetricsSchema,
-    recap: RecapSchema,
   },
   closed,
 );
 
 export type Snapshot = Static<typeof SnapshotSchema>;
 
-export type Recap = Snapshot["recap"];
+const RecapSchema = Type.Union([
+  Type.Object(
+    {
+      status: Type.Literal("ready"),
+      text: Type.String({ minLength: 1, maxLength: RECAP_MAX_CHARS }),
+      usage: UsageSchema,
+    },
+    closed,
+  ),
+  Type.Object(
+    {
+      status: Type.Literal("failed"),
+      error: Type.String(),
+      usage: Type.Optional(UsageSchema),
+    },
+    closed,
+  ),
+]);
 
-/** Each update is a full snapshot with the same runId. Never mutate Pi's JSONL. */
-export const restoreSnapshots = (entries: readonly SessionEntry[]) => {
-  let current: Snapshot | undefined;
-  let previousRecap: string | undefined;
+export type Recap = Static<typeof RecapSchema>;
 
-  for (const entry of entries) {
-    if (entry.type !== "custom" || entry.customType !== ENTRY_TYPE) continue;
-    const data = entry.data;
-
-    if (!Value.Check(SnapshotSchema, data)) continue;
-
-    if (current?.runId !== data.runId && current?.recap.status === "ready") {
-      previousRecap = current.recap.text;
-    }
-
-    current = data;
-  }
-
-  // No request survives a process reload. Do not restart or leave a phantom spinner.
-  if (current?.recap.status === "pending") {
-    current = { ...current, recap: { status: "cancelled" } };
-  }
-
-  return { current, previousRecap };
-};
+export const RecapEntrySchema = Type.Object(
+  { runId: Type.String({ minLength: 1 }), recap: RecapSchema },
+  closed,
+);
