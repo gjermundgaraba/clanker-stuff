@@ -24,9 +24,8 @@ catalog:
   "@earendil-works/pi-tui": 0.87.1
   "@types/node": 26.6.2
   typescript: 7.0.2
-  vite: npm:@voidzero-dev/vite-plus-core@0.3.3
-  vite-plus: 0.3.3
-  "@oxlint/plugins": 1.78.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.0.0-rc.1
+  vite-plus: 1.0.0-rc.1
   safe-stable-stringify: 2.5.0
 peerDependencyRules:
   allowAny:
@@ -37,6 +36,7 @@ allowBuilds:
   "@google/genai": true
   esbuild: true
   protobufjs: true
+minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeExclude:
   - "@earendil-works/chord@0.87.1"
   - "@earendil-works/pi-agent-core@0.87.1"
@@ -45,3 +45,13 @@ minimumReleaseAgeExclude:
   - "@earendil-works/pi-telemetry@0.87.1"
   - "@earendil-works/pi-tui@0.87.1"
   - "@types/node@26.6.2"
+  - "@voidzero-dev/vite-plus-core@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-darwin-arm64@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-darwin-x64@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-linux-arm64-gnu@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-linux-arm64-musl@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-linux-x64-gnu@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-linux-x64-musl@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.0.0-rc.1"
+  - "@voidzero-dev/vite-plus-win32-x64-msvc@1.0.0-rc.1"
+  - vite-plus@1.0.0-rc.1

@@ -221,5 +221,5 @@ describe("packed extension packages", () => {
         ).toBeTruthy();
       }
     }
-  }, 120_000);
+  });
 });

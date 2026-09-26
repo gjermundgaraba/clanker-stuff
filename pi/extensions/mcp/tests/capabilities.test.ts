@@ -377,7 +377,6 @@ describe("MCP SDK input continuations", () => {
     const h = host();
     const dispose = vi.fn(async () => {});
     h.events.on("clanker-codex:sampling-scope-request", (request) => {
-      // SAFETY: This listener receives only the sampling request emitted by sample() in this test.
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
       const typed = request as SamplingScopeRequest;
       expect(typed.maxTokens).toBe(8);
@@ -524,7 +523,6 @@ describe("MCP SDK input continuations", () => {
     const dispose = vi.fn(() => disposal.promise);
     const usage = { ...fauxAssistantMessage("partial").usage, output: 3, totalTokens: 3 };
     h.events.on("clanker-codex:sampling-scope-request", (request) => {
-      // SAFETY: Only sample() emits this event in this test.
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
       const typed = request as SamplingScopeRequest;
       typed.resolve(

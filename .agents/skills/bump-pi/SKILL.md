@@ -13,7 +13,7 @@ Paths below are repository-relative unless stated otherwise. Follow `AGENTS.md` 
 ## Establish the upgrade
 
 - Read the current pin from `pnpm-workspace.yaml`. Resolve the latest stable published `@earendil-works/pi-coding-agent` release from the npm registry; do not infer it from the global executable, a cached checkout, or upstream main. Honor an explicitly requested target instead. Record the old and target versions and source commits.
-- Inspect the Pi-family catalog, overrides, package manifests, lockfile, release-age exceptions, and package extensions. Verify which companion packages are published and required at the target; do not assume a fixed package list or blindly bump unrelated dependencies.
+- Inspect the Pi-family catalog, overrides, package manifests, lockfile, and package extensions. Verify which companion packages are published and required at the target; do not assume a fixed package list or blindly bump unrelated dependencies.
 - Use the read-only `earendil-works/pi` source cache described in `AGENTS.md`. Fetch missing refs and inspect the old and target tags with `git show`, `git diff`, or temporary extraction; never switch or edit the shared checkout.
 - If already at the target, report that rather than manufacture an upgrade. If the release or required packages cannot be verified, state the blocker instead of claiming a latest-version upgrade.
 
@@ -33,7 +33,7 @@ For each issue, establish the upstream change, the local consumer, and the concr
 ## Implement and verify
 
 - Align the required Pi-family versions through the workspace catalog/overrides and regenerate `pnpm-lock.yaml` with `vp install`. Preserve host-provided `"*"` peer contracts; exact development pins are not a reason to replace them.
-- Reassess version-scoped package workarounds against the new published manifests. Remove resolved workarounds, retain only verified needs, and keep any release-age exceptions narrowly scoped.
+- Reassess version-scoped package workarounds against the new published manifests. Remove resolved workarounds and retain only verified needs. pnpm records and prunes release-age exceptions during `vp install`; do not edit them by hand.
 - Update active compatibility gates, fixtures, and supported-baseline documentation as needed. Do not blanket-replace historical version references or introduce duplicate version authorities.
 - Fix compatibility problems and update affected callers directly. Prefer supported Pi APIs over local workarounds, but preserve real persistence, cancellation, and runtime safety contracts. Ask only where a consequential product choice remains unresolved.
 - Add or adapt regression coverage that would detect the actual defect. Start with affected package checks; use real `AgentSession` integration tests for lifecycle behavior and smoke tests for discovery/runtime wiring. Follow repository test-boundary rules rather than testing implementation shape.

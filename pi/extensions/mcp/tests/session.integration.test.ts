@@ -182,7 +182,6 @@ describe("MCP tools in a real AgentSession", () => {
               pi.appendEntry("mcp-server-loaded", { serverName: "mcp-manager" });
             });
             pi.events.on("clanker-codex:sampling-scope-request", (request) => {
-              // SAFETY: Only the MCP sampling owner emits this event in the isolated test runtime.
               // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
               const typed = request as SamplingScopeRequest;
               typed.resolve(
@@ -264,7 +263,6 @@ describe("MCP tools in a real AgentSession", () => {
             pi.appendEntry("mcp-server-loaded", { serverName: "sample" });
           });
           pi.events.on("clanker-codex:sampling-scope-request", (request) => {
-            // SAFETY: The isolated MCP owner is the only emitter of this test event.
             // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
             const typed = request as SamplingScopeRequest;
             typed.resolve(

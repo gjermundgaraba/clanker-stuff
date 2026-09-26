@@ -127,6 +127,9 @@ real stream just to work around inaccurate foreign optional-property declaration
 Do not replace an assertion with a lying predicate, duplicate validation, or a
 one-use wrapper.
 
+The reason on a `typescript/no-unsafe-type-assertion` suppression is that
+assertion's safety justification; do not repeat it in a separate `SAFETY:` comment.
+
 ## Optional properties and indexed access
 
 `strict`, `exactOptionalPropertyTypes`, and `noUncheckedIndexedAccess` are enabled.

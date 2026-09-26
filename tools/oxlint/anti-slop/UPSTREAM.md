@@ -28,6 +28,9 @@ is required. The upstream test suite is recoverable at the revision in `UPSTREAM
 - `rules/no-module-mocking.ts` also recognizes `vi` imported from
   `vite-plus/test`, this repository's only test entry point. Upstream matches
   `vitest` alone, so the rule never fired here.
+- `rules/require-safety-comment-for-type-assertion.ts` accepts a reasoned
+  `typescript/no-unsafe-type-assertion` suppression as the justification. That
+  reason already states the invariant; a separate `SAFETY:` line would repeat it.
 - The nested Stylistic provenance clarifies that its development test commands
   refer to upstream rather than this consumer repository.
 - The root license and provenance records are consumer-owned additions.

@@ -410,8 +410,8 @@ describe("durable questionnaires in AgentSession", () => {
         expect(JSON.stringify(env.checkpoint())).toContain('"status":"handed_to_pi"');
         releaseNotification.resolve();
         await running;
+        await expect.poll(() => settlements).toBe(keepPromptOpen ? 3 : 2);
         await expect.poll(() => harness.session.isIdle).toBe(true);
-        expect(settlements).toBe(keepPromptOpen ? 3 : 2);
         expect(answerMessages()).toHaveLength(1);
         expect(JSON.stringify(answerMessages())).toContain("remote");
         expect(wakeMessages()).toHaveLength(1);

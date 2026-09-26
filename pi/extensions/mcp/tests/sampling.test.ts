@@ -32,7 +32,6 @@ describe("MCP sampling owner", () => {
     const boundText = vi.fn((text: string) => text);
     const scopes = vi.fn();
     host.events.on("clanker-codex:sampling-scope-request", (request) => {
-      // SAFETY: The real sampling owner is the only emitter in this isolated host.
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
       const typed = request as SamplingScopeRequest;
       scopes(typed.maxTokens);
@@ -239,7 +238,6 @@ describe("MCP sampling owner", () => {
   it("does not turn missing provider accounting into Pi's initialized zero usage", async () => {
     const host = t.createExtensionHost(() => {}, { model });
     host.events.on("clanker-codex:sampling-scope-request", (request) => {
-      // SAFETY: The real sample function is the sole emitter in this isolated host.
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The real sampling producer is the sole emitter in this isolated host; Pi erases event payload types.
       const typed = request as SamplingScopeRequest;
       typed.resolve(

@@ -4,6 +4,11 @@ import { pathToFileURL } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+/**
+ * @typedef {import("../../suites/scaling/services.mjs").ServiceResult} ServiceResult
+ * @typedef {{ default: typeof solve }} SolveModule
+ */
+
 const [task, runtime, logs] = process.argv.slice(2);
 
 assert.ok(task && runtime && logs, "task, runtime and logs paths are required");
@@ -86,10 +91,10 @@ for (const definition of defs)
   assert.partialDeepStrictEqual(definition.parameters, { type: "object" });
 
 // Same serialized, closure-free function used by real Code Mode preflights.
-const { default: serializedSolve } = /** @type {{default: typeof solve}} */ (
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This data URL contains only the just-loaded owned solve function; the test verifies it has no undeclared closure dependencies.
-  await import(data(`export default ${solve.toString()}`))
-);
+const serializedSource = data(`export default ${solve.toString()}`);
+
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This data URL contains only the just-loaded owned solve function; the test verifies it has no undeclared closure dependencies.
+const { default: serializedSolve } = /** @type {SolveModule} */ (await import(serializedSource));
 
 const answer = await serializedSolve(async (name, args) => {
   const definition = defs.find((d) => d.name === name);
@@ -97,10 +102,8 @@ const answer = await serializedSolve(async (name, args) => {
   const [content] = (await definition.execute("test", args)).content;
   assert.ok(content);
 
-  return /** @type {import("../../suites/scaling/services.mjs").ServiceResult} */ (
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- serviceDefinitions JSON-encodes this backend's JSON-only ServiceResult; exercise the real serialization round trip rather than bypassing it.
-    JSON.parse(content.text)
-  );
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- serviceDefinitions JSON-encodes this backend's JSON-only ServiceResult; exercise the real serialization round trip rather than bypassing it.
+  return /** @type {ServiceResult} */ (JSON.parse(content.text));
 });
 
 assert.equal(score(answer, oracle(fixture()), backendEvents).quality, 1);

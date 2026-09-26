@@ -81,7 +81,6 @@ interface NativeEditor extends NativeSnapshot {
 }
 
 function nativeEditor(instance: unknown): NativeEditor {
-  // SAFETY: Validate the required private Editor layout before exposing the document/undo adapter.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exposes no public document/undo adapter; the pinned private layout is checked below and covered by native editor contract tests.
   const native = instance as NativeEditor;
 

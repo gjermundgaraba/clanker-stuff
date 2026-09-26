@@ -131,5 +131,5 @@ describe("cooperative footer discovery", () => {
     harness = await createExtensionSmokeHarness({ packages: [packageRoot] });
     expect(harness.extensionsResult.errors).toStrictEqual([]);
     expect(harness.extensionsResult.extensions[0]?.commands.has("footer")).toBe(true);
-  }, 30_000);
+  });
 });

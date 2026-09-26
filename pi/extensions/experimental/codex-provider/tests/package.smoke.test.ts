@@ -309,5 +309,5 @@ describe("codex-provider package", () => {
       errors: [],
       extensions: ["index.ts"],
     });
-  }, 120_000);
+  });
 });

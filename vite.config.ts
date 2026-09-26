@@ -27,14 +27,11 @@ export default defineConfig({
   run: {
     tasks: {
       // Static checks cache on the files they read; `ready` fans them out, then tests.
-      "check:packages": { command: "node ./scripts/check-package-readiness.ts", output: [] },
-      "check:plannotator-review": {
-        command: "node ./scripts/build-plannotator-review.ts --check",
-        output: [],
-      },
-      "check:readmes": { command: "node ./scripts/check-readmes.ts", output: [] },
-      "check:static": { command: "vp check", output: [] },
-      "check:tests": { command: "node ./scripts/check-tests.ts", output: [] },
+      "check:packages": { command: "node ./scripts/check-package-readiness.ts" },
+      "check:plannotator-review": { command: "node ./scripts/build-plannotator-review.ts --check" },
+      "check:readmes": { command: "node ./scripts/check-readmes.ts" },
+      "check:static": { command: "vp check" },
+      "check:tests": { command: "node ./scripts/check-tests.ts" },
       ready: {
         cache: false,
         command: "vp test",
@@ -107,31 +104,29 @@ export default defineConfig({
     "*": "vp check --fix",
   },
   test: {
-    clearMocks: true,
     environment: "node",
     exclude,
     projects: [
       {
-        extends: true,
         test: {
-          exclude: [...exclude, "**/*.integration.test.ts", "**/*.smoke.test.ts"],
+          exclude: ["**/*.integration.test.ts", "**/*.smoke.test.ts"],
           include: ["**/*.test.ts"],
           name: "unit",
         },
       },
       {
-        extends: true,
         test: {
           include: ["**/*.integration.test.ts"],
           name: "integration",
         },
       },
       {
-        extends: true,
         test: {
           fileParallelism: false,
+          hookTimeout: 120_000,
           include: ["**/*.smoke.test.ts"],
           name: "smoke",
+          testTimeout: 120_000,
         },
       },
     ],

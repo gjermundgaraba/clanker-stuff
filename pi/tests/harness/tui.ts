@@ -102,7 +102,6 @@ export const createIdentityTheme = (): Theme => {
     underline: (text: string) => text,
   };
 
-  // SAFETY: Rendering tests use only these deterministic formatting methods, not Theme's private palette state.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi's nominal theme contract includes private state that this formatting-only test double intentionally does not implement.
   return theme as Theme;
 };
@@ -143,7 +142,6 @@ export const createMockTui = (options: MockTuiOptions = {}): TUI => {
     terminal: { rows: options.rows ?? 40 },
   };
 
-  // SAFETY: Harness consumers use only the implemented overlay methods, requestRender, and terminal.rows.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The test UI implements only overlay ownership and invalidation; no terminal renderer is started.
   return tui as TUI;
 };
@@ -157,7 +155,6 @@ export const createKeybindings = (
       bindings[keybinding]?.some((key) => key === data || matchesKey(data, key)) ?? false,
   };
 
-  // SAFETY: Component tests consume matches/getKeys, not the manager's private persistence state.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Pi exports this nominal manager only as a type; the test double implements the keyboard contract consumed by components.
   return keybindings as KeybindingsManager;
 };

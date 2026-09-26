@@ -44,6 +44,10 @@ function markerPattern(markers: readonly string[]): RegExp {
   );
 }
 
+// A reasoned suppression of the type-aware unsafe-assertion rule already states the invariant.
+const unsafeAssertionSuppression =
+  /^\s*(?:oxlint|eslint)-disable(?:-next-line)?\s+(?:[\w@/-]+\s*,\s*)*typescript\/no-unsafe-type-assertion\s*(?:,\s*[\w@/-]+\s*)*--\s*\S/u;
+
 function hasSafetyJustificationBefore(
   sourceCode: SourceCode,
   owner: ESTree.Node,
@@ -53,7 +57,9 @@ function hasSafetyJustificationBefore(
   return sourceCode
     .getCommentsBefore(owner)
     .some(
-      (comment) => comment.end <= assertion.start && pattern.test(comment.value),
+      (comment) =>
+        comment.end <= assertion.start &&
+        (pattern.test(comment.value) || unsafeAssertionSuppression.test(comment.value)),
     );
 }
 

@@ -132,10 +132,8 @@ export const normalizedSystemPromptOptions = (
   toolSnippets: { ...input.toolSnippets },
 });
 
-// SAFETY: This test-only proxy exposes only implemented members and fails immediately for every other Pi API call.
-const incomplete = <T extends object>(value: Partial<T>): T =>
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The harness deliberately implements a partial Pi API; unimplemented access throws rather than silently succeeding.
-  new Proxy(value, {
+const incomplete = <T extends object>(value: Partial<T>): T => {
+  const proxy = new Proxy(value, {
     // oxlint-disable-next-line anti-slop/no-unknown-returns -- A proxy forwards arbitrary Pi property types; the supplied partial API is checked at construction.
     get(target, property, receiver): unknown {
       if (Reflect.has(target, property)) {
@@ -145,7 +143,11 @@ const incomplete = <T extends object>(value: Partial<T>): T =>
 
       throw new Error(`Extension host does not implement ${String(property)}`);
     },
-  }) as T;
+  });
+
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The harness deliberately implements a partial Pi API; unimplemented access throws rather than silently succeeding.
+  return proxy as T;
+};
 
 const createTurnEndEvent = (event: Partial<TurnEndEvent> = {}): TurnEndEvent => ({
   context: {

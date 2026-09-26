@@ -264,7 +264,6 @@ describe("Code Mode contributions", () => {
           registerFallbackCodexTools(pi);
           sources = () => collectContributions(pi);
           pi.events.on("clanker-codex:sampling-scope-request", (request) => {
-            // SAFETY: The real MCP producer emits this request in this isolated host.
             // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The actual MCP producer is the sole emitter in this isolated test host.
             const typed = request as SamplingScopeRequest;
             typed.resolve(

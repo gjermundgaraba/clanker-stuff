@@ -7,6 +7,8 @@ import { isRecord } from "./service-metrics.mjs";
 import { oracle, score, serviceMetrics } from "./scoring.mjs";
 import { solve } from "/solution/solve.mjs";
 
+/** @typedef {import("@earendil-works/pi-coding-agent").ExtensionContext} ExtensionContext */
+
 const require = createRequire(
   realpathSync("/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/package.json"),
 );
@@ -99,17 +101,17 @@ for (const mode of ["direct", "code"]) {
     const exec = runtime.createTools().find((t) => t.name === "exec");
     assert.ok(exec);
 
-    const context = /** @type {import("@earendil-works/pi-coding-agent").ExtensionContext} */ (
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- These isolated service tools require no Pi session. Fail on every context access so a future dependency cannot silently pass this standalone runtime preflight.
-      new Proxy(
-        {},
-        {
-          get(_target, key) {
-            throw new Error(`Unexpected Pi context access: ${String(key)}`);
-          },
+    const unexpectedContext = new Proxy(
+      {},
+      {
+        get(_target, key) {
+          throw new Error(`Unexpected Pi context access: ${String(key)}`);
         },
-      )
+      },
     );
+
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- These isolated service tools require no Pi session. Fail on every context access so a future dependency cannot silently pass this standalone runtime preflight.
+    const context = /** @type {ExtensionContext} */ (unexpectedContext);
 
     try {
       const r = await exec.execute(
