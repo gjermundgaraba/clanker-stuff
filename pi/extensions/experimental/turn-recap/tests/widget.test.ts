@@ -93,9 +93,7 @@ describe("live widget", () => {
     env.widget.render(80);
     env.metrics.toolCalls = 4;
     env.metrics.usage.input = 110;
-
-    if (!env.metrics.context) throw new Error("Missing fixture");
-    env.metrics.context.tokens = 1100;
+    env.metrics.contextGrowth = 500;
     env.widget.render(80);
     vi.advanceTimersByTime(130);
     const middle = env.widget.render(80);

@@ -32,7 +32,6 @@ interface ActiveRun {
   baseline: string | null;
   timing: ReturnType<typeof createTiming>;
   signal: AbortSignal | undefined;
-  contextStart: number | null;
   outcome: Snapshot["outcome"];
   metrics: Metrics;
 }
@@ -120,12 +119,11 @@ class TurnRecapRuntime {
       baseline: ctx.sessionManager.getLeafId(),
       timing: createTiming(this.#promptActive),
       signal: ctx.signal,
-      contextStart: null,
       outcome: "completed",
       metrics: collectMetrics([]),
     };
 
-    // Measures the starting context, so the first frame already reads +0.
+    // The first frame already reads +0 and shows the window.
     this.refresh(ctx);
     this.#mount(ctx);
   }
@@ -140,14 +138,10 @@ class TurnRecapRuntime {
 
     // A replaced branch must never be charged to the abandoned run.
     if (baseline !== null && index === -1) return;
-    const metrics = collectMetrics(branch.slice(index + 1));
+    const metrics = collectMetrics(branch, index + 1);
     const context = ctx.getContextUsage();
 
-    if (context) {
-      // After compaction Pi knows no size until the next response; the first known size stands in.
-      active.contextStart ??= context.tokens;
-      metrics.context = { ...context, startTokens: active.contextStart };
-    }
+    if (context) metrics.context = context;
 
     active.metrics = metrics;
     this.#requestRender?.();

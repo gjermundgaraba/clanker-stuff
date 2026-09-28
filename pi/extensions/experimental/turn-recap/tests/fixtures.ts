@@ -100,6 +100,28 @@ export const createRecapConfigFile = async (
   return { configPath, directory };
 };
 
+/** A response reporting `prompt` uncached context tokens plus its output. */
+export const measuredResponse = (
+  prompt: number,
+  {
+    output = 50,
+    reasoning = 0,
+    stopReason = "stop",
+    totalTokens = prompt + output,
+  }: { output?: number; reasoning?: number; stopReason?: StopReason; totalTokens?: number } = {},
+): AssistantMessage => ({
+  ...fauxAssistantMessage("answer", { stopReason }),
+  usage: {
+    ...sampleUsage(),
+    input: prompt,
+    output,
+    reasoning,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens,
+  },
+});
+
 export const sampleUsage = () => ({
   input: 100,
   output: 50,
@@ -133,7 +155,8 @@ export const snapshot = (): import("../entry.js").Snapshot => ({
     responses: 2,
     compactions: 1,
     models: ["provider/model"],
-    context: { tokens: 1000, contextWindow: 10000, percent: 10, startTokens: 600 },
+    contextGrowth: 400,
+    context: { tokens: 1000, contextWindow: 10000, percent: 10 },
   },
 });
 

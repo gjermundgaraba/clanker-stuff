@@ -12,7 +12,7 @@ Load `pi/extensions/experimental/turn-recap/index.ts` as a local extension; npm 
 
 - A live row above the editor tracks each run; afterwards its card stays in the chat. Expand tool output (`Ctrl+O`) for details.
 - **Processed** counts reported tokens across the run's model calls, including cache usage; recap generation is excluded.
-- **Context** shows how much the estimated context grew during the run; details also show the whole window.
+- **Context** shows how much the run added to the context, from reported sizes, with compactions counted beside it; details also show the whole window.
 
 ## Configuration
 

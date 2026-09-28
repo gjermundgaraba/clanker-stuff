@@ -75,6 +75,11 @@ describe("odometer wheels", () => {
       progress: 0.5,
     });
     expect(digitTransition("1:59", "2:00", 2, 260)).toBeUndefined();
+    expect(digitTransition("1:59:59", "2:00:00", 2, 130)).toEqual({
+      before: "5",
+      after: "0",
+      progress: 0.5,
+    });
     expect(digitTransition("1.0k", "1.9k", 1, 130)).toBeUndefined();
     expect(digitTransition("1.0k", "1.9k", 0, 130)).toBeUndefined();
   });

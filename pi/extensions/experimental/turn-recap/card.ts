@@ -18,10 +18,15 @@ export type NumericText = (id: string, text: string) => string;
 
 const plain: NumericText = (_id, text) => text;
 
-const number = (value: number): string =>
-  value < 1000 ? String(value) : `${(value / 1000).toFixed(1)}k`;
+const compact = new Intl.NumberFormat("en", {
+  notation: "compact",
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
 
-const signed = (value: number): string => `${value < 0 ? "−" : "+"}${number(Math.abs(value))}`;
+// Lowercase k matches Pi's footer.
+const number = (value: number): string =>
+  value < 1000 ? String(value) : compact.format(value).replace("K", "k");
 
 const clock = (timestamp: number): string =>
   new Date(timestamp).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -38,16 +43,11 @@ const statistics = (
   expanded: boolean,
   numeric: NumericText,
 ): string[] => {
-  const { context } = metrics;
+  const { context, contextGrowth } = metrics;
   const percent = context?.percent;
 
-  // The counter shows growth during this run; details keep the whole window in view.
-  const added =
-    context === undefined
-      ? "unavailable"
-      : context.tokens === null || context.startTokens === null
-        ? "unknown"
-        : numeric("context", signed(context.tokens - context.startTokens));
+  // The counter shows what the run added; details keep the whole window in view.
+  const added = numeric("context", `+${number(contextGrowth)}`);
 
   // Details only appear on finished cards, which never animate.
   const windowDetail =
@@ -58,8 +58,7 @@ const statistics = (
 
   const contextValue = expanded && windowDetail ? `${added} (${windowDetail})` : added;
 
-  const contextTone: Tone =
-    percent != null ? percentTone(percent) : context?.tokens == null ? "muted" : "text";
+  const contextTone: Tone = percent == null ? "text" : percentTone(percent);
 
   return [
     stat(
@@ -71,6 +70,15 @@ const statistics = (
     expanded && context
       ? theme.fg("muted", "Context ") + theme.fg(contextTone, contextValue)
       : stat(theme, contextValue, "context", contextTone),
+    ...(metrics.compactions === 0
+      ? []
+      : [
+          stat(
+            theme,
+            numeric("compactions", String(metrics.compactions)),
+            metrics.compactions === 1 ? "compaction" : "compactions",
+          ),
+        ]),
   ];
 };
 
@@ -180,12 +188,7 @@ export const renderCard = (
       `Input ${number(usage.input)} · Output ${number(usage.output)} · Cache read ${number(usage.cacheRead)} · Cache write ${number(usage.cacheWrite)}`,
     ),
   );
-  add(
-    theme.fg(
-      "muted",
-      `${metrics.responses} responses · ${metrics.toolErrors} tool errors · ${metrics.compactions} compactions`,
-    ),
-  );
+  add(theme.fg("muted", `${metrics.responses} responses · ${metrics.toolErrors} tool errors`));
   add(
     theme.fg(
       "muted",

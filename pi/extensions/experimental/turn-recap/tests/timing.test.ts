@@ -29,6 +29,9 @@ describe("active timing", () => {
     [60_000, "1:00", "1:00"],
     [119_950, "2:00", "1:59"],
     [125_000, "2:05", "2:05"],
+    [3_599_000, "59:59", "59:59"],
+    [3_600_000, "1:00:00", "1:00:00"],
+    [48_012_000, "13:20:12", "13:20:12"],
   ] as const)("formats %i ms", (ms, precise, live) => {
     expect(formatElapsed(ms)).toBe(precise);
     expect(formatElapsed(ms, "seconds")).toBe(live);

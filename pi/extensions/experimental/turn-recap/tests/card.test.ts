@@ -42,7 +42,7 @@ describe("transcript card", () => {
   });
 
   it("separates recap prose from statistics with one blank row", () => {
-    const stats = "  3 tools · 370 processed · +400 context";
+    const stats = "  3 tools · 370 processed · +400 context · 1 compaction";
 
     expect(
       card(
@@ -78,7 +78,7 @@ describe("transcript card", () => {
     expect(card(withRecap({ status: "generating" })).slice(1)).toEqual([
       "  Generating recap…",
       "",
-      "  3 tools · 370 processed · +400 context",
+      "  3 tools · 370 processed · +400 context · 1 compaction",
     ]);
   });
 
@@ -87,11 +87,13 @@ describe("transcript card", () => {
 
     const detailed = card(data, true, 120).join("\n");
 
-    expect(detailed).toContain("3 tools · 370 processed · Context +400 (≈1.0k/10.0k, 10.0%)");
+    expect(detailed).toContain(
+      "3 tools · 370 processed · Context +400 (≈1.0k/10.0k, 10.0%) · 1 compaction",
+    );
     expect(detailed).toContain("Reported cost $0.3300 · Reasoning 10 (included in output)");
     expect(detailed).toContain("Recap only: 370 tokens · $0.3300 reported (excluded above)");
     expect(detailed).toContain("Input 100 · Output 50 · Cache read 200 · Cache write 20");
-    expect(detailed).toContain("2 responses · 1 tool errors · 1 compactions");
+    expect(detailed).toContain("2 responses · 1 tool errors\n");
     expect(detailed).toMatch(/2\.0s wall · 0\.5s waiting · Started /u);
     expect(detailed).toContain("Models: provider/model");
     expect(detailed.match(/context/giu)).toHaveLength(1);
@@ -106,31 +108,54 @@ describe("transcript card", () => {
   });
 
   it.each([
-    { context: undefined, label: "unavailable", detail: "unavailable context" },
+    [0, "  3 tools · 370 processed · +400 context"],
+    [3, "  3 tools · 370 processed · +400 context · 3 compactions"],
+  ])("counts %i compactions next to context only when there are any", (compactions, stats) => {
+    const data = snapshot();
+    data.metrics.compactions = compactions;
+
+    expect(card({ data }).at(-1)).toBe(stats);
+  });
+
+  it.each([
+    [999, "999"],
+    [79_849, "79.8k"],
+    [999_949, "999.9k"],
+    [999_950, "1.0M"],
+    [183_505_012, "183.5M"],
+    [999_950_000, "1.0B"],
+  ])("abbreviates %i processed tokens as %s", (total, text) => {
+    const data = snapshot();
+    data.metrics.usage = {
+      ...data.metrics.usage,
+      input: total,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    };
+
+    expect(card({ data }).at(-1)).toContain(`${text} processed`);
+  });
+
+  it.each([
+    { growth: 0, context: undefined, label: "+0", detail: "+0 context" },
     {
-      context: { tokens: null, contextWindow: 10000, percent: null, startTokens: 600 },
-      label: "unknown",
-      detail: "Context unknown (10.0k window)",
+      growth: 300,
+      context: { tokens: null, contextWindow: 10000, percent: null },
+      label: "+300",
+      detail: "Context +300 (10.0k window)",
     },
     {
-      context: { tokens: 500, contextWindow: 10000, percent: 5, startTokens: null },
-      label: "unknown",
-      detail: "Context unknown (≈500/10.0k, 5.0%)",
-    },
-    {
-      context: { tokens: 0, contextWindow: 10000, percent: 0, startTokens: 0 },
+      growth: 0,
+      context: { tokens: 0, contextWindow: 10000, percent: 0 },
       label: "+0",
       detail: "Context +0 (≈0/10.0k, 0.0%)",
     },
-    {
-      context: { tokens: 400, contextWindow: 10000, percent: 4, startTokens: 1000 },
-      label: "−600",
-      detail: "Context −600 (≈400/10.0k, 4.0%)",
-    },
   ])(
-    "renders $label run growth without confusing missing context with zero",
-    ({ context, label, detail }) => {
+    "renders $label run growth with the window details it has",
+    ({ growth, context, label, detail }) => {
       const data = snapshot();
+      data.metrics.contextGrowth = growth;
 
       if (context === undefined) delete data.metrics.context;
       else data.metrics.context = context;
@@ -146,7 +171,8 @@ describe("transcript card", () => {
 
   it.each([false, true])("colors context by window fullness, expanded=%s", (expanded) => {
     const data = snapshot();
-    data.metrics.context = { tokens: 9000, contextWindow: 10000, percent: 90, startTokens: 8000 };
+    data.metrics.contextGrowth = 1000;
+    data.metrics.context = { tokens: 9000, contextWindow: 10000, percent: 90 };
     const theme = createIdentityTheme();
     const foreground = vi.spyOn(theme, "fg");
 
@@ -198,7 +224,7 @@ describe("live row", () => {
     const theme = createIdentityTheme();
 
     expect(renderLive(running(), 100, theme)).toEqual([
-      "  1s active · 3 tools · 370 processed · +400 context",
+      "  1s active · 3 tools · 370 processed · +400 context · 1 compaction",
     ]);
     expect(renderLive(running(true), 100, theme)[0]).toContain("1s active");
 
@@ -215,10 +241,11 @@ describe("live row", () => {
     const numeric = vi.fn((_id: string, text: string) => text.replace(/\d/gu, "X"));
 
     expect(renderLive(running(), 100, theme, numeric)).toEqual([
-      "  Xs active · X tools · XXX processed · +XXX context",
+      "  Xs active · X tools · XXX processed · +XXX context · X compaction",
     ]);
     expect(numeric.mock.calls.map(([id]) => id).sort()).toEqual([
       "active",
+      "compactions",
       "context",
       "processed",
       "tools",

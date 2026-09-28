@@ -43,11 +43,11 @@ const main = async (): Promise<void> => {
       const tick = Math.floor(elapsed / 1000);
       metrics.toolCalls = 96 + tick;
       metrics.usage.input = 1096 + tick * 10;
+      metrics.contextGrowth = 90 - (tick % 90);
       metrics.context = {
         tokens: 990 - (tick % 90),
         contextWindow: 10000,
         percent: 9.9 - (tick % 90) / 100,
-        startTokens: 900,
       };
 
       return { activeMs: initialElapsedMs + elapsed, paused: false, metrics };

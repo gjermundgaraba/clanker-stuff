@@ -20,6 +20,8 @@ import {
   queuedStream,
   sampleUsage,
   fontManifest,
+  measuredResponse,
+  userMessage,
 } from "./fixtures.js";
 import type { ResponseStep } from "./fixtures.js";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -327,32 +329,18 @@ describe("turn recap runtime", () => {
     },
   );
 
-  it("shows context growth from the first frame", async () => {
-    const env = await setup();
-    const size = { tokens: 500, contextWindow: 1000, percent: 50 };
-    vi.spyOn(env.ctx, "getContextUsage").mockReturnValue(size);
-    env.runtime.begin(env.ctx);
-    expect(env.render()).toContain("+0 context");
-  });
-
-  it("measures context growth from the first known size when the run starts unmeasured", async () => {
+  it("measures growth from the size reported before the run, from +0 on the first frame", async () => {
     const env = await setup();
     await rm(env.configPath);
     await env.runtime.start(env.ctx);
-
-    const sizes = [null, 150, 180].map((tokens) => ({
-      tokens,
-      contextWindow: 1000,
-      percent: tokens === null ? null : tokens / 10,
-    }));
-
-    // Pi reports an unknown size after compaction until the next response.
-    vi.spyOn(env.ctx, "getContextUsage").mockImplementation(() => sizes.shift());
+    env.session.appendMessage(measuredResponse(5000));
     env.runtime.begin(env.ctx);
-    env.runtime.refresh(env.ctx);
+    expect(env.render()).toContain("+0 context");
+    env.session.appendMessage(userMessage("request"));
+    env.session.appendMessage(measuredResponse(9920));
     await env.runtime.settled(env.ctx);
-    expect(env.snapshots()[0]?.metrics.context).toMatchObject({ tokens: 180, startTokens: 150 });
-    expect(env.card()).toContain("+30 context");
+    expect(env.snapshots()[0]?.metrics.contextGrowth).toBe(4920);
+    expect(env.card()).toContain("+4.9k context");
   });
 
   it("recognizes aborts after the before-settle notification", async () => {
@@ -431,7 +419,7 @@ describe("turn recap runtime", () => {
       await env.runtime.settled(env.ctx);
       expect(contextUsage).toHaveBeenCalledTimes(2);
       expect(project).toHaveBeenCalledTimes(2);
-      expect(env.snapshots()[0]?.metrics.context).toEqual({ ...context, startTokens: 60 });
+      expect(env.snapshots()[0]?.metrics.context).toEqual(context);
       expect(env.recaps()).toEqual([]);
       expect(env.stream).not.toHaveBeenCalled();
     },
