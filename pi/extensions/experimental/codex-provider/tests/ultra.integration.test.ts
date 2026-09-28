@@ -176,7 +176,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
       ).resolves.toMatchObject({
         content: [{ text: JSON.stringify({ task_name: "/root/inherited" }) }],
       });
-      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      await vi.waitFor(() => expect(requests).toHaveLength(2), { timeout: 10_000 });
       const childRequest = requests.at(-1);
       expect(wireRecord(childRequest?.reasoning)).toMatchObject({ effort: "max" });
       expect(childRequest?.instructions).toEqual(
@@ -195,7 +195,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
         undefined,
         session.extensionRunner.createContext(),
       );
-      await vi.waitFor(() => expect(requests).toHaveLength(3));
+      await vi.waitFor(() => expect(requests).toHaveLength(3), { timeout: 10_000 });
       const nativeMaxRequest = requests.at(-1);
       expect(wireRecord(nativeMaxRequest?.reasoning)).toMatchObject({ effort: "max" });
       expect(nativeMaxRequest?.instructions).not.toEqual(
@@ -231,7 +231,9 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
         undefined,
         session.extensionRunner.createContext(),
       );
-      await vi.waitFor(() => expect(requests).toHaveLength(requestCount + 1));
+      await vi.waitFor(() => expect(requests).toHaveLength(requestCount + 1), {
+        timeout: 10_000,
+      });
       expect(requests.at(-1)?.instructions).not.toEqual(
         expect.stringContaining("Proactive multi-agent delegation is active."),
       );

@@ -1365,6 +1365,251 @@ describe("Codex provider", () => {
     observability.close();
   });
 
+  it("retries a streamed slow_down failure before publishing output", async () => {
+    let dispatches = 0;
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          dispatches += 1;
+
+          return dispatches === 1
+            ? sse([
+                {
+                  response: { id: "resp_before_slow_down", status: "in_progress" },
+                  type: "response.created",
+                },
+                {
+                  error: { code: "rate_limit_exceeded", message: "rate limited" },
+                  type: "error",
+                },
+                {
+                  response: { error: { code: "slow_down", message: "try again" } },
+                  type: "response.failed",
+                },
+              ])
+            : sse(responseEvents("resp_after_slow_down", "recovered"));
+        },
+        maxRetries: 1,
+        sessionId: "session-stream-slow-down",
+        transport: "sse",
+      })
+      .result();
+
+    expect(dispatches).toBe(2);
+    expect(message).toMatchObject({
+      content: [{ text: "recovered", type: "text" }],
+      responseId: "resp_after_slow_down",
+      stopReason: "stop",
+    });
+  });
+
+  it("does not replay a streamed slow_down failure after publishing output", async () => {
+    let dispatches = 0;
+    const events = responseEvents("resp_partial_slow_down", "partial answer");
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          dispatches += 1;
+
+          return sse([
+            ...events.slice(0, -1),
+            { error: { code: "rate_limit_exceeded", message: "advisory" }, type: "error" },
+            {
+              response: { error: { code: "slow_down", message: "try again" } },
+              type: "response.failed",
+            },
+          ]);
+        },
+        maxRetries: 1,
+        sessionId: "session-partial-slow-down",
+        transport: "sse",
+      })
+      .result();
+
+    expect(dispatches).toBe(1);
+    expect(message).toMatchObject({
+      content: [{ text: "partial answer", type: "text" }],
+      errorMessage: "try again",
+      stopReason: "error",
+    });
+  });
+
+  it("uses response.failed rather than an earlier statusless error to classify a stream", async () => {
+    let dispatches = 0;
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          dispatches += 1;
+
+          return sse([
+            { error: { code: "rate_limit_exceeded", message: "advisory" }, type: "error" },
+            {
+              response: { error: { code: "invalid_prompt", message: "invalid prompt" } },
+              type: "response.failed",
+            },
+          ]);
+        },
+        maxRetries: 1,
+        sessionId: "session-advisory-terminal",
+        transport: "sse",
+      })
+      .result();
+
+    expect(dispatches).toBe(1);
+    expect(message).toMatchObject({ errorMessage: "invalid prompt", stopReason: "error" });
+  });
+
+  it("rejects a statusless advisory error without a terminal response", async () => {
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () =>
+          sse([
+            { response: { id: "resp_advisory", status: "in_progress" }, type: "response.created" },
+            { error: { code: "rate_limit_exceeded", message: "advisory" }, type: "error" },
+          ]),
+        maxRetries: 0,
+        sessionId: "session-advisory-eof",
+        transport: "sse",
+      })
+      .result();
+
+    expect(message).toMatchObject({
+      errorMessage: "OpenAI Responses stream ended before a terminal response event",
+      stopReason: "error",
+    });
+  });
+
+  it("allows a completed response after a statusless advisory error", async () => {
+    const events = responseEvents("resp_advisory_then_success", "success");
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () =>
+          sse([
+            ...events.slice(0, 1),
+            { error: { code: "slow_down", message: "advisory" }, type: "error" },
+            ...events.slice(1),
+          ]),
+        sessionId: "session-advisory-then-success",
+        transport: "sse",
+      })
+      .result();
+
+    expect(message).toMatchObject({
+      content: [{ text: "success", type: "text" }],
+      stopReason: "stop",
+    });
+  });
+
+  it("honors a streamed rate-limit cooldown instead of retrying too early", async () => {
+    let dispatches = 0;
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          dispatches += 1;
+
+          return sse([
+            {
+              response: {
+                error: {
+                  code: "rate_limit_exceeded",
+                  message: "Please try again in 11.054s.",
+                },
+              },
+              type: "response.failed",
+            },
+          ]);
+        },
+        maxRetries: 1,
+        maxRetryDelayMs: 1000,
+        sessionId: "session-stream-rate-limit-hint",
+        transport: "sse",
+      })
+      .result();
+
+    expect(dispatches).toBe(1);
+    expect(message).toMatchObject({
+      errorMessage: "Server requested 12s retry delay (max: 1s)",
+      stopReason: "error",
+    });
+  });
+
+  it("retries an HTTP-style 503 slow_down event before publishing output", async () => {
+    let dispatches = 0;
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          dispatches += 1;
+
+          return dispatches === 1
+            ? sse([
+                {
+                  response: { id: "resp_before_503", status: "in_progress" },
+                  type: "response.created",
+                },
+                {
+                  error: { code: "slow_down", message: "rate limited" },
+                  status: 503,
+                  type: "error",
+                },
+              ])
+            : sse(responseEvents("resp_after_503", "recovered"));
+        },
+        maxRetries: 1,
+        sessionId: "session-sse-503-slow-down",
+        transport: "sse",
+      })
+      .result();
+
+    expect(dispatches).toBe(2);
+    expect(message).toMatchObject({
+      content: [{ text: "recovered", type: "text" }],
+      responseId: "resp_after_503",
+      stopReason: "stop",
+    });
+  });
+
+  it("retries an actual HTTP 503 slow_down response", async () => {
+    let dispatches = 0;
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          dispatches += 1;
+
+          return dispatches === 1
+            ? Response.json(
+                { error: { code: "slow_down", message: "rate limited" } },
+                { headers: { "retry-after-ms": "1" }, status: 503 },
+              )
+            : sse(responseEvents("resp_after_http_503", "recovered"));
+        },
+        maxRetries: 1,
+        sessionId: "session-http-503-slow-down",
+        transport: "sse",
+      })
+      .result();
+
+    expect(dispatches).toBe(2);
+    expect(message).toMatchObject({
+      content: [{ text: "recovered", type: "text" }],
+      stopReason: "stop",
+    });
+  });
+
   it.each([
     {
       attempt: "1|sse|full|discarded|transport_stream|replay_budget_exhausted",
@@ -1461,7 +1706,7 @@ describe("Codex provider", () => {
     observability.close();
   });
 
-  it("caps generic HTTP 429 recovery at one replay", async () => {
+  it("caps generic HTTP 429 recovery at one replay without limiting ordinary backoff", async () => {
     let attempts = 0;
 
     const message = await createCodexProviderRuntime()
@@ -1476,6 +1721,7 @@ describe("Codex provider", () => {
           );
         },
         maxRetries: 2,
+        maxRetryDelayMs: 1,
         sessionId: "session-generic-429",
         transport: "sse",
       })
@@ -1510,7 +1756,64 @@ describe("Codex provider", () => {
           );
         },
         maxRetries: 2,
+        maxRetryDelayMs: 1000,
         sessionId: "session-retry-delay-bound",
+        transport: "sse",
+      })
+      .result();
+
+    expect(attempts).toBe(1);
+    expect(message.errorMessage).toContain("retry delay");
+    expect(message.stopReason).toBe("error");
+  });
+
+  it("treats maxRetryDelayMs zero as no server-advice limit", async () => {
+    let attempts = 0;
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          attempts += 1;
+
+          return attempts === 1
+            ? Response.json(
+                { error: { code: "rate_limit_exceeded", message: "rate limited" } },
+                { headers: { "retry-after-ms": "20" }, status: 429 },
+              )
+            : sse(responseEvents("resp_zero_retry_limit", "recovered"));
+        },
+        maxRetries: 1,
+        maxRetryDelayMs: 0,
+        sessionId: "session-zero-retry-delay-limit",
+        transport: "sse",
+      })
+      .result();
+
+    expect(attempts).toBe(2);
+    expect(message).toMatchObject({
+      content: [{ text: "recovered", type: "text" }],
+      stopReason: "stop",
+    });
+  });
+
+  it("rejects a server cooldown beyond the timer range instead of dispatching early", async () => {
+    let attempts = 0;
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => {
+          attempts += 1;
+
+          return Response.json(
+            { error: { code: "rate_limit", message: "rate limited" } },
+            { headers: { "retry-after-ms": "2147483648" }, status: 429 },
+          );
+        },
+        maxRetries: 1,
+        maxRetryDelayMs: 0,
+        sessionId: "session-retry-delay-timer-overflow",
         transport: "sse",
       })
       .result();
@@ -1868,7 +2171,7 @@ describe("Codex provider", () => {
       .getModels()
       .find((model) => model.id === "gpt-5.6-remote");
 
-    expect(requests[0]?.url).toContain("/codex/models?client_version=0.156.1");
+    expect(requests[0]?.url).toContain("/codex/models?client_version=0.158.0");
     expect({
       liveCatalog: runtime.provider.getModels().map((model) => model.id),
       liveRemoteAfterRepeatedRestore: runtime.provider
@@ -3878,6 +4181,235 @@ describe("Codex provider", () => {
     observability.close();
   });
 
+  it("retries a WebSocket rate-limit failure before publishing response.created", async () => {
+    let sends = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          sends += 1;
+
+          if (sends === 1) {
+            socketMessage(socket, {
+              response: { id: "resp_discarded_slow_down", status: "in_progress" },
+              type: "response.created",
+            });
+            socketMessage(socket, {
+              error: { code: "rate_limit_exceeded", message: "rate limited" },
+              type: "error",
+            });
+            socketMessage(socket, {
+              response: { error: { code: "slow_down", message: "try again" } },
+              type: "response.failed",
+            });
+          } else {
+            for (const event of responseEvents("resp_ws_after_slow_down", "recovered")) {
+              socketMessage(socket, event);
+            }
+          }
+        },
+      }),
+    );
+
+    const observability = new CodexObservability(":memory:");
+    const runtime = createCodexProviderRuntime(observability);
+    const sessionId = "session-websocket-slow-down";
+
+    const message = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        maxRetries: 1,
+        onPayload: markProtocolRetryPayload,
+        sessionId,
+      })
+      .result();
+
+    expect(sends).toBe(2);
+    expect(message).toMatchObject({
+      content: [{ text: "recovered", type: "text" }],
+      responseId: "resp_ws_after_slow_down",
+      stopReason: "stop",
+    });
+    expect(recoveryObservation(observability, sessionId)).toMatchObject({
+      attempts: [
+        "1|websocket|full|discarded|response_retryable|retry_websocket",
+        "2|websocket|full|committed|none|completed",
+      ],
+      inferenceDispatches: 2,
+      sseFallbackActivated: false,
+    });
+    observability.close();
+  });
+
+  it("honors a framed WebSocket Retry-After header ahead of conflicting message advice", async () => {
+    const sentAt: number[] = [];
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          sentAt.push(performance.now());
+
+          if (sentAt.length === 1) {
+            socketMessage(socket, {
+              error: { code: "slow_down", message: "Please try again in 0ms." },
+              headers: { "Retry-After": "2" },
+              status_code: 503,
+              type: "error",
+            });
+
+            return;
+          }
+
+          for (const event of responseEvents("resp_ws_after_header_cooldown", "recovered")) {
+            socketMessage(socket, event);
+          }
+        },
+      }),
+    );
+    const fetch = vi.fn(async () => sse(responseEvents("resp_unexpected_sse", "wrong")));
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        maxRetries: 1,
+        maxRetryDelayMs: 0,
+        onPayload: markProtocolRetryPayload,
+        sessionId: "session-websocket-header-cooldown",
+        timeoutMs: 1000,
+        transport: "websocket",
+      })
+      .result();
+
+    expect(sentAt).toHaveLength(2);
+    expect((sentAt[1] ?? 0) - (sentAt[0] ?? 0)).toBeGreaterThanOrEqual(1900);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(message).toMatchObject({
+      content: [{ text: "recovered", type: "text" }],
+      stopReason: "stop",
+    });
+  });
+
+  it("does not replace a zero WebSocket Retry-After with a longer message delay", async () => {
+    let sends = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          sends += 1;
+
+          if (sends === 1) {
+            socketMessage(socket, {
+              error: { code: "slow_down", message: "Please try again in 40ms." },
+              headers: { "retry-after-ms": 0 },
+              status: 503,
+              type: "error",
+            });
+
+            return;
+          }
+
+          for (const event of responseEvents("resp_ws_after_zero_header", "recovered")) {
+            socketMessage(socket, event);
+          }
+        },
+      }),
+    );
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        maxRetries: 1,
+        maxRetryDelayMs: 20,
+        onPayload: markProtocolRetryPayload,
+        sessionId: "session-websocket-zero-header",
+        transport: "websocket",
+      })
+      .result();
+
+    expect(sends).toBe(2);
+    expect(message).toMatchObject({
+      content: [{ text: "recovered", type: "text" }],
+      stopReason: "stop",
+    });
+  });
+
+  it.each(["invalid\nheader", ""])(
+    "uses narrow rate-limit message advice when a WebSocket header is %j",
+    async (header) => {
+      let sends = 0;
+      vi.stubGlobal(
+        "WebSocket",
+        scriptedWebSocket({
+          send: (socket) => {
+            sends += 1;
+            socketMessage(socket, {
+              error: { code: "slow_down", message: "Please try again in 40ms." },
+              headers: { "retry-after": header },
+              status: 503,
+              type: "error",
+            });
+          },
+        }),
+      );
+
+      const message = await createCodexProviderRuntime()
+        .provider.streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          maxRetries: 1,
+          maxRetryDelayMs: 20,
+          onPayload: markProtocolRetryPayload,
+          sessionId: "session-websocket-message-cooldown",
+          transport: "websocket",
+        })
+        .result();
+
+      expect(sends).toBe(1);
+      expect(message.errorMessage).toContain("retry delay");
+      expect(message.stopReason).toBe("error");
+    },
+  );
+
+  it("does not replay a WebSocket rate-limit failure after publishing output", async () => {
+    let sends = 0;
+    const partialEvents = responseEvents("resp_ws_partial_slow_down", "partial answer");
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          sends += 1;
+
+          for (const event of partialEvents.slice(0, -1)) socketMessage(socket, event);
+
+          socketMessage(socket, {
+            error: { code: "rate_limit_exceeded", message: "advisory" },
+            type: "error",
+          });
+          socketMessage(socket, {
+            response: { error: { code: "slow_down", message: "try again" } },
+            type: "response.failed",
+          });
+        },
+      }),
+    );
+
+    const message = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        maxRetries: 1,
+        onPayload: markProtocolRetryPayload,
+        sessionId: "session-websocket-partial-slow-down",
+      })
+      .result();
+
+    expect(sends).toBe(1);
+    expect(message).toMatchObject({
+      content: [{ text: "partial answer", type: "text" }],
+      errorMessage: "try again",
+      stopReason: "error",
+    });
+  });
+
   it("does not retry a WebSocket protocol error with the default budget", async () => {
     let sends = 0;
     vi.stubGlobal(
@@ -4185,7 +4717,7 @@ describe("Codex provider", () => {
       return attempts === 1
         ? Response.json(
             { error: { code: "rate_limit", message: "try again" } },
-            { headers: { "retry-after-ms": "999999" }, status: 429 },
+            { headers: { "retry-after-ms": "1" }, status: 429 },
           )
         : sse(compactionEvents("resp_retry"));
     });
@@ -4290,6 +4822,11 @@ describe("Codex provider", () => {
       expectedFallback: true,
     },
     {
+      code: "slow_down",
+      expectedAttempts: 3,
+      expectedFallback: false,
+    },
+    {
       code: "unknown_failure",
       expectedAttempts: 3,
       expectedFallback: false,
@@ -4346,6 +4883,181 @@ describe("Codex provider", () => {
         attempts: expectedAttempts,
         fallback: expectedFallback,
       });
+    },
+  );
+
+  it("waits rather than rejecting a long streamed compaction cooldown", async () => {
+    const sessionId = "session-compaction-slow-down-hint";
+    const runtime = createCodexProviderRuntime();
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => sse(responseEvents("resp_setup_cooldown", "ok")),
+        sessionId,
+      })
+      .result();
+
+    let attempts = 0;
+    vi.stubGlobal("fetch", async () => {
+      attempts += 1;
+
+      return sse([
+        {
+          response: {
+            error: { code: "slow_down", message: "Please try again in 90 seconds." },
+          },
+          type: "response.failed",
+        },
+      ]);
+    });
+
+    const controller = new AbortController();
+    const abort = setTimeout(() => controller.abort(), 40);
+
+    try {
+      await expect(
+        runtime.compact({
+          apiKey: SPIKE_API_KEY,
+          authoritativeInput: [],
+          context: context([]),
+          effectiveTokenLimit: 1000,
+          inputPrefix: [],
+          model: SPIKE_MODEL,
+          phase: "pre-sampling",
+          reason: "manual",
+          sessionId,
+          signal: controller.signal,
+          thinkingLevel: "medium",
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(attempts).toBe(1);
+    } finally {
+      clearTimeout(abort);
+    }
+  });
+
+  it("honors Retry-After on HTTP 503 slow_down during compaction", async () => {
+    const sessionId = "session-compaction-http-cooldown";
+    const runtime = createCodexProviderRuntime();
+    await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch: async () => sse(responseEvents("resp_setup_http_cooldown", "ok")),
+        sessionId,
+      })
+      .result();
+
+    let attempts = 0;
+    vi.stubGlobal("fetch", async () => {
+      attempts += 1;
+
+      return attempts === 1
+        ? Response.json(
+            { error: { code: "slow_down", message: "rate limited" } },
+            { headers: { "retry-after-ms": "40" }, status: 503 },
+          )
+        : sse(compactionEvents("resp_after_http_cooldown"));
+    });
+
+    const startedAt = performance.now();
+
+    const result = await runtime.compact({
+      apiKey: SPIKE_API_KEY,
+      authoritativeInput: [],
+      context: context([]),
+      effectiveTokenLimit: 1000,
+      inputPrefix: [],
+      model: SPIKE_MODEL,
+      phase: "pre-sampling",
+      reason: "manual",
+      sessionId,
+      signal: new AbortController().signal,
+      thinkingLevel: "medium",
+    });
+
+    expect(result.responseId).toBe("resp_after_http_cooldown");
+    expect(attempts).toBe(2);
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(30);
+  });
+
+  it.each([
+    { cooldown: "90 seconds", expectAbort: true, label: "long cancellable cooldown" },
+    { cooldown: "40ms", expectAbort: false, label: "short cooldown before SSE" },
+  ])(
+    "honors a WebSocket $label when switching compaction to SSE",
+    async ({ cooldown, expectAbort }) => {
+      const sessionId = `session-compaction-websocket-cooldown-${cooldown}`;
+      const runtime = createCodexProviderRuntime();
+      await runtime.provider
+        .streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch: async () => sse(responseEvents("resp_setup_websocket_cooldown", "ok")),
+          sessionId,
+          transport: "sse",
+        })
+        .result();
+
+      const controller = new AbortController();
+      let abort: ReturnType<typeof setTimeout> | undefined;
+      let sends = 0;
+      vi.stubGlobal(
+        "WebSocket",
+        scriptedWebSocket({
+          send: (socket) => {
+            sends += 1;
+
+            if (sends === 3 && expectAbort) {
+              abort = setTimeout(() => controller.abort(), 80);
+            }
+
+            socketMessage(socket, {
+              response: {
+                error: {
+                  code: "slow_down",
+                  message: sends === 3 ? `Please try again in ${cooldown}.` : "try again in 0ms",
+                },
+              },
+              type: "response.failed",
+            });
+          },
+        }),
+      );
+
+      let sseDispatches = 0;
+      vi.stubGlobal("fetch", async () => {
+        sseDispatches += 1;
+
+        return sse(compactionEvents("resp_early_sse"));
+      });
+
+      const startedAt = performance.now();
+
+      try {
+        const compaction = runtime.compact({
+          apiKey: SPIKE_API_KEY,
+          authoritativeInput: [],
+          context: context([]),
+          effectiveTokenLimit: 1000,
+          inputPrefix: [],
+          model: SPIKE_MODEL,
+          phase: "pre-sampling",
+          reason: "manual",
+          sessionId,
+          signal: controller.signal,
+          thinkingLevel: "medium",
+        });
+
+        if (expectAbort) {
+          await expect(compaction).rejects.toMatchObject({ name: "AbortError" });
+          expect({ sends, sseDispatches }).toStrictEqual({ sends: 3, sseDispatches: 0 });
+        } else {
+          await expect(compaction).resolves.toMatchObject({ responseId: "resp_early_sse" });
+          expect({ sends, sseDispatches }).toStrictEqual({ sends: 3, sseDispatches: 1 });
+          expect(performance.now() - startedAt).toBeGreaterThanOrEqual(30);
+        }
+      } finally {
+        clearTimeout(abort);
+      }
     },
   );
 
@@ -4437,10 +5149,17 @@ describe("Codex provider", () => {
       status: 400,
     },
     {
-      body: { error: { code: "slow_down", message: "slow down" } },
+      body: { error: { code: "server_is_overloaded", message: "overloaded" } },
       expectedAttempts: 1,
       expectedFallback: true,
       label: "HTTP overload",
+      status: 503,
+    },
+    {
+      body: { error: { code: "slow_down", message: "slow down" } },
+      expectedAttempts: 3,
+      expectedFallback: false,
+      label: "HTTP rate-limit slowdown",
       status: 503,
     },
   ])(

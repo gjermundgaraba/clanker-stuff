@@ -76,7 +76,7 @@ import { parseSseEvents } from "./sse.js";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
-const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 const PREMATURE_RESPONSE_STREAM_ERROR =
   "OpenAI Responses stream ended before a terminal response event";
@@ -294,6 +294,7 @@ type InferenceAttemptFailureClass =
   | "protocol_connection_limit"
   | "protocol_missing_continuation"
   | "protocol_terminal"
+  | "response_retryable"
   | "transport_dispatch"
   | "transport_stream";
 
@@ -426,6 +427,10 @@ const classifyInferenceAttemptFailure = (
 
     if (error.status !== undefined) {
       return error.retryable ? "http_retryable" : "http_terminal";
+    }
+
+    if (error.retryable && RATE_LIMIT_FAILURE_CODES.has(error.code ?? "")) {
+      return "response_retryable";
     }
 
     return "protocol_terminal";
@@ -1059,6 +1064,8 @@ class CodexProviderError extends Error {
   readonly body: string | undefined;
   readonly code: string | undefined;
   readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
+  readonly retryAt: number | undefined;
   readonly status: number | undefined;
   readonly useCurrentModelFallback: boolean;
 
@@ -1069,12 +1076,15 @@ class CodexProviderError extends Error {
     status?: number,
     body?: string,
     useCurrentModelFallback = false,
+    retryAfterMs?: number,
   ) {
     super(message);
     this.name = "CodexProviderError";
     this.body = body;
     this.code = code;
     this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs;
+    this.retryAt = retryAfterMs === undefined ? undefined : performance.now() + retryAfterMs;
     this.status = status;
     this.useCurrentModelFallback = useCurrentModelFallback;
   }
@@ -1091,6 +1101,8 @@ const RETRYABLE_WEBSOCKET_ERROR_CODES = new Set([
   "previous_response_not_found",
   "websocket_connection_limit_reached",
 ]);
+
+const RATE_LIMIT_FAILURE_CODES = new Set(["rate_limit_exceeded", "slow_down"]);
 
 const TERMINAL_QUOTA_ERROR_CODES = new Set([
   "credit_balance_exhausted",
@@ -1124,11 +1136,51 @@ const responseFailureClassification = (code: string | undefined) => {
     return { retryable: false, useCurrentModelFallback: true };
   }
 
-  if (code === "server_is_overloaded" || code === "slow_down") {
+  if (code === "server_is_overloaded") {
     return { retryable: false, useCurrentModelFallback: true };
   }
 
   return { retryable: true, useCurrentModelFallback: false };
+};
+
+const rateLimitMessageDelay = (code: string | undefined, message: string): number | undefined => {
+  if (!RATE_LIMIT_FAILURE_CODES.has(code ?? "")) {
+    return undefined;
+  }
+
+  const match = /try again in\s*(\d+(?:\.\d+)?)\s*(ms|seconds?|s)\b/i.exec(message);
+
+  if (match === null) return undefined;
+
+  const value = Number(match[1]);
+
+  if (!Number.isFinite(value)) return undefined;
+
+  return Math.ceil(value * (match[2]?.toLowerCase() === "ms" ? 1 : 1000));
+};
+
+const errorEventDetails = (event: JsonRecord) => {
+  const nested = isRecord(event.error) ? event.error : undefined;
+
+  const status =
+    typeof event.status === "number" && Number.isFinite(event.status)
+      ? event.status
+      : typeof event.status_code === "number" && Number.isFinite(event.status_code)
+        ? event.status_code
+        : typeof nested?.status === "number" && Number.isFinite(nested.status)
+          ? nested.status
+          : undefined;
+
+  const code = [event.code, nested?.code, nested?.type].find((value) => typeof value === "string");
+
+  const message =
+    typeof event.message === "string"
+      ? event.message
+      : typeof nested?.message === "string"
+        ? nested.message
+        : code;
+
+  return { code, message, nested, status };
 };
 
 const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
@@ -1141,29 +1193,14 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
   }
 
   if (event.type === "error") {
-    const nested = isRecord(event.error) ? event.error : undefined;
-
-    const status =
-      typeof event.status === "number" && Number.isFinite(event.status)
-        ? event.status
-        : typeof nested?.status === "number" && Number.isFinite(nested?.status)
-          ? nested.status
-          : undefined;
+    const { code, message, nested, status } = errorEventDetails(event);
 
     if (status !== undefined) {
-      throw responseError(status, JSON.stringify({ error: nested ?? event }));
+      const retryAfterMs =
+        retryDelayFromEventHeaders(event.headers) ?? rateLimitMessageDelay(code, message ?? "");
+
+      throw responseError(status, JSON.stringify({ error: nested ?? event }), retryAfterMs);
     }
-
-    const code = [event.code, nested?.code, nested?.type].find(
-      (value) => typeof value === "string",
-    );
-
-    const message =
-      typeof event.message === "string"
-        ? event.message
-        : typeof nested?.message === "string"
-          ? nested.message
-          : code;
 
     const resolvedMessage = message ?? "Codex request failed";
     throw new CodexProviderError(
@@ -1186,6 +1223,7 @@ const mapCodexEvent = (event: JsonRecord, output?: AssistantMessage) => {
       undefined,
       undefined,
       classification.useCurrentModelFallback,
+      rateLimitMessageDelay(code, message),
     );
   }
 
@@ -1323,16 +1361,20 @@ const terminalTurnState = (event: JsonRecord): string | undefined => {
   return undefined;
 };
 
-const retryDelay = (response: Response, attempt: number) => {
-  const milliseconds = response.headers.get("retry-after-ms");
+const retryDelayFromHeaders = (headers: Headers): number | undefined => {
+  const milliseconds = headers.get("retry-after-ms");
 
-  if (milliseconds !== null && Number.isFinite(Number(milliseconds))) {
+  if (
+    milliseconds !== null &&
+    milliseconds.trim().length > 0 &&
+    Number.isFinite(Number(milliseconds))
+  ) {
     return Math.max(0, Number(milliseconds));
   }
 
-  const retryAfter = response.headers.get("retry-after");
+  const retryAfter = headers.get("retry-after");
 
-  if (retryAfter !== null) {
+  if (retryAfter !== null && retryAfter.trim().length > 0) {
     const seconds = Number(retryAfter);
 
     if (Number.isFinite(seconds)) {
@@ -1346,7 +1388,72 @@ const retryDelay = (response: Response, attempt: number) => {
     }
   }
 
-  return 1000 * 2 ** attempt;
+  return undefined;
+};
+
+const retryDelayFromEventHeaders = (value: unknown): number | undefined => {
+  if (!isRecord(value)) return undefined;
+
+  const headers = new Headers();
+
+  for (const [name, header] of Object.entries(value)) {
+    const normalizedName = name.toLowerCase();
+
+    if (
+      (normalizedName === "retry-after" || normalizedName === "retry-after-ms") &&
+      (typeof header === "string" || typeof header === "number" || typeof header === "boolean")
+    ) {
+      try {
+        headers.set(normalizedName, String(header));
+      } catch {
+        // Invalid frame header values are not retry advice.
+      }
+    }
+  }
+
+  return retryDelayFromHeaders(headers);
+};
+
+const waitForRetry = async (
+  error: Error,
+  fallbackMs: number,
+  signal: AbortSignal | undefined,
+  maxDelayMs?: number,
+) => {
+  const advisedMs =
+    error instanceof CodexProviderError && error.retryAt !== undefined
+      ? Math.max(0, Math.ceil(error.retryAt - performance.now()))
+      : undefined;
+
+  const waitMs = advisedMs ?? fallbackMs;
+
+  const limit =
+    advisedMs === undefined || maxDelayMs === undefined || maxDelayMs === 0
+      ? MAX_TIMER_DELAY_MS
+      : Math.min(maxDelayMs, MAX_TIMER_DELAY_MS);
+
+  if (
+    (error instanceof CodexProviderError &&
+      error.retryAfterMs !== undefined &&
+      error.retryAfterMs > limit) ||
+    (maxDelayMs !== undefined && (!Number.isSafeInteger(maxDelayMs) || maxDelayMs < 0)) ||
+    !Number.isSafeInteger(waitMs) ||
+    waitMs < 0 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 0 ||
+    waitMs > limit
+  ) {
+    throw new CodexProviderError(
+      `Server requested ${Math.ceil(waitMs / 1000)}s retry delay (max: ${Math.ceil(limit / 1000)}s)`,
+      error instanceof CodexProviderError ? error.code : undefined,
+    );
+  }
+
+  signal?.throwIfAborted();
+
+  if (waitMs > 0) {
+    await delay(waitMs, undefined, { signal });
+  }
 };
 
 const responseErrorClassification = (status: number, code: string | undefined, body: string) => {
@@ -1372,8 +1479,12 @@ const responseErrorClassification = (status: number, code: string | undefined, b
     };
   }
 
-  if (status === 503 && (code === "server_is_overloaded" || code === "slow_down")) {
+  if (status === 503 && code === "server_is_overloaded") {
     return { retryable: false, useCurrentModelFallback: true };
+  }
+
+  if (status === 503 && code === "slow_down") {
+    return { retryable: true, useCurrentModelFallback: false };
   }
 
   if (status >= 400 && status < 500) {
@@ -1389,7 +1500,7 @@ const responseErrorClassification = (status: number, code: string | undefined, b
   };
 };
 
-const responseError = (status: number, text: string) => {
+const responseError = (status: number, text: string, retryAfterMs?: number) => {
   try {
     const parsed: unknown = JSON.parse(text);
     const error = isRecord(parsed) && isRecord(parsed.error) ? parsed.error : undefined;
@@ -1411,6 +1522,7 @@ const responseError = (status: number, text: string) => {
         status,
         text,
         classification.useCurrentModelFallback,
+        retryAfterMs,
       );
     }
   } catch {
@@ -1426,6 +1538,7 @@ const responseError = (status: number, text: string) => {
     status,
     text,
     classification.useCurrentModelFallback,
+    retryAfterMs,
   );
 };
 
@@ -1774,6 +1887,37 @@ async function* bufferInitialResponseCreated(
   }
 }
 
+async function* raiseResponseFailureBeforePublication(
+  events: AsyncIterable<JsonRecord>,
+  capture: ResponseCapture,
+): AsyncGenerator<JsonRecord> {
+  for await (const event of events) {
+    if (event.type === "error") {
+      const { code, status } = errorEventDetails(event);
+
+      // Generic statusless errors are advisory: the following response.failed
+      // owns classification. Keep protocol recovery and flex errors immediate.
+      if (
+        status === undefined &&
+        code !== "flex_unavailable" &&
+        !RETRYABLE_WEBSOCKET_ERROR_CODES.has(code ?? "")
+      ) {
+        continue;
+      }
+    }
+
+    // An error can follow response.created without any model output. Classify it
+    // before the pending created event is published so a safe replay remains possible.
+    if (event.type === "response.failed" || event.type === "error") {
+      // Failure usage remains billable even when the event is not published.
+      captureEvent(capture, event);
+      mapCodexEvent(event);
+    }
+
+    yield event;
+  }
+}
+
 const applyTurnHeaders = (headers: Headers, body: JsonRecord, session: SessionRuntime) => {
   const clientMetadata = isRecord(body.client_metadata) ? body.client_metadata : undefined;
   const metadata = clientMetadata?.["x-codex-turn-metadata"];
@@ -1809,6 +1953,7 @@ const sseEvents = async function* sseEvents(
   session: SessionRuntime,
   requestId: string,
   trace: RequestTrace,
+  capture: ResponseCapture,
   responsesLite = false,
   maxRetries = options?.maxRetries ?? 0,
   redirect: "error" | "follow" | "manual" = "follow",
@@ -1839,7 +1984,6 @@ const sseEvents = async function* sseEvents(
   while (true) {
     let dispatchFailed = false;
     let replayUnsafe = false;
-    let retryResponse: Response | undefined;
 
     if (isAborted(options?.signal)) {
       throw new Error("Request was aborted");
@@ -1916,7 +2060,7 @@ const sseEvents = async function* sseEvents(
         let terminal = false;
 
         for await (const event of bufferInitialResponseCreated(
-          parseSseEvents(response, options?.signal),
+          raiseResponseFailureBeforePublication(parseSseEvents(response, options?.signal), capture),
           attempt,
         )) {
           terminal ||= isTerminalResponseEvent(event);
@@ -1924,7 +2068,7 @@ const sseEvents = async function* sseEvents(
           yield event;
         }
 
-        if (recovery !== undefined && !terminal) {
+        if (!terminal) {
           throw new Error(PREMATURE_RESPONSE_STREAM_ERROR);
         }
 
@@ -1934,8 +2078,7 @@ const sseEvents = async function* sseEvents(
       }
 
       const text = await response.text();
-      retryResponse = response;
-      throw responseError(response.status, text);
+      throw responseError(response.status, text, retryDelayFromHeaders(response.headers));
     } catch (error) {
       const resolvedError = error instanceof Error ? error : new Error(String(error));
 
@@ -1957,7 +2100,9 @@ const sseEvents = async function* sseEvents(
 
       const retryable =
         resolvedError instanceof CodexProviderError
-          ? resolvedError.status !== undefined && resolvedError.retryable
+          ? resolvedError.retryable &&
+            (resolvedError.status !== undefined ||
+              RATE_LIMIT_FAILURE_CODES.has(resolvedError.code ?? ""))
           : true;
 
       if (!retryable) {
@@ -1976,37 +2121,20 @@ const sseEvents = async function* sseEvents(
         throw resolvedError;
       }
 
-      const retryWait =
-        retryResponse === undefined
-          ? 1000 * 2 ** attemptIndex
-          : retryDelay(retryResponse, attemptIndex);
-
-      const cap = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
-
-      if (
-        !Number.isSafeInteger(retryWait) ||
-        retryWait > 2_147_483_647 ||
-        (cap > 0 && retryWait > cap)
-      ) {
-        const retryDelayError = new CodexProviderError(
-          `Server requested ${Math.ceil(retryWait / 1000)}s retry delay (max: ${Math.ceil(cap / 1000)}s)`,
+      try {
+        await waitForRetry(
+          resolvedError,
+          Math.min(1000 * 2 ** attemptIndex, 60_000),
+          options?.signal,
+          options?.maxRetryDelayMs,
         );
-
+      } catch (waitError) {
         finishInferenceAttempt(
           attempt,
-          classifyInferenceAttemptFailure(retryDelayError, options?.signal),
-          "surfaced",
+          isAborted(options?.signal) ? "abort" : failureClass,
+          isAborted(options?.signal) ? "aborted" : "surfaced",
         );
-        throw retryDelayError;
-      }
-
-      try {
-        await delay(retryWait, undefined, {
-          signal: options?.signal,
-        });
-      } catch (delayError) {
-        finishInferenceAttempt(attempt, "abort", "aborted");
-        throw delayError;
+        throw waitError;
       }
 
       finishInferenceAttempt(attempt, failureClass, "retry_sse");
@@ -2123,10 +2251,13 @@ const websocketEvents = async function* websocketEvents(
         }
 
         for await (const event of bufferInitialResponseCreated(
-          parseWebSocket(
-            socket,
-            options?.signal,
-            normalizeTimeout(options?.timeoutMs, "timeoutMs"),
+          raiseResponseFailureBeforePublication(
+            parseWebSocket(
+              socket,
+              options?.signal,
+              normalizeTimeout(options?.timeoutMs, "timeoutMs"),
+            ),
+            capture,
           ),
           attempt,
         )) {
@@ -2165,6 +2296,35 @@ const websocketEvents = async function* websocketEvents(
         if (emitted) {
           finishInferenceAttempt(attempt, failureClass, "fail_closed");
           throw error;
+        }
+
+        if (
+          generate &&
+          recovery !== undefined &&
+          resolvedError instanceof CodexProviderError &&
+          resolvedError.retryable &&
+          RATE_LIMIT_FAILURE_CODES.has(code ?? "")
+        ) {
+          if (!hasInferenceDispatchCapacity(recovery)) {
+            finishInferenceAttempt(attempt, failureClass, "replay_budget_exhausted");
+            throw error;
+          }
+
+          releaseSocket(session, socket, false);
+
+          try {
+            await waitForRetry(resolvedError, 1000, options?.signal, options?.maxRetryDelayMs);
+          } catch (waitError) {
+            finishInferenceAttempt(
+              attempt,
+              isAborted(options?.signal) ? "abort" : failureClass,
+              isAborted(options?.signal) ? "aborted" : "surfaced",
+            );
+            throw waitError;
+          }
+
+          finishInferenceAttempt(attempt, failureClass, "retry_websocket");
+          continue;
         }
 
         if (code === "previous_response_not_found" && !retriedMissingContinuation) {
@@ -2389,6 +2549,7 @@ export const createCodexProviderRuntime = (
       session,
       requestId,
       trace,
+      capture,
       responsesLite,
       recovery === undefined ? (options?.maxRetries ?? 0) : recovery.budget,
       redirect,
@@ -2607,31 +2768,35 @@ export const createCodexProviderRuntime = (
             throw error;
           }
 
-          if (
+          const unavailable =
             configuredWebsocketTransport !== undefined &&
             attempt < websocketAttempts &&
-            error instanceof WebSocketUnavailableError
-          ) {
-            activateSseFallback(session, trace);
-            attempt = websocketAttempts - 1;
-            continue;
-          }
+            error instanceof WebSocketUnavailableError;
 
-          if (configuredWebsocketTransport !== undefined && attempt + 1 === websocketAttempts) {
-            activateSseFallback(session, trace);
-            continue;
-          }
+          const switchToSse =
+            unavailable ||
+            (configuredWebsocketTransport !== undefined && attempt + 1 === websocketAttempts);
 
-          if (attempt === maxAttempts - 1) {
+          if (!switchToSse && attempt === maxAttempts - 1) {
             throw error;
           }
 
           const transportAttempt =
             attempt < websocketAttempts ? attempt : attempt - websocketAttempts;
 
-          await delay(transportAttempt === 0 ? 500 : 1000, undefined, {
-            signal: request.signal,
-          });
+          await waitForRetry(
+            error instanceof Error ? error : new Error(String(error)),
+            switchToSse ? 0 : transportAttempt === 0 ? 500 : 1000,
+            request.signal,
+          );
+
+          if (switchToSse) {
+            activateSseFallback(session, trace);
+
+            if (unavailable) {
+              attempt = websocketAttempts - 1;
+            }
+          }
         }
       }
 
