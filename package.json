@@ -25,7 +25,7 @@
     "runtime": {
       "name": "node",
       "version": "26.8.2",
-      "onFail": "ignore"
+      "onFail": "download"
     }
   },
   "engines": {
