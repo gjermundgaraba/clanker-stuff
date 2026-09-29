@@ -24,7 +24,7 @@ const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";
 const MODEL_CACHE_TTL_MS = 300_000;
 
 // Catalog compatibility target, not the Pi application version. Older queries hide GPT-6 Sol/Luna.
-const MODEL_CLIENT_VERSION = "0.158.0";
+const MODEL_CLIENT_VERSION = "0.159.0";
 
 const MODEL_CACHE_METADATA_FIELD = "codexProviderMetadata";
 

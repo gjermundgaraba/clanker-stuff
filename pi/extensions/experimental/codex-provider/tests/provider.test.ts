@@ -2171,7 +2171,7 @@ describe("Codex provider", () => {
       .getModels()
       .find((model) => model.id === "gpt-5.6-remote");
 
-    expect(requests[0]?.url).toContain("/codex/models?client_version=0.158.0");
+    expect(requests[0]?.url).toContain("/codex/models?client_version=0.159.0");
     expect({
       liveCatalog: runtime.provider.getModels().map((model) => model.id),
       liveRemoteAfterRepeatedRestore: runtime.provider
