@@ -1,6 +1,6 @@
 # Turn-recap design
 
-Turn-recap combines run accounting, live timing, and optional conversation catch-up. A one-row TUI widget exists only while a run is active; each settled run becomes one transcript card through an entry renderer, and its recap fills in that card when it arrives. It uses the public Pi 0.87.1 extension APIs and does not replace the editor or footer.
+Turn-recap combines run accounting, live timing, and optional conversation catch-up. A one-row TUI widget exists only while a run is active; each settled run becomes one transcript card through an entry renderer, and its recap fills in that card when it arrives. It uses the public Pi extension APIs from the workspace baseline and does not replace the editor or footer.
 
 ## Responsibilities
 

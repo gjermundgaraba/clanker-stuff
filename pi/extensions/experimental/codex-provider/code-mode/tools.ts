@@ -1,10 +1,8 @@
-// Tool descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ./NOTICE and ./UPSTREAM.
+// Tool descriptions were adapted from OpenAI Codex (Apache-2.0); see ../NOTICE and ../UPSTREAM.
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
-import { sumUsages } from "@clanker-stuff/code-mode-tools";
-import type { ToolAccounting } from "@clanker-stuff/code-mode-tools";
-import { validateToolArguments } from "@earendil-works/pi-ai";
+import { structuralSchema } from "@clanker-stuff/pi-tool-schema";
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition, ToolLoadout } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -24,71 +22,37 @@ import type {
   RuntimeContentItem,
   RuntimeResponse,
   RuntimeToolResult,
+  ToolMetadata,
 } from "./types.js";
-
-const DEFAULT_WAIT_MS = 10_000;
 
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 
-const strict = { additionalProperties: false } as const;
-
-const EXEC_PARAMETERS = Type.Object({ code: Type.String() }, strict);
-
-const WAIT_PARAMETERS = Type.Object(
-  {
-    cell_id: Type.String(),
-    max_tokens: Type.Optional(
-      Type.Integer({
-        default: DEFAULT_CODE_MODE_OUTPUT_TOKENS,
-        maximum: MAX_CODE_MODE_OUTPUT_TOKENS,
-        minimum: 1,
-      }),
-    ),
-    terminate: Type.Optional(Type.Boolean()),
-    yield_time_ms: Type.Optional(Type.Integer({ default: DEFAULT_WAIT_MS, minimum: 0 })),
-  },
-  strict,
+const EXEC_PARAMETERS = structuralSchema(
+  Type.Object({ code: Type.String() }, { additionalProperties: false }),
 );
 
 const EXEC_DESCRIPTION = `Run JavaScript code to orchestrate/compose tool calls
-- Evaluates the provided JavaScript code in a fresh V8 isolate as an async module.
-- All nested tools are available on the global \`tools\` object, for example \`await tools.exec_command(...)\`.
-- Nested tool methods take either a string or an object as their input argument.
-- Nested tools return either an object or a string, based on the description.
-- Runs raw JavaScript -- no Node, no file system, no network access, no console.
-- Accepts raw JavaScript source text, not JSON, quoted strings, or markdown code fences.
-- You may optionally start the tool input with a first-line pragma like \`// @exec: {"yield_time_ms": 10000, "max_output_tokens": 1000}\`.
-- \`yield_time_ms\` asks \`exec\` to yield early if the script is still running. Defaults to 10000 ms.
-- \`max_output_tokens\` sets the token budget for direct \`exec\` results. Defaults to 10000 tokens.
-- When the JS code is fully evaluated, the isolate's lifetime ends and unawaited promises are silently discarded.
-
-- Global helpers:
-- \`exit()\`: Immediately ends the current script successfully (like an early return from the top level).
-- \`text(value: string | number | boolean | undefined | null)\`: Appends a text item. Non-string values are stringified with \`JSON.stringify(...)\` when possible.
-- \`image(imageUrlOrItem, detail?)\`: Appends an image item. \`image_url\` should be a base64-encoded \`data:\` URL.
-- \`generatedImage(result: { image_url: string; output_hint?: string })\`: Appends an image-generation result and its optional output hint. HTTP(S) URLs are not supported.
-- \`store(key: string, value: any)\`: Stores a serializable value under a string key for later \`exec\` calls in the same session.
-- \`load(key: string)\`: Returns the stored value for a string key, or \`undefined\` if it is missing.
-- \`notify(value: string | number | boolean | undefined | null)\`: Immediately emits output for the current \`exec\` call. Values are stringified like \`text(...)\`.
-- \`setTimeout(callback: () => void, delayMs?: number)\`: Schedules a callback and returns a timeout id. Pending timeouts do not keep \`exec\` alive; await an explicit promise if needed.
-- \`clearTimeout(timeoutId?: number)\`: Cancels a timeout created by \`setTimeout\`.
-- \`ALL_TOOLS\`: Metadata for the enabled nested tools as \`{ name, description }\` entries.
-- \`yield_control()\`: Yields accumulated output immediately while the script keeps running.`;
-
-const WAIT_DESCRIPTION = `- Use \`wait\` only after \`exec\` returns a running cell ID.
-- \`cell_id\` identifies the running \`exec\` cell to resume.
-- \`yield_time_ms\` controls how long to wait for more output before yielding again. Defaults to 10000 ms.
-- \`max_tokens\` limits how much new output this wait call returns. Defaults to 10000 tokens.
-- \`terminate: true\` stops the running cell; false or omitted waits for output.
-- \`wait\` returns only new output since the last yield, or the final completion or termination result.
-- If the cell is still running, \`wait\` may yield again with the same \`cell_id\`.
-- If the cell has already finished, \`wait\` returns the completed result and closes the cell.`;
+- Evaluates raw JavaScript in a fresh V8 isolate as an async module, with top-level await.
+- Calls tools through the global tools object, for example await tools.exec_command({ cmd: "pwd" }).
+- Nested calls use Pi's validation, permission hooks, cancellation, and execution policy.
+- Function tools take an argument object; freeform tools take a string.
+- Tools with an output schema return structured data; other tools return text or an image.
+- No Node, file system, network access, or console is available in the isolate.
+- The exec call stays active until the script completes, fails, or is cancelled. There is no wait tool.
+- Long-running work should use exec_command process sessions or background task tools.
+- An optional first-line pragma // @exec: {"max_output_tokens": 1000} sets the output budget (default 10000).
+- text(value) appends output; image(dataUrlOrImage) displays an image; generatedImage(result) displays result.image_url.
+- exit() ends the script successfully. Earlier tool side effects are not undone on failure.
+- store(key, value) and load(key) retain JSON values between scripts in this host session.
+- notify(value) emits live output. yield_control() publishes accumulated output without ending exec.
+- setTimeout(callback, delayMs) and clearTimeout(id) are available. Await timers you need to keep alive.
+- ALL_TOOLS lists enabled nested tools as { name, description }.
+- When the script ends, unawaited work is cancelled and settled before exec returns.`;
 
 const EXEC_GRAMMAR = String.raw`
 start: pragma_source | plain_source
 pragma_source: PRAGMA_LINE NEWLINE SOURCE
 plain_source: SOURCE
-
 PRAGMA_LINE: /[ \t]*\/\/ @exec:[^\r\n]*/
 NEWLINE: /\r?\n/
 SOURCE: /[\s\S]+/
@@ -99,18 +63,11 @@ export const EXEC_CONSTRAINED_SAMPLING = {
   variants: { openai_lark: EXEC_GRAMMAR },
 } as const;
 
-export interface CodeModeToolDescriptor {
-  readonly definition: ToolDefinition;
-  readonly namespace?: string;
-  readonly outputSchema?: unknown;
-  readonly resultMode?: "content";
-  readonly takeAccounting?: (id: string) => ToolAccounting | undefined;
-}
-
 type CodeModeClientFactory = (signal: AbortSignal) => Promise<CodeModeHostClient>;
 
 export interface CodeModeRuntimeOptions {
   createClient?: CodeModeClientFactory;
+  renderers?: readonly ToolMetadata[];
 }
 
 const createCodeModeHostClient: CodeModeClientFactory = async (signal) => {
@@ -119,318 +76,215 @@ const createCodeModeHostClient: CodeModeClientFactory = async (signal) => {
     import("./host-client.js"),
   ]);
 
-  const binary = await ensureCodeModeHostBinary(signal);
-
-  return new CodeModeHostClient(binary);
+  return new CodeModeHostClient(await ensureCodeModeHostBinary(signal));
 };
 
 export class CodeModeRuntime {
   private readonly client;
-  private nestedToolDescriptors: readonly CodeModeToolDescriptor[] = [];
-  private readonly accounting = new Map<string, ToolAccounting[]>();
-  private readonly observedAccounting = new Map<
-    string,
-    { cellId: string; entries: ToolAccounting[] }
-  >();
-
-  private observeAccounting(id: string, cellId: string): void {
-    const entries = this.accounting.get(cellId);
-
-    if (!entries) return;
-    this.accounting.delete(cellId);
-    this.observedAccounting.set(id, { cellId, entries });
-  }
-
-  takeAccounting(id: string): ToolAccounting | undefined {
-    const observed = this.observedAccounting.get(id);
-    this.observedAccounting.delete(id);
-
-    if (!observed) return undefined;
-    const { cellId, entries } = observed;
-    const usage = sumUsages(entries.flatMap((entry) => (entry.usage ? [entry.usage] : [])));
-
-    return { ...(usage ? { usage } : {}), details: { cellId, entries } };
-  }
+  private tools: NestedTool[] = [];
+  private readonly renderers: ReadonlyMap<string, ToolMetadata>;
 
   constructor(options: CodeModeRuntimeOptions = {}) {
     this.client = createLazySingleton(options.createClient ?? createCodeModeHostClient);
+    this.renderers = new Map((options.renderers ?? []).map((tool) => [tool.name, tool]));
   }
 
   createTools(): ToolDefinition[] {
-    return [this.createExecTool(), this.createWaitTool()];
+    return [this.createExecTool()];
   }
 
-  private currentByName = () =>
-    new Map(this.nestedTools().map((tool) => [tool.definition.name, tool] as const));
-
-  createExecTool(prompt = this.prompt()): ToolDefinition {
+  createExecTool(nestedOnly: () => boolean = () => true): ToolDefinition {
     return defineTool({
+      name: "exec",
+      label: "Exec",
+      exposure: "model-only",
+      defaultActive: false,
       constrainedSampling: EXEC_CONSTRAINED_SAMPLING,
-      description: `${EXEC_DESCRIPTION}
+      parameters: EXEC_PARAMETERS,
+      description: EXEC_DESCRIPTION,
+      prepareLoadout: (loadout) => {
+        this.tools = this.loadoutTools(loadout);
 
-${prompt}`,
-      execute: async (id, params, signal, onUpdate, ctx) => {
-        const client = await this.getClient(signal);
-        let cellId: string | undefined;
+        const sections = this.tools
+          .toSorted((left, right) => left.name.localeCompare(right.name))
+          .map(
+            (tool) =>
+              `### \`${tool.name}\`\n${tool.definition.description}\n${(tool.definition.promptGuidelines ?? []).join("\n")}\nParameters: ${JSON.stringify(tool.definition.parameters)}\nUsage: \`${tool.usage}\``,
+          );
 
-        try {
-          const response = await client.execute(
+        return {
+          descriptions: {
+            exec: `${EXEC_DESCRIPTION}\n\nTools available in exec:\n\n${sections.join("\n\n")}`,
+          },
+          hiddenDeclarations: nestedOnly()
+            ? loadout.declared
+                .filter((tool) => loadout.callable.some((callable) => callable.name === tool.name))
+                .map((tool) => tool.name)
+            : [],
+        };
+      },
+      execute: async (_id, params, signal, onUpdate, ctx) => {
+        signal?.throwIfAborted();
+        const client = await raceWithAbortSignal(this.client.load(), operationSignal(signal));
+        signal?.throwIfAborted();
+
+        if (!client) throw new Error("Code Mode runtime is stopped");
+
+        // Resolve the inventory at execution entry, not from a retained executable snapshot.
+        const tools = checkedToolNames(
+          ctx.tools.map((tool) =>
+            toNestedTool(
+              tool,
+              this.tools.find((nested) => nested.definition.name === tool.name)?.namespace,
+            ),
+          ),
+        );
+
+        return toCodeModeToolResult(
+          await client.execute(
             params.code,
             {
               extensionContext: ctx,
               ...(onUpdate !== undefined ? { onUpdate } : {}),
-              toolCallId: id,
-              onCellStarted: (value) => {
-                cellId = value;
-              },
             },
             signal,
-            this.nestedTools(),
-          );
-
-          cellId = response.cellId;
-
-          return toCodeModeToolResult(response);
-        } finally {
-          if (cellId !== undefined) this.observeAccounting(id, cellId);
-        }
+            tools,
+          ),
+        );
       },
-      label: "Exec",
-      name: "exec",
-      parameters: EXEC_PARAMETERS,
-      ...codeModeRenderers("exec", this.currentByName),
+      ...codeModeRenderers(
+        "exec",
+        () => new Map(this.tools.map((tool) => [tool.definition.name, tool])),
+      ),
     });
   }
 
-  createWaitTool(): ToolDefinition {
-    return defineTool({
-      description: WAIT_DESCRIPTION,
-      execute: async (id, params, signal, onUpdate, ctx) => {
-        const client = await this.getClient(signal);
+  private loadoutTools(loadout: ToolLoadout): NestedTool[] {
+    return checkedToolNames(
+      loadout.callable.map((tool) => {
+        const renderer = this.renderers.get(tool.name);
 
-        const executionContext = {
-          extensionContext: ctx,
-          ...(onUpdate !== undefined ? { onUpdate } : {}),
-          toolCallId: id,
-        };
+        const nested = toNestedTool(
+          {
+            ...tool,
+            ...(renderer?.renderCall ? { renderCall: renderer.renderCall } : {}),
+            ...(renderer?.renderResult ? { renderResult: renderer.renderResult } : {}),
+          },
+          loadout.getNamespace(tool.name)?.name,
+        );
 
-        try {
-          const response =
-            params.terminate === true
-              ? await client.terminate(params.cell_id, executionContext, signal)
-              : await client.wait(
-                  params.cell_id,
-                  params.yield_time_ms ?? DEFAULT_WAIT_MS,
-                  executionContext,
-                  signal,
-                );
-
-          return toCodeModeToolResult(response, params.max_tokens);
-        } finally {
-          this.observeAccounting(id, params.cell_id);
-        }
-      },
-      label: "Wait",
-      name: "wait",
-      parameters: WAIT_PARAMETERS,
-      ...codeModeRenderers("wait", this.currentByName),
-    });
-  }
-
-  prepareNestedTools(descriptors: readonly CodeModeToolDescriptor[]): () => void {
-    const names = new Set<string>(["exec", "wait"]);
-
-    for (const descriptor of descriptors) {
-      const name = codeModeName(descriptor.definition.name, descriptor.namespace);
-
-      if (names.has(name)) throw new Error(`Duplicate or reserved Code Mode tool name: ${name}`);
-      names.add(name);
-    }
-
-    for (const descriptor of descriptors) toNestedTool(descriptor);
-
-    return () => {
-      this.nestedToolDescriptors = [...descriptors];
-    };
-  }
-
-  prompt = (descriptors = this.nestedToolDescriptors): string => {
-    const lines = descriptors
-      .map((descriptor) => toNestedTool(descriptor))
-      .toSorted((left, right) => left.name.localeCompare(right.name))
-      .map((tool) =>
-        [
-          `### \`${tool.name}\``,
-          tool.definition.description,
-          `Parameters: ${JSON.stringify(tool.definition.parameters)}`,
-          ...(tool.definition.promptGuidelines ?? []),
-          `Usage: \`${tool.usage}\``,
-        ].join("\n\n"),
-      );
-
-    return `Tools available in exec:\n\n${lines.join("\n\n")}`;
-  };
-
-  async shutdown(): Promise<void> {
-    await this.client.stop(async (client) => {
-      await client.shutdown();
-    });
-  }
-
-  private async getClient(signal: AbortSignal | undefined): Promise<CodeModeHostClient> {
-    signal?.throwIfAborted();
-    const client = await raceWithAbortSignal(this.client.load(), operationSignal(signal));
-
-    if (client === undefined) {
-      throw new Error("Code Mode runtime is stopped");
-    }
-
-    return client;
-  }
-
-  private nestedTools(): NestedTool[] {
-    return this.nestedToolDescriptors.map((descriptor) =>
-      toNestedTool(descriptor, (accounting, cellId) => {
-        const entries = this.accounting.get(cellId) ?? [];
-        entries.push(accounting);
-        this.accounting.set(cellId, entries);
+        return nested;
       }),
     );
   }
+
+  async shutdown(): Promise<void> {
+    await this.client.stop((client) => client.shutdown());
+  }
 }
 
-// A function tool's transport input must be a JSON object; anything else is a
-// protocol violation rather than a schema validation failure.
-const functionArguments = (name: string, input: JsonValue | undefined): JsonObject => {
-  if (!Value.Check(JsonObjectSchema, input)) {
-    throw new TypeError(`Invalid arguments for ${name}`);
+const checkedToolNames = (tools: NestedTool[]): NestedTool[] => {
+  const names = new Set(["exec"]);
+
+  for (const tool of tools) {
+    if (names.has(tool.name))
+      throw new Error(`Duplicate or reserved Code Mode tool name: ${tool.name}`);
+    names.add(tool.name);
   }
+
+  return tools;
+};
+
+export const toNestedTool = (tool: ToolMetadata, namespace?: string): NestedTool => {
+  // Metadata only: never retain the registered executor in a script's wire inventory.
+  const definition: ToolMetadata = {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    ...(tool.constrainedSampling !== undefined
+      ? { constrainedSampling: tool.constrainedSampling }
+      : {}),
+    ...(tool.promptGuidelines !== undefined ? { promptGuidelines: tool.promptGuidelines } : {}),
+    ...(tool.outputSchema !== undefined ? { outputSchema: tool.outputSchema } : {}),
+    ...(tool.renderCall !== undefined ? { renderCall: tool.renderCall } : {}),
+    ...(tool.renderResult !== undefined ? { renderResult: tool.renderResult } : {}),
+  };
+
+  const freeformProperty = freeformInputProperty(definition);
+  const name = codeModeName(definition.name, namespace);
+
+  return {
+    definition,
+    kind: freeformProperty === undefined ? "function" : "freeform",
+    name,
+    ...(freeformProperty !== undefined ? { freeformProperty } : {}),
+    ...(namespace !== undefined ? { namespace } : {}),
+    ...(definition.outputSchema !== undefined ? { outputSchema: definition.outputSchema } : {}),
+    usage: `await tools.${name}(${freeformProperty === undefined ? "input" : "source"})`,
+    async invoke(input, context, signal) {
+      signal.throwIfAborted();
+      const current = context.extensionContext.tools.find((tool) => tool.name === definition.name);
+
+      if (!current) throw new Error(`Nested tool is no longer available: ${definition.name}`);
+      const property = freeformInputProperty(current);
+
+      const args: JsonObject =
+        property === undefined
+          ? functionArguments(definition.name, input)
+          : input === undefined
+            ? {}
+            : { [property]: input };
+
+      const outcome = await context.extensionContext.executeTool(definition.name, args, {
+        signal,
+        onUpdate: (update) => context.onUpdate?.(update),
+      });
+
+      context.captureResult?.(outcome.result, outcome.toolCall.id);
+
+      if (outcome.result.terminate)
+        throw new Error(`Nested tool ${definition.name} cannot terminate the Pi turn`);
+
+      if (outcome.isError)
+        throw new Error(resultText(outcome.result) || `Nested tool ${definition.name} failed`);
+
+      if (current.outputSchema !== undefined) {
+        if (outcome.result.structuredContent === undefined)
+          throw new Error(`Nested tool ${definition.name} returned no structured content`);
+
+        if (!Value.Check(current.outputSchema, outcome.result.structuredContent))
+          throw new Error(`Nested tool ${definition.name} returned invalid structured content`);
+
+        return outcome.result.structuredContent;
+      }
+
+      return nestedResultValue(outcome.result);
+    },
+  };
+};
+
+const functionArguments = (name: string, input: JsonValue | undefined): JsonObject => {
+  if (!Value.Check(JsonObjectSchema, input)) throw new TypeError(`Invalid arguments for ${name}`);
 
   return input;
 };
 
-export const toNestedTool = (
-  descriptor: CodeModeToolDescriptor,
-  reportAccounting?: (accounting: ToolAccounting, cellId: string) => void,
-): NestedTool => {
-  const { definition, namespace, outputSchema } = descriptor;
-  const freeformProperty = freeformInputProperty(definition);
-
-  const nested: NestedTool = {
-    definition,
-    kind: freeformProperty === undefined ? "function" : "freeform",
-    name: codeModeName(definition.name, namespace),
-    async invoke(input, context, signal) {
-      signal.throwIfAborted();
-
-      // The transport delivers JSON: function tools receive the argument object,
-      // freeform tools wrap their raw input. Preparation output is trusted the way
-      // Pi's own agent loop trusts it, and Pi's validator checks the shape next.
-      const argumentsValue: JsonObject =
-        freeformProperty === undefined
-          ? functionArguments(definition.name, input)
-          : input === undefined
-            ? {}
-            : { [freeformProperty]: input };
-
-      // SAFETY: Pi's agent loop hands prepareArguments output to validation as the
-      // call's arguments; ToolDefinition documents that it returns an object
-      // conforming to the tool's parameters, and validateToolArguments checks it next.
-      const prepared = definition.prepareArguments
-        ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Mirrors Pi's prepareArguments contract (agent-loop prepareToolCallArguments); Code Mode applies the same trust as the runtime.
-          (definition.prepareArguments(argumentsValue) as JsonObject)
-        : argumentsValue;
-
-      const validated: unknown = validateToolArguments(definition, {
-        arguments: prepared,
-        id: context.toolCallId ?? `code-mode-${definition.name}`,
-        name: definition.name,
-        type: "toolCall",
-      });
-
-      signal.throwIfAborted();
-
-      const id = context.toolCallId ?? `code-mode-${definition.name}`;
-
-      try {
-        const result = await definition.execute(
-          id,
-          validated,
-          signal,
-          (update) => {
-            context.onUpdate?.(update);
-          },
-          context.extensionContext,
-        );
-
-        context.captureResult?.(result);
-
-        if (result.usage) reportAccounting?.({ usage: result.usage }, context.cellId);
-
-        if (result.terminate)
-          throw new Error(`Nested tool ${definition.name} cannot terminate the Pi turn`);
-
-        if (descriptor.resultMode === "content") {
-          return {
-            content: result.content.map((item) => {
-              if (item.type === "text") return item;
-              assertSupportedImageMimeType(item.mimeType);
-
-              return { type: "image", image_url: `data:${item.mimeType};base64,${item.data}` };
-            }),
-          };
-        }
-
-        return nestedResultValue(definition.name, result, outputSchema !== undefined);
-      } finally {
-        const accounting = descriptor.takeAccounting?.(id);
-
-        if (accounting) reportAccounting?.(accounting, context.cellId);
-      }
-    },
-    usage:
-      descriptor.resultMode === "content"
-        ? `const result = await tools.${codeModeName(definition.name, namespace)}(input); // result.content preserves text and images; JSON.parse(textPart.text) for structured text; image(imagePart) to display an image`
-        : usageFor(codeModeName(definition.name, namespace)),
-  };
-
-  if (freeformProperty !== undefined) {
-    nested.freeformProperty = freeformProperty;
-  }
-
-  if (namespace !== undefined) {
-    nested.namespace = namespace;
-  }
-
-  if (outputSchema !== undefined) {
-    nested.outputSchema = outputSchema;
-  }
-
-  return nested;
-};
-
-const freeformInputProperty = (definition: ToolDefinition): string | undefined => {
+const freeformInputProperty = (definition: ToolMetadata): string | undefined => {
   const grammar = resolveGrammarConstrainedSampling(definition, true);
 
-  if (grammar === undefined) {
-    return undefined;
-  }
-
-  // Code Mode passes only the freeform string, never additional optional arguments.
+  if (!grammar) return undefined;
   const schema = definition.parameters;
 
   if (
     !isRecord(schema) ||
     !isRecord(schema.properties) ||
     Object.keys(schema.properties).length !== 1
-  ) {
+  )
     throw new Error(`Grammar-constrained tool ${definition.name} must have one string parameter`);
-  }
 
   return grammar.inputProperty;
 };
 
-// Codex code-mode-protocol/src/description.rs: normalize_code_mode_identifier.
 const codeModeName = (name: string, namespace?: string): string => {
   const qualified =
     namespace === undefined || namespace === "functions"
@@ -446,93 +300,27 @@ const codeModeName = (name: string, namespace?: string): string => {
   );
 };
 
-const usageFor = (name: string) => {
-  switch (name) {
-    case "exec_command": {
-      return "const result = await tools.exec_command({ cmd: string, workdir?: string, yield_time_ms?: number, max_output_tokens?: number }); result.output";
-    }
+const resultText = (result: RuntimeToolResult): string =>
+  result.content
+    .filter((item): item is { type: "text"; text: string } => item.type === "text")
+    .map((item) => item.text)
+    .join("\n");
 
-    case "write_stdin": {
-      return "const result = await tools.write_stdin({ session_id: number, chars?: string, yield_time_ms?: number, max_output_tokens?: number }); result.output";
-    }
-
-    case "apply_patch": {
-      return "await tools.apply_patch(patch)";
-    }
-
-    case "view_image": {
-      return "const result = await tools.view_image({ path: string }); image(result)";
-    }
-
-    default: {
-      return `await tools.${name}(input)`;
-    }
-  }
-};
-
-const nestedResultValue = (name: string, result: RuntimeToolResult, hasOutputSchema: boolean) => {
+const nestedResultValue = (result: RuntimeToolResult) => {
   const image = result.content.find((item) => item.type === "image");
 
   if (image?.type === "image") {
     assertSupportedImageMimeType(image.mimeType);
 
-    return {
-      detail: "high",
-      image_url: `data:${image.mimeType};base64,${image.data}`,
-    };
+    return { detail: "high", image_url: `data:${image.mimeType};base64,${image.data}` };
   }
 
-  const output = result.content
-    .filter((item): item is { type: "text"; text: string } => item.type === "text")
-    .map((item) => item.text)
-    .join("\n");
-
-  if (name === "view_image") {
-    throw new Error(
-      "view_image did not return a supported image. Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first.",
-    );
-  }
-
-  if (hasOutputSchema) {
-    try {
-      const parsed: unknown = JSON.parse(output);
-
-      return parsed;
-    } catch (error) {
-      throw new Error(`Nested tool ${name} declared structured output but returned invalid JSON`, {
-        cause: error,
-      });
-    }
-  }
-
-  if (name === "exec_command" || name === "write_stdin") {
-    if (!isRecord(result.details)) {
-      throw new Error(`Nested tool ${name} returned no Code Mode result`);
-    }
-
-    const { codeModeResult } = result.details;
-
-    if (isRecord(codeModeResult)) {
-      return structuredClone(codeModeResult);
-    }
-
-    throw new Error(`Nested tool ${name} returned no Code Mode result`);
-  }
-
-  return output || "(no output)";
+  return resultText(result) || "(no output)";
 };
 
-const toCodeModeToolResult = (response: RuntimeResponse, maxTokens?: number) => {
+const toCodeModeToolResult = (response: RuntimeResponse) => {
   const scriptError = response.kind === "result" ? response.errorText : undefined;
-  const hasScriptError = scriptError !== undefined && scriptError.length > 0;
-
-  const status = hasScriptError
-    ? `Script error: ${scriptError}`
-    : response.kind === "yielded"
-      ? `Still running. Call wait({ cell_id: "${response.cellId}" })`
-      : response.kind === "terminated"
-        ? "Script terminated"
-        : "Script completed";
+  const hasScriptError = Boolean(scriptError);
 
   const output = response.contentItems
     .map(toPiContent)
@@ -541,23 +329,31 @@ const toCodeModeToolResult = (response: RuntimeResponse, maxTokens?: number) => 
   const maxChars =
     Math.min(
       MAX_CODE_MODE_OUTPUT_TOKENS,
-      Math.max(1, maxTokens ?? response.maxOutputTokens ?? DEFAULT_CODE_MODE_OUTPUT_TOKENS),
+      Math.max(1, response.maxOutputTokens ?? DEFAULT_CODE_MODE_OUTPUT_TOKENS),
     ) * 4;
 
   return {
-    content: [{ text: status, type: "text" as const }, ...truncateTextContent(output, maxChars)],
+    content: [
+      {
+        text: hasScriptError
+          ? `Script error: ${scriptError}`
+          : response.kind === "terminated"
+            ? "Script terminated"
+            : "Script completed",
+        type: "text" as const,
+      },
+      ...truncateTextContent(output, maxChars),
+    ],
     details: {
       cellId: response.cellId,
       codeMode: true,
       elapsedMs: response.elapsedMs,
       status: response.kind,
       traces: response.traces,
-      droppedTraceCount:
-        response.droppedTraceCount !== undefined && response.droppedTraceCount > 0
-          ? response.droppedTraceCount
-          : undefined,
+      droppedTraceCount: response.droppedTraceCount,
       scriptError: hasScriptError ? scriptError : undefined,
     },
+    ...(hasScriptError || response.kind === "terminated" ? { isError: true } : {}),
   };
 };
 
@@ -567,27 +363,17 @@ export const toPiContent = (
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string }
   | undefined => {
-  if (item.type === "input_text" && item.text !== undefined) {
+  if (item.type === "input_text" && item.text !== undefined)
     return { text: item.text, type: "text" };
-  }
 
   if (item.type === "input_image" && item.image_url !== undefined) {
     const match = /^data:(?<mimeType>[^;,]+);base64,(?<data>.+)$/su.exec(item.image_url);
 
-    if (
-      match?.groups?.mimeType !== undefined &&
-      match.groups.mimeType.length > 0 &&
-      match.groups.data !== undefined &&
-      match.groups.data.length > 0
-    ) {
+    if (match?.groups?.mimeType && match.groups.data) {
       const mimeType = match.groups.mimeType.toLowerCase();
       assertSupportedImageMimeType(mimeType);
 
-      return {
-        data: match.groups.data,
-        mimeType,
-        type: "image",
-      };
+      return { data: match.groups.data, mimeType, type: "image" };
     }
   }
 
@@ -595,11 +381,10 @@ export const toPiContent = (
 };
 
 const assertSupportedImageMimeType = (mimeType: string): void => {
-  if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType.toLowerCase())) {
+  if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType.toLowerCase()))
     throw new Error(
       `Unsupported Code Mode image type "${mimeType}". Use PNG, JPEG, GIF, or WebP; convert SVG to PNG first.`,
     );
-  }
 };
 
 const truncateTextContent = <
@@ -611,13 +396,9 @@ const truncateTextContent = <
   let remaining = maxChars;
 
   return content.flatMap((item) => {
-    if (item.type !== "text") {
-      return [item];
-    }
+    if (item.type !== "text") return [item];
 
-    if (remaining <= 0) {
-      return [];
-    }
+    if (remaining <= 0) return [];
 
     if (item.text.length <= remaining) {
       remaining -= item.text.length;
@@ -625,17 +406,13 @@ const truncateTextContent = <
       return [item];
     }
 
-    const truncated = {
-      ...item,
-      text: `${item.text.slice(0, remaining)}\n[Output truncated]`,
-    };
-
+    const truncated = { ...item, text: `${item.text.slice(0, remaining)}\n[Output truncated]` };
     remaining = 0;
 
     return [truncated];
   });
 };
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Foreign tool details are open records; guard non-array objects before inspecting the declared Code Mode result.
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Foreign JSON schema properties are open records; reject arrays before inspecting the freeform contract.
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

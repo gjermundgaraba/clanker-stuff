@@ -454,7 +454,7 @@ describe("extension-host harness", () => {
       "test-tool",
       { value: "echo" },
       {
-        ctx: host.createContext(),
+        ctx: host.createToolContext(),
         onUpdate,
         signal,
         toolCallId: "tool-call-123",

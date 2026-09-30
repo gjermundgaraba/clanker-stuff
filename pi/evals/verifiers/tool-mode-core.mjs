@@ -13,7 +13,7 @@ export function validateToolMode(
   /** @type {unknown[]} */
   const evidence = Array.isArray(extra?.tool_mode_evidence) ? extra.tool_mode_evidence : [];
   const steps = isRecord(trajectory) ? trajectory.steps : undefined;
-  const expected = manifest?.arm === "direct" ? directTools : ["exec", "wait"];
+  const expected = manifest?.arm === "direct" ? directTools : [...directTools, "exec"].sort();
   const mode = manifest?.arm === "direct" ? "direct" : "code_mode_only";
 
   const keys = [

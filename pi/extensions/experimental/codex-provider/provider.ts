@@ -1,4 +1,3 @@
-import type { ExecutionSettings, ToolExecutionSettings } from "./tools/execution-context.js";
 import { fetchCodexHttp } from "@clanker-stuff/codex-http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { setTimeout as delay } from "node:timers/promises";
@@ -291,6 +290,7 @@ type InferenceAttemptFailureClass =
   | "http_retryable"
   | "http_terminal"
   | "none"
+  | "observer"
   | "protocol_connection_limit"
   | "protocol_missing_continuation"
   | "protocol_terminal"
@@ -407,6 +407,8 @@ const classifyInferenceAttemptFailure = (
   if (isAborted(signal)) {
     return "abort";
   }
+
+  if (error instanceof ProviderStreamObserverError) return "observer";
 
   if (dispatchFailed) {
     return "transport_dispatch";
@@ -1887,6 +1889,35 @@ async function* bufferInitialResponseCreated(
   }
 }
 
+class ProviderStreamObserverError extends Error {
+  constructor(cause: unknown) {
+    // Pi's outer retry/compaction classifiers inspect errorMessage, not this error's class.
+    // Keep arbitrary callback text out of that control path; the original remains the cause.
+    super("Provider stream observer callback failed", { cause });
+    this.name = "ProviderStreamObserverError";
+  }
+}
+
+/** Observation sees receive order, independently of retry-safe model publication. */
+async function* observeProviderEvents(
+  events: AsyncIterable<JsonRecord>,
+  model: SupportedModel,
+  options: OpenAICodexResponsesOptions | undefined,
+  capture: ResponseCapture,
+): AsyncGenerator<JsonRecord> {
+  for await (const event of events) {
+    try {
+      await options?.onProviderStreamEvent?.(event, model);
+    } catch (error) {
+      // Received usage is billable even if a local observer rejects the event.
+      captureEvent(capture, event);
+      throw new ProviderStreamObserverError(error);
+    }
+
+    yield event;
+  }
+}
+
 async function* raiseResponseFailureBeforePublication(
   events: AsyncIterable<JsonRecord>,
   capture: ResponseCapture,
@@ -2060,7 +2091,15 @@ const sseEvents = async function* sseEvents(
         let terminal = false;
 
         for await (const event of bufferInitialResponseCreated(
-          raiseResponseFailureBeforePublication(parseSseEvents(response, options?.signal), capture),
+          raiseResponseFailureBeforePublication(
+            observeProviderEvents(
+              parseSseEvents(response, options?.signal),
+              model,
+              options,
+              capture,
+            ),
+            capture,
+          ),
           attempt,
         )) {
           terminal ||= isTerminalResponseEvent(event);
@@ -2093,7 +2132,7 @@ const sseEvents = async function* sseEvents(
         throw resolvedError;
       }
 
-      if (replayUnsafe) {
+      if (replayUnsafe || resolvedError instanceof ProviderStreamObserverError) {
         finishInferenceAttempt(attempt, failureClass, "fail_closed");
         throw resolvedError;
       }
@@ -2252,10 +2291,15 @@ const websocketEvents = async function* websocketEvents(
 
         for await (const event of bufferInitialResponseCreated(
           raiseResponseFailureBeforePublication(
-            parseWebSocket(
-              socket,
-              options?.signal,
-              normalizeTimeout(options?.timeoutMs, "timeoutMs"),
+            observeProviderEvents(
+              parseWebSocket(
+                socket,
+                options?.signal,
+                normalizeTimeout(options?.timeoutMs, "timeoutMs"),
+              ),
+              model,
+              generate ? options : undefined,
+              capture,
             ),
             capture,
           ),
@@ -2293,7 +2337,7 @@ const websocketEvents = async function* websocketEvents(
           dispatchFailed,
         );
 
-        if (emitted) {
+        if (emitted || resolvedError instanceof ProviderStreamObserverError) {
           finishInferenceAttempt(attempt, failureClass, "fail_closed");
           throw error;
         }
@@ -2415,7 +2459,6 @@ export const createCodexProviderRuntime = (
   observability: CodexObservability,
   isFastModeEnabled: () => boolean = () => false,
   catalog: CodexModelCatalog = createCodexModelCatalog(),
-  executionSettings?: ToolExecutionSettings,
 ) => {
   const { base } = catalog;
   const sessions = new Map<string, SessionRuntime>();
@@ -2517,7 +2560,8 @@ export const createCodexProviderRuntime = (
           !fallbackAfterWebSocketFailure ||
           emitted ||
           isAborted(options?.signal) ||
-          error instanceof CodexProviderError
+          error instanceof CodexProviderError ||
+          error instanceof ProviderStreamObserverError
         ) {
           throw error;
         }
@@ -2913,17 +2957,6 @@ export const createCodexProviderRuntime = (
     // options remain mutable. Later catalog/settings changes must not relabel
     // this response, change pricing, or alter a retry's request settings.
     model = cloneJson(model);
-    // The selected model can outlive a registry/catalog refresh. Capture current
-    // catalog-owned tool policy now without replacing request identity or pricing.
-
-    const catalogModel = catalog
-      .getModels()
-      .find((candidate) => candidate.provider === model.provider && candidate.id === model.id);
-
-    const toolModel =
-      catalogModel === undefined
-        ? model
-        : { ...model, codexOutputTokenLimit: catalogModel.codexOutputTokenLimit };
     // Header values are request data; detach them before payload hooks or retries.
     // Signals, callbacks, and injected transports intentionally keep their identity.
 
@@ -2996,8 +3029,6 @@ export const createCodexProviderRuntime = (
         ? options.sessionId
         : uuidv7();
 
-    const publishToolSettings = operation ? undefined : executionSettings?.beginResponse(sessionId);
-
     if (operation) {
       if (sessions.has(sessionId)) {
         operation.controller = undefined;
@@ -3023,8 +3054,8 @@ export const createCodexProviderRuntime = (
     let observedError: unknown;
     const capture: ResponseCapture = { completed: false, outputItems: [] };
 
-    const applySamplingUsage = () => {
-      if (!operation || !capture.usage) return;
+    const applyReceivedUsage = () => {
+      if (!capture.usage) return;
       output.usage = { ...capture.usage, cost: { ...capture.usage.cost } };
       calculateCost(model, output.usage);
       applyServiceTier(
@@ -3034,6 +3065,8 @@ export const createCodexProviderRuntime = (
           observedBody ? requestServiceTier(observedBody) : undefined,
         ),
       );
+
+      if (!operation) return;
       operation.bound.status.usage = output.usage;
       operation.bound.status.usageComplete = capture.usageComplete === true;
     };
@@ -3101,11 +3134,7 @@ export const createCodexProviderRuntime = (
           }
         }
 
-        const toolSettings: ExecutionSettings = {
-          model: toolModel,
-          thinkingLevel: requestThinkingLevel(body),
-        };
-
+        requestThinkingLevel(body);
         observedBody = body;
         const requestId = promptCacheKey(sessionId);
 
@@ -3147,7 +3176,7 @@ export const createCodexProviderRuntime = (
             options?.signal?.throwIfAborted();
 
             if (operation && capture.usage) {
-              applySamplingUsage();
+              applyReceivedUsage();
             }
 
             let mapped: ReturnType<CodexSamplingBound["transform"]> | JsonRecord = event;
@@ -3213,11 +3242,6 @@ export const createCodexProviderRuntime = (
           }
         }
 
-        publishToolSettings?.(
-          output.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : [])),
-          toolSettings,
-        );
-
         events.push({
           message: output,
           reason: output.stopReason,
@@ -3225,7 +3249,7 @@ export const createCodexProviderRuntime = (
         });
         events.end();
       } catch (error) {
-        applySamplingUsage();
+        applyReceivedUsage();
         observedError = error;
 
         for (const block of output.content) {
@@ -3402,6 +3426,7 @@ export const createCodexProviderRuntime = (
   const provider: Provider<"openai-codex-responses"> = {
     ...base,
     getModels: catalog.getModels,
+    getAllModels: catalog.getModels,
     refreshModels: catalog.refreshModels,
     stream,
     streamSimple,

@@ -101,7 +101,7 @@ describe("spawn catalog provider payload", () => {
           sessionManager: SessionManager.inMemory(cwd),
           onExtensionError: (error) => errors.push(error.error),
         });
-        const context = session.extensionRunner.createContext();
+        const context = session.extensionRunner.createToolContext("test", undefined);
         await context.modelRegistry.refresh({ force: true, allowNetwork: true });
         expect(context.modelRegistry.getError()).toBeUndefined();
         await session.prompt("Describe your tools.");

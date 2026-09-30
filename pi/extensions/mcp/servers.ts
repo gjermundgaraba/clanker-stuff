@@ -2,9 +2,14 @@ import { mcpRenderers } from "./renderers.js";
 import { formatSize } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { setTimeout as sleep } from "node:timers/promises";
+import { sumUsage } from "./sampling.js";
 import type { SamplingUsage } from "./sampling.js";
 import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentToolResult,
+  ExtensionAPI,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import {
   ProtocolError,
   ProtocolErrorCode,
@@ -36,6 +41,7 @@ export interface McpToolDetails {
   serverName: string;
   toolName: string;
   truncated: boolean;
+  sampling?: SamplingUsage[];
 }
 
 interface ServerRecord {
@@ -80,7 +86,6 @@ export class McpServerPool {
   private readonly servers = new Map<string, ServerRecord>();
   private readonly shutdown = new AbortController();
   private calls = new AbortController();
-  private readonly accounting = new Map<string, SamplingUsage[]>();
   private readonly persistOutput = createOutputStore();
   private readonly background = new Set<Promise<void>>();
 
@@ -242,54 +247,72 @@ export class McpServerPool {
             ...mcpRenderers(serverName, tool.name),
             description: tool.description ?? `MCP tool ${tool.name} from ${serverName}`,
             parameters: Type.Unsafe<ToolArguments>(tool.inputSchema),
-            execute: async (id, args, executeSignal, _update, ctx) => {
+            execute: async (_id, args, executeSignal, _update, ctx) => {
               const sampling: SamplingUsage[] = [];
-              this.accounting.set(id, sampling);
 
-              const result = await this.callTool(
-                serverName,
-                tool.name,
-                args,
-                executeSignal,
-                ctx,
-                (usage) => sampling.push(usage),
-              );
+              const finish = (
+                result: AgentToolResult<McpToolDetails>,
+              ): AgentToolResult<McpToolDetails> => {
+                const usage = sumUsage(sampling);
 
-              const converted = mcpResultToPiContent(result);
-
-              const details: McpToolDetails = {
-                serverName,
-                toolName: tool.name,
-                truncated: converted.truncated,
+                return {
+                  ...result,
+                  details: { ...result.details, ...(sampling.length > 0 ? { sampling } : {}) },
+                  ...(usage !== undefined ? { usage } : {}),
+                };
               };
 
-              if (converted.truncated) {
-                const notices = [
-                  `[MCP output truncated: ${formatSize(Buffer.byteLength(converted.fullText))} total text]`,
-                ];
+              try {
+                const result = await this.callTool(
+                  serverName,
+                  tool.name,
+                  args,
+                  executeSignal,
+                  ctx,
+                  (usage) => sampling.push(usage),
+                );
 
-                try {
-                  details.outputPath = await this.persistOutput(converted.fullText);
-                  notices.push(
-                    `[Persisted output: ${details.outputPath}; temporary, may be partial]`,
-                  );
-                } catch {
-                  notices.push(
-                    "[Could not persist overflow. The remote operation has already completed; do not retry solely for this warning.]",
-                  );
+                const converted = mcpResultToPiContent(result);
+
+                const details: McpToolDetails = {
+                  serverName,
+                  toolName: tool.name,
+                  truncated: converted.truncated,
+                };
+
+                if (converted.truncated) {
+                  const notices = [
+                    `[MCP output truncated: ${formatSize(Buffer.byteLength(converted.fullText))} total text]`,
+                  ];
+
+                  try {
+                    details.outputPath = await this.persistOutput(converted.fullText);
+                    notices.push(
+                      `[Persisted output: ${details.outputPath}; temporary, may be partial]`,
+                    );
+                  } catch {
+                    notices.push(
+                      "[Could not persist overflow. The remote operation has already completed; do not retry solely for this warning.]",
+                    );
+                  }
+
+                  details.overflowNoticeIndex = converted.content.length;
+                  converted.content.push({ type: "text", text: notices.join("\n") });
                 }
 
-                details.overflowNoticeIndex = converted.content.length;
-                converted.content.push({ type: "text", text: notices.join("\n") });
+                return finish({
+                  content: converted.content,
+                  details,
+                  ...(result.isError ? { isError: true } : {}),
+                });
+              } catch (error) {
+                // Return a failed result so Pi can persist usage received before the failure.
+                return finish({
+                  content: [{ type: "text", text: errorMessage(error) }],
+                  details: { serverName, toolName: tool.name, truncated: false },
+                  isError: true,
+                });
               }
-
-              if (result.isError) {
-                throw new Error(
-                  `MCP tool ${tool.name} from ${serverName} returned an error: ${converted.content.map((item) => (item.type === "text" ? item.text : `[image:${item.mimeType}]`)).join("\n")}`,
-                );
-              }
-
-              return { content: converted.content, details };
             },
           };
         },
@@ -476,13 +499,6 @@ export class McpServerPool {
   cancelCalls(): void {
     this.calls.abort();
     this.calls = new AbortController();
-  }
-
-  takeUsage(id: string): SamplingUsage[] | undefined {
-    const usage = this.accounting.get(id);
-    this.accounting.delete(id);
-
-    return usage?.length ? usage : undefined;
   }
 
   async closeAll(): Promise<void> {

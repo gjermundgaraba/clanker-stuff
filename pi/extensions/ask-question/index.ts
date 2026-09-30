@@ -20,6 +20,7 @@ export default function askQuestion(pi: ExtensionAPI) {
   pi.registerMarkdownTransformer(createAnswerMarkdownTransformer(() => coordinator.list()));
   pi.registerTool({
     name: "request_user_input",
+    exposure: "model-only",
     label: "Questionnaire · blocking",
     description:
       "Ask 1–5 structured questions and wait for explicit reviewed answers. Supports Markdown context/previews, stable question/option IDs, recommendations and notes. Requires a persistent interactive TUI session.",
@@ -37,6 +38,7 @@ export default function askQuestion(pi: ExtensionAPI) {
   });
   pi.registerTool({
     name: "request_user_input_async",
+    exposure: "model-only",
     label: "Questionnaire · async",
     description:
       "Request a durable questionnaire without waiting for its answer, using the same contract as request_user_input. Returns only pending acceptance; later submissions arrive as user messages. Acceptance is NOT an answer or permission. Continue only independent work. Requires a persistent interactive TUI session.",
@@ -54,6 +56,7 @@ export default function askQuestion(pi: ExtensionAPI) {
   });
   pi.registerTool({
     name: "revise_user_input",
+    exposure: "model-only",
     label: "Questionnaire · revision",
     description:
       "Reopen an answered questionnaire with its unchanged questions, giving its interaction_id, latest base_revision and a reason. It waits or returns pending the same way the questionnaire was last asked.",

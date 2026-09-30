@@ -165,7 +165,7 @@ for (const arm of ["pi-direct", "pi-code", "native"]) {
     type: "pi_eval_tools",
     valid: true,
     mode,
-    activeTools: arm === "pi-direct" ? [...SERVICE_NAMES] : ["exec", "wait"],
+    activeTools: arm === "pi-direct" ? [...SERVICE_NAMES] : [...SERVICE_NAMES, "exec"].sort(),
     model: "openai-codex/gpt-6-astra",
     thinking: "high",
   };

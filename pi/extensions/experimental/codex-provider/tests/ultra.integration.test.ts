@@ -134,7 +134,13 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
       }
 
       await expect(
-        list.execute("list", {}, undefined, undefined, session.extensionRunner.createContext()),
+        list.execute(
+          "list",
+          {},
+          undefined,
+          undefined,
+          session.extensionRunner.createToolContext("test", undefined),
+        ),
       ).resolves.toHaveProperty(
         "details.agents",
         expect.arrayContaining([expect.objectContaining({ agent_name: "/root" })]),
@@ -171,7 +177,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
           { fork_turns: "none", message: "Return inherited Ultra", task_name: "inherited" },
           undefined,
           undefined,
-          session.extensionRunner.createContext(),
+          session.extensionRunner.createToolContext("test", undefined),
         ),
       ).resolves.toMatchObject({
         content: [{ text: JSON.stringify({ task_name: "/root/inherited" }) }],
@@ -193,7 +199,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
         },
         undefined,
         undefined,
-        session.extensionRunner.createContext(),
+        session.extensionRunner.createToolContext("test", undefined),
       );
       await vi.waitFor(() => expect(requests).toHaveLength(3), { timeout: 10_000 });
       const nativeMaxRequest = requests.at(-1);
@@ -212,7 +218,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
           {},
           undefined,
           undefined,
-          session.extensionRunner.createContext(),
+          session.extensionRunner.createToolContext("test", undefined),
         ),
       ).resolves.toHaveProperty(
         "details.agents",
@@ -229,7 +235,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
         },
         undefined,
         undefined,
-        session.extensionRunner.createContext(),
+        session.extensionRunner.createToolContext("test", undefined),
       );
       await vi.waitFor(() => expect(requests).toHaveLength(requestCount + 1), {
         timeout: 10_000,
@@ -306,7 +312,7 @@ describe("Codex Ultra with the companion collaboration runtime", () => {
           { fork_turns: "none", message, task_name: taskName },
           undefined,
           undefined,
-          activeSession.extensionRunner.createContext(),
+          activeSession.extensionRunner.createToolContext("test", undefined),
         );
         await vi.waitFor(
           () => {

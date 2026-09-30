@@ -13,10 +13,8 @@ export default function evaluationExtension(pi) {
 
   provider(pi, mode);
 
-  const expected =
-    mode === "direct"
-      ? ["apply_patch", "exec_command", "view_image", "write_stdin"]
-      : ["exec", "wait"];
+  const direct = ["apply_patch", "exec_command", "view_image", "write_stdin"];
+  const expected = mode === "direct" ? direct : [...direct, "exec"].sort();
 
   let compacted = false;
   const { emit } = createJournal("/logs/agent/eval-events.jsonl");

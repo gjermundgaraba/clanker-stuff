@@ -1,4 +1,4 @@
-import { ContributedTools } from "@clanker-stuff/code-mode-tools";
+import { ContentTools } from "@clanker-stuff/code-mode-tools";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -20,7 +20,6 @@ import {
 import { activateTools } from "./bridge.js";
 import { openBrowser } from "./open-browser.js";
 import { McpServerPool } from "./servers.js";
-import { sumUsage } from "./sampling.js";
 
 type LoaderResult<T> = { type: "ok"; value: T } | { type: "error"; error: unknown };
 
@@ -80,22 +79,7 @@ const listAvailableServers = async (ctx: ExtensionContext): Promise<McpManagerLi
 export const createMcpLoader = (pi: ExtensionAPI) => {
   let context: ExtensionContext | undefined;
 
-  const takeSamplingUsage = (id: string) => {
-    const samples = serverPool.takeUsage(id);
-
-    return samples ? { usage: sumUsage(samples), sampling: samples } : undefined;
-  };
-
-  const contributed = new ContributedTools(pi, (id) => {
-    const accounting = takeSamplingUsage(id);
-
-    if (!accounting) return undefined;
-
-    return {
-      ...(accounting.usage ? { usage: accounting.usage } : {}),
-      details: { sampling: accounting.sampling },
-    };
-  });
+  const contributed = new ContentTools(pi);
 
   const serverPool = new McpServerPool(contributed, (message) =>
     context?.ui.notify(message, "warning"),
@@ -197,7 +181,6 @@ export const createMcpLoader = (pi: ExtensionAPI) => {
   };
 
   return {
-    takeSamplingUsage,
     dispose: (): Promise<void> => {
       context = undefined;
       workspace = undefined;

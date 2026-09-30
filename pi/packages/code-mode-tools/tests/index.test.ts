@@ -2,22 +2,68 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../tests/harness/extension-host.js";
-import {
-  collectContributions,
-  ContributedTools,
-  CONTRIBUTIONS_PUBLISH,
-  CONTRIBUTIONS_REQUEST,
-} from "../index.js";
+import { ContentTools, sumUsages } from "../index.js";
 
-describe("contributed tools", () => {
-  it("publishes one complete inventory and keeps snapshot reads side-effect free", async () => {
-    let source: ContributedTools | undefined;
+describe("content capabilities", () => {
+  it("publishes structured text/images and preserves usage and errors on the result", async () => {
+    const usage = {
+      input: 2,
+      output: 3,
+      cacheRead: 4,
+      cacheWrite: 0,
+      totalTokens: 9,
+      cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 0, total: 6 },
+    };
 
-    const changed = vi.fn();
+    let source: ContentTools | undefined;
 
     const host = createExtensionHost((pi) => {
-      pi.events.on(CONTRIBUTIONS_PUBLISH, changed);
-      source = new ContributedTools(pi);
+      source = new ContentTools(pi);
+      source.registerTool({
+        name: "probe",
+        label: "Probe",
+        description: "Probe",
+        parameters: Type.Object({}),
+        execute: async () => ({
+          content: [
+            { type: "text", text: "failed" },
+            { type: "image", data: "AA==", mimeType: "image/png" },
+          ],
+          details: { value: 1 },
+          isError: true,
+          usage,
+        }),
+      });
+    });
+
+    await host.ready;
+
+    if (!source) throw new Error("Missing source");
+    source.setEnabled();
+    const result = await host.runTool("probe", {});
+    expect(result).toMatchObject({
+      isError: true,
+      usage,
+      details: { value: 1 },
+      structuredContent: {
+        content: [
+          { type: "text", text: "failed" },
+          { type: "image", image_url: "data:image/png;base64,AA==" },
+        ],
+      },
+    });
+    const schema = host.getRegisteredTools().get("probe")?.definition.outputSchema;
+
+    if (!schema) throw new Error("Missing output schema");
+    expect(Value.Check(schema, result.structuredContent)).toBe(true);
+  });
+
+  it("changes owner enablement using ordinary direct/hidden registration without touching foreign tools", async () => {
+    let source: ContentTools | undefined;
+    const execute = vi.fn(async () => ({ content: [], details: undefined }));
+
+    const host = createExtensionHost((pi) => {
+      source = new ContentTools(pi);
 
       for (const name of ["one", "two"])
         source.registerTool({
@@ -25,83 +71,78 @@ describe("contributed tools", () => {
           label: name,
           description: name,
           parameters: Type.Object({}),
-          execute: async () => ({ content: [], details: undefined }),
+          execute,
         });
-      expect(collectContributions(pi)).toEqual([{ ownedNames: [], tools: [] }]);
     });
 
     await host.ready;
 
     if (!source) throw new Error("Missing source");
-    expect(changed).not.toHaveBeenCalled();
     host.setActiveTools(["foreign"]);
     source.setEnabled(["one"]);
-    expect(changed).toHaveBeenCalledTimes(1);
-    const before = host.getActiveTools();
-    expect(source.snapshot().tools.map(({ definition }) => definition.name)).toEqual(["one"]);
-    expect(host.getActiveTools()).toEqual(before);
+    expect(host.getRegisteredTools().get("one")?.definition.exposure).toBe("direct");
+    expect(host.getRegisteredTools().get("two")?.definition.exposure).toBe("hidden");
+    expect(host.getActiveTools()).toEqual(["foreign", "one"]);
     source.setEnabled(["two"]);
     expect(host.getActiveTools()).toEqual(["foreign", "two"]);
-    expect(source.snapshot().tools.map(({ definition }) => definition.name)).toEqual(["two"]);
-    await host.emitSessionShutdown();
+    source.registerTool({
+      name: "two",
+      label: "Two",
+      description: "Replacement",
+      parameters: Type.Object({}),
+      execute,
+    });
+    source.setEnabled(["two"]);
+    expect(host.getRegisteredTools().get("two")?.definition.description).toBe("Replacement");
   });
 
-  it("rejects malformed snapshots at the receiving boundary", async () => {
-    let collect: (() => ReturnType<typeof collectContributions>) | undefined;
-    const requestSchema = Type.Object({ accept: Type.Function([Type.Unknown()], Type.Unknown()) });
-
-    const host = createExtensionHost((pi) => {
-      collect = () => collectContributions(pi);
-      pi.events.on(CONTRIBUTIONS_REQUEST, (request) => {
-        if (Value.Check(requestSchema, request))
-          request.accept({
-            ownedNames: ["bad"],
-            tools: [{ definition: { name: "bad" }, resultMode: "content" }],
-          });
-      });
-    });
-
-    await host.ready;
-
-    if (!collect) throw new Error("Missing collector");
-    expect(collect).toThrow("Invalid Code Mode tool inventory");
-    await host.emitSessionShutdown();
-  });
-
-  it("rejects revoked or replaced definitions retained by old cells", async () => {
-    let source: ContributedTools | undefined;
-
-    const host = createExtensionHost((pi) => {
-      source = new ContributedTools(pi);
-    });
-
-    await host.ready;
-
-    if (!source) throw new Error("Missing source");
+  it("rejects a foreign name collision before registering any staged tools", async () => {
+    let source: ContentTools | undefined;
 
     const definition = {
-      name: "probe",
-      label: "Probe",
-      description: "Probe",
+      name: "foreign",
+      label: "Foreign",
+      description: "Original",
       parameters: Type.Object({}),
       execute: async () => ({ content: [], details: undefined }),
     };
 
-    source.registerTool(definition);
-    source.setEnabled(["probe"]);
-    const first = source.snapshot().tools[0];
+    const host = createExtensionHost((pi) => {
+      pi.registerTool(definition);
+      source = new ContentTools(pi);
+    });
 
-    if (!first) throw new Error("Missing tool");
+    await host.ready;
 
-    const invoke = () =>
-      first.definition.execute("id", {}, undefined, undefined, host.createContext());
+    if (!source) throw new Error("Missing source");
+    source.registerTool({ ...definition, name: "safe" });
+    source.registerTool({ ...definition, description: "Collision" });
+    expect(() => source?.setEnabled()).toThrow("already registered");
+    expect(host.getRegisteredTools().has("safe")).toBe(false);
+    expect(host.getRegisteredTools().get("foreign")?.definition.description).toBe("Original");
+  });
 
-    await invoke();
-    source.setEnabled([]);
-    expect(invoke).toThrow("no longer available");
-    source.registerTool({ ...definition, description: "replacement" });
-    source.setEnabled(["probe"]);
-    expect(invoke).toThrow("no longer available");
-    await host.emitSessionShutdown();
+  it("sums received usage without altering input accounting", () => {
+    const usage = {
+      input: 2,
+      output: 3,
+      cacheRead: 1,
+      cacheWrite: 0,
+      totalTokens: 6,
+      reasoning: 1,
+      cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 },
+    };
+
+    expect(sumUsages([])).toBeUndefined();
+    expect(sumUsages([usage, usage])).toEqual({
+      input: 4,
+      output: 6,
+      cacheRead: 2,
+      cacheWrite: 0,
+      totalTokens: 12,
+      reasoning: 2,
+      cost: { input: 2, output: 4, cacheRead: 0, cacheWrite: 0, total: 6 },
+    });
+    expect(usage.totalTokens).toBe(6);
   });
 });

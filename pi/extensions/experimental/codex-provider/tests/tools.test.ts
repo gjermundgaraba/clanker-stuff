@@ -17,7 +17,8 @@ import { createToolsModel } from "./fixtures.js";
 
 const DIRECT_NAMES = ["exec_command", "write_stdin", "apply_patch", "view_image"];
 
-const CODE_NAMES = ["exec", "wait"];
+// Code-only mode hides direct declarations without deactivating their capabilities.
+const CODE_NAMES = [...DIRECT_NAMES, "exec"];
 
 const PI_NAMES = ["read", "bash", "edit", "write"];
 
@@ -36,11 +37,13 @@ const withCollaborationContract =
       parameters: Type.Object({}, { additionalProperties: false }),
     };
 
-    pi.registerTool(nested);
+    pi.registerTool({
+      ...nested,
+      ...(protocol === "v1" ? { namespace: { name: "pi_subagents" } } : { exposure: "model-only" }),
+    });
     pi.events.on(COLLABORATION_CONTRACT_REQUEST, (request) => {
       const parsed = Value.Parse(ContractRequestSchema, request);
       parsed.provide({
-        nestedTools: [{ definition: nested }],
         protocol,
         sessionId: parsed.sessionId,
         version: 1,
@@ -194,7 +197,7 @@ describe("Codex tools", () => {
 
       for (const [mode, names, label] of [
         ["direct", DIRECT_NAMES, "direct tools"],
-        ["code_mode", [...DIRECT_NAMES, ...CODE_NAMES], "direct tools with Code Mode"],
+        ["code_mode", CODE_NAMES, "direct tools with Code Mode"],
         ["code_mode_only", CODE_NAMES, "Code Mode"],
       ] as const) {
         const required = { ...createToolsModel("gpt-6-astra", true), codexToolMode: mode };
@@ -228,24 +231,16 @@ describe("Codex tools", () => {
     });
 
     await host.emitSessionStart();
-    expect(host.getActiveTools()).toStrictEqual([
-      "request_user_input",
-      ...DIRECT_NAMES,
-      ...CODE_NAMES,
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["request_user_input", ...CODE_NAMES]);
     // Picker changes are allowed, but a model event reapplies the declared set.
     host.setActiveTools(
-      host.getActiveTools().filter((name) => name !== "apply_patch" && name !== "wait"),
+      host.getActiveTools().filter((name) => name !== "apply_patch" && name !== "exec"),
     );
     const direct = { ...model, codexToolMode: "direct" };
     await selectModel(host, model, direct);
     expect(host.getActiveTools()).toStrictEqual(["request_user_input", ...DIRECT_NAMES]);
     await selectModel(host, direct, model);
-    expect(host.getActiveTools()).toStrictEqual([
-      "request_user_input",
-      ...DIRECT_NAMES,
-      ...CODE_NAMES,
-    ]);
+    expect(host.getActiveTools()).toStrictEqual(["request_user_input", ...CODE_NAMES]);
   });
 
   it("keeps unknown selectors manually toggleable", async () => {
@@ -276,7 +271,7 @@ describe("Codex tools", () => {
     const ui = createCustomUiDriver({ keys: [" ", "\u001B"], captureRender: "before" });
     await host.runCommand("tools", "", host.createContext({ ui: { custom: ui.custom } }));
 
-    for (const name of [...PI_NAMES, ...DIRECT_NAMES, ...CODE_NAMES]) {
+    for (const name of [...PI_NAMES, ...CODE_NAMES]) {
       expect(ui.getLastRender()).toContain(name);
     }
 
@@ -319,11 +314,11 @@ describe("Codex tools", () => {
     const host = createExtensionHost(registerFallbackCodexTools, { model });
     await host.ready;
 
-    expect(host.getActiveTools()).toStrictEqual([...PI_NAMES, ...DIRECT_NAMES, "wait"]);
+    expect(host.getActiveTools()).toStrictEqual([...PI_NAMES, ...DIRECT_NAMES]);
     await host.emitSessionStart();
 
     expect(host.getActiveTools()).toStrictEqual(DIRECT_NAMES);
-    expect([...host.getRegisteredTools().keys()]).toStrictEqual([...DIRECT_NAMES, "wait"]);
+    expect([...host.getRegisteredTools().keys()]).toStrictEqual(CODE_NAMES);
   });
 
   it.each([true, false])("normalizes tools on input only when idle is %s", async (idle) => {
@@ -476,9 +471,9 @@ describe("Codex tools", () => {
         ctx,
       );
 
-      const execDescription = host.getRegisteredTools().get("exec")?.definition.description ?? "";
-
-      expect(execDescription.includes("pi_subagents__spawn_agent")).toBe(nested);
+      const spawn = host.getRegisteredTools().get("spawn_agent")?.definition;
+      expect(spawn?.namespace?.name === "pi_subagents").toBe(nested);
+      expect(spawn?.exposure === "model-only").toBe(!nested);
       expect(host.getActiveTools()).toStrictEqual(["spawn_agent", ...CODE_NAMES]);
     },
   );

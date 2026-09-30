@@ -90,7 +90,8 @@ describe("snapshot", () => {
       name,
       description: name,
       parameters: Type.Object({}),
-      sourceInfo: createSyntheticSourceInfo(`<builtin:${name}>`, { source: "builtin" }),
+      exposure: "direct" as const,
+      sourceInfo: createSyntheticSourceInfo(`builtin:${name}`, { source: "builtin" }),
     }));
 
     const prompt =

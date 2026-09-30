@@ -7,7 +7,13 @@ import type {
   ProviderHeaders,
   TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall, normalizeContext } from "@earendil-works/pi-ai";
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  isContextOverflow,
+  isRetryableAssistantError,
+  normalizeContext,
+} from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -18,7 +24,6 @@ import { registerCodexTools } from "../tools/register.js";
 import { codexContractFixture } from "../../subagents/docs/fixtures/codex-contract.generated.js";
 import { REMOTE_USER_IMAGE_PLACEHOLDER } from "../checkpoint.js";
 import { CodeModeRuntime } from "../code-mode/tools.js";
-import { ToolExecutionSettings } from "../tools/execution-context.js";
 import { createCodexModelCatalog } from "../model-catalog.js";
 import { CodexObservability } from "../observability.js";
 import {
@@ -582,10 +587,7 @@ describe("Codex provider", () => {
         input: [
           {
             type: "additional_tools",
-            tools: [
-              { name: "exec", type: "custom" },
-              { name: "wait", type: "function" },
-            ],
+            tools: [{ name: "exec", type: "custom" }],
           },
           { role: "developer", type: "message" },
         ],
@@ -639,104 +641,151 @@ describe("Codex provider", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("binds completed tool IDs to final request effort without publishing failed responses", async () => {
-    const settings = new ToolExecutionSettings();
-    settings.reset("tool-settings");
-    const catalog = createCodexModelCatalog();
-    const selected = { ...SPIKE_MODEL, codexOutputTokenLimit: 100 };
-    const refreshed = { ...selected, baseUrl: "https://catalog.invalid", codexOutputTokenLimit: 2 };
-    const models = vi.spyOn(catalog, "getModels").mockReturnValue([refreshed]);
-    const runtime = createProviderRuntime(defaultObservability, undefined, catalog, settings);
+  it("observes advisory errors and terminal failures before classification", async () => {
+    const runtime = createCodexProviderRuntime();
 
-    const items = ["first", "second"].map((id) => ({
-      type: "function_call",
-      id: `fc_${id}`,
-      call_id: `call_${id}`,
-      name: "exec_command",
-      arguments: "{}",
-      status: "completed",
-    }));
-
-    const prefix = [
-      { type: "response.created", response: { id: "response-settings", status: "in_progress" } },
-      ...items.flatMap((item, output_index) => [
-        {
-          type: "response.output_item.added",
-          item: { ...item, status: "in_progress" },
-          output_index,
-        },
-        { type: "response.output_item.done", item, output_index },
-      ]),
+    const events = [
+      { type: "response.created", response: { id: "observed-failure" } },
+      { type: "error", message: "advisory" },
+      {
+        type: "response.failed",
+        response: { error: { code: "context_length_exceeded", message: "too long" } },
+      },
     ];
 
-    const completed = () =>
-      sse([
-        ...prefix,
-        {
-          type: "response.completed",
-          response: {
-            id: "response-settings",
-            status: "completed",
-            output: items,
-            usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20 },
-          },
-        },
-      ]);
+    const observed: unknown[] = [];
+    const fetch = vi.fn<FetchFunction>().mockResolvedValueOnce(sse(events));
 
+    const result = await runtime.provider
+      .streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        transport: "sse",
+        onProviderStreamEvent: async (event) => {
+          await Promise.resolve();
+          observed.push(event);
+        },
+      })
+      .result();
+
+    expect(observed).toEqual(events);
+    expect(result).toMatchObject({ stopReason: "error", errorMessage: "too long" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { message: "observer rejected", retryable: false, overflow: false },
+    { message: "Server overloaded", retryable: true, overflow: false },
+    {
+      message: "Your input exceeds the context window of this model",
+      retryable: false,
+      overflow: true,
+    },
+  ])(
+    "does not replay an SSE request or invite outer recovery for observer error '$message'",
+    async ({ message, retryable, overflow }) => {
+      const runtime = createCodexProviderRuntime();
+      const events = responseEvents("observer-rejection", "not published", false);
+      const fetch = vi.fn<FetchFunction>().mockImplementation(async () => sse(events));
+      const observed: unknown[] = [];
+
+      const result = await runtime.provider
+        .streamSimple(SPIKE_MODEL, context([]), {
+          apiKey: SPIKE_API_KEY,
+          fetch,
+          transport: "sse",
+          maxRetries: 2,
+          onProviderStreamEvent: (event) => {
+            observed.push(event);
+            throw new Error(message);
+          },
+        })
+        .result();
+
+      expect(result).toMatchObject({
+        stopReason: "error",
+        errorMessage: "Provider stream observer callback failed",
+      });
+      // Prove that forwarding these causes would engage the real Pi recovery classifiers.
+      const forwarded = { ...result, errorMessage: message };
+      expect(isRetryableAssistantError(forwarded)).toBe(retryable);
+      expect(isContextOverflow(forwarded, SPIKE_MODEL.contextWindow)).toBe(overflow);
+      expect(isRetryableAssistantError(result)).toBe(false);
+      expect(isContextOverflow(result, SPIKE_MODEL.contextWindow)).toBe(false);
+      expect(observed).toEqual([events[0]]);
+      expect(fetch).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retains received usage when the stream observer rejects a terminal event", async () => {
     const fetch = vi
       .fn<FetchFunction>()
-      .mockResolvedValueOnce(completed())
-      .mockResolvedValueOnce(completed())
-      .mockResolvedValueOnce(
-        sse([
-          ...prefix,
-          { type: "response.failed", response: { error: { code: "failed", message: "failed" } } },
-        ]),
-      );
+      .mockImplementation(async () => sse(responseEvents("observer-usage", "received")));
 
-    const options = {
-      apiKey: SPIKE_API_KEY,
-      fetch,
-      sessionId: "tool-settings",
-      transport: "sse" as const,
-      reasoning: "high" as const,
-      onPayload: async (payload: unknown) => {
-        // Refresh after request capture: only the next request should see 7.
-        await Promise.resolve();
-        models.mockReturnValue([{ ...refreshed, codexOutputTokenLimit: 7 }]);
+    const result = await createCodexProviderRuntime()
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        transport: "sse",
+        maxRetries: 2,
+        onProviderStreamEvent: (event) => {
+          if (wireRecord(event).type === "response.done")
+            throw new Error("observer rejected terminal");
+        },
+      })
+      .result();
 
-        return { ...wireRecord(payload), reasoning: { effort: "low" } };
-      },
-    };
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("Provider stream observer callback failed");
+    expect(result.usage).toMatchObject({ input: 8, output: 2, totalTokens: 10 });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
 
-    const message = await runtime.provider.streamSimple(selected, context([]), options).result();
-    expect(message.stopReason).toBe("toolUse");
-    const calls = message.content.filter((block) => block.type === "toolCall");
-    expect(calls).toHaveLength(2);
+  it("does not retry or fall back when a WebSocket observer rejects before publication", async () => {
+    const events = responseEvents("ws-observer-rejection", "not published");
+    let sends = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      scriptedWebSocket({
+        send: (socket) => {
+          sends += 1;
 
-    for (const call of calls) {
-      const captured = settings.take("tool-settings", call.id);
-      expect(captured).toMatchObject({
-        model: { id: selected.id, baseUrl: selected.baseUrl, codexOutputTokenLimit: 2 },
-        thinkingLevel: "low",
-      });
-      expect(captured?.model).not.toBe(selected);
-    }
+          for (const event of events) socketMessage(socket, event);
+        },
+      }),
+    );
+    const fetch = vi.fn<FetchFunction>().mockImplementation(async () => sse(events));
+    const observed: unknown[] = [];
+    const observability = new CodexObservability(":memory:");
 
-    await runtime.provider.streamSimple(selected, context([]), options).result();
+    const result = await createCodexProviderRuntime(observability)
+      .provider.streamSimple(SPIKE_MODEL, context([]), {
+        apiKey: SPIKE_API_KEY,
+        fetch,
+        transport: "auto",
+        sessionId: "ws-observer-rejection",
+        maxRetries: 2,
+        onPayload: markProtocolRetryPayload,
+        onProviderStreamEvent: (event) => {
+          observed.push(event);
+          throw new Error("WebSocket observer rejected");
+        },
+      })
+      .result();
 
-    for (const call of calls) {
-      expect(settings.take("tool-settings", call.id)?.model).toMatchObject({
-        codexOutputTokenLimit: 7,
-      });
-    }
-
-    expect(selected.codexOutputTokenLimit).toBe(100);
-    const failed = await runtime.provider.streamSimple(selected, context([]), options).result();
-    expect(failed.stopReason).toBe("error");
-
-    for (const call of calls) expect(settings.take("tool-settings", call.id)).toBeUndefined();
-    runtime.closeSession("tool-settings");
+    expect(result).toMatchObject({
+      stopReason: "error",
+      errorMessage: "Provider stream observer callback failed",
+    });
+    expect(observed).toEqual([events[0]]);
+    expect(sends).toBe(1);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(recoveryObservation(observability, "ws-observer-rejection")).toMatchObject({
+      attempts: ["1|websocket|full|absent|observer|fail_closed"],
+      inferenceDispatches: 1,
+      sseFallbackActivated: false,
+    });
+    observability.close();
   });
 
   it("preserves manual compaction redirects as nonretryable HTTP failures", async () => {
@@ -866,6 +915,8 @@ describe("Codex provider", () => {
     const payloads: unknown[] = [];
     const requests: RequestInit[] = [];
     const responses: number[] = [];
+    const providerEvents: unknown[] = [];
+    const expectedEvents = responseEvents("resp_sse", "hello back", false);
 
     const message = await runtime.provider
       .streamSimple(
@@ -895,13 +946,18 @@ describe("Codex provider", () => {
           fetch: async (_input, init) => {
             requests.push(init ?? {});
 
-            return sse(responseEvents("resp_sse", "hello back", false));
+            return sse(expectedEvents);
           },
           onPayload: (payload) => {
             payloads.push(payload);
           },
           onResponse: ({ status }) => {
             responses.push(status);
+          },
+          onProviderStreamEvent: async (event, model) => {
+            await Promise.resolve();
+            expect(model.id).toBe(SPIKE_MODEL.id);
+            providerEvents.push(event);
           },
           sessionId: "session-sse",
           toolChoice: "none",
@@ -911,6 +967,7 @@ describe("Codex provider", () => {
       .result();
 
     const body = readBody(requests[0]?.body);
+    expect(providerEvents).toEqual(expectedEvents);
     const [standardMessage] = wireRecords(body.input);
     const [standardImage] = wireRecords(standardMessage?.content);
     const clientMetadata = wireRecord(body.client_metadata);
@@ -960,10 +1017,7 @@ describe("Codex provider", () => {
       },
       store: false,
       toolChoice: "none",
-      tools: [
-        { name: "exec", type: "custom" },
-        { name: "wait", type: "function" },
-      ],
+      tools: [{ name: "exec", type: "custom" }],
       windowHeader: "session-sse:0",
       windowProjection: "session-sse:0",
     });
@@ -1084,9 +1138,14 @@ describe("Codex provider", () => {
   it("places transcript tool additions using the model's supported mode", async () => {
     const toolCallId = "call_base|fc_base";
     const execTool = CODE_MODE_TOOLS.find((tool) => tool.name === "exec");
-    const waitTool = CODE_MODE_TOOLS.find((tool) => tool.name === "wait");
 
-    if (execTool === undefined || waitTool === undefined) {
+    const discoveredTool = {
+      name: "discovered",
+      description: "Discovered",
+      parameters: Type.Object({}),
+    };
+
+    if (execTool === undefined) {
       throw new Error("Code Mode fixture tools are missing");
     }
 
@@ -1109,7 +1168,7 @@ describe("Codex provider", () => {
           toolCallId,
           toolName: "exec",
         },
-        { content: "", role: "system", timestamp: 3, toolsAdded: [waitTool] },
+        { content: "", role: "system", timestamp: 3, toolsAdded: [discoveredTool] },
       ],
       { tools: [execTool] },
     );
@@ -1153,7 +1212,7 @@ describe("Codex provider", () => {
       input: [
         { type: "custom_tool_call" },
         { type: "custom_tool_call_output" },
-        { tools: [{ name: "wait" }], type: "additional_tools" },
+        { tools: [{ name: "discovered" }], type: "additional_tools" },
       ],
       tools: [{ name: "exec" }],
     });
@@ -1162,7 +1221,7 @@ describe("Codex provider", () => {
         { type: "custom_tool_call" },
         { type: "custom_tool_call_output" },
         { type: "tool_search_call" },
-        { tools: [{ name: "wait" }], type: "tool_search_output" },
+        { tools: [{ name: "discovered" }], type: "tool_search_output" },
       ],
       tools: [{ name: "exec" }],
     });
@@ -1367,6 +1426,7 @@ describe("Codex provider", () => {
 
   it("retries a streamed slow_down failure before publishing output", async () => {
     let dispatches = 0;
+    const observed: unknown[] = [];
 
     const message = await createCodexProviderRuntime()
       .provider.streamSimple(SPIKE_MODEL, context([]), {
@@ -1394,10 +1454,19 @@ describe("Codex provider", () => {
         maxRetries: 1,
         sessionId: "session-stream-slow-down",
         transport: "sse",
+        onProviderStreamEvent: (event) => {
+          observed.push(event);
+        },
       })
       .result();
 
     expect(dispatches).toBe(2);
+    expect(observed.map((event) => wireRecord(event).type)).toEqual([
+      "response.created",
+      "error",
+      "response.failed",
+      ...responseEvents("resp_after_slow_down", "recovered").map((event) => event.type),
+    ]);
     expect(message).toMatchObject({
       content: [{ text: "recovered", type: "text" }],
       responseId: "resp_after_slow_down",
@@ -2569,10 +2638,7 @@ describe("Codex provider", () => {
       prefix: liteInput.slice(0, 2).map((item) => item.type),
       reasoning: liteBody.reasoning,
     }).toStrictEqual({
-      additionalTools: [
-        { name: "exec", type: "custom" },
-        { name: "wait", type: "function" },
-      ],
+      additionalTools: [{ name: "exec", type: "custom" }],
       bodyTools: undefined,
       header: "true",
       instructions: "",
@@ -4183,6 +4249,7 @@ describe("Codex provider", () => {
 
   it("retries a WebSocket rate-limit failure before publishing response.created", async () => {
     let sends = 0;
+    const observed: unknown[] = [];
     vi.stubGlobal(
       "WebSocket",
       scriptedWebSocket({
@@ -4221,10 +4288,19 @@ describe("Codex provider", () => {
         maxRetries: 1,
         onPayload: markProtocolRetryPayload,
         sessionId,
+        onProviderStreamEvent: (event) => {
+          observed.push(event);
+        },
       })
       .result();
 
     expect(sends).toBe(2);
+    expect(observed.map((event) => wireRecord(event).type)).toEqual([
+      "response.created",
+      "error",
+      "response.failed",
+      ...responseEvents("resp_ws_after_slow_down", "recovered").map((event) => event.type),
+    ]);
     expect(message).toMatchObject({
       content: [{ text: "recovered", type: "text" }],
       responseId: "resp_ws_after_slow_down",

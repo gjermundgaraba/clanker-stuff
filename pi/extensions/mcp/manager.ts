@@ -40,6 +40,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   if (collision) throw new Error(`MCP manager tool name collision: ${collision.name}`);
   pi.registerTool({
     name: "mcp_set",
+    exposure: "model-only",
     ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_set", true),
     label: "Set MCP server",
     description:
@@ -58,6 +59,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   });
   pi.registerTool({
     name: "mcp_remove",
+    exposure: "model-only",
     ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_remove", true),
     label: "Remove MCP server",
     description:
@@ -75,6 +77,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   });
   pi.registerTool({
     name: "mcp_list",
+    exposure: "model-only",
     ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_list", true),
     label: "List MCP servers",
     description:
@@ -97,6 +100,7 @@ export const registerManagerTools = (pi: ExtensionAPI, connect: Connect): void =
   });
   pi.registerTool({
     name: "mcp_connect",
+    exposure: "model-only",
     ...mcpRenderers(MCP_MANAGER_SERVER_NAME, "mcp_connect", true),
     label: "Connect MCP server",
     description:

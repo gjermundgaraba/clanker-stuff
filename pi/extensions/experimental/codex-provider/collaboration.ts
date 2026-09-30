@@ -1,4 +1,4 @@
-import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
@@ -27,7 +27,6 @@ const V2_NAMES = new Set([
 export interface CollaborationContract {
   inheritedServiceTier?: "priority" | null;
   inheritedUltra?: boolean;
-  nestedTools: readonly NestedToolContract[];
   protocol: "off" | "v1" | "v2";
   sessionId: string;
   version: 1;
@@ -37,14 +36,7 @@ const JsonRecordSchema = Type.Record(Type.String(), Type.Unknown());
 
 type JsonRecord = Static<typeof JsonRecordSchema>;
 
-const FunctionSchema = Type.Function([], Type.Unknown());
-
 const ServiceTierSchema = Type.Union([Type.Literal("priority"), Type.Null()]);
-
-interface NestedToolContract {
-  definition: ToolDefinition;
-  outputSchema?: unknown;
-}
 
 interface CollaborationApi {
   readonly events: {
@@ -68,19 +60,6 @@ export interface CollaborationContractRequest {
 
 const isRecord = (value: unknown): value is JsonRecord => Value.Check(JsonRecordSchema, value);
 
-const isToolDefinition = (value: unknown): value is ToolDefinition =>
-  isRecord(value) &&
-  typeof value.description === "string" &&
-  Value.Check(FunctionSchema, value.execute) &&
-  typeof value.label === "string" &&
-  typeof value.name === "string" &&
-  isRecord(value.parameters);
-
-const isNestedToolContract = (value: unknown): value is NestedToolContract =>
-  isRecord(value) &&
-  isToolDefinition(value.definition) &&
-  (value.outputSchema === undefined || isRecord(value.outputSchema));
-
 const requestContract = (
   pi: CollaborationApi,
   ctx: ExtensionContext & CollaborationContext,
@@ -97,7 +76,7 @@ const requestContract = (
         return;
       }
 
-      const { inheritedServiceTier, inheritedUltra, nestedTools, protocol } = value;
+      const { inheritedServiceTier, inheritedUltra, protocol } = value;
 
       if (
         value.version !== 1 ||
@@ -105,9 +84,7 @@ const requestContract = (
         (protocol !== "off" && protocol !== "v1" && protocol !== "v2") ||
         (inheritedServiceTier !== undefined &&
           !Value.Check(ServiceTierSchema, inheritedServiceTier)) ||
-        (inheritedUltra !== undefined && typeof inheritedUltra !== "boolean") ||
-        !Array.isArray(nestedTools) ||
-        !nestedTools.every(isNestedToolContract)
+        (inheritedUltra !== undefined && typeof inheritedUltra !== "boolean")
       ) {
         return;
       }
@@ -115,7 +92,6 @@ const requestContract = (
       contract = {
         ...(inheritedServiceTier !== undefined ? { inheritedServiceTier } : {}),
         ...(inheritedUltra !== undefined ? { inheritedUltra } : {}),
-        nestedTools,
         protocol,
         sessionId,
         version: 1,

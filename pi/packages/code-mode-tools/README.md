@@ -1,6 +1,6 @@
 # code-mode-tools
 
-Shares opt-in nested tool execution and placement across Pi extensions.
+Registers structured content tools in Pi's capability registry.
 
 ## Install
 
@@ -10,4 +10,4 @@ npm install @clanker-stuff/code-mode-tools
 
 ## Usage
 
-Use `ContributedTools` to stage definitions and publish an enabled inventory for optional Code Mode placement.
+Use `ContentTools` to stage definitions and enable ordinary Pi tools with structured text/image results.

@@ -1,8 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -12,15 +8,9 @@ export const TerminatingToolResultSchema = Type.Object({ terminate: Type.Literal
 
 export const COLLABORATION_CONTRACT_REQUEST = "clanker-stuff:subagents:contract:request";
 
-export interface NestedToolContract {
-  readonly definition: ToolDefinition;
-  readonly outputSchema?: unknown;
-}
-
 export interface CollaborationContract {
   readonly inheritedServiceTier?: RootServiceTier;
   readonly inheritedUltra?: boolean;
-  readonly nestedTools: readonly NestedToolContract[];
   readonly protocol: Protocol;
   readonly sessionId: string;
   readonly version: 1;

@@ -1,459 +1,250 @@
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-
 import { createExtensionHost } from "../../../../../tests/harness/extension-host.js";
 import { CodeModeDelegateRuntime } from "../../code-mode/delegate-runtime.js";
 import { nestedToolKey } from "../../code-mode/protocol.js";
 import { CodeModeTraceStore } from "../../code-mode/trace-store.js";
-import { createToolsModel } from "../fixtures.js";
-import type {
-  NestedTool,
-  RuntimeResponse,
-  RuntimeToolResult,
-  ToolExecutionContext,
-} from "../../code-mode/types.js";
+import type { NestedTool, RuntimeResponse } from "../../code-mode/types.js";
 
-const extensionContext = createExtensionHost(() => {}).createContext();
+const extensionContext = createExtensionHost(() => {}).createToolContext();
 
-const response = (kind: RuntimeResponse["kind"] = "yielded"): RuntimeResponse => ({
-  cellId: "cell",
+const response = (kind: RuntimeResponse["kind"] = "yielded", cellId = "cell"): RuntimeResponse => ({
+  cellId,
   contentItems: [],
   kind,
 });
+
+const nestedTool = (invoke: NestedTool["invoke"]): NestedTool => ({
+  name: "probe",
+  kind: "function",
+  usage: "probe()",
+  definition: { name: "probe", description: "Probe", parameters: Type.Object({}) },
+  invoke,
+});
+
+const invokeMessage = (id: number, cellId = "cell") => ({
+  id,
+  request: {
+    type: "tool/invoke" as const,
+    invocation: {
+      cell_id: cellId,
+      runtime_tool_call_id: `host-${id}`,
+      tool_name: { name: "probe", namespace: null },
+      input: {},
+    },
+  },
+});
+
+const tools = (tool: NestedTool) => new Map([[nestedToolKey({ name: "probe" }), tool]]);
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
-describe("Code Mode wait snapshots", () => {
+describe("Code Mode active-cell lifecycle", () => {
   it.each(["before", "during"] as const)(
-    "retains output through slow finalization when close arrives %s",
+    "retains output until cancellation settles when close arrives %s",
     async (close) => {
-      vi.useFakeTimers();
       const runtime = new CodeModeDelegateRuntime(() => {});
       const release = Promise.withResolvers<void>();
-
-      const tool: NestedTool = {
-        name: "slow",
-        kind: "function",
-        usage: "slow()",
-        definition: {
-          name: "slow",
-          label: "Slow",
-          description: "Slow",
-          parameters: Type.Object({}),
-          execute: async () => ({ content: [], details: undefined }),
-        },
-        invoke: async (_input, _ctx, signal) => {
-          await new Promise<void>((resolve) =>
-            signal.addEventListener("abort", () => resolve(), { once: true }),
-          );
-          await release.promise;
-          throw new Error("cancelled after cleanup");
-        },
-      };
-
+      const aborted = Promise.withResolvers<void>();
       runtime.bindCell(
         "cell",
-        extensionContext,
-        new Map([[nestedToolKey({ name: "slow" }), tool]]),
+        { extensionContext },
+        tools(
+          nestedTool(async (_input, _ctx, signal) => {
+            await new Promise<void>((resolve) =>
+              signal.addEventListener(
+                "abort",
+                () => {
+                  aborted.resolve();
+                  resolve();
+                },
+                { once: true },
+              ),
+            );
+            await release.promise;
+            throw new Error("cancelled after cleanup");
+          }),
+        ),
       );
-      expect((await runtime.finishResponse(response())).contentItems).toEqual([]);
       runtime.handleRequest({
         id: 1,
         request: { type: "notification/send", cellId: "cell", text: "undelivered" },
       });
-      runtime.handleRequest({
-        id: 2,
-        request: {
-          type: "tool/invoke",
-          invocation: {
-            cell_id: "cell",
-            runtime_tool_call_id: "slow-call",
-            tool_name: { name: "slow", namespace: null },
-            input: {},
-          },
-        },
-      });
+      runtime.handleRequest(invokeMessage(2));
 
       if (close === "before") runtime.closeCell("cell");
-      const finished = runtime.finishResponse(response("terminated"));
+      let settled = false;
+
+      const finished = runtime.finishResponse(response("terminated")).then((value) => {
+        settled = true;
+
+        return value;
+      });
 
       if (close === "during") runtime.closeCell("cell");
-      await vi.advanceTimersByTimeAsync(2000);
+      await aborted.promise;
+      expect(settled).toBe(false);
       release.resolve();
       const result = await finished;
       expect(result.contentItems).toEqual([{ type: "input_text", text: "undelivered" }]);
       expect(result.traces).toMatchObject([
-        { id: "slow-call", status: "error", error: "cancelled after cleanup" },
+        { id: "host-2", status: "error", error: "cancelled after cleanup" },
       ]);
       const consumed = await runtime.finishResponse(response("terminated"));
       expect(consumed.contentItems).toEqual([]);
       expect(consumed.traces).toBeUndefined();
-      expect(vi.getTimerCount()).toBe(0);
       runtime.clear();
     },
   );
 
-  it("settles cancellation accounting only for the terminated cell", async () => {
+  it("cancels and settles only the requested cell", async () => {
     const runtime = new CodeModeDelegateRuntime(() => {});
     const cancelled: string[] = [];
-    const accounted: string[] = [];
+    const completed: string[] = [];
     const release = Promise.withResolvers<void>();
 
-    const tool: NestedTool = {
-      name: "probe",
-      kind: "function",
-      usage: "probe()",
-      definition: {
-        name: "probe",
-        label: "Probe",
-        description: "Probe",
-        parameters: Type.Object({}),
-        execute: async () => ({ content: [], details: undefined }),
-      },
-      invoke: async (_input, ctx, signal) => {
-        const id = ctx.toolCallId ?? "";
+    const tool = nestedTool(async (_input, ctx, signal) => {
+      await new Promise<void>((resolve) =>
+        signal.addEventListener(
+          "abort",
+          () => {
+            cancelled.push(ctx.cellId);
+            resolve();
+          },
+          { once: true },
+        ),
+      );
+      await release.promise;
+      completed.push(ctx.cellId);
 
-        try {
+      return "cancelled";
+    });
+
+    for (const [id, cell] of ["a", "b"].entries()) {
+      runtime.bindCell(cell, { extensionContext }, tools(tool));
+      runtime.handleRequest(invokeMessage(id, cell));
+    }
+
+    const settled = runtime.cancelAndSettle("a");
+    expect(cancelled).toEqual(["a"]);
+    expect(completed).toEqual([]);
+    release.resolve();
+    await settled;
+    expect(completed).toEqual(["a"]);
+    await runtime.cancelAndSettle("b");
+    expect(completed).toEqual(["a", "b"]);
+    runtime.clear();
+  });
+
+  it("uses Pi call IDs and detaches yielded trace snapshots from live updates", async () => {
+    const delivered = Promise.withResolvers<void>();
+    const send = vi.fn(() => delivered.resolve());
+    const update = vi.fn();
+    const release = Promise.withResolvers<void>();
+    const runtime = new CodeModeDelegateRuntime(send);
+    runtime.bindCell(
+      "cell",
+      { extensionContext, onUpdate: update },
+      tools(
+        nestedTool(async (_input, ctx) => {
+          ctx.captureResult?.({ content: [{ type: "text", text: "first" }] }, "pi-parent/1");
+          await release.promise;
+          ctx.onUpdate?.({ content: [{ type: "text", text: "second" }], details: undefined });
+
+          return "done";
+        }),
+      ),
+    );
+    runtime.handleRequest(invokeMessage(1));
+    const yielded = await runtime.finishResponse(response());
+    expect(yielded.traces).toMatchObject([
+      { id: "pi-parent/1", status: "running", result: { content: [{ text: "first" }] } },
+    ]);
+    release.resolve();
+    await delivered.promise;
+    const finished = await runtime.finishResponse(response("result"));
+    expect(finished.traces).toMatchObject([
+      { id: "pi-parent/1", status: "done", result: { content: [{ text: "second" }] } },
+    ]);
+    expect(yielded.traces?.[0]?.result?.content).toEqual([{ type: "text", text: "first" }]);
+    expect(update.mock.calls.length).toBeGreaterThan(2);
+  });
+
+  it("isolates presentation failures and bounds retained notifications", async () => {
+    const send = vi.fn();
+    const runtime = new CodeModeDelegateRuntime(send);
+    runtime.bindCell(
+      "cell",
+      {
+        extensionContext,
+        onUpdate: () => {
+          throw new Error("display failed");
+        },
+      },
+      new Map(),
+    );
+
+    for (let id = 0; id < 102; id++)
+      runtime.handleRequest({
+        id,
+        request: { type: "notification/send", cellId: "cell", text: `${id}:` + "x".repeat(20_000) },
+      });
+    const result = await runtime.finishResponse(response("result"));
+    expect(send).toHaveBeenCalledTimes(102);
+    expect(result.contentItems).toHaveLength(100);
+    expect(result.contentItems[0]?.text).toMatch(/^2:/u);
+    expect(result.contentItems.every((item) => (item.text?.length ?? 0) <= 16_384)).toBe(true);
+  });
+
+  it("rejects delegates after closing the cell without invoking tools", async () => {
+    const send = vi.fn();
+    const invoke = vi.fn<NestedTool["invoke"]>().mockResolvedValue("unused");
+    const runtime = new CodeModeDelegateRuntime(send);
+    runtime.bindCell("cell", { extensionContext }, tools(nestedTool(invoke)));
+    runtime.closeCell("cell");
+    runtime.handleRequest(invokeMessage(1));
+    await runtime.cancelAndSettle("cell");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: { status: "error", message: "Code-mode cell context is unavailable" },
+      }),
+    );
+    await runtime.disposeCell("cell");
+  });
+
+  it("rejects duplicate in-flight IDs and clears active delegates on shutdown", async () => {
+    const runtime = new CodeModeDelegateRuntime(() => {});
+    const aborted = Promise.withResolvers<void>();
+    runtime.bindCell(
+      "cell",
+      { extensionContext },
+      tools(
+        nestedTool(async (_input, _ctx, signal) => {
           await new Promise<void>((resolve) =>
             signal.addEventListener(
               "abort",
               () => {
-                cancelled.push(id);
+                aborted.resolve();
                 resolve();
               },
               { once: true },
             ),
           );
-          await release.promise;
 
           return "cancelled";
-        } finally {
-          accounted.push(id);
-        }
-      },
-    };
-
-    for (const [index, cell] of ["a", "b"].entries()) {
-      runtime.bindCell(cell, extensionContext, new Map([[nestedToolKey({ name: "probe" }), tool]]));
-      runtime.handleRequest({
-        id: index,
-        request: {
-          type: "tool/invoke",
-          invocation: {
-            cell_id: cell,
-            runtime_tool_call_id: cell,
-            tool_name: { name: "probe", namespace: null },
-            input: {},
-          },
-        },
-      });
-    }
-
-    const settled = runtime.cancelAndSettle("a");
-    expect(cancelled).toEqual(["a"]);
-    expect(accounted).toEqual([]);
-    release.resolve();
-    await settled;
-    expect(accounted).toEqual(["a"]);
-    await runtime.cancelAndSettle("b");
-    expect(accounted).toEqual(["a", "b"]);
-    runtime.clear();
-  });
-
-  it("keeps each cell's originating model and effort across waits", async () => {
-    const host = createExtensionHost(() => {});
-    const sent = Promise.withResolvers<void>();
-    const runtime = new CodeModeDelegateRuntime(() => sent.resolve());
-    const contexts: ToolExecutionContext[] = [];
-
-    const tool: NestedTool = {
-      name: "probe",
-      kind: "function",
-      usage: "probe()",
-      definition: {
-        name: "probe",
-        label: "Probe",
-        description: "Probe",
-        parameters: Type.Object({}),
-        execute: async () => ({ content: [], details: undefined }),
-      },
-      invoke: async (_input, ctx) => {
-        contexts.push(ctx);
-
-        return "ok";
-      },
-    };
-
-    const tools = new Map([[nestedToolKey({ name: "probe" }), tool]]);
-
-    const original = host.createContext({
-      model: createToolsModel("gpt-5.6-sol", true),
-      thinkingLevel: "low",
-    });
-
-    const later = host.createContext({
-      model: createToolsModel("gpt-6-astra", true),
-      thinkingLevel: "high",
-      cwd: "/new-wait-context",
-    });
-
-    runtime.bindCell("a", original, tools);
-    runtime.bindCell("b", later, tools);
-    runtime.bindCell("a", later);
-
-    for (const [index, cell] of ["a", "b"].entries()) {
-      runtime.handleRequest({
-        id: index + 1,
-        request: {
-          type: "tool/invoke",
-          invocation: {
-            cell_id: cell,
-            runtime_tool_call_id: cell,
-            tool_name: { name: "probe", namespace: null },
-            input: {},
-          },
-        },
-      });
-    }
-
-    await sent.promise;
-    expect(
-      contexts.map(({ extensionContext: ctx }) => [ctx.model?.id, ctx.thinkingLevel, ctx.cwd]),
-    ).toEqual([
-      ["gpt-5.6-sol", "low", "/new-wait-context"],
-      ["gpt-6-astra", "high", "/new-wait-context"],
-    ]);
-    runtime.clear();
-  });
-
-  it.each([1, 2])(
-    "ending observer %s leaves the other observer and cell context intact",
-    (ended) => {
-      const runtime = new CodeModeDelegateRuntime(() => {});
-      runtime.bindCell("cell", extensionContext);
-      runtime.bindCell("other", extensionContext);
-      const a = vi.fn();
-      const b = vi.fn();
-      const other = vi.fn();
-      runtime.observe(1, "cell", a);
-      runtime.observe(2, "cell", b);
-      runtime.observe(3, "other", other);
-
-      const notify = () =>
-        runtime.handleRequest({
-          id: 10,
-          request: { type: "notification/send", cellId: "cell", text: "progress" },
-        });
-
-      notify();
-      expect(a).toHaveBeenCalledTimes(2);
-      expect(b).toHaveBeenCalledTimes(2);
-      expect(other).toHaveBeenCalledOnce();
-      runtime.unobserve(ended);
-      // A late duplicate cleanup must not restore or remove anybody else's subscription.
-      runtime.unobserve(ended);
-      notify();
-      expect(a).toHaveBeenCalledTimes(ended === 1 ? 2 : 3);
-      expect(b).toHaveBeenCalledTimes(ended === 2 ? 2 : 3);
-      expect(other).toHaveBeenCalledOnce();
-      const remaining = ended === 1 ? b : a;
-      runtime.attach(response());
-      notify();
-      expect(remaining).toHaveBeenCalledTimes(4);
-      runtime.unobserve(ended === 1 ? 2 : 1);
-      notify();
-      expect(remaining).toHaveBeenCalledTimes(4);
-      // Notifications remain available to the model even without a live UI subscriber.
-      expect(runtime.attach(response()).contentItems).toEqual([
-        { type: "input_text", text: "progress" },
-        { type: "input_text", text: "progress" },
-      ]);
-      runtime.clear();
-    },
-  );
-
-  it("isolates observer failures and mutations and removes subscriptions on shutdown", () => {
-    const send = vi.fn();
-    const runtime = new CodeModeDelegateRuntime(send);
-    runtime.bindCell("cell", extensionContext);
-    runtime.observe(1, "cell", (update) => {
-      update.content.length = 0;
-      throw new Error("UI failed");
-    });
-    const healthy = vi.fn();
-    runtime.observe(2, "cell", healthy);
-    runtime.handleRequest({
-      id: 10,
-      request: { type: "notification/send", cellId: "cell", text: "progress" },
-    });
-    expect(healthy).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        content: [{ type: "text", text: "progress" }],
-      }),
+        }),
+      ),
     );
-    expect(send).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        result: { status: "ok", value: { type: "notification/delivered" } },
-      }),
-    );
+    runtime.handleRequest(invokeMessage(1));
+    expect(() => runtime.handleRequest(invokeMessage(1))).toThrow("Duplicate");
     runtime.clear();
-    runtime.bindCell("cell", extensionContext);
-    runtime.handleRequest({
-      id: 11,
-      request: { type: "notification/send", cellId: "cell", text: "new cell" },
-    });
-    expect(healthy).toHaveBeenCalledTimes(2);
-    runtime.clear();
-  });
-
-  it("moves live updates to each wait without mutating yielded snapshots", async () => {
-    let now = 0;
-    vi.spyOn(performance, "now").mockImplementation(() => now);
-    const sent = Promise.withResolvers<void>();
-
-    const send = vi.fn<ConstructorParameters<typeof CodeModeDelegateRuntime>[0]>(() =>
-      sent.resolve(),
-    );
-
-    const runtime = new CodeModeDelegateRuntime(send);
-    const original = vi.fn();
-    const firstWait = vi.fn();
-    const secondWait = vi.fn();
-    const finished = Promise.withResolvers<RuntimeToolResult>();
-    let invocation: ToolExecutionContext | undefined;
-
-    const tool: NestedTool = {
-      name: "test",
-      kind: "function",
-      usage: "test()",
-      definition: {
-        name: "test",
-        label: "Test",
-        description: "Test",
-        parameters: Type.Object({}),
-        execute: async () => ({ content: [], details: undefined }),
-      },
-      invoke: async (_input, context) => {
-        invocation = context;
-
-        return await finished.promise;
-      },
-    };
-
-    runtime.bindCell("cell", extensionContext, new Map([[nestedToolKey({ name: "test" }), tool]]));
-    runtime.observe(1, "cell", original);
-    original.mockClear();
-    runtime.handleRequest({
-      id: 1,
-      request: {
-        type: "tool/invoke",
-        invocation: {
-          cell_id: "cell",
-          runtime_tool_call_id: "nested",
-          tool_name: { name: "test", namespace: null },
-          input: {},
-        },
-      },
-    });
-    expect(original).toHaveBeenCalledOnce();
-    now = 10_000;
-    const initial = runtime.attach(response());
-    runtime.unobserve(1);
-    expect(initial).toMatchObject({ elapsedMs: 10_000, traces: [{ status: "running" }] });
-
-    // Output between polls stays in the trace store, not on a completed tool card.
-    invocation?.onUpdate?.({
-      content: [{ type: "text", text: "between waits" }],
-      details: undefined,
-    });
-    expect(original).toHaveBeenCalledOnce();
-    now = 15_000;
-    runtime.observe(2, "cell", firstWait);
-    expect(firstWait).toHaveBeenCalledOnce();
-    expect(firstWait.mock.calls[0]?.[0]).toMatchObject({
-      details: {
-        elapsedMs: 15_000,
-        traces: [
-          { status: "running", result: { content: [{ type: "text", text: "between waits" }] } },
-        ],
-      },
-    });
-    invocation?.onUpdate?.({
-      content: [{ type: "text", text: "during wait" }],
-      details: undefined,
-    });
-    expect(firstWait).toHaveBeenCalledTimes(2);
-    expect(original).toHaveBeenCalledOnce();
-    now = 20_000;
-    const first = runtime.attach(response());
-    runtime.unobserve(2);
-    now = 25_000;
-    runtime.observe(3, "cell", secondWait);
-    expect(secondWait).toHaveBeenCalledOnce();
-    finished.resolve({ content: [{ type: "text", text: "done" }] });
-    await sent.promise;
-    expect(secondWait.mock.calls.at(-1)?.[0]).toMatchObject({
-      details: { elapsedMs: 25_000, traces: [{ status: "done" }] },
-    });
-    expect(firstWait).toHaveBeenCalledTimes(2);
-    expect(initial.traces?.[0]).not.toHaveProperty("result");
-    expect(first).toMatchObject({ elapsedMs: 20_000, traces: [{ status: "running" }] });
-    expect(send.mock.calls.map(([message]) => message)).toContainEqual(
-      expect.objectContaining({ id: 1 }),
-    );
-    const reply = send.mock.calls.find(([message]) => "id" in message && message.id === 1)?.[0];
-    expect(reply).toHaveProperty("result.status", "ok");
-    runtime.attach(response("result"));
-    runtime.unobserve(3);
-    runtime.clear();
-  });
-
-  it.each(["result", "terminated"] as const)(
-    "times no-tool cells and cleans up after %s",
-    (kind) => {
-      let now = 0;
-      vi.spyOn(performance, "now").mockImplementation(() => now);
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const runtime = new CodeModeDelegateRuntime(() => {});
-      const onUpdate = vi.fn();
-      runtime.bindCell("cell", extensionContext);
-      now = 5000;
-      expect(runtime.attach(response())).toMatchObject({ elapsedMs: 5000 });
-      now = 10_000;
-      runtime.observe(1, "cell", onUpdate);
-      expect(onUpdate).toHaveBeenCalled();
-      expect(onUpdate.mock.calls.at(-1)?.[0]).toMatchObject({
-        content: [],
-        details: { elapsedMs: 10_000, traces: [] },
-      });
-      now = 12_000;
-      runtime.closeCell("cell");
-      now = 13_000;
-      const terminal = runtime.attach(response(kind));
-      runtime.unobserve(1);
-      expect(terminal.elapsedMs).toBe(12_000);
-      expect(vi.getTimerCount()).toBe(0);
-      now = 20_000;
-      expect(terminal.elapsedMs).toBe(12_000);
-      expect(runtime.attach(response()).elapsedMs).toBeUndefined();
-      runtime.clear();
-    },
-  );
-
-  it("cleans up timing on shutdown and abandoned closed cells", () => {
-    vi.useFakeTimers();
-    const runtime = new CodeModeDelegateRuntime(() => {});
-    runtime.bindCell("cell", extensionContext);
-    runtime.closeCell("cell");
-    vi.advanceTimersByTime(1000);
-    expect(runtime.attach(response()).elapsedMs).toBeUndefined();
-    runtime.bindCell("cell", extensionContext);
-    runtime.clear();
-    expect(runtime.attach(response()).elapsedMs).toBeUndefined();
-    expect(vi.getTimerCount()).toBe(0);
+    await aborted.promise;
+    await runtime.cancelAndSettle("cell");
+    expect(runtime.attach(response()).traces).toBeUndefined();
   });
 
   it("clones normalized snapshots without revisiting hooks or sharing nested data", () => {
@@ -463,7 +254,6 @@ describe("Code Mode wait snapshots", () => {
     const details = { nested: { value: 1 } };
     const input = { cmd: "x".repeat(9000), nested: { value: 1 } };
     const trace = store.start("cell", "call", "test", input);
-
     trace.result = store.captureResult("cell", trace, {
       content: [],
       details: {
@@ -478,7 +268,6 @@ describe("Code Mode wait snapshots", () => {
     details.nested.value = 2;
     const first = store.snapshot("cell");
     const second = store.snapshot("cell");
-
     expect(first).toMatchObject({
       traces: [
         {
@@ -507,10 +296,7 @@ describe("Code Mode wait snapshots", () => {
       errorText: "boom",
     });
 
-    expect(attached).toMatchObject({
-      errorText: "boom",
-      droppedTraceCount: 1,
-    });
+    expect(attached).toMatchObject({ errorText: "boom", droppedTraceCount: 1 });
     expect(attached.elapsedMs).toEqual(expect.any(Number));
     expect(attached.contentItems).toBe(contentItems);
     expect(attached.traces).toHaveLength(50);

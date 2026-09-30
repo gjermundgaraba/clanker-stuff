@@ -72,7 +72,7 @@ describe("profile execution", () => {
     const cwd = await createTempDirectory();
     const model = createToolsModel("gpt-5.6-terra", true);
     const host = createExtensionHost(registerFallbackCodexTools, { model });
-    const ctx = host.createContext({ cwd, model });
+    const ctx = host.createToolContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
     await host.runTool(
@@ -82,7 +82,7 @@ describe("profile execution", () => {
           "\n",
         ),
       },
-      ctx,
+      { ctx },
     );
     await writeFile(path.join(cwd, "delete.txt"), "remove me\n", "utf-8");
     await host.runTool(
@@ -99,7 +99,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     await expect(readFile(path.join(cwd, "moved.txt"), "utf-8")).resolves.toBe("world\n");
@@ -115,7 +115,7 @@ describe("profile execution", () => {
       await writeFile(path.join(cwd, "plain.txt"), "one\ntwo\n", "utf-8");
       const model = createToolsModel("gpt-5.6-terra", true);
       const host = createExtensionHost(registerFallbackCodexTools, { model });
-      const ctx = host.createContext({ cwd, model });
+      const ctx = host.createToolContext({ cwd, model });
       await host.emitSessionStart(ctx);
 
       const result = await Promise.race([
@@ -129,7 +129,7 @@ describe("profile execution", () => {
               "*** End Patch",
             ].join("\n"),
           },
-          ctx,
+          { ctx },
         ),
         delay(5000).then(() => {
           throw new Error("apply_patch blocked on the FIFO");
@@ -153,7 +153,7 @@ describe("profile execution", () => {
     const names = Array.from({ length: 200 }, (_, i) => `dir/file-${i}.txt`);
     const model = createToolsModel("gpt-5.6-terra", true);
     const host = createExtensionHost(registerFallbackCodexTools, { model });
-    const ctx = host.createContext({ cwd, model });
+    const ctx = host.createToolContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
     const result = await host.runTool(
@@ -169,7 +169,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
@@ -198,7 +198,7 @@ describe("profile execution", () => {
     await writeFile(path.join(cwd, "big.txt"), `${lines.join("\n")}\n`, "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
     const host = createExtensionHost(registerFallbackCodexTools, { model });
-    const ctx = host.createContext({ cwd, model });
+    const ctx = host.createToolContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
     const startedAt = performance.now();
@@ -215,7 +215,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     // A full Myers diff of this rewrite takes seconds on the event loop; the patch's own line
@@ -240,7 +240,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     const edited = Value.Parse(ChangesSchema, edit.details);
@@ -267,7 +267,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     expect(performance.now() - contextStartedAt).toBeLessThan(1500);
@@ -289,7 +289,7 @@ describe("profile execution", () => {
     await writeFile(path.join(cwd, "huge.txt"), line.repeat(bigLines), "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
     const host = createExtensionHost(registerFallbackCodexTools, { model });
-    const ctx = host.createContext({ cwd, model });
+    const ctx = host.createToolContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
     const result = await host.runTool(
@@ -307,7 +307,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     const { changes, diffs } = Value.Parse(ChangesSchema, result.details);
@@ -340,7 +340,7 @@ describe("profile execution", () => {
       });
       const model = createToolsModel("gpt-5.6-terra", true);
       const host = createExtensionHost(registerFallbackCodexTools, { model });
-      const ctx = host.createContext({ cwd, model });
+      const ctx = host.createToolContext({ cwd, model });
       await host.emitSessionStart(ctx);
 
       const result = await host.runTool(
@@ -355,7 +355,7 @@ describe("profile execution", () => {
             "*** End Patch",
           ].join("\n"),
         },
-        ctx,
+        { ctx },
       );
 
       // Display metadata is best-effort: an unreadable file is still deleted, and its count is
@@ -375,7 +375,7 @@ describe("profile execution", () => {
     await writeFile(path.join(cwd, "source.txt"), "unchanged\n", "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
     const host = createExtensionHost(registerFallbackCodexTools, { model });
-    const ctx = host.createContext({ cwd, model });
+    const ctx = host.createToolContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
     await host.runTool(
@@ -388,7 +388,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     await expect(readFile(path.join(cwd, "moved.txt"), "utf-8")).resolves.toBe("unchanged\n");
@@ -401,7 +401,7 @@ describe("profile execution", () => {
     await writeFile(file, "target\nmiddle\ntarget\n", "utf-8");
     const model = createToolsModel("gpt-5.6-terra", true);
     const host = createExtensionHost(registerFallbackCodexTools, { model });
-    const ctx = host.createContext({ cwd, model });
+    const ctx = host.createToolContext({ cwd, model });
     await host.emitSessionStart(ctx);
 
     await host.runTool(
@@ -417,7 +417,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
 
     await expect(readFile(file, "utf-8")).resolves.toBe("target\nmiddle\nlast\n");
@@ -435,7 +435,7 @@ describe("profile execution", () => {
           "*** End Patch",
         ].join("\n"),
       },
-      ctx,
+      { ctx },
     );
     await expect(readFile(file, "utf-8")).resolves.toBe("");
 
@@ -454,7 +454,7 @@ describe("profile execution", () => {
             "*** End Patch",
           ].join("\n"),
         },
-        ctx,
+        { ctx },
       ),
     ).rejects.toThrow("End-of-file marker must end the update");
   });
@@ -463,7 +463,7 @@ describe("profile execution", () => {
     const cwd = await createTempDirectory();
     const model = createToolsModel("gpt-5.6-terra", true);
     const host = createExtensionHost(registerFallbackCodexTools, { model });
-    const ctx = host.createContext({ cwd, model });
+    const ctx = host.createToolContext({ cwd, model });
     const controller = new AbortController();
     controller.abort();
     await host.emitSessionStart(ctx);
@@ -518,7 +518,7 @@ describe("profile execution", () => {
 
   it("measures each process poll independently", async () => {
     const host = createExtensionHost(() => {});
-    const ctx = host.createContext();
+    const ctx = host.createToolContext();
     const manager = new ProcessManager();
     let now = 0;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -630,7 +630,7 @@ describe("profile execution", () => {
       const marker = path.join(cwd, "leaked.txt");
       const model = createToolsModel("gpt-5.6-luna", true);
       const host = createExtensionHost(registerFallbackCodexTools, { model });
-      const ctx = host.createContext({ cwd, model });
+      const ctx = host.createToolContext({ cwd, model });
       await host.emitSessionStart(ctx);
 
       const running = host.runTool(
@@ -639,7 +639,7 @@ describe("profile execution", () => {
           cmd: `node -e ${JSON.stringify(`setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "leaked"), 1000)`)}`,
           yield_time_ms: 10_000,
         },
-        ctx,
+        { ctx },
       );
 
       await delay(100);

@@ -7,8 +7,6 @@ import { isRecord } from "./service-metrics.mjs";
 import { oracle, score, serviceMetrics } from "./scoring.mjs";
 import { solve } from "/solution/solve.mjs";
 
-/** @typedef {import("@earendil-works/pi-coding-agent").ExtensionContext} ExtensionContext */
-
 const require = createRequire(
   realpathSync("/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/package.json"),
 );
@@ -28,12 +26,23 @@ const { CodeModeRuntime } = /** @type {typeof import("/opt/codex-provider/code-m
   await jiti.import("/opt/codex-provider/code-mode/tools.ts")
 );
 
+// The pinned public SDK owns capability resolution, validation and nested execution.
+const { fauxAssistantMessage, fauxToolCall } =
+  /** @type {typeof import("@earendil-works/pi-ai")} */ (
+    await jiti.import("@earendil-works/pi-ai")
+  );
+
+const { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } =
+  /** @type {typeof import("@earendil-works/pi-coding-agent")} */ (
+    await jiti.import("@earendil-works/pi-coding-agent")
+  );
+
 // Positive validity controls must cover both Pi catalogs, not only missing evidence.
 const { validateToolMode } = await import("./tool-mode.mjs");
 
 for (const arm of ["direct", "code"]) {
   const mode = arm === "direct" ? "direct" : "code_mode_only";
-  const names = arm === "direct" ? SERVICE_NAMES : ["exec", "wait"];
+  const names = arm === "direct" ? SERVICE_NAMES : [...SERVICE_NAMES, "exec"].sort();
 
   const t = {
     agent: {
@@ -97,21 +106,43 @@ for (const mode of ["direct", "code"]) {
     });
   else {
     const runtime = new CodeModeRuntime();
-    runtime.prepareNestedTools(defs.map((definition) => ({ definition, outputSchema: {} })))();
-    const exec = runtime.createTools().find((t) => t.name === "exec");
-    assert.ok(exec);
+    const exec = runtime.createExecTool();
+    const settingsManager = SettingsManager.inMemory();
 
-    const unexpectedContext = new Proxy(
-      {},
-      {
-        get(_target, key) {
-          throw new Error(`Unexpected Pi context access: ${String(key)}`);
+    const resourceLoader = new DefaultResourceLoader({
+      cwd: "/tmp",
+      agentDir: "/tmp/scaling-preflight",
+      settingsManager,
+      noExtensions: true,
+      noSkills: true,
+      noThemes: true,
+      noPromptTemplates: true,
+      extensionFactories: [
+        (pi) => {
+          for (const definition of [...defs, exec]) pi.registerTool(definition);
         },
-      },
-    );
+      ],
+    });
 
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- These isolated service tools require no Pi session. Fail on every context access so a future dependency cannot silently pass this standalone runtime preflight.
-    const context = /** @type {ExtensionContext} */ (unexpectedContext);
+    await resourceLoader.reload();
+
+    const { session } = await createAgentSession({
+      cwd: "/tmp",
+      agentDir: "/tmp/scaling-preflight",
+      settingsManager,
+      resourceLoader,
+      sessionManager: SessionManager.inMemory("/tmp"),
+      tools: [...SERVICE_NAMES, "exec"],
+    });
+
+    await session.bindExtensions({});
+    session.agent.state.messages = [
+      ...session.agent.state.messages,
+      fauxAssistantMessage(fauxToolCall("exec", { code: "preflight" }, { id: "preflight" }), {
+        stopReason: "toolUse",
+      }),
+    ];
+    const context = session.extensionRunner.createToolContext("preflight", undefined);
 
     try {
       const r = await exec.execute(
@@ -138,6 +169,7 @@ for (const mode of ["direct", "code"]) {
       assert.ok(isRecord(denied.details) && denied.details.scriptError);
     } finally {
       await runtime.shutdown();
+      session.dispose();
     }
   }
 

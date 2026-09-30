@@ -32,7 +32,7 @@ async function setup(
   await host.ready;
   runtimes.push(runtime);
   // Keep delivery out of these tool-boundary tests, without disabling capture.
-  const ctx = host.createContext({ mode: "tui", isIdle: () => false });
+  const ctx = host.createToolContext({ mode: "tui", isIdle: () => false });
   runtime.startSession(ctx);
   await host.emitSessionStart(ctx);
 
@@ -64,15 +64,15 @@ describe("targeted task-tool consumption", () => {
     runtime.inspect({ id: task.id, view: "summary" }, "observe");
     await host.runCommand("tasks", "", ctx);
     await host.runCommand("tasks", `inspect ${task.id}`, ctx);
-    await host.runTool("task_list", {}, ctx);
+    await host.runTool("task_list", {}, { ctx });
     expect(runtime.inbox.count).toBe(3);
     expect(runtime.inbox.protected(task.id)).toBe(true);
-    const response = await host.runTool("task_inspect", { id: task.id, view: "summary" }, ctx);
+    const response = await host.runTool("task_inspect", { id: task.id, view: "summary" }, { ctx });
     expect(response.details).toMatchObject({ events: events.map(({ id }) => ({ id })) });
     expect(runtime.inbox.count).toBe(0);
     expect(runtime.inbox.protected(task.id)).toBe(false);
     expect(runtime.inbox.lookup(task.id)).toEqual(events);
-    await host.runTool("task_inspect", { id: task.id, view: "summary" }, ctx);
+    await host.runTool("task_inspect", { id: task.id, view: "summary" }, { ctx });
     expect(runtime.inbox.protected(task.id)).toBe(false);
   });
 
@@ -86,7 +86,7 @@ describe("targeted task-tool consumption", () => {
     await task.cleanupPromise;
     const events = runtime.inbox.lookup(task.id);
     expect(events).toHaveLength(65);
-    const response = await host.runTool("task_inspect", { id: task.id, view: "summary" }, ctx);
+    const response = await host.runTool("task_inspect", { id: task.id, view: "summary" }, { ctx });
     expect(response.details).toMatchObject({ events: events.map(({ id }) => ({ id })) });
     expect(runtime.inbox.count).toBe(0);
     const [first] = events;
@@ -95,7 +95,7 @@ describe("targeted task-tool consumption", () => {
     const oldest = await host.runTool(
       "task_inspect",
       { id: task.id, view: "event", eventId: first.id },
-      ctx,
+      { ctx },
     );
 
     expect(oldest.details).toMatchObject({ payload: { text: "0", nextOffset: null } });
@@ -123,7 +123,11 @@ describe("targeted task-tool consumption", () => {
         data: n,
       });
 
-      await host.runTool("task_inspect", { id: task.id, view: "event", eventId: newer.id }, ctx);
+      await host.runTool(
+        "task_inspect",
+        { id: task.id, view: "event", eventId: newer.id },
+        { ctx },
+      );
     }
 
     expect(runtime.inbox.count).toBe(1);
@@ -143,7 +147,7 @@ describe("targeted task-tool consumption", () => {
       const response = await host.runTool(
         "task_inspect",
         { id: task.id, view: "event", eventId: old.id, offset },
-        ctx,
+        { ctx },
       );
 
       const { payload } = Value.Parse(schema, response.details);
@@ -175,11 +179,11 @@ describe("targeted task-tool consumption", () => {
       { args: { id: task.id, view: "result", offset: 50000 }, error: /Invalid payload offset/ },
       { args: { id: task.id, view: "summary", offset: 1 }, error: /offset requires/ },
     ]) {
-      await expect(host.runTool("task_inspect", args, ctx)).rejects.toThrow(error);
+      await expect(host.runTool("task_inspect", args, { ctx })).rejects.toThrow(error);
       expect(runtime.inbox.count).toBe(3);
     }
 
-    await host.runTool("task_inspect", { id: task.id, view: "event", eventId: second.id }, ctx);
+    await host.runTool("task_inspect", { id: task.id, view: "event", eventId: second.id }, { ctx });
     expect(runtime.inbox.count).toBe(2);
     expect(runtime.inbox.take()?.events).toEqual([first, terminal]);
     expect(runtime.inbox.lookup(task.id)).toEqual([first, second, terminal]);
@@ -193,15 +197,15 @@ describe("targeted task-tool consumption", () => {
       const events = runtime.inbox.lookup(task.id);
 
       if (operation === "result")
-        await host.runTool("task_inspect", { id: task.id, view: "result" }, ctx);
-      else if (operation === "stop") await host.runTool("task_stop", { id: task.id }, ctx);
+        await host.runTool("task_inspect", { id: task.id, view: "result" }, { ctx });
+      else if (operation === "stop") await host.runTool("task_stop", { id: task.id }, { ctx });
       else {
         const terminal = events.find((event) => event.terminal);
         assert.ok(terminal);
         await host.runTool(
           "task_inspect",
           { id: task.id, view: "event", eventId: terminal.id },
-          ctx,
+          { ctx },
         );
       }
 
@@ -214,7 +218,7 @@ describe("targeted task-tool consumption", () => {
 
   it("a running summary cannot consume its future completion", async () => {
     const { host, runtime, task, ctx } = await setup("setInterval(()=>{},1000)");
-    const response = await host.runTool("task_inspect", { id: task.id, view: "summary" }, ctx);
+    const response = await host.runTool("task_inspect", { id: task.id, view: "summary" }, { ctx });
     expect(response.details).toMatchObject({ task: { status: "running" }, events: [] });
     // Stop through the shared runtime, not the consuming agent tool.
     await runtime.stop(task.id);

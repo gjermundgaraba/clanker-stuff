@@ -14,6 +14,8 @@ The provider transports Codex Responses requests; this extension owns Pi child s
 
 The compatibility goal is to minimize distribution shift for models trained and tuned in the native Codex harness. Matching the pinned implementation is the default for every portable model-facing surface these packages own. A non-match must identify a backend reservation, unavailable Pi capability or representation, safety/correctness requirement, or other concrete host constraint; it should be revisited when that constraint changes.
 
+The companion provider's [approved Code Mode simplification](../../codex-provider/docs/codex-baseline.md#approved-code-mode-simplification) changes execution lifetime and nested hook/accounting ownership, not collaboration tool schemas. V1 tools use Pi namespaces and `structuredContent`; V2 tools are model-only. There is no executable collaboration inventory outside Pi's registry.
+
 The [Codex model-facing contract](codex-model-facing-contract.md) and [implementation reference](codex-reference.md) are descriptive upstream references. Pi's normative behavior is defined in [protocols](protocols.md).
 
 Selected spawn-model guidance and validation were reviewed at [`af1fc2dbff641e78298c272c4b45c9fec5c33898`](https://github.com/openai/codex/tree/af1fc2dbff641e78298c272c4b45c9fec5c33898). This does not repin the historical contract fixture or imply a full upstream review.

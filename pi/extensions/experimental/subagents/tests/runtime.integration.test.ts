@@ -640,7 +640,7 @@ describe("child runtime", () => {
     }
   });
 
-  it("guards canceled preflight before compaction begins after delayed auth", async () => {
+  it("guards canceled preflight before compaction begins after delayed auth availability", async () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
     });
@@ -666,16 +666,21 @@ describe("child runtime", () => {
       throw new Error("Faux API key auth is unavailable");
     }
 
-    const resolveAuth = apiKeyAuth.resolve.bind(apiKeyAuth);
+    if (apiKeyAuth.check === undefined) {
+      throw new Error("Faux auth availability check is unavailable");
+    }
+
+    const checkAuth = apiKeyAuth.check.bind(apiKeyAuth);
     let blockAuth = false;
 
-    const authSpy = vi.spyOn(apiKeyAuth, "resolve").mockImplementation(async (input) => {
-      if (blockAuth) {
-        authStarted.resolve(undefined);
-        await releaseAuth.promise;
-      }
+    // Pi checks configured auth during preflight; credential resolution now runs
+    // only for a request that needs it, after extension compaction interception.
+    const authSpy = vi.spyOn(apiKeyAuth, "check").mockImplementation(async (input) => {
+      if (!blockAuth) return undefined;
+      authStarted.resolve(undefined);
+      await releaseAuth.promise;
 
-      return resolveAuth(input);
+      return checkAuth(input);
     });
 
     const now = Date.now();
@@ -848,7 +853,7 @@ describe("child runtime", () => {
     }
   });
 
-  it("cancels post-run auto-compaction after blocked auth", async () => {
+  it("cancels post-run auto-compaction during blocked summary auth", async () => {
     const harness = await createAgentSessionHarness({
       models: [{ contextWindow: 100, id: "faux-1", maxTokens: 100 }],
     });
@@ -919,7 +924,8 @@ describe("child runtime", () => {
       const turn = runtime.startTurn({ text: "initial task" });
       await turn.accepted;
       await authStarted.promise;
-      expect(projectCompactionStarted).toBeFalsy();
+      // Extension interception now precedes auth for Pi's default summary.
+      expect(projectCompactionStarted).toBeTruthy();
 
       let stopped = false;
       abort = runtime.abort().then(() => {
@@ -937,7 +943,7 @@ describe("child runtime", () => {
         text: "child answer",
       });
 
-      expect(projectCompactionStarted).toBeFalsy();
+      expect(projectCompactionStarted).toBeTruthy();
       expect(
         SessionManager.open(
           runtime.sessionFile,

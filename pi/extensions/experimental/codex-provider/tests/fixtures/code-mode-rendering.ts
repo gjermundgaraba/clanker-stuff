@@ -2,7 +2,8 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
 import { createIdentityTheme } from "../../../../../tests/harness/tui.js";
-import { CodeModeRuntime } from "../../code-mode/tools.js";
+import { CodeModeRuntime, toNestedTool } from "../../code-mode/tools.js";
+import { codeModeRenderers } from "../../code-mode/renderers.js";
 import type { RuntimeToolTrace } from "../../code-mode/types.js";
 import { createCodexDirectTools } from "../../tools/direct.js";
 import { formatProcessMetadata } from "../../tools/process-metadata.js";
@@ -43,11 +44,37 @@ export const rows = (component: Component, width = 80): string[] => {
 
 export const codeModeTool = (
   name = "exec",
-  definitions: ToolDefinition[] = createCodexDirectTools().nestedDefinitions,
+  definitions: ToolDefinition[] = createCodexDirectTools().definitions,
 ) => {
-  const runtime = new CodeModeRuntime();
-  runtime.prepareNestedTools(definitions.map((definition) => ({ definition })))();
-  const tool = runtime.createTools().find((tool) => tool.name === name);
+  const runtime = new CodeModeRuntime({ renderers: definitions });
+  const exec = runtime.createExecTool();
+
+  const tools = definitions.map((definition) => ({
+    ...definition,
+    execute: async () => ({ content: [], details: undefined }),
+  }));
+
+  exec.prepareLoadout?.({
+    callable: tools,
+    declared: tools,
+    registered: tools,
+    getExposure: () => "direct",
+    getNamespace: () => undefined,
+  });
+
+  // Stored wait calls remain renderable even though wait is no longer registered.
+  const tool =
+    name === "wait"
+      ? {
+          ...exec,
+          name,
+          ...codeModeRenderers(
+            "wait",
+            () =>
+              new Map(definitions.map((definition) => [definition.name, toNestedTool(definition)])),
+          ),
+        }
+      : exec;
 
   if (!tool?.renderCall || !tool.renderResult) throw new Error("Missing Code Mode renderer");
 

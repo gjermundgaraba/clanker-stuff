@@ -27,7 +27,6 @@ import {
   TerminatingToolResultSchema,
   registerContractResponder,
 } from "./contract.js";
-import type { NestedToolContract } from "./contract.js";
 import { TreeCoordinator } from "./coordinator.js";
 import { NicknamePool } from "./nicknames.js";
 import { resolveProtocol } from "./selection.js";
@@ -134,7 +133,6 @@ export class SubagentManager {
   readonly #unsubscribeContract: ReturnType<typeof registerContractResponder>;
   readonly #unsubscribeState: () => void;
   readonly #v1: V1Controller;
-  #v1Definitions: readonly NestedToolContract[] = [];
   readonly #v2: V2Controller;
 
   constructor(pi: ExtensionAPI, options: SubagentManagerOptions) {
@@ -174,7 +172,6 @@ export class SubagentManager {
         return phase.kind === "awaiting-session"
           ? undefined
           : {
-              nestedTools: phase.protocol === "v1" ? this.#v1Definitions : [],
               protocol: phase.protocol,
               sessionId: phase.sessionId,
             };
@@ -617,7 +614,7 @@ export class SubagentManager {
 
   #applyTools(updateActive = true): void {
     if (this.#sessionPhase.protocol === "v1") {
-      this.#v1Definitions = registerV1Tools(
+      registerV1Tools(
         this.#pi,
         this.#v1,
         () => this.#latch("v1"),

@@ -1,4 +1,4 @@
-import { ContributedTools } from "@clanker-stuff/code-mode-tools";
+import { ContentTools } from "@clanker-stuff/code-mode-tools";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { taskRenderers } from "./renderers.js";
 import { TaskRuntime } from "./runtime.js";
@@ -7,7 +7,7 @@ import { idSchema, inspectParameters, listSchema, startParameters } from "./task
 const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
 
 export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void => {
-  const tools = new ContributedTools(pi);
+  const tools = new ContentTools(pi);
   pi.on("session_start", () => tools.setEnabled());
   tools.registerTool({
     name: "task_start",

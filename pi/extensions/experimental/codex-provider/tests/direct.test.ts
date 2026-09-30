@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { createCodexDirectTools, truncateCodexOutput } from "../tools/direct.js";
-import { ToolExecutionSettings, withExecutionSettings } from "../tools/execution-context.js";
 import { ProcessOutput } from "../tools/process-output.js";
 import type { ProcessManager, ProcessResult } from "../tools/process.js";
 import { createToolsModel, wireRecord } from "./fixtures.js";
@@ -48,56 +47,20 @@ describe("Codex direct tools", () => {
     vi.clearAllMocks();
   });
 
-  it("executes with the originating step settings after a model/effort change", async () => {
-    const settings = new ToolExecutionSettings();
-    let direct: ReturnType<typeof createCodexDirectTools> | undefined;
+  it("uses execution-entry settings for a newly started tool", async () => {
+    const direct = createCodexDirectTools(loadProcesses);
 
     const host = createExtensionHost((pi) => {
-      direct = createCodexDirectTools(loadProcesses);
-
-      for (const definition of direct.definitions) {
-        pi.registerTool({
-          ...definition,
-          execute: (id, args, signal, onUpdate, ctx) =>
-            definition.execute(
-              id,
-              args,
-              signal,
-              onUpdate,
-              withExecutionSettings(ctx, settings.take(ctx.sessionManager.getSessionId(), id)),
-            ),
-        });
-      }
+      for (const definition of direct.definitions) pi.registerTool(definition);
     });
 
-    const original = createPolicyModel(2);
-    const ctx = host.createContext({ model: original, thinkingLevel: "low" });
-    settings.reset(ctx.sessionManager.getSessionId());
-    settings.beginResponse(ctx.sessionManager.getSessionId())(["exec_command"], {
-      model: structuredClone(original),
-      thinkingLevel: "low",
-    });
-    original.codexOutputTokenLimit = 0;
-    const changed = host.createContext({ model: createPolicyModel(0), thinkingLevel: "high" });
-    processManager.start.mockResolvedValueOnce({
-      durationMs: 0,
-      exitCode: 0,
-      output: "abcdefghijklmnop",
-      running: false,
-      status: "exited",
-    });
-
-    const result = await host.runTool(
-      "exec_command",
-      { cmd: "captured", max_output_tokens: 100 },
-      changed,
-    );
-
+    const ctx = host.createToolContext({ model: createPolicyModel(2), thinkingLevel: "high" });
+    const result = await host.runTool("exec_command", { cmd: "captured" }, { ctx });
     expect(result.details).toMatchObject({ effectiveMaxOutputTokens: 2 });
     const invocation = processManager.start.mock.calls.at(-1)?.[0];
-    expect(invocation?.ctx.thinkingLevel).toBe("low");
+    expect(invocation?.ctx.thinkingLevel).toBe("high");
     expect(invocation?.ctx.model).toMatchObject({ codexOutputTokenLimit: 2 });
-    await direct?.dispose();
+    await direct.dispose();
   });
 
   it.each(["exec_command", "write_stdin"])(
@@ -110,7 +73,7 @@ describe("Codex direct tools", () => {
       });
 
       let model = createPolicyModel(2);
-      const ctx = host.createContext({ model, modelRegistry: { find: () => model } });
+      const ctx = host.createToolContext({ model, modelRegistry: { find: () => model } });
       const ready = Promise.withResolvers<void>();
       const complete = Promise.withResolvers<ProcessResult>();
       const method = name === "exec_command" ? processManager.start : processManager.continue;
@@ -123,7 +86,7 @@ describe("Codex direct tools", () => {
       const pending = host.runTool(
         name,
         name === "exec_command" ? { cmd: "held" } : { session_id: 1 },
-        ctx,
+        { ctx },
       );
 
       await ready.promise;
@@ -391,14 +354,14 @@ describe("Codex direct tools", () => {
       }
     });
 
-    const ctx = host.createContext({
+    const ctx = host.createToolContext({
       model: createPolicyModel(0),
     });
 
     const result = await host.runTool(
       "exec_command",
       { cmd: "long output", max_output_tokens: 1_000_000 },
-      ctx,
+      { ctx },
     );
 
     await direct?.dispose();
@@ -423,7 +386,11 @@ describe("Codex direct tools", () => {
       requestedMaxOutputTokens: 1_000_000,
       sessionId: 42,
     });
-    expect(result.details).not.toHaveProperty("codeModeResult");
+    expect(result.structuredContent).toHaveProperty("session_id", 42);
+    expect(result.structuredContent).toHaveProperty(
+      "output",
+      expect.stringContaining("…2 tokens truncated…"),
+    );
   });
 
   it("resolves output policy from the current model registry entry", async () => {
@@ -454,7 +421,7 @@ describe("Codex direct tools", () => {
       codexOutputTokenLimit: 0,
     }));
 
-    const ctx = host.createContext({
+    const ctx = host.createToolContext({
       model: staleModel,
       modelRegistry: { find },
     });
@@ -462,7 +429,7 @@ describe("Codex direct tools", () => {
     const result = await host.runTool(
       "exec_command",
       { cmd: "current policy", max_output_tokens: 100 },
-      ctx,
+      { ctx },
     );
 
     await direct?.dispose();
@@ -482,12 +449,12 @@ describe("Codex direct tools", () => {
         }
       });
 
-      const ctx = host.createContext({ model: createPolicyModel(limit) });
+      const ctx = host.createToolContext({ model: createPolicyModel(limit) });
 
       const result = await host.runTool(
         "exec_command",
         { cmd: "default policy", max_output_tokens: 100_000 },
-        ctx,
+        { ctx },
       );
 
       await direct.dispose();
@@ -496,7 +463,7 @@ describe("Codex direct tools", () => {
     },
   );
 
-  it("builds the distinct process result only for nested Code Mode calls", async () => {
+  it("uses one output policy for text and structured process results", async () => {
     processManager.start.mockResolvedValueOnce({
       durationMs: 1000,
       exitCode: 0,
@@ -509,19 +476,19 @@ describe("Codex direct tools", () => {
     const host = createExtensionHost((pi) => {
       direct = createCodexDirectTools(loadProcesses);
 
-      for (const definition of direct.nestedDefinitions) {
+      for (const definition of direct.definitions) {
         pi.registerTool(definition);
       }
     });
 
-    const ctx = host.createContext({
-      model: createPolicyModel(0),
+    const ctx = host.createToolContext({
+      model: createPolicyModel(2),
     });
 
     const result = await host.runTool(
       "exec_command",
       { cmd: "long output", max_output_tokens: 2 },
-      ctx,
+      { ctx },
     );
 
     await direct?.dispose();
@@ -538,11 +505,12 @@ describe("Codex direct tools", () => {
         ].join("\n"),
         wall_time_seconds: 1,
       },
-      effectiveMaxOutputTokens: 0,
+      effectiveMaxOutputTokens: 2,
     });
+    expect(result.structuredContent).toEqual(wireRecord(result.details).codeModeResult);
   });
 
-  it("preserves the Code Mode output window when no limit is requested", async () => {
+  it("reconstructs head and tail for structured output from the full capture file", async () => {
     const output = new ProcessOutput();
 
     const rawOutput = Buffer.concat([
@@ -573,7 +541,7 @@ describe("Codex direct tools", () => {
     const host = createExtensionHost((pi) => {
       direct = createCodexDirectTools(loadProcesses);
 
-      for (const definition of direct.nestedDefinitions) {
+      for (const definition of direct.definitions) {
         pi.registerTool(definition);
       }
     });
@@ -583,7 +551,7 @@ describe("Codex direct tools", () => {
         cmd: "large nested output",
       });
 
-      const codeModeValue = wireRecord(result.details).codeModeResult;
+      const codeModeValue = result.structuredContent;
       const codeMode = codeModeValue === undefined ? undefined : wireRecord(codeModeValue);
 
       expect(codeMode?.output).toContain(

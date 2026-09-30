@@ -194,6 +194,30 @@ describe("Codex model catalog", () => {
     );
   });
 
+  it("rejects non-chat cache entries even when they carry matching Codex identity", async () => {
+    const stored = await fetchStoredCatalog();
+    const catalog = createCodexModelCatalog();
+    await catalog.refreshModels(
+      refreshContext(
+        async (publication) => {
+          publication.update?.();
+
+          return true;
+        },
+        {
+          ...stored,
+          models: stored.models.map((model) => ({
+            ...model,
+            type: "classifier" as const,
+            contextWindow: 1000,
+          })),
+        },
+      ),
+    );
+    expect(catalog.supportsModel(futureModel)).toBe(false);
+    expect(catalog.getModels().some((model) => model.id === "gpt-6-astra")).toBe(true);
+  });
+
   it("does not admit unknown names, unsupported Pi capabilities, or unknown tool modes", async () => {
     const stored = await fetchStoredCatalog([
       remoteModel,

@@ -87,7 +87,7 @@ async function callTool(
     args,
     undefined,
     undefined,
-    h.session.extensionRunner.createContext(),
+    h.session.extensionRunner.createToolContext("test", undefined),
   );
 
   const text = result.content.find((c) => c.type === "text");
@@ -109,7 +109,7 @@ const payloadSchema = Type.Object({
 describe("background tasks in a real AgentSession", () => {
   it("uses literal relative and absolute cwd paths and defaults omitted args", async () => {
     const h = await setup();
-    const cwd = h.session.extensionRunner.createContext().cwd;
+    const cwd = h.session.extensionRunner.createToolContext("test", undefined).cwd;
     await mkdir(join(cwd, "@foo"));
     await mkdir(join(cwd, "foo"));
 
@@ -687,7 +687,7 @@ describe("background tasks in a real AgentSession", () => {
     await h.session.bindExtensions({
       mode: "tui",
       uiContext: {
-        ...h.session.extensionRunner.createContext().ui,
+        ...h.session.extensionRunner.createToolContext("test", undefined).ui,
         notify: (message) => {
           notices.push(message);
         },
@@ -759,7 +759,7 @@ describe("background tasks in a real AgentSession", () => {
       await h.session.bindExtensions({
         mode: "tui",
         uiContext: {
-          ...h.session.extensionRunner.createContext().ui,
+          ...h.session.extensionRunner.createToolContext("test", undefined).ui,
           notify: (message) => {
             notices.push(message);
           },
@@ -903,7 +903,9 @@ describe("background tasks in a real AgentSession", () => {
     const task = tasks(h)[0];
     assert.ok(task);
     // Bound hosts receive session_start on reload, as the interactive application does.
-    await h.session.bindExtensions({ uiContext: h.session.extensionRunner.createContext().ui });
+    await h.session.bindExtensions({
+      uiContext: h.session.extensionRunner.createToolContext("test", undefined).ui,
+    });
     await h.session.reload();
     stopped(task.pid);
     h.setResponses([

@@ -58,7 +58,7 @@ export class CodeModeHostClient {
   private readonly binary: string;
   private buffer = Buffer.alloc(0);
   private child: ChildProcessWithoutNullStreams | undefined;
-  private readonly delegateRuntime = new CodeModeDelegateRuntime((message) => {
+  private delegateRuntime = new CodeModeDelegateRuntime((message) => {
     this.send(message);
   });
   private readonly initial = new Map<number, PromiseWithResolvers<HostResultValue>>();
@@ -119,7 +119,8 @@ export class CodeModeHostClient {
     throwIfAborted(signal);
     await this.start(signal);
     throwIfAborted(signal);
-    const { code, maxOutputTokens, yieldTimeMs } = parseExecSource(source);
+    const delegates = this.delegateRuntime;
+    const { code, maxOutputTokens } = parseExecSource(source);
     const id = ++this.requestId;
     const initial = Promise.withResolvers<HostResultValue>();
     this.initial.set(id, initial);
@@ -144,7 +145,7 @@ export class CodeModeHostClient {
           max_output_tokens: maxOutputTokens,
           source: code,
           tool_call_id: `exec-${id}`,
-          yield_time_ms: yieldTimeMs ?? DEFAULT_CODE_MODE_EXEC_YIELD_MS,
+          yield_time_ms: DEFAULT_CODE_MODE_EXEC_YIELD_MS,
         },
         sessionId: this.sessionId,
       },
@@ -153,24 +154,27 @@ export class CodeModeHostClient {
     );
 
     let cellId: string | undefined;
+    let operationId = id;
 
     const abort = () => {
+      if (this.delegateRuntime !== delegates) return;
       const error = abortError();
 
+      if (cellId === undefined) {
+        // Before the started reply there is no cell handle to terminate safely.
+        this.failAll(error);
+
+        return;
+      }
+
       try {
-        this.send({ id, type: "operation/cancel" });
+        this.send({ id: operationId, type: "operation/cancel" });
       } catch {
         // Host teardown is already authoritative.
       }
 
+      this.rejectOperation(operationId, error);
       this.rejectOperation(id, error);
-
-      if (cellId !== undefined && cellId.length > 0) {
-        // Internal cleanup is not another UI operation on the already-cancelled exec card.
-        void this.terminate(cellId, { extensionContext: context.extensionContext }).catch(
-          () => null,
-        );
-      }
     };
 
     signal?.addEventListener("abort", abort, { once: true });
@@ -184,90 +188,95 @@ export class CodeModeHostClient {
         throw abortError();
       }
 
-      return {
-        ...(await this.delegateRuntime.finishResponse(
-          runtimeResponseFromValue(await initial.promise),
-        )),
-        maxOutputTokens: maxOutputTokens ?? 10_000,
-      };
+      const contentItems: RuntimeResponse["contentItems"] = [];
+      let remaining = (maxOutputTokens ?? 10_000) * 4;
+      let retainedBytes = 0;
+      let response = runtimeResponseFromValue(await initial.promise);
+
+      while (true) {
+        throwIfAborted(signal);
+        response = await delegates.finishResponse(response);
+
+        for (const item of response.contentItems) {
+          if (item.type === "input_text" && remaining === 0) continue;
+
+          const retained =
+            item.type === "input_text"
+              ? {
+                  ...item,
+                  text:
+                    (item.text ?? "").length > remaining
+                      ? `${(item.text ?? "").slice(0, remaining)}\n[Output truncated]`
+                      : (item.text ?? ""),
+                }
+              : item;
+
+          if (retained.type === "input_text")
+            remaining = Math.max(0, remaining - (retained.text?.length ?? 0));
+          retainedBytes += Buffer.byteLength(retained.text ?? retained.image_url ?? "");
+
+          if (retainedBytes > MAX_FRAME_BYTES)
+            throw new Error("Code-mode aggregate output exceeds its memory budget");
+
+          if (retained.type !== "input_text" || retained.text) contentItems.push(retained);
+        }
+
+        if (response.kind !== "yielded")
+          return { ...response, contentItems, maxOutputTokens: maxOutputTokens ?? 10_000 };
+
+        try {
+          context.onUpdate?.({
+            content: [],
+            details: {
+              cellId,
+              status: "running",
+              traces: response.traces,
+              elapsedMs: response.elapsedMs,
+            },
+          });
+        } catch {
+          // Presentation callbacks do not own script execution.
+        }
+
+        operationId = ++this.requestId;
+
+        const value = await this.requestWithId(operationId, {
+          method: "session/wait",
+          request: { cell_id: response.cellId, yield_time_ms: DEFAULT_CODE_MODE_EXEC_YIELD_MS },
+          sessionId: this.sessionId,
+        });
+
+        const outcome = runtimeOutcome(value);
+
+        if (outcome === undefined || outcome === null)
+          throw new Error("Code-mode host returned an invalid wait outcome");
+        response = parseRuntimeResponse(outcome);
+      }
     } catch (error) {
       this.initial.delete(id);
 
-      if (cellId !== undefined) await this.delegateRuntime.cancelAndSettle(cellId);
+      if (cellId !== undefined) {
+        const termination =
+          this.delegateRuntime !== delegates || this.child === undefined
+            ? Promise.resolve(null)
+            : Promise.race([
+                this.request({ method: "session/terminate", cellId, sessionId: this.sessionId }),
+                delay(DEFAULT_SHUTDOWN_GRACE_MS).then(() => {
+                  throw new Error("Code-mode cell termination timed out");
+                }),
+              ]).catch(() => {
+                // A broken host cannot retain a cell after this invocation ends.
+                if (this.delegateRuntime === delegates)
+                  this.failAll(new Error("Code-mode cell termination failed"));
+              });
+
+        await Promise.all([termination, delegates.disposeCell(cellId)]);
+      }
+
       throw error;
     } finally {
-      this.delegateRuntime.unobserve(id);
       signal?.removeEventListener("abort", abort);
     }
-  }
-
-  async wait(
-    cellId: string,
-    yieldTimeMs: number,
-    context: ToolExecutionContext,
-    signal?: AbortSignal,
-  ): Promise<RuntimeResponse> {
-    throwIfAborted(signal);
-    await this.start(signal);
-    throwIfAborted(signal);
-    const id = ++this.requestId;
-
-    return await this.abortableOperation(id, signal, async () => {
-      this.delegateRuntime.observe(id, cellId, context.onUpdate);
-      throwIfAborted(signal);
-
-      const value = await this.requestWithId(
-        id,
-        {
-          method: "session/wait",
-          request: { cell_id: cellId, yield_time_ms: yieldTimeMs },
-          sessionId: this.sessionId,
-        },
-        context,
-      );
-
-      const wrapped = runtimeOutcome(value);
-
-      if (wrapped === undefined || wrapped === null) {
-        throw new Error("Code-mode host returned an invalid wait outcome");
-      }
-
-      return await this.delegateRuntime.finishResponse(parseRuntimeResponse(wrapped));
-    });
-  }
-
-  async terminate(
-    cellId: string,
-    context: ToolExecutionContext,
-    signal?: AbortSignal,
-  ): Promise<RuntimeResponse> {
-    throwIfAborted(signal);
-    await this.start(signal);
-    throwIfAborted(signal);
-    const id = ++this.requestId;
-
-    return await this.abortableOperation(id, signal, async () => {
-      this.delegateRuntime.observe(id, cellId, context.onUpdate);
-      throwIfAborted(signal);
-
-      const value = await this.requestWithId(
-        id,
-        {
-          cellId,
-          method: "session/terminate",
-          sessionId: this.sessionId,
-        },
-        context,
-      );
-
-      const wrapped = runtimeOutcome(value);
-
-      if (wrapped === undefined || wrapped === null) {
-        throw new Error("Code-mode host returned an invalid termination outcome");
-      }
-
-      return await this.delegateRuntime.finishResponse(parseRuntimeResponse(wrapped));
-    });
   }
 
   async shutdown(): Promise<void> {
@@ -299,6 +308,10 @@ export class CodeModeHostClient {
     });
 
     this.child = child;
+    this.delegateRuntime = new CodeModeDelegateRuntime((message) => {
+      // Late settlement from a dead host cannot answer a reused delegate ID on its replacement.
+      if (this.child === child) this.send(message);
+    });
     this.buffer = Buffer.alloc(0);
     this.stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {
@@ -342,33 +355,6 @@ export class CodeModeHostClient {
     });
     await handshake.promise;
     await this.request({ method: "session/open", sessionId: this.sessionId });
-  }
-
-  private async abortableOperation<T>(
-    id: number,
-    signal: AbortSignal | undefined,
-    operation: () => Promise<T>,
-  ): Promise<T> {
-    const abort = () => {
-      const error = abortError();
-
-      try {
-        this.send({ id, type: "operation/cancel" });
-      } catch {
-        // Host teardown is already authoritative.
-      }
-
-      this.rejectOperation(id, error);
-    };
-
-    signal?.addEventListener("abort", abort, { once: true });
-
-    try {
-      return await operation();
-    } finally {
-      this.delegateRuntime.unobserve(id);
-      signal?.removeEventListener("abort", abort);
-    }
   }
 
   private request(
@@ -515,9 +501,7 @@ export class CodeModeHostClient {
       const cellId = executionCellId(value);
 
       if (cellId !== undefined && cellId.length > 0 && pending.context !== undefined) {
-        pending.context.onCellStarted?.(cellId);
-        this.delegateRuntime.bindCell(cellId, pending.context.extensionContext, pending.tools);
-        this.delegateRuntime.observe(message.id, cellId, pending.context.onUpdate);
+        this.delegateRuntime.bindCell(cellId, pending.context, pending.tools ?? new Map());
       }
 
       pending.resolve(value);

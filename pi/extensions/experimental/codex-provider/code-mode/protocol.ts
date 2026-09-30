@@ -50,7 +50,6 @@ export const toWireToolDefinition = (tool: NestedTool) => ({
 export type ExecPragma = {
   code: string;
   maxOutputTokens: number | null;
-  yieldTimeMs: number | null;
 };
 
 const ExecOptionsRecordSchema = Type.Record(
@@ -67,7 +66,7 @@ export const parseExecSource = (source: string): ExecPragma => {
   const trimmed = first?.trimStart() ?? "";
 
   if (!trimmed.startsWith("// @exec:")) {
-    return { code: source, maxOutputTokens: null, yieldTimeMs: null };
+    return { code: source, maxOutputTokens: null };
   }
 
   if (rest.join("\n").trim() === "") {
@@ -81,7 +80,7 @@ export const parseExecSource = (source: string): ExecPragma => {
   }
 
   for (const key of Object.keys(options)) {
-    if (key !== "yield_time_ms" && key !== "max_output_tokens") {
+    if (key !== "max_output_tokens") {
       throw new Error(`Unsupported exec pragma field: ${key}`);
     }
   }
@@ -94,7 +93,6 @@ export const parseExecSource = (source: string): ExecPragma => {
       1,
       MAX_CODE_MODE_OUTPUT_TOKENS,
     ),
-    yieldTimeMs: parseInteger(options.yield_time_ms, "yield_time_ms"),
   };
 };
 

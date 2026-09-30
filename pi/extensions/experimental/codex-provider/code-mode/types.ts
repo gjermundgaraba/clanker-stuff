@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type {
   AgentToolResult,
-  ExtensionContext,
+  ExtensionToolContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -30,8 +30,20 @@ export const RuntimeToolTraceSchema = Type.Object({
 
 export type RuntimeToolTrace = Static<typeof RuntimeToolTraceSchema>;
 
+export type ToolMetadata = Pick<
+  ToolDefinition,
+  | "name"
+  | "description"
+  | "parameters"
+  | "constrainedSampling"
+  | "promptGuidelines"
+  | "outputSchema"
+  | "renderCall"
+  | "renderResult"
+>;
+
 export interface NestedTool {
-  definition: ToolDefinition;
+  definition: ToolMetadata;
   /** Argument property that receives the raw freeform string; undefined for function tools. */
   freeformProperty?: string;
   kind: "freeform" | "function";
@@ -48,15 +60,13 @@ export interface NestedTool {
 }
 
 export interface ToolExecutionContext {
-  onCellStarted?: (cellId: string) => void;
-  extensionContext: ExtensionContext;
-  toolCallId?: string;
+  extensionContext: ExtensionToolContext;
   onUpdate?: (result: AgentToolResult<unknown>) => void;
 }
 
-export interface NestedToolContext extends Omit<ToolExecutionContext, "onCellStarted"> {
+export interface NestedToolContext extends ToolExecutionContext {
   cellId: string;
-  captureResult?: (result: RuntimeToolResult) => void;
+  captureResult?: (result: RuntimeToolResult, toolCallId: string) => void;
 }
 
 export interface RuntimeContentItem {

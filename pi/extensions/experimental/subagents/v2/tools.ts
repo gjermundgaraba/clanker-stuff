@@ -159,6 +159,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Spawn Agent",
     name: "spawn_agent",
+    exposure: "model-only",
     ...agentRenderers("spawn_agent"),
     parameters: spawnParameters,
     promptSnippet: "Spawn a child under your hierarchical task path",
@@ -177,6 +178,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Send Message",
     name: "send_message",
+    exposure: "model-only",
     ...agentRenderers("send_message"),
     parameters: Type.Object(
       {
@@ -207,6 +209,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Follow-up Task",
     name: "followup_task",
+    exposure: "model-only",
     ...agentRenderers("followup_task"),
     parameters: Type.Object(
       {
@@ -235,6 +238,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Wait for Agent",
     name: "wait_agent",
+    exposure: "model-only",
     ...agentRenderers("wait_agent"),
     parameters: Type.Object(
       {
@@ -261,6 +265,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "Interrupt Agent",
     name: "interrupt_agent",
+    exposure: "model-only",
     ...agentRenderers("interrupt_agent"),
     parameters: Type.Object({ target: Type.String({ minLength: 1 }) }, STRICT),
     promptSnippet: "Interrupt another known agent's active turn",
@@ -285,6 +290,7 @@ export const registerV2Tools = (
     executionMode: "parallel",
     label: "List Agents",
     name: "list_agents",
+    exposure: "model-only",
     ...agentRenderers("list_agents"),
     parameters: Type.Object(
       {

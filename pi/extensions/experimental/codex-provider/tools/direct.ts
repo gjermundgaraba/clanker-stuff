@@ -1,12 +1,13 @@
-import { captureExecutionSettings, withExecutionSettings } from "./execution-context.js";
 // Tool schemas and descriptions in this file were adapted for this package from OpenAI Codex (Apache-2.0); see ../NOTICE and ../UPSTREAM.
 import { open, readFile, stat } from "node:fs/promises";
 
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
+import { structuralSchema } from "@clanker-stuff/pi-tool-schema";
 import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createReadToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { captureExecutionSettings, withExecutionSettings } from "./execution-context.js";
 import { resolvePath } from "./path.js";
 import type { ProcessManager, ProcessResult } from "./process.js";
 import { formatProcessMetadata } from "./process-metadata.js";
@@ -21,7 +22,16 @@ const strict = { additionalProperties: false } as const;
 
 const DEFAULT_OUTPUT_TOKEN_LIMIT = 10_000;
 
-const CODE_MODE_OUTPUT_TOKEN_LIMIT = (1024 * 1024) / 4;
+const PROCESS_OUTPUT_SCHEMA = Type.Object(
+  {
+    exit_code: Type.Union([Type.Number(), Type.Null()]),
+    output: Type.String(),
+    wall_time_seconds: Type.Number(),
+    original_token_count: Type.Optional(Type.Number()),
+    session_id: Type.Optional(Type.Number()),
+  },
+  { additionalProperties: false },
+);
 
 const APPLY_PATCH_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
@@ -257,7 +267,6 @@ const processResult = async (
   result: ProcessResult,
   maxOutputTokens: number | undefined,
   ctx: ExtensionContext,
-  nested: boolean,
 ): Promise<AgentToolResult<unknown>> => {
   const effectiveLimit = Math.min(
     maxOutputTokens ?? DEFAULT_OUTPUT_TOKEN_LIMIT,
@@ -265,20 +274,6 @@ const processResult = async (
   );
 
   const truncated = await truncateProcessResultOutput(result, effectiveLimit);
-  let nestedOutput: ReturnType<typeof truncateCodexOutput> | undefined;
-
-  if (nested) {
-    if (maxOutputTokens === undefined) {
-      nestedOutput = await truncateProcessResultOutput(result, CODE_MODE_OUTPUT_TOKEN_LIMIT);
-    } else {
-      const nestedLimit = Math.min(maxOutputTokens, CODE_MODE_OUTPUT_TOKEN_LIMIT);
-      nestedOutput =
-        nestedLimit === effectiveLimit
-          ? truncated
-          : await truncateProcessResultOutput(result, nestedLimit);
-    }
-  }
-
   const metadata = formatProcessMetadata(result);
   const content = truncated.content.length === 0 ? metadata : `${truncated.content}\n\n${metadata}`;
   const { output: _output, truncation, ...details } = result;
@@ -294,9 +289,8 @@ const processResult = async (
     Object.assign(resultDetails, { truncation });
   }
 
-  if (nested) {
-    Object.assign(resultDetails, { codeModeResult: codeModeResult(result, nestedOutput) });
-  }
+  const structuredContent = codeModeResult(result, truncated);
+  Object.assign(resultDetails, { codeModeResult: structuredContent });
 
   if (maxOutputTokens !== undefined) {
     Object.assign(resultDetails, { requestedMaxOutputTokens: maxOutputTokens });
@@ -312,7 +306,7 @@ const processResult = async (
     });
   }
 
-  return textResult(content, resultDetails);
+  return { ...textResult(content, resultDetails), structuredContent };
 };
 
 type ProcessOperations = Pick<ProcessManager, "start" | "continue" | "dispose">;
@@ -339,10 +333,11 @@ export const createCodexDirectTools = (
     return manager;
   };
 
-  const execCommand = (nested: boolean) =>
+  const execCommand = () =>
     defineTool({
       ...execCommandRenderers,
       name: "exec_command",
+      outputSchema: PROCESS_OUTPUT_SCHEMA,
       label: "Execute Command",
       description:
         "Runs a shell command. Long-running commands return a session ID for write_stdin.",
@@ -375,15 +370,15 @@ export const createCodexDirectTools = (
           }),
           params.max_output_tokens,
           ctx,
-          nested,
         );
       },
     });
 
-  const writeStdin = (nested: boolean) =>
+  const writeStdin = () =>
     defineTool({
       ...writeStdinRenderers,
       name: "write_stdin",
+      outputSchema: PROCESS_OUTPUT_SCHEMA,
       label: "Write Stdin",
       description: "Writes to or polls a running exec_command session.",
       parameters: Type.Object(
@@ -416,7 +411,6 @@ export const createCodexDirectTools = (
           }),
           params.max_output_tokens,
           ctx,
-          nested,
         );
       },
     });
@@ -428,9 +422,8 @@ export const createCodexDirectTools = (
       label: "Apply Patch",
       description:
         "Apply a patch to files. Provide the patch directly, from *** Begin Patch through *** End Patch; do not wrap it in JSON.",
-      parameters: Type.Object(
-        { patch: Type.String({ description: "The complete patch text" }) },
-        strict,
+      parameters: structuralSchema(
+        Type.Object({ patch: Type.String({ description: "The complete patch text" }) }, strict),
       ),
       constrainedSampling: APPLY_PATCH_CONSTRAINED_SAMPLING,
       async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -459,11 +452,10 @@ export const createCodexDirectTools = (
     }),
   ];
 
-  const definitions = [execCommand(false), writeStdin(false), ...sharedDefinitions];
+  const definitions = [execCommand(), writeStdin(), ...sharedDefinitions];
 
   return {
     definitions,
     dispose: () => processes.stop((manager) => manager.dispose()),
-    nestedDefinitions: [execCommand(true), writeStdin(true), ...sharedDefinitions],
   };
 };

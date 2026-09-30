@@ -81,7 +81,7 @@ for mode in direct code_mode_only; do
       assert.equal(setup[0].thinking, "high");
       assert.equal(setup[0].mode, process.argv[1]);
       assert.deepEqual(setup[0].activeTools, process.argv[1] === "direct"
-        ? ["apply_patch", "exec_command", "view_image", "write_stdin"] : ["exec", "wait"]);
+        ? ["apply_patch", "exec_command", "view_image", "write_stdin"] : ["apply_patch", "exec", "exec_command", "view_image", "write_stdin"]);
       assert.equal(events.some(event => event.type === "pi_eval_tools"), false);
     ' "$mode"
 done

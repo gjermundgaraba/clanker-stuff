@@ -1,4 +1,3 @@
-import type { ToolExecutionSettings } from "./tools/execution-context.js";
 import { normalizeContext, uuidv7 } from "@earendil-works/pi-ai";
 import type { Api, Message, Model, ProviderHeaders, Usage } from "@earendil-works/pi-ai";
 import {
@@ -2537,14 +2536,8 @@ export const createCodexLifecycle = (
   observability: CodexObservability,
   isFastModeEnabled: () => boolean = () => false,
   catalog?: CodexModelCatalog,
-  executionSettings?: ToolExecutionSettings,
 ) => {
-  const providerRuntime = createCodexProviderRuntime(
-    observability,
-    isFastModeEnabled,
-    catalog,
-    executionSettings,
-  );
+  const providerRuntime = createCodexProviderRuntime(observability, isFastModeEnabled, catalog);
 
   const state = createLifecycleState();
 

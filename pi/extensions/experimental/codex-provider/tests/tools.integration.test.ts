@@ -26,7 +26,7 @@ import type { WireRecord } from "./fixtures.js";
 
 const DIRECT_NAMES = ["exec_command", "write_stdin", "apply_patch", "view_image"];
 
-const CODE_NAMES = ["exec", "wait"];
+const CODE_NAMES = ["exec"];
 
 describe("Codex tools with a real AgentSession", () => {
   afterEach(() => {
@@ -141,7 +141,9 @@ describe("Codex tools with a real AgentSession", () => {
           role: "assistant",
           stopReason: "stop",
         });
-        expect(session.getActiveToolNames()).toStrictEqual(names);
+        expect(session.getActiveToolNames()).toStrictEqual(
+          policy === "code_mode_only" ? [...DIRECT_NAMES, ...CODE_NAMES] : names,
+        );
         expect(
           wireArray(requests.at(-1)?.tools).map((tool) => wireRecord(tool).name),
         ).toStrictEqual(names);
@@ -232,7 +234,7 @@ describe("Codex tools with a real AgentSession", () => {
 
         if (mode === "Code Mode") {
           await session.prompt("/code-mode");
-          expect(session.getActiveToolNames()).toStrictEqual(CODE_NAMES);
+          expect(session.getActiveToolNames()).toStrictEqual([...DIRECT_NAMES, ...CODE_NAMES]);
         }
 
         const index = session.getAllTools().findIndex(({ name }) => name === toolName);
@@ -249,7 +251,9 @@ describe("Codex tools with a real AgentSession", () => {
         await session.prompt("Use the loaded skill");
 
         const expected = mode === "Code Mode" ? CODE_NAMES : DIRECT_NAMES;
-        expect(captureTools).toHaveBeenLastCalledWith(expected);
+        expect(captureTools).toHaveBeenLastCalledWith(
+          mode === "Code Mode" ? [...DIRECT_NAMES, ...CODE_NAMES] : DIRECT_NAMES,
+        );
         const messages = stream.mock.calls.at(-1)?.[1].messages ?? [];
         const systemPrompt = getCurrentSystemPrompt(messages);
         expect(getCurrentTools(messages).map(({ name }) => name)).toStrictEqual(expected);

@@ -5,7 +5,7 @@ import extension from "../index.js";
 describe("independent user attention", () => {
   it("keeps attention separate, without fabricated user input", async () => {
     const host = createExtensionHost(extension);
-    const ctx = host.createContext();
+    const ctx = host.createToolContext();
     await host.runTool("send_message_to_user_async", { message: "Synthetic attention" }, { ctx });
     expect(host.getAppendedEntries()[0]).toMatchObject({
       customType: "async-attention",

@@ -888,13 +888,13 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       const prompt = session.prompt(input.text, {
         expandPromptTemplates: false,
         ...(input.images !== undefined ? { images: input.images } : {}),
-        preflightResult: (success) => {
-          if (!success) {
-            return;
-          }
-
+        preflightResult: (disposition) => {
           if (attempt.cancellationError !== undefined) {
             throw attempt.cancellationError;
+          }
+
+          if (disposition !== "started") {
+            throw new Error("Child input did not produce a user turn");
           }
 
           attempt.preflight = false;

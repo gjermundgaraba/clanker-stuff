@@ -108,7 +108,7 @@ describe("codex-provider package", () => {
       fastFlag: true,
       ultraFlag: true,
       sensitiveHooks: [...SENSITIVE_HOOKS],
-      tools: CODEX_TOOLS.filter((name) => name !== "exec"),
+      tools: CODEX_TOOLS.filter((name) => name !== "wait"),
     });
     expect(
       existsSync(path.join(agentDir, "data", "codex-provider", "codex-provider.sqlite")),

@@ -1,4 +1,4 @@
-import { ContributedTools } from "@clanker-stuff/code-mode-tools";
+import { ContentTools } from "@clanker-stuff/code-mode-tools";
 import { syncBuiltinESMExports } from "node:module";
 import timers from "node:timers/promises";
 import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
@@ -56,7 +56,7 @@ describe("MCP connection maintenance", () => {
     warn = vi.fn();
     host = t.createExtensionHost(
       (pi) => {
-        pool = new McpServerPool(new ContributedTools(pi), warn);
+        pool = new McpServerPool(new ContentTools(pi), warn);
         pi.on("session_shutdown", () => pool.closeAll());
       },
       { activeTools: ["read"], allTools: ["read"], hasUI: false },
@@ -196,10 +196,13 @@ describe("MCP connection maintenance", () => {
       .mockResolvedValue(second);
 
     await load(factory);
-    const calls = Promise.allSettled([execute("one"), execute("two")]);
+    const calls = Promise.all([execute("one"), execute("two")]);
     await vi.advanceTimersByTimeAsync(0);
     failure.reject(expired());
-    expect((await calls).map((call) => call.status)).toEqual(["rejected", "rejected"]);
+    expect(await calls).toEqual([
+      expect.objectContaining({ isError: true }),
+      expect.objectContaining({ isError: true }),
+    ]);
     await vi.advanceTimersByTimeAsync(0);
     expect(first.client.callTool).toHaveBeenCalledTimes(2);
     expect(second.client.callTool).not.toHaveBeenCalled();

@@ -1,12 +1,13 @@
 import { fetchCodexHttp } from "@clanker-stuff/codex-http";
 import { arch, platform, release } from "node:os";
 
-import { uuidv7 } from "@earendil-works/pi-ai";
+import { isModelType, uuidv7 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import type {
   Api,
+  AnyModel,
   ApiKeyAuth,
   Credential,
   Model,
@@ -306,6 +307,7 @@ const TokenPayloadSchema = Type.Object({
 // Pi owns these declarations; model-name prefixes are not evidence of support.
 const hasRequiredCapabilities = (model: Model<Api> | undefined): boolean =>
   model?.provider === "openai-codex" &&
+  isModelType(model, "chat") &&
   model.api === "openai-codex-responses" &&
   model.compat !== undefined &&
   "supportsOpenAIGrammarTools" in model.compat &&
@@ -599,11 +601,12 @@ const cacheCatalog = (
   });
 
 const isCachedModel = (
-  model: Model<Api>,
+  model: AnyModel,
 ): model is Model<Api> & {
   readonly codexProviderAccountId: string;
   readonly codexProviderMetadata: unknown;
 } =>
+  isModelType(model, "chat") &&
   model.api === "openai-codex-responses" &&
   model.provider === "openai-codex" &&
   MODEL_CACHE_ACCOUNT_FIELD in model &&
@@ -850,6 +853,7 @@ export const createCodexModelCatalog = (
         (model) => supportsModel(model) && modelMetadata(model.id)?.visibility !== "hide",
       ),
     getModels: () => fallback,
+    getAllModels: () => fallback,
   };
 
   let catalog: CatalogSnapshot = { kind: "fallback" };

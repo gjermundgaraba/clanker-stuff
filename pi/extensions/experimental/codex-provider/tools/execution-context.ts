@@ -24,16 +24,17 @@ export const captureExecutionSettings = (ctx: CapturedContext): ExecutionSetting
 };
 
 /** Preserve live UI/session/cancellation getters, freezing only execution settings. */
-export const withExecutionSettings = (
-  ctx: CapturedContext,
+export const withExecutionSettings = <T extends CapturedContext>(
+  ctx: T,
   settings = captureExecutionSettings(ctx),
-): ExtensionContext => {
+): Omit<T, "model" | "thinkingLevel"> & Pick<ExtensionContext, "model" | "thinkingLevel"> => {
   if (ctx[CAPTURED] === settings) {
     return ctx;
   }
 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Object.create keeps live getters; only model, thinking level, and the captured-settings slot are overwritten on the wrapper.
-  const next = Object.create(ctx) as CapturedContext;
+  const next = Object.create(ctx) as Omit<T, "model" | "thinkingLevel"> &
+    Pick<ExtensionContext, "model" | "thinkingLevel">;
 
   Object.defineProperties(next, {
     model: { value: settings.model },
@@ -43,38 +44,3 @@ export const withExecutionSettings = (
 
   return next;
 };
-
-/** One extension instance's current session; no request bodies or credentials retained. */
-export class ToolExecutionSettings {
-  private sessionId: string | undefined;
-  private calls = new Map<string, ExecutionSettings>();
-
-  reset(sessionId?: string): void {
-    this.sessionId = sessionId;
-    this.clear();
-  }
-
-  clear(): void {
-    this.calls = new Map();
-  }
-
-  /** A late response cannot publish into a replaced turn/session generation. */
-  beginResponse(sessionId: string): (ids: string[], settings: ExecutionSettings) => void {
-    const calls = this.calls;
-    const eligible = this.sessionId === sessionId;
-
-    return (ids, settings) => {
-      if (!eligible || this.calls !== calls || this.sessionId !== sessionId) return;
-
-      for (const id of ids) calls.set(id, settings);
-    };
-  }
-
-  take(sessionId: string, id: string): ExecutionSettings | undefined {
-    if (sessionId !== this.sessionId) return undefined;
-    const settings = this.calls.get(id);
-    this.calls.delete(id);
-
-    return settings;
-  }
-}

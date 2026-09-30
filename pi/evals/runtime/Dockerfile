@@ -7,6 +7,10 @@ COPY pi/extensions/experimental/codex-provider ./pi/extensions/experimental/code
 COPY pi/packages/footer-protocol ./pi/packages/footer-protocol
 COPY pi/packages/lazy-singleton ./pi/packages/lazy-singleton
 COPY pi/packages/extension-paths ./pi/packages/extension-paths
+COPY pi/packages/code-mode-tools ./pi/packages/code-mode-tools
+COPY pi/packages/codex-http ./pi/packages/codex-http
+COPY pi/packages/tool-rendering ./pi/packages/tool-rendering
+COPY pi/packages/tool-schema ./pi/packages/tool-schema
 RUN pnpm --filter @clanker-stuff/codex-provider deploy \
     --prod --legacy --frozen-lockfile --ignore-scripts /out \
   && test ! -e /out/evals \

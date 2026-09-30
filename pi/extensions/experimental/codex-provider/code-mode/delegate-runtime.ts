@@ -1,8 +1,4 @@
 // Adapted from @howaboua/pi-codex-conversion 3.0.4 (MIT).
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-import { captureExecutionSettings, withExecutionSettings } from "../tools/execution-context.js";
-
 import { nestedToolKey } from "./protocol.js";
 import type { DelegateRequestMessage, DelegateResponse } from "./protocol.js";
 import { CodeModeTraceStore } from "./trace-store.js";
@@ -20,29 +16,33 @@ const MAX_NOTIFICATION_CHARS = 16_384;
 
 const MAX_NOTIFICATIONS_PER_CELL = 100;
 
+interface Cell {
+  context: ToolExecutionContext;
+  tools: ReadonlyMap<string, NestedTool>;
+  closed: boolean;
+  notifications: string[];
+}
+
+/** Cells live only while their owning exec is active; traces are presentation snapshots. */
 export class CodeModeDelegateRuntime {
-  private readonly cellContexts = new Map<string, ExtensionContext>();
-  private readonly observers = new Map<
-    number,
-    {
-      cellId: string;
-      onUpdate: NonNullable<ToolExecutionContext["onUpdate"]>;
-    }
-  >();
-  private readonly cellTools = new Map<string, Map<string, NestedTool>>();
-  private readonly finalizing = new Set<string>();
-  private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly cells = new Map<string, Cell>();
   private readonly controllers = new Map<number, AbortController>();
   private readonly pending = new Map<
     Promise<void>,
     { cellId: string; controller: AbortController }
   >();
-  private readonly notifications = new Map<string, string[]>();
-  private readonly send: (message: DelegateResponse) => void;
   private readonly traces = new CodeModeTraceStore();
 
-  constructor(send: (message: DelegateResponse) => void) {
-    this.send = send;
+  constructor(private readonly send: (message: DelegateResponse) => void) {}
+
+  bindCell(
+    cellId: string,
+    context: ToolExecutionContext,
+    tools: ReadonlyMap<string, NestedTool>,
+  ): void {
+    this.traces.startCell(cellId);
+    this.cells.set(cellId, { context, tools, closed: false, notifications: [] });
+    this.emitUpdate(cellId);
   }
 
   async cancelAndSettle(cellId: string): Promise<void> {
@@ -54,117 +54,58 @@ export class CodeModeDelegateRuntime {
 
   async finishResponse(response: RuntimeResponse): Promise<RuntimeResponse> {
     if (response.kind === "yielded") return this.attach(response);
-    const { cellId } = response;
-    this.finalizing.add(cellId);
-    clearTimeout(this.cleanupTimers.get(cellId));
-    this.cleanupTimers.delete(cellId);
+    this.closeCell(response.cellId);
 
     try {
-      await this.cancelAndSettle(cellId);
+      await this.cancelAndSettle(response.cellId);
 
       return this.attach(response);
     } finally {
-      this.finalizing.delete(cellId);
-      this.notifications.delete(cellId);
-      this.traces.delete(cellId);
+      this.cells.delete(response.cellId);
+      this.traces.delete(response.cellId);
     }
   }
 
-  bindCell(cellId: string, context: ExtensionContext, tools?: Map<string, NestedTool>): void {
-    this.traces.startCell(cellId);
-    const previous = this.cellContexts.get(cellId);
-    this.cellContexts.set(
-      cellId,
-      withExecutionSettings(context, captureExecutionSettings(previous ?? context)),
-    );
-
-    if (tools) {
-      this.cellTools.set(cellId, tools);
-    }
-  }
-
-  observe(id: number, cellId: string, onUpdate: ToolExecutionContext["onUpdate"]): void {
-    if (!onUpdate) return;
-    this.observers.set(id, { cellId, onUpdate });
-    this.emitUpdate(cellId, onUpdate);
-  }
-
-  unobserve(id: number): void {
-    this.observers.delete(id);
+  async disposeCell(cellId: string): Promise<void> {
+    this.closeCell(cellId);
+    await this.cancelAndSettle(cellId);
+    this.cells.delete(cellId);
+    this.traces.delete(cellId);
   }
 
   closeCell(cellId: string): void {
+    const cell = this.cells.get(cellId);
+
+    if (cell) cell.closed = true;
     this.traces.finishCell(cellId);
-    this.cellContexts.delete(cellId);
-    this.cellTools.delete(cellId);
-    const previous = this.cleanupTimers.get(cellId);
-
-    if (previous) {
-      clearTimeout(previous);
-    }
-
-    if (this.finalizing.has(cellId)) return;
-
-    this.cleanupTimers.set(
-      cellId,
-      setTimeout(() => {
-        this.cleanupTimers.delete(cellId);
-        this.notifications.delete(cellId);
-        this.traces.delete(cellId);
-      }, 1000),
-    );
   }
 
   clear(): void {
-    for (const controller of this.controllers.values()) {
-      controller.abort();
-    }
-
+    for (const controller of this.controllers.values()) controller.abort();
     this.controllers.clear();
-    this.cellContexts.clear();
-    this.observers.clear();
-    this.cellTools.clear();
+    this.cells.clear();
     this.traces.clear();
-    this.notifications.clear();
-
-    for (const timer of this.cleanupTimers.values()) {
-      clearTimeout(timer);
-    }
-
-    this.cleanupTimers.clear();
-    this.finalizing.clear();
   }
 
   cancel(id: number): void {
-    const controller = this.controllers.get(id);
-    this.controllers.delete(id);
-    controller?.abort();
+    this.controllers.get(id)?.abort();
   }
 
   handleRequest(message: DelegateRequestMessage): void {
-    if (this.controllers.has(message.id)) {
+    if (this.controllers.has(message.id))
       throw new Error(`Duplicate code-mode delegate request: ${message.id}`);
-    }
-
     const controller = new AbortController();
     this.controllers.set(message.id, controller);
 
-    const run = async () => {
-      try {
-        await this.invoke(message, controller);
-      } catch (error) {
-        if (!this.controllers.delete(message.id)) {
-          return;
-        }
-
+    const pending = this.invoke(message, controller)
+      .catch((error: unknown) => {
         this.respond(message.id, {
           message: error instanceof Error ? error.message : String(error),
           status: "error",
         });
-      }
-    };
+      })
+      .finally(() => this.controllers.delete(message.id));
 
-    const pending = run();
     this.pending.set(pending, {
       cellId:
         message.request.type === "tool/invoke"
@@ -172,57 +113,28 @@ export class CodeModeDelegateRuntime {
           : message.request.cellId,
       controller,
     });
-    void pending.finally(() => this.pending.delete(pending));
+    void pending.then(() => this.pending.delete(pending));
   }
 
   attach(response: RuntimeResponse): RuntimeResponse {
-    if (response.kind !== "yielded") {
-      this.cellContexts.delete(response.cellId);
-      this.cellTools.delete(response.cellId);
-    }
-
-    const cleanupTimer = this.cleanupTimers.get(response.cellId);
-
-    if (cleanupTimer) {
-      clearTimeout(cleanupTimer);
-    }
-
-    this.cleanupTimers.delete(response.cellId);
-    const notifications = this.notifications.get(response.cellId) ?? [];
-    this.notifications.delete(response.cellId);
+    const cell = this.cells.get(response.cellId);
+    const notifications = cell?.notifications.splice(0) ?? [];
     const withTraces = this.traces.attach(response);
 
-    if (notifications.length === 0) {
-      return withTraces;
-    }
-
-    return {
-      ...withTraces,
-      contentItems: [
-        ...notifications.map((text) => ({
-          text,
-          type: "input_text" as const,
-        })),
-        ...response.contentItems,
-      ],
-    };
+    return notifications.length === 0
+      ? withTraces
+      : {
+          ...withTraces,
+          contentItems: [
+            ...notifications.map((text) => ({ text, type: "input_text" as const })),
+            ...response.contentItems,
+          ],
+        };
   }
 
-  private emitCellUpdate(cellId: string, notification?: string): void {
-    // The host decides which overlapping operation it accepts. Until each settles, all
-    // outstanding operations may display events; a rejected wait never steals another's updates.
-    for (const observer of this.observers.values()) {
-      if (observer.cellId === cellId) this.emitUpdate(cellId, observer.onUpdate, notification);
-    }
-  }
-
-  private emitUpdate(
-    cellId: string,
-    onUpdate: NonNullable<ToolExecutionContext["onUpdate"]>,
-    notification?: string,
-  ): void {
+  private emitUpdate(cellId: string, notification?: string): void {
     try {
-      onUpdate({
+      this.cells.get(cellId)?.context.onUpdate?.({
         content: notification === undefined ? [] : [{ type: "text", text: notification }],
         details: {
           ...this.traces.snapshot(cellId),
@@ -231,7 +143,7 @@ export class CodeModeDelegateRuntime {
         },
       });
     } catch {
-      // UI failures must not affect execution, notification delivery, or other observers.
+      // A presentation callback cannot fail tool execution or notification delivery.
     }
   }
 
@@ -240,112 +152,66 @@ export class CodeModeDelegateRuntime {
     controller: AbortController,
   ): Promise<void> {
     const { request } = message;
+    const cellId = request.type === "tool/invoke" ? request.invocation.cell_id : request.cellId;
+    const cell = this.cells.get(cellId);
+
+    if (!cell || cell.closed) throw new Error("Code-mode cell context is unavailable");
 
     if (request.type === "notification/send") {
-      this.handleNotification(message.id, request);
+      const text = request.text.slice(0, MAX_NOTIFICATION_CHARS);
+      cell.notifications.push(text);
+
+      if (cell.notifications.length > MAX_NOTIFICATIONS_PER_CELL) cell.notifications.shift();
+      this.emitUpdate(cellId, text);
+      this.respond(message.id, { status: "ok", value: { type: "notification/delivered" } });
 
       return;
     }
 
     const { invocation } = request;
-    const cellId = invocation.cell_id;
     const toolName = nestedToolKey(invocation.tool_name);
-    const { input } = invocation;
-    const tool = this.cellTools.get(cellId)?.get(toolName);
-    const context = this.cellContexts.get(cellId);
+    const tool = cell.tools.get(toolName);
 
-    if (!(tool && context)) {
-      this.respond(message.id, {
-        message: tool
-          ? "Code-mode cell context is unavailable"
-          : `Unknown nested tool: ${toolName}`,
-        status: "error",
-      });
-      this.controllers.delete(message.id);
-
-      return;
-    }
+    if (!tool) throw new Error(`Unknown nested tool: ${toolName}`);
 
     const trace = this.traces.start(
       cellId,
       invocation.runtime_tool_call_id,
       tool.definition.name,
-      input,
+      invocation.input,
     );
 
-    const invocationContext: NestedToolContext = {
+    const context: NestedToolContext = {
       cellId,
-      extensionContext: context,
-      captureResult: (result) => {
+      extensionContext: cell.context.extensionContext,
+      captureResult: (result, toolCallId) => {
+        trace.id = toolCallId;
         trace.result = this.traces.captureResult(cellId, trace, result);
-        this.emitCellUpdate(cellId);
+        this.emitUpdate(cellId);
       },
-      onUpdate: (update) => {
-        trace.result = this.traces.captureResult(cellId, trace, update);
-        this.emitCellUpdate(cellId);
+      onUpdate: (result) => {
+        trace.result = this.traces.captureResult(cellId, trace, result);
+        this.emitUpdate(cellId);
       },
-      toolCallId: trace.id,
     };
 
-    this.emitCellUpdate(cellId);
+    this.emitUpdate(cellId);
 
     try {
-      const result = await tool.invoke(input, invocationContext, controller.signal);
+      const result = await tool.invoke(invocation.input, context, controller.signal);
       trace.result ??= this.traces.captureResult(cellId, trace, toolResultFromValue(result));
       trace.status = "done";
-      this.emitCellUpdate(cellId);
-      this.respond(message.id, {
-        status: "ok",
-        value: { result, type: "tool/result" },
-      });
+      this.respond(message.id, { status: "ok", value: { result, type: "tool/result" } });
     } catch (error) {
       trace.status = "error";
       trace.error = truncateTraceText(
         error instanceof Error ? error.message : String(error),
         MAX_TRACE_ERROR_CHARS,
       );
-      this.emitCellUpdate(cellId);
-      this.respond(message.id, {
-        message: error instanceof Error ? error.message : String(error),
-        status: "error",
-      });
+      throw error;
     } finally {
-      this.controllers.delete(message.id);
+      this.emitUpdate(cellId);
     }
-  }
-
-  private handleNotification(
-    id: number,
-    request: Extract<DelegateRequestMessage["request"], { type: "notification/send" }>,
-  ): void {
-    const { cellId } = request;
-    const context = this.cellContexts.get(cellId);
-
-    if (!context) {
-      this.respond(id, {
-        message: "Code-mode notification cell is unavailable",
-        status: "error",
-      });
-      this.controllers.delete(id);
-
-      return;
-    }
-
-    const notifications = this.notifications.get(cellId) ?? [];
-    const text = request.text.slice(0, MAX_NOTIFICATION_CHARS);
-    notifications.push(text);
-
-    if (notifications.length > MAX_NOTIFICATIONS_PER_CELL) {
-      notifications.splice(0, notifications.length - MAX_NOTIFICATIONS_PER_CELL);
-    }
-
-    this.notifications.set(cellId, notifications);
-    this.emitCellUpdate(cellId, text);
-    this.respond(id, {
-      status: "ok",
-      value: { type: "notification/delivered" },
-    });
-    this.controllers.delete(id);
   }
 
   private respond(id: number, result: DelegateResponse["result"]): void {
@@ -355,16 +221,14 @@ export class CodeModeDelegateRuntime {
       try {
         this.send({
           id,
+          type: "delegate/response",
           result: {
-            message: `Failed to serialize nested tool result: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            message: `Failed to serialize nested tool result: ${error instanceof Error ? error.message : String(error)}`,
             status: "error",
           },
-          type: "delegate/response",
         });
       } catch {
-        // Host teardown rejects the owning operation.
+        // Host teardown rejects the owning exec.
       }
     }
   }

@@ -24,7 +24,17 @@ export const exposeSkillsWithoutRead = (
     return;
   }
 
-  const loader = FILE_LOADERS.find((name) => activeTools.includes(name));
+  const model =
+    ctx.model && (ctx.modelRegistry.find(ctx.model.provider, ctx.model.id) ?? ctx.model);
+
+  const hybrid =
+    model !== undefined && "codexToolMode" in model && model.codexToolMode === "code_mode";
+
+  // Callable direct tools stay active when exec hides their model-facing declarations.
+  const loader =
+    activeTools.includes("exec") && !hybrid
+      ? "exec"
+      : FILE_LOADERS.find((name) => activeTools.includes(name));
 
   if (loader === undefined) {
     return;

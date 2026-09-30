@@ -2,7 +2,7 @@
   "name": "@clanker-stuff/code-mode-tools",
   "version": "0.1.0",
   "private": false,
-  "description": "Shares opt-in nested tool execution and placement across Pi extensions.",
+  "description": "Registers structured content tools in Pi's capability registry.",
   "keywords": [
     "pi",
     "pi-extension"

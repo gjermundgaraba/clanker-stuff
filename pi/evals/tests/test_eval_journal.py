@@ -50,7 +50,7 @@ class EvalJournalTest(TestCase):
                   process.env.PI_EVAL_TOOL_MODE={json.dumps(mode)};
                   process.env.PI_EVAL_MODEL="openai-codex/gpt-6-astra";
                   process.env.PI_EVAL_THINKING="high";
-                  const hooks=new Map(), names={json.dumps(['apply_patch','exec_command','view_image','write_stdin'] if mode=='direct' else ['exec','wait'])};
+                  const hooks=new Map(), names={json.dumps(['apply_patch','exec_command','view_image','write_stdin'] if mode=='direct' else ['apply_patch','exec','exec_command','view_image','write_stdin'])};
                   const pi={{on:(name,fn)=>hooks.set(name,fn),getActiveTools:()=>[...names],getThinkingLevel:()=>"high"}};
                   const ctx={{model:{{provider:"openai-codex",id:"gpt-6-astra"}},getSystemPrompt:()=>"prompt",abort:()=>{{}}}};
                   (await import({json.dumps(wrapper)})).default(pi);

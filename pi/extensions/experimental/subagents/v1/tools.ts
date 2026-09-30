@@ -11,7 +11,6 @@ import type { TProperties } from "typebox";
 
 import { DEFAULT_CONFIG, ThinkingSchema } from "../config.js";
 import type { AgentThinkingLevel, SubagentsConfig } from "../config.js";
-import type { NestedToolContract } from "../contract.js";
 import {
   configuredRoleDescription,
   REASONING_EFFORT_DESCRIPTION,
@@ -178,6 +177,7 @@ const SendCommon = {
 const result = <Visible, Details>(visible: Visible, details: Details | Visible = visible) => ({
   content: [{ text: JSON.stringify(visible), type: "text" as const }],
   details,
+  structuredContent: visible,
 });
 
 export const registerV1Tools = (
@@ -186,7 +186,7 @@ export const registerV1Tools = (
   beforeExecute: (ctx: ExtensionContext) => void,
   config: SubagentsConfig = DEFAULT_CONFIG,
   catalogDescription?: string,
-): NestedToolContract[] => {
+): void => {
   const spawnProperties: TProperties = {};
   Object.assign(spawnProperties, spawnCommon(config), {
     items: Type.Optional(
@@ -344,11 +344,13 @@ export const registerV1Tools = (
   ];
 
   for (const definition of definitions) {
-    pi.registerTool(definition);
-  }
+    const outputSchema = V1_OUTPUT_SCHEMAS.get(definition.name);
 
-  return definitions.map((definition) => ({
-    definition,
-    outputSchema: V1_OUTPUT_SCHEMAS.get(definition.name),
-  }));
+    if (!outputSchema) throw new Error(`Missing V1 output schema: ${definition.name}`);
+    pi.registerTool({
+      ...definition,
+      namespace: { name: "pi_subagents", description: "Pi subagent collaboration tools" },
+      outputSchema: Type.Unsafe(outputSchema),
+    });
+  }
 };

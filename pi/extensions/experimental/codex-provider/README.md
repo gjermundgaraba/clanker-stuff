@@ -8,7 +8,7 @@ Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, t
 
 ## Compatibility goal
 
-Together with [`subagents`](../subagents), this package minimizes model-facing distribution shift from the native Codex CLI harness. Every model-facing surface these packages own—requests, tools, schemas, descriptions, results, ordering, transport, context, and lifecycle behavior—should match the pinned Codex implementation whenever Pi can execute that contract truthfully. See the [Codex source baseline](docs/codex-baseline.md) for the decision rule and documented boundaries.
+Together with [`subagents`](../subagents), this package minimizes model-facing distribution shift from the native Codex CLI harness. Every model-facing surface these packages own—requests, tools, schemas, descriptions, results, ordering, transport, context, and lifecycle behavior—should match the pinned Codex implementation whenever Pi can execute that contract truthfully. Code Mode deliberately uses [one active `exec` and Pi-owned nested execution](docs/contributed-tools.md), without a model-facing `wait`. See the [Codex source baseline](docs/codex-baseline.md) for the decision rule and documented boundaries.
 
 ## Install
 

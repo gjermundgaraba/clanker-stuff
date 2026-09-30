@@ -120,7 +120,7 @@ describe("mcp manager", () => {
 
   it("uses the execution context, not the context that loaded management tools", async () => {
     const host = await t.loadManager({ projectTrusted: true });
-    const ctx = host.createContext({ cwd: t.projectDir, isProjectTrusted: () => false });
+    const ctx = host.createToolContext({ cwd: t.projectDir, isProjectTrusted: () => false });
     await expect(
       host.runTool(
         "mcp_set",

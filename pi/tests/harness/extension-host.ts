@@ -15,6 +15,7 @@ import type {
   ExtensionActions,
   ExtensionCommandContext,
   ExtensionContext,
+  ExtensionToolContext,
   ExtensionContextActions,
   MarkdownTransformer,
   NormalizedBuildSystemPromptOptions,
@@ -67,8 +68,11 @@ type MessageRenderer = Parameters<ExtensionAPI["registerMessageRenderer"]>[1];
 
 type NativeProvider = Provider;
 
+type ToolContextOverrides = ContextOverrides &
+  Partial<Pick<ExtensionToolContext, "tools" | "executeTool">>;
+
 interface RunToolOptions {
-  ctx?: ExtensionCommandContext;
+  ctx?: ExtensionToolContext;
   signal?: Parameters<ToolExecute>[2];
   onUpdate?: Parameters<ToolExecute>[3];
   toolCallId?: Parameters<ToolExecute>[0];
@@ -173,9 +177,10 @@ const createToolInfo = (name: string, external: boolean): ToolInfo => ({
   description: name,
   name,
   parameters: Type.Object({}),
+  exposure: "direct",
   sourceInfo: external
     ? TEST_SOURCE_INFO
-    : createSyntheticSourceInfo(`<builtin:${name}>`, { source: "builtin" }),
+    : createSyntheticSourceInfo(`builtin:${name}`, { source: "builtin" }),
 });
 
 // `strict: "prefer"` falls back silently, so a tool that asks for JSON-schema
@@ -235,7 +240,7 @@ export const createExtensionHost = (
     createToolInfo(name, externalToolNames.has(name)),
   );
 
-  const knownToolNames = new Set(baseToolInfos.map(({ name }) => name));
+  const activatedOnRegistration = new Set(baseToolInfos.map(({ name }) => name));
   let allToolInfos = [...baseToolInfos];
   let editorText = "";
 
@@ -249,23 +254,34 @@ export const createExtensionHost = (
     allToolInfos = [
       ...baseToolInfos.filter(({ name }) => !extensionToolNames.has(name)),
       ...extensionTools.map(({ definition, sourceInfo }) => ({
+        exposure: definition.exposure ?? "direct",
         description: definition.description,
         name: definition.name,
         parameters: definition.parameters,
         ...(definition.promptGuidelines === undefined
           ? {}
           : { promptGuidelines: definition.promptGuidelines }),
+        ...(definition.namespace ? { namespace: definition.namespace } : {}),
+        ...(definition.annotations ? { annotations: definition.annotations } : {}),
         sourceInfo,
       })),
     ];
 
     for (const { definition } of extensionTools) {
-      if (!knownToolNames.has(definition.name)) {
-        knownToolNames.add(definition.name);
+      const exposure = definition.exposure ?? "direct";
 
-        if (!activeTools.includes(definition.name)) {
+      if (exposure === "hidden")
+        activeTools = activeTools.filter((name) => name !== definition.name);
+
+      const activate =
+        (exposure === "direct" || exposure === "model-only") && definition.defaultActive !== false;
+
+      if (activate) {
+        if (!activatedOnRegistration.has(definition.name) && !activeTools.includes(definition.name))
           activeTools.push(definition.name);
-        }
+        activatedOnRegistration.add(definition.name);
+      } else {
+        activatedOnRegistration.delete(definition.name);
       }
     }
   };
@@ -457,6 +473,7 @@ export const createExtensionHost = (
     appendEntry,
     getActiveTools: () => [...activeTools],
     getAllTools: () => [...allToolInfos],
+    getSettings: () => ({}),
     getCommands: () => [...(options.commands ?? [])],
     getSessionName: () => sessionName,
     getThinkingLevel: () => thinkingLevel,
@@ -654,12 +671,20 @@ export const createExtensionHost = (
     return await command.handler(args, ctx);
   };
 
-  const runTool = async (
-    name: string,
-    params: JsonObject,
-    ctxOrOptions: ExtensionCommandContext | RunToolOptions = buildContext(),
-    toolRunOptions: RunToolOptions = {},
-  ) => {
+  // Unit tests supply capability stubs explicitly; real nested execution needs AgentSession.
+  const createToolContext = (overrides: ToolContextOverrides = {}) => {
+    const {
+      tools = [],
+      executeTool = async () => {
+        throw new Error("Use the AgentSession harness to test nested tool execution");
+      },
+      ...context
+    } = overrides;
+
+    return Object.assign(buildContext(context), { tools, executeTool });
+  };
+
+  const runTool = async (name: string, params: JsonObject, runOptions: RunToolOptions = {}) => {
     await ready;
     const tool = extension?.tools.get(name);
 
@@ -668,14 +693,6 @@ export const createExtensionHost = (
     }
 
     assertStrictRepresentable(tool.definition);
-
-    const runOptions =
-      ctxOrOptions && "ui" in ctxOrOptions
-        ? {
-            ...toolRunOptions,
-            ctx: ctxOrOptions,
-          }
-        : ctxOrOptions;
 
     // SAFETY: Pi's agent loop hands prepareArguments output to validation as the
     // call's arguments; ToolDefinition documents that it returns an object
@@ -706,7 +723,7 @@ export const createExtensionHost = (
       parsedParams,
       runOptions.signal,
       runOptions.onUpdate,
-      runOptions.ctx ?? buildContext(),
+      runOptions.ctx ?? createToolContext(),
     );
   };
 
@@ -726,6 +743,7 @@ export const createExtensionHost = (
 
   return {
     createContext: buildContext,
+    createToolContext,
     emit,
     emitInput,
     emitSessionShutdown,

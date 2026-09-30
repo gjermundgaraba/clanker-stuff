@@ -265,7 +265,7 @@ def _preflight(output, logs):
     # A nop agent cannot detect unreadable runtime extensions. Exercise actual Pi
     # startup as the task user with synthetic auth and no possible network access.
     for mode, expected in (('direct', ['apply_patch', 'exec_command', 'view_image', 'write_stdin']),
-                           ('code_mode_only', ['exec', 'wait'])):
+                           ('code_mode_only', ['apply_patch', 'exec', 'exec_command', 'view_image', 'write_stdin'])):
         probe = command(['docker', 'run', '--rm', '--platform', 'linux/amd64', '--network', 'none',
                          '--entrypoint', 'bash', series['agent']['image_id'], '-c',
                          'set -euo pipefail; install -d -o agent -g agent /tmp/pi-eval /logs/agent; '

@@ -106,7 +106,7 @@ describe("mcp oauth", () => {
 
       const host = t.createExtensionHost(mcp, { hasUI: mode === "tui" || mode === "rpc" });
 
-      const ctx = host.createContext({
+      const ctx = host.createToolContext({
         mode,
         ui: { custom: createCustomUiDriver().custom, notify, select },
       });
@@ -278,7 +278,7 @@ describe("mcp oauth", () => {
     await host.runCommand(
       "mcp",
       "",
-      host.createContext({ ui: { select: async () => "○ remote" } }),
+      host.createToolContext({ ui: { select: async () => "○ remote" } }),
     );
     const name = toGeneratedToolName("remote", "search");
     expect(host.getActiveTools()).toContain(name);
@@ -330,7 +330,7 @@ describe("mcp oauth", () => {
         }
       });
 
-      const ctx = host.createContext({
+      const ctx = host.createToolContext({
         mode: "rpc",
         ui: { notify, select: async () => "○ remote" },
       });
@@ -345,8 +345,11 @@ describe("mcp oauth", () => {
         fixture.expireAccessToken();
         fixture.returnInvalidRefreshedToken();
       } else fixture.requireMoreScope();
-      await expect(host.runTool(name, { query: "expired" }, { ctx })).rejects.toThrow(
-        "requires authorization",
+      const denied = await host.runTool(name, { query: "expired" }, { ctx });
+      expect(denied.isError).toBe(true);
+      expect(denied.content[0]).toHaveProperty(
+        "text",
+        expect.stringContaining("requires authorization"),
       );
       expect(host.getActiveTools()).not.toContain(name);
       expect(notify.mock.calls.some(([message]) => message.startsWith("Authorize MCP"))).toBe(

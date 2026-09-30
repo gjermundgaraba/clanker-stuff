@@ -235,6 +235,7 @@ describe("mcp server pool", () => {
           name: tool.name,
           parameters: tool.parameters,
           description: tool.description,
+          exposure: "direct",
           sourceInfo: createSyntheticSourceInfo("<test>", { source: "test" }),
         });
       },
@@ -299,6 +300,7 @@ describe("mcp server pool", () => {
         name,
         description: "external",
         parameters: Type.Object({}),
+        exposure: "direct",
         sourceInfo: createSyntheticSourceInfo("<external>", { source: "test" }),
       },
     ];
@@ -341,7 +343,7 @@ describe("mcp server pool", () => {
         transport: {},
       }));
 
-      const ctx = t.createExtensionHost(() => {}).createContext();
+      const ctx = t.createExtensionHost(() => {}).createToolContext();
       let execute: RegisteredToolExecutor | undefined;
 
       const pool = new McpServerPool(
@@ -359,7 +361,12 @@ describe("mcp server pool", () => {
         });
 
         if (!execute) throw new Error("Tool not registered");
-        await expect(execute("call")).rejects.toThrow("uncertain result");
+        const failed = await execute("call");
+        expect(failed.isError).toBe(true);
+        expect(failed.content[0]).toHaveProperty(
+          "text",
+          expect.stringContaining("uncertain result"),
+        );
         expect(callTool).toHaveBeenCalledOnce();
         expect(pool.hasServer("remote")).toBe(true);
         expect(connectionFactory).toHaveBeenCalledOnce();
@@ -378,7 +385,7 @@ describe("mcp server pool", () => {
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
 
-    const ctx = host.createContext({
+    const ctx = host.createToolContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ remote"),
       },
@@ -387,7 +394,9 @@ describe("mcp server pool", () => {
     await host.runCommand("mcp", "", ctx);
 
     const name = toGeneratedToolName("remote", "search");
-    await expect(host.runTool(name, { query: "expired" })).rejects.toThrow("session expired");
+    const expired = await host.runTool(name, { query: "expired" });
+    expect(expired.isError).toBe(true);
+    expect(expired.content[0]).toHaveProperty("text", expect.stringContaining("session expired"));
     expect(host.getActiveTools()).not.toContain(name);
     expect(fixture.getToolCallCount()).toBe(1);
     await expect.poll(() => host.getActiveTools()).toContain(name);
@@ -409,7 +418,7 @@ describe("mcp server pool", () => {
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
 
-    const ctx = host.createContext({
+    const ctx = host.createToolContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
@@ -474,7 +483,7 @@ describe("mcp server pool", () => {
     await host.runCommand(
       "mcp",
       "",
-      host.createContext({ ui: { select: async () => "○ github" } }),
+      host.createToolContext({ ui: { select: async () => "○ github" } }),
     );
     const result = await host.runTool(toGeneratedToolName("github", "search"), { query: "once" });
     expect(
@@ -514,7 +523,7 @@ describe("mcp server pool", () => {
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
 
-    const ctx = host.createContext({
+    const ctx = host.createToolContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },
@@ -522,20 +531,24 @@ describe("mcp server pool", () => {
 
     await host.runCommand("mcp", "", ctx);
 
-    let failure: unknown;
+    const failure = await host.runTool(toGeneratedToolName("github", "search"), {
+      query: "anything",
+    });
 
-    try {
-      await host.runTool(toGeneratedToolName("github", "search"), { query: "anything" });
-    } catch (error) {
-      failure = error;
-    }
+    expect(failure.isError).toBe(true);
 
-    const message = failure instanceof Error ? failure.message : "";
+    const message = failure.content
+      .filter((item) => item.type === "text")
+      .map((item) => item.text)
+      .join("\n");
+
     const outputPath = /Persisted output: (?<path>[^;\]]+)/u.exec(message)?.groups?.path;
 
-    expect(message).toContain("returned an error: failure");
+    expect(message).toContain("failure");
     expect(message).toContain("[MCP output truncated:");
-    expect(message).toContain("[image:image/png]");
+    const image = failure.content.find((item) => item.type === "image");
+    expect(image).toMatchObject({ type: "image", mimeType: "image/png" });
+    expect(image?.data).toBeTypeOf("string");
     expect(outputPath).toBeTypeOf("string");
     await expect(readFile(outputPath ?? "", "utf-8")).resolves.toContain("failure\nfailure\n");
   });
@@ -546,7 +559,7 @@ describe("mcp server pool", () => {
     });
     const host = t.createExtensionHost(mcp, { hasUI: false });
 
-    const ctx = host.createContext({
+    const ctx = host.createToolContext({
       ui: {
         select: vi.fn<() => Promise<string>>(async () => "○ github"),
       },

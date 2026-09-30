@@ -67,6 +67,28 @@ describe("Codex skill catalog", () => {
     },
   );
 
+  it.each([
+    [undefined, "exec"],
+    ["code_mode_only", "exec"],
+    ["code_mode", "exec_command"],
+  ] as const)(
+    "uses the declared file loader when current registry policy is %s and callable tools stay active",
+    (mode, loader) => {
+      const selected = createToolsModel("gpt-5.6-sol");
+
+      const context = host.createContext({
+        model: selected,
+        modelRegistry: { find: () => ({ ...selected, codexToolMode: mode }) },
+      });
+
+      const event = createEvent(["exec_command", "exec"]);
+      exposeSkillsWithoutRead(event, context, ["exec_command", "exec"]);
+      expect(event.systemPromptOptions.sections.skills).toContain(
+        `Use the \`${loader}\` tool to load a skill's file`,
+      );
+    },
+  );
+
   it("defers to Pi's catalog when read is active", () => {
     const event = createEvent(["read"]);
 

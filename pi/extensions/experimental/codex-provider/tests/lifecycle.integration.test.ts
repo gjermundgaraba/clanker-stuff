@@ -675,7 +675,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
   });
 
   it.each(["turn_start", "context"] as const)(
-    "keeps tools on request effort when an earlier %s handler changes live effort",
+    "uses execution-entry tool effort when an earlier %s handler changes live effort",
     async (boundary) => {
       const paths = await workspace("codex-request-settings-");
       const requests: WireRecord[] = [];
@@ -687,7 +687,7 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
           return requests.length === 1
             ? toolCallResponse("settings", "exec_command", 10, {
-                cmd: "printf ORIGIN_EFFORT=%s $PI_REASONING_LEVEL",
+                cmd: "printf EXECUTION_EFFORT=%s $PI_REASONING_LEVEL",
                 max_output_tokens: 100,
               })
             : assistantResponse("settings-done");
@@ -720,15 +720,15 @@ describe("Codex lifecycle compaction with a real AgentSession", () => {
 
       try {
         session.setThinkingLevel("low");
-        await session.prompt("check originating effort");
+        await session.prompt("check execution-entry effort");
         expect(errors).toStrictEqual([]);
         expect(requests).toHaveLength(2);
         // Request settings are captured after turn_start, but before context hooks.
-        const originatingEffort = boundary === "turn_start" ? "high" : "low";
-        expect(wireRecord(requests[0]!.reasoning).effort).toBe(originatingEffort);
+        const requestEffort = boundary === "turn_start" ? "high" : "low";
+        expect(wireRecord(requests[0]!.reasoning).effort).toBe(requestEffort);
         expect(session.thinkingLevel).toBe("high");
         expect(wireRecord(requests[1]!.reasoning).effort).toBe("high");
-        expect(JSON.stringify(requests[1]!.input)).toContain(`ORIGIN_EFFORT=${originatingEffort}`);
+        expect(JSON.stringify(requests[1]!.input)).toContain("EXECUTION_EFFORT=high");
       } finally {
         session.dispose();
         await rm(paths.rootDir, { force: true, recursive: true });

@@ -46,6 +46,7 @@ describe("lazy Codex provider", () => {
     };
 
     expect(provider.getModels()).toBe(catalog.getModels());
+    expect(provider.getAllModels?.()).toBe(catalog.getModels());
     await provider.refreshModels?.(context);
 
     expect({

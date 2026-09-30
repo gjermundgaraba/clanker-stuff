@@ -16,6 +16,7 @@ export const createLazyCodexProvider = (
   return {
     ...fallback,
     getModels: catalog.getModels,
+    getAllModels: catalog.getModels,
     refreshModels: catalog.refreshModels,
     ...lazyApi(get),
   };
