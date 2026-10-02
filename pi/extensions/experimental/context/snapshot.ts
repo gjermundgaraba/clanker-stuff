@@ -6,6 +6,7 @@ import {
   sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
 import type { ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ObservedRequest } from "./observation.js";
 
 export type BodyFormat = "markdown" | "json" | "text";
 
@@ -21,12 +22,20 @@ export interface ContextPart {
 
 /** Finished inspector previews; token estimates describe model input, not preview text. */
 export interface ContextSnapshot {
+  readonly kind: "state";
   readonly modelLabel: string;
   readonly usage: ContextUsage | undefined;
   readonly system: ContextPart;
   readonly tools: readonly ContextPart[];
   readonly messages: readonly ContextMessagePart[];
 }
+
+export interface RequestSnapshot {
+  readonly kind: "request";
+  readonly request: ObservedRequest | undefined;
+}
+
+export type InspectorSnapshot = ContextSnapshot | RequestSnapshot;
 
 export interface ContextMessagePart extends ContextPart {
   readonly sourceEntryId: string;
@@ -125,6 +134,7 @@ export const buildSnapshot = (input: SnapshotInput): ContextSnapshot => {
   const { prompt } = input;
 
   return {
+    kind: "state",
     modelLabel: input.modelLabel,
     usage: input.usage === undefined ? undefined : { ...input.usage },
     system: {

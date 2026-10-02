@@ -65,6 +65,7 @@ describe("cooperative footer discovery", () => {
       "pnpm-lock.yaml",
       "pi/extensions/experimental/footer",
       "pi/packages/footer-protocol",
+      "pi/packages/model-history",
       "pi/packages/status-icons",
       "pi/packages/tones",
       "pi/packages/extension-paths",
@@ -117,6 +118,7 @@ describe("cooperative footer discovery", () => {
 
     for (const dependency of [
       "@clanker-stuff/footer-protocol",
+      "@clanker-stuff/model-history",
       "@clanker-stuff/status-icons",
       "@clanker-stuff/pi-extension-paths",
       "@earendil-works/pi-coding-agent",

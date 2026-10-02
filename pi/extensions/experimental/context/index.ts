@@ -5,8 +5,11 @@ import { createContextInspector } from "./runtime.js";
 export default function contextExtension(pi: ExtensionAPI): void {
   const inspector = createContextInspector(pi);
   pi.registerCommand("context", {
-    description: "Inspect a snapshot of Pi's current context",
+    description: "Inspect Pi context state or the latest observed provider request",
     handler: (_args, ctx) => inspector.open(ctx),
   });
-  pi.on("session_shutdown", () => inspector.dispose());
+  pi.on("session_start", () => inspector.reset());
+  pi.on("before_provider_request", (event, ctx) => inspector.observe(event, ctx));
+  pi.on("session_tree", () => inspector.reset());
+  pi.on("session_shutdown", () => inspector.reset());
 }

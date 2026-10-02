@@ -1,9 +1,9 @@
 import { createLazySingleton } from "@clanker-stuff/lazy-singleton";
-import type { Model } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  MessageEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
 import type { createUsageController } from "./controller.js";
@@ -88,8 +88,9 @@ export const createUsageRuntime = (
         controller.dispose();
       });
     },
-    trackModel: (ctx: ExtensionContext, model: Model<string> | undefined) => {
-      usage.get()?.trackModel(ctx, model);
+    refresh: (ctx: ExtensionContext, newest?: MessageEndEvent["message"]): void => {
+      if (pendingStart !== undefined) pendingStart = ctx;
+      usage.get()?.refresh(ctx, newest);
     },
   };
 };

@@ -25,6 +25,18 @@ const snapshot: UsageSnapshot = {
 const ready = (value: UsageSnapshot) => ({ kind: "ready" as const, snapshot: value });
 
 describe("usage widgets", () => {
+  it("preserves an unsupported target explanation without showing another account's quota", () => {
+    const presentation = {
+      kind: "unsupported" as const,
+      message: "usage: quota reporting is unsupported for openai",
+    };
+
+    const active = activeSnapshot(presentation, 1000);
+    expect(active.content).toEqual([]);
+    expect(active.health?.message).toBe(presentation.message);
+    expect(fallbackText(presentation)).toBe(presentation.message);
+  });
+
   it("shows the most-used quota and keeps other windows in details", () => {
     const presentation = ready(snapshot);
     const active = JSON.stringify(activeSnapshot(presentation, 1000).content);

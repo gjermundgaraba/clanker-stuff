@@ -23,7 +23,7 @@ const DETAILS_WIDGET_ID = "clanker.usage.details";
 export const STATUS_KEY = "usage";
 
 export type UsagePresentation =
-  | { kind: "unsupported" }
+  | { kind: "unsupported"; message: string }
   | { kind: "loading"; provider: SupportedProvider }
   | { kind: "ready"; snapshot: UsageSnapshot }
   | { kind: "stale"; message: string; snapshot: UsageSnapshot }
@@ -93,7 +93,9 @@ const healthFor = (
 ): { message?: string; state: FooterWidgetHealthState } => {
   const state = HEALTH_STATE_BY_PRESENTATION[presentation.kind];
 
-  return presentation.kind === "error" || presentation.kind === "stale"
+  return presentation.kind === "error" ||
+    presentation.kind === "stale" ||
+    presentation.kind === "unsupported"
     ? { message: presentation.message, state }
     : { state };
 };
@@ -257,7 +259,11 @@ export const fallbackText = (presentation: UsagePresentation): string => {
   const snapshot = snapshotFor(presentation);
 
   if (snapshot === undefined) {
-    return presentation.kind === "loading" ? "usage loading" : "usage unavailable";
+    return presentation.kind === "unsupported"
+      ? richText(presentation.message, 240)
+      : presentation.kind === "loading"
+        ? "usage loading"
+        : "usage unavailable";
   }
 
   return `${fallbackContent(snapshot)}${presentation.kind === "stale" ? " !" : ""}`;

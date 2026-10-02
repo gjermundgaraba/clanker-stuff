@@ -3,7 +3,7 @@ import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { ContextUsage, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { ContextSnapshot, NodeTone } from "./snapshot.js";
+import type { ContextSnapshot, InspectorSnapshot, NodeTone } from "./snapshot.js";
 import type { FlatRow } from "./tree.js";
 
 type ThemeColor = Parameters<Theme["fg"]>[0];
@@ -228,9 +228,14 @@ export const renderTreeRows = (
   selected: number,
   width: number,
   countWidth: number,
+  showEstimates = true,
 ): string[] => {
-  const showBar = width >= ROW_BAR_MIN_TREE_WIDTH;
-  const labelWidth = Math.max(1, width - 2 - (showBar ? ROW_BAR_WIDTH + 1 : 0) - countWidth - 2);
+  const showBar = showEstimates && width >= ROW_BAR_MIN_TREE_WIDTH;
+
+  const labelWidth = Math.max(
+    1,
+    width - 2 - (showBar ? ROW_BAR_WIDTH + 1 : 0) - (showEstimates ? countWidth + 2 : 0),
+  );
 
   return rows.map((row, index) => {
     const active = index === selected;
@@ -252,7 +257,9 @@ export const renderTreeRows = (
       fit(label, labelWidth),
       " ",
       showBar ? `${renderRowBar(theme, row.share)} ` : "",
-      theme.fg("muted", estimate(row.node.estimatedTokens).padStart(countWidth)),
+      showEstimates
+        ? theme.fg("muted", estimate(row.node.estimatedTokens).padStart(countWidth))
+        : "",
       " ",
     ].join("");
 
@@ -304,7 +311,7 @@ export const renderFooter = (
 
 export const renderOverlay = (
   theme: Theme,
-  snapshot: ContextSnapshot,
+  snapshot: InspectorSnapshot,
   layout: Layout,
   body: readonly string[],
   footer: string,
@@ -327,12 +334,12 @@ export const renderOverlay = (
       : `${border(left)}${border("─".repeat(innerWidth))}${border(right)}`;
 
   const title = truncateToWidth(
-    `${theme.bold(theme.fg("accent", "/context"))}${theme.fg("dim", " · ")}${theme.fg("muted", displayText(snapshot.modelLabel))}`,
+    `${theme.bold(theme.fg("accent", "/context"))}${theme.fg("dim", " · ")}${theme.fg("muted", snapshot.kind === "state" ? `state · ${displayText(snapshot.modelLabel)}` : "request observation")}`,
     Math.max(0, innerWidth - 4),
     "…",
   );
 
-  const segments = usageSegments(snapshot);
+  const segments = snapshot.kind === "state" ? usageSegments(snapshot) : [];
   const blank = line("");
   // Keep the pane divider continuous through the spacing row above the body.
   const bodyPad = previewWidth > 0 ? line(`${" ".repeat(treeWidth)}${divider("│")}`) : blank;
@@ -343,9 +350,33 @@ export const renderOverlay = (
       title +
       border(` ${"─".repeat(Math.max(0, innerWidth - 3 - visibleWidth(title)))}╮`),
     ...(layout.roomy ? [blank] : []),
-    line(`${PAD}${renderUsageLine(theme, snapshot.usage)}`),
-    line(`${PAD}${renderUsageBar(theme, snapshot.usage, segments, innerWidth - 2 * PAD.length)}`),
-    ...(layout.showLegend ? [line(`${PAD}${renderLegend(theme, snapshot.usage, segments)}`)] : []),
+    line(
+      `${PAD}${
+        snapshot.kind === "state"
+          ? renderUsageLine(theme, snapshot.usage)
+          : snapshot.request
+            ? `Captured ${new Date(snapshot.request.capturedAt).toISOString()}`
+            : "No request observed on this branch"
+      }`,
+    ),
+    line(
+      `${PAD}${
+        snapshot.kind === "state"
+          ? renderUsageBar(theme, snapshot.usage, segments, innerWidth - 2 * PAD.length)
+          : "Observed payload, not guaranteed final wire request"
+      }`,
+    ),
+    ...(layout.showLegend
+      ? [
+          line(
+            `${PAD}${
+              snapshot.kind === "state"
+                ? renderLegend(theme, snapshot.usage, segments)
+                : `Memory-only · common credential values/media omitted${snapshot.request?.truncated ? " · truncated" : ""}`
+            }`,
+          ),
+        ]
+      : []),
     ...(layout.roomy ? [blank] : []),
     rule("├", "┬", "┤"),
     ...(layout.roomy ? [bodyPad] : []),

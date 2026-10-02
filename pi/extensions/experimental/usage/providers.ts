@@ -1,3 +1,6 @@
+import { inspectModelHistory, isVirtualModel } from "@clanker-stuff/model-history";
+import type { ExtensionContext, MessageEndEvent } from "@earendil-works/pi-coding-agent";
+
 export const SUPPORTED_PROVIDERS = [
   "anthropic",
   "openrouter",
@@ -60,16 +63,28 @@ export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
 
 const SUPPORTED_PROVIDER_IDS = new Set<string>(SUPPORTED_PROVIDERS);
 
-const isSupportedProvider = (provider: string | undefined): provider is SupportedProvider =>
+export const isSupportedProvider = (provider: string | undefined): provider is SupportedProvider =>
   provider !== undefined && SUPPORTED_PROVIDER_IDS.has(provider);
 
-export const getActiveProvider = (
-  model: { provider?: string } | undefined | null,
-): SupportedProvider | undefined => {
-  const provider = model?.provider;
+/** Physical selections target their account; virtual selections follow physical attempts. */
+export const resolveQuotaProvider = (
+  ctx: Pick<ExtensionContext, "model" | "sessionManager">,
+  newest?: MessageEndEvent["message"],
+): string | undefined => {
+  if (!ctx.model) return undefined;
 
-  return isSupportedProvider(provider) ? provider : undefined;
+  if (!isVirtualModel(ctx.model)) return ctx.model.provider;
+
+  return inspectModelHistory(ctx.sessionManager.getBranch(), newest).lastPhysicalAttempt?.provider;
 };
+
+/** Unsupported identity is retained until presentation/fetching, rather than mistaken for login failure. */
+export const quotaUnavailableMessage = (provider: string | undefined): string =>
+  provider === "openai"
+    ? "OpenAI subscription quota reporting is unavailable; native authentication has not been verified for a usage endpoint."
+    : provider === undefined
+      ? "usage: no physical provider resolved for the current model"
+      : `usage: quota reporting is unsupported for ${provider}`;
 
 const PROVIDER_DISPLAY_NAMES = {
   anthropic: "Claude",

@@ -103,6 +103,58 @@ describe("footer AgentSession lifecycle", () => {
     expect(readyGenerations).toStrictEqual([1, 2]);
   });
 
+  it("renders selected and executed virtual-model status after real routing", async () => {
+    let component: FooterComponent | undefined;
+
+    const footerData = {
+      getAvailableProviderCount: () => 1,
+      getExtensionStatuses: () => new Map<string, string>(),
+      getGitBranch: () => null,
+      onBranchChange: () => () => {},
+    };
+
+    const uiContext = testUiContext((factory) => {
+      component?.dispose?.();
+      component = factory?.(createMockTui(), createIdentityTheme(), footerData);
+    });
+
+    const routing: ExtensionFactory = (pi) => {
+      pi.registerVirtualModel({
+        provider: "router",
+        id: "auto",
+        name: "Auto",
+        thinkingLevels: ["off", "low", "high"],
+        route: (_request, ctx) => {
+          const model = ctx.modelRegistry.find("anthropic", "physical");
+
+          if (!model) throw new Error("missing physical model");
+
+          return { model, thinkingLevel: "high" };
+        },
+      });
+    };
+
+    harness = await createAgentSessionHarness({
+      provider: "anthropic",
+      models: [{ id: "physical", reasoning: true }],
+      extensionFactories: [routing, extension],
+      mode: "tui",
+      uiContext,
+    });
+    const virtual = harness.session.modelRuntime.getModel("router", "auto");
+
+    if (!virtual) throw new Error("missing virtual model");
+    await harness.session.setModel(virtual);
+    harness.session.setThinkingLevel("low");
+    harness.setResponses([fauxAssistantMessage("routed reply")]);
+    await harness.prompt("route this");
+    const rendered = component?.render(240).join("\n");
+    expect(rendered).toContain("selected: Auto");
+    expect(rendered).toContain("last: anthropic/physical");
+    expect(rendered).toContain("selected: low");
+    expect(rendered).toContain("last: high");
+  });
+
   it("renders the completed turn's persisted usage during turn_end", async () => {
     let component: FooterComponent | undefined;
     let renderedAtTurnEnd: string | undefined;

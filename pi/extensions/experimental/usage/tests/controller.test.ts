@@ -7,7 +7,8 @@ import {
   FOOTER_WIDGET_EVENT,
   FooterWidgetMessageSchema,
 } from "@clanker-stuff/footer-protocol";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, type Api, type Model } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -69,29 +70,137 @@ const stubDependencies = (
 };
 
 describe("usage controller", () => {
-  it("reports native OpenAI quotas as unsupported without requesting its credentials", async () => {
-    const auth = vi.fn(async () => undefined);
-    const fetch = vi.spyOn(client, "fetchJson");
+  it("targets failed physical routes through live updates, settlement, and branch reconstruction", async () => {
+    const session = SessionManager.inMemory();
+    const original = session.appendMessage({ role: "user", content: "start", timestamp: 1000 });
+
+    const auth = vi.fn<ProviderAuthClient["getProviderAuth"]>(async () => ({
+      auth: { apiKey: "anthropic-token" },
+      source: "OAuth",
+    }));
 
     const host = createExtensionHost(
       createUsageExtension({
-        fetchJson: client.fetchJson,
         now: () => 1000,
         providerAuthClient: () => ({ getProviderAuth: auth }),
+        radiusBillingUrl: () => "https://gateway.example/v1/billing",
+        fetchJson: async (url, schema, options) =>
+          okFetch(
+            url.includes("/v1/billing")
+              ? {
+                  balance: { available: 0, credit_balance: 0, reserved: 0 },
+                  currency: "USD",
+                  current_period: { actual_charged: 30, ends_at: "2026-10-01T00:00:00.000Z" },
+                  ok: true,
+                }
+              : { five_hour: { utilization: 30 } },
+          )(url, schema, options),
       }),
-      { model: { ...claudeModel, provider: "openai" } },
+      {
+        model: { ...claudeModel, api: "pi-virtual", provider: "router", id: "auto", name: "Auto" },
+      },
     );
 
-    await host.ready;
-    await host.emitSessionStart();
-    expect(host.getStatus("usage")).toBeUndefined();
-    await host.runCommand("usage", "");
-    expect(host.getNotifications().at(-1)?.message).toContain("quota reporting is unavailable");
-    expect(auth).not.toHaveBeenCalledWith("openai");
-    expect(auth).not.toHaveBeenCalledWith("openai-codex");
-    expect(fetch).not.toHaveBeenCalled();
-    await host.emitSessionShutdown();
+    const ctx = host.createContext({ sessionManager: session });
+    const active = () => host.getStatus("usage");
+    await host.emitSessionStart(ctx);
+    await vi.waitFor(() => expect(active()).toContain("no physical provider resolved"));
+
+    const response = { ...fauxAssistantMessage("done"), provider: "anthropic", model: "physical" };
+    // message_end runs before the response has been appended to SessionManager.
+    await host.emit("message_end", { type: "message_end", message: response }, ctx);
+    await vi.waitFor(() => expect(active()).toContain("Claude 5h 30%"));
+    session.appendMessage(response);
+    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    await host.emit("model_select", { type: "model_select", model: ctx.model }, ctx);
+    expect(active()).toContain("Claude 5h 30%");
+
+    const failed = {
+      ...fauxAssistantMessage("", { stopReason: "error", errorMessage: "quota exhausted" }),
+      provider: "radius",
+    };
+
+    await host.emit("message_end", { type: "message_end", message: failed }, ctx);
+    await vi.waitFor(() => expect(active()).toBe("usage Radius $0.00 available"));
+    session.appendMessage(failed);
+    await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+    expect(active()).toBe("usage Radius $0.00 available");
+
+    const routingFailure = {
+      ...fauxAssistantMessage("", { stopReason: "error" }),
+      api: "pi-virtual",
+      provider: "router",
+    };
+
+    await host.emit("message_end", { type: "message_end", message: routingFailure }, ctx);
+    session.appendMessage(routingFailure);
+    await host.emitSessionTree(ctx);
+    expect(active()).toBe("usage Radius $0.00 available");
+    expect(auth.mock.calls.map(([provider]) => provider)).toEqual(["anthropic", "radius"]);
+
+    // A physical selection changes quota immediately, even after a different routed attempt.
+    const physical = host.createContext({ sessionManager: session, model: claudeModel });
+    await host.emit("model_select", { type: "model_select", model: claudeModel }, physical);
+    expect(active()).toContain("Claude 5h 30%");
+
+    session.branch(original);
+    await host.emitSessionTree(ctx);
+    expect(active()).toContain("no physical provider resolved");
+    await host.emitSessionShutdown(ctx);
   });
+
+  it.each(["selected", "routed", "routed-with-account"] as const)(
+    "explains unsupported OpenAI quotas without requesting its credentials (%s)",
+    async (scenario) => {
+      const session = SessionManager.inMemory();
+
+      if (scenario !== "selected")
+        session.appendMessage({
+          ...fauxAssistantMessage("done"),
+          provider: "openai",
+          model: "physical",
+        });
+
+      const auth = vi.fn<ProviderAuthClient["getProviderAuth"]>(async (provider) =>
+        scenario === "routed-with-account" && provider === "anthropic"
+          ? { auth: { apiKey: "offline" }, source: "OAuth" }
+          : undefined,
+      );
+
+      const fetchClient = { fetchJson: successfulFetchJson };
+      const fetch = vi.spyOn(fetchClient, "fetchJson");
+
+      const host = createExtensionHost(
+        createUsageExtension({
+          fetchJson: fetchClient.fetchJson,
+          now: () => 1000,
+          providerAuthClient: () => ({ getProviderAuth: auth }),
+          radiusBillingUrl: () => undefined,
+        }),
+        {
+          model:
+            scenario === "selected"
+              ? { ...claudeModel, provider: "openai" }
+              : { ...claudeModel, api: "pi-virtual", provider: "router", id: "auto" },
+        },
+      );
+
+      const ctx = host.createContext({ sessionManager: session });
+      await host.emitSessionStart(ctx);
+      await host.runCommand("usage", "", ctx);
+      const message = host.getNotifications().at(-1)?.message;
+      expect(message).toContain("OpenAI subscription quota reporting is unavailable");
+      expect(message).not.toContain("log in");
+      expect(auth).not.toHaveBeenCalledWith("openai");
+      expect(auth).not.toHaveBeenCalledWith("openai-codex");
+
+      if (scenario === "routed-with-account") {
+        expect(message).toContain("Claude");
+        expect(fetch).toHaveBeenCalledTimes(1);
+      } else expect(fetch).not.toHaveBeenCalled();
+      await host.emitSessionShutdown(ctx);
+    },
+  );
 
   it.each(["settled", "model", "shutdown"] as const)(
     "delivers account results across refreshes but not shutdown (%s)",

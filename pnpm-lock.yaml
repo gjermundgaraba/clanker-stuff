@@ -384,6 +384,9 @@ importers:
       '@clanker-stuff/footer-protocol':
         specifier: workspace:^
         version: link:../../../packages/footer-protocol
+      '@clanker-stuff/model-history':
+        specifier: workspace:^
+        version: link:../../../packages/model-history
       '@clanker-stuff/pi-extension-paths':
         specifier: workspace:^
         version: link:../../../packages/extension-paths
@@ -517,6 +520,9 @@ importers:
       '@clanker-stuff/lazy-singleton':
         specifier: workspace:^
         version: link:../../../packages/lazy-singleton
+      '@clanker-stuff/model-history':
+        specifier: workspace:^
+        version: link:../../../packages/model-history
       '@clanker-stuff/pi-tones':
         specifier: workspace:^
         version: link:../../../packages/tones
@@ -715,6 +721,22 @@ importers:
         version: 1.0.0(@opentelemetry/api@1.9.0)(@types/node@26.6.2)(@vitest/ui@5.0.1)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
 
   pi/packages/lazy-singleton:
+    devDependencies:
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.0.0(@types/node@26.6.2)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.0.0(@opentelemetry/api@1.9.0)(@types/node@26.6.2)(@vitest/ui@5.0.1)(esbuild@0.28.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)
+
+  pi/packages/model-history:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: 1.0.0
+        version: 1.0.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.6.5)
+      '@earendil-works/pi-coding-agent':
+        specifier: 1.0.0
+        version: 1.0.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(@smithy/signature-v4@5.7.3)(ws@8.21.3)(zod@4.6.5)
     devDependencies:
       vite:
         specifier: 'catalog:'

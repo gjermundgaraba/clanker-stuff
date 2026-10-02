@@ -107,6 +107,10 @@ export const createFooterHost = (
   let sessionTimer: ReturnType<typeof setInterval> | undefined;
   let startGeneration = 0;
 
+  let sessionRevision:
+    | { runtime: HostRuntime; sessionId: string; leafId: string | null }
+    | undefined;
+
   const addCollectorError = (active: HostRuntime, cause: unknown): void => {
     const message = summary(cause instanceof Error ? cause.message : String(cause));
 
@@ -136,7 +140,35 @@ export const createFooterHost = (
     }
   };
 
-  const rebuildBuiltins = (active: HostRuntime): void => {
+  /** Appends (including idle cache warming) move the leaf without an extension lifecycle event. */
+  const updateSessionTotals = (active: HostRuntime, force = false): boolean => {
+    if (!sessionCanRender(active.config)) return false;
+    const sessionId = active.context.sessionManager.getSessionId();
+    const leafId = active.context.sessionManager.getLeafId();
+
+    if (
+      !force &&
+      sessionRevision?.runtime === active &&
+      sessionRevision.sessionId === sessionId &&
+      sessionRevision.leafId === leafId
+    )
+      return false;
+
+    try {
+      active.session = collectSessionTotals(active.context);
+      sessionRevision = { runtime: active, sessionId, leafId };
+
+      return true;
+    } catch (error) {
+      addCollectorError(active, error);
+
+      return false;
+    }
+  };
+
+  const rebuildBuiltins = (active: HostRuntime, requestRender = true): void => {
+    updateSessionTotals(active);
+
     try {
       active.builtins = buildBuiltinWidgets(active.context, {
         git: active.git,
@@ -148,20 +180,11 @@ export const createFooterHost = (
       addCollectorError(active, error);
     }
 
-    active.requestRender?.();
+    if (requestRender) active.requestRender?.();
   };
 
   const refreshSessionTotals = (active: HostRuntime): void => {
-    if (!sessionCanRender(active.config)) {
-      return;
-    }
-
-    try {
-      active.session = collectSessionTotals(active.context);
-    } catch (error) {
-      addCollectorError(active, error);
-    }
-
+    updateSessionTotals(active, true);
     rebuildBuiltins(active);
   };
 
@@ -244,6 +267,7 @@ export const createFooterHost = (
         },
         render(width: number): string[] {
           try {
+            if (updateSessionTotals(active)) rebuildBuiltins(active, false);
             active.lastLayout = renderFooterState(renderState(active), width, theme);
 
             for (const error of active.lastLayout.widgetErrors) {
@@ -358,6 +382,7 @@ export const createFooterHost = (
     active.footerData = undefined;
     active.rich.clear();
     active.builtins.clear();
+    sessionRevision = undefined;
     runtime = undefined;
   };
 
@@ -566,14 +591,6 @@ export const createFooterHost = (
 
       if (loaded.error !== undefined && loaded.error.length > 0) {
         ctx.ui.notify(`${loaded.error}; using Default in memory`, "warning");
-      }
-
-      if (sessionCanRender(active.config)) {
-        try {
-          active.session = collectSessionTotals(ctx);
-        } catch (error) {
-          addCollectorError(active, error);
-        }
       }
 
       rebuildBuiltins(active);

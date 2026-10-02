@@ -9,7 +9,8 @@ import {
   FooterReadyMessageSchema,
 } from "@clanker-stuff/footer-protocol";
 import type { FooterWidgetSnapshot } from "@clanker-stuff/footer-protocol";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, Usage } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -184,6 +185,70 @@ describe("footer host", () => {
     expect(readGit).not.toHaveBeenCalled();
   });
 
+  it("refreshes idle usage on render and on the clock tick, without scanning every frame", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const config = cloneFooterConfig(DEFAULT_CONFIG);
+      config.rows = [{ left: ["footer.session"], center: [], right: [] }];
+      createStore.mockReturnValue({
+        load: async () => ({ config }),
+        path: "/tmp/footer.json",
+        save: async () => {},
+      });
+      const session = SessionManager.inMemory();
+      const getEntries = vi.fn(() => session.getEntries());
+      let component: FooterComponent | undefined;
+      const host = createExtensionHost(extension);
+
+      const context = host.createContext({
+        sessionManager: {
+          getEntries,
+          getLeafId: () => session.getLeafId(),
+          getSessionId: () => session.getSessionId(),
+          getHeader: () => session.getHeader(),
+          getSessionName: () => session.getSessionName(),
+        },
+        ui: {
+          setFooter: (factory) => {
+            component = factory?.(createMockTui(), createIdentityTheme(), {
+              getAvailableProviderCount: () => 1,
+              getExtensionStatuses: () => new Map(),
+              getGitBranch: () => null,
+              onBranchChange: () => () => {},
+            });
+          },
+        },
+      });
+
+      await host.emitSessionStart(context);
+
+      const warm: Usage = {
+        input: 0,
+        output: 1,
+        cacheRead: 50_000,
+        cacheWrite: 0,
+        totalTokens: 50_001,
+        cost: { input: 0, output: 0.00001, cacheRead: 0.015, cacheWrite: 0, total: 0.01501 },
+      };
+
+      session.appendUsage("cache_warm", "anthropic", "test", warm);
+
+      expect(component?.render(240).join("\n")).toContain("cache 50k/0 $0.02");
+      expect(component?.render(240).join("\n")).toContain("cache 50k/0 $0.02");
+      expect(getEntries).toHaveBeenCalledTimes(2);
+
+      session.appendUsage("other-operation", "anthropic", "test", warm);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(getEntries).toHaveBeenCalledTimes(3);
+      expect(component?.render(240).join("\n")).toContain("cache 100k/0 $0.03");
+      expect(getEntries).toHaveBeenCalledTimes(3);
+      await host.emitSessionShutdown(context);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders live native/rich state and refreshes totals post-persistence", async () => {
     const config = cloneFooterConfig(DEFAULT_CONFIG);
     config.rows[1]?.right.push("footer.session");
@@ -239,7 +304,12 @@ describe("footer host", () => {
         tokens: 42,
       }),
       model: model("demo", "Demo"),
-      sessionManager: { ...sessionManager, getEntries },
+      sessionManager: {
+        ...sessionManager,
+        getEntries,
+        getHeader: () => null,
+        getSessionName: () => undefined,
+      },
       thinkingLevel: "high",
       ui: { setFooter },
     });

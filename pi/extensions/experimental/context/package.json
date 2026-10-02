@@ -19,11 +19,14 @@
   "files": [
     "index.ts",
     "overlay.ts",
+    "observation.ts",
+    "views.ts",
     "mouse.ts",
     "render.ts",
     "runtime.ts",
     "snapshot.ts",
     "tree.ts",
+    "docs",
     "README.md",
     "LICENSE"
   ],

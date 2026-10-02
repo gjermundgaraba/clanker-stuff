@@ -13,6 +13,12 @@ Run `/footer` in TUI mode to edit the footer. The editor previews changes immedi
 
 Pi exposes one custom-footer slot. If another extension replaces this host, it stays inactive instead of fighting for ownership. Disable the competing footer or change extension load order, then reload.
 
+## Built-in values
+
+The model and thinking widgets show the selected values. When the current branch's last successful assistant response used a different model or thinking level, they label **selected** and **last** separately. This includes physical routes behind virtual models and is historical information, not a prediction of the next route. Error and aborted responses do not replace the last executed values.
+
+Session totals include assistant usage, compaction, branch summaries, and standalone usage entries such as cache warming. Idle usage appends refresh on the next footer render or periodic rebuild.
+
 ## File format
 
 The global file is `footer.json` under pi's effective agent directory, normally `~/.pi/agent/footer.json`. A missing file uses Default without creating one. The host reloads it at session start and whenever `/footer` opens.

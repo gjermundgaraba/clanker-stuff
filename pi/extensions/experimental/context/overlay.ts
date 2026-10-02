@@ -28,7 +28,7 @@ import {
 import { displayText } from "@clanker-stuff/pi-tool-rendering/text";
 import type { Layout } from "./render.js";
 import { parseMouseInput } from "./mouse.js";
-import type { ContextSnapshot } from "./snapshot.js";
+import type { InspectorSnapshot } from "./snapshot.js";
 import { buildTree, filterTree, flattenTree, followSelection, groupIds } from "./tree.js";
 import type { FlatRow, TreeNode } from "./tree.js";
 
@@ -61,9 +61,10 @@ export class ContextOverlay implements Component, Focusable {
     private readonly tui: TUI,
     private readonly theme: Theme,
     private readonly keybindings: KeybindingsManager,
-    private readonly snapshot: ContextSnapshot,
+    private readonly snapshot: InspectorSnapshot,
     private readonly ui: Pick<ExtensionUIContext, "notify">,
     private readonly done: () => void,
+    private readonly toggleView?: () => void,
   ) {
     this.tree = buildTree(snapshot);
     this.expanded = new Set(groupIds(this.tree));
@@ -272,6 +273,7 @@ export class ContextOverlay implements Component, Focusable {
           this.previewFocused = !this.previewFocused;
         },
       ],
+      [key("v") && this.toggleView !== undefined, () => this.toggleView?.()],
       [key("y"), () => void this.copy()],
       [
         key(Key.slash) && !this.detail,
@@ -311,7 +313,9 @@ export class ContextOverlay implements Component, Focusable {
 
     const header = [
       this.theme.bold(displayText(row.node.label)),
-      this.theme.fg("muted", `  ~${row.node.estimatedTokens.toLocaleString("en-US")}`),
+      this.snapshot.kind === "state"
+        ? this.theme.fg("muted", `  ~${row.node.estimatedTokens.toLocaleString("en-US")}`)
+        : "",
       this.theme.fg("dim", " · "),
       this.theme.fg("muted", position),
     ].join("");
@@ -356,6 +360,7 @@ export class ContextOverlay implements Component, Focusable {
             this.selected - this.scroll,
             treeWidth,
             this.countWidth,
+            this.snapshot.kind === "state",
           );
 
     let position = "";
@@ -386,6 +391,11 @@ export class ContextOverlay implements Component, Focusable {
     const cancel = this.keybindings.getKeys("tui.select.cancel").join("/");
 
     const keys = [
+      {
+        key: "v",
+        label: this.snapshot.kind === "state" ? "request" : "state",
+        show: this.toggleView !== undefined,
+      },
       { key: "j/k", label: "scroll", show: this.detail },
       {
         key: "tab",

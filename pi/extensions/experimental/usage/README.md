@@ -13,7 +13,7 @@ Load `pi/extensions/experimental/usage/index.ts` as a local extension; npm insta
 ## Usage
 
 - Run `/usage` to inspect every available supported provider.
-- The active provider appears automatically as a native status or cooperative footer widget.
+- Active usage targets the selected physical provider immediately; virtual models follow the latest identifiable physical attempt on the current branch, including failures.
 
 ## Configuration
 

@@ -15,9 +15,17 @@ The usage extension reads credentials already configured for pi and uses them on
 
 Provider APIs and response formats are not stable public contracts, so a provider can temporarily stop working after an upstream change. `/usage refresh` bypasses the local cache when checking a failure.
 
+## Active provider
+
+The native status and cooperative footer widgets target a selected physical model's provider immediately, without requiring successful inference. A virtual selection instead targets the current branch's latest identifiable physical assistant attempt, including failed, aborted, and deferred requests.
+
+Pending messages and unresolved virtual routing failures are not physical attempts. Before any identifiable physical attempt, a virtual selection reports that no physical provider has been resolved; the virtual provider namespace is not assumed to identify an account. Startup and tree navigation reconstruct the target from the active branch.
+
+The target is account relevance, not proof of a billable HTTP request. Unsupported provider identities remain available for explanations; no supported provider's older quota is substituted. Native session token/cost accounting is unaffected, and the footer's separate model/thinking history still describes successful completed responses.
+
 ## Native OpenAI
 
-Subscription-quota reporting is unavailable for native `openai`. The footer omits that quota; `/usage` explains the unsupported integration when OpenAI is selected. This is not a login failure and does not affect native session token/cost accounting.
+Subscription-quota reporting is unavailable for native `openai`. The footer omits that quota; `/usage` explains the unsupported integration when OpenAI is the selected physical provider or the latest physical attempt behind a virtual selection. This is not a login failure and does not affect native session token/cost accounting.
 
 The retired `openai-codex` WHAM reader and its ChatGPT cookie transport are removed. Native API keys and resource-scoped subscription grants are not sent to that endpoint. Native quota support requires verified endpoint and grant compatibility; inference support does not establish quota support.
 

@@ -1,4 +1,4 @@
-import type { ContextPart, ContextSnapshot } from "./snapshot.js";
+import type { ContextPart, InspectorSnapshot } from "./snapshot.js";
 
 export interface TreeNode extends ContextPart {
   readonly id: string;
@@ -25,20 +25,61 @@ const group = (
 const largestFirst = (parts: readonly ContextPart[]): ContextPart[] =>
   [...parts].sort((a, b) => b.estimatedTokens - a.estimatedTokens);
 
-export const buildTree = (snapshot: ContextSnapshot): TreeNode[] => [
-  leaf(snapshot.system, "system"),
-  group(
-    "tools",
-    "Active tools",
-    largestFirst(snapshot.tools).map((part, index) => leaf(part, `tools-${index}`)),
-  ),
-  group(
-    "messages",
-    "Messages",
-    snapshot.messages.map((message) => leaf(message, `messages-${message.sourceEntryId}`)),
-    "Canonical session context before transient extension/provider transformations. Token estimates count effective content only; original content and omitted entries do not add tokens.",
-  ),
-];
+export const buildTree = (snapshot: InspectorSnapshot): TreeNode[] => {
+  if (snapshot.kind === "request")
+    return [
+      leaf(
+        {
+          label: "Request observation",
+          body: [
+            snapshot.request
+              ? `Captured at ${new Date(snapshot.request.capturedAt).toISOString()}.`
+              : "No provider request observed on this branch yet. Run a turn, then reopen /context.",
+            "Memory-only snapshot at this extension's before_provider_request hook.",
+            "Later hooks may change the payload; this is not a guaranteed final wire request.",
+            "Recognizable base64 media and common credential string values are omitted, not all secrets. Request content may still be sensitive.",
+            ...(snapshot.request?.truncated
+              ? ["Preview truncated to the 1 MiB retained-text limit."]
+              : []),
+            "No token estimates: provider payload bytes are not Pi context usage.",
+          ].join("\n\n"),
+          format: "text",
+          tone: "muted",
+          estimatedTokens: 0,
+        },
+        "observation",
+      ),
+      ...(snapshot.request
+        ? [
+            leaf(
+              {
+                label: "Provider payload",
+                body: snapshot.request.body,
+                format: snapshot.request.format,
+                tone: "code",
+                estimatedTokens: 0,
+              },
+              "payload",
+            ),
+          ]
+        : []),
+    ];
+
+  return [
+    leaf(snapshot.system, "system"),
+    group(
+      "tools",
+      "Active tools",
+      largestFirst(snapshot.tools).map((part, index) => leaf(part, `tools-${index}`)),
+    ),
+    group(
+      "messages",
+      "Messages",
+      snapshot.messages.map((message) => leaf(message, `messages-${message.sourceEntryId}`)),
+      "Canonical session context before transient extension/provider transformations. Token estimates count effective content only; original content and omitted entries do not add tokens.",
+    ),
+  ];
+};
 
 export const groupIds = (nodes: readonly TreeNode[]): string[] =>
   nodes.flatMap((node) => (node.children.length > 0 ? [node.id] : []));

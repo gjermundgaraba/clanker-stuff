@@ -1,5 +1,5 @@
-import type { Usage } from "@earendil-works/pi-ai";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { fauxAssistantMessage, type Usage } from "@earendil-works/pi-ai";
+import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
@@ -21,7 +21,7 @@ const usage = (amount: number): Usage => ({
 });
 
 describe(collectSessionTotals, () => {
-  it("sums usage from messages and summaries across all entries", () => {
+  it("sums usage from messages, summaries and standalone usage of any kind across all entries", () => {
     const base = (id: string) => ({
       id,
       parentId: null,
@@ -71,6 +71,22 @@ describe(collectSessionTotals, () => {
         type: "branch_summary",
         usage: usage(4),
       },
+      {
+        ...base("warm"),
+        type: "usage",
+        kind: "cache_warm",
+        provider: "faux",
+        model: "faux",
+        usage: usage(5),
+      },
+      {
+        ...base("other"),
+        type: "usage",
+        kind: "future-operation",
+        provider: "faux",
+        model: "faux",
+        usage: usage(6),
+      },
     ];
 
     const context = {
@@ -84,12 +100,12 @@ describe(collectSessionTotals, () => {
     };
 
     expect(collectSessionTotals(context)).toStrictEqual({
-      cacheRead: 10,
-      cacheWrite: 10,
-      cost: 0.1,
-      input: 10,
+      cacheRead: 21,
+      cacheWrite: 21,
+      cost: 0.21000000000000002,
+      input: 21,
       name: "demo",
-      output: 10,
+      output: 21,
       startedAt: Date.parse("2025-01-01T00:00:00.000Z"),
     });
   });
@@ -109,6 +125,54 @@ describe(buildBuiltinWidgets, () => {
         thinkingLevel: "high",
       },
     );
+
+  it("labels selected versus last executed model/effort and does not leak abandoned responses", () => {
+    const session = SessionManager.inMemory();
+    const original = session.appendMessage({ role: "user", content: "start", timestamp: 0 });
+    session.appendMessage({
+      ...fauxAssistantMessage("done"),
+      provider: "anthropic",
+      model: "physical",
+      thinkingLevel: "high",
+    });
+    session.appendMessage({
+      ...fauxAssistantMessage("", { stopReason: "error" }),
+      provider: "radius",
+    });
+
+    const ctx = createExtensionHost(() => {}).createContext({
+      model: {
+        api: "pi-virtual",
+        baseUrl: "",
+        provider: "router",
+        id: "auto",
+        name: "Auto",
+        input: ["text"],
+        reasoning: true,
+        contextWindow: 0,
+        maxTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+      sessionManager: session,
+    });
+
+    const content = (id: string) =>
+      buildBuiltinWidgets(ctx, {
+        git: null,
+        now: 0,
+        thinkingLevel: "low",
+        session: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+      })
+        .get(id)
+        ?.snapshot.content.map((item) => item.text)
+        .join("");
+
+    expect(content("footer.model")).toBe("selected: Auto · last: anthropic/physical");
+    expect(content("footer.thinking")).toBe("selected: low · last: high");
+    session.branch(original);
+    expect(content("footer.model")).toBe("Auto");
+    expect(content("footer.thinking")).toBe("low");
+  });
 
   const tones = (percent: number, id: string) => {
     const snapshot = widgets(percent).get(id)?.snapshot;

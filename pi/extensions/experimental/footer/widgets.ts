@@ -1,3 +1,5 @@
+import { inspectModelHistory } from "@clanker-stuff/model-history";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import os from "node:os";
 import path from "node:path";
 
@@ -115,7 +117,7 @@ const cwdWidget = (cwd: string): LiveWidget =>
     truncate: "start",
   });
 
-const modelWidget = (ctx: ExtensionContext): LiveWidget => {
+const modelWidget = (ctx: ExtensionContext, latest: AssistantMessage | undefined): LiveWidget => {
   const { model } = ctx;
 
   if (!model) {
@@ -151,7 +153,12 @@ const modelWidget = (ctx: ExtensionContext): LiveWidget => {
     }
   }
 
-  const full = ambiguous ? `${provider} / ${model.name}` : model.name;
+  const selected = ambiguous ? `${provider} / ${model.name}` : model.name;
+  const differs = latest && (latest.provider !== model.provider || latest.model !== model.id);
+
+  const full = differs
+    ? `selected: ${selected} · last: ${latest.provider}/${latest.model}`
+    : selected;
 
   return builtin({
     content: span(full, "muted"),
@@ -164,9 +171,16 @@ const modelWidget = (ctx: ExtensionContext): LiveWidget => {
   });
 };
 
-const thinkingWidget = (thinkingLevel: string): LiveWidget =>
+const thinkingWidget = (thinkingLevel: string, latest: AssistantMessage | undefined): LiveWidget =>
   builtin({
-    content: span(thinkingLevel === "off" ? "" : thinkingLevel, "muted"),
+    content: span(
+      latest?.thinkingLevel !== undefined && latest.thinkingLevel !== thinkingLevel
+        ? `selected: ${thinkingLevel} · last: ${latest.thinkingLevel}`
+        : thinkingLevel === "off"
+          ? ""
+          : thinkingLevel,
+      "muted",
+    ),
     icon: {
       glyphs: { ascii: "think", nerd: "󰔏", unicode: "◇" },
       tone: "dim",
@@ -269,7 +283,9 @@ const usageFromEntry = (entry: SessionEntry): UsageLike | undefined => {
     return "usage" in message ? message.usage : undefined;
   }
 
-  return entry.type === "compaction" || entry.type === "branch_summary" ? entry.usage : undefined;
+  return entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary"
+    ? entry.usage
+    : undefined;
 };
 
 export const collectSessionTotals = (ctx: SessionTotalsContext): SessionTotals => {
@@ -315,10 +331,12 @@ export const buildBuiltinWidgets = (
   ctx: ExtensionContext,
   options: BuiltinWidgetOptions,
 ): Map<string, LiveWidget> => {
+  const { lastSuccessfulResponse: latest } = inspectModelHistory(ctx.sessionManager.getBranch());
+
   const values = [
     cwdWidget(ctx.cwd),
-    modelWidget(ctx),
-    thinkingWidget(options.thinkingLevel),
+    modelWidget(ctx, latest),
+    thinkingWidget(options.thinkingLevel, latest),
     contextWidget(ctx, options.now),
     ...gitWidgets(options.git),
     sessionWidget(options.session, options.now),

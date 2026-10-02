@@ -11,6 +11,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  MessageEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
 import { fetchClaudeUsage } from "./adapters/claude.js";
@@ -27,7 +28,12 @@ import type { ProviderAuthClient } from "./auth.js";
 import { UsageCache } from "./cache.js";
 import { formatDetail, formatProviderError, formatRefreshFailed } from "./format.js";
 import { defaultFetchJson } from "./http.js";
-import { getActiveProvider, SUPPORTED_PROVIDERS } from "./providers.js";
+import {
+  isSupportedProvider,
+  quotaUnavailableMessage,
+  resolveQuotaProvider,
+  SUPPORTED_PROVIDERS,
+} from "./providers.js";
 import type { SupportedProvider, UsageFetchResult } from "./providers.js";
 import { usageFailure } from "./providers.js";
 import {
@@ -227,15 +233,14 @@ export const createUsageController = (
       ),
     );
 
-  const refresh = (
-    ctx: ExtensionContext,
-    provider: SupportedProvider | undefined,
-    force = false,
-  ): void => {
+  const refresh = (ctx: ExtensionContext, provider: string | undefined, force = false): void => {
     generation += 1;
 
-    if (!provider) {
-      current = { context: ctx, presentation: { kind: "unsupported" } };
+    if (!isSupportedProvider(provider)) {
+      current = {
+        context: ctx,
+        presentation: { kind: "unsupported", message: quotaUnavailableMessage(provider) },
+      };
       publish();
 
       return;
@@ -317,7 +322,8 @@ export const createUsageController = (
         return;
       }
 
-      refresh(ctx, getActiveProvider(ctx.model), parsed.refresh);
+      const target = resolveQuotaProvider(ctx);
+      refresh(ctx, target, parsed.refresh);
 
       const results = await Promise.all(
         SUPPORTED_PROVIDERS.map(async (provider) => ({
@@ -335,10 +341,7 @@ export const createUsageController = (
         ({ result }) => result.ok || result.error.kind === "failure",
       );
 
-      const unsupported =
-        ctx.model?.provider === "openai"
-          ? "OpenAI subscription quota reporting is unavailable; native authentication has not been verified for a usage endpoint."
-          : undefined;
+      const unsupported = isSupportedProvider(target) ? undefined : quotaUnavailableMessage(target);
 
       if (available.length === 0) {
         ctx.ui.notify(unsupported ?? NO_AVAILABLE_PROVIDERS_MESSAGE, "info");
@@ -373,7 +376,7 @@ export const createUsageController = (
       }
 
       listenForReady();
-      refresh(ctx, getActiveProvider(ctx.model));
+      refresh(ctx, resolveQuotaProvider(ctx));
       stopTimer();
       refreshTimer = setInterval(() => {
         if (current) {
@@ -385,10 +388,8 @@ export const createUsageController = (
         }
       }, REFRESH_INTERVAL_MS);
     },
-    trackModel: (ctx: ExtensionContext, model: { provider?: string } | undefined | null): void => {
-      if (ctx.mode === "tui") {
-        refresh(ctx, getActiveProvider(model));
-      }
+    refresh: (ctx: ExtensionContext, newest?: MessageEndEvent["message"]): void => {
+      if (ctx.mode === "tui") refresh(ctx, resolveQuotaProvider(ctx, newest));
     },
   };
 };

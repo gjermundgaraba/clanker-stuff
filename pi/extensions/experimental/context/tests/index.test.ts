@@ -50,6 +50,49 @@ describe("context command", () => {
     expect([...host.getRegisteredCommands().keys()]).toEqual(["context"]);
   });
 
+  it("captures from startup, retains across overlay closes, and clears on navigation/reload/shutdown", async () => {
+    const host = createExtensionHost(extension);
+    const ctx = host.createContext({ getSystemPrompt: () => "STATE ONLY" });
+    await host.emitSessionStart(ctx);
+
+    const payload = { input: "REQUEST ONLY" };
+    await host.emit("before_provider_request", { type: "before_provider_request", payload }, ctx);
+    payload.input = "LATER MUTATION";
+
+    const inspect = async (present: boolean) => {
+      const ui = createCustomUiDriver({
+        keys: ["\u001b"],
+        keybindings: createKeybindings({ "tui.select.cancel": ["escape"] }),
+        onComponent(component) {
+          expect(component.render(120).join("\n")).toContain("STATE ONLY");
+          component.handleInput?.("v");
+          component.render(120);
+          component.handleInput?.("j");
+          const observed = component.render(120).join("\n");
+          expect(observed.includes("REQUEST ONLY")).toBe(present);
+          expect(observed).not.toContain("LATER MUTATION");
+
+          if (!present) expect(observed).toContain("No request observed on this branch");
+        },
+      });
+
+      await host.runCommand("context", "", { ...ctx, ui: { ...ctx.ui, custom: ui.custom } });
+    };
+
+    await inspect(true);
+    await inspect(true);
+
+    for (const reset of ["session_tree", "session_start", "session_shutdown"]) {
+      await host.emit(
+        "before_provider_request",
+        { type: "before_provider_request", payload: { input: "REQUEST ONLY" } },
+        ctx,
+      );
+      await host.emit(reset, { type: reset }, ctx);
+      await inspect(false);
+    }
+  });
+
   it("restores terminal mouse modes on shutdown even while the overlay is open", async () => {
     const host = createExtensionHost(extension);
     const tui = Object.assign(createMockTui(), { mode: "regular" });

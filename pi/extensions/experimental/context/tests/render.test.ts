@@ -105,7 +105,7 @@ describe("render", () => {
 
     const layout = layoutOverlay(120, 24, false);
     const lines = renderOverlay(theme, withParts, layout, ["System prompt"], "help");
-    expect(lines[0]).toMatch(/^╭─ \/context · test\/model ─+╮$/);
+    expect(lines[0]).toMatch(/^╭─ \/context · state · test\/model ─+╮$/);
     expect(lines[1]).toBe(`│${" ".repeat(118)}│`);
     expect(lines[2]).toContain("400 / 1,000 tokens · 40.0% used · 600 free");
     expect(lines[3]).toBe(`│  ${"█".repeat(46)}${"░".repeat(68)}  │`);
