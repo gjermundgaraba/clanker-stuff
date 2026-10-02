@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { TaskLogs } from "./logs.js";
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { WatchDecoder } from "./protocol.js";
+import type { TaskSummary } from "./output.js";
 
 export interface StartTask {
   name: string;
@@ -19,15 +20,7 @@ export interface StartTask {
   timeoutMs?: number;
 }
 
-export type Outcome =
-  | "completed"
-  | "result"
-  | "result_missing"
-  | "process_error"
-  | "spawn_error"
-  | "protocol_error"
-  | "timeout"
-  | "cancelled";
+export type Outcome = Exclude<TaskSummary["status"], "running">;
 
 export interface Task {
   id: string;
@@ -37,7 +30,7 @@ export interface Task {
   endedAt?: number;
   exitCode?: number | null;
   signal?: string | null;
-  cleanup: "pending" | "clean" | "failed";
+  cleanup: TaskSummary["cleanup"];
   diagnostic?: string;
   result?: JsonValue;
   abandoned: boolean;
@@ -398,17 +391,17 @@ export class Supervisor {
   }
 }
 
-export function taskSummary(task: Task) {
+export function taskSummary(task: Task): TaskSummary {
   return {
     id: task.id,
     name: safeText(task.spec.name),
-    pid: task.child?.pid,
+    ...(task.child?.pid !== undefined ? { pid: task.child.pid } : {}),
     status: task.outcome ?? "running",
     cleanup: task.cleanup,
     startedAt: task.startedAt,
-    endedAt: task.endedAt,
-    exitCode: task.exitCode,
-    signal: task.signal,
+    ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
+    ...(task.exitCode !== undefined ? { exitCode: task.exitCode } : {}),
+    ...(task.signal !== undefined ? { signal: task.signal } : {}),
     abandoned: task.abandoned,
   };
 }

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall, type JsonValue } from "@earendil-works/pi-ai";
 import { createCodemodeExtension, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { describe, it, expect, afterEach, vi } from "vite-plus/test";
 import {
@@ -14,6 +14,7 @@ import {
 import extension from "../index.js";
 import { WAKE_TYPE } from "../delivery.js";
 import { TaskLogs } from "../logs.js";
+import { MAX_TEXT_BYTES } from "../task.js";
 
 const harnesses: AgentSessionHarness[] = [];
 
@@ -77,8 +78,7 @@ async function callTool(
   h: AgentSessionHarness,
   name: string,
   args: { [key: string]: JsonValue | undefined },
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- Tool JSON is untrusted; each caller validates its expected response schema.
-): Promise<unknown> {
+): Promise<JsonValue | undefined> {
   const tool = h.session.getToolDefinition(name)!;
   expect(Value.Check(tool.parameters, args)).toBe(true);
 
@@ -93,18 +93,14 @@ async function callTool(
   const text = result.content.find((c) => c.type === "text");
 
   if (!text) throw new Error("Missing tool response");
-  expect(Buffer.byteLength(text.text)).toBeLessThanOrEqual(32000);
+  expect(Buffer.byteLength(text.text)).toBeLessThanOrEqual(MAX_TEXT_BYTES);
 
-  return JSON.parse(text.text);
+  assert.ok(tool.outputSchema);
+  expect(Value.Check(tool.outputSchema, result.structuredContent)).toBe(true);
+  expect(result.structuredContent).toStrictEqual(result.details);
+
+  return result.structuredContent;
 }
-
-const payloadSchema = Type.Object({
-  payload: Type.Object({
-    text: Type.String(),
-    offset: Type.Number(),
-    nextOffset: Type.Union([Type.Number(), Type.Null()]),
-  }),
-});
 
 describe("background tasks in a real AgentSession", () => {
   it.each([false, true])(
@@ -128,10 +124,12 @@ describe("background tasks in a real AgentSession", () => {
 
       harnesses.push(h);
 
-      const code = `const task = JSON.parse(await tools.task_start({name:"native",command:${JSON.stringify(process.execPath)},args:["-e","setInterval(()=>{},1000)"]}));
-      const list = JSON.parse(await tools.task_list({}));
+      const code = `const task = await tools.task_start({name:"native",command:${JSON.stringify(process.execPath)},args:["-e","setInterval(()=>{},1000)"]});
+      const list = await tools.task_list({});
       if (!list.tasks.some(item => item.id === task.id)) throw Error("Task missing from list");
-      const stopped = JSON.parse(await tools.task_stop({id:task.id}));
+      const inspected = await tools.task_inspect({id:task.id,view:"summary"});
+      if (inspected.task.id !== task.id) throw Error("Wrong task inspected");
+      const stopped = await tools.task_stop({id:task.id});
       text({id:task.id,status:stopped.status,cleanup:stopped.cleanup});`;
 
       h.setResponses([
@@ -152,7 +150,10 @@ describe("background tasks in a real AgentSession", () => {
       expect(result.nestedCalls?.calls.map(({ name, status }) => ({ name, status }))).toEqual(
         blocked
           ? [{ name: "task_start", status: "error" }]
-          : ["task_start", "task_list", "task_stop"].map((name) => ({ name, status: "ok" })),
+          : ["task_start", "task_list", "task_inspect", "task_stop"].map((name) => ({
+              name,
+              status: "ok",
+            })),
       );
       expect(h.messages().filter((message) => message.role === "toolResult")).toHaveLength(1);
 
@@ -268,16 +269,13 @@ describe("background tasks in a real AgentSession", () => {
     const [firstEvent] = summary.events;
     assert.ok(firstEvent);
 
-    const oldest = Value.Parse(
-      payloadSchema,
+    expect(
       await callTool(h, "task_inspect", {
         id,
         view: "event",
         eventId: firstEvent.id,
       }),
-    );
-
-    expect(JSON.parse(oldest.payload.text)).toBe(1);
+    ).toMatchObject({ data: 1 });
     expect(await callTool(h, "task_list", {})).toMatchObject({
       omittedProgress: 0,
       evictedEvents: 0,
@@ -287,8 +285,14 @@ describe("background tasks in a real AgentSession", () => {
     expect(h.getPendingResponseCount()).toBe(1);
     expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
   });
-  it("reads full payload pages after automatic notification", async () => {
-    const h = await setup();
+  it("reads full expanded values through Code Mode after automatic notification", async () => {
+    const h = await createAgentSessionHarness({
+      mode: "rpc",
+      settings: { defaultTools: ["+codemode"], compaction: { enabled: false } },
+      extensionFactories: [extension, createCodemodeExtension({ mode: "on", models: false })],
+    });
+
+    harnesses.push(h);
     h.setResponses([
       start(
         "process.stderr.write(Buffer.alloc(24000,255));" +
@@ -311,49 +315,51 @@ describe("background tasks in a real AgentSession", () => {
       Type.Object({
         resultAvailable: Type.Boolean(),
         events: Type.Array(Type.Object({ id: Type.String(), reason: Type.String() })),
-        logs: Type.Object({ stderrOmittedBytes: Type.Number() }),
+        logs: Type.Object({ stderr: Type.String(), stderrOmittedBytes: Type.Number() }),
       }),
       await callTool(h, "task_inspect", { id, view: "summary", tailBytes: 12000 }),
     );
 
     expect(summary.resultAvailable).toBe(true);
-    expect(summary.logs.stderrOmittedBytes).toBeGreaterThan(12000);
+    expect(summary.logs.stderrOmittedBytes).toBe(12000);
+    expect(summary.logs.stderr).toBe("\ufffd".repeat(12000));
     const eventId = summary.events.find((e) => e.reason === "observation")!.id;
 
-    const eventPage = Value.Parse(
-      payloadSchema,
-      await callTool(h, "task_inspect", { id, view: "event", eventId }),
-    );
+    expect(await callTool(h, "task_inspect", { id, view: "event", eventId })).toMatchObject({
+      data: Array(2500).fill(1e20),
+    });
 
-    expect(eventPage.payload.nextOffset).not.toBeNull();
-    let offset: number | null = 0;
-    let text = "";
+    // The native adapter must select structuredContent, not parse the bounded text preview.
+    const code = `const result = await tools.task_inspect({id:${JSON.stringify(id)},view:"result"});
+      if (!Array.isArray(result.data) || !result.data.every(value => value === 1e20)) throw Error("Incomplete result");
+      text({count:result.data.length,first:result.data[0],last:result.data.at(-1)});`;
 
-    while (offset !== null) {
-      const page: Static<typeof payloadSchema> = Value.Parse(
-        payloadSchema,
-        await callTool(h, "task_inspect", { id, view: "result", offset }),
-      );
+    h.setResponses([
+      fauxAssistantMessage(fauxToolCall("codemode", { code }, { id: "full-result" }), {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage("Read complete result"),
+    ]);
+    await h.prompt("Process the full watcher result");
 
-      text += page.payload.text;
-      offset = page.payload.nextOffset;
-    }
+    const response = h
+      .messages()
+      .findLast((message) => message.role === "toolResult" && message.toolCallId === "full-result");
 
-    expect(JSON.parse(text)).toEqual(Array(2500).fill(1e20));
-    await expect.poll(() => wakes(h).length).toBe(1);
-    await expect.poll(() => h.session.isStreaming).toBe(false);
+    assert.ok(response?.role === "toolResult");
+    expect(response.isError).toBe(false);
+    expect(response.nestedCalls?.complete).toBe(true);
+    expect(response.nestedCalls?.calls.map(({ name, status }) => ({ name, status }))).toEqual([
+      { name: "task_inspect", status: "ok" },
+    ]);
+    const printed = response.content.at(-1);
+    assert.ok(printed?.type === "text");
+    expect(JSON.parse(printed.text)).toEqual({ count: 2500, first: 1e20, last: 1e20 });
+    expect(wakes(h)).toHaveLength(1);
     expect(await callTool(h, "task_list", {})).toMatchObject({ pending: 0 });
     expect(await callTool(h, "task_inspect", { id, view: "result" })).toMatchObject({
-      payload: { offset: 0 },
+      data: Array(2500).fill(1e20),
     });
-    expect(
-      await callTool(h, "task_inspect", {
-        id,
-        view: "event",
-        eventId,
-        offset: eventPage.payload.nextOffset,
-      }),
-    ).toMatchObject({ payload: { offset: eventPage.payload.nextOffset } });
   });
   it.each(["tui", "rpc"] as const)(
     "%s automatically wakes idle with metadata only, then allows payload/log inspection",
@@ -865,9 +871,7 @@ describe("background tasks in a real AgentSession", () => {
         const text = response.content.find((c) => c.type === "text");
         assert.ok(text);
         expect(JSON.parse(text.text)).toMatchObject(
-          view === "summary"
-            ? { task: { status: "result" }, events: [] }
-            : { payload: { text: JSON.stringify("done") } },
+          view === "summary" ? { task: { status: "result" }, events: [] } : { data: "done" },
         );
         expect(wakes(h)).toHaveLength(0);
       } finally {

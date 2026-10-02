@@ -7,14 +7,10 @@ import { createIdentityTheme } from "../../../../tests/harness/tui.js";
 import { renderedRows, toolRenderContext } from "../../../../tests/harness/tool-rendering.js";
 import extension from "../index.js";
 import { taskRenderers } from "../renderers.js";
-
-type Details = NonNullable<
-  Parameters<ReturnType<typeof taskRenderers>["renderResult"]>[0]["details"]
->;
+import { type ToolOutput as Details, type TaskSummary as TaskDetails } from "../output.js";
+import { taskRow } from "../task.js";
 
 const theme = createIdentityTheme();
-
-type TaskDetails = Extract<Details, { trust: string }>["task"];
 
 const task: TaskDetails = {
   id: "t_123",
@@ -31,10 +27,9 @@ const task: TaskDetails = {
 
 const list = (tasks: TaskDetails[], counts = { pending: 0, evictedEvents: 0 }): Details => ({
   ...counts,
-  tasks,
+  tasks: tasks.map(taskRow),
   omittedProgress: 0,
   evictedTasks: 0,
-  historyStorageError: undefined,
   lifetime: "",
 });
 
@@ -44,12 +39,10 @@ const logs = {
   stdoutOmittedBytes: 0,
   stderrOmittedBytes: 0,
   directory: "",
-  storageError: undefined,
 };
 
 const summary = (overrides: Partial<Extract<Details, { trust: string }>> = {}): Details => ({
   task,
-  diagnostic: undefined,
   resultAvailable: false,
   events: [],
   logs,
@@ -57,7 +50,7 @@ const summary = (overrides: Partial<Extract<Details, { trust: string }>> = {}): 
   ...overrides,
 });
 
-const render = (details: Details, expanded = false, name = "task_inspect") =>
+const render = (details: unknown, expanded = false, name = "task_inspect") =>
   taskRenderers(name).renderResult(
     { content: [{ type: "text", text: JSON.stringify(details) }], details },
     { expanded, isPartial: false },
@@ -104,7 +97,7 @@ describe("task presentation", () => {
 
     const text = renderedRows(render(value, false, "task_list")).join("\n");
     expect(text).toContain("2 tasks · 2 pending notifications");
-    expect(text).toContain("✓ completed · Build · t_123 · exit 0");
+    expect(text).toContain("✓ completed · Build · t_123");
     expect(text).toContain("cleanup failed");
     expect(text).toContain("evictedEvents: 3");
     expect(text).not.toContain('"tasks"');
@@ -163,25 +156,18 @@ describe("task presentation", () => {
     expect(expanded).toContain("e_one · observation");
     expect(expanded).toContain("PID 42 · 1.5s");
   });
-  it("unwraps payload pages but preserves pagination and exact payload tokens", () => {
+  it("displays captured JSON values without pagination metadata", () => {
     const text = renderedRows(
       render({
         taskId: "t_123",
         view: "result",
         untrusted: true,
-        payload: {
-          encoding: "json",
-          text: '{"id":9007199254740993}',
-          offset: 100,
-          nextOffset: 200,
-          totalBytes: 400,
-        },
+        data: { id: "9007199254740993" },
       }),
     ).join("\n");
 
-    expect(text).toContain('{"id":9007199254740993}');
-    expect(text).toContain("Byte offset 100 · 400 bytes total");
-    expect(text).toContain("next offset 200");
+    expect(text).toContain('{"id":"9007199254740993"}');
+    expect(text).not.toContain("offset");
     expect(text).toContain("untrusted output");
   });
   it("bounds wrapped calls, sanitizes controls, and expands all argv", () => {
@@ -267,6 +253,50 @@ describe("task presentation", () => {
     expect(text).toContain("first   column\nsecond");
     expect(text.replaceAll("\n", "")).not.toMatch(/\p{Cc}|[\u202a-\u202e\u2066-\u2069]/u);
   });
+  it.each([false, true])(
+    "renders PID-less duration in live and persisted failures (persisted=%s)",
+    (persisted) => {
+      const failure: TaskDetails = {
+        id: "t_spawn",
+        name: "Missing command",
+        status: "spawn_error",
+        cleanup: "clean",
+        startedAt: 1000,
+        endedAt: 2500,
+        abandoned: false,
+        signal: "SIGTERM",
+      };
+
+      const value: unknown = persisted ? JSON.parse(JSON.stringify(failure)) : failure;
+      const text = renderedRows(render(value, true, "task_start")).join("\n");
+      expect(text).toContain("spawn error");
+      expect(text).toContain("1.5s · signal SIGTERM");
+      expect(text).not.toContain("PID");
+      expect(text).not.toContain("undefined");
+    },
+  );
+  it.each([
+    { data: null, expected: "null" },
+    { data: false, expected: "false" },
+    { data: 0, expected: "0" },
+    { data: "", expected: '""' },
+    { expected: "No payload" },
+  ])("distinguishes absent payloads from JSON values (%j)", ({ data, expected }) => {
+    const text = renderedRows(
+      render({
+        taskId: "t",
+        view: "event",
+        eventId: "e",
+        reason: "observation",
+        untrusted: true,
+        ...(data === undefined ? {} : { data }),
+      }),
+    ).join("\n");
+
+    expect(text).toContain(expected);
+
+    if (data !== undefined) expect(text).not.toContain("No payload");
+  });
   it("omits nullable process exit metadata", () => {
     const text = renderedRows(render({ ...task, exitCode: null }, true, "task_stop")).join("\n");
     expect(text).toContain("✓ completed");
@@ -297,12 +327,23 @@ describe("task presentation", () => {
       '{"new_field":"retained"}',
       '{"id":"old","legacy":"retained"}',
     ]) {
-      const result = { content: [{ type: "text" as const, text }], details: undefined };
-      expect(
-        renderedRows(
-          renderer(result, { expanded: false, isPartial: false }, theme, toolRenderContext()),
-        ).join("\n"),
-      ).toContain(text);
+      for (const details of [
+        undefined,
+        {
+          taskId: "t",
+          view: "result",
+          untrusted: true,
+          payload: { encoding: "json", text: "old", offset: 0, nextOffset: null, totalBytes: 3 },
+        },
+        { id: "unsupported", status: "completed" },
+      ]) {
+        const result = { content: [{ type: "text" as const, text }], details };
+        expect(
+          renderedRows(
+            renderer(result, { expanded: false, isPartial: false }, theme, toolRenderContext()),
+          ).join("\n"),
+        ).toContain(text);
+      }
     }
 
     expect(

@@ -1,6 +1,6 @@
 # Background tasks design
 
-Implemented by the experimental [background-tasks extension](../). Pi API baseline: v0.87.0.
+Implemented by the experimental [background-tasks extension](../). Pi API baseline: v1.0.0.
 [Usage](usage.md) is authoritative for tools, commands, protocol, and limits; [validation](validation.md) records demonstrated behavior and verification limits.
 
 ## Scope
@@ -54,7 +54,7 @@ Runtime inspection requires an explicit `observe` or `consume` mode. Human comma
 
 The supervisor decides an immutable terminal outcome before cleanup emits its notice. The awaiting-capture map records whether that outcome has already been retrieved. If so, capture stores the terminal event directly in history instead of scheduling a stale notice. Capture removes the map entry; any remaining notices independently protect the task. Abandonment and clear discard awaiting state, and repeated reads never recreate it. Event-only retrieval does not mark an unrelated terminal outcome retrieved.
 
-Consumption removes exact IDs from pending and in-flight eligibility while retaining inspectable history. Lookup returns sequence order across history, flight, and pending. Retired history need not stay sorted internally: only a new capture trims it to its 64-record target, sorting by sequence rather than retrieval order. Consumption and acknowledgement never evict payloads. Continuation is not pinned across later captures, task pruning or session replacement.
+Consumption removes exact IDs from pending and in-flight eligibility while retaining inspectable history. Lookup returns sequence order across history, flight, and pending. Retired history need not stay sorted internally: only a new capture trims it to its 64-record target, sorting by sequence rather than retrieval order. Consumption and acknowledgement never evict payloads. Later captures, task pruning or session replacement can end access to retained data.
 
 Aggregate retention stays bounded by 168 records: 64 retired history at capture, 64 pending progress, at most 32 terminal notices, and an 8-record flight. Between captures, retirement only transfers existing records, so history may exceed its target without growing total storage.
 
@@ -62,7 +62,7 @@ Pruning claims and counts selected history victims synchronously before awaiting
 
 ## Delivery and trust
 
-Notices contain only host-authored IDs and outcome names. Payloads, command output, names, and keys are pulled on demand as untrusted data. Summary inspection exposes every retained event ID; immutable payload JSON supports byte-offset continuation without truncating response envelopes.
+Notices contain only host-authored IDs and outcome names. Payloads, command output, names, and keys are pulled on demand as untrusted data. Structured summary inspection exposes every retained event ID; event/result inspection returns the complete captured JSON value in one call. Structured output and renderer details are independent of the bounded text presentation. Oversized direct-model text is an explicitly incomplete preview retaining identity, outcome and diagnostics; complete large-data processing requires Code Mode. There is no pagination or caller-mode-specific retrieval path.
 
 Structured JSON and custom-message roles are not security boundaries: Pi converts custom messages into model-facing user content. Pull-based access reduces unsolicited exposure, but does not eliminate prompt injection once data is read. Programs inherit local capabilities and environment credentials; process supervision is not a sandbox.
 
@@ -110,7 +110,8 @@ Follow the repository [extension structure](../../../../../docs/extension-struct
 - `inbox.ts`: coalescing, retention, and delivery batches.
 - `delivery.ts`: bounded boundary/idle admission, acknowledgement, and retry.
 - `logs.ts`: bounded storage and reads.
-- `task.ts`: strict schemas, compact formatting, payload continuation.
+- `task.ts`: strict input schemas, compact rows and bounded text presentation.
+- `output.ts`: structured output schemas and derived types.
 - `runtime.ts`: Pi lifecycle and tool coordination.
 
 The supervisor owns no Pi context. Do not introduce generic process, storage, or clock backends without an actual need. Strict tool schemas stay closed and current; renderers tolerate older stored calls without argument migrations.

@@ -6,17 +6,16 @@ import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import type { TUnsafe } from "typebox";
-import type { TaskRuntime } from "./runtime.js";
+import { toolOutputSchema } from "./output.js";
+import { Value } from "typebox/value";
 import type { InspectInput, StartInput, taskRow } from "./task.js";
 import type { taskSummary } from "./supervisor.js";
 
 type CallArgs = Partial<StartInput & InspectInput>;
 
-type Details = Awaited<ReturnType<TaskRuntime["start" | "list" | "inspect" | "stop"]>>["details"];
-
-// Results persisted before tools carried typed details only have their text.
+// Persisted results can predate the current schema; unsupported details use their stored text.
 type Renderers = Required<
-  Pick<ToolDefinition<TUnsafe<CallArgs>, Details | undefined>, "renderCall" | "renderResult">
+  Pick<ToolDefinition<TUnsafe<CallArgs>, unknown>, "renderCall" | "renderResult">
 >;
 
 type TaskDisplay = ReturnType<typeof taskSummary | typeof taskRow>;
@@ -74,14 +73,7 @@ export const taskRenderers = (name: string): Renderers => ({
         }
 
         if (context.expanded) {
-          for (const key of [
-            "cwd",
-            "protocol",
-            "timeoutMs",
-            "eventId",
-            "offset",
-            "tailBytes",
-          ] as const) {
+          for (const key of ["cwd", "protocol", "timeoutMs", "eventId", "tailBytes"] as const) {
             const value = data[key];
 
             if (value !== undefined)
@@ -119,7 +111,7 @@ export const taskRenderers = (name: string): Renderers => ({
 
     const data = result.details;
 
-    if (data === undefined) {
+    if (!Value.Check(toolOutputSchema, data)) {
       add(() => theme.fg("toolOutput", clean(text)));
 
       return output;
@@ -152,7 +144,6 @@ export const taskRenderers = (name: string): Renderers => ({
 
       if (remaining.length) add(() => remaining.map((item) => taskLine(item, theme)).join("\n"), 8);
     } else if ("taskId" in data) {
-      const payload = data.payload;
       add(() =>
         theme.fg(
           "muted",
@@ -162,28 +153,8 @@ export const taskRenderers = (name: string): Renderers => ({
 
       if ("reason" in data) add(() => theme.fg("muted", inline(data.reason)));
 
-      if (payload !== undefined) {
-        add(() => {
-          const content = str(payload.text);
-
-          try {
-            // Pages may split JSON tokens; only highlight a self-contained value, never reserialize it.
-            JSON.parse(content);
-
-            return highlightCode(content, "json").join("\n");
-          } catch {
-            return theme.fg("toolOutput", content);
-          }
-        });
-        add(() =>
-          theme.fg("muted", `Byte offset ${payload.offset} · ${payload.totalBytes} bytes total`),
-        );
-
-        if (payload.nextOffset !== null)
-          add(() =>
-            theme.fg("warning", `More payload available · next offset ${payload.nextOffset}`),
-          );
-      } else add(() => theme.fg("muted", "No payload"));
+      if ("data" in data) add(() => highlightCode(jsonText(data.data), "json").join("\n"));
+      else add(() => theme.fg("muted", "No payload"));
     } else {
       const task = "task" in data ? data.task : data;
 
@@ -193,21 +164,18 @@ export const taskRenderers = (name: string): Renderers => ({
 
       if ("note" in data && options.expanded) add(() => theme.fg("muted", str(data.note)));
 
-      if (options.expanded && "pid" in task) {
-        add(() =>
-          theme.fg(
-            "muted",
-            [
-              task.pid !== undefined ? `PID ${task.pid}` : "",
-              task.endedAt !== undefined
-                ? `${((task.endedAt - task.startedAt) / 1000).toFixed(1)}s`
-                : "",
-              task.signal ? `signal ${inline(task.signal)}` : "",
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          ),
-        );
+      if (options.expanded) {
+        const metadata = [
+          task.pid !== undefined ? `PID ${task.pid}` : "",
+          task.endedAt !== undefined
+            ? `${((task.endedAt - task.startedAt) / 1000).toFixed(1)}s`
+            : "",
+          task.signal ? `signal ${inline(task.signal)}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        if (metadata) add(() => theme.fg("muted", metadata));
       }
 
       if ("task" in data) {

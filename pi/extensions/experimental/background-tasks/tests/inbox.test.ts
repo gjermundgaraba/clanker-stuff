@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, expect } from "vite-plus/test";
 import { Inbox } from "../inbox.js";
-import { toolResult, MAX_TOOL_BYTES } from "../task.js";
 
 const limits = { progress: 2, bytes: 4096, protectedTasks: 2, history: 2 };
 
@@ -289,13 +288,6 @@ describe("Inbox", () => {
     expect(inbox.lookup("other")).toEqual([]);
     expect(inbox.omitted).toBe(0);
     expect(inbox.evicted).toBe(0);
-
-    const result = toolResult({
-      events: events.map((e) => ({ id: e.id, seq: Number.MAX_SAFE_INTEGER, reason: e.reason })),
-    });
-
-    // Leave space for task metadata and logs, which summary inspection budgets separately.
-    expect(Buffer.byteLength(result.content[0].text)).toBeLessThan(MAX_TOOL_BYTES - 8192);
   });
   it("bounds progress by bytes independently of count", () => {
     const inbox = new Inbox({ ...limits, progress: 100, bytes: 200 });

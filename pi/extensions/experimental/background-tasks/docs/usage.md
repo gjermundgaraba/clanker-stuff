@@ -11,7 +11,7 @@ pi -e ./pi/extensions/experimental/background-tasks/index.ts \
 
 No installation is necessary. The skill is optional; explicit `-e` loads the extension, not its package's skills. Package discovery loads both when enabled.
 
-Use Node.js 26+, Pi 0.87.0+, and a POSIX host (macOS/Linux). Windows admission is rejected: this implementation has no Windows process-tree backend. Print/JSON one-shot sessions are rejected because they exit when the initial prompt finishes. TUI and RPC sessions both deliver notifications automatically; no confirmation or notification budget is required.
+Use Node.js 26+, Pi 1.0.0+, and a POSIX host (macOS/Linux). Windows admission is rejected: this implementation has no Windows process-tree backend. Print/JSON one-shot sessions are rejected because they exit when the initial prompt finishes. TUI and RPC sessions both deliver notifications automatically; no confirmation or notification budget is required.
 
 ## Tools and commands
 
@@ -23,11 +23,11 @@ Ordinary jobs treat stdout and stderr as logs. Successful exit produces `complet
 
 `task_inspect` requires a task ID and a view:
 
-- `{id, view: "summary", tailBytes?}` returns status, full name, all retained event IDs, result availability, and bounded log tails. `tailBytes` is a per-stream upper bound; encoding and the overall response budget may shorten the actual tails further. Omitted source-byte counts remain visible.
-- `{id, view: "result", offset?}` reads the terminal result payload without logs.
-- `{id, view: "event", eventId, offset?}` reads one retained event, including its payload when present. A terminal lifecycle event need not have a payload.
+- `{id, view: "summary", tailBytes?}` returns status, full name, all retained event IDs, result availability, and bounded log tails. `tailBytes` bounds source bytes per stream; decoding and JSON escaping may expand their textual representation. Structured output keeps these requested tails independently of the text-preview budget. Omitted source-byte counts remain visible.
+- `{id, view: "result"}` reads the complete terminal result value in `data`, without logs.
+- `{id, view: "event", eventId}` reads one retained event, including its complete `data` value when present. A terminal lifecycle event can omit `data`; that is distinct from an explicit JSON `null`.
 
-Payload responses contain `payload: {encoding: "json", text, offset, nextOffset, totalBytes}`. Concatenate `text` from successive pages, passing `nextOffset` back as `offset` until it is `null`, then parse the complete JSON text. Offsets are UTF-8 bytes in that immutable JSON representation, not string indexes or raw stdout offsets. Small payloads fit in one response. Display-control escaping preserves the JSON value. An evicted event produces an explicit not-found error, never a page from another event. Terminal results remain readable by task ID under task-history retention.
+Inspection returns captured JSON values, not JSON-encoded strings or pages. Code Mode receives the complete structured snapshot in one call. Direct-model text is complete compact JSON when it fits; otherwise it is an explicitly incomplete excerpt with task identity, outcome and diagnostics retained separately. Complete large-data access requires Code Mode; without it, direct calls provide only previews. No offsets, continuation protocol or temporary payload files are provided. An evicted event produces an explicit not-found error. Terminal results remain readable by task ID under task-history retention.
 
 `task_stop({id})` lets the agent stop a job that is no longer needed. It waits for bounded cleanup and reports the actual terminal decision. Cancellation does not overwrite a result already accepted. A successful stop response consumes its terminal notice, but not earlier watcher events. There is no dismissal step: capacity is released after terminal capture when the terminal notice has been retrieved or recorded in session history and no notices for that task remain pending or in flight.
 
@@ -40,11 +40,11 @@ Commands:
 Successful agent-tool retrieval consumes notification eligibility, not retained data:
 
 - Summary inspection consumes exactly its listed event IDs and reported terminal outcome, including an outcome whose notice is still awaiting cleanup.
-- Event inspection consumes only the selected event. Result inspection consumes only the terminal notice, even when retrieving just one payload page.
+- Event inspection consumes only the selected event. Result inspection consumes only the terminal notice, including when the direct-model text is only a preview.
 - Successful `task_stop` consumes its terminal notice. Failed tool calls consume nothing. Running snapshots cannot consume future completions.
 - `task_list`, `/tasks`, and `/tasks inspect` are observational and do not consume notices.
 
-This is an invocation contract, not proof that the model saw or acted on the output. It also applies inside Code Mode when the script discards the return value without printing it. Retrieval and notification acknowledgement do not evict event payloads. New event capture may evict older retired history; task pruning and session replacement can also end access. Pagination is not pinned across those changes. A wake already admitted to Pi cannot be retracted and may still contain a subsequently retrieved event; remaining unseen events keep their normal delivery timing.
+This is an invocation contract, not proof that the model saw or acted on the output. It also applies inside Code Mode when the script discards the return value without printing it. Retrieval and notification acknowledgement do not evict event payloads. New event capture may evict older retired history; task pruning and session replacement can also end access. A wake already admitted to Pi cannot be retracted and may still contain a subsequently retrieved event; remaining unseen events keep their normal delivery timing.
 
 Notification acknowledgement separately means Pi recorded the notice in the actual session branch, not that a model acted on it or that processing succeeded. Neither retrieval nor acknowledgement is undone by navigating to a point before it; retained task results can still be inspected.
 
@@ -102,20 +102,20 @@ Shutdown sends TERM to the owned POSIX process group, waits up to one second, th
 
 ## Fixed v1 limits
 
-| Resource                          | Limit                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| Active/unclean tasks              | 8                                                                         |
-| Deadline                          | 1 hour default; 100 ms–24 hours                                           |
-| Record                            | 16 KiB before LF                                                          |
-| Watcher output                    | 256 records per one-second window; excess fails the protocol              |
-| Pending progress                  | 64 records / 64 KiB, plus one in-flight batch                             |
-| Protected-task budget             | 32 active tasks or tasks still protected by capture/outstanding notices   |
-| Delivery batch                    | 8 records per batch; no total batch limit                                 |
-| Retired event history             | Target 64 at each capture; retirement alone does not evict                |
-| Unprotected finished task history | 32 at admission-time pruning, plus current admitted tasks                 |
-| Log storage                       | Last 128 KiB per stream, in memory and disposable files                   |
-| Log tool reads                    | 6,000 bytes/stream default, 12,000 maximum                                |
-| Tool response                     | 32,000 encoded bytes; complete compact envelopes and payload continuation |
+| Resource                          | Limit                                                                   |
+| --------------------------------- | ----------------------------------------------------------------------- |
+| Active/unclean tasks              | 8                                                                       |
+| Deadline                          | 1 hour default; 100 ms–24 hours                                         |
+| Record                            | 16 KiB before LF                                                        |
+| Watcher output                    | 256 records per one-second window; excess fails the protocol            |
+| Pending progress                  | 64 records / 64 KiB, plus one in-flight batch                           |
+| Protected-task budget             | 32 active tasks or tasks still protected by capture/outstanding notices |
+| Delivery batch                    | 8 records per batch; no total batch limit                               |
+| Retired event history             | Target 64 at each capture; retirement alone does not evict              |
+| Unprotected finished task history | 32 at admission-time pruning, plus current admitted tasks               |
+| Log storage                       | Last 128 KiB per stream, in memory and disposable files                 |
+| Log tool reads                    | 6,000 bytes/stream default, 12,000 maximum                              |
+| Tool text                         | 32,000 encoded bytes; explicitly incomplete preview when needed         |
 
 Progress overflow drops the oldest pending progress and increments the omitted count. Terminal notices are never evicted by progress. Admission fails when all 32 task reservations are occupied, including completed tasks with unread watcher events. Inspect completed task summaries to consume their listed notices, or allow cleanup and automatic delivery to finish. Rereading only the terminal result does not consume earlier watcher events.
 
@@ -125,4 +125,12 @@ The supervisor, wire decoder, inbox, and delivery controller are separate compon
 
 ## Code Mode placement
 
-All four task tools use Pi's ordinary tool registry and work with any provider. Pi's built-in `codemode` can call them in either `on` or `only` mode, through the same permission hooks and session-owned runtime. Scripts receive JSON text: use `JSON.parse(await tools.task_list({}))` when you need the data. No custom Code Mode adapter is required.
+All four task tools use Pi's ordinary tool registry and work with any provider. Pi's built-in `codemode` can call them in either `on` or `only` mode, through the same permission hooks and session-owned runtime. All four tools declare output schemas and scripts receive structured objects, without `JSON.parse`. No custom Code Mode adapter is required.
+
+```js
+const { data } = await tools.task_inspect({ id: "t_…", view: "result" });
+// Filter or aggregate in Code Mode; print only the fields the model needs.
+text({ conclusion: data.conclusion });
+```
+
+Structured output and renderer details contain the same full captured snapshot; the 32,000-byte cap applies only to direct-model text. Code Mode's own printed-output limit is separate and does not limit the value available inside the script. Watcher record, retention and log-read limits still apply. The TUI renders structured values when available and falls back to stored text for unsupported historical detail shapes.

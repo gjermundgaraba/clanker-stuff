@@ -1,6 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { taskRenderers } from "./renderers.js";
 import { TaskRuntime } from "./runtime.js";
+import {
+  startOutputSchema,
+  listOutputSchema,
+  inspectOutputSchema,
+  taskSummarySchema,
+} from "./output.js";
 import { idSchema, inspectParameters, listSchema, startParameters } from "./task.js";
 
 const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
@@ -19,6 +25,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
       "Use task_start with protocol events-v1 only for scripts emitting {v:1,type:'event',data:...} or terminal {v:1,type:'result',data:...} JSON records followed by LF. Keep external detection logic in the script.",
     ],
     parameters: startParameters,
+    outputSchema: startOutputSchema,
     constrainedSampling: STRICT_PREFERRED,
     execute: (_id, params, signal, _update, ctx) => runtime.start(params, ctx, signal),
   });
@@ -29,6 +36,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     description:
       "List task status and pending notification count; does not consume notices, fetch logs or wake the model.",
     parameters: listSchema,
+    outputSchema: listOutputSchema,
     constrainedSampling: STRICT_PREFERRED,
     execute: async () => runtime.list(),
   });
@@ -37,8 +45,9 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     ...taskRenderers("task_inspect"),
     label: "Inspect task",
     description:
-      "Pull untrusted task data. Successful summary retrieval consumes its listed event notices and reported terminal outcome; event consumes only its selected notice, result only its terminal notice. view summary returns status, all retained event IDs and log tails (up to 6000 bytes/stream by default, 12000 requested max). view result or event returns JSON text in payload.text; event requires eventId. Concatenate pages using payload.nextOffset as offset until null, then parse JSON. Total response capped at 32000 bytes; history may be evicted.",
+      "Pull untrusted task data. Successful summary retrieval consumes its listed event notices and reported terminal outcome; event consumes only its selected notice, result only its terminal notice. view summary returns status, all retained event IDs and log tails (up to 6000 bytes/stream by default, 12000 requested max). view result or event returns the complete JSON value in data; event requires eventId and may omit data. Code Mode receives complete structured output. Direct-model text is a bounded preview when large; complete large-data access requires Code Mode. History may be evicted.",
     parameters: inspectParameters,
+    outputSchema: inspectOutputSchema,
     constrainedSampling: STRICT_PREFERRED,
     execute: async (_id, params) => runtime.inspect(params, "consume"),
   });
@@ -49,6 +58,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     description:
       "Cancel an owned task, await bounded process-group cleanup, and report the actual outcome. Successful retrieval consumes that terminal notice, not earlier watcher events. Does not cancel independent observed jobs.",
     parameters: idSchema,
+    outputSchema: taskSummarySchema,
     constrainedSampling: STRICT_PREFERRED,
     execute: async (_id, params) => {
       const result = await runtime.stop(params.id);

@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { safeText } from "@clanker-stuff/pi-tool-rendering/text";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import type { LogSummary } from "./output.js";
 
 export const LOG_BYTES = 128 * 1024;
 
@@ -61,7 +62,7 @@ export class TaskLogs {
 
     return this.writing;
   }
-  read(bytes = 6000) {
+  read(bytes = 6000): LogSummary {
     const size = Math.max(1, Math.min(12000, bytes));
 
     return {
@@ -70,7 +71,7 @@ export class TaskLogs {
       stdoutOmittedBytes: Math.max(0, this.received.stdout - size),
       stderrOmittedBytes: Math.max(0, this.received.stderr - size),
       directory: this.directory,
-      storageError: this.error,
+      ...(this.error !== undefined ? { storageError: this.error } : {}),
     };
   }
   async close(): Promise<void> {

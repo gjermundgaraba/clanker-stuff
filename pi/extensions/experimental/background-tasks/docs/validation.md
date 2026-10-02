@@ -4,11 +4,13 @@ All scenarios use synthetic jobs and payloads. No service credentials or private
 
 ## Automated
 
+The Pi 1.0.0 structured-output revision covers one-call retrieval of a 55,001-byte captured value through native Code Mode, bounded and labeled direct-text previews, full structured log tails, falsy/null versus absent data, PID-less terminal duration, and text fallback for historical detail shapes. The historical pagination checks below describe the previous contract, not a retained execution path.
+
 Retrieval-consumption coverage includes:
 
 - Exact event selection, failed reads, observational discovery/human commands, future completions after running inspection, and terminal-only result/stop retrieval.
 - In-flight consumption without changing receipt/admission gates, and the 32-task protection budget across uncaptured outcomes and unread notices.
-- Readable payloads after a 65-ID summary and across an older event's pages with full newer history; chronological capture-time eviction and the aggregate retention bound.
+- Readable payloads after a 65-ID summary and in one call for an older large event with full newer history; chronological capture-time eviction and the aggregate retention bound.
 - Real-session retrieval of ready events before settlement and of terminal outcomes before cleanup emits their notices, with retained history and no stale wake or extra provider request.
 - Consumption through the Code Mode adapter when the caller discards its result. This is adapter coverage, not a V8-cell test or proof of model visibility.
 
@@ -18,14 +20,14 @@ The earlier automatic-notification/manual-compaction revision passed 72 package 
 
 The package has unit tests for strict framing, inbox reservations/coalescing/eviction, automatic delivery and retry, bounded logs, schemas and tool output. Real subprocess tests cover spawn/exit failures, missing results, record floods, cancellation, deadlines, concurrency, inherited-pipe drain, TERM-resistant descendants, and history pruning.
 
-Real Pi 0.87.0 sessions verify:
+Real AgentSession coverage, originally added on Pi 0.87.0 and now exercised on the pinned Pi version, verifies:
 
 - Spawn handoff before completion, idle triggered notices, metadata-only delivery and pull inspection.
 - Busy buffering, one ready batch before successful settlement, and ordinary synchronous idle handoff through Pi's public API. Synthetic replacement of `sendMessage` to start a competing run inside the handoff is no longer a supported contract or test fixture.
 - Automatic delivery of tasks completed during manual compaction, after success, failure, or cancellation. All three regression cases reproduced the stalled notification before the readiness fix.
 - Both TUI and RPC deliver notifications without confirmation. Aborted responses do not hold later notifications.
 - Task listing and inspection through `/tasks`, and agent-callable cancellation through `task_stop`.
-- Payload continuation survives numeric serialization expansion and UTF-8 boundaries; summary log reads fit after invalid-byte expansion.
+- Complete structured payload retrieval survives numeric serialization expansion; summary log reads preserve requested tails after invalid-byte expansion while direct text remains bounded.
 - Recorded notification receipts or targeted agent retrieval release eligible reservations; retained payloads remain inspectable.
 - Ancestral ownership and no resurrection after tree navigation.
 - Agent stop during terminal cleanup waits for completion without overwriting the accepted result.
