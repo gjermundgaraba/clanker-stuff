@@ -37,7 +37,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@clanker-stuff/codex-http": "workspace:^",
     "@clanker-stuff/footer-protocol": "workspace:^",
     "@clanker-stuff/lazy-singleton": "workspace:^",
     "@clanker-stuff/pi-tones": "workspace:^"

@@ -150,7 +150,7 @@ const modelParameters = (config: SubagentsConfig) =>
         model: Type.Optional(
           Type.String({
             description:
-              "Model override within the inherited provider. Omit unless explicitly requested.",
+              "Explicit provider/model-id override. Cross-provider selection requires no inherited history. Omit unless explicitly requested.",
             minLength: 1,
           }),
         ),

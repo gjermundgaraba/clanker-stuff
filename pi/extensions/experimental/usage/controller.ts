@@ -14,7 +14,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { fetchClaudeUsage } from "./adapters/claude.js";
-import { fetchCodexUsage } from "./adapters/codex.js";
 import { fetchCopilotUsage } from "./adapters/copilot.js";
 import { fetchKimiUsage } from "./adapters/kimi.js";
 import { fetchOpenCodeGoUsage } from "./adapters/opencode.js";
@@ -117,13 +116,12 @@ export const createUsageController = (
 ) => {
   const { fetchJson, now, providerAuthClient } = dependencies;
   const radiusBillingUrl = dependencies.radiusBillingUrl ?? radiusBillingUrlFromContext;
-  let cache = new UsageCache({ now });
+  const cache = new UsageCache({ now });
 
   const usageFetchers = {
     anthropic: fetchClaudeUsage,
     "github-copilot": fetchCopilotUsage,
     "kimi-coding": fetchKimiUsage,
-    "openai-codex": fetchCodexUsage,
     "opencode-go": fetchOpenCodeGoUsage,
     openrouter: fetchOpenRouterUsage,
     radius: async (deps: AdapterDeps, ctx: ExtensionContext) => {
@@ -141,6 +139,7 @@ export const createUsageController = (
   >;
 
   let generation = 0;
+  let disposed = false;
   let current: { context: ExtensionContext; presentation: UsagePresentation } | undefined;
   const getCurrent = () => current;
   let instanceId: string | undefined;
@@ -287,18 +286,11 @@ export const createUsageController = (
     }
   };
 
-  const accountUnsubscribe = pi.events.on("clanker-codex:account-changed", () => {
-    cache = new UsageCache({ now });
-
-    if (current && presentationProvider(current.presentation) === "openai-codex") {
-      refresh(current.context, "openai-codex");
-    }
-  });
-
   listenForReady();
 
   return {
     dispose: (): void => {
+      disposed = true;
       generation += 1;
       stopTimer();
 
@@ -311,7 +303,6 @@ export const createUsageController = (
       }
 
       published.clear();
-      accountUnsubscribe();
       readyUnsubscribe?.();
       readyUnsubscribe = undefined;
       instanceId = undefined;
@@ -327,7 +318,6 @@ export const createUsageController = (
       }
 
       refresh(ctx, getActiveProvider(ctx.model), parsed.refresh);
-      const commandCache = cache;
 
       const results = await Promise.all(
         SUPPORTED_PROVIDERS.map(async (provider) => ({
@@ -336,8 +326,8 @@ export const createUsageController = (
         })),
       );
 
-      // Account replacement invalidates pending command results as well as footer refreshes.
-      if (commandCache !== cache) {
+      // Commands query accounts, not the selected model; only shutdown invalidates delivery.
+      if (disposed) {
         return;
       }
 
@@ -345,13 +335,18 @@ export const createUsageController = (
         ({ result }) => result.ok || result.error.kind === "failure",
       );
 
+      const unsupported =
+        ctx.model?.provider === "openai"
+          ? "OpenAI subscription quota reporting is unavailable; native authentication has not been verified for a usage endpoint."
+          : undefined;
+
       if (available.length === 0) {
-        ctx.ui.notify(NO_AVAILABLE_PROVIDERS_MESSAGE, "info");
+        ctx.ui.notify(unsupported ?? NO_AVAILABLE_PROVIDERS_MESSAGE, "info");
 
         return;
       }
 
-      const lines: string[] = [];
+      const lines: string[] = unsupported === undefined ? [] : [unsupported];
 
       for (const { provider, result } of available) {
         const snapshot = result.ok ? result.snapshot : cache.getLastSuccess(provider);

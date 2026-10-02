@@ -10,7 +10,6 @@ import {
   createExtensionHost,
   normalizedSystemPromptOptions,
 } from "../../../../tests/harness/extension-host.js";
-import { COLLABORATION_CONTRACT_REQUEST } from "../contract.js";
 import { DEFAULT_CONFIG } from "../config.js";
 import type { SubagentsConfig } from "../config.js";
 import { SubagentManager } from "../manager.js";
@@ -29,14 +28,8 @@ const V2 = [
   "wait_agent",
 ];
 
-const model = (version?: "disabled" | "v1" | "v2") =>
-  Object.assign(
-    fauxProvider({
-      models: [{ id: version ?? "undeclared" }],
-      provider: "test",
-    }).getModel(),
-    version === undefined ? {} : { multiAgentVersion: version },
-  );
+const model = (id = "undeclared") =>
+  fauxProvider({ models: [{ id }], provider: "test" }).getModel();
 
 const extension =
   (config: SubagentsConfig, dataDir = "/tmp/subagents-index-test") =>
@@ -92,8 +85,8 @@ describe("subagents extension selection", () => {
     ).toStrictEqual(V1);
   });
 
-  it("projects V2 from provider model metadata", async () => {
-    const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
+  it("selects V2 from explicit configuration for a native model", async () => {
+    const host = createExtensionHost(extension({ ...DEFAULT_CONFIG, protocols: { "*": "v2" } }), {
       model: model("v2"),
     });
 
@@ -107,8 +100,8 @@ describe("subagents extension selection", () => {
     ).toStrictEqual(V2);
   });
 
-  it("locks disabled during first-turn setup", async () => {
-    const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
+  it("locks configured off during first-turn setup", async () => {
+    const host = createExtensionHost(extension({ ...DEFAULT_CONFIG, protocols: { "*": "off" } }), {
       model: model("disabled"),
     });
 
@@ -133,9 +126,12 @@ describe("subagents extension selection", () => {
     const v1 = model("v1");
     const v2 = model("v2");
 
-    const host = createExtensionHost(extension(structuredClone(DEFAULT_CONFIG)), {
-      model: v1,
-    });
+    const host = createExtensionHost(
+      extension({ ...DEFAULT_CONFIG, protocols: { "test/v2": "v2" } }),
+      {
+        model: v1,
+      },
+    );
 
     await host.ready;
     const v1Context = host.createContext({ model: v1 });
@@ -191,24 +187,15 @@ describe("subagents extension selection", () => {
   });
 
   it.each(["v2", "disabled"] as const)(
-    "accepts first input after a contract refresh switches %s to an undeclared model",
+    "accepts first input after model selection switches %s to an undeclared model",
     async (initial) => {
       const previous = model(initial);
       const next = model();
 
       const host = createExtensionHost(
         (pi) => {
-          // An earlier extension can request the new contract before our model hook.
-          pi.on("model_select", (_event, ctx) => {
-            pi.events.emit(COLLABORATION_CONTRACT_REQUEST, {
-              context: ctx,
-              sessionId: ctx.sessionManager.getSessionId(),
-              provide: () => {},
-            });
-          });
-
           const manager = new SubagentManager(pi, {
-            config: structuredClone(DEFAULT_CONFIG),
+            config: { ...DEFAULT_CONFIG, protocols: { "test/v2": "v2", "test/disabled": "off" } },
             dataDir: "/tmp/subagents-model-switch-test",
           });
 

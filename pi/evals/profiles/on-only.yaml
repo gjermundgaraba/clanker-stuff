@@ -3,14 +3,12 @@ jobs_dir: .harbor/jobs
 n_attempts: 3
 n_concurrent_trials: 3
 quiet: false
-
 environment:
   type: docker
   delete: true
-
 agents:
   - import_path: pi_evals.adapters.pi:PiEval
-    model_name: openai-codex/gpt-5.6-terra
+    model_name: openai/gpt-6.1-sol
     resume_trajectory: true
     kwargs:
       thinking: medium
@@ -18,30 +16,31 @@ agents:
         compaction:
           enabled: false
       pi_evals:
-        platform: pi-vanilla
+        platform: pi-without-code-mode
         compaction_mode: "on"
         expected_mechanism: pi-builtin
         expected_protocol: null
   - import_path: pi_evals.adapters.pi:PiEval
-    model_name: openai-codex/gpt-5.6-terra
+    model_name: openai/gpt-6.1-sol
     resume_trajectory: true
     kwargs:
       thinking: medium
-      extensions:
-        - /opt/codex-provider/index.ts
       settings:
+        defaultTools: ["+codemode"]
+        codemode:
+          mode: only
         compaction:
           enabled: false
       pi_evals:
-        platform: pi-provider
+        platform: pi-with-code-mode
         compaction_mode: "on"
-        expected_mechanism: codex-provider
-        expected_protocol: openai-responses-compaction-v2
+        expected_mechanism: pi-builtin
+        expected_protocol: null
   - import_path: pi_evals.adapters.codex:CodexEval
-    model_name: openai/gpt-5.6-terra
+    model_name: openai/gpt-6.1-sol
     resume_trajectory: true
     kwargs:
-      version: 0.147.0
+      version: 0.159.2
       reasoning_effort: medium
       config:
         model_auto_compact_token_limit: 1000000000

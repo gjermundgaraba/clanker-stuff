@@ -9,8 +9,7 @@ import type {
 
 import type { AgentThinkingLevel, SubagentsConfig } from "../config.js";
 import { resolveChildSettings, roleInstructions } from "../config.js";
-import { COLLABORATION_SECTION, registerContractResponder } from "../contract.js";
-import type { RootServiceTier } from "../contract.js";
+import { COLLABORATION_SECTION } from "../contract.js";
 import type { TreeCoordinator } from "../coordinator.js";
 import { forkHistory } from "../history.js";
 import type { ForkTurns } from "../history.js";
@@ -18,7 +17,6 @@ import { KeyedSerialQueue } from "../keyed-queue.js";
 import { spawnModelsDescription } from "../model-catalog.js";
 import {
   formatV2ErrorCompletion,
-  modelDeclaresV2,
   v2ChildBasePrompt,
   v2ChildCapabilityPrompt,
   v2RootPrompt,
@@ -37,15 +35,12 @@ import {
   resolveAgentPath,
   ROOT_AGENT_PATH,
   SUBAGENT_MESSAGE_TYPE,
-  V2_TOOL_NAMES,
 } from "./protocol.js";
 import type { Communication, PersistedAgent, V2Snapshot } from "./protocol.js";
 import { registerV2Tools } from "./tools.js";
 import { childContextSummary, withChildContext } from "./context.js";
 
 const MAX_ERROR_LENGTH = 1000;
-
-const V2_TOOL_SET: ReadonlySet<string> = new Set(V2_TOOL_NAMES);
 
 type CallerContext = Pick<
   ExtensionContext,
@@ -114,17 +109,6 @@ type WaitActivity = "aborted" | "mailbox" | "steered" | "timed_out";
 const bound = (value: string, maximum: number): string =>
   value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
 
-const findSelectedModel = (
-  selected: CallerContext["model"],
-  registry: CallerContext["modelRegistry"],
-) => {
-  if (selected === undefined) {
-    return selected;
-  }
-
-  return registry.find(selected.provider, selected.id) ?? selected;
-};
-
 const runtimeMessage = (communication: Communication) => ({
   content: communicationEnvelope(communication),
   customType: SUBAGENT_MESSAGE_TYPE,
@@ -166,15 +150,12 @@ export class V2Controller {
   readonly #queue = new KeyedSerialQueue();
   readonly #reservations = new Map<string, ReservationRecord>();
   readonly #slots = new Map<string, RuntimeSlot>();
-  readonly #ultraAgents = new Set<string>();
-  readonly #ultraInheritance = new Set<string>();
   readonly #waiters = new Map<string, Set<(activity: WaitActivity) => void>>();
   #closing = false;
   #nextSequence = 0;
   #promptOptions: BuildSystemPromptOptions | undefined;
   #rootApi: ToolEndpoint | undefined;
   #rootRunning = false;
-  #rootServiceTier: RootServiceTier | undefined;
 
   constructor(dependencies: V2ControllerDependencies) {
     this.#config = dependencies.config;
@@ -217,8 +198,6 @@ export class V2Controller {
     this.#reservations.clear();
     this.#mailboxSequence.clear();
     this.#observedSequence.clear();
-    this.#ultraAgents.clear();
-    this.#ultraInheritance.clear();
     this.#nextSequence = 0;
     await Promise.all([...this.#settleSlots(slots), ...provisionalSpawns]);
 
@@ -236,38 +215,14 @@ export class V2Controller {
 
     slot.api = api;
     const owns = () => this.#slots.get(pathname)?.token === token && slot.api === api;
-    let collaborationEnabled: boolean | undefined;
-
-    const unsubscribeContract = registerContractResponder(
-      api,
-      (ctx) => ({
-        ...(this.#rootServiceTier !== undefined
-          ? { inheritedServiceTier: this.#rootServiceTier }
-          : {}),
-        inheritedUltra: this.#ultraInheritance.has(pathname),
-        nestedTools: [],
-        protocol: "v2",
-        sessionId: ctx.sessionManager.getSessionId(),
-      }),
-      (_ctx, ultra) => {
-        if (ultra !== undefined) {
-          this.setUltra(pathname, ultra);
-
-          if (ultra) {
-            this.#ultraInheritance.delete(pathname);
-          }
-        }
-      },
-    );
-
     let catalogDescription: string | undefined;
 
-    const applyEligibility = (
+    const refreshCatalog = (
       selected: CallerContext["model"],
       registry: CallerContext["modelRegistry"],
     ) => {
       const description = this.#config.expose_spawn_agent_model_overrides
-        ? spawnModelsDescription(registry, selected?.provider, "v2")
+        ? spawnModelsDescription(registry)
         : "";
 
       if (description !== catalogDescription) {
@@ -285,23 +240,13 @@ export class V2Controller {
           catalogDescription,
         );
       }
-
-      const resolved = findSelectedModel(selected, registry);
-      const enabled = modelDeclaresV2(resolved);
-
-      if (enabled === collaborationEnabled) return;
-      collaborationEnabled = enabled;
-      const base = api.getActiveTools().filter((name) => !V2_TOOL_SET.has(name));
-      api.setActiveTools(collaborationEnabled ? [...base, ...V2_TOOL_NAMES] : base);
     };
 
     api.on("before_agent_start", (event, ctx) => {
       if (owns()) {
-        applyEligibility(ctx.model, ctx.modelRegistry);
+        refreshCatalog(ctx.model, ctx.modelRegistry);
         event.systemPromptOptions.sections[COLLABORATION_SECTION] = v2ChildCapabilityPrompt(
           this.#config,
-          collaborationEnabled === true,
-          !this.#ultraAgents.has(pathname),
         );
       }
     });
@@ -320,11 +265,11 @@ export class V2Controller {
         return;
       }
 
-      applyEligibility(ctx.model, ctx.modelRegistry);
+      refreshCatalog(ctx.model, ctx.modelRegistry);
     });
     api.on("model_select", (event, ctx) => {
       if (owns()) {
-        applyEligibility(event.model, ctx.modelRegistry);
+        refreshCatalog(event.model, ctx.modelRegistry);
       }
     });
     api.on("tool_call", () => {
@@ -333,8 +278,6 @@ export class V2Controller {
       }
     });
     api.on("session_shutdown", () => {
-      unsubscribeContract();
-
       if (slot.api === api) {
         delete slot.api;
       }
@@ -342,23 +285,11 @@ export class V2Controller {
   }
 
   rootPrompt(): string {
-    return v2RootPrompt(this.#config, this.#maxChildren, !this.#ultraAgents.has(ROOT_AGENT_PATH));
+    return v2RootPrompt(this.#config, this.#maxChildren);
   }
 
   context(pathname: string, event: ContextEvent): { messages: ContextEvent["messages"] } {
     return withChildContext(event.messages, childContextSummary(pathname, this.list(pathname)));
-  }
-
-  setUltra(pathname: string, enabled: boolean): void {
-    if (enabled) {
-      this.#ultraAgents.add(pathname);
-    } else {
-      this.#ultraAgents.delete(pathname);
-    }
-  }
-
-  setRootServiceTier(tier: RootServiceTier | undefined): void {
-    this.#rootServiceTier = tier;
   }
 
   describe(): string {
@@ -494,18 +425,8 @@ export class V2Controller {
           ctx.modelRegistry,
           ctx.model,
           ctx.thinkingLevel,
-          "v2",
+          input.forkTurns !== "none",
         );
-
-        const inheritUltra =
-          this.#ultraAgents.has(caller) &&
-          input.thinking === undefined &&
-          this.#config.roles[input.agentType ?? ""]?.thinking === undefined;
-
-        if (inheritUltra) {
-          this.#ultraAgents.add(pathname);
-          this.#ultraInheritance.add(pathname);
-        }
 
         const token = Symbol(pathname);
         slotToken = token;
@@ -605,8 +526,6 @@ export class V2Controller {
           this.#slots.delete(pathname);
         }
 
-        this.#ultraAgents.delete(pathname);
-        this.#ultraInheritance.delete(pathname);
         throw error;
       } finally {
         this.#releaseReservation(reservation);

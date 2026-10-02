@@ -34,6 +34,8 @@ class FrontierTest(TestCase):
                 self.assertEqual(task['agent'], {'timeout_sec': 1890.0, 'user': 'agent'})
                 self.assertEqual(task['environment']['cpus'], 4)
                 self.assertIn('rm -rf /root/tests', (output/'build/Dockerfile').read_text())
+                self.assertNotIn('COPY --from=runtime /tmp/pi-eval/', (output/'build/Dockerfile').read_text())
+                self.assertEqual(json.loads((output/'task/tests/comparison.json').read_text()), {'model': 'openai/gpt-6.1-sol', 'thinking': 'high', 'directTools': ['bash', 'edit', 'read', 'write']})
                 self.assertNotIn('grader.py', [p.name for p in (output/'task/tests').iterdir()])
                 rows = frontier_report.report(output)['rows']
                 self.assertEqual([r['arm'] for r in rows], list(f.ARMS))
@@ -48,7 +50,10 @@ class FrontierTest(TestCase):
                     if row['arm'] == 'native':
                         self.assertEqual(kwargs['version'], '9.8.7')
                     else:
-                        self.assertEqual(kwargs['settings'], f.PI_SETTINGS)
+                        settings = kwargs['settings']
+                        self.assertEqual({key: settings[key] for key in f.PI_SETTINGS}, f.PI_SETTINGS)
+                        self.assertNotIn('defaultTools', settings)
+                        self.assertNotIn('codemode', settings)
                         FrontierPi(logs_dir=root/'logs', model_name=config['agents'][0]['model_name'], **kwargs)
                         self.assertEqual(kwargs['pi_evals']['tool_mode'], 'direct' if row['arm']=='pi-direct' else 'code_mode_only')
                 f.verify(output)
@@ -114,7 +119,9 @@ class FrontierTest(TestCase):
             direct = next(e for e in schedule if e['arm'] == 'pi-direct')
             path = Path(direct['config'])
             config = yaml.safe_load(path.read_text())
-            self.assertEqual(config['agents'][0]['kwargs']['settings'], f.PI_SETTINGS)
+            settings = config['agents'][0]['kwargs']['settings']
+            self.assertEqual({key: settings[key] for key in f.PI_SETTINGS}, f.PI_SETTINGS)
+            self.assertNotIn('defaultTools', settings)
             frozen = {'sources': f.sources(), 'artifacts': f.task_hashes(root)}
             f.write_json(root/'frozen.json', frozen)
             f.verify(root)

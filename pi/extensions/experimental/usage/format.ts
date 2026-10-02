@@ -98,10 +98,6 @@ export const formatDetail = (snapshot: UsageSnapshot, nowMs: number = Date.now()
 
   lines.push(`${title}${plan}`);
 
-  if (snapshot.ordinaryUsageAllowed !== undefined) {
-    lines.push(`ordinary usage  ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`);
-  }
-
   for (const window of orderWindows(snapshot.quotaWindows)) {
     const reset =
       window.resetsAt === undefined || window.resetsAt.length === 0

@@ -11,8 +11,6 @@ import {
 } from "../../../../../tests/harness/extension-host.js";
 import { DEFAULT_CONFIG } from "../../config.js";
 import type { RoleConfig } from "../../config.js";
-import { COLLABORATION_CONTRACT_REQUEST } from "../../contract.js";
-import type { CollaborationContract } from "../../contract.js";
 import { TreeCoordinator } from "../../coordinator.js";
 import { NicknamePool } from "../../nicknames.js";
 import { PermanentChildError } from "../../permanent-error.js";
@@ -46,6 +44,7 @@ const setup = async (
     prompts.push(prompt);
 
     if (bridgeChildren) {
+      assert.ok(bridge, "V2 children require a collaboration tool factory");
       const host = createExtensionHost(bridge, { sessionId: identity });
       await host.ready;
       await host.emitSessionStart();
@@ -873,52 +872,6 @@ describe("V2 controller", () => {
     );
   });
 
-  it("preserves role thinking instead of inheriting Ultra", async () => {
-    const { childHosts, controller, ctx } = await setup(
-      3,
-      { reviewer: { thinking: "high" } },
-      false,
-      true,
-    );
-
-    controller.setUltra("/root", true);
-    controller.setRootServiceTier("priority");
-
-    await controller.spawn(
-      "/root",
-      {
-        agentType: "reviewer",
-        forkTurns: "none",
-        message: "review",
-        taskName: "reviewer",
-      },
-      ctx,
-    );
-
-    let contract: CollaborationContract | undefined;
-    childHosts[0]?.events.emit(COLLABORATION_CONTRACT_REQUEST, {
-      context: childHosts[0].createContext(),
-      provide: (value: CollaborationContract) => {
-        contract = value;
-      },
-      sessionId: "/root/reviewer",
-    });
-    expect(contract).toMatchObject({
-      inheritedServiceTier: "priority",
-      inheritedUltra: false,
-    });
-
-    controller.setRootServiceTier(null);
-    childHosts[0]?.events.emit(COLLABORATION_CONTRACT_REQUEST, {
-      context: childHosts[0].createContext(),
-      provide: (value: CollaborationContract) => {
-        contract = value;
-      },
-      sessionId: "/root/reviewer",
-    });
-    expect(contract?.inheritedServiceTier).toBeNull();
-  });
-
   it("interrupts a pending child before its runtime loads", async () => {
     const root = rootBinding("v2-pending-interrupt");
     const coordinator = new TreeCoordinator();
@@ -1429,7 +1382,6 @@ describe("V2 child context boundaries", () => {
 
     const model = {
       ...fauxProvider().getModel(),
-      multiAgentVersion: "v2",
       name: "Original worker",
     };
 

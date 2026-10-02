@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
-export const SERVICE_NAMES = ["list_records", "submit_report"];
+import toolNames from "./tool-names.json" with { type: "json" };
+
+export const SERVICE_NAMES = toolNames;
 
 /**
  * @typedef {[name: string, description: string, parameters: import("typebox").TSchema]} ToolSpec

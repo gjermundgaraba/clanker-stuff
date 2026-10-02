@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import shlex
 import subprocess
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from pi_evals.artifacts import EVALS, task_hashes, write_json
 from pi_evals.runtime import ARMS, LABELS, command, docker, image_info, pin_tag
 from pi_evals import frontier_report, frontier_state
 from pi_evals.preflight import run_preflight
+from pi_evals.comparison import comparison, configure_agent
 
 ASSETS = EVALS/'suites/frontier'
 SOURCE = '9e3f71cac38ef3d7e14a41b361c7b2b54c59899b'
@@ -38,10 +40,10 @@ def sources():
     selected = {
         'src': ('pi_evals/frontier.py', 'pi_evals/frontier_state.py', 'pi_evals/trials.py', 'pi_evals/runtime.py', 'pi_evals/artifacts.py', 'pi_evals/preflight.py',
                 'pi_evals/adapters/pi.py', 'pi_evals/adapters/codex.py', 'pi_evals/jsonl.py',
-                'pi_evals/adapters/frontier.py', 'pi_evals/adapters/auth.py', 'pi_evals/protocol.py'),
+                'pi_evals/adapters/frontier.py', 'pi_evals/adapters/auth.py', 'pi_evals/protocol.py', 'pi_evals/comparison.py'),
         'runtime': ('Dockerfile', 'pi-eval-tools.mjs', 'eval-journal.mjs', 'codex-eval.mjs', 'pi-eval-compact.mjs'),
-        'profiles': ('code-mode.yaml', 'native-astra.yaml'),
-        'verifiers': ('tool-mode-core.mjs', 'native-astra.mjs'),
+        'profiles': ('code-mode.yaml', 'native-codex.yaml'),
+        'verifiers': ('tool-mode-core.mjs', 'native-codex.mjs', 'comparison.mjs'),
     }
     return {**{root: {name: hashlib.sha256((EVALS/root/name).read_bytes()).hexdigest() for name in names}
                for root, names in selected.items()}, 'suites/frontier': task_hashes(ASSETS)}
@@ -54,9 +56,10 @@ def build(context, tag):
     return info
 
 
-def make_schedule(output, image, version, seconds=1800, rounds=1, order_offset=0):
+def make_schedule(output, image, version, seconds=1800, rounds=1, order_offset=0, expected=None):
+    expected = comparison() if expected is None else expected
     pi = yaml.safe_load((EVALS/'profiles/code-mode.yaml').read_text())
-    native = yaml.safe_load((EVALS/'profiles/native-astra.yaml').read_text())['agents'][0]
+    native = yaml.safe_load((EVALS/'profiles/native-codex.yaml').read_text())['agents'][0]
     native['kwargs']['version'] = version
     compose = output/'configs/runtime.compose.yaml'
     compose.parent.mkdir(parents=True, exist_ok=True)
@@ -69,12 +72,12 @@ def make_schedule(output, image, version, seconds=1800, rounds=1, order_offset=0
         offset = (order_offset + round_index) % len(ARMS)
         order = list(ARMS[offset:]) + list(ARMS[:offset])
         for position, arm in enumerate(order, 1):
-            agent = deepcopy(agents[arm])
+            agent = configure_agent(agents[arm], expected)
             agent['import_path'] = 'pi_evals.adapters.frontier:' + ('FrontierCodex' if arm == 'native' else 'FrontierPi')
             agent['kwargs']['budget_seconds'] = seconds
             if arm != 'native':
                 agent['kwargs']['pi_evals']['pair_id'] = TASK
-                agent['kwargs']['settings'] = deepcopy(PI_SETTINGS)
+                agent['kwargs']['settings'].update(deepcopy(PI_SETTINGS))
             job_name = arm if rounds == 1 else f'round-{round_index+1}-{arm}'
             config = deepcopy(pi)
             config.update(job_name=job_name, jobs_dir=str(output/'jobs'), n_attempts=1, n_concurrent_trials=1,
@@ -88,7 +91,23 @@ def make_schedule(output, image, version, seconds=1800, rounds=1, order_offset=0
     return schedule
 
 
-def prepare(output, upstream, seconds=1800, rounds=1, order_offset=0):
+def agent_dockerfile(runtime, grader, version, seconds):
+    return f'''FROM {runtime} AS runtime
+FROM {grader}
+# The agent cannot access the held-out corpus, scorer, baselines, or targets.
+RUN rm -rf /root/tests && apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/*
+COPY --from=runtime /usr/local/ /usr/local/
+COPY --from=runtime /opt/pi-evals/ /opt/pi-evals/
+RUN npm install --global --ignore-scripts @openai/codex@{version} && test "$(codex --version)" = "codex-cli {version}"
+COPY submission.py /opt/frontier-submission.py
+RUN chmod 444 /opt/frontier-submission.py && chmod -R a+rX /opt/pi-evals
+ENV PATH="/opt/pi-evals/node_modules/.bin:${{PATH}}" TASK_BUDGET_SECS="{seconds}"
+WORKDIR /app
+'''
+
+
+def prepare(output, upstream, seconds=1800, rounds=1, order_offset=0, model=None, thinking=None):
+    expected = comparison(model, thinking)
     if not 1 <= rounds <= 10 or not 0 <= order_offset < len(ARMS):
         raise ValueError('rounds must be 1..10 and order_offset 0..2')
     if output.exists():
@@ -112,19 +131,7 @@ def prepare(output, upstream, seconds=1800, rounds=1, order_offset=0):
     runtime['tag'] = pin_tag(runtime['image_id'])
     context = output/'build'; context.mkdir()
     shutil.copy(ASSETS/'submission.py', context/'submission.py')
-    (context/'Dockerfile').write_text(f'''FROM {runtime['tag']} AS runtime
-FROM {grader['tag']}
-# The agent cannot access the held-out corpus, scorer, baselines, or targets.
-RUN rm -rf /root/tests && apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/*
-COPY --from=runtime /usr/local/ /usr/local/
-COPY --from=runtime /opt/codex-provider/ /opt/codex-provider/
-COPY --from=runtime /tmp/pi-eval/ /tmp/pi-eval/
-RUN npm install --global --ignore-scripts @openai/codex@{version} && test "$(codex --version)" = "codex-cli {version}"
-COPY submission.py /opt/frontier-submission.py
-RUN chmod 444 /opt/frontier-submission.py && chmod -R a+rX /opt/codex-provider
-ENV PATH="/opt/codex-provider/node_modules/.bin:${{PATH}}" TASK_BUDGET_SECS="{seconds}"
-WORKDIR /app
-''')
+    (context/'Dockerfile').write_text(agent_dockerfile(runtime['tag'], grader['tag'], version, seconds))
     agent = build(context, 'clanker-pi-evals:frontier-qubit-agent')
     task = output/'task'; tests = task/'tests'; tests.mkdir(parents=True)
     (task/'environment').mkdir()
@@ -146,13 +153,14 @@ storage_mb = 10240
 docker_image = "{agent['tag']}"
 ''')
     shutil.copy(ASSETS/'submission.py', tests)
-    for name in ('native-astra.mjs', 'tool-mode-core.mjs'):
+    write_json(tests/'comparison.json', expected)
+    for name in ('native-codex.mjs', 'tool-mode-core.mjs', 'comparison.mjs'):
         shutil.copy(EVALS/'verifiers'/name, tests)
     shutil.copy(ASSETS/'validity.mjs', tests)
     (tests/'test.sh').write_text('#!/bin/bash\nset -euo pipefail\npython3 /tests/submission.py\n')
     series = {'benchmark': 'FrontierSWE v2 capped pilot', 'task': TASK, 'source_revision': SOURCE,
               'source_url': 'https://github.com/Proximal-Labs/frontier-swe-v2',
-              'codex_version': version, 'model': 'gpt-6-astra', 'reasoning': 'high', 'arms': LABELS,
+              'codex_version': version, 'model': expected['model'][7:], 'reasoning': expected['thinking'], 'arms': LABELS,
               'rounds': rounds, 'order_offset': order_offset,
               'agent_seconds_limit': seconds, 'cleanup_grace_seconds': 90, 'official_agent_seconds_limit': 72000,
               'recovery_policy': {'pi': PI_SETTINGS['retry'], 'native': 'Frozen released Codex built-in recovery; no external restart', 'time_budget': 'All recovery and backoff count against the original work deadline', 'trial_retries': 0},
@@ -168,7 +176,7 @@ docker_image = "{agent['tag']}"
                               'No executable optimal oracle; greedy baseline and scoring anchors used for free controls',
                               'Legacy underlying-operation telemetry excluded from comparisons']}
     write_json(output/'series.json', series)
-    make_schedule(output, agent['image_id'], version, seconds, rounds, order_offset)
+    make_schedule(output, agent['image_id'], version, seconds, rounds, order_offset, expected)
     write_json(output/'frozen.json', {'sources': sources(), 'artifacts': task_hashes(output),
                                       'analysis_provenance': task_hashes(EVALS/'src')})
     frontier_report.report(output)
@@ -256,33 +264,36 @@ def preflight(output):
 
 def _preflight(output, logs):
     series = json.loads((output/'series.json').read_text())
+    model = 'openai/' + series['model']
+    thinking = series['reasoning']
     recovery = command(['docker', 'run', '--rm', '--platform', 'linux/amd64', '--network', 'none',
                         '--entrypoint', 'node',
-                        '-v', f'{ASSETS/"recovery.mjs"}:/opt/codex-provider/frontier-recovery.mjs:ro',
-                        series['agent']['image_id'], '/opt/codex-provider/frontier-recovery.mjs',
+                        '-v', f'{ASSETS/"recovery.mjs"}:/opt/pi-evals/frontier-recovery.mjs:ro',
+                        series['agent']['image_id'], '/opt/pi-evals/frontier-recovery.mjs',
                         json.dumps(PI_SETTINGS)])
     (logs/'recovery.log').write_text(recovery)
     # A nop agent cannot detect unreadable runtime extensions. Exercise actual Pi
     # startup as the task user with synthetic auth and no possible network access.
-    for mode, expected in (('direct', ['apply_patch', 'exec_command', 'view_image', 'write_stdin']),
-                           ('code_mode_only', ['apply_patch', 'exec', 'exec_command', 'view_image', 'write_stdin'])):
+    direct_tools = json.loads((output/'task/tests/comparison.json').read_text())['directTools']
+    for mode in ('direct', 'code_mode_only'):
+        expected = sorted(direct_tools + ([] if mode == 'direct' else ['codemode']))
         probe = command(['docker', 'run', '--rm', '--platform', 'linux/amd64', '--network', 'none',
                          '--entrypoint', 'bash', series['agent']['image_id'], '-c',
                          'set -euo pipefail; install -d -o agent -g agent /tmp/pi-eval /logs/agent; '
-                         'printf \'{"openai-codex":{"type":"api_key","key":"offline-preflight"}}\' > /tmp/pi-eval/auth.json; '
+                         'printf \'{"openai":{"type":"api_key","key":"offline-preflight"}}\' > /tmp/pi-eval/auth.json; '
                          'printf \'{"retry":{"enabled":false}}\' > /tmp/pi-eval/settings.json; '
                          'chown -R agent:agent /tmp/pi-eval; '
                          'runuser -u agent -- codex --version; '
                          f'runuser -u agent -- env PI_CODING_AGENT_DIR=/tmp/pi-eval PI_EVAL_TOOL_MODE={mode} '
-                         'PI_EVAL_MODEL=openai-codex/gpt-6-astra PI_EVAL_THINKING=high '
-                         'timeout 30 pi --print --mode json --provider openai-codex --model gpt-6-astra '
-                         '--thinking high --no-extensions --no-context-files --no-skills --no-prompt-templates '
-                         '--no-themes --extension /opt/codex-provider/pi-eval-tools.mjs "Reply OK" 2>&1 || true; '
+                         f'PI_EVAL_EXPERIMENT=code-mode PI_EVAL_DIRECT_TOOLS={shlex.quote(json.dumps(direct_tools))} PI_EVAL_MODEL={shlex.quote(model)} PI_EVAL_THINKING={shlex.quote(thinking)} '
+                         f'timeout 30 pi --print --mode json --provider openai --model {shlex.quote(series["model"])} '
+                         f'--thinking {shlex.quote(thinking)} --no-extensions --no-context-files --no-skills --no-prompt-templates '
+                         '--no-themes --extension /opt/pi-evals/pi-eval-tools.mjs "Reply OK" 2>&1 || true; '
                          'cat /logs/agent/eval-events.jsonl'])
         (logs/f'startup-{mode}.log').write_text(probe)
         events = [json.loads(line) for line in probe.splitlines() if line.startswith('{')]
         setup = [event for event in events if event.get('type') == 'pi_eval_setup']
-        if len(setup) != 1 or setup[0]['activeTools'] != expected or setup[0]['model'] != 'openai-codex/gpt-6-astra' or 'Failed to load extension' in probe:
+        if len(setup) != 1 or setup[0]['activeTools'] != expected or setup[0]['model'] != model or setup[0]['thinking'] != thinking or 'Failed to load extension' in probe:
             raise RuntimeError(f'non-root offline runtime startup failed: {mode}')
     # Exercise real Harbor discovery, non-root agent setup, and runtime/export boundary without models.
     direct = next(e for e in json.loads((output/'schedule.json').read_text()) if e['arm'] == 'pi-direct')
@@ -417,13 +428,15 @@ def main():
     parser.add_argument('--seconds', type=int, default=1800)
     parser.add_argument('--rounds', type=int, default=1)
     parser.add_argument('--order-offset', type=int, default=0)
+    parser.add_argument('--model', help='Matched native OpenAI model for a new series')
+    parser.add_argument('--thinking', help='Matched reasoning level for a new series')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--cost-checkpoint', type=float, default=20)
     args = parser.parse_args(); output = args.output.resolve()
     if args.command == 'prepare':
         if args.upstream is None:
             parser.error('prepare requires --upstream')
-        prepare(output, args.upstream.resolve(), args.seconds, args.rounds, args.order_offset)
+        prepare(output, args.upstream.resolve(), args.seconds, args.rounds, args.order_offset, args.model, args.thinking)
     elif args.command == 'run':
         try:
             run(output, args.resume, args.cost_checkpoint)

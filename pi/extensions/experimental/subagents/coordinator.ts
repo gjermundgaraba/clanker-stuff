@@ -29,7 +29,7 @@ export class TreeCoordinator {
     protocolLatch: "off",
     revision: 0,
     root: placeholderRoot,
-    version: 1,
+    version: 2,
   });
   #store: ControlStore = createMemoryControlStore();
   #tail: Promise<void> = Promise.resolve();

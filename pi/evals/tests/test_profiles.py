@@ -14,7 +14,7 @@ from pi_evals.protocol import validate_manifest
 EVALS = Path(__file__).parents[1]
 PROFILES = EVALS / "profiles"
 SMOKE_TASKS = EVALS / "suites" / "smoke" / "tasks" / "coding"
-MODEL = "gpt-5.6-terra"
+MODEL = "gpt-6.1-sol"
 CODEX_THRESHOLD = 1_000_000_000
 
 
@@ -37,30 +37,17 @@ class ProfileTest(unittest.TestCase):
 
         if agent["import_path"] == "pi_evals.adapters.pi:PiEval":
             self.assertEqual(kwargs["thinking"], "medium")
-            self.assertEqual(kwargs["settings"], {"compaction": {"enabled": False}})
-            if kwargs.get("extensions"):
-                self.assertEqual(kwargs["extensions"], ["/opt/codex-provider/index.ts"])
-                self.assertEqual(
-                    (
-                        manifest["platform"],
-                        manifest["expected_mechanism"],
-                        manifest["expected_protocol"],
-                    ),
-                    (
-                        "pi-provider",
-                        "codex-provider",
-                        "openai-responses-compaction-v2",
-                    ),
-                )
-            else:
-                self.assertEqual(
-                    (
-                        manifest["platform"],
-                        manifest["expected_mechanism"],
-                        manifest["expected_protocol"],
-                    ),
-                    ("pi-vanilla", "pi-builtin", None),
-                )
+            code = manifest["platform"] == "pi-with-code-mode"
+            self.assertEqual(agent["model_name"], "openai/" + MODEL)
+            self.assertNotIn("extensions", kwargs)
+            self.assertEqual(kwargs["settings"], {
+                "compaction": {"enabled": False},
+                **({"defaultTools": ["+codemode"], "codemode": {"mode": "only"}} if code else {}),
+            })
+            self.assertEqual(
+                (manifest["platform"], manifest["expected_mechanism"], manifest["expected_protocol"]),
+                ("pi-with-code-mode" if code else "pi-without-code-mode", "pi-builtin", None),
+            )
             return
 
         if agent["import_path"] == "pi_evals.adapters.codex:CodexEval":
@@ -127,7 +114,7 @@ class ProfileTest(unittest.TestCase):
             arms[name] = current
 
         platforms = {platform for platform, _ in arms["off-only"]}
-        self.assertTrue(platforms)
+        self.assertEqual(platforms, {"pi-without-code-mode", "pi-with-code-mode", "codex-native"})
         self.assertEqual(platforms, {platform for platform, _ in arms["on-only"]})
         self.assertEqual(
             set(arms["paired"]),

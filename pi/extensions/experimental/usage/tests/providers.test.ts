@@ -9,10 +9,12 @@ describe("providers", () => {
     );
     expect(getActiveProvider({ provider: "openrouter" })).toBe("openrouter");
     expect(getActiveProvider({ provider: "unknown" })).toBeUndefined();
+    expect(getActiveProvider({ provider: "openai" })).toBeUndefined();
+    expect(getActiveProvider({ provider: "openai-codex" })).toBeUndefined();
     expect(getActiveProvider(null)).toBeUndefined();
   });
 
-  it("requires quota, accounting, or explicit eligibility", () => {
+  it("requires quota or accounting", () => {
     expect(usageResult({ fetchedAt: 1, provider: "radius", quotaWindows: [] })).toMatchObject({
       ok: false,
     });
@@ -20,7 +22,7 @@ describe("providers", () => {
       usageResult({
         accounting: { available: 0, kind: "credit-balance" },
         fetchedAt: 1,
-        provider: "openai-codex",
+        provider: "openrouter",
         quotaWindows: [],
       }),
     ).toMatchObject({ ok: true });

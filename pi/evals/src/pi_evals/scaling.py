@@ -18,6 +18,7 @@ from pi_evals.runtime import ARMS, docker, image_info, pin_tag
 from pi_evals.scaling_state import read_slot
 from pi_evals import scaling_report
 from pi_evals.preflight import run_preflight
+from pi_evals.comparison import comparison, configure_agent
 from pi_evals.artifacts import EVALS, task_hashes, write_json
 from pi_evals.trials import require_terminal_result
 
@@ -25,7 +26,13 @@ ASSETS = EVALS / "suites/scaling"
 SIZES = {"small": 40, "medium": 240, "large": 960}
 
 
-def generate_task(output: Path, size: str, seed: str, replicate: int) -> Path:
+def ledger_comparison(model=None, thinking=None):
+    names = json.loads((ASSETS / "tool-names.json").read_text())
+    return comparison(model, thinking, names)
+
+
+def generate_task(output: Path, size: str, seed: str, replicate: int, expected=None) -> Path:
+    expected = ledger_comparison() if expected is None else expected
     settings = {
         "seed": seed,
         "count": SIZES[size],
@@ -38,7 +45,9 @@ def generate_task(output: Path, size: str, seed: str, replicate: int) -> Path:
     for directory in ("environment", "tests", "solution"):
         (task / directory).mkdir(parents=True)
     write_json(task / "environment/case.json", settings)
-    for filename in ("services.mjs", "pi-eval-tools.mjs"):
+    write_json(task / "tests/comparison.json", expected)
+    shutil.copy(ASSETS / "preflight.mjs", task / "environment")
+    for filename in ("services.mjs", "tool-names.json", "pi-eval-tools.mjs"):
         shutil.copy(ASSETS / filename, task / "environment")
     for filename in (
         "scoring.mjs",
@@ -53,7 +62,8 @@ def generate_task(output: Path, size: str, seed: str, replicate: int) -> Path:
     ):
         shutil.copy(ASSETS / filename, task / "tests")
     shutil.copy(EVALS / "verifiers/tool-mode-core.mjs", task / "tests/tool-mode-core.mjs")
-    shutil.copy(EVALS / "verifiers/native-astra.mjs", task / "tests")
+    shutil.copy(EVALS / "verifiers/native-codex.mjs", task / "tests")
+    shutil.copy(EVALS / "verifiers/comparison.mjs", task / "tests")
     shutil.copy(ASSETS / "solve.mjs", task / "solution")
     write_json(
         task / "tests/native-preflight.json",
@@ -73,10 +83,10 @@ def build_image(output: Path, task: Path, version: str, base: str) -> str:
     shutil.copy(EVALS / "runtime/codex-eval.mjs", context)
     (context / "Dockerfile").write_text(f"""FROM {base}
 RUN npm install --global --ignore-scripts "@openai/codex@{version}" && test "$(codex --version)" = "codex-cli {version}"
-COPY codex-eval.mjs /opt/codex-provider/codex-runner.mjs
-COPY service-codex.mjs /opt/codex-provider/service-codex.mjs
-COPY environment/ /opt/codex-provider/
-RUN chmod 755 /opt/codex-provider/service-codex.mjs && ln -sfn /opt/codex-provider/service-codex.mjs /usr/local/bin/codex-eval
+COPY codex-eval.mjs /opt/pi-evals/codex-runner.mjs
+COPY service-codex.mjs /opt/pi-evals/service-codex.mjs
+COPY environment/ /opt/pi-evals/
+RUN chmod 755 /opt/pi-evals/service-codex.mjs && ln -sfn /opt/pi-evals/service-codex.mjs /usr/local/bin/codex-eval
 WORKDIR /app
 """)
     tag = f"clanker-pi-evals:{task.name}"
@@ -107,6 +117,7 @@ def source_hashes():
             "pi_evals/adapters/services.py",
             "pi_evals/adapters/auth.py",
             "pi_evals/protocol.py",
+            "pi_evals/comparison.py",
         ),
         "runtime": (
             "Dockerfile",
@@ -117,8 +128,8 @@ def source_hashes():
             "codex-eval.mjs",
             "pi-eval-compact.mjs",
         ),
-        "profiles": ("code-mode.yaml", "native-astra.yaml"),
-        "verifiers": ("tool-mode-core.mjs", "native-astra.mjs"),
+        "profiles": ("code-mode.yaml", "native-codex.yaml"),
+        "verifiers": ("tool-mode-core.mjs", "native-codex.mjs", "comparison.mjs"),
     }
     return {
         **{
@@ -132,7 +143,8 @@ def source_hashes():
     }
 
 
-def prepare(output: Path, catalog: Path) -> None:
+def prepare(output: Path, catalog: Path, model=None, thinking=None) -> None:
+    expected = ledger_comparison(model, thinking)
     if output.exists():
         raise FileExistsError(output)
     version = subprocess.check_output(
@@ -168,7 +180,7 @@ def prepare(output: Path, catalog: Path) -> None:
     fixtures = {}
     for replicate, seed in enumerate(seeds, 1):
         for size in SIZES:
-            task = generate_task(output, size, seed, replicate)
+            task = generate_task(output, size, seed, replicate, expected)
             images[task.name] = build_image(output, task, version, base)
             settings = json.loads((task / "environment/case.json").read_text())
             fixtures[task.name] = settings
@@ -190,7 +202,7 @@ def prepare(output: Path, catalog: Path) -> None:
                     yaml.safe_load(
                         (
                             EVALS
-                            / f"profiles/{'native-astra' if arm == 'native' else 'code-mode'}.yaml"
+                            / f"profiles/{'native-codex' if arm == 'native' else 'code-mode'}.yaml"
                         ).read_text()
                     )
                 )
@@ -221,6 +233,7 @@ def prepare(output: Path, catalog: Path) -> None:
                         "pi_evals.adapters.services:ServicePiEval"
                     )
                     config["agents"][0]["kwargs"]["pi_evals"]["pair_id"] = task.name
+                config["agents"] = [configure_agent(agent, expected) for agent in config["agents"]]
                 name = f"{task.name}-{arm}"
                 config.update(
                     job_name=name,
@@ -260,8 +273,8 @@ def prepare(output: Path, catalog: Path) -> None:
             "arms": list(ARMS),
             "seeds": seeds,
             "sizes": SIZES,
-            "model": "gpt-6-astra",
-            "reasoning": "high",
+            "model": expected["model"][7:],
+            "reasoning": expected["thinking"],
             "design": "18 fresh sessions; six matched fixture blocks with all six arm-order permutations. Two new nested-prefix fixture seeds shared across sizes. Backend concurrency capped at one for every arm.",
             "limitation": "Record count, page count and total noise bytes grow together; this is volume scaling, not a factorial concurrency/latency/noise ablation. Two seeds are exploratory, not a precise reliability estimate.",
         },
@@ -324,7 +337,7 @@ def _preflight(output: Path, attempt: Path):
                 f"{logs}:/logs",
                 image,
             ]
-            subprocess.run([*command, "node", f"/tests/{script}"], check=True)
+            subprocess.run([*command, "node", f"/opt/pi-evals/{script}" if script == "preflight.mjs" else f"/tests/{script}"], check=True)
             if arm != "native":
                 subprocess.run([*command, "node", "/tests/controls.mjs"], check=True)
         pi = json.loads(
@@ -360,12 +373,14 @@ def main():
     p.add_argument("command", choices=["prepare", "preflight", "run", "report"])
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--catalog", type=Path)
+    p.add_argument("--model", help="Matched native OpenAI model for a new series")
+    p.add_argument("--thinking", help="Matched reasoning level for a new series")
     a = p.parse_args()
     output = a.output.resolve()
     if a.command == "prepare":
         if a.catalog is None:
             p.error("prepare requires --catalog from latest Codex tag")
-        prepare(output, a.catalog.resolve())
+        prepare(output, a.catalog.resolve(), a.model, a.thinking)
     elif a.command == "report":
         print(json.dumps(scaling_report.report(output), indent=2))
     elif a.command == "run":

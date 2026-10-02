@@ -13,6 +13,12 @@ const [task, runtime, logs] = process.argv.slice(2);
 
 assert.ok(task && runtime && logs, "task, runtime and logs paths are required");
 
+process.env.EVAL_COMPARISON = `${task}/tests/comparison.json`;
+
+const { readComparison } = await import("../../verifiers/comparison.mjs");
+
+const comparison = readComparison();
+
 /** @param {string} path */
 const url = (path) => pathToFileURL(resolve(path)).href;
 
@@ -21,18 +27,17 @@ const data = (source) => "data:text/javascript," + encodeURIComponent(source);
 
 const typebox = import.meta.resolve("typebox");
 
+const codingAgent = import.meta.resolve("@earendil-works/pi-coding-agent");
+
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier === "typebox") return { url: typebox, shortCircuit: true };
 
-    if (specifier === "/opt/codex-provider/registration.ts")
-      return { url: data("export function registerCodexProvider() {}"), shortCircuit: true };
+    if (specifier === "@earendil-works/pi-coding-agent")
+      return { url: codingAgent, shortCircuit: true };
 
-    if (specifier === "/opt/codex-provider/code-mode/tools.ts")
-      return { url: data("export class CodeModeRuntime {}"), shortCircuit: true };
-
-    if (specifier.startsWith("/opt/codex-provider/")) {
-      const name = specifier.slice("/opt/codex-provider/".length);
+    if (specifier.startsWith("/opt/pi-evals/")) {
+      const name = specifier.slice("/opt/pi-evals/".length);
 
       return {
         url: url(
@@ -152,29 +157,30 @@ for (const arm of ["pi-direct", "pi-code", "native"]) {
         }
       : {
           experiment: "code-mode",
+          direct_tools: comparison.directTools,
           arm: arm === "pi-direct" ? "direct" : "code",
           tool_mode: mode,
           pair_id: "test",
-          platform: "pi-provider",
+          platform: arm === "pi-direct" ? "pi-without-code-mode" : "pi-with-code-mode",
           compaction_mode: "off",
-          expected_mechanism: "codex-provider",
-          expected_protocol: "openai-responses-compaction-v2",
+          expected_mechanism: "pi-builtin",
+          expected_protocol: null,
         };
 
   const evidence = {
     type: "pi_eval_tools",
     valid: true,
     mode,
-    activeTools: arm === "pi-direct" ? [...SERVICE_NAMES] : [...SERVICE_NAMES, "exec"].sort(),
-    model: "openai-codex/gpt-6-astra",
-    thinking: "high",
+    activeTools: arm === "pi-direct" ? [...SERVICE_NAMES] : [...SERVICE_NAMES, "codemode"].sort(),
+    model: comparison.model,
+    thinking: comparison.thinking,
   };
 
   const start = {
     type: "thread_started",
     nativeVersion: "codex-cli 9.8.7",
     response: {
-      model: "gpt-6-astra",
+      model: comparison.model.slice(7),
       thread: { environments: /** @type {{cwd: string}[]} */ ([]) },
     },
     dynamicTools: SERVICE_NAMES.map((name) => ({ name })),
@@ -191,7 +197,7 @@ for (const arm of ["pi-direct", "pi-code", "native"]) {
       extra: {
         pi_evals: manifest,
         tool_mode_evidence: [evidence],
-        native_turn_contexts: [{ model: "gpt-6-astra", effort: "high" }],
+        native_turn_contexts: [{ model: comparison.model.slice(7), effort: comparison.thinking }],
         native_diagnostic_audit: [
           start,
           call,

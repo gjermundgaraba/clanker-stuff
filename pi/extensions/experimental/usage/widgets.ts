@@ -125,11 +125,6 @@ const accountingMetric = (accounting: UsageAccounting): FooterSpan => ({
   tone: accounting.kind === "radius-billing" && accounting.available <= 0 ? "warning" : "text",
 });
 
-const unavailableWarning = (snapshot: UsageSnapshot): FooterSpan[] =>
-  snapshot.ordinaryUsageAllowed === false
-    ? [{ text: " · ordinary usage unavailable", tone: "warning" }]
-    : [];
-
 const activeContent = (snapshot: UsageSnapshot, now: number): FooterContent => {
   const window = selectQuotaWindow(snapshot);
 
@@ -145,7 +140,6 @@ const activeContent = (snapshot: UsageSnapshot, now: number): FooterContent => {
       { text: "━".repeat(filled), tone: percentTone(percent) },
       { text: "─".repeat(10 - filled), tone: "dim" },
       { text: ` ${Math.round(percent)}%${reset}`, tone: percentTone(percent) },
-      ...unavailableWarning(snapshot),
     ];
   }
 
@@ -153,16 +147,6 @@ const activeContent = (snapshot: UsageSnapshot, now: number): FooterContent => {
     return [
       { text: `${providerLabel(snapshot)} `, tone: "muted" },
       accountingMetric(snapshot.accounting),
-      ...unavailableWarning(snapshot),
-    ];
-  }
-
-  if (snapshot.ordinaryUsageAllowed !== undefined) {
-    return [
-      {
-        text: `${providerLabel(snapshot)} ordinary usage ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`,
-        tone: snapshot.ordinaryUsageAllowed ? "text" : "warning",
-      },
     ];
   }
 
@@ -218,19 +202,11 @@ const fallbackContent = (snapshot: UsageSnapshot): string => {
     metric = `${window.label} ${Math.round(usedPercent(window))}%`;
   } else if (snapshot.accounting !== undefined) {
     metric = accountingText(snapshot.accounting);
-  } else if (snapshot.ordinaryUsageAllowed !== undefined) {
-    metric = `ordinary usage ${snapshot.ordinaryUsageAllowed ? "allowed" : "unavailable"}`;
   } else {
     return "usage unavailable";
   }
 
-  const warning =
-    snapshot.ordinaryUsageAllowed === false &&
-    (window !== undefined || snapshot.accounting !== undefined)
-      ? " ordinary unavailable"
-      : "";
-
-  return richText(`usage ${label} ${metric}${warning}`, 240);
+  return richText(`usage ${label} ${metric}`, 240);
 };
 
 export const activeSnapshot = (

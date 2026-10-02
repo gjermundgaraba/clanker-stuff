@@ -1,6 +1,6 @@
 # Pi v0.87.0 upgrade review
 
-Historical record of the initial upgrade, not a current validation guarantee or committed backlog. The [workspace catalog](../pnpm-workspace.yaml) owns the current dependency baseline; the provider’s [deployment contract](../pi/extensions/experimental/codex-provider/docs/local-deployment.md) and [context alignment](../pi/extensions/experimental/codex-provider/docs/context-alignment.md) describe the maintained behavior, including subsequent cleanup.
+Historical record of the initial upgrade, not a current validation guarantee or committed backlog. The [workspace catalog](../pnpm-workspace.yaml) owns the current dependency baseline. The custom provider discussed below is retired; its contracts and implementation are available in Git history, not maintained runtime surfaces.
 
 Compared [`v0.86.1...v0.87.0`](https://github.com/earendil-works/pi/compare/v0.86.1...v0.87.0): 18 commits, 136 changed files. The new tag resolves to `16787ad5b2dc748047f314ca1bfe7708f30f54f3`. npm's `latest` tag resolved to `0.87.0` for all nine Pi/Chord packages in our catalog.
 
@@ -69,7 +69,7 @@ The renamed [`turn-recap/conversation.ts`](../pi/extensions/experimental/turn-re
 
 The [new resize profiles](https://github.com/earendil-works/pi/commit/f5c94648) already apply to attachments, reads, and tool-result images. Codex's `view_image` delegates to Pi's read implementation and benefits automatically. Resizing happens before persistence; switching models does not rewrite old images and invalidate cached history.
 
-[`codex-provider/model-catalog.ts`](../pi/extensions/experimental/codex-provider/model-catalog.ts) reconstructs remote models and currently does not preserve an existing model's `inputLimits`. A useful follow-up is to preserve that metadata, with tests, and support deliberate model-specific resize overrides rather than inventing provider limits. `maxPerMessage`, `maxPerRequest`, and `maxRequestBytes` are metadata only in this release, not enforced admission limits.
+[`codex-provider/model-catalog.ts`](https://github.com/gjermundgaraba/clanker-stuff/blob/7f49aa6/pi/extensions/experimental/codex-provider/model-catalog.ts) reconstructs remote models and currently does not preserve an existing model's `inputLimits`. A useful follow-up is to preserve that metadata, with tests, and support deliberate model-specific resize overrides rather than inventing provider limits. `maxPerMessage`, `maxPerRequest`, and `maxRequestBytes` are metadata only in this release, not enforced admission limits.
 
 ### 5. Lower-priority infrastructure
 
@@ -90,6 +90,6 @@ Retain-none compaction is now directly expressible with `SessionManager.appendCo
 
 `vp run ready` passed: formatting, lint, types, package/README/test-boundary checks, and 2,581 tests across 228 unit/integration/smoke files. The real-session tests use controlled providers; they do not prove live OpenAI transport compatibility.
 
-Before daily-driving the Codex provider, rerun its [local deployment audit and live canaries](../pi/extensions/experimental/codex-provider/docs/local-deployment.md) against the installed Pi and actual extension order. Those installation-specific and paid live checks were not run as part of this repository upgrade.
+Before daily-driving the Codex provider, rerun its [local deployment audit and live canaries](https://github.com/gjermundgaraba/clanker-stuff/blob/7f49aa6/pi/extensions/experimental/codex-provider/docs/local-deployment.md) against the installed Pi and actual extension order. Those installation-specific and paid live checks were not run as part of this repository upgrade.
 
 Projected edits to the live checkpoint tail are covered. Arbitrary retroactive edits to history already absorbed into an opaque remote checkpoint cannot rewrite that checkpoint. Supporting those edits needs an explicit invalidation/recompaction policy; the migration does not claim that capability. Likewise, full-transcript third-party transforms need explicit Codex replay compatibility testing even when this provider is loaded last.

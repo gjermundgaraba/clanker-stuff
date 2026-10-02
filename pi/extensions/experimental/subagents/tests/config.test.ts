@@ -31,7 +31,7 @@ describe(parseConfig, () => {
           researcher: {
             description: "Find evidence.",
             instructions: "Research",
-            model: "model",
+            model: "parent/model",
             nicknames: ["Scout"],
             thinking: "high",
           },
@@ -64,7 +64,7 @@ describe(parseConfig, () => {
     }
   });
 
-  it("resolves model ids only within the inherited provider", () => {
+  it("resolves explicit qualified references across providers without aliases", () => {
     const models = [
       model("parent", "shared"),
       model("other", "shared"),
@@ -78,21 +78,21 @@ describe(parseConfig, () => {
         models.find((model) => model.provider === provider && model.id === id),
     };
 
-    expect(parseModelOverride("shared", registry, models[0])?.provider).toBe("parent");
-    expect(parseModelOverride("nested/model", registry, models[0])).toBe(models[3]);
-    expect(() => parseModelOverride("unique", registry, models[0])).toThrow(
-      "Unknown model `unique` for spawn_agent. Available models:",
-    );
-    expect(() => parseModelOverride("other/unique", registry, models[0])).toThrow(
-      "Unknown model `other/unique` for spawn_agent. Available models:",
-    );
-    expect(() => parseModelOverride("shared", registry)).toThrow("inherited parent model");
+    expect(parseModelOverride(undefined, registry, models[0])).toBe(models[0]);
+    expect(parseModelOverride("parent/shared", registry, models[0])).toBe(models[0]);
+    expect(parseModelOverride("other/shared", registry, models[0])).toBe(models[1]);
+    expect(parseModelOverride("parent/nested/model", registry)).toBe(models[3]);
+    expect(parseModelOverride("other/unique", registry)).toBe(models[2]);
+
+    for (const value of ["shared", "", "/shared", "parent/"])
+      expect(() => parseModelOverride(value, registry)).toThrow("provider/model-id");
+    expect(() => parseModelOverride("other/missing", registry)).toThrow("Unknown model");
   });
 
-  it("rejects provider-selecting roles", () => {
+  it("rejects a second provider-selection field", () => {
     expect(() =>
       parseConfig({
-        roles: { reviewer: { model: "model", provider: "other" } },
+        roles: { reviewer: { model: "parent/model", provider: "other" } },
         version: 1,
       }),
     ).toThrow("strict version 1 object");
@@ -107,7 +107,7 @@ describe(parseConfig, () => {
     ).toThrow("config must be a strict version 1 object");
   });
 
-  it("resolves a role's bare model against the parent provider", () => {
+  it("resolves qualified roles and rejects cross-provider history forks", () => {
     const parentRoleModel = model("parent", "role-model");
     const requestedProviderRoleModel = model("requested", "role-model");
     const requested = model("requested", "request-model");
@@ -124,7 +124,7 @@ describe(parseConfig, () => {
       resolveChildSettings(
         {
           ...structuredClone(DEFAULT_CONFIG),
-          roles: { reviewer: { model: "role-model" } },
+          roles: { reviewer: { model: "requested/role-model" } },
         },
         "reviewer",
         undefined,
@@ -133,6 +133,18 @@ describe(parseConfig, () => {
         model("parent", "parent-model"),
         "off",
       ).model,
-    ).toBe(parentRoleModel);
+    ).toBe(requestedProviderRoleModel);
+    expect(() =>
+      resolveChildSettings(
+        DEFAULT_CONFIG,
+        undefined,
+        "requested/request-model",
+        undefined,
+        registry,
+        parentRoleModel,
+        "off",
+        true,
+      ),
+    ).toThrow("no inherited history");
   });
 });

@@ -125,4 +125,4 @@ The supervisor, wire decoder, inbox, and delivery controller are separate compon
 
 ## Code Mode placement
 
-With the experimental Codex provider, all four task tools follow the model's direct, hybrid, or Code-Mode-only policy. Nested calls use the same session-owned runtime and notification delivery. Their return value is a content envelope: parse the JSON in `result.content[0].text`. See the provider's [contributed tools contract](../../codex-provider/docs/contributed-tools.md) for placement and permission boundaries.
+All four task tools use Pi's ordinary tool registry and work with any provider. Pi's built-in `codemode` can call them in either `on` or `only` mode, through the same permission hooks and session-owned runtime. Scripts receive JSON text: use `JSON.parse(await tools.task_list({}))` when you need the data. No custom Code Mode adapter is required.

@@ -1,61 +1,41 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
-import { realpathSync, writeFileSync } from "node:fs";
-import { SETTINGS, createServices, SERVICE_NAMES } from "/opt/codex-provider/services.mjs";
-import { isRecord } from "./service-metrics.mjs";
-import { oracle, score, serviceMetrics } from "./scoring.mjs";
+import { writeFileSync } from "node:fs";
+import { SETTINGS, createServices, SERVICE_NAMES } from "/opt/pi-evals/services.mjs";
+import { oracle, score, serviceMetrics } from "/tests/scoring.mjs";
 import { solve } from "/solution/solve.mjs";
 
-const require = createRequire(
-  realpathSync("/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/package.json"),
-);
+import { definitions } from "/opt/pi-evals/pi-eval-tools.mjs";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import {
+  createAgentSession,
+  createCodemodeExtension,
+  DefaultResourceLoader,
+  SessionManager,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
+import { validateToolMode } from "/tests/tool-mode.mjs";
+import { readComparison } from "/tests/comparison.mjs";
 
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- createRequire resolves the pinned Jiti dependency from the deployed Pi package, not arbitrary user modules.
-const { createJiti } = /** @type {typeof import("jiti")} */ (require("jiti"));
-
-const jiti = createJiti("/opt/codex-provider/index.ts");
-
-// The frozen image deploys this exact owned module/dependency; give the dynamic loader its source declarations.
-const { definitions } = /** @type {typeof import("/opt/codex-provider/pi-eval-tools.mjs")} */ (
-  await jiti.import("/opt/codex-provider/pi-eval-tools.mjs")
-);
-
-// The frozen image deploys this exact owned module/dependency; give the dynamic loader its source declarations.
-const { CodeModeRuntime } = /** @type {typeof import("/opt/codex-provider/code-mode/tools.ts")} */ (
-  await jiti.import("/opt/codex-provider/code-mode/tools.ts")
-);
-
-// The pinned public SDK owns capability resolution, validation and nested execution.
-const { fauxAssistantMessage, fauxToolCall } =
-  /** @type {typeof import("@earendil-works/pi-ai")} */ (
-    await jiti.import("@earendil-works/pi-ai")
-  );
-
-const { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } =
-  /** @type {typeof import("@earendil-works/pi-coding-agent")} */ (
-    await jiti.import("@earendil-works/pi-coding-agent")
-  );
-
-// Positive validity controls must cover both Pi catalogs, not only missing evidence.
-const { validateToolMode } = await import("./tool-mode.mjs");
+const comparison = readComparison();
 
 for (const arm of ["direct", "code"]) {
   const mode = arm === "direct" ? "direct" : "code_mode_only";
-  const names = arm === "direct" ? SERVICE_NAMES : [...SERVICE_NAMES, "exec"].sort();
+  const names = arm === "direct" ? SERVICE_NAMES : [...SERVICE_NAMES, "codemode"].sort();
 
   const t = {
     agent: {
       extra: {
         pi_evals: {
           experiment: "code-mode",
+          direct_tools: comparison.directTools,
           arm,
           tool_mode: mode,
           pair_id: "preflight",
-          platform: "pi-provider",
+          platform: arm === "direct" ? "pi-without-code-mode" : "pi-with-code-mode",
           compaction_mode: "off",
-          expected_mechanism: "codex-provider",
-          expected_protocol: "openai-responses-compaction-v2",
+          expected_mechanism: "pi-builtin",
+          expected_protocol: null,
         },
         tool_mode_evidence: [
           {
@@ -63,8 +43,8 @@ for (const arm of ["direct", "code"]) {
             mode,
             activeTools: names,
             valid: true,
-            model: "openai-codex/gpt-6-astra",
-            thinking: "high",
+            model: comparison.model,
+            thinking: comparison.thinking,
           },
         ],
       },
@@ -105,8 +85,6 @@ for (const mode of ["direct", "code"]) {
       return /** @type {import("./services.mjs").ServiceResult} */ (JSON.parse(content.text));
     });
   else {
-    const runtime = new CodeModeRuntime();
-    const exec = runtime.createExecTool();
     const settingsManager = SettingsManager.inMemory();
 
     const resourceLoader = new DefaultResourceLoader({
@@ -118,8 +96,9 @@ for (const mode of ["direct", "code"]) {
       noThemes: true,
       noPromptTemplates: true,
       extensionFactories: [
+        createCodemodeExtension({ mode: "only", models: false }),
         (pi) => {
-          for (const definition of [...defs, exec]) pi.registerTool(definition);
+          for (const definition of defs) pi.registerTool(definition);
         },
       ],
     });
@@ -132,21 +111,23 @@ for (const mode of ["direct", "code"]) {
       settingsManager,
       resourceLoader,
       sessionManager: SessionManager.inMemory("/tmp"),
-      tools: [...SERVICE_NAMES, "exec"],
+      tools: [...SERVICE_NAMES, "codemode"],
     });
 
     await session.bindExtensions({});
     session.agent.state.messages = [
       ...session.agent.state.messages,
-      fauxAssistantMessage(fauxToolCall("exec", { code: "preflight" }, { id: "preflight" }), {
+      fauxAssistantMessage(fauxToolCall("codemode", { code: "preflight" }, { id: "preflight" }), {
         stopReason: "toolUse",
       }),
     ];
     const context = session.extensionRunner.createToolContext("preflight", undefined);
+    const codemode = session.getToolDefinition("codemode");
+    assert.ok(codemode);
 
     try {
-      const r = await exec.execute(
-        "test",
+      const result = await codemode.execute(
+        "preflight",
         {
           code: `try {await tools.list_records({collection:"ledger"}); throw Error("malformed call accepted");} catch(e) {if(!String(e).includes("Validation failed"))throw e;} if(typeof process!=='undefined'||typeof fetch!=='undefined'||typeof tools.exec_command!=='undefined')throw Error('capability leak'); if(JSON.stringify(ALL_TOOLS.map(t=>t.name).sort())!==${JSON.stringify(JSON.stringify(SERVICE_NAMES))})throw Error('unexpected tools'); const solve=${solve.toString()}; text(await solve((name,args)=>tools[name](args)));`,
         },
@@ -155,20 +136,18 @@ for (const mode of ["direct", "code"]) {
         context,
       );
 
-      assert.ok(isRecord(r.details));
-      assert.equal(r.details.scriptError, undefined, JSON.stringify(r));
+      assert.notEqual(result.isError, true, JSON.stringify(result));
 
-      const denied = await exec.execute(
-        "denied",
-        { code: 'await tools.exec_command({cmd:"cat /opt/codex-provider/services.mjs"})' },
+      const denied = await codemode.execute(
+        "preflight",
+        { code: 'await tools.exec_command({cmd:"cat /opt/pi-evals/services.mjs"})' },
         new AbortController().signal,
         undefined,
         context,
       );
 
-      assert.ok(isRecord(denied.details) && denied.details.scriptError);
+      assert.equal(denied.isError, true);
     } finally {
-      await runtime.shutdown();
       session.dispose();
     }
   }

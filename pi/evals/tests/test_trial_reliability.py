@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from harbor.models.agent.context import AgentContext
 from pi_evals import trials, scaling, scaling_report
-from pi_evals.adapters.pi import PiEval, convert_pi_events
+from pi_evals.adapters.pi import PiEval
 from pi_evals.artifacts import write_json
 from pi_evals.trials import trial_rows, usage
 from test_tool_mode import PROFILE
@@ -66,48 +66,29 @@ class TrialReliabilityTest(TestCase):
         with self.assertRaises(ValueError):
             usage(trajectory)
 
-    def test_nested_operations_are_cell_scoped_and_wait_deduplicated(self):
-        def event(cell, call, name="exec"):
-            return {
-                "type": "tool_execution_end",
-                "toolName": name,
-                "toolCallId": call,
-                "result": {
-                    "details": {
-                        "cellId": cell,
-                        "traces": [
-                            {"id": "op-1", "name": "exec_command", "status": "done"}
-                        ],
-                    }
-                },
-            }
-
-        events = [
-            event("cell-1", "call-1"),
-            event("cell-1", "call-2", "wait"),
-            event("cell-2", "call-3"),
-            {
-                "type": "tool_execution_end",
-                "toolName": "exec_command",
-                "toolCallId": "op-1",
-                "result": {},
-            },
-        ]
-
-        def convert(items):
-            return convert_pi_events(
-                items,
-                ["test"],
-                agent_version="test",
-                model_name="test",
-                pi_evals=PROFILE["agents"][1]["kwargs"]["pi_evals"],
-            )
-
-        self.assertEqual(
-            convert(events).final_metrics.extra["underlying_operations"], 3
-        )
-        events.append(event(None, "call-4"))
-        self.assertIsNone(convert(events).final_metrics.extra["underlying_operations"])
+    def test_historical_reporting_reads_stored_trajectory_without_reconstruction(self):
+        historical = {
+            "platform": "pi-provider", "compaction_mode": "on",
+            "expected_mechanism": "codex-provider",
+            "expected_protocol": "openai-responses-compaction-v2",
+        }
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            trajectory = completed_trajectory(historical)
+            trajectory["final_metrics"]["extra"] = {"underlying_operations": 3}
+            write_trial(root, manifest=historical, trajectory=trajectory)
+            agent = root / "trial/agent"
+            raw = agent / "pi-events.jsonl"
+            raw.write_text("archived retired-format data, not native JSONL\n")
+            stored = (agent / "trajectory.json").read_bytes()
+            archived = raw.read_bytes()
+            row = trials.rows(root)[0]
+            self.assertEqual(row["platform"], "pi-provider")
+            self.assertEqual(row["mechanism"], "codex-provider")
+            self.assertEqual(row["input"], 5)
+            self.assertEqual(row["quality"], 1)
+            self.assertEqual((agent / "trajectory.json").read_bytes(), stored)
+            self.assertEqual(raw.read_bytes(), archived)
 
     def test_pi_adapter_reads_sidecar_without_contaminating_json_stream(self):
         with TemporaryDirectory() as directory:

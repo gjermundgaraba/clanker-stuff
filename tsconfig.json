@@ -18,13 +18,15 @@
       "pi/evals/suites/frontier"
     ],
     "paths": {
-      "/opt/codex-provider/codex-runner.mjs": ["./pi/evals/runtime/codex-eval.mjs"],
-      "/opt/codex-provider/pi-eval-tools.mjs": ["./pi/evals/suites/scaling/pi-eval-tools.mjs"],
-      "/opt/codex-provider/services.mjs": ["./pi/evals/suites/scaling/services.mjs"],
-      "/opt/codex-provider/eval-journal.mjs": ["./pi/evals/runtime/eval-journal.mjs"],
-      "/opt/codex-provider/service-tools.mjs": ["./pi/evals/runtime/service-tools.mjs"],
-      "/opt/codex-provider/*": ["./pi/extensions/experimental/codex-provider/*"],
+      "/opt/pi-evals/codex-runner.mjs": ["./pi/evals/runtime/codex-eval.mjs"],
+      "/opt/pi-evals/pi-eval-tools.mjs": ["./pi/evals/suites/scaling/pi-eval-tools.mjs"],
+      "/opt/pi-evals/services.mjs": ["./pi/evals/suites/scaling/services.mjs"],
+      "/opt/pi-evals/eval-journal.mjs": ["./pi/evals/runtime/eval-journal.mjs"],
+      "/opt/pi-evals/service-tools.mjs": ["./pi/evals/runtime/service-tools.mjs"],
+      "/opt/pi-evals/*": ["./pi/evals/runtime/*"],
       "/solution/solve.mjs": ["./pi/evals/suites/scaling/solve.mjs"],
+      "/tests/comparison.mjs": ["./pi/evals/verifiers/comparison.mjs"],
+      "/tests/tool-mode.mjs": ["./pi/evals/suites/scaling/tool-mode.mjs"],
       "/tests/scoring.mjs": ["./pi/evals/suites/scaling/scoring.mjs"],
       "/app/src/release.js": [
         "./pi/evals/suites/compaction/tasks/decision-continuity/steps/implement/solution/release.js"

@@ -1,9 +1,11 @@
-import { validateNativeAstra } from "./native-astra.mjs";
+import { readComparison } from "./comparison.mjs";
+import { validateNativeCodex } from "./native-codex.mjs";
 import { isRecord, serviceMetrics } from "./service-metrics.mjs";
-import { SERVICE_NAMES as names, FIXTURE as fixtureId } from "/opt/codex-provider/services.mjs";
+import { SERVICE_NAMES as names, FIXTURE as fixtureId } from "/opt/pi-evals/services.mjs";
 
 /** @param {unknown} trajectory @param {unknown[]} events */
 export function validateNativeDiagnostic(trajectory, events) {
+  const comparison = readComparison();
   const agent = isRecord(trajectory) && isRecord(trajectory.agent) ? trajectory.agent : undefined;
   const extra = isRecord(agent?.extra) ? agent.extra : undefined;
   /** @type {unknown[]} */
@@ -32,12 +34,12 @@ export function validateNativeDiagnostic(trajectory, events) {
   });
 
   return (
-    validateNativeAstra(trajectory).valid_experiment === 1 &&
+    validateNativeCodex(trajectory, comparison).valid_experiment === 1 &&
     serviceMetrics(events).ledger_complete &&
     records.length === audit.length &&
     starts.length === 1 &&
     start !== undefined &&
-    response?.model === "gpt-6-astra" &&
+    response?.model === comparison.model.slice(7) &&
     JSON.stringify(thread?.environments) === "[]" &&
     dynamicTools.every(isRecord) &&
     JSON.stringify(

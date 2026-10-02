@@ -34,6 +34,7 @@ _REMOTE_COMPACTION_CONFIG = PurePosixPath("/tmp/pi-eval-compaction.json")
 _PI_EVENT_GUARD = (
     "let buffer='',settled=false,outcome,failed=false;"
     "const check=line=>{if(!line)return;try{const e=JSON.parse(line);"
+    "if(e.type==='agent_start'){settled=false;outcome=undefined;}"
     "if(e.type==='agent_settled')settled=true;"
     "if(e.type==='message_end'&&e.message?.role==='assistant')"
     "outcome=!['error','aborted'].includes(e.message.stopReason);"
@@ -313,54 +314,18 @@ def convert_pi_events(
                 calls[call.tool_call_id] = step
             tool_calls += len(message_calls)
             continue
-        if event_type == "tool_execution_start":
-            call_id = event.get("toolCallId")
-            name = event.get("toolName")
-            if (
-                not isinstance(call_id, str)
-                or not isinstance(name, str)
-                or call_id in calls
-            ):
-                continue
-            step = append_step(
-                source="agent",
-                message="",
-                tool_calls=[
-                    ToolCall(
-                        tool_call_id=call_id,
-                        function_name=name,
-                        arguments=_arguments(event.get("args")),
-                    )
-                ],
-                extra={"segment": segment},
-            )
-            calls[call_id] = step
-            tool_calls += 1
-            continue
-        if event_type != "tool_execution_end":
+        if event_type != "tool_execution_end" or event.get("parentToolCallId"):
             continue
         call_id = event.get("toolCallId")
-        name = event.get("toolName")
-        if not isinstance(call_id, str) or not isinstance(name, str):
-            continue
         step = calls.get(call_id)
         if step is None:
-            step = append_step(
-                source="agent",
-                message="",
-                tool_calls=[
-                    ToolCall(tool_call_id=call_id, function_name=name, arguments={})
-                ],
-                extra={"segment": segment},
-            )
-            calls[call_id] = step
-            tool_calls += 1
+            continue
         results = list(step.observation.results) if step.observation else []
         results.append(
             ObservationResult(
                 source_call_id=call_id,
                 content=_result_text(event.get("result")),
-                extra={"is_error": bool(event.get("isError")), "tool_name": name},
+                extra={"is_error": bool(event.get("isError")), "tool_name": event.get("toolName")},
             )
         )
         step.observation = Observation(results=results)
@@ -368,31 +333,61 @@ def convert_pi_events(
     if not steps:
         append_step(source="system", message="Pi produced no structured events")
 
-    operations: dict[tuple[str, ...], dict[str, Any]] = {}
-    dropped_operations = False
+    operations: dict[str, dict[str, Any]] = {}
+    summary_ids: set[str] = set()
+    started: set[str] = set()
+    completed: set[str] = set()
+    invocation_seen = capture_started = capture_complete = capture_gap = False
     for event in events:
-        if event.get("type") != "tool_execution_end":
-            continue
-        name = event.get("toolName")
-        if name in {"exec_command", "write_stdin", "apply_patch", "view_image"}:
-            operations[("direct", event["toolCallId"])] = {
-                "name": name,
-                "success": not event.get("isError", False),
-            }
-        result = event.get("result")
-        details = result.get("details") if isinstance(result, dict) else None
-        if not isinstance(details, dict):
-            continue
-        dropped_operations |= bool(details.get("droppedTraceCount"))
-        for trace in details.get("traces") or []:
-            cell_id = details.get("cellId")
-            if not isinstance(cell_id, str) or not cell_id:
-                dropped_operations = True
-                continue
-            operations[("nested", cell_id, trace["id"])] = {
-                "name": trace["name"],
-                "success": trace["status"] == "done",
-            }
+        event_type = event.get("type")
+        if event_type == "harbor_instruction":
+            # A failed startup can append an instruction without any agent events.
+            capture_gap |= invocation_seen and not capture_complete
+            invocation_seen = True
+            capture_started = capture_complete = False
+        if event_type == "agent_start":
+            invocation_seen = capture_started = True
+        if event_type in {"agent_start", "turn_start", "message_start", "message_end", "tool_execution_start", "tool_execution_end"}:
+            capture_complete = False
+        if event_type == "agent_settled":
+            capture_complete = capture_started
+        if event_type == "message_end":
+            message = event.get("message")
+            nested = message.get("nestedCalls") if isinstance(message, dict) else None
+            if isinstance(nested, dict):
+                # Bounded summaries supply observations, never capture-completeness evidence.
+                for call in nested.get("calls") or []:
+                    summary_ids.add(call["id"])
+                    if call["id"] not in completed:
+                        operations[call["id"]] = {
+                            "id": call["id"],
+                            "parentToolCallId": message.get("toolCallId"),
+                            "name": call["name"],
+                            "success": None if call["status"] == "unfinished" else call["status"] == "ok",
+                        }
+        if event_type == "tool_execution_start":
+            started.add(event["toolCallId"])
+            if event.get("toolName") != "codemode":
+                operations[event["toolCallId"]] = {
+                    "id": event["toolCallId"],
+                    "parentToolCallId": event.get("parentToolCallId"),
+                    "name": event["toolName"],
+                    "success": None,
+                }
+        if event_type == "tool_execution_end":
+            completed.add(event["toolCallId"])
+            if event["toolName"] != "codemode":
+                operations[event["toolCallId"]] = {
+                    "id": event["toolCallId"],
+                    **({"parentToolCallId": event["parentToolCallId"]} if event.get("parentToolCallId") else {}),
+                    "name": event["toolName"],
+                    "success": not event.get("isError", False),
+                }
+
+    dropped_operations = (
+        capture_gap or not capture_complete or started != completed
+        or not summary_ids <= started & completed
+    )
 
     return Trajectory(
         schema_version="ATIF-v1.7",
@@ -432,6 +427,8 @@ def convert_pi_events(
                 "cost_basis": "api_list_price_estimate",
                 "reasoning_tokens": int(totals["reasoning"]),
                 "tool_calls": tool_calls,
+                "observed_underlying_operations": len(operations),
+                "underlying_operations_complete": not dropped_operations,
                 "underlying_operations": None
                 if dropped_operations
                 else len(operations),
@@ -483,35 +480,27 @@ class PiEval(Pi):
         self._pi_evals = validate_manifest(pi_evals)
         self._extensions = extensions or []
         self._settings = settings or {}
+        self._thinking = kwargs.get("thinking")
         self._instructions: list[str] = []
         if self._pi_evals.get("experiment") == "code-mode":
-            if self._extensions != ["/opt/codex-provider/pi-eval-tools.mjs"]:
+            if any(extension != "/opt/pi-evals/pi-eval-tools.mjs" for extension in self._extensions):
                 raise ValueError(
-                    "code-mode requires only the evaluation provider wrapper"
+                    "code-mode requires only the evaluation policy wrapper"
                 )
             compaction = self._settings.get("compaction")
             if not isinstance(compaction, dict) or compaction.get("enabled") is not False or self.skills_dir:
                 raise ValueError("code-mode requires compaction disabled and no skills")
-            if (
-                self.model_name != "openai-codex/gpt-6-astra"
-                or kwargs.get("thinking") != "high"
-            ):
-                raise ValueError("code-mode requires Astra with high reasoning")
+            if not self.model_name or not self._thinking:
+                raise ValueError("code-mode requires an explicit model and thinking level")
+            if "defaultTools" in self._settings or "codemode" in self._settings:
+                raise ValueError("controlled tool loadout is selected by arm, not settings")
         json.dumps(self._settings, allow_nan=False)
-        provider_extension = any(
-            "codex-provider" in Path(extension).parts for extension in self._extensions
-        )
-        expected = (
-            ("pi-provider", "codex-provider", "openai-responses-compaction-v2")
-            if provider_extension
-            else ("pi-vanilla", "pi-builtin", None)
-        )
-        actual = tuple(
-            self._pi_evals[key]
-            for key in ("platform", "expected_mechanism", "expected_protocol")
-        )
-        if actual != expected:
-            raise ValueError("pi_evals manifest does not match Pi extensions")
+        if (
+            self._pi_evals["platform"] not in {"pi-with-code-mode", "pi-without-code-mode"}
+            or self._pi_evals["expected_mechanism"] != "pi-builtin"
+            or self._pi_evals["expected_protocol"] is not None
+        ):
+            raise ValueError("pi_evals manifest does not match native Pi tool settings")
 
     @staticmethod
     @override
@@ -578,6 +567,8 @@ class PiEval(Pi):
                 ),
             )
         for extension in self._extensions:
+            if extension.startswith("builtin:"):
+                continue
             await self.exec_as_agent(
                 environment,
                 command=f"test -e {shlex.quote(extension)}",
@@ -603,7 +594,7 @@ class PiEval(Pi):
         )
         if not self.skills_dir:
             args.append("--no-skills")
-        for extension in self._extensions:
+        for extension in dict.fromkeys([*self._extensions, "/opt/pi-evals/pi-eval-tools.mjs"]):
             args.extend(["--extension", extension])
         return args
 
@@ -657,14 +648,15 @@ class PiEval(Pi):
         access = self.model_connection
         provider = access.provider or provider
         env = {**access.env, "PI_CODING_AGENT_DIR": _REMOTE_PI_HOME.as_posix()}
+        env.update({
+            "PI_EVAL_TOOL_MODE": "code_mode_only" if self._pi_evals["platform"] == "pi-with-code-mode" else "direct",
+            "PI_EVAL_MODEL": self.model_name,
+            "PI_EVAL_EXPERIMENT": self._pi_evals.get("experiment", ""),
+        })
         if self._pi_evals.get("experiment") == "code-mode":
-            env.update(
-                {
-                    "PI_EVAL_TOOL_MODE": self._pi_evals["tool_mode"],
-                    "PI_EVAL_MODEL": self.model_name,
-                    "PI_EVAL_THINKING": "high",
-                }
-            )
+            env["PI_EVAL_DIRECT_TOOLS"] = json.dumps(self._pi_evals["direct_tools"])
+        if self._thinking is not None:
+            env["PI_EVAL_THINKING"] = self._thinking
         if provider == "anthropic" and (
             oauth_token := self._get_env("ANTHROPIC_OAUTH_TOKEN")
         ):

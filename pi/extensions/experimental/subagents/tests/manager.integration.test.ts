@@ -235,9 +235,7 @@ describe("live spawn catalog", () => {
 
         for (const model of ctx.modelRegistry.getAvailable()) {
           if (model.provider === ctx.model?.provider) {
-            Object.assign(model, {
-              spawnAgentMetadata: { description, serviceTiers: [], showInPicker: true },
-            });
+            model.name = description;
           }
         }
       };

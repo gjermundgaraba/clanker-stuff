@@ -6,7 +6,7 @@ The [Codex model-facing contract](codex-model-facing-contract.md) is a descripti
 
 ## Compatibility objective
 
-This extension is the collaboration half of a compatibility effort shared with [`codex-provider`](../../codex-provider). The working premise is that Codex models are trained and tuned for the native Codex CLI harness, so reducing model-facing distribution shift should improve their behavior in Pi.
+This provider-neutral extension adapts Codex collaboration contracts to Pi's native session and tool APIs. The working premise is that Codex models are trained and tuned for the native Codex CLI harness, so reducing model-facing distribution shift should improve their behavior in Pi.
 
 The default is therefore to match every portable collaboration surface in the pinned Codex implementation: tool families, names, schemas, descriptions, ordering, results, prompt guidance, addressing, messages, history boundaries, errors, persistence, and lifecycle semantics. Pi may differ only when the backend reserves the native contract, Pi cannot execute it truthfully, matching would reduce safety or correctness, or the Pi host lacks the required representation. Those differences must be explicit in the parity ledger and covered at the smallest practical test layer. They should be reconsidered when either host gains new capabilities.
 
@@ -19,13 +19,13 @@ The extension resolves and latches the protocol when the first root turn starts:
 1. An exact non-`auto` `provider/model` config override wins.
 2. An exact `auto` bypasses the wildcard; otherwise a non-`auto` `*` override wins.
 3. A resume or root fork inherits the stored protocol.
-4. Otherwise `model.multiAgentVersion` selects `v1`, `v2`, or `off` (`disabled`), with V1 as the undeclared fallback.
+4. Otherwise the stable extension default is V1.
 
-`auto` means “use model metadata or the V1 default.” An exact `auto` intentionally bypasses `*`. The Codex provider projects its catalog's `multi_agent_version` field onto dynamic Pi model objects as `multiAgentVersion`. The packages have no import dependency; when both are loaded, a synchronous session contract carries the selected collaboration profile to the provider and active or inherited Ultra state between the provider and V2 controller. It also carries the root provider's live priority-or-standard Fast selection to V1 and V2 child providers. Read-only requests omit state updates; the provider publishes explicit Ultra or root-tier changes.
+`auto` means “inherit the stored protocol, or use V1.” An exact `auto` intentionally bypasses `*`. Configure V2 explicitly when wanted; model catalogs do not select the collaboration protocol. Native thinking levels do not change delegation policy.
 
-Later incompatible model selections keep the latched tools and show a warning. Resume restores the latch. A root fork inherits only the protocol into a new root session ID and empty control graph. An explicit current config override beats inherited state and starts a new control generation. V2 descendants stay in the same tree protocol but receive collaboration tools only when the child's resolved model itself declares V2.
+Later incompatible model selections keep the latched tools and show a warning. Resume restores the latch. A root fork inherits only the protocol into a new root session ID and empty control graph. An explicit current config override beats inherited state and starts a new control generation. V2 descendants share the tree's collaboration interface, subject to normal permissions and concurrency limits. Model changes do not gate that interface.
 
-On Codex Responses requests, the provider groups both Pi protocols under the extension-owned `pi_subagents` namespace. It deliberately does not claim Codex's reserved `collaboration` or `multi_agent_v1` identities: the backend requires their configured schemas, including encrypted argument semantics that Pi cannot execute end to end.
+V1 tools use the extension-owned `pi_subagents` namespace. Provider serialization and Code Mode placement are native Pi responsibilities. This extension does not claim Codex's reserved `collaboration` or `multi_agent_v1` wire identities.
 
 ## Architecture
 
@@ -51,19 +51,19 @@ subagents/
 ├── manager.ts          # lifecycle, latch, root delivery, /agents
 ├── coordinator.ts      # serialized authoritative tree transactions
 ├── config.ts           # strict global config and role resolution
-├── contract.ts         # session-scoped provider collaboration profile
+├── contract.ts         # collaboration prompt and terminating-result contracts
 ├── runtime.ts          # independent Pi AgentSession host
 ├── transcript.ts       # forward-only transcript persistence verifier
 ├── permanent-error.ts # terminal child persistence failure
 ├── history.ts          # sanitized none/all/last-N forks
 ├── nicknames.ts        # tree-wide unique presentation names
-├── selection.ts        # model/config protocol resolution
+├── selection.ts        # config and inherited protocol resolution
 ├── snapshot.ts         # bounded atomic control-store persistence
 ├── v1/                 # UUID/open-edge protocol and rich input
 └── v2/                 # path/mailbox protocol
 ```
 
-Each child has a separate context, model loop, extension runner, and session file. Children share the root's cwd, trust decision, model provider, model registry, active runtime credentials, context files, and discovered skill catalog. Role settings can narrow or specialize the model within the inherited provider, thinking level, and instructions; they cannot change cwd, trust, or provider.
+Each child has a separate context, model loop, extension runner, and session file. Children inherit the root's cwd, trust decision, provider registrations, runtime credentials, context files, and discovered skill catalog. Each child owns its native model runtime and catalog; live registry identity is not shared. Their loader registers native Code Mode, tool search, and MCP. The inherited tool list initializes activation; it is not a permanent registry allowlist. Native MCP configuration controls connection, exposure and dynamic discovery. Enabled user/global extensions, including personal permission policies, are reloaded through native discovery even when project trust is declined; project extensions load only when trusted. Loaded native permission hooks govern both direct and nested calls. Root-only asynchronous tools are excluded from the registry through Pi's SDK denylist. Native settings govern Code Mode presentation. Arbitrary parent extension instances, live MCP connections, and factory overrides are not cloned. Code Mode state belongs to each child's own session. Roles can select another registered provider for fresh children, thinking and instructions, but cannot change cwd or trust.
 
 ## Model-facing prompt contract
 
@@ -72,13 +72,13 @@ Pi owns the prompt hierarchy. Collaboration guidance is appended through Pi's su
 1. Stable facts define identity, addressing, mailbox format, shared-filesystem behavior, and delivery to the parent.
 2. A protocol-specific usage hint explains only tools the current agent can call.
 3. Delegation mode states whether delegation requires an explicit request or may be proactive.
-4. A V2 child capability layer is resolved from the child's actual model before every turn.
+4. V2 children receive the tree's collaboration usage guidance before every turn.
 
-Configured `prompts.v1.root` and `prompts.v2.root` replace the corresponding root usage-hint layer. `prompts.v2.child` replaces only the collaboration usage hint of an eligible V2 child; it is never shown to an ineligible child. `prompts.child` is a capability-independent instruction shared by V1 and V2 children. An explicitly empty value suppresses that layer, but not stable identity facts or delegation mode for an agent that can delegate. V1 children never receive collaboration tools. A V2 child receives their tools and delegation mode only when its resolved model declares V2; an ineligible child is told to complete its task directly.
+Configured `prompts.v1.root` and `prompts.v2.root` replace the corresponding root usage-hint layer. `prompts.v2.child` replaces only the V2 child's collaboration usage hint. `prompts.child` is a capability-independent instruction shared by V1 and V2 children. An explicitly empty value suppresses that layer, but not stable identity facts or delegation mode for an agent that can delegate. V1 children never receive collaboration tools. V2 children receive the collaboration interface and configured delegation policy independently of model metadata.
 
-When the load-last Codex provider has Ultra active, subagents omits its configured delegation-mode layer while retaining identity, usage, and capability guidance. The provider then appends the catalog or built-in mode block. A nonempty custom catalog policy is enclosed in `multi_agent_mode` markers; an explicit empty value leaves no mode block. An explicit user request still overrides the built-in proactive guidance. Native Max alone does not change delegation. Outside provider-owned Ultra, proactive configuration supplies the Pi mode layer. The vendored `orchestrate` skill is never auto-discovered because Pi resource discovery cannot unload it after a later mode change; operators may load its path explicitly.
+Delegation policy belongs to subagents. `explicit` is the default and `proactive` opts into model-initiated delegation. Native thinking levels do not change that policy. The vendored `orchestrate` skill is not auto-discovered; operators may load its path explicitly.
 
-The model-visible mailbox text is stable. Queue-only and steered mail is stored as a Pi custom session message; an idle child's triggering task is stored as the single user message that starts its turn. Both project to the provider as ordinary user-role LLM input. Codex instead has a structured `AgentMessage` representation. Using Pi's normal prompt lifecycle for triggering mail preserves `before_agent_start`, which is required for child model resolution, tool gating, prompt policy, and provider contract publication.
+The model-visible mailbox text is stable. Queue-only and steered mail is stored as a Pi custom session message; an idle child's triggering task is stored as the single user message that starts its turn. Both project to the provider as ordinary user-role LLM input. Codex instead has a structured `AgentMessage` representation. Using Pi's normal prompt lifecycle for triggering mail preserves `before_agent_start`, which is required for child model resolution, prompt policy, and collaboration catalog refresh.
 
 ## V1 flow
 
@@ -122,9 +122,9 @@ A V1 completion notification admitted before the root's current agent run reache
 
 ## V2 flow
 
-V2 uses canonical paths such as `/root/research/tests`. A child whose resolved model declares V2 can spawn descendants with the same six tools as the root: `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`.
+V2 uses canonical paths such as `/root/research/tests`. V2 children share the tree\'s six-tool collaboration interface, subject to permissions and concurrency limits: `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`.
 
-An Ultra parent marks a newly spawned child for Ultra inheritance when `reasoning_effort` is omitted and the selected role does not configure reasoning. The child contract returns that signal to its provider, which persists the child's branch state; an explicit reasoning effort or role-configured reasoning prevents inheritance. The V2 controller remains the only owner of the tools, hierarchy, and runtime in both cases.
+Children inherit ordinary Pi model/thinking settings unless spawn arguments or role configuration override them. There is no provider-owned Ultra inheritance or private metadata exchange.
 
 ```mermaid
 sequenceDiagram
@@ -143,7 +143,7 @@ Mailbox messages use Codex's model-visible `Message Type`, `Task name`, `Sender`
 - `send_message` queues context without starting an idle turn. A nonresident target is reloaded so the queue can accept the message, but no model turn starts.
 - `followup_task` starts an idle turn or steers an active one.
 - Triggering task mail remains in the control outbox until the child transcript durably accepts its user turn. The same transaction changes the node from `pending` to `running` and removes the task mail. A crash before that transaction may redeliver the task.
-- Queue-only mail admitted during a model response stays in an extension-owned gate until a safe Pi lifecycle boundary. At `turn_end`, one admitted item is steered into a nonterminating tool continuation or an explicit Codex `endTurn:false` continuation only when the boundary snapshot has no pending messages, including custom steering and follow-ups. Otherwise it remains gated through later turns. Final, errored, aborted, and all-terminating responses do not release it, but a later retry response can release it into a qualifying tool continuation. Anything still gated at `agent_settled` is passively recorded and transcript-verified before runtime retirement, without starting another request or changing retry and compaction context.
+- Queue-only mail admitted during a model response stays in an extension-owned gate until a safe Pi lifecycle boundary. At `turn_end`, one admitted item is steered into a nonterminating tool continuation only when the boundary snapshot has no pending messages, including custom steering and follow-ups. Otherwise it remains gated through later turns. Final, errored, aborted, and all-terminating responses do not release it, but a later retry response can release it into a qualifying tool continuation. Anything still gated at `agent_settled` is passively recorded and transcript-verified before runtime retirement, without starting another request or changing retry and compaction context.
 - Queue-only mail remains in the control outbox until the child transcript durably records its communication ID. Mail is published before admission, an active `wait_agent` is notified on admission, and delivery is serialized per target. Codex drains every mailbox item present at one native poll; Pi admits and acknowledges same-target items independently, so request grouping can differ while FIFO identity and durability are preserved.
 - Terminal node status and its direct-parent `FINAL_ANSWER` outbox item publish in one transaction. If that transaction is absent after a crash, an earlier `running` node restores as `interrupted`; the child transcript is not searched for an answer.
 - `interrupt_agent` atomically records `interrupted` and removes all undelivered triggering mail for the target from the control snapshot. It then cancels queued triggering work, aborts the child, and starts unloading its runtime without waiting indefinitely for suspended preflight teardown. The old runtime remains fenced from transcript reuse; later mail stays durable and begins delivery after teardown finishes. This is intentionally deterministic: native Codex clears pending input already drained into the active turn, but mailbox work not yet drained can survive interruption and start a fresh turn. Pi cancels both. A later explicit follow-up starts a new delivery.
@@ -151,7 +151,7 @@ Mailbox messages use Codex's model-visible `Message Type`, `Task name`, `Sender`
 - Completion sends `FINAL_ANSWER` only to the direct parent; it does not bubble recursively.
 - `interrupt_agent` rejects an unknown path, reports `not_found` for a known nonresident path, leaves an interrupted durable identity reusable, and does not emit completion.
 
-Pi has no Codex response-item callback between reasoning, commentary, and final-answer items. Its V2 boundary is therefore the aggregate assistant response plus its tool batch: mail that native Codex could consume after a reasoning or commentary item may instead wait when later final text occurs in the same response. Pi v0.87.0 boundary snapshots include custom as well as textual pending input. The child runtime composes with Pi's existing `finishTurn` callback and continues successful native Codex responses explicitly marked `endTurn:false`, without adding a synthetic user message or duplicating a tool/queued continuation. Missing or true `endTurn` keeps normal scheduling. Abort, error, cancellation, and all-terminating tool batches do not force continuation; length/overflow recovery remains Pi-owned. Aggregate response boundaries still differ from Codex response-item boundaries.
+Pi has no Codex response-item callback between reasoning, commentary, and final-answer items. Its V2 boundary is the aggregate assistant response plus its tool batch. Pi alone owns continuation scheduling, including unfinished responses, queued input, retries and compaction; the child runtime has no provider-specific continuation adapter. Mail that Codex consumes between response items may wait until a qualifying native Pi boundary.
 
 Root notifications remain in the outbox until a matching custom-message entry is visible in the durable root branch and its removal is atomically published. Root mail that arrives while idle outside a safe settlement boundary stays durable in the control outbox. At the next normal input, Pi synchronously drains, verifies, and acknowledges it before the new root prompt takes its provider snapshot. If a trusted root extension removes delivery metadata, Pi conservatively retains and may redeliver the item. Child loading and other fallible preconditions complete before new mail is published. Waiting for transcript acceptance does not hold the target's control-operation queue, so `interrupt_agent` can still reach the active runtime. A V2 spawn remains provisional and unaddressable until its transcript, runtime lease, node, and initial task publish together.
 
@@ -171,29 +171,27 @@ Successful V1 and V2 spawn results retain the child runtime’s resolved provide
 
 ## Spawn model selection
 
-When model overrides are exposed, both spawn descriptions prepend up to five picker-visible models from the current provider's effective registry, in catalog order. Each entry includes its provider description (or Pi name when unavailable), supported Pi reasoning levels with the known default marked, and supported service tiers. An empty list is stated explicitly. The list is guidance, not an allowlist: hidden models and entries beyond the five suggestions remain valid explicit selections if the registry resolves them.
+When model overrides are exposed, descriptions prepend up to five picker-visible native models across providers, in catalog order. Each suggestion shows its qualified provider/model-id, native name, and supported Pi thinking levels. The shortlist is guidance, not an allowlist: hidden models and entries beyond it remain valid exact registry selections.
 
-V2 excludes models explicitly declaring `multiAgentVersion: "disabled"`; V1 children such as GPT-5.6 Luna remain eligible in a V2 tree, without gaining collaboration tools. Unknown-model errors list the same five suggestions. Explicit or role-configured reasoning is checked against the final selected model after role precedence. Inherited effort retains the existing Pi runtime behavior. Neither an invalid model nor invalid explicit effort silently falls back to the parent.
+Overrides and role models use one explicit `provider/model-id` format; bare IDs and provider guessing are not supported. Omission inherits the parent model. A fresh child can use another registered provider with native authentication. Cross-provider forks require `fork_context: false` in V1 or `fork_turns: "none"` in V2; history is never silently dropped. Unknown-model errors show the same shortlist. Explicit thinking is checked against the final model after role precedence; inherited thinking retains native Pi behavior.
 
-Catalog guidance refreshes at session startup, model selection and new-prompt boundaries, including locked trees and V2-capable children. A catalog change during a prompt appears in the next prompt, not the next tool turn; spawn validation still uses the current registry. Context hooks do not refresh tools. Identical descriptions do not re-register tools, and description changes preserve active-tool selection. Child activation is reconciled only at initial setup or an eligibility transition. Code Mode’s textual inventory follows its existing normal-input boundary.
+Guidance refreshes at startup, model selection and new-prompt boundaries. Validation uses the current registry. Identical descriptions do not re-register tools, and description updates preserve activation. V2 collaboration is a tree capability, not a model eligibility transition. No private provider descriptions, default-effort markers, service tiers or affordability claims are projected.
 
-The Codex provider carries a small structural `spawnAgentMetadata` object on effective registry models: optional `description` and Pi `defaultReasoningEffort`, `showInPicker`, and `serviceTiers`. Native `multiAgentVersion`, catalog order and `thinkingLevelMap` remain model properties. Remote/cache projection carries this metadata without cross-package imports, a separate discovery fetch, or a second catalog file. Children describe their own effective registry: reloading the provider can use its cache or fallback rather than the parent’s in-memory snapshot. Provider fallback descriptions are pinned catalog data, not hardcoded routing. Only Pi-representable efforts and the implemented `priority` tier are advertised; other providers use their effective Pi capabilities without invented affordability claims.
-
-The five-entry format, selection rules and model/effort error wording follow the selected Codex review at `af1fc2dbff641e78298c272c4b45c9fec5c33898`; see the parity ledger. No keyword handler, model alias, price sorter, automatic fallback, or additional discovery tool is involved.
+These explicit cross-provider references deliberately differ from the pinned Codex same-provider selection contract: native Pi hosts multiple provider catalogs with overlapping model IDs. See the parity ledger.
 
 ## Forking and persistence
 
 `fork_turns` follows Codex parsing: surrounding whitespace and ASCII case are ignored for `none`/`all`, an empty string means `all`, and decimal positive integers may have a leading plus sign or zeroes. Values through the 64-bit host `usize` maximum are accepted. Pi saturates values above JavaScript's safe-integer range to its largest safe last-N sentinel, which still selects all feasible Pi history without relabeling the request as full-history mode. Forks keep user text, completed assistant text, and compaction summaries. They drop reasoning, tool calls/results, interrupted assistant output, response IDs, and inherited usage. V1's `fork_context: true` is the full-history form.
 
-V2 uses Codex's `reasoning_effort` spawn argument. Model overrides accept only a bare model ID from the inherited provider. Neither per-call overrides nor roles can change provider.
+V2 retains Codex's `reasoning_effort` argument. Qualified model references apply to both per-call overrides and roles; cross-provider selection is supported only without inherited history.
 
-For OpenAI Codex models, the root provider publishes Fast as either `priority` or standard (`null`) through the session contract. The V1 and V2 control planes return that tree-scoped value when a child provider reads the contract before a model request or native compaction. Already-loaded and reloaded descendants therefore follow the root's next request step; neither spawn protocol exposes a per-child tier override. The durable `/fast` preference is global, but live inheritance is scoped to one collaboration tree. Pi does not expose Codex's arbitrary root service-tier strings through this contract.
+There is no provider-owned Fast propagation. A future priority-tier extension must use supported native request options and make child-session scope explicit; this extension does not synthesize service-tier metadata.
 
 The control plane has one durable owner: a strict, bounded JSON snapshot under `~/.pi/agent/data/subagents/trees/`. Its file name hashes the normalized root session-file path and header ID, and the document repeats that binding. Every mutation is serialized through one root-scoped coordinator. A temporary sibling file is written with restrictive permissions, synced, and atomically renamed; the rename is the commit point. The live immutable state swaps inside that commit callback, before any later await. A pre-rename failure rejects the mutation. A directory-sync failure after rename preserves the committed mutation, marks durability uncertain, and blocks later collaboration instead of rolling back a state that may already be durable. The 16 MiB snapshot limit reserves terminal-state headroom and stores bounded results inline. `--no-session` uses the same coordinator with an in-memory store.
 
 There is no same-root multi-process writer protocol. Two Pi processes must not operate the same root session concurrently; the file-mutation queue protects cooperating mutations only within one process.
 
-The root conversation is never used as the control log, so collaboration mutations cannot move its active leaf during a provider request. Any failed or persistence-uncertain control-store write poisons the current coordinator and blocks later collaboration tools until the session is reopened. The snapshot owns the protocol latch, nicknames, V1 edges/tasks/statuses/notifications, and V2 identities/statuses/mailbox. Its current schema is strict and every mismatch fails closed. There are no protocol-marker entries, prompt journals, receipt journals, outcome journals, or transcript-derived status reconstruction.
+The root conversation is never used as the control log, so collaboration mutations cannot move its active leaf during a provider request. Any failed or persistence-uncertain control-store write poisons the current coordinator and blocks later collaboration tools until the session is reopened. The snapshot owns the protocol latch, nicknames, V1 edges/tasks/statuses/notifications, and V2 identities/statuses/mailbox. Control snapshot version 2 encodes the native capability-selection contract. Version 1 snapshots are rejected with a fresh-tree instruction; they are not migrated or reinterpreted. The schema is strict and every mismatch fails closed. There are no protocol-marker entries, prompt journals, receipt journals, outcome journals, or transcript-derived status reconstruction.
 
 The graph belongs to the root session, not its current conversation branch. `/tree` leaves the graph unchanged. A root fork uses Pi's `previousSessionFile` to identify the source root session and reads that session's control snapshot to inherit only its protocol. The fork gets a new control graph and never inherits generation IDs, nicknames, agents, or communication state.
 
@@ -222,13 +220,13 @@ Create `~/.pi/agent/subagents.json`:
   "expose_spawn_agent_model_overrides": true,
   "protocols": {
     "*": "auto",
-    "openai-codex/gpt-5.6-sol": "v2",
+    "openai/gpt-6.1-sol": "v2",
     "provider/model": "off"
   },
   "roles": {
     "researcher": {
       "description": "Investigates a bounded question and reports evidence.",
-      "model": "gpt-5.6-luna",
+      "model": "openai/gpt-5.6-luna",
       "thinking": "high",
       "instructions": "Investigate and report evidence.",
       "nicknames": ["Scout", "Sage"]
@@ -242,7 +240,7 @@ Create `~/.pi/agent/subagents.json`:
     },
     "v2": {
       "root": "Optional replacement for the V2 root usage hint.",
-      "child": "Optional replacement for eligible V2 child collaboration guidance."
+      "child": "Optional replacement for V2 child collaboration guidance."
     }
   }
 }
@@ -250,7 +248,7 @@ Create `~/.pi/agent/subagents.json`:
 
 `max_concurrent_threads_per_session` is optional and counts child agents, excluding the root. When set, it applies to both protocols: V1 limits open children, while V2 limits both executing turns and resident child sessions. When omitted, V1 defaults to six and V2 defaults to three. If a persisted V1 tree exceeds a newly lowered limit, the first persisted open children stay open and the excess children are closed but remain resumable.
 
-Protocol values are `auto`, `off`, `v1`, or `v2`. Both protocols expose `model` and `reasoning_effort` on `spawn_agent` by default; set `expose_spawn_agent_model_overrides` to false to hide both. `agent_type` is exposed only when at least one executable Pi role exists, and its model-facing description uses the role's optional `description`. Delegation is `explicit` by default; `proactive` opts into model-initiated delegation through the Pi mode layer. Active provider Ultra instead owns the branch's delegation-mode block and suppresses the configured layer; an empty catalog policy intentionally leaves no mode block. User requests override built-in proactive guidance. Protocol-specific prompt values replace only matching usage hints; `prompts.child` is capability-independent. An explicitly empty value suppresses its layer while retaining stable identity and any applicable delegation-mode facts. Invalid config falls back to defaults and produces a warning.
+Protocol values are `auto`, `off`, `v1`, or `v2`. Both protocols expose `model` and `reasoning_effort` on `spawn_agent` by default; set `expose_spawn_agent_model_overrides` to false to hide both. `agent_type` is exposed only when at least one executable Pi role exists, and its model-facing description uses the role's optional `description`. Delegation is `explicit` by default; `proactive` opts into model-initiated delegation through the Pi mode layer. User requests override built-in proactive guidance. Protocol-specific prompt values replace only matching usage hints; `prompts.child` is capability-independent. An explicitly empty value suppresses its layer while retaining stable identity and applicable delegation-mode facts. Invalid config falls back to defaults and produces a warning.
 
 ## Deliberate Pi boundaries
 

@@ -5,7 +5,7 @@ import type { UsageSnapshot } from "../providers.js";
 
 const snapshot = (overrides: Partial<UsageSnapshot> = {}): UsageSnapshot => ({
   fetchedAt: 1000,
-  provider: "openai-codex",
+  provider: "anthropic",
   quotaWindows: [
     { id: "5h", label: "5h", remainingPercent: 68 },
     { id: "7d", label: "7d", remainingPercent: 66 },
@@ -25,14 +25,14 @@ describe("usage cache", () => {
       return { ok: true as const, snapshot: snapshot({ fetchedAt: now }) };
     };
 
-    await cache.getOrFetch("openai-codex", false, fetcher);
+    await cache.getOrFetch("anthropic", false, fetcher);
     now = 10_999;
-    await cache.getOrFetch("openai-codex", false, fetcher);
+    await cache.getOrFetch("anthropic", false, fetcher);
     expect(fetches).toBe(1);
     now = 11_000;
-    await cache.getOrFetch("openai-codex", false, fetcher);
+    await cache.getOrFetch("anthropic", false, fetcher);
     expect(fetches).toBe(2);
-    expect(cache.getLastSuccess("openai-codex")?.fetchedAt).toBe(11_000);
+    expect(cache.getLastSuccess("anthropic")?.fetchedAt).toBe(11_000);
   });
 
   it("shares a single in-flight fetch across callers", async () => {
@@ -64,31 +64,30 @@ describe("usage cache", () => {
   it("retains the last success after failure", async () => {
     let now = 1000;
     const cache = new UsageCache({ now: () => now });
-    await cache.getOrFetch("openai-codex", true, async () => ({
+    await cache.getOrFetch("anthropic", true, async () => ({
       ok: true,
-      snapshot: snapshot({ fetchedAt: 1000, ordinaryUsageAllowed: false }),
+      snapshot: snapshot({ fetchedAt: 1000 }),
     }));
     now = 2000;
 
-    const result = await cache.getOrFetch("openai-codex", true, async () => ({
+    const result = await cache.getOrFetch("anthropic", true, async () => ({
       error: { kind: "failure" as const, message: "boom" },
       ok: false as const,
     }));
 
     expect(result.ok).toBeFalsy();
-    expect(cache.getLastSuccess("openai-codex")?.fetchedAt).toBe(1000);
-    expect(cache.getLastSuccess("openai-codex")?.quotaWindows[0]?.remainingPercent).toBe(68);
-    expect(cache.getLastSuccess("openai-codex")?.ordinaryUsageAllowed).toBe(false);
+    expect(cache.getLastSuccess("anthropic")?.fetchedAt).toBe(1000);
+    expect(cache.getLastSuccess("anthropic")?.quotaWindows[0]?.remainingPercent).toBe(68);
   });
 
   it("replaces the last success after a forced successful refresh", async () => {
     const cache = new UsageCache({ now: () => 3000 });
-    await cache.getOrFetch("openai-codex", true, async () => ({
+    await cache.getOrFetch("anthropic", true, async () => ({
       ok: true,
       snapshot: snapshot({ fetchedAt: 1000 }),
     }));
 
-    const result = await cache.getOrFetch("openai-codex", true, async () => ({
+    const result = await cache.getOrFetch("anthropic", true, async () => ({
       ok: true as const,
       snapshot: snapshot({
         fetchedAt: 3000,
@@ -97,6 +96,6 @@ describe("usage cache", () => {
     }));
 
     expect(result.ok).toBeTruthy();
-    expect(cache.getLastSuccess("openai-codex")?.quotaWindows[0]?.remainingPercent).toBe(10);
+    expect(cache.getLastSuccess("anthropic")?.quotaWindows[0]?.remainingPercent).toBe(10);
   });
 });

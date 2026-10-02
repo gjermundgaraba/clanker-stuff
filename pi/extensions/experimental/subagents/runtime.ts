@@ -6,6 +6,9 @@ import { setImmediate as yieldImmediate } from "node:timers/promises";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
+  createCodemodeExtension,
+  createMcpExtension,
+  createToolSearchExtension,
   DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
@@ -90,7 +93,7 @@ export interface ChildRuntime {
 }
 
 export interface ChildRuntimeRequest {
-  bridge: ExtensionFactory;
+  bridge?: ExtensionFactory;
   cwd: string;
   dataDir: string;
   history: HistoryMessage[];
@@ -433,7 +436,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     const pendingCustom = new Map<string, PromiseWithResolvers<void>>();
     const pendingPassive: RuntimeMessage[] = [];
     const terminatingToolCalls = new Set<string>();
-    let continueUnfinishedTurn = false;
 
     interface ActiveAttempt {
       accepted: PromiseWithResolvers<void>;
@@ -573,7 +575,7 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       pi.on("session_before_compact", () =>
         activeAttempt?.cancellationError !== undefined ? { cancel: true } : undefined,
       );
-      await request.bridge(pi);
+      await request.bridge?.(pi);
       pi.on("input", () =>
         activeAttempt?.preflight === true && activeAttempt.cancellationError !== undefined
           ? { action: "handled" }
@@ -593,28 +595,12 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
           activeAttempt?.cancellationError !== undefined ||
           ctx.signal?.aborted === true;
 
-        const hasTools = event.toolResults.length > 0;
-
         const toolContinuation = event.toolResults.some(
           ({ toolCallId }) => !terminatingToolCalls.has(toolCallId),
         );
 
-        // Length/overflow recovery belongs to Pi, not this continuation adapter.
-        continueUnfinishedTurn =
-          !terminal &&
-          (!hasTools || toolContinuation) &&
-          event.message.role === "assistant" &&
-          event.message.provider === "openai-codex" &&
-          event.message.api === "openai-codex-responses" &&
-          (event.message.stopReason === "stop" || event.message.stopReason === "toolUse") &&
-          event.message.endTurn === false;
-
         try {
-          if (
-            !terminal &&
-            (toolContinuation || continueUnfinishedTurn) &&
-            event.context.pendingMessages.length === 0
-          ) {
+          if (!terminal && toolContinuation && event.context.pendingMessages.length === 0) {
             await flushPassive(true);
           }
         } catch (error) {
@@ -656,7 +642,12 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       }),
       appendSystemPrompt: appendedPrompt,
       cwd: request.cwd,
-      extensionFactories: [{ factory: hostBridge, hidden: true, name: "subagents-child" }],
+      extensionFactories: [
+        createCodemodeExtension(),
+        createToolSearchExtension(),
+        createMcpExtension(),
+        { factory: hostBridge, hidden: true, name: "subagents-child" },
+      ],
       extensionsOverride: (base) => {
         const extensions = base.extensions.filter((extension) => {
           const keep =
@@ -687,7 +678,6 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
         };
       },
       noContextFiles: true,
-      noExtensions: !request.trusted,
       noPromptTemplates: true,
       noSkills: true,
       noThemes: true,
@@ -702,6 +692,8 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
     });
 
     await resourceLoader.reload();
+    // Reload re-reads settings. Apply inherited activation afterwards, without an SDK registry ceiling.
+    settingsManager.applyOverrides({ defaultTools: request.tools });
     const loadedExtensions = resourceLoader.getExtensions();
 
     const bridgeError = loadedExtensions.errors.find(
@@ -725,30 +717,10 @@ export const createChildRuntime: ChildRuntimeFactory = async (request) => {
       sessionManager,
       settingsManager,
       ...(selectedThinking !== undefined ? { thinkingLevel: selectedThinking } : {}),
-      tools: request.tools.filter(
-        (name) => name !== "request_user_input_async" && name !== "send_message_to_user_async",
-      ),
+      excludeTools: ["request_user_input_async", "send_message_to_user_async"],
     });
 
     createdSession = session;
-    // Preserve Pi's actionable turn boundary and any earlier end decision. The
-    // loop coalesces "continue" with ordinary tool/queue scheduling into one request.
-    const finishTurn = session.agent.finishTurn;
-    session.agent.finishTurn = async (turn, signal) => {
-      continueUnfinishedTurn = false;
-      const decision = await finishTurn?.(turn, signal);
-
-      if (
-        decision?.action === "end" ||
-        !continueUnfinishedTurn ||
-        signal?.aborted ||
-        activeAttempt?.cancellationError !== undefined
-      )
-        return decision ?? undefined;
-
-      return { action: "continue" };
-    };
-
     const stream = session.agent.streamFunction;
     session.agent.streamFunction = (model, context, options) => {
       const cancellation = activeAttempt?.cancellationError;

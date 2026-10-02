@@ -96,10 +96,10 @@ class ScalingTest(TestCase):
                 f"clanker-pi-evals:{task.name}", root / "build" / task.name,
             )
             recipe = (root / "build" / task.name / "Dockerfile").read_text()
-            self.assertIn("COPY codex-eval.mjs /opt/codex-provider/codex-runner.mjs", recipe)
-            self.assertIn("COPY service-codex.mjs /opt/codex-provider/service-codex.mjs", recipe)
+            self.assertIn("COPY codex-eval.mjs /opt/pi-evals/codex-runner.mjs", recipe)
+            self.assertIn("COPY service-codex.mjs /opt/pi-evals/service-codex.mjs", recipe)
             self.assertIn(
-                "ln -sfn /opt/codex-provider/service-codex.mjs /usr/local/bin/codex-eval",
+                "ln -sfn /opt/pi-evals/service-codex.mjs /usr/local/bin/codex-eval",
                 recipe,
             )
             self.assertNotIn("COPY service-codex.mjs /usr/local/bin/codex-eval", recipe)
@@ -127,7 +127,7 @@ class ScalingTest(TestCase):
                     side_effect=["new-seed-1", "new-seed-2"],
                 ),
             ):
-                prepare(output, catalog)
+                prepare(output, catalog, model="openai/gpt-6-luna", thinking="medium")
             self.assertEqual(
                 resolve.call_args_list[0].args[0],
                 ["npm", "view", "@openai/codex", "version"],
@@ -135,6 +135,7 @@ class ScalingTest(TestCase):
             verify(output)
             schedule = json.loads((output / "schedule.json").read_text())
             self.assertEqual(len(schedule), 18)
+            self.assertEqual(json.loads((output / "series.json").read_text())["model"], "gpt-6-luna")
             orders = [
                 tuple(r["arm"] for r in schedule[i : i + 3]) for i in range(0, 18, 3)
             ]
@@ -148,6 +149,9 @@ class ScalingTest(TestCase):
                     JobPlan.resolve_task_configs(JobConfig.model_validate(config))
                 )
                 self.assertEqual([task.path.name for task in tasks], [entry["task"]])
+                self.assertEqual(config["agents"][0]["model_name"], "openai/gpt-6-luna")
+                expected = json.loads((output / "tasks" / entry["task"] / "tests/comparison.json").read_text())
+                self.assertEqual(expected, {"model": "openai/gpt-6-luna", "thinking": "medium", "directTools": ["list_records", "submit_report"]})
                 self.assertEqual(config["n_attempts"], 1)
                 self.assertEqual(config["retry"]["max_retries"], 0)
                 if entry["arm"] == "native":

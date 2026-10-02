@@ -1,34 +1,31 @@
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
-import { registerCodexProvider } from "/opt/codex-provider/registration.ts";
-import { CodeModeRuntime } from "/opt/codex-provider/code-mode/tools.ts";
-import { createJournal } from "/opt/codex-provider/eval-journal.mjs";
+import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
+import { createJournal } from "/opt/pi-evals/eval-journal.mjs";
 
-import { serviceDefinitions } from "/opt/codex-provider/service-tools.mjs";
+import { serviceDefinitions } from "/opt/pi-evals/service-tools.mjs";
 import { createServices, FIXTURE, SERVICE_NAMES, toolSpecs } from "./services.mjs";
 
-export { createJournal } from "/opt/codex-provider/eval-journal.mjs";
+export { createJournal } from "/opt/pi-evals/eval-journal.mjs";
 
 /** @param {ReturnType<typeof createServices>} backend */
 export const definitions = (backend) => serviceDefinitions(backend, toolSpecs(Type));
 
 /** @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi */
-export default function extension(pi) {
+export default async function extension(pi) {
   const mode = process.env.PI_EVAL_TOOL_MODE;
 
   if (mode !== "direct" && mode !== "code_mode_only") throw new Error("Invalid evaluation mode");
-  registerCodexProvider(pi);
+
+  if (mode === "code_mode_only") await createCodemodeExtension({ mode: "only", models: false })(pi);
   const journal = createJournal("/logs/agent/service-events.jsonl");
   const emit = journal.emit;
   const backend = createServices({ emit });
 
-  const tools = definitions(backend),
-    runtime = new CodeModeRuntime();
+  const tools = definitions(backend);
 
-  const activeDefinitions = mode === "direct" ? tools : [...tools, ...runtime.createTools()];
-
-  for (const definition of activeDefinitions) pi.registerTool(definition);
-  const expected = activeDefinitions.map((tool) => tool.name).sort();
+  for (const definition of tools) pi.registerTool(definition);
+  const expected = mode === "direct" ? SERVICE_NAMES : [...SERVICE_NAMES, "codemode"].sort();
   let compacted = false;
   pi.on("session_start", async () => {
     await journal.reset();
@@ -82,5 +79,4 @@ export default function extension(pi) {
       throw new Error("Diagnostic runtime drift");
     }
   });
-  pi.on("session_shutdown", () => runtime.shutdown());
 }

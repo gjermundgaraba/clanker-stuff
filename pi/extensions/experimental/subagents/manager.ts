@@ -22,11 +22,7 @@ import { Value } from "typebox/value";
 
 import type { SubagentsConfig } from "./config.js";
 import { spawnModelsDescription } from "./model-catalog.js";
-import {
-  COLLABORATION_SECTION,
-  TerminatingToolResultSchema,
-  registerContractResponder,
-} from "./contract.js";
+import { COLLABORATION_SECTION, TerminatingToolResultSchema } from "./contract.js";
 import { TreeCoordinator } from "./coordinator.js";
 import { NicknamePool } from "./nicknames.js";
 import { resolveProtocol } from "./selection.js";
@@ -130,7 +126,6 @@ export class SubagentManager {
     protocol: "v1",
   };
   #showBackgroundError: ((cause: unknown) => void) | undefined;
-  readonly #unsubscribeContract: ReturnType<typeof registerContractResponder>;
   readonly #unsubscribeState: () => void;
   readonly #v1: V1Controller;
   readonly #v2: V2Controller;
@@ -164,31 +159,6 @@ export class SubagentManager {
         this.#showBackgroundError?.(this.#coordinator.error);
       }
     });
-    this.#unsubscribeContract = registerContractResponder(
-      pi,
-      () => {
-        const phase = this.#sessionPhase;
-
-        return phase.kind === "awaiting-session"
-          ? undefined
-          : {
-              protocol: phase.protocol,
-              sessionId: phase.sessionId,
-            };
-      },
-      (ctx, ultra, rootServiceTier) => {
-        if (!this.#rootRunning) this.#refreshProtocol(ctx);
-
-        if (rootServiceTier !== undefined) {
-          this.#v1.setRootServiceTier(rootServiceTier);
-          this.#v2.setRootServiceTier(rootServiceTier);
-        }
-
-        if (ultra !== undefined) {
-          this.#v2.setUltra(ROOT_AGENT_PATH, ultra);
-        }
-      },
-    );
   }
 
   async start(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
@@ -207,8 +177,6 @@ export class SubagentManager {
     this.#rootAttempt = undefined;
     this.#rootCanSteerV1 = false;
     this.#rootRunning = false;
-    this.#v1.setRootServiceTier(undefined);
-    this.#v2.setRootServiceTier(undefined);
     this.#rootToolTerminates.clear();
     this.#rootCursor = undefined;
     this.#rootSessionManager = ctx.sessionManager;
@@ -544,7 +512,6 @@ export class SubagentManager {
 
   async shutdown(): Promise<void> {
     this.#shuttingDown = true;
-    this.#unsubscribeContract();
     this.#unsubscribeState();
     this.#showBackgroundError = undefined;
     await Promise.all([this.#rootDeliveryTail, this.#rootVerificationTail]);
@@ -585,7 +552,7 @@ export class SubagentManager {
 
   #describeCatalog(ctx: Pick<ExtensionContext, "model" | "modelRegistry">): string | undefined {
     return this.#config.expose_spawn_agent_model_overrides && this.#sessionPhase.protocol !== "off"
-      ? spawnModelsDescription(ctx.modelRegistry, ctx.model?.provider, this.#sessionPhase.protocol)
+      ? spawnModelsDescription(ctx.modelRegistry)
       : undefined;
   }
 

@@ -415,7 +415,7 @@ const connect = async () => {
  *   notification?: (message: RpcMessage) => void,
  *   threadParams?: object,
  *   turnParams?: object,
- *   threadStarted?: (response: unknown) => Promise<void>,
+ *   threadStarted?: (response: unknown, config: EvalConfig) => Promise<void>,
  *   finished?: () => Promise<void>,
  * }} RunnerHooks Hooks consume heterogeneous server payloads and own their decoders.
  */
@@ -705,7 +705,7 @@ export const run = async (configPath, hooks = {}) => {
       ...hooks.threadParams,
     });
 
-    await hooks.threadStarted?.(result);
+    await hooks.threadStarted?.(result, config);
     threadId = startedThreadId(result);
     await writeFile(statePath, `${threadId}\n`);
   }

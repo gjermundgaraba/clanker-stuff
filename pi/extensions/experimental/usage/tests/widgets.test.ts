@@ -9,10 +9,8 @@ import type { UsageSnapshot } from "../providers.js";
 import { activeSnapshot, detailsSnapshot, fallbackText } from "../widgets.js";
 
 const snapshot: UsageSnapshot = {
-  accounting: { available: 12.5, kind: "credit-balance" },
   fetchedAt: 1000,
-  ordinaryUsageAllowed: false,
-  provider: "openai-codex",
+  provider: "anthropic",
   quotaWindows: [
     { id: "5h", label: "5h", remainingPercent: 80 },
     {
@@ -27,15 +25,13 @@ const snapshot: UsageSnapshot = {
 const ready = (value: UsageSnapshot) => ({ kind: "ready" as const, snapshot: value });
 
 describe("usage widgets", () => {
-  it("prefers quota and keeps accounting in details", () => {
+  it("shows the most-used quota and keeps other windows in details", () => {
     const presentation = ready(snapshot);
     const active = JSON.stringify(activeSnapshot(presentation, 1000).content);
     expect(active).toContain("20%");
-    expect(active).toContain("ordinary usage unavailable");
     const details = JSON.stringify(detailsSnapshot(presentation, 1000).content);
     expect(details).toContain("7d 10% 1d");
-    expect(details).toContain("12.5 credits");
-    expect(fallbackText(presentation)).toContain("20% ordinary unavailable");
+    expect(fallbackText(presentation)).toContain("20%");
   });
 
   it("selects a later quota window when it is more used", () => {
@@ -59,20 +55,6 @@ describe("usage widgets", () => {
     });
 
     expect(detailsSnapshot(presentation, 1000).content).toStrictEqual([]);
-  });
-
-  it("renders eligibility-only snapshots", () => {
-    const presentation = ready({
-      fetchedAt: 1000,
-      ordinaryUsageAllowed: false,
-      provider: "openai-codex",
-      quotaWindows: [],
-    });
-
-    expect(JSON.stringify(activeSnapshot(presentation, 1000).content)).toContain(
-      "ordinary usage unavailable",
-    );
-    expect(fallbackText(presentation)).toBe("usage Codex ordinary usage unavailable");
   });
 
   it("uses Radius accounting as the active metric", () => {
@@ -120,19 +102,17 @@ describe("usage widgets", () => {
     });
   });
 
-  it("keeps unavailable eligibility visible beside a credit balance", () => {
+  it("renders OpenRouter credit balances without inventing quota windows", () => {
     const presentation = ready({
       accounting: { available: 12.5, kind: "credit-balance" },
       fetchedAt: 1000,
-      ordinaryUsageAllowed: false,
-      provider: "openai-codex",
+      provider: "openrouter",
       quotaWindows: [],
     });
 
-    expect(JSON.stringify(activeSnapshot(presentation, 1000).content)).toContain(
-      "ordinary usage unavailable",
-    );
-    expect(fallbackText(presentation)).toBe("usage Codex 12.5 credits ordinary unavailable");
+    expect(fallbackText(presentation)).toBe("usage OpenRouter 12.5 credits");
+    expect(JSON.stringify(activeSnapshot(presentation, 1000).content)).toContain("12.5 credits");
+    expect(detailsSnapshot(presentation, 1000).content).toEqual([]);
   });
 
   it("bounds details to the footer protocol limit", () => {

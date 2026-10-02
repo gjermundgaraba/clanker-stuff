@@ -15,8 +15,6 @@ const packageRoot = path.resolve(import.meta.dirname, "..");
 
 const repositoryRoot = path.resolve(packageRoot, "../../../..");
 
-const providerExtension = path.resolve(packageRoot, "../codex-provider/index.ts");
-
 const subagentsExtension = path.resolve(packageRoot, "index.ts");
 
 interface Scenario {
@@ -290,7 +288,7 @@ const runScenario = async (
       "--mode",
       "json",
       "--provider",
-      "openai-codex",
+      "openai",
       "--model",
       model,
       "--thinking",
@@ -303,8 +301,6 @@ const runScenario = async (
       "--no-themes",
       "--no-context-files",
       "--no-approve",
-      "--extension",
-      providerExtension,
       "--extension",
       subagentsExtension,
     ];
@@ -421,7 +417,7 @@ const main = async () => {
     options: {
       "dry-run": { type: "boolean" },
       list: { type: "boolean" },
-      model: { default: "gpt-5.6-sol", type: "string" },
+      model: { default: "gpt-6.1-sol", type: "string" },
       reasoning: { default: "high", type: "string" },
       scenario: { multiple: true, type: "string" },
       "timeout-minutes": { default: "10", type: "string" },

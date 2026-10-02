@@ -44,30 +44,22 @@ describe("Pi model-facing collaboration contract", () => {
     const child = v2ChildBasePrompt(config, "/root/review", "Sage");
     expect(child).toContain("You are V2 subagent Sage at /root/review.");
     expect(child).not.toContain("Complete the concrete assigned task");
-    expect(v2ChildCapabilityPrompt(config, true)).toContain(
-      "Use the eligible-child collaboration workflow.",
-    );
-    expect(v2ChildCapabilityPrompt(config, false)).not.toContain(
+    expect(v2ChildCapabilityPrompt(config)).toContain(
       "Use the eligible-child collaboration workflow.",
     );
   });
 
-  it("generates capability-dependent V2 child guidance", () => {
+  it("gives V2 children collaboration guidance independent of model metadata", () => {
     const proactive = {
       ...structuredClone(DEFAULT_CONFIG),
       prompts: { delegation: "proactive" as const },
     };
 
-    expect(v2ChildCapabilityPrompt(proactive, true)).toContain(
-      "Proactive multi-agent delegation is enabled.",
-    );
-    expect(v2ChildCapabilityPrompt(proactive, true)).toContain("User requests override this hint.");
-    expect(v2ChildCapabilityPrompt(proactive, true)).toContain(
-      "Descendants receive these tools only when their own resolved models declare V2.",
-    );
-    const ineligible = v2ChildCapabilityPrompt(proactive, false);
-    expect(ineligible).toContain("does not provide V2 collaboration tools");
-    expect(ineligible).not.toContain("spawn_agent");
+    const prompt = v2ChildCapabilityPrompt(proactive);
+    expect(prompt).toContain("Proactive multi-agent delegation is enabled.");
+    expect(prompt).toContain("User requests override this hint.");
+    expect(prompt).toContain("This V2 tree provides collaboration tools to its children.");
+    expect(prompt).toContain("Permissions and concurrency limits still apply.");
   });
 
   it("states the flat V1 capability and bounded delegation policy", () => {
@@ -93,16 +85,9 @@ describe("Pi model-facing collaboration contract", () => {
     );
   });
 
-  it("never promises uniform child tools in the V2 spawn description", () => {
-    expect(v2SpawnDescription()).toContain("only when its resolved model declares V2");
+  it("describes the shared V2 interface without claiming identical coding tools", () => {
+    expect(v2SpawnDescription()).toContain("share the tree's collaboration interface");
     expect(v2SpawnDescription()).not.toContain("same tools");
-  });
-
-  it("lets provider-owned Ultra replace the configured V2 delegation policy", () => {
-    expect(v2RootPrompt(DEFAULT_CONFIG, 3, false)).not.toContain("Explicit delegation is enabled.");
-    expect(v2ChildCapabilityPrompt(DEFAULT_CONFIG, true, false)).not.toContain(
-      "Explicit delegation is enabled.",
-    );
   });
 
   it("uses the supported Codex error envelope wording", () => {

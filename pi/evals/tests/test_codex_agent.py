@@ -83,12 +83,12 @@ class CodexCompactionTest(TestCase):
             root = Path(directory)
             self.assertEqual(load_codex_turn_contexts(root), [])
             write_journal(root / "rollout-test.jsonl", [
-                {"type": "turn_context", "payload": {"model": "gpt-6-astra", "effort": "high", "cwd": "/app"}},
+                {"type": "turn_context", "payload": {"model": "gpt-6.1-sol", "effort": "high", "cwd": "/app"}},
                 {"type": "event_msg", "payload": {}},
                 {"type": "turn_context", "payload": {"model": "other"}},
             ])
             self.assertEqual(load_codex_turn_contexts(root), [
-                {"model": "gpt-6-astra", "effort": "high"},
+                {"model": "gpt-6.1-sol", "effort": "high"},
                 {"model": "other", "effort": None},
             ])
 

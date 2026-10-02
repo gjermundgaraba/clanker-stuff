@@ -8,11 +8,9 @@ environment:
   delete: true
 agents:
   - import_path: pi_evals.adapters.pi:PiEval
-    model_name: openai-codex/gpt-6-astra
+    model_name: &comparison_model openai/gpt-6.1-sol
     kwargs:
-      thinking: high
-      extensions:
-        - /opt/codex-provider/pi-eval-tools.mjs
+      thinking: &comparison_thinking high
       settings:
         compaction:
           enabled: false
@@ -20,19 +18,18 @@ agents:
           enabled: false
       pi_evals:
         experiment: code-mode
+        direct_tools: &direct_tools [bash, edit, read, write]
         arm: direct
         tool_mode: direct
         pair_id: calibration
-        platform: pi-provider
+        platform: pi-without-code-mode
         compaction_mode: "off"
-        expected_mechanism: codex-provider
-        expected_protocol: openai-responses-compaction-v2
+        expected_mechanism: pi-builtin
+        expected_protocol: null
   - import_path: pi_evals.adapters.pi:PiEval
-    model_name: openai-codex/gpt-6-astra
+    model_name: *comparison_model
     kwargs:
-      thinking: high
-      extensions:
-        - /opt/codex-provider/pi-eval-tools.mjs
+      thinking: *comparison_thinking
       settings:
         compaction:
           enabled: false
@@ -40,10 +37,11 @@ agents:
           enabled: false
       pi_evals:
         experiment: code-mode
+        direct_tools: *direct_tools
         arm: code
         tool_mode: code_mode_only
         pair_id: calibration
-        platform: pi-provider
+        platform: pi-with-code-mode
         compaction_mode: "off"
-        expected_mechanism: codex-provider
-        expected_protocol: openai-responses-compaction-v2
+        expected_mechanism: pi-builtin
+        expected_protocol: null

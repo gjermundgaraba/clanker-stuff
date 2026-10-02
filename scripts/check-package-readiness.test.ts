@@ -99,6 +99,40 @@ describe("package readiness", () => {
     }
   });
 
+  it("accepts the private deployment runtime but rejects floating native dependencies", () => {
+    const fixture = createFixture(true);
+    const runtime = path.join(fixture.root, "pi/evals/runtime");
+    mkdirSync(runtime, { recursive: true });
+    writeFileSync(
+      path.join(fixture.root, "pnpm-workspace.yaml"),
+      'packages:\n  - "."\n  - "pi/evals/runtime"\n',
+    );
+    writeFileSync(path.join(runtime, "Dockerfile"), "FROM node:26\n");
+    writeFileSync(path.join(runtime, "../README.md"), "# Evaluations\n");
+
+    const manifest = {
+      name: "@clanker-stuff/pi-evals-runtime",
+      version: "0.1.0",
+      description: "Pinned native evaluation deployment.",
+      private: true,
+      license: "MIT",
+      engines: { node: ">=26" },
+      dependencies: { "@earendil-works/pi-coding-agent": "catalog:" },
+    };
+
+    const manifestPath = path.join(runtime, "package.json");
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    expect(validateFixture(fixture)).toMatchObject({ status: 0, stderr: "" });
+
+    manifest.dependencies["@earendil-works/pi-coding-agent"] = "*";
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const invalid = validateFixture(fixture);
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stderr).toContain(
+      "evaluation dependencies must be pinned native Pi dependencies",
+    );
+  });
+
   it("applies common extension integrity checks to private packages", () => {
     const valid = validateFixture(createFixture(true));
     const invalid = validateFixture(createFixture(false));

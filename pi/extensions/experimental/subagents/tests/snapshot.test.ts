@@ -53,6 +53,21 @@ describe("atomic control store", () => {
     }
   });
 
+  it("refuses to reinterpret old capability ceilings on resume", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "subagents-old-control-"));
+
+    try {
+      const root = rootBinding("old-root", path.join(directory, "root.jsonl"));
+      const store = createControlStore(directory, root);
+      const current = freshSnapshot("v2", root);
+      expect(current.version).toBe(2);
+      await store.write(JSON.stringify({ ...current, version: 1 }), () => {});
+      await expect(store.load()).rejects.toThrow("start a fresh session/tree");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it("rejects a pending V2 node without its owned task mail", () => {
     const root = rootBinding("invalid");
     const snapshot = freshSnapshot("v2", root);

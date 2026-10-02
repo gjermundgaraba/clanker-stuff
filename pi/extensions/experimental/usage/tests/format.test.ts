@@ -11,11 +11,10 @@ import type { UsageSnapshot } from "../providers.js";
 
 const now = Date.parse("2026-07-21T12:00:00.000Z");
 
-const codexSnapshot = (): UsageSnapshot => ({
-  accounting: { available: 12.5, kind: "credit-balance" },
+const claudeSnapshot = (): UsageSnapshot => ({
   fetchedAt: now,
   planLabel: "plus",
-  provider: "openai-codex",
+  provider: "anthropic",
   quotaWindows: [
     {
       id: "5h",
@@ -59,15 +58,12 @@ describe("amount formatting", () => {
 });
 
 describe("detail formatting", () => {
-  it("includes plan, quotas, eligibility, and credits", () => {
-    const snapshot = codexSnapshot();
-    snapshot.ordinaryUsageAllowed = false;
+  it("includes plan and quota reset times", () => {
+    const snapshot = claudeSnapshot();
     const text = formatDetail(snapshot, now);
-    expect(text).toContain("Codex (plus)");
-    expect(text).toContain("ordinary usage  unavailable");
+    expect(text).toContain("Claude (plus)");
     expect(text).toContain("5h  68% left  resets in 2h");
     expect(text).toContain("7d  66% left  resets in 3d");
-    expect(text).toContain("credits  12.5");
   });
 
   it("formats Radius accounting", () => {
@@ -94,7 +90,7 @@ describe("detail formatting", () => {
   });
 
   it("strips terminal controls from provider-controlled text", () => {
-    const snapshot = codexSnapshot();
+    const snapshot = claudeSnapshot();
     snapshot.planLabel = "plus\nforged\tlabel\u001B]52;c;secret\u0007";
     const firstWindow = snapshot.quotaWindows[0];
 
@@ -104,13 +100,13 @@ describe("detail formatting", () => {
     const detail = formatDetail(snapshot, now);
 
     const error = formatProviderError(
-      "openai-codex",
+      "anthropic",
       "bad\nforged\terror\u001B]8;;https://secret\u0007link",
     );
 
     expect(`${detail}\n${error}`).not.toContain("\u001B");
     expect(`${detail}\n${error}`).not.toContain("\u009B");
-    expect(detail.split("\n")).toHaveLength(4);
+    expect(detail.split("\n")).toHaveLength(3);
     expect(error).not.toContain("\n");
     expect(`${detail}\n${error}`).not.toContain("\t");
   });

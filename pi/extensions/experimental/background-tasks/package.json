@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "@clanker-stuff/border-status-protocol": "workspace:^",
-    "@clanker-stuff/code-mode-tools": "workspace:^",
     "@clanker-stuff/pi-tool-rendering": "workspace:^",
     "@clanker-stuff/pi-tool-schema": "workspace:^"
   },

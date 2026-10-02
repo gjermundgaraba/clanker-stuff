@@ -9,7 +9,6 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | [`@clanker-stuff/ask-question`](pi/extensions/ask-question)                 | Lets pi ask blocking or asynchronous questionnaires with reviewed, revisable answers.      |
 | [`@clanker-stuff/dollah-skills`](pi/extensions/dollah-skills)               | Adds Codex-style skill mentions that complete, highlight, and load skills into the prompt. |
 | [`@clanker-stuff/history`](pi/extensions/history)                           | Adds persistent prompt history with native ↑/↓ recall and Ctrl+R search to pi's editor.    |
-| [`@clanker-stuff/mcp`](pi/extensions/mcp)                                   | Connects selected MCP servers to pi and registers their tools.                             |
 | [`@clanker-stuff/shell-resume-history`](pi/extensions/shell-resume-history) | Adds pi's resume command to the invoking fish or zsh shell's history when pi exits.        |
 | [`@clanker-stuff/stash`](pi/extensions/stash)                               | Adds a Ctrl+S shortcut and /pop-stash command for stashing and restoring editor text.      |
 | [`@clanker-stuff/tool-picker`](pi/extensions/tool-picker)                   | Adds /tools for choosing active tools, with selections saved per session branch.           |
@@ -20,7 +19,6 @@ A personal collection of extensions and plugins for Pi, Claude Code, and Codex. 
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@clanker-stuff/background-tasks`](pi/extensions/experimental/background-tasks) | Runs session-owned background jobs and agent-authored watchers with automatic notifications.                                                                              |
 | [`@clanker-stuff/border-status`](pi/extensions/experimental/border-status)       | Shares the editor top border between extension-owned status indicators.                                                                                                   |
-| [`@clanker-stuff/codex-provider`](pi/extensions/experimental/codex-provider)     | Replaces Pi's OpenAI Codex provider with Codex-compatible requests, fast mode, transport, compaction, and durable checkpoint replay.                                      |
 | [`@clanker-stuff/context`](pi/extensions/experimental/context)                   | Inspects Pi's current context as a read-only TUI tree with searchable, scrollable details.                                                                                |
 | [`@clanker-stuff/footer`](pi/extensions/experimental/footer)                     | Hosts a configurable cooperative footer for built-in, native, and rich extension widgets.                                                                                 |
 | [`@clanker-stuff/plannotator`](pi/extensions/experimental/plannotator)           | Adds Plannotator review and annotation commands to pi.                                                                                                                    |
@@ -50,7 +48,7 @@ Experimental extensions are not published to npm and are not stable daily driver
 
 ## Development
 
-Requires Vite+ and Node.js 26 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`.
+Requires Vite+ and Node.js 26 or newer. Run `vp install --frozen-lockfile`, then `vp run ready`. See the [native Pi baseline](docs/native-pi.md) for retirement and local-adoption notes.
 
 ## License
 

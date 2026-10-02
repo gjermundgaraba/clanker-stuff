@@ -6,7 +6,7 @@ Adds durable hierarchical subagents with independent pi sessions, modeled on the
 
 ## Compatibility goal
 
-Together with [`codex-provider`](../codex-provider), this package minimizes model-facing distribution shift from the native Codex CLI harness. Its collaboration tools, schemas, descriptions, results, prompts, messages, and lifecycle behavior should match the pinned Codex implementation whenever Pi can execute that contract truthfully; every known difference remains explicit in the [parity ledger](docs/codex-parity.md).
+This package minimizes model-facing distribution shift from the native Codex CLI collaboration harness while using Pi's native providers and tool execution. Its collaboration tools, schemas, descriptions, results, prompts, messages, and lifecycle behavior should match the pinned Codex implementation whenever Pi can execute that contract truthfully; every known difference remains explicit in the [parity ledger](docs/codex-parity.md).
 
 ## Install
 

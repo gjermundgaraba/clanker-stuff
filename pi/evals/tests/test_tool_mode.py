@@ -20,17 +20,17 @@ class ToolModeTest(unittest.TestCase):
                 {"tool_mode": "hybrid"},
                 {"compaction_mode": "on"},
                 {"pair_id": ""},
-                {"extra": "x"},
             ):
                 with self.assertRaises(ValueError):
                     validate_manifest({**manifest, **patch})
+            self.assertEqual(validate_manifest({**manifest, "provenance": {"note": "retained"}})["provenance"], {"note": "retained"})
             adapter = PiEval(
                 logs_dir=Path("."), model_name=agent["model_name"], **agent["kwargs"]
             )
             self.assertIn("--no-skills", adapter._session_args())
             self.assertIn("--no-context-files", adapter._session_args())
             invalid = deepcopy(agent["kwargs"])
-            invalid["extensions"] = ["/opt/codex-provider/index.ts"]
+            invalid["extensions"] = ["retired-provider.ts"]
             with self.assertRaises(ValueError):
                 PiEval(logs_dir=Path("."), model_name=agent["model_name"], **invalid)
 
@@ -39,17 +39,17 @@ class ToolModeTest(unittest.TestCase):
         evidence = {
             "type": "pi_eval_tools",
             "mode": "direct",
-            "model": "openai-codex/gpt-6-astra",
+            "model": "openai/gpt-6.1-sol",
             "thinking": "high",
             "valid": True,
-            "activeTools": ["apply_patch", "exec_command", "view_image", "write_stdin"],
+            "activeTools": ["bash", "edit", "read", "write"],
         }
         events = [
             evidence,
             {
                 "type": "tool_execution_end",
                 "toolCallId": "a",
-                "toolName": "exec_command",
+                "toolName": "bash",
                 "result": {"content": []},
                 "isError": False,
             },
@@ -58,23 +58,24 @@ class ToolModeTest(unittest.TestCase):
             events,
             [],
             agent_version="test",
-            model_name="openai-codex/gpt-6-astra",
+            model_name="openai/gpt-6.1-sol",
             pi_evals=manifest,
         ).to_json_dict()
         self.assertEqual(
             trajectory["agent"]["extra"]["tool_operations"],
-            [{"name": "exec_command", "success": True}],
+            [{"id": "a", "name": "bash", "success": True}],
         )
         verifier = (EVALS / "verifiers/tool-mode-core.mjs").as_uri()
 
-        def valid(value):
+        def valid(value, expected=None):
             run = subprocess.run(
                 [
                     "node",
                     "--input-type=module",
                     "-e",
-                    f'import {{validateToolMode}} from "{verifier}"; console.log(validateToolMode(JSON.parse(process.argv[1])).valid_experiment)',
+                    f'import {{validateToolMode}} from "{verifier}"; console.log(validateToolMode(JSON.parse(process.argv[1]),JSON.parse(process.argv[2])).valid_experiment)',
                     json.dumps(value),
+                    json.dumps(expected or {"model": PROFILE["agents"][0]["model_name"], "thinking": PROFILE["agents"][0]["kwargs"]["thinking"], "directTools": manifest["direct_tools"]}),
                 ],
                 text=True,
                 capture_output=True,
@@ -83,6 +84,17 @@ class ToolModeTest(unittest.TestCase):
             return int(run.stdout)
 
         self.assertEqual(valid(trajectory), 1)
+        selected = {"model": "openai/offline-selected-model", "thinking": "medium", "directTools": manifest["direct_tools"]}
+        another = deepcopy(trajectory)
+        another["agent"]["extra"]["tool_mode_evidence"][0].update(selected)
+        another["agent"]["extra"]["pi_evals"]["provenance"] = {"note": "harmless"}
+        self.assertEqual(valid(another), 0)
+        self.assertEqual(valid(another, selected), 1)
+        custom = deepcopy(another)
+        custom["agent"]["extra"]["pi_evals"]["direct_tools"] = ["grep", "read"]
+        custom["agent"]["extra"]["tool_mode_evidence"][0]["activeTools"] = ["grep", "read"]
+        self.assertEqual(valid(custom, {**selected, "directTools": ["grep", "read"]}), 1)
+        self.assertEqual(valid(custom, selected), 0)
         for patch in (
             {"activeTools": ["exec"]},
             {"valid": False},
@@ -105,6 +117,16 @@ class ToolModeTest(unittest.TestCase):
             {"type": "pi_eval_compaction"}
         )
         self.assertEqual(valid(trajectory), 0)
+
+    def test_selected_model_effort_and_arm_owned_settings(self):
+        profile = PROFILE["agents"][1]
+        kwargs = deepcopy(profile["kwargs"])
+        kwargs["thinking"] = "medium"
+        adapter = PiEval(logs_dir=Path("."), model_name="openai/offline-selected-model", **kwargs)
+        self.assertEqual(adapter._thinking, "medium")
+        for override in ({"defaultTools": ["+codemode"]}, {"codemode": {"mode": "on"}}):
+            with self.assertRaisesRegex(ValueError, "selected by arm"):
+                PiEval(logs_dir=Path("."), model_name="openai/offline-selected-model", **{**kwargs, "settings": {**kwargs["settings"], **override}})
 
     def test_unrelated_settings_and_configured_retry_do_not_change_arm_contract(self):
         profile = PROFILE["agents"][0]

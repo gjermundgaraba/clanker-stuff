@@ -124,7 +124,7 @@ const contextGrowth = (branch: readonly SessionEntry[], runStart: number): numbe
   return growth + output;
 };
 
-/** codex-provider records compaction inside a turn as this custom entry, not a Pi compaction. */
+/** Historical retired-provider checkpoints remain countable in persisted transcripts. */
 const INLINE_COMPACTION = "codex-provider.checkpoint";
 
 /**

@@ -14,7 +14,7 @@ class ServiceGenerationTest(TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             tasks = [
-                scaling.generate_task(root, size, "behavioral-test", 1)
+                scaling.generate_task(root, size, "behavioral-test", 1, {"model": "openai/offline-fixture-model", "thinking": "low", "directTools": ["list_records", "submit_report"]})
                 for size in scaling.SIZES
             ]
             for task in tasks:

@@ -28,7 +28,7 @@ from pi_evals.protocol import (
 )
 
 PI_VANILLA_OFF = {
-    "platform": "pi-vanilla",
+    "platform": "pi-without-code-mode",
     "compaction_mode": "off",
     "expected_mechanism": "pi-builtin",
     "expected_protocol": None,
@@ -49,10 +49,77 @@ CODEX_NATIVE_ON = {**CODEX_NATIVE_OFF, "compaction_mode": "on"}
 
 
 class PiTrajectoryTest(TestCase):
-    def test_manifest_is_strict(self) -> None:
+    def test_native_operations_do_not_create_model_calls_and_argument_omission_keeps_counts(self):
+        events = [
+            {"type": "agent_start"},
+            {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "toolCall", "id": "outer", "name": "codemode", "arguments": {"code": "probe"}}]}},
+            {"type": "tool_execution_start", "toolCallId": "outer/1", "parentToolCallId": "outer", "toolName": "read", "args": {"path": "x" * 9000}},
+            {"type": "tool_execution_end", "toolCallId": "outer/1", "parentToolCallId": "outer", "toolName": "read", "isError": False, "result": {"content": []}},
+            {"type": "message_end", "message": {"role": "toolResult", "toolCallId": "outer", "nestedCalls": {"complete": False, "calls": [{"id": "outer/1", "name": "read", "status": "ok", "argumentsBytes": 9011}]}}},
+            {"type": "agent_settled"},
+        ]
+        def convert(values):
+            return convert_pi_events(values, [], agent_version="test", model_name="test", pi_evals=PI_VANILLA_OFF)
+        trajectory = convert(events)
+        self.assertEqual(len(trajectory.steps), 1)
+        self.assertEqual(trajectory.final_metrics.extra["tool_calls"], 1)
+        self.assertEqual(trajectory.final_metrics.extra["underlying_operations"], 1)
+        self.assertTrue(trajectory.final_metrics.extra["underlying_operations_complete"])
+        # Summary call clipping is not an operation-count loss when complete events exist.
+        events[4]["message"]["nestedCalls"]["calls"] = []
+        self.assertEqual(convert(events).final_metrics.extra["underlying_operations"], 1)
+        # No successful capture boundary, or a missing terminal event, remains unknown.
+        self.assertIsNone(convert(events[:-1]).final_metrics.extra["underlying_operations"])
+        self.assertIsNone(convert(events[1:]).final_metrics.extra["underlying_operations"])
+        self.assertIsNone(convert([*events, {"type": "agent_start"}]).final_metrics.extra["underlying_operations"])
+        incomplete = [e for e in events if e.get("type") != "tool_execution_end"]
+        self.assertIsNone(convert(incomplete).final_metrics.extra["underlying_operations"])
+
+    def test_native_counts_ignore_tool_details_and_require_complete_invocations(self):
+        start = {"type": "tool_execution_start", "toolCallId": "op", "toolName": "exec"}
+        end = {"type": "tool_execution_end", "toolCallId": "op", "toolName": "exec", "isError": True, "result": {"details": {}}}
+        closed = [{"type": "agent_start"}, start, end, {"type": "agent_settled"}]
+
+        def metrics(events):
+            return convert_pi_events(events, [], agent_version="0.99.2", model_name="test", pi_evals=PI_VANILLA_OFF).final_metrics.extra
+
+        # Native exec/wait names and arbitrary details are not retired V8 wrappers.
+        for name in ("exec", "wait", "probe"):
+            for details in ({}, {"traces": []}, {"cellId": "old", "droppedTraceCount": 42, "traces": [{"id": "legacy", "name": "read", "status": "done"}]}):
+                with self.subTest(name=name, details=details):
+                    events = [closed[0], {**start, "toolName": name}, {**end, "toolName": name, "result": {"details": details}}, closed[-1]]
+                    self.assertEqual(metrics(events)["underlying_operations"], 1)
+                    partial = metrics(events[:-1])
+                    self.assertIsNone(partial["underlying_operations"])
+                    self.assertEqual(partial["observed_underlying_operations"], 1)
+                    self.assertFalse(partial["underlying_operations_complete"])
+        # Duplicate event/summary observations retain one operation, even when it failed.
+        self.assertEqual(metrics([*closed[:-1], end, closed[-1]])["underlying_operations"], 1)
+        second = [{"type": "harbor_instruction", "index": 1}, {"type": "agent_start"}, {"type": "agent_settled"}]
+        first = [{"type": "harbor_instruction", "index": 0}, *closed]
+        self.assertEqual(metrics([*first, *second])["underlying_operations"], 1)
+        for events in (
+            [*first, second[0]],  # New invocation failed before agent startup.
+            [*first, *second[:-1]],
+            [first[0], *closed[:-1], *second],  # A later closed invocation cannot erase a gap.
+            [first[0], *second],  # An invocation with no startup was skipped.
+            [closed[0], end, closed[-1]],  # Lost start record.
+            [closed[0], start, closed[-1]],  # Unfinished operation.
+        ):
+            with self.subTest(events=events):
+                self.assertIsNone(metrics(events)["underlying_operations"])
+
+    def test_native_summary_only_observations_are_lower_bounds(self):
+        summary = {"type": "message_end", "message": {"role": "toolResult", "toolCallId": "outer", "nestedCalls": {"complete": True, "calls": [{"id": "outer/1", "name": "read", "status": "ok"}]}}}
+        trajectory = convert_pi_events([{"type": "agent_start"}, summary, {"type": "agent_settled"}], [], agent_version="0.99.2", model_name="test", pi_evals=PI_VANILLA_OFF)
+        self.assertEqual(trajectory.final_metrics.extra["observed_underlying_operations"], 1)
+        self.assertIsNone(trajectory.final_metrics.extra["underlying_operations"])
+
+    def test_manifest_validates_required_fields_and_preserves_provenance(self) -> None:
         self.assertEqual(validate_manifest(PI_VANILLA_OFF), PI_VANILLA_OFF)
-        with self.assertRaisesRegex(ValueError, "exactly these keys"):
-            validate_manifest({**PI_VANILLA_OFF, "extra": "no"})
+        self.assertEqual(validate_manifest({**PI_VANILLA_OFF, "provenance": {"note": "kept"}})["provenance"], {"note": "kept"})
+        with self.assertRaisesRegex(ValueError, "must contain"):
+            validate_manifest({"platform": "pi-without-code-mode"})
         with self.assertRaisesRegex(ValueError, "'off' or 'on'"):
             validate_manifest({**PI_VANILLA_OFF, "compaction_mode": "maybe"})
         with self.assertRaisesRegex(ValueError, "nonempty string or null"):
@@ -61,31 +128,27 @@ class PiTrajectoryTest(TestCase):
             validate_manifest({**PI_VANILLA_OFF, "expected_protocol": "  "})
 
     def test_adapter_manifest_matches_runtime(self) -> None:
-        provider_manifest = {
-            "platform": "pi-provider",
-            "compaction_mode": "on",
-            "expected_mechanism": "codex-provider",
-            "expected_protocol": "openai-responses-compaction-v2",
-        }
         adapter = PiEval(
             logs_dir=Path("."),
-            model_name="openai-codex/model",
-            extensions=["/opt/codex-provider/index.ts"],
-            pi_evals=provider_manifest,
+            model_name="openai/model",
+            pi_evals=PI_VANILLA_OFF,
         )
-        self.assertEqual(adapter._pi_evals, provider_manifest)
-        with self.assertRaisesRegex(ValueError, "Pi extensions"):
-            PiEval(
-                logs_dir=Path("."),
-                model_name="openai-codex/model",
-                pi_evals={**PI_VANILLA_OFF, "platform": "pi-provider"},
-            )
+        self.assertEqual(adapter._pi_evals, PI_VANILLA_OFF)
+        code_manifest = {**PI_VANILLA_OFF, "platform": "pi-with-code-mode"}
+        code = PiEval(
+            logs_dir=Path("."),
+            model_name="openai/model",
+            settings={"defaultTools": ["codemode"], "codemode": {"mode": "only"}},
+            pi_evals=code_manifest,
+        )
+        self.assertIn("/opt/pi-evals/pi-eval-tools.mjs", code._session_args())
+        additive = PiEval(logs_dir=Path("."), model_name="openai/model", settings={"defaultTools": ["+codemode"]}, pi_evals=code_manifest)
+        self.assertEqual(additive._settings["defaultTools"], ["+codemode"])
+        for invalid in (PI_PROVIDER_ON,):
+            with self.assertRaisesRegex(ValueError, "native Pi tool settings"):
+                PiEval(logs_dir=Path("."), model_name="openai/model", pi_evals=invalid)
         with self.assertRaisesRegex(ValueError, "Codex native"):
-            CodexEval(
-                logs_dir=Path("."),
-                model_name="openai/model",
-                pi_evals=PI_VANILLA_OFF,
-            )
+            CodexEval(logs_dir=Path("."), model_name="openai/model", pi_evals=PI_VANILLA_OFF)
 
     def test_pi_session_is_always_isolated(self) -> None:
         adapter = PiEval(
@@ -157,6 +220,26 @@ class PiTrajectoryTest(TestCase):
                     {"type": "agent_settled"},
                 ],
                 0,
+            ),
+            (
+                "settlement followed by an unclosed run",
+                [
+                    {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}},
+                    {"type": "agent_settled"},
+                    {"type": "agent_start"},
+                    {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}},
+                ],
+                1,
+            ),
+            (
+                "new run needs its own answer",
+                [
+                    {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}},
+                    {"type": "agent_settled"},
+                    {"type": "agent_start"},
+                    {"type": "agent_settled"},
+                ],
+                1,
             ),
             (
                 "tool-only EOF",
@@ -512,9 +595,8 @@ class PiTrajectoryTest(TestCase):
             )
             adapter = PiEval(
                 logs_dir=logs_dir,
-                model_name="openai-codex/gpt-5.6-terra",
-                extensions=["/opt/codex-provider/index.ts"],
-                pi_evals=PI_PROVIDER_ON,
+                model_name="openai/gpt-6.1-sol",
+                pi_evals={**PI_VANILLA_OFF, "compaction_mode": "on"},
             )
             adapter._instructions = ["history", "continue"]
             context = AgentContext()

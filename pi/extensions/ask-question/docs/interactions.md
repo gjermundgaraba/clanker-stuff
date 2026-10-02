@@ -46,7 +46,7 @@ Limits: title/option labels 256 characters, question headers 64, question prompt
 
 Tool schemas are structural: closed objects, types and required fields, which Pi's strict constrained-sampling converter can represent. All three tools request `strict: "prefer"`, so providers without strict tool support fall back to ordinary sampling. Lengths, counts, ID syntax and uniqueness are runtime validation, reported as tool errors.
 
-These tools are **not native Codex wire-compatible implementations**. The Codex provider preserves them as external, direct tools, including in Code Mode, independently of native question catalog markers. Its native catalog gate still applies to attention messaging. Ordinary delegated subagents exclude the root-only async questionnaire and attention tools; blocking questionnaires are separate.
+These tools are **not native Codex wire-compatible implementations**. Native Pi owns their serialization and Code Mode placement; there is no provider-specific catalog gate. Ordinary delegated subagents exclude the root-only async questionnaire and attention tools; blocking questionnaires are separate.
 
 ## Answering
 

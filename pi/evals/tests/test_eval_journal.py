@@ -41,20 +41,23 @@ class EvalJournalTest(TestCase):
                   import {{registerHooks}} from "node:module";
                   const moduleUrl=source=>"data:text/javascript,"+encodeURIComponent(source);
                   registerHooks({{resolve(specifier, context, next) {{
-                    if(specifier==="/opt/codex-provider/index.ts")
-                      return {{url:moduleUrl("export default function(){{}}"),shortCircuit:true}};
                     if(specifier==="./eval-journal.mjs" && context.parentURL==={json.dumps(wrapper)})
                       return {{url:moduleUrl({json.dumps(redirect)}),shortCircuit:true}};
                     return next(specifier,context);
                   }}}});
+                  process.env.PI_EVAL_EXPERIMENT="code-mode";
+                  process.env.PI_EVAL_DIRECT_TOOLS=JSON.stringify(["bash","edit","read","write"]);
                   process.env.PI_EVAL_TOOL_MODE={json.dumps(mode)};
-                  process.env.PI_EVAL_MODEL="openai-codex/gpt-6-astra";
+                  process.env.PI_EVAL_MODEL="openai/gpt-6.1-sol";
                   process.env.PI_EVAL_THINKING="high";
-                  const hooks=new Map(), names={json.dumps(['apply_patch','exec_command','view_image','write_stdin'] if mode=='direct' else ['apply_patch','exec','exec_command','view_image','write_stdin'])};
-                  const pi={{on:(name,fn)=>hooks.set(name,fn),getActiveTools:()=>[...names],getThinkingLevel:()=>"high"}};
-                  const ctx={{model:{{provider:"openai-codex",id:"gpt-6-astra"}},getSystemPrompt:()=>"prompt",abort:()=>{{}}}};
-                  (await import({json.dumps(wrapper)})).default(pi);
+                  const hooks=new Map(), registered=[], names=[];
+                  const expected={json.dumps(['bash','edit','read','write'] if mode=='direct' else ['bash','codemode','edit','read','write'])};
+                  const pi={{on:(name,fn)=>hooks.set(name,fn),registerTool:tool=>registered.push(tool.name),registerCommand:()=>{{}},setActiveTools:tools=>names.splice(0,names.length,...tools),getActiveTools:()=>[...names],getThinkingLevel:()=>"high"}};
+                  const ctx={{model:{{provider:"openai",id:"gpt-6.1-sol"}},getSystemPrompt:()=>"prompt",abort:()=>{{}}}};
+                  await (await import({json.dumps(wrapper)})).default(pi);
                   await hooks.get("session_start")({{}},ctx);
+                  assert.deepEqual(names,expected);
+                  assert.deepEqual(registered,{json.dumps([] if mode=="direct" else ["codemode"])});
                   await hooks.get("before_provider_request")({{}},ctx);
                   assert.deepEqual(await hooks.get("session_before_compact")(),{{cancel:true}});
                   await assert.rejects(hooks.get("before_provider_request")({{}},ctx),/runtime contract/);

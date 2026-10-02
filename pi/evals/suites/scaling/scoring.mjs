@@ -1,5 +1,5 @@
 import { isDeepStrictEqual as equal } from "node:util";
-import { fixture, SETTINGS } from "/opt/codex-provider/services.mjs";
+import { fixture, SETTINGS } from "/opt/pi-evals/services.mjs";
 
 import { isRecord } from "./service-metrics.mjs";
 

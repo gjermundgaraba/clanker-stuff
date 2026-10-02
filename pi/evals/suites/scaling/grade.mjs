@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { fixture, FIXTURE, SERVICE_NAMES } from "/opt/codex-provider/services.mjs";
+import { fixture, FIXTURE, SERVICE_NAMES } from "/opt/pi-evals/services.mjs";
 import { isRecord } from "./service-metrics.mjs";
 import { oracle, score, serviceMetrics } from "./scoring.mjs";
 import { validateToolMode } from "./tool-mode.mjs";

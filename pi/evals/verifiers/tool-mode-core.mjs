@@ -1,19 +1,29 @@
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** @param {unknown} trajectory @param {{directTools?: string[]}} options */
+/** @param {unknown} trajectory @param {{model: string, thinking: string, directTools: string[]}} options */
 // Runtime validity is independent of task quality and successful completion.
-export function validateToolMode(
-  trajectory,
-  { directTools = ["apply_patch", "exec_command", "view_image", "write_stdin"] } = {},
-) {
+export function validateToolMode(trajectory, { model, thinking, directTools }) {
   const agent = isRecord(trajectory) && isRecord(trajectory.agent) ? trajectory.agent : undefined;
   const extra = isRecord(agent?.extra) ? agent.extra : undefined;
   const manifest = isRecord(extra?.pi_evals) ? extra.pi_evals : undefined;
   /** @type {unknown[]} */
   const evidence = Array.isArray(extra?.tool_mode_evidence) ? extra.tool_mode_evidence : [];
   const steps = isRecord(trajectory) ? trajectory.steps : undefined;
-  const expected = manifest?.arm === "direct" ? directTools : [...directTools, "exec"].sort();
+
+  if (
+    !Array.isArray(directTools) ||
+    directTools.length === 0 ||
+    directTools.some((t) => typeof t !== "string" || !t.trim() || t === "codemode") ||
+    new Set(directTools).size !== directTools.length
+  )
+    return { valid_experiment: 0 };
+
+  const manifestTools = manifest?.direct_tools;
+
+  const expected =
+    manifest?.arm === "direct" ? [...directTools].sort() : [...directTools, "codemode"].sort();
+
   const mode = manifest?.arm === "direct" ? "direct" : "code_mode_only";
 
   const keys = [
@@ -21,6 +31,7 @@ export function validateToolMode(
     "compaction_mode",
     "expected_mechanism",
     "expected_protocol",
+    "direct_tools",
     "experiment",
     "arm",
     "tool_mode",
@@ -29,11 +40,14 @@ export function validateToolMode(
 
   const valid =
     manifest?.experiment === "code-mode" &&
-    Object.keys(manifest).length === keys.length &&
     keys.every((key) => Object.hasOwn(manifest, key)) &&
-    manifest.platform === "pi-provider" &&
-    manifest.expected_mechanism === "codex-provider" &&
-    manifest.expected_protocol === "openai-responses-compaction-v2" &&
+    manifest.platform ===
+      (manifest.arm === "direct" ? "pi-without-code-mode" : "pi-with-code-mode") &&
+    Array.isArray(manifestTools) &&
+    manifestTools.length === directTools.length &&
+    directTools.every((name) => manifestTools.includes(name)) &&
+    manifest.expected_mechanism === "pi-builtin" &&
+    manifest.expected_protocol === null &&
     typeof manifest.pair_id === "string" &&
     manifest.pair_id.trim().length > 0 &&
     (steps === undefined ||
@@ -54,8 +68,8 @@ export function validateToolMode(
         event.type === "pi_eval_tools" &&
         event.valid === true &&
         event.mode === mode &&
-        event.model === "openai-codex/gpt-6-astra" &&
-        event.thinking === "high" &&
+        event.model === model &&
+        event.thinking === thinking &&
         JSON.stringify(event.activeTools) === JSON.stringify(expected),
     );
 

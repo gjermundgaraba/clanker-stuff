@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-Manifest = dict[str, str | None]
+Manifest = dict[str, Any]
 _KEYS = {"platform", "compaction_mode", "expected_mechanism", "expected_protocol"}
 CONTROLLED_COMPACTION_MARKER = "<!-- pi-evals:compact-before -->\n"
 
@@ -20,9 +20,9 @@ def validate_manifest(value: Any) -> Manifest:
     """Validate the provenance contract recorded in every trajectory."""
     code_mode = isinstance(value, dict) and value.get("experiment") == "code-mode"
     keys = _KEYS | {"experiment", "arm", "tool_mode", "pair_id"} if code_mode else _KEYS
-    if not isinstance(value, dict) or set(value) != keys:
+    if not isinstance(value, dict) or not keys.issubset(value):
         raise ValueError(
-            f"pi_evals manifest must have exactly these keys: {sorted(keys)}"
+            f"pi_evals manifest must contain these keys: {sorted(keys)}"
         )
     platform = value["platform"]
     mode = value["compaction_mode"]
@@ -37,18 +37,24 @@ def validate_manifest(value: Any) -> Manifest:
     if protocol is not None and (not isinstance(protocol, str) or not protocol.strip()):
         raise ValueError("pi_evals expected_protocol must be a nonempty string or null")
     if code_mode:
+        tools = value.get("direct_tools")
+        if not isinstance(tools, list) or not tools or any(not isinstance(t, str) or not t.strip() or t == "codemode" for t in tools) or len(set(tools)) != len(tools):
+            raise ValueError("code-mode requires explicit distinct direct_tools without codemode")
         if value["arm"] not in {"direct", "code"}:
             raise ValueError("invalid code-mode arm")
         expected_mode = "direct" if value["arm"] == "direct" else "code_mode_only"
         if (
             value["tool_mode"] != expected_mode
+            or platform != ("pi-without-code-mode" if value["arm"] == "direct" else "pi-with-code-mode")
+            or mechanism != "pi-builtin"
+            or protocol is not None
             or mode != "off"
-            or platform != "pi-provider"
         ):
             raise ValueError("code-mode configuration does not match arm")
         if not isinstance(value["pair_id"], str) or not value["pair_id"].strip():
             raise ValueError("code-mode pair_id must be nonempty")
     return {
+        **value,
         **(
             {key: value[key] for key in ("experiment", "arm", "tool_mode", "pair_id")}
             if code_mode

@@ -7,29 +7,16 @@ import {
   FOOTER_WIDGET_EVENT,
   FooterWidgetMessageSchema,
 } from "@clanker-stuff/footer-protocol";
-import type { Api, Model, RefreshModelsContext } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { createCodexRuntime } from "../../codex-provider/runtime.js";
 import type { ProviderAuthClient } from "../auth.js";
 import { resolveRadiusBillingUrl } from "../controller.js";
 import type { FetchJson } from "../http.js";
 import { createUsageExtension } from "../index.js";
 
-const makeJwt = (): string => {
-  const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
-
-  const body = Buffer.from(
-    JSON.stringify({
-      "https://api.openai.com/auth": { chatgpt_account_id: "acct_1" },
-    }),
-  ).toString("base64url");
-
-  return `${header}.${body}.sig`;
-};
-
-const codexModel: Model<Api> = {
+const claudeModel: Model<Api> = {
   api: "test",
   baseUrl: "",
   contextWindow: 200_000,
@@ -38,19 +25,12 @@ const codexModel: Model<Api> = {
   input: ["text"],
   maxTokens: 16_000,
   name: "gpt-5",
-  provider: "openai-codex",
+  provider: "anthropic",
   reasoning: true,
 };
 
-const claudeModel: Model<Api> = {
-  ...codexModel,
-  id: "claude-sonnet",
-  name: "Claude Sonnet",
-  provider: "anthropic",
-};
-
 const radiusModel: Model<Api> = {
-  ...codexModel,
+  ...claudeModel,
   id: "balanced",
   name: "Balanced",
   provider: "radius",
@@ -58,23 +38,19 @@ const radiusModel: Model<Api> = {
 
 const authClient: ProviderAuthClient = {
   getProviderAuth: async () => ({
-    auth: { apiKey: makeJwt() },
+    auth: { apiKey: "fake-token" },
     source: "OAuth",
   }),
 };
 
 const successfulFetchJson: FetchJson = okFetch({
-  rate_limit: {
-    primary_window: { used_percent: 32 },
-    secondary_window: { used_percent: 66 },
-  },
+  five_hour: { utilization: 32 },
+  seven_day: { utilization: 66 },
 });
 
 const client = { fetchJson: successfulFetchJson };
 
 let fetchJson = vi.spyOn(client, "fetchJson");
-
-const publishModels: RefreshModelsContext["publish"] = () => Promise.resolve(true);
 
 const stubDependencies = (
   nowRef: { value: number },
@@ -93,6 +69,123 @@ const stubDependencies = (
 };
 
 describe("usage controller", () => {
+  it("reports native OpenAI quotas as unsupported without requesting its credentials", async () => {
+    const auth = vi.fn(async () => undefined);
+    const fetch = vi.spyOn(client, "fetchJson");
+
+    const host = createExtensionHost(
+      createUsageExtension({
+        fetchJson: client.fetchJson,
+        now: () => 1000,
+        providerAuthClient: () => ({ getProviderAuth: auth }),
+      }),
+      { model: { ...claudeModel, provider: "openai" } },
+    );
+
+    await host.ready;
+    await host.emitSessionStart();
+    expect(host.getStatus("usage")).toBeUndefined();
+    await host.runCommand("usage", "");
+    expect(host.getNotifications().at(-1)?.message).toContain("quota reporting is unavailable");
+    expect(auth).not.toHaveBeenCalledWith("openai");
+    expect(auth).not.toHaveBeenCalledWith("openai-codex");
+    expect(fetch).not.toHaveBeenCalled();
+    await host.emitSessionShutdown();
+  });
+
+  it.each(["settled", "model", "shutdown"] as const)(
+    "delivers account results across refreshes but not shutdown (%s)",
+    async (event) => {
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+
+      const host = createExtensionHost(
+        createUsageExtension({
+          now: () => 1000,
+          radiusBillingUrl: () => undefined,
+          providerAuthClient: () => ({
+            getProviderAuth: async (provider) =>
+              provider === "anthropic"
+                ? { auth: { apiKey: "offline" }, source: "OAuth" }
+                : undefined,
+          }),
+          fetchJson: async (url, schema, options) => {
+            started.resolve();
+            await release.promise;
+
+            return okFetch({ five_hour: { utilization: 20 } })(url, schema, options);
+          },
+        }),
+        { model: claudeModel },
+      );
+
+      await host.ready;
+      const ctx = host.createContext({ model: claudeModel });
+      const command = host.runCommand("usage", "", ctx);
+      await started.promise;
+
+      if (event === "settled") await host.emit("agent_settled", { type: "agent_settled" }, ctx);
+      else if (event === "model")
+        await host.emit(
+          "model_select",
+          { type: "model_select", model: radiusModel, previousModel: claudeModel, source: "set" },
+          host.createContext({ model: radiusModel }),
+        );
+      else await host.emitSessionShutdown(ctx);
+      release.resolve();
+      await command;
+      expect(host.getNotifications()).toHaveLength(event === "shutdown" ? 0 : 1);
+
+      if (event !== "shutdown") await host.emitSessionShutdown(ctx);
+    },
+  );
+
+  it("does not lose a command when the periodic footer timer refreshes", async () => {
+    const release = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    let delayFetch = false;
+
+    const host = createExtensionHost(
+      createUsageExtension({
+        now: () => 1000,
+        radiusBillingUrl: () => undefined,
+        providerAuthClient: () => ({
+          getProviderAuth: async (provider) =>
+            provider === "anthropic" ? { auth: { apiKey: "offline" }, source: "OAuth" } : undefined,
+        }),
+        fetchJson: async (url, schema, options) => {
+          if (delayFetch) {
+            entered.resolve();
+            await release.promise;
+          }
+
+          return okFetch({ five_hour: { utilization: 20 } })(url, schema, options);
+        },
+      }),
+      { model: claudeModel },
+    );
+
+    await host.ready;
+    const ctx = host.createContext({ model: claudeModel });
+    await host.runCommand("usage", "", ctx);
+    vi.useFakeTimers();
+
+    try {
+      await host.emitSessionStart(ctx);
+      delayFetch = true;
+      const command = host.runCommand("usage", "refresh", ctx);
+      await entered.promise;
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      release.resolve();
+      await command;
+      expect(host.getNotifications()).toHaveLength(2);
+    } finally {
+      release.resolve();
+      await host.emitSessionShutdown(ctx);
+      vi.useRealTimers();
+    }
+  });
+
   it("resolves one effective Radius gateway and rejects ambiguity", () => {
     expect(
       resolveRadiusBillingUrl([
@@ -109,7 +202,7 @@ describe("usage controller", () => {
 
   it("keeps a native fallback and publishes rich snapshots when a host is ready", async () => {
     const extension = stubDependencies({ value: 1000 });
-    const host = createExtensionHost(extension, { model: codexModel });
+    const host = createExtensionHost(extension, { model: claudeModel });
     const messages: object[] = [];
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {
       if (value instanceof Object) {
@@ -124,10 +217,10 @@ describe("usage controller", () => {
       });
     });
 
-    const context = host.createContext({ model: codexModel });
+    const context = host.createContext({ model: claudeModel });
     await host.emitSessionStart(context);
     await vi.waitFor(() => {
-      expect(host.getStatus("usage")).toContain("Codex");
+      expect(host.getStatus("usage")).toContain("Claude");
     });
     expect(host.getStatus("usage")).toContain("66%");
     expect(
@@ -193,67 +286,10 @@ describe("usage controller", () => {
     await host.emitSessionShutdown(context);
   });
 
-  it("refreshes immediately when Codex observes a login", async () => {
-    const extension = stubDependencies({ value: 1000 });
-    let requests = 0;
-
-    let refreshModels:
-      | ReturnType<typeof createCodexRuntime>["catalog"]["refreshModels"]
-      | undefined;
-
-    fetchJson.mockImplementation(async (url, schema, options) => {
-      requests += 1;
-
-      return okFetch({ rate_limit: { primary_window: { used_percent: requests * 10 } } })(
-        url,
-        schema,
-        options,
-      );
-    });
-
-    const host = createExtensionHost(
-      (pi) => {
-        ({ refreshModels } = createCodexRuntime(pi, vi.fn()).catalog);
-        extension(pi);
-      },
-      { model: codexModel },
-    );
-
-    const context = host.createContext({ model: codexModel });
-
-    await host.emitSessionStart(context);
-    await vi.waitFor(() => {
-      expect(host.getStatus("usage")).toContain("10%");
-    });
-
-    if (refreshModels === undefined) {
-      throw new Error("Codex model refresh was not registered");
-    }
-
-    const { signal } = new AbortController();
-    await refreshModels({
-      allowNetwork: false,
-      publish: publishModels,
-      signal,
-    });
-    await refreshModels({
-      allowNetwork: false,
-      credential: { key: makeJwt(), type: "api_key" },
-      publish: publishModels,
-      signal,
-    });
-    await vi.waitFor(() => {
-      expect(host.getStatus("usage")).toContain("20%");
-    });
-
-    expect(requests).toBe(2);
-    await host.emitSessionShutdown(context);
-  });
-
   it("does not fetch usage automatically outside TUI mode", async () => {
     const extension = stubDependencies({ value: 1000 });
-    const host = createExtensionHost(extension, { model: codexModel });
-    const context = host.createContext({ mode: "rpc", model: codexModel });
+    const host = createExtensionHost(extension, { model: claudeModel });
+    const context = host.createContext({ mode: "rpc", model: claudeModel });
 
     await host.emitSessionStart(context);
     await host.emit("agent_settled", { type: "agent_settled" }, context);
@@ -265,7 +301,7 @@ describe("usage controller", () => {
   it("does not let a stale command refresh overwrite a model switch", async () => {
     const extension = stubDependencies({ value: 1000 });
 
-    const codex = Promise.withResolvers<{
+    const radius = Promise.withResolvers<{
       json: unknown;
       ok: true;
     }>();
@@ -276,8 +312,8 @@ describe("usage controller", () => {
     }>();
 
     fetchJson.mockImplementation(async (url, schema, options) => {
-      if (url.includes("/wham/usage")) {
-        return okFetch((await codex.promise).json)(url, schema, options);
+      if (url.includes("/v1/billing")) {
+        return okFetch((await radius.promise).json)(url, schema, options);
       }
 
       if (url.includes("anthropic.com")) {
@@ -286,10 +322,10 @@ describe("usage controller", () => {
 
       return { kind: "response", message: "unavailable", ok: false };
     });
-    const host = createExtensionHost(extension, { model: codexModel });
-    const codexContext = host.createContext({ model: codexModel });
+    const host = createExtensionHost(extension, { model: radiusModel });
+    const radiusContext = host.createContext({ model: radiusModel });
 
-    const command = host.runCommand("usage", "", codexContext);
+    const command = host.runCommand("usage", "", radiusContext);
     await vi.waitFor(() => {
       expect(fetchJson).toHaveBeenCalledWith(
         expect.any(String),
@@ -302,7 +338,7 @@ describe("usage controller", () => {
       "model_select",
       {
         model: claudeModel,
-        previousModel: codexModel,
+        previousModel: radiusModel,
         source: "set",
         type: "model_select",
       },
@@ -318,11 +354,12 @@ describe("usage controller", () => {
       expect(host.getStatus("usage")).toContain("Claude");
     });
 
-    codex.resolve({
+    radius.resolve({
       json: {
-        rate_limit: {
-          primary_window: { used_percent: 90 },
-        },
+        ok: true,
+        currency: "USD",
+        balance: { available: 9, credit_balance: 10, reserved: 1 },
+        current_period: { actual_charged: 1, ends_at: "2026-10-01T00:00:00Z" },
       },
       ok: true,
     });
@@ -330,89 +367,6 @@ describe("usage controller", () => {
 
     expect(host.getStatus("usage")).toContain("Claude");
     await host.emitSessionShutdown(claudeContext);
-  });
-
-  it("invalidates cached and in-flight Codex usage when the account changes", async () => {
-    const extension = stubDependencies({ value: 1000 });
-    const first = Promise.withResolvers<{ json: unknown; ok: true }>();
-    const second = Promise.withResolvers<{ json: unknown; ok: true }>();
-    let request = 0;
-    fetchJson.mockImplementation(async (url, schema, options) => {
-      request += 1;
-      const response = await (request === 1 ? first.promise : second.promise);
-
-      return okFetch(response.json)(url, schema, options);
-    });
-    const host = createExtensionHost(extension, { model: codexModel });
-    const context = host.createContext({ model: codexModel });
-    await host.emitSessionStart(context);
-    await vi.waitFor(() => {
-      expect(fetchJson).toHaveBeenCalledOnce();
-    });
-
-    host.events.emit("clanker-codex:account-changed", null);
-    await vi.waitFor(() => {
-      expect(fetchJson).toHaveBeenCalledTimes(2);
-    });
-    first.resolve({
-      json: {
-        rate_limit: { primary_window: { used_percent: 11 } },
-      },
-      ok: true,
-    });
-    await Promise.resolve();
-    expect(host.getStatus("usage")).not.toContain("11%");
-
-    second.resolve({
-      json: {
-        rate_limit: { primary_window: { used_percent: 77 } },
-      },
-      ok: true,
-    });
-    await vi.waitFor(() => {
-      expect(host.getStatus("usage")).toContain("77%");
-    });
-    await host.emitSessionShutdown(context);
-  });
-
-  it("discards an old-account command result after an account change", async () => {
-    const extension = stubDependencies({ value: 1000 });
-    const old = Promise.withResolvers<void>();
-    let requests = 0;
-    fetchJson.mockImplementation(async (url, schema, options) => {
-      if (!url.includes("/wham/usage"))
-        return { kind: "response", message: "unavailable", ok: false };
-      requests += 1;
-
-      if (requests === 1) {
-        await old.promise;
-
-        return okFetch({
-          plan_type: "old-account",
-          rate_limit: { allowed: false, primary_window: { used_percent: 11 } },
-        })(url, schema, options);
-      }
-
-      return okFetch({
-        plan_type: "new-account",
-        rate_limit: { allowed: true, primary_window: { used_percent: 77 } },
-      })(url, schema, options);
-    });
-    const host = createExtensionHost(extension, { model: codexModel });
-    const context = host.createContext({ model: codexModel });
-    const command = host.runCommand("usage", "", context);
-    await vi.waitFor(() => expect(requests).toBe(1));
-    host.events.emit("clanker-codex:account-changed", null);
-    await vi.waitFor(() => expect(host.getStatus("usage")).toContain("77%"));
-    old.resolve();
-    await command;
-    expect(
-      host
-        .getNotifications()
-        .map(({ message }) => message)
-        .join("\n"),
-    ).not.toContain("old-account");
-    await host.emitSessionShutdown(context);
   });
 
   it("publishes loading, error, ready, and stale health", async () => {
@@ -429,7 +383,7 @@ describe("usage controller", () => {
 
       return { kind: "response", message: "boom\n[31mred", ok: false };
     });
-    const host = createExtensionHost(extension, { model: codexModel });
+    const host = createExtensionHost(extension, { model: claudeModel });
     host.events.on(FOOTER_WIDGET_EVENT, (value) => {
       const message = value;
 
@@ -454,7 +408,7 @@ describe("usage controller", () => {
         type: "ready",
       });
     });
-    const context = host.createContext({ model: codexModel });
+    const context = host.createContext({ model: claudeModel });
 
     await host.emitSessionStart(context);
     await vi.waitFor(() => {

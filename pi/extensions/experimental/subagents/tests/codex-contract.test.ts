@@ -3,7 +3,6 @@ import { Value } from "typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
-import { COLLABORATION_CONTRACT_REQUEST, registerContractResponder } from "../contract.js";
 import { codexContractFixture as fixture } from "../docs/fixtures/codex-contract.generated.js";
 import { registerV1Tools } from "../v1/tools.js";
 import type { V1ToolController } from "../v1/tools.js";
@@ -49,45 +48,6 @@ const PropertiesSchema = Type.Object(
 const JsonObjectSchema = Type.Object({}, { additionalProperties: true });
 
 describe("pinned Codex collaboration contract", () => {
-  it("distinguishes reads from explicit Ultra and root service-tier updates", async () => {
-    const updates: {
-      rootServiceTier: "priority" | null | undefined;
-      ultra: boolean | undefined;
-    }[] = [];
-
-    const host = createExtensionHost((pi) => {
-      registerContractResponder(
-        pi,
-        () => ({ nestedTools: [], protocol: "v2", sessionId: "contract-session" }),
-        (_ctx, ultra, rootServiceTier) => updates.push({ rootServiceTier, ultra }),
-      );
-    });
-
-    await host.ready;
-
-    const request = (ultra?: boolean, rootServiceTier?: "priority" | null) => {
-      host.events.emit(COLLABORATION_CONTRACT_REQUEST, {
-        context: host.createContext(),
-        provide: () => {},
-        rootServiceTier,
-        sessionId: "contract-session",
-        ultra,
-      });
-    };
-
-    request();
-    request(false);
-    request(undefined, "priority");
-    request(undefined, null);
-
-    expect(updates).toStrictEqual([
-      { rootServiceTier: undefined, ultra: undefined },
-      { rootServiceTier: undefined, ultra: false },
-      { rootServiceTier: "priority", ultra: undefined },
-      { rootServiceTier: null, ultra: undefined },
-    ]);
-  });
-
   it("keeps the Pi V1 and V2 tool families aligned with Codex", async () => {
     const v1 = createExtensionHost((pi) => {
       registerV1Tools(pi, v1Controller(), () => {});

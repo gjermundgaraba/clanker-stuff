@@ -1,6 +1,5 @@
 export const SUPPORTED_PROVIDERS = [
   "anthropic",
-  "openai-codex",
   "openrouter",
   "github-copilot",
   "kimi-coding",
@@ -37,7 +36,6 @@ export interface UsageSnapshot {
   planLabel?: string;
   quotaWindows: UsageWindow[];
   accounting?: UsageAccounting;
-  ordinaryUsageAllowed?: boolean;
   fetchedAt: number;
 }
 
@@ -56,9 +54,7 @@ export const usageFailure = (
 ): UsageFetchResult => ({ error: { kind, message }, ok: false });
 
 export const usageResult = (snapshot: UsageSnapshot): UsageFetchResult =>
-  snapshot.quotaWindows.length > 0 ||
-  snapshot.accounting !== undefined ||
-  snapshot.ordinaryUsageAllowed !== undefined
+  snapshot.quotaWindows.length > 0 || snapshot.accounting !== undefined
     ? { ok: true, snapshot }
     : usageFailure("no usage data in response");
 
@@ -79,7 +75,6 @@ const PROVIDER_DISPLAY_NAMES = {
   anthropic: "Claude",
   "github-copilot": "Copilot",
   "kimi-coding": "Kimi",
-  "openai-codex": "Codex",
   openrouter: "OpenRouter",
   "opencode-go": "OpenCode Go",
   radius: "Radius",

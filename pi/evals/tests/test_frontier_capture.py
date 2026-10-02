@@ -132,7 +132,7 @@ await run(process.argv[1]);
             (root/'config.json').write_text(json.dumps({
                 'compactBefore': False, 'compactedAfterSegment': -1,
                 'effort': 'high', 'instructionPath': str(root/'prompt'),
-                'model': 'gpt-6-astra', 'summary': None,
+                'model': 'gpt-6.1-sol', 'summary': None,
             }))
             result = subprocess.run(['node', '--input-type=module', '-e', script, str(root/'config.json')],
                                     env={**os.environ, 'CODEX_HOME': directory}, capture_output=True, text=True, timeout=10)

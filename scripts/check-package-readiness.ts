@@ -133,6 +133,26 @@ for (const { dir, packageJson: pkg, packageJsonPath } of workspacePackages) {
     errors.push(`${label}: expected license ${EXPECTED_LICENSE}`);
   }
 
+  // The evaluation image is a private standalone deployment, not a host-loaded Pi package.
+  // It consumes pinned dependencies and the parent evaluation README/root repository license.
+  if (dir === "pi/evals/runtime") {
+    if (pkg.private !== true || pkg.exports !== undefined || pkg.pi !== undefined) {
+      errors.push(`${label}: evaluation runtime must stay private without public or Pi exports`);
+    }
+
+    if (!existsSync(path.join(dir, "Dockerfile")) || !existsSync("pi/evals/README.md")) {
+      errors.push(`${label}: evaluation runtime needs its Dockerfile and parent README`);
+    }
+
+    for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
+      if (!PI_PROVIDED.has(name) || (version !== "catalog:" && !/^\d+\.\d+\.\d+$/u.test(version))) {
+        errors.push(`${label}: evaluation dependencies must be pinned native Pi dependencies`);
+      }
+    }
+
+    continue;
+  }
+
   const packageLicensePath = path.join(dir, "LICENSE");
 
   if (!existsSync(packageLicensePath)) {

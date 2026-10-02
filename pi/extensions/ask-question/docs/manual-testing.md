@@ -8,8 +8,8 @@ From the repository root, load source without installing the package:
 
 ```sh
 pi --no-extensions --no-skills --no-prompt-templates --no-context-files \
-  -e "$PWD/pi/extensions/ask-question/index.ts" \
-  -e "$PWD/pi/extensions/experimental/codex-provider/index.ts"
+  --provider openai --model gpt-6.1-sol \
+  -e builtin:codemode -e "$PWD/pi/extensions/ask-question/index.ts"
 ```
 
 Keep persistence enabled. Record the Pi version, provider/model, reasoning level, Code Mode state, loaded extensions, repository revision and working-tree state. When driving through Herdr, follow its skill: verify `HERDR_ENV=1`, discover CLI syntax, target an explicitly identified test pane, and preserve focus. Native Pi arguments follow `herdr agent start … --`.

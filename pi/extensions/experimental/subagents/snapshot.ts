@@ -30,7 +30,7 @@ const Common = {
   nicknames: Type.Array(Type.String({ minLength: 1 }), { uniqueItems: true }),
   revision: Type.Integer({ minimum: 0 }),
   root: RootBindingSchema,
-  version: Type.Literal(1),
+  version: Type.Literal(2),
 };
 
 export const SnapshotSchema = Type.Union([
@@ -236,7 +236,9 @@ const assertSnapshotSemantics = (snapshot: SubagentsSnapshot): void => {
 
 const assertSnapshot = (value: unknown, expectedRoot: RootBinding): SubagentsSnapshot => {
   if (!Value.Check(SnapshotSchema, value)) {
-    throw new Error("Invalid subagent control snapshot");
+    throw new Error(
+      "Invalid or obsolete subagent control snapshot; start a fresh session/tree rather than reinterpreting saved capabilities",
+    );
   }
 
   if (
@@ -506,7 +508,7 @@ export const freshSnapshot = (
     protocolLatch: protocol,
     revision: 0,
     root,
-    version: 1 as const,
+    version: 2 as const,
   };
 
   if (protocol === "off") {

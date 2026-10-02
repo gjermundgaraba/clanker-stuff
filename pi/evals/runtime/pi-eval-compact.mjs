@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-const runtimeRequire = createRequire("/opt/codex-provider/package.json");
+const runtimeRequire = createRequire("/opt/pi-evals/package.json");
 
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Resolve this pinned production dependency from the deployed extension, whose package declarations are the imported type contract.
 const { Type } = /** @type {typeof import("typebox")} */ (runtimeRequire("typebox"));
@@ -14,7 +14,7 @@ const { Type } = /** @type {typeof import("typebox")} */ (runtimeRequire("typebo
 const { Value } = /** @type {typeof import("typebox/value")} */ (runtimeRequire("typebox/value"));
 
 const codingAgentUrl = pathToFileURL(
-  "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
+  "/opt/pi-evals/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
 ).href;
 
 const compactionTimeoutMs = 4 * 60 * 1000;
@@ -132,7 +132,7 @@ const run = async (configPath) => {
 
   const client = new RpcClient({
     args: config.args,
-    cliPath: "/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+    cliPath: "/opt/pi-evals/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
     cwd: config.cwd,
     model: config.model,
     provider: config.provider,

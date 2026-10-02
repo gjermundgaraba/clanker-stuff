@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, getCurrentTools } from "@earendil-works/pi-ai";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
@@ -78,98 +78,69 @@ describe("child runtime", () => {
     }
   });
 
-  it("continues explicit unfinished Codex responses, admitting mail without synthetic user input", async () => {
-    const harness = await createAgentSessionHarness({
-      api: "openai-codex-responses",
-      provider: "openai-codex",
-    });
-
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const started = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    const boundaries: string[] = [];
-    harness.setResponses([
-      async () => {
-        started.resolve();
-        await release.promise;
-
-        return { ...fauxAssistantMessage("intermediate response"), endTurn: false };
-      },
-      { ...fauxAssistantMessage("still working"), endTurn: false },
-      { ...fauxAssistantMessage("completed answer"), endTurn: true },
-      fauxAssistantMessage("unused"),
-    ]);
-
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: (pi) => {
-        pi.on("turn_end", (event) => {
-          boundaries.push(event.messageEntryId);
-        });
-      },
-    });
-
-    runtime.commit();
-
-    try {
-      const turn = runtime.startTurn({ text: "work" });
-      await turn.accepted;
-      await started.promise;
-
-      const mail = runtime.sendMessage({
-        content: "mail for unfinished turn",
-        customType: "subagent-message",
-        details: { communicationId: "unfinished-mail" },
-      });
-
-      release.resolve();
-      await mail.accepted;
-      await expect(turn.settled).resolves.toEqual({
-        status: "completed",
-        text: "completed answer",
-      });
-      expect(harness.getPendingResponseCount()).toBe(1);
-      expect(lastProviderPayloadText(harness)).toContain("mail for unfinished turn");
-
-      const branch = SessionManager.open(runtime.sessionFile).getBranch();
-      expect(boundaries).toHaveLength(3);
-      expect(boundaries.every((id) => branch.some((entry) => entry.id === id))).toBe(true);
-      expect(
-        branch.filter((entry) => entry.type === "message" && entry.message.role === "user"),
-      ).toHaveLength(1);
-      expect(branch.filter((entry) => entry.type === "custom_message")).toHaveLength(1);
-    } finally {
-      release.resolve();
-      await runtime.dispose();
-      harness.cleanup();
-    }
-  });
-
-  it.each([
-    { provider: "openai-codex", stopReason: "stop", endTurn: true },
-    { provider: "openai-codex", stopReason: "stop", endTurn: undefined },
-    { provider: "openai-codex", stopReason: "error", endTurn: false },
-    { provider: "openai-codex", stopReason: "aborted", endTurn: false },
-    { provider: "openai-codex", stopReason: "length", endTurn: false },
-    { provider: "different-provider", stopReason: "stop", endTurn: false },
-  ] as const)(
-    "does not force continuation for $provider/$stopReason/$endTurn",
-    async ({ provider, stopReason, endTurn }) => {
-      const harness = await createAgentSessionHarness({ api: "openai-codex-responses", provider });
+  it.each([false, true])(
+    "inherits native code-only execution and read permissions (blocked=%s)",
+    async (blocked) => {
+      const harness = await createAgentSessionHarness();
       process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      const probe = path.join(harness.agentDir, "code-mode-probe.txt");
+      await writeFile(probe, "child-code-mode-marker");
+      await writeFile(
+        path.join(harness.agentDir, "settings.json"),
+        JSON.stringify({
+          codemode: { mode: "only" },
+          compaction: { enabled: false },
+          retry: { enabled: false },
+        }),
+      );
+      const declared: string[][] = [];
       harness.setResponses([
-        {
-          ...fauxAssistantMessage("first", { stopReason }),
-          ...(endTurn !== undefined ? { endTurn } : {}),
+        (context) => {
+          declared.push(getCurrentTools(context.messages).map((tool) => tool.name));
+
+          return fauxAssistantMessage(
+            fauxToolCall("codemode", {
+              code: `text(await tools.read({ path: ${JSON.stringify(probe)} }));`,
+            }),
+            { stopReason: "toolUse" },
+          );
         },
-        fauxAssistantMessage("unused"),
+        fauxAssistantMessage("done"),
       ]);
-      const runtime = await createChildRuntime(runtimeRequest(harness));
+
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        tools: ["bash", "edit", "read", "write", "codemode"],
+        bridge: (pi) => {
+          pi.on("tool_call", (event) => {
+            if (blocked && event.toolName === "read")
+              return { block: true, reason: "child read denied" };
+          });
+        },
+      });
+
       runtime.commit();
 
       try {
-        await runtime.startTurn({ text: "work" }).settled;
-        expect(harness.getPendingResponseCount()).toBe(1);
+        await expect(
+          runtime.startTurn({ text: "Read the probe using Code Mode" }).settled,
+        ).resolves.toMatchObject({ status: "completed" });
+        expect(declared.length).toBeGreaterThan(0);
+        expect(declared.every((names) => names.length === 1 && names[0] === "codemode")).toBe(true);
+        const branch = SessionManager.open(runtime.sessionFile).getBranch();
+
+        const result = branch.findLast(
+          (entry) =>
+            entry.type === "message" &&
+            entry.message.role === "toolResult" &&
+            entry.message.toolName === "codemode",
+        );
+
+        expect(result).toBeDefined();
+        const text = JSON.stringify(result);
+        expect(text).toContain(blocked ? "child read denied" : "child-code-mode-marker");
+
+        if (blocked) expect(text).not.toContain("child-code-mode-marker");
       } finally {
         await runtime.dispose();
         harness.cleanup();
@@ -177,44 +148,232 @@ describe("child runtime", () => {
     },
   );
 
-  it("does not continue an unfinished response when cancelled during its boundary", async () => {
-    const harness = await createAgentSessionHarness({
-      api: "openai-codex-responses",
-      provider: "openai-codex",
-    });
+  it.each(["direct", "deferred", "codemode"] as const)(
+    "inherits native discovery, permissions, and MCP cleanup (%s)",
+    async (exposure) => {
+      const { createCodemodeExtension, createToolSearchExtension } =
+        await import("@earendil-works/pi-coding-agent");
 
-    process.env.PI_CODING_AGENT_DIR = harness.agentDir;
-    const boundary = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    harness.setResponses([
-      { ...fauxAssistantMessage("unfinished"), endTurn: false },
-      fauxAssistantMessage("unused"),
-    ]);
+      const harness = await createAgentSessionHarness({
+        settings: { defaultTools: ["+codemode", "+tool_search"] },
+        extensionFactories: [createCodemodeExtension(), createToolSearchExtension()],
+      });
 
-    const runtime = await createChildRuntime({
-      ...runtimeRequest(harness),
-      bridge: (pi) => {
-        pi.on("turn_end", async () => {
-          boundary.resolve();
-          await release.promise;
+      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      const pidFile = path.join(harness.agentDir, "mcp.pid");
+
+      const server = `
+        const fs = require("node:fs");
+        fs.writeFileSync(process.argv[1], String(process.pid));
+        require("node:readline").createInterface({input:process.stdin}).on("line", line => {
+          const request = JSON.parse(line);
+          if (request.id === undefined) return;
+          let result = {};
+          if (request.method === "initialize") result = {protocolVersion:request.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:"offline-probe",version:"1"}};
+          if (request.method === "tools/list") result = {tools:[{name:"ping",description:"offline probe ping",inputSchema:{type:"object",properties:{},additionalProperties:false}}]};
+          if (request.method === "tools/call") result = {content:[{type:"text",text:"native-mcp-marker"}]};
+          console.log(JSON.stringify({jsonrpc:"2.0",id:request.id,result}));
         });
-      },
-    });
+      `;
 
+      await writeFile(
+        path.join(harness.agentDir, "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            probe: { command: process.execPath, args: ["-e", server, pidFile], exposure },
+          },
+        }),
+      );
+      const results: string[] = [];
+      const searches: string[] = [];
+      harness.setResponses([
+        ...(exposure === "deferred"
+          ? [
+              fauxAssistantMessage(fauxToolCall("tool_search", { query: "offline probe ping" }), {
+                stopReason: "toolUse",
+              }),
+            ]
+          : []),
+        fauxAssistantMessage(
+          fauxToolCall("codemode", {
+            code: 'const found = await searchTools("offline probe ping"); if (!found.some(t => t.name === "mcp__probe__ping")) throw Error("discovery lost"); text(await tools.mcp__probe__ping({}));',
+          }),
+          { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("first complete"),
+        fauxAssistantMessage(
+          fauxToolCall("codemode", { code: "text(await tools.mcp__probe__ping({}));" }),
+          { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("blocked complete"),
+      ]);
+      let blocked = false;
+      let active: string[] = [];
+
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        tools: harness.session.getActiveToolNames(),
+        bridge: (pi) => {
+          pi.on("session_start", () => {
+            active = pi.getActiveTools();
+          });
+          pi.on("tool_call", (event) => {
+            if (blocked && event.toolName === "mcp__probe__ping")
+              return { block: true, reason: "MCP child denied" };
+          });
+          pi.on("tool_execution_end", (event) => {
+            if (event.toolName === "codemode") results.push(JSON.stringify(event.result));
+
+            if (event.toolName === "tool_search") searches.push(JSON.stringify(event.result));
+          });
+        },
+      });
+
+      runtime.commit();
+      let pid: number | undefined;
+
+      try {
+        expect(active).toContain("tool_search");
+        await runtime.startTurn({ text: "Discover and call MCP" }).settled;
+        expect(results[0]).toContain("native-mcp-marker");
+
+        if (exposure === "deferred") expect(searches[0]).toContain("mcp__probe__ping");
+        pid = Number(await readFile(pidFile, "utf8"));
+        blocked = true;
+        await runtime.startTurn({ text: "Check permission denial" }).settled;
+        expect(results[1]).toContain("MCP child denied");
+        expect(results[1]).not.toContain("native-mcp-marker");
+      } finally {
+        await runtime.dispose();
+        harness.cleanup();
+      }
+
+      expect(pid).toBeDefined();
+      await vi.waitFor(() => {
+        expect(() => process.kill(pid!, 0)).toThrow();
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "loads discovered personal policies while applying native project trust (trusted=%s)",
+    async (trusted) => {
+      const harness = await createAgentSessionHarness();
+      process.env.PI_CODING_AGENT_DIR = harness.agentDir;
+      const cwd = path.dirname(harness.agentDir);
+      const projectMarker = path.join(cwd, "project-extension-loaded");
+      const protectedPath = path.join(cwd, "protected.txt");
+      await writeFile(protectedPath, "protected-content-marker");
+      await mkdir(path.join(cwd, ".pi", "extensions"), { recursive: true });
+      await writeFile(
+        path.join(cwd, ".pi", "extensions", "project.ts"),
+        `import {writeFileSync} from "node:fs"; export default () => writeFileSync(${JSON.stringify(projectMarker)}, "loaded");`,
+      );
+      await writeFile(
+        path.join(harness.agentDir, "personal-policy.ts"),
+        `export default pi => {
+          pi.on("tool_call", event => {
+            if (event.toolName === "read") return {block:true,reason:"personal-read-denied"};
+            if (event.toolName === "mcp__policy__ping") return {block:true,reason:"personal-mcp-denied"};
+          });
+        };`,
+      );
+      await writeFile(
+        path.join(harness.agentDir, "settings.json"),
+        JSON.stringify({
+          extensions: ["./personal-policy.ts"],
+          compaction: { enabled: false },
+          retry: { enabled: false },
+        }),
+      );
+
+      const server = `
+        require("node:readline").createInterface({input:process.stdin}).on("line", line => {
+          const r = JSON.parse(line);
+          if (r.id === undefined) return;
+          let result = {};
+          if (r.method === "initialize") result = {protocolVersion:r.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:"policy",version:"1"}};
+          if (r.method === "tools/list") result = {tools:[{name:"ping",description:"policy ping",inputSchema:{type:"object",properties:{},additionalProperties:false}}]};
+          if (r.method === "tools/call") result = {content:[{type:"text",text:"MCP-executed-marker"}]};
+          console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result}));
+        });
+      `;
+
+      await writeFile(
+        path.join(harness.agentDir, "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            policy: { command: process.execPath, args: ["-e", server], exposure: "codemode" },
+          },
+        }),
+      );
+      harness.setResponses([
+        fauxAssistantMessage(
+          fauxToolCall("codemode", {
+            code: `await searchTools("policy ping");
+            try {text(await tools.read({path:${JSON.stringify(protectedPath)}}));} catch(e) {text(String(e));}
+            try {text(await tools.mcp__policy__ping({}));} catch(e) {text(String(e));}`,
+          }),
+          { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("done"),
+      ]);
+
+      const runtime = await createChildRuntime({
+        ...runtimeRequest(harness),
+        trusted,
+        tools: ["read", "codemode"],
+      });
+
+      runtime.commit();
+
+      try {
+        await runtime.startTurn({ text: "Check configured policy" }).settled;
+
+        const results = SessionManager.open(runtime.sessionFile)
+          .getBranch()
+          .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
+
+        const text = JSON.stringify(results);
+        expect(text).toContain("personal-read-denied");
+        expect(text).toContain("personal-mcp-denied");
+        expect(text).not.toContain("protected-content-marker");
+        expect(text).not.toContain("MCP-executed-marker");
+        expect(existsSync(projectMarker)).toBe(trusted);
+      } finally {
+        await runtime.dispose();
+        harness.cleanup();
+      }
+    },
+  );
+
+  it("runs a fresh child on another registered provider with native credentials", async () => {
+    const parent = await createAgentSessionHarness({ provider: "parent-provider" });
+    const other = await createAgentSessionHarness({ provider: "worker-provider" });
+    process.env.PI_CODING_AGENT_DIR = parent.agentDir;
+    const model = other.faux.getModel();
+
+    const provider = other.session.extensionRunner
+      .getModelRegistry()
+      .getRegisteredNativeProvider(model.provider);
+
+    if (provider === undefined) throw new Error("missing faux provider");
+    parent.session.modelRuntime.registerNativeProvider(provider);
+    await parent.session.modelRuntime.setRuntimeApiKey(model.provider, "faux-key");
+    other.setResponses([fauxAssistantMessage("foreign child answer")]);
+    const runtime = await createChildRuntime({ ...runtimeRequest(parent), model });
     runtime.commit();
 
     try {
-      const turn = runtime.startTurn({ text: "work" });
-      await boundary.promise;
-      const abort = runtime.abort();
-      release.resolve();
-      await abort;
-      await expect(turn.settled).resolves.toMatchObject({ status: "interrupted" });
-      expect(harness.getPendingResponseCount()).toBe(1);
+      expect(runtime.model?.provider).toBe(model.provider);
+      await expect(runtime.startTurn({ text: "Fresh work" }).settled).resolves.toMatchObject({
+        status: "completed",
+        text: "foreign child answer",
+      });
     } finally {
-      release.resolve();
       await runtime.dispose();
-      harness.cleanup();
+      parent.cleanup();
+      other.cleanup();
     }
   });
 

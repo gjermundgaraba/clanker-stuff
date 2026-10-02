@@ -4,17 +4,6 @@ import type { ProtocolMode } from "./config.js";
 
 export type Protocol = Exclude<ProtocolMode, "auto">;
 
-const automatic = (model: Model<Api> | undefined): Protocol => {
-  const declared =
-    model !== undefined && "multiAgentVersion" in model ? model.multiAgentVersion : undefined;
-
-  if (declared === "disabled") {
-    return "off";
-  }
-
-  return declared === "v1" || declared === "v2" ? declared : "v1";
-};
-
 export const modelKey = (model: Model<Api> | undefined): string | undefined =>
   model === undefined ? undefined : `${model.provider}/${model.id}`;
 
@@ -38,5 +27,5 @@ export const resolveProtocol = (
     }
   }
 
-  return inherited ?? automatic(model);
+  return inherited ?? "v1";
 };

@@ -1,20 +1,51 @@
-// Loaded instead of index.ts only by Harbor's tool-mode experiment.
+// Evaluation policy only; execution is Pi's unmodified built-in Code Mode.
 import { createHash } from "node:crypto";
 import { createJournal } from "./eval-journal.mjs";
-import provider from "/opt/codex-provider/index.ts";
+import { createCodemodeExtension } from "@earendil-works/pi-coding-agent";
 
 /** @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi */
-export default function evaluationExtension(pi) {
+export default async function evaluationExtension(pi) {
   const mode = process.env.PI_EVAL_TOOL_MODE;
 
   if (mode !== "direct" && mode !== "code_mode_only") {
     throw new Error("PI_EVAL_TOOL_MODE must be explicit");
   }
 
-  provider(pi, mode);
+  const controlled = process.env.PI_EVAL_EXPERIMENT === "code-mode";
 
-  const direct = ["apply_patch", "exec_command", "view_image", "write_stdin"];
-  const expected = mode === "direct" ? direct : [...direct, "exec"].sort();
+  if (mode === "code_mode_only")
+    await createCodemodeExtension(controlled ? { mode: "only", models: false } : {})(pi);
+
+  /** @type {unknown} */
+  const direct = controlled ? JSON.parse(process.env.PI_EVAL_DIRECT_TOOLS ?? "null") : undefined;
+
+  const names = Array.isArray(direct) ? direct.filter((name) => typeof name === "string") : [];
+
+  if (
+    controlled &&
+    (!Array.isArray(direct) ||
+      names.length === 0 ||
+      names.length !== direct.length ||
+      names.some((name) => !name.trim() || name === "codemode") ||
+      new Set(names).size !== names.length)
+  )
+    throw new Error("Controlled comparisons require an explicit direct tool inventory");
+
+  const expected = controlled
+    ? (mode === "direct" ? names : [...names, "codemode"]).sort((a, b) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      )
+    : undefined;
+
+  const matchesTools = () =>
+    expected === undefined
+      ? pi.getActiveTools().includes("codemode") === (mode === "code_mode_only")
+      : JSON.stringify(pi.getActiveTools().sort()) === JSON.stringify(expected);
+
+  pi.registerCommand("eval-preflight", {
+    description: "Check evaluation startup without making a model request",
+    handler: () => Promise.resolve(),
+  });
 
   let compacted = false;
   const { emit } = createJournal("/logs/agent/eval-events.jsonl");
@@ -22,12 +53,18 @@ export default function evaluationExtension(pi) {
     compacted = true;
     await emit({ type: "pi_eval_compaction", timestamp: Date.now() });
 
-    return { cancel: true };
+    return controlled ? { cancel: true } : undefined;
   });
   pi.on("session_start", async (_event, ctx) => {
+    if (expected !== undefined) pi.setActiveTools(expected);
+
+    if (!matchesTools()) {
+      throw new Error("Evaluation arm does not match the effective native tool loadout");
+    }
+
     await emit({
       type: "pi_eval_setup",
-      mode,
+      mode: controlled ? mode : "native",
       activeTools: pi.getActiveTools().sort(),
       model: `${ctx.model?.provider}/${ctx.model?.id}`,
       thinking: pi.getThinkingLevel(),
@@ -39,15 +76,15 @@ export default function evaluationExtension(pi) {
     const thinking = pi.getThinkingLevel();
 
     const valid =
-      !compacted &&
+      (!controlled || !compacted) &&
       model === process.env.PI_EVAL_MODEL &&
-      thinking === process.env.PI_EVAL_THINKING &&
-      JSON.stringify(activeTools) === JSON.stringify(expected);
+      (process.env.PI_EVAL_THINKING === undefined || thinking === process.env.PI_EVAL_THINKING) &&
+      matchesTools();
 
     await emit({
       type: "pi_eval_tools",
       timestamp: Date.now(),
-      mode,
+      mode: controlled ? mode : "native",
       model,
       thinking,
       activeTools,

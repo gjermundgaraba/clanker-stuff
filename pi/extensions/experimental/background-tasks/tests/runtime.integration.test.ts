@@ -3,7 +3,7 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall, type JsonValue } from "@earendil-works/pi-ai";
-import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 import { describe, it, expect, afterEach, vi } from "vite-plus/test";
@@ -107,6 +107,73 @@ const payloadSchema = Type.Object({
 });
 
 describe("background tasks in a real AgentSession", () => {
+  it.each([false, true])(
+    "uses native Code Mode and Pi permissions (blocked=%s)",
+    async (blocked) => {
+      const h = await createAgentSessionHarness({
+        mode: "rpc",
+        settings: { defaultTools: ["+codemode"], compaction: { enabled: false } },
+        extensionFactories: [
+          extension,
+          createCodemodeExtension({ mode: "only", models: false }),
+          (pi) => {
+            pi.on("tool_call", (event) =>
+              blocked && event.toolName === "task_start"
+                ? { block: true, reason: "Task permission denied" }
+                : undefined,
+            );
+          },
+        ],
+      });
+
+      harnesses.push(h);
+
+      const code = `const task = JSON.parse(await tools.task_start({name:"native",command:${JSON.stringify(process.execPath)},args:["-e","setInterval(()=>{},1000)"]}));
+      const list = JSON.parse(await tools.task_list({}));
+      if (!list.tasks.some(item => item.id === task.id)) throw Error("Task missing from list");
+      const stopped = JSON.parse(await tools.task_stop({id:task.id}));
+      text({id:task.id,status:stopped.status,cleanup:stopped.cleanup});`;
+
+      h.setResponses([
+        fauxAssistantMessage(fauxToolCall("codemode", { code }, { id: "native-task" }), {
+          stopReason: "toolUse",
+        }),
+        fauxAssistantMessage("Done"),
+      ]);
+      await h.prompt("Exercise native background tools");
+
+      const result = h
+        .messages()
+        .find((message) => message.role === "toolResult" && message.toolCallId === "native-task");
+
+      assert.ok(result?.role === "toolResult");
+      expect(result.isError).toBe(blocked);
+      expect(result.nestedCalls?.complete).toBe(true);
+      expect(result.nestedCalls?.calls.map(({ name, status }) => ({ name, status }))).toEqual(
+        blocked
+          ? [{ name: "task_start", status: "error" }]
+          : ["task_start", "task_list", "task_stop"].map((name) => ({ name, status: "ok" })),
+      );
+      expect(h.messages().filter((message) => message.role === "toolResult")).toHaveLength(1);
+
+      if (blocked) {
+        expect(tasks(h)).toEqual([]);
+        expect(JSON.stringify(result.content)).toContain("Task permission denied");
+      } else {
+        const task = tasks(h).find((item) => item.status === "cancelled");
+        assert.ok(task);
+        stopped(task.pid);
+        const output = result.content.at(-1);
+        assert.ok(output?.type === "text");
+        expect(
+          Value.Parse(
+            Type.Object({ id: Type.String(), status: Type.String(), cleanup: Type.String() }),
+            JSON.parse(output.text),
+          ),
+        ).toEqual({ id: task.id, status: "cancelled", cleanup: "clean" });
+      }
+    },
+  );
   it("uses literal relative and absolute cwd paths and defaults omitted args", async () => {
     const h = await setup();
     const cwd = h.session.extensionRunner.createToolContext("test", undefined).cwd;

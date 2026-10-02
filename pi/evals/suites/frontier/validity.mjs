@@ -1,5 +1,6 @@
+import { readComparison } from "./comparison.mjs";
 import { readFileSync } from "node:fs";
-import { validateNativeAstra } from "./native-astra.mjs";
+import { validateNativeCodex } from "./native-codex.mjs";
 import { validateToolMode } from "./tool-mode-core.mjs";
 
 /** @type {unknown} */
@@ -13,10 +14,12 @@ try {
   // Oracle and baseline checks have no runtime evidence.
 }
 
-// The two strict manifests are disjoint. Both validators fail closed for malformed
+// The two platform manifests are disjoint. Both validators fail closed for malformed
 // containers, so classification does not need a second partial manifest decoder.
-const native = validateNativeAstra(trajectory);
+const comparison = readComparison();
+
+const native = validateNativeCodex(trajectory, comparison);
 
 process.stdout.write(
-  JSON.stringify(native.valid_experiment === 1 ? native : validateToolMode(trajectory)),
+  JSON.stringify(native.valid_experiment === 1 ? native : validateToolMode(trajectory, comparison)),
 );

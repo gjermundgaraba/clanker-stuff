@@ -1,4 +1,3 @@
-import { ContentTools } from "@clanker-stuff/code-mode-tools";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { taskRenderers } from "./renderers.js";
 import { TaskRuntime } from "./runtime.js";
@@ -7,9 +6,7 @@ import { idSchema, inspectParameters, listSchema, startParameters } from "./task
 const STRICT_PREFERRED = { type: "json_schema", strict: "prefer" } as const;
 
 export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void => {
-  const tools = new ContentTools(pi);
-  pi.on("session_start", () => tools.setEnabled());
-  tools.registerTool({
+  pi.registerTool({
     name: "task_start",
     ...taskRenderers("task_start"),
     label: "Start task",
@@ -25,7 +22,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     constrainedSampling: STRICT_PREFERRED,
     execute: (_id, params, signal, _update, ctx) => runtime.start(params, ctx, signal),
   });
-  tools.registerTool({
+  pi.registerTool({
     name: "task_list",
     ...taskRenderers("task_list"),
     label: "List tasks",
@@ -35,7 +32,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     constrainedSampling: STRICT_PREFERRED,
     execute: async () => runtime.list(),
   });
-  tools.registerTool({
+  pi.registerTool({
     name: "task_inspect",
     ...taskRenderers("task_inspect"),
     label: "Inspect task",
@@ -45,7 +42,7 @@ export const registerTaskTools = (pi: ExtensionAPI, runtime: TaskRuntime): void 
     constrainedSampling: STRICT_PREFERRED,
     execute: async (_id, params) => runtime.inspect(params, "consume"),
   });
-  tools.registerTool({
+  pi.registerTool({
     name: "task_stop",
     ...taskRenderers("task_stop"),
     label: "Stop task",

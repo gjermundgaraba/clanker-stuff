@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
-import { supportsSpawn, unknownSpawnModel, validateSpawnReasoning } from "./model-catalog.js";
+import { unknownSpawnModel, validateSpawnReasoning } from "./model-catalog.js";
 import type { SpawnModelRegistry } from "./model-catalog.js";
 
 const STRICT = { additionalProperties: false } as const;
@@ -145,36 +145,21 @@ export interface ChildSettings {
 export const isThinkingLevel = (value: string): value is AgentThinkingLevel =>
   THINKING_LEVELS.some((level) => level === value);
 
-const findModel = (
-  provider: string,
-  modelId: string,
-  registry: SpawnModelRegistry,
-  protocol: "v1" | "v2",
-): Model<Api> => {
-  const model = registry.find(provider, modelId);
-
-  if (!model || !supportsSpawn(model, protocol)) {
-    throw unknownSpawnModel(modelId, registry, provider, protocol);
-  }
-
-  return model;
-};
-
 export const parseModelOverride = (
   requested: string | undefined,
   registry: SpawnModelRegistry,
   fallback?: Model<Api>,
-  protocol: "v1" | "v2" = "v1",
 ): Model<Api> | undefined => {
-  if (requested === undefined || requested === "") {
-    return fallback;
-  }
+  if (requested === undefined) return fallback;
+  const slash = requested.indexOf("/");
 
-  if (fallback === undefined) {
-    throw new Error("Cannot resolve a model override without an inherited parent model");
-  }
+  if (slash < 1 || slash === requested.length - 1)
+    throw new Error("Model overrides must use provider/model-id");
+  const model = registry.find(requested.slice(0, slash), requested.slice(slash + 1));
 
-  return findModel(fallback.provider, requested, registry, protocol);
+  if (!model) throw unknownSpawnModel(requested, registry);
+
+  return model;
 };
 
 export const resolveChildSettings = (
@@ -185,7 +170,7 @@ export const resolveChildSettings = (
   registry: SpawnModelRegistry,
   parentModel: Model<Api> | undefined,
   parentThinking?: AgentThinkingLevel,
-  protocol: "v1" | "v2" = "v1",
+  forksHistory = false,
 ): ChildSettings => {
   const role =
     roleName !== undefined && Object.hasOwn(config.roles, roleName)
@@ -196,11 +181,16 @@ export const resolveChildSettings = (
     throw new Error(`Unknown agent_type: ${roleName}`);
   }
 
-  let model = parseModelOverride(requestedModel, registry, parentModel, protocol);
+  let model = parseModelOverride(requestedModel, registry, parentModel);
 
   if (role?.model !== undefined) {
-    model = parseModelOverride(role.model, registry, parentModel, protocol);
+    model = parseModelOverride(role.model, registry, parentModel);
   }
+
+  if (forksHistory && model?.provider !== parentModel?.provider)
+    throw new Error(
+      "Cross-provider children require no inherited history (fork_context: false or fork_turns: none)",
+    );
 
   const settings: ChildSettings = {
     model,

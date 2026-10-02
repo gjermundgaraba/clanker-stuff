@@ -1,7 +1,7 @@
 // Additional scaling controls, run without a model service.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { SETTINGS, fixture, createServices } from "/opt/codex-provider/services.mjs";
+import { SETTINGS, fixture, createServices } from "/opt/pi-evals/services.mjs";
 import { isRecord } from "./service-metrics.mjs";
 import { oracle, score, serviceMetrics } from "./scoring.mjs";
 

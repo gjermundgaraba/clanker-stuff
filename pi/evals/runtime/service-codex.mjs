@@ -1,37 +1,13 @@
 #!/usr/bin/env node
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { createRequire } from "node:module";
-import { realpathSync, appendFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { run } from "/opt/codex-provider/codex-runner.mjs";
-import { createServices, FIXTURE, SERVICE_NAMES } from "/opt/codex-provider/services.mjs";
+import { run } from "/opt/pi-evals/codex-runner.mjs";
+import { createServices, FIXTURE, SERVICE_NAMES } from "/opt/pi-evals/services.mjs";
 
-const require = createRequire(
-  realpathSync("/opt/codex-provider/node_modules/@earendil-works/pi-coding-agent/package.json"),
-);
-
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- createRequire resolves the pinned Jiti dependency from the deployed Pi package, not arbitrary user modules.
-const { createJiti } = /** @type {typeof import("jiti")} */ (require("jiti"));
-
-const jiti = createJiti("/opt/codex-provider/index.ts");
-
-// The frozen image deploys this exact owned module/dependency; give the dynamic loader its source declarations.
-const { definitions, createJournal } =
-  /** @type {typeof import("/opt/codex-provider/pi-eval-tools.mjs")} */ (
-    await jiti.import("/opt/codex-provider/pi-eval-tools.mjs")
-  );
-
-// The frozen image deploys this exact owned module/dependency; give the dynamic loader its source declarations.
-const { validateToolArguments } = /** @type {typeof import("@earendil-works/pi-ai")} */ (
-  await jiti.import("@earendil-works/pi-ai")
-);
-
-// Native tool calls carry JSON-only arguments; the provider owns that boundary's schema.
-const { JsonObjectSchema } =
-  /** @type {typeof import("/opt/codex-provider/code-mode/protocol.ts")} */ (
-    await jiti.import("/opt/codex-provider/code-mode/protocol.ts")
-  );
+import { definitions, createJournal } from "/opt/pi-evals/pi-eval-tools.mjs";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 
 const journal = createJournal("/logs/agent/service-events.jsonl");
 
@@ -63,24 +39,42 @@ const StartedSchema = Type.Object({
   thread: Type.Object({ environments: Type.Array(Type.Unknown()) }),
 });
 
+// Recursive JSON validation matches the public SDK JsonValue contract, not a Code Mode protocol.
+/** @type {import("typebox").TUnsafe<import("@earendil-works/pi-ai").JsonValue>} */
+const JsonValueSchema = Type.Unsafe({
+  $defs: {
+    value: {
+      anyOf: [
+        { type: "null" },
+        { type: "boolean" },
+        { type: "number" },
+        { type: "string" },
+        { type: "array", items: { $ref: "#/$defs/value" } },
+        { type: "object", additionalProperties: { $ref: "#/$defs/value" } },
+      ],
+    },
+  },
+  $ref: "#/$defs/value",
+});
+
 const ToolCallSchema = Type.Object({
   namespace: Type.Optional(Type.Null()),
   tool: Type.String(),
   callId: Type.String(),
-  arguments: JsonObjectSchema,
+  arguments: Type.Record(Type.String(), JsonValueSchema),
 });
 
 /** @type {import("./codex-eval.mjs").RunnerHooks} */
 const hooks = {
   threadParams: { environments, dynamicTools, sandbox: "read-only" },
   turnParams: { environments },
-  async threadStarted(response) {
+  async threadStarted(response, config) {
     audit({ type: "thread_started", response, dynamicTools, nativeVersion });
 
     if (!Value.Check(StartedSchema, response))
       throw new TypeError("Invalid native thread/start response");
 
-    if (response.model !== "gpt-6-astra" || JSON.stringify(response.thread.environments) !== "[]")
+    if (response.model !== config.model || JSON.stringify(response.thread.environments) !== "[]")
       throw new Error("Native model/environment isolation mismatch");
     await journal.emit({
       type: "pi_eval_diagnostic",

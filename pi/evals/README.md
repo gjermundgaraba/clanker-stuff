@@ -29,11 +29,12 @@ it is not a latest-Codex comparison series.
 
 ```bash
 uv run python -m unittest discover -s tests
+PI_EVAL_DOCKER_SMOKE=1 uv run python -m unittest discover -s tests -p test_frontier_image.py
 # From the repository root:
 vp check pi/evals
 ```
 
-Preflight below exercises real containers without model calls. A work deadline is
+The optional image smoke test requires the image built by `./runtime/build.sh` and exercises Frontier\'s actual runtime-copy recipe without network access. Preflight below exercises real containers without model calls. A work deadline is
 a valid fixed-budget outcome; a runtime, telemetry or capture failure is not.
 Keep failed attempts and unknown usage visible, rather than selecting successful retries.
 
@@ -66,7 +67,7 @@ Driver, trial-state/usage policy, adapter, protocol, runtime and verifier change
 continuation. Frontier's reporter is separate: presentation and aggregation changes
 are recorded as provenance, not enforced as execution inputs. Spending and recovery
 decisions read trial evidence directly, never report output.
-All arms use Astra/high, 4 CPUs, 16 GiB and AMD64, with compaction off.
+All arms use one frozen model/reasoning selection, 4 CPUs, 16 GiB and AMD64, with compaction off. New series default to the first arm in `profiles/code-mode.yaml` (currently Sol/high); `prepare --model openai/<id> --thinking <level>` selects another matched native OpenAI configuration. Preparation writes `tests/comparison.json` with model, thinking and the explicit direct-tool inventory for runtime-validity checks. The default inventory is owned by `profiles/code-mode.yaml`; the Code Mode arm adds `codemode`. Runtime and verifier expectations consume the frozen inputs, never observed trial execution. Generic memory/compaction profiles use native tool settings rather than a universal four-tool restriction. Frozen series cannot change it.
 Pi uses its built-in transient-error recovery: at most three consecutive retries
 with 2/4/8-second backoff and no provider-level retries. Native Codex retains its
 frozen released recovery behavior. All recovery counts against the original
