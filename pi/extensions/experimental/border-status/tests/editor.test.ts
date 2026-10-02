@@ -1,5 +1,7 @@
+import assert from "node:assert/strict";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { createStatusIndicator } from "../../../../tests/harness/tui.js";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createExtensionHost } from "../../../../tests/harness/extension-host.js";
 import { installHistoryEditor } from "../../../history/editor.js";
@@ -51,6 +53,56 @@ it.each([true, false])("composes with history and skill mentions, border first=%
   editor.setText("");
   editor.handleInput("\u001b[A");
   expect(editor.getText()).toBe("old prompt");
+});
+
+it("preserves native status and scroll labels alongside border contributions", () => {
+  const host = createExtensionHost(() => {});
+  const ctx = host.createContext();
+
+  const release = installBorderEditor(ctx, {
+    mounted() {},
+    render: (line, width, color) =>
+      renderBorder(
+        line,
+        width,
+        [{ owner: "test", key: "count", status: { text: "tasks 3" } }],
+        "ascii",
+        ctx.ui.theme,
+        color,
+      ),
+  });
+
+  const editor = createEditor(host);
+  assert.ok(editor instanceof CustomEditor);
+  const indicator = createStatusIndicator("retry");
+  indicator.renderInBorder = () => "◉ Retry";
+  indicator.renderSpinnerInBorder = () => "◉";
+
+  try {
+    editor.setWorkingStatusIndicator(indicator);
+    editor.setText(Array.from({ length: 100 }, () => "line").join("\n"));
+    const wide = editor.render(80);
+    const border = stripTerminalSequences(wide[0]!);
+    expect(border).toContain("◉ Retry");
+    expect(border).toMatch(/↑ \d+ more/);
+    expect(border).toContain("tasks 3");
+
+    for (const width of [1, 4, 12, 40, 80]) {
+      const rows = editor.render(width);
+      expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+      expect(stripTerminalSequences(rows[0]!)).toContain("◉");
+    }
+
+    release?.();
+    const plain = editor.render(80);
+    expect(stripTerminalSequences(plain[0]!)).not.toContain("tasks 3");
+    expect(stripTerminalSequences(plain[0]!)).toContain("◉ Retry");
+    expect(stripTerminalSequences(plain[0]!)).toMatch(/↑ \d+ more/);
+    expect(plain.slice(1)).toEqual(wide.slice(1));
+  } finally {
+    indicator.dispose();
+    release?.();
+  }
 });
 
 describe("unsupported editors", () => {

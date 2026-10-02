@@ -172,6 +172,11 @@ class SharedEditor extends CustomEditor {
     indicator.setIndicator(style);
     this.statusStyled = style !== undefined;
   }
+  protected override renderTopBorder(width: number, hiddenLineCount: number): string {
+    const line = super.renderTopBorder(width, hiddenLineCount);
+
+    return this.contributions.border?.render(line, width, this.borderColor) ?? line;
+  }
   override render(width: number) {
     const native = super.render(width);
     const text = this.document.text();
@@ -183,14 +188,9 @@ class SharedEditor extends CustomEditor {
 
     const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
 
-    const rows = spans.length
+    return spans.length
       ? decorateRows(native, text, padding, this.document, spans, this.uiTheme(), width)
       : native.map((row) => truncateToWidth(row, width, ""));
-
-    if (rows.length && this.contributions.border)
-      rows[0] = this.contributions.border.render(rows[0]!, width, this.borderColor);
-
-    return rows;
   }
 }
 

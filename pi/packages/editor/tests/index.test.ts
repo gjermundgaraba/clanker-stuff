@@ -7,7 +7,7 @@ import {
   createStatusIndicator,
 } from "../../../tests/harness/tui.js";
 import { acquireEditorHost, EditorHost } from "../index.js";
-import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 function setup() {
   const fixture = createExtensionHost(() => {});
@@ -90,6 +90,15 @@ describe("shared editor ownership and snapshots", () => {
     host.contribute("border", border("second"));
     first();
     expect(editor.render(20)[0]).toBe("second");
+  });
+  it("keeps border contributions within the native rendering and clipping pipeline", () => {
+    const { host, editor } = setup();
+    // The border contribution runs before the shared renderer's final width clipping.
+    host.contribute("border", { render: (line) => line + "oversized" });
+    expect(stripTerminalSequences(editor.render(20)[0]!)).toBe("─".repeat(20));
+    host.contribute("foreground", () => [{ start: 0, end: 1, foreground: "accent" }]);
+    editor.setText("x");
+    expect(stripTerminalSequences(editor.render(20)[0]!)).toBe("─".repeat(20));
   });
   it("styles Pi's border spinners through the status slot and restores defaults", () => {
     const { host, editor } = setup();
