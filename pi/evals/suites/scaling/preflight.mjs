@@ -129,7 +129,7 @@ for (const mode of ["direct", "code"]) {
       const result = await codemode.execute(
         "preflight",
         {
-          code: `try {await tools.list_records({collection:"ledger"}); throw Error("malformed call accepted");} catch(e) {if(!String(e).includes("Validation failed"))throw e;} if(typeof process!=='undefined'||typeof fetch!=='undefined'||typeof tools.exec_command!=='undefined')throw Error('capability leak'); if(JSON.stringify(ALL_TOOLS.map(t=>t.name).sort())!==${JSON.stringify(JSON.stringify(SERVICE_NAMES))})throw Error('unexpected tools'); const solve=${solve.toString()}; text(await solve((name,args)=>tools[name](args)));`,
+          code: `try {await tools.list_records({collection:"ledger"}); throw Error("malformed call accepted");} catch(e) {if(!String(e).includes("Validation failed"))throw e;} if(typeof process!=='undefined'||typeof fetch!=='undefined'||'exec_command' in tools)throw Error('capability leak'); if(JSON.stringify(ALL_TOOLS.map(t=>t.name).sort())!==${JSON.stringify(JSON.stringify(SERVICE_NAMES))})throw Error('unexpected tools'); const solve=${solve.toString()}; text(await solve((name,args)=>tools[name](args)));`,
         },
         new AbortController().signal,
         undefined,

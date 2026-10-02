@@ -1,10 +1,12 @@
 # Native Pi baseline
 
-The workspace pins Pi **0.99.2**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
+The workspace pins Pi **1.0.0**. Provider inference/authentication/catalogs, Code Mode, MCP, coding tools, and compaction use Pi's built-ins. `codex-provider`, custom MCP, the V8 host, and their coding tools are retired; no replacement execution runtime or compatibility shim is provided.
 
 ## Local adoption
 
 Repository changes do not upgrade installed Pi or alter user settings. Stop loading the retired provider and MCP packages in your installation before using native MCP: an extension registering `/mcp` replaces Pi's built-in implementation. Use native `/login` with `openai`; do not rename or copy legacy provider credentials.
+
+Pi defaults to fullscreen terminal mode. Set `"tuiMode": "regular"` or pass `--tui-mode regular` to retain terminal scrollback.
 
 Enable native Code Mode in Pi settings with `"defaultTools": ["+codemode"]`. Set `"codemode": { "mode": "only" }` for code-only declarations, or keep the default hybrid mode. Ordinary coding tools remain `read`, `bash`, `edit`, and `write`. Scripts call `tools.<name>()`, not the retired `exec`/`wait` APIs.
 
