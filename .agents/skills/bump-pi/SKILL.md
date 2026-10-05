@@ -41,4 +41,11 @@ For each issue, establish the upstream change, the local consumer, and the concr
 
 ## Handoff
 
-Report the version/ref transition, compatibility changes, checks actually run, and remaining risks. List worthwhile optional opportunities briefly and route deeper investigation to [leverage-pi](../leverage-pi/SKILL.md), carrying forward the exact diff range. Keep the report in the response unless a durable document was requested.
+After implementing the upgrade and running validation, report the version/ref transition, repository compatibility changes, checks actually run, and remaining risks. List worthwhile optional opportunities briefly and route deeper investigation to [leverage-pi](../leverage-pi/SKILL.md), carrying forward the exact diff range. Keep the report in the response unless a durable document was requested.
+
+End the handoff with a user-facing **What changed in Pi** summary for the full old-to-target release range, so the user does not need to ask separately. This is part of the completed upgrade report, not a substitute for making and validating the changes.
+
+- Group the meaningful upstream changes into **New features**, **Behavior and compatibility changes**, and **Reliability fixes**, omitting empty categories. Explain practical effects rather than reproducing every commit.
+- Call out breaking changes and any user action needed, including configuration changes outside this repository that were not performed. Distinguish renamed provider IDs from unchanged API IDs or environment variables where relevant.
+- Distinguish inherited upstream benefits from local fixes and optional adoption. Briefly explain which changes matter to this repository; do not imply new features were adopted or live behavior was verified when they were not.
+- Link the target release notes or changelog and the exact upstream comparison. Base the summary on the reviewed release notes and implementation diff; do not advertise changes outside the selected range.
